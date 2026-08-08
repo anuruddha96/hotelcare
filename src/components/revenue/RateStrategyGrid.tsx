@@ -573,99 +573,50 @@ export default function RateStrategyGrid({
             No room types yet — run a sync to pull them from Previo.
           </div>
         ) : (
-          <div className="flex text-[11px] sm:text-xs">
-            {/* FROZEN left pane */}
-            <div className="shrink-0 border-r bg-card" style={{ width: LEFT_W }}>
-              <div
-                className="flex items-end px-2 pb-1 border-b bg-card font-semibold"
-                style={{ height: HEAD_H }}
-              >
-                <span className="truncate">{visibleMonth}</span>
-              </div>
-              <div className="flex items-center px-2 border-b font-medium" style={{ height: ROW_H }}>
-                Pickup
-                <MetricInfo
-                  title="Net pickup"
-                  body="New room-nights booked in the selected window minus room-nights cancelled in the same window. Negative means the date lost rooms. Source: Previo reservations."
-                />
-              </div>
-              <div className="flex items-center px-2 border-b font-medium" style={{ height: ROW_H }}>
-                Occupancy
-                <MetricInfo
-                  title="Occupancy"
-                  body="Rooms sold ÷ sellable rooms for that night. Rooms sold come from Previo; the sellable-room count comes from your room types (non-sellable products excluded)."
-                />
-              </div>
-              <div className="flex items-center px-2 border-b font-medium" style={{ height: ROW_H }}>
-                Left to sell
-                <MetricInfo
-                  title="Rooms left to sell"
-                  body="Sellable rooms minus rooms sold for that night, for the whole house. The room-type rows show the same figure per room type."
-                />
-              </div>
-              <div className="flex items-center px-2 border-b font-medium" style={{ height: ROW_H }}>
-                Demand
-                <MetricInfo
-                  title="Demand grade"
-                  body="Hotel Care's own 0–100 demand grade for that date, built from booking pace against comparable weekdays, recent pickup, how much inventory is left this close to arrival, recorded events and any manual manager override. Low / Med / High / V.High."
-                />
-              </div>
-              {rows.map((r) => (
-                <div
-                  key={r.key}
-                  className={`flex items-center px-2 border-b ${r.kind === "group" ? "bg-muted/50 font-semibold" : r.kind === "rate" ? "text-muted-foreground" : "bg-primary/10 border-l-2 border-l-primary font-semibold"}`}
-                  style={{ height: rowH(r.kind) }}
-                >
-                  {r.kind === "group" ? (
-                    <span className="leading-tight line-clamp-2 break-words" title={r.label}>
-                      {r.label}
-                      <span className="ml-1 text-[10px] font-normal text-muted-foreground">{r.note}</span>
-                    </span>
-                  ) : (
-                    <span className="truncate" title={r.label}>{r.label}</span>
-                  )}
-                  {r.kind === "adr" && (
-                    <MetricInfo
-                      title="ADR = Average Daily Rate"
-                      body="Room revenue ÷ rooms sold. The average price of the rooms you actually sold that night. Calculated in Hotel Care from Previo booking data."
-                    />
-                  )}
-                  {r.kind === "revpar" && (
-                    <MetricInfo
-                      title="RevPAR = ADR × Occupancy"
-                      body="Revenue per available room: room revenue ÷ all sellable rooms. What every room in the hotel earns on average, sold or not."
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* SCROLLING date pane */}
-            <div
-              ref={scrollRef}
-              onScroll={onScroll}
-              className="flex-1 overflow-x-auto overscroll-x-contain"
-              style={{ WebkitOverflowScrolling: "touch" } as React.CSSProperties}
-            >
-              <div style={{ width: dates.length * CELL_W }}>
-                {/* Month band — always tells you which month you are scrolled into */}
-                <div className="flex bg-muted/60" style={{ height: MONTH_H }}>
+          <div
+            ref={scrollRef}
+            onScroll={onScroll}
+            className={`relative overflow-auto overscroll-x-contain text-[11px] sm:text-xs ${dragging ? "select-none" : ""}`}
+            style={{ maxHeight: isMobile ? "68vh" : "72vh", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
+          >
+            <div ref={gridRef} style={{ width: LEFT_W + dates.length * CELL_W }}>
+              {/* ---- Sticky header: month, dates and the day metrics ---- */}
+              <div className="sticky top-0 z-30">
+                {/* Month band + the corner control for the frozen column */}
+                <div className="flex bg-muted/70 backdrop-blur" style={{ height: MONTH_H }}>
+                  <div
+                    className="sticky left-0 z-40 flex items-center gap-1 border-r bg-card px-1 font-semibold"
+                    style={{ width: LEFT_W }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setRailed((v) => !v)}
+                      aria-label={railed ? "Expand room type column" : "Collapse room type column"}
+                      title={railed ? "Expand room type column" : "Collapse room type column"}
+                      className="shrink-0 rounded px-1 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      {railed ? "»" : "«"}
+                    </button>
+                    {!railed && <span className="truncate text-[10px]">{visibleMonth}</span>}
+                  </div>
                   {monthBands(dates).map((b) => (
                     <div
                       key={b.key}
-                      className="shrink-0 flex items-center border-l-2 border-l-foreground/30 px-2 text-[11px] font-semibold"
+                      className="shrink-0 flex items-center border-l-2 border-l-foreground/40 px-2 text-[11px] font-semibold"
                       style={{ width: b.span * CELL_W }}
                     >
                       <span className="sticky left-1 truncate">{b.label}</span>
                     </div>
                   ))}
                 </div>
+
                 {/* Date header */}
                 <div className="flex border-b bg-card" style={{ height: DAY_H }}>
-                  {dates.map((d) => (
+                  <div className="sticky left-0 z-40 border-r bg-card" style={{ width: LEFT_W }} />
+                  {dates.map((d, i) => (
                     <div
                       key={d}
-                      className={`flex flex-col items-center justify-center shrink-0 ${isWeekend(d) ? "bg-muted" : ""} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""} ${d === today ? "ring-1 ring-inset ring-primary/50" : ""}`}
+                      className={`flex flex-col items-center justify-center shrink-0 ${dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""}`}
                       style={{ width: CELL_W }}
                     >
                       <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
@@ -674,10 +625,20 @@ export default function RateStrategyGrid({
                   ))}
                 </div>
 
-
                 {/* Pickup */}
-                <div className="flex border-b" style={{ height: ROW_H }}>
-                  {dates.map((d) => {
+                <div className="flex border-b bg-card" style={{ height: ROW_H }}>
+                  <div className="sticky left-0 z-40 flex items-center border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
+                    {railed ? <span title="Net pickup">PU</span> : (
+                      <>
+                        Pickup
+                        <MetricInfo
+                          title="Net pickup"
+                          body="New room-nights booked in the selected window minus room-nights cancelled in the same window. Negative means the date lost rooms. Source: Previo reservations."
+                        />
+                      </>
+                    )}
+                  </div>
+                  {dates.map((d, i) => {
                     const m = metricByDate.get(d);
                     const pickup = m?.netPickup ?? null;
                     const tone = pickupTone(pickup, thresholds);
@@ -687,7 +648,7 @@ export default function RateStrategyGrid({
                         title={pickup === null
                           ? `${d} · pickup not available yet`
                           : `${d} · ${pickup > 0 ? "+" : ""}${pickup} (${tone.label}) — ${m?.newBookings ?? 0} new, ${m?.cancelledBookings ?? 0} cancelled`}
-                        className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}
+                        className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)}`}
                         style={{ width: CELL_W }}
                       >
                         {pickup === null || pickup === 0 ? "·" : `${pickup > 0 ? "+" : ""}${pickup}`}
@@ -697,8 +658,19 @@ export default function RateStrategyGrid({
                 </div>
 
                 {/* Occupancy */}
-                <div className="flex border-b" style={{ height: ROW_H }}>
-                  {dates.map((d) => {
+                <div className="flex border-b bg-card" style={{ height: ROW_H }}>
+                  <div className="sticky left-0 z-40 flex items-center border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
+                    {railed ? <span title="Occupancy">Occ</span> : (
+                      <>
+                        Occupancy
+                        <MetricInfo
+                          title="Occupancy"
+                          body="Rooms sold ÷ sellable rooms for that night. Rooms sold come from Previo; the sellable-room count comes from your room types (non-sellable products excluded)."
+                        />
+                      </>
+                    )}
+                  </div>
+                  {dates.map((d, i) => {
                     const m = metricByDate.get(d);
                     const pct = m?.occupancyPct ?? 0;
                     const tone = occupancyTone2(pct, thresholds);
@@ -706,7 +678,7 @@ export default function RateStrategyGrid({
                       <div
                         key={d}
                         title={`${m?.roomsSold ?? 0} / ${m?.roomsAvailable ?? 0} rooms · ${tone.label}`}
-                        className={`flex items-center justify-center shrink-0 tabular-nums ${tone.className} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}
+                        className={`flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)}`}
                         style={{ width: CELL_W }}
                       >
                         {pct ? `${Math.round(pct)}%` : "—"}
@@ -716,8 +688,19 @@ export default function RateStrategyGrid({
                 </div>
 
                 {/* Left to sell — house level */}
-                <div className="flex border-b" style={{ height: ROW_H }}>
-                  {dates.map((d) => {
+                <div className="flex border-b bg-card" style={{ height: ROW_H }}>
+                  <div className="sticky left-0 z-40 flex items-center border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
+                    {railed ? <span title="Rooms left to sell">Left</span> : (
+                      <>
+                        Left to sell
+                        <MetricInfo
+                          title="Rooms left to sell"
+                          body="Sellable rooms minus rooms sold for that night, for the whole house. The room-type rows show the same figure per room type."
+                        />
+                      </>
+                    )}
+                  </div>
+                  {dates.map((d, i) => {
                     const m = metricByDate.get(d);
                     const units = m?.roomsAvailable ?? 0;
                     const left = m?.roomsLeft ?? 0;
@@ -725,7 +708,7 @@ export default function RateStrategyGrid({
                       <div
                         key={d}
                         title={`${left} of ${units} rooms left to sell on ${d}`}
-                        className={`flex flex-col items-center justify-center shrink-0 tabular-nums ${leftTone(left, units)} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}
+                        className={`flex flex-col items-center justify-center shrink-0 tabular-nums ${leftTone(left, units)} ${dayBg(d, i)} ${dayEdge(d)}`}
                         style={{ width: CELL_W }}
                       >
                         <span className="leading-none">{units ? (left === 0 ? "Sold out" : left) : "—"}</span>
@@ -743,8 +726,19 @@ export default function RateStrategyGrid({
                 </div>
 
                 {/* Demand grade */}
-                <div className="flex border-b" style={{ height: ROW_H }}>
-                  {dates.map((d) => {
+                <div className="flex border-b-2 border-b-foreground/20 bg-card" style={{ height: ROW_H }}>
+                  <div className="sticky left-0 z-40 flex items-center border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
+                    {railed ? <span title="Demand grade">Dem</span> : (
+                      <>
+                        Demand
+                        <MetricInfo
+                          title="Demand grade"
+                          body="Hotel Care's own 0–100 demand grade for that date, built from booking pace against comparable weekdays, recent pickup, how much inventory is left this close to arrival, recorded events and any manual manager override. Low / Med / High / V.High."
+                        />
+                      </>
+                    )}
+                  </div>
+                  {dates.map((d, i) => {
                     const dem = demandByDate?.get(d);
                     return (
                       <div
@@ -752,7 +746,7 @@ export default function RateStrategyGrid({
                         title={dem
                           ? `${d} · demand ${BAND_LABEL[dem.band]} (${dem.score}/100)\n${dem.drivers.slice(0, 4).join("\n")}`
                           : `${d} · demand not available yet`}
-                        className={`flex items-center justify-center shrink-0 text-[10px] font-semibold ${dem ? demandTone(dem.band) : "text-muted-foreground"} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}
+                        className={`flex items-center justify-center shrink-0 text-[10px] font-semibold ${dem ? demandTone(dem.band) : `text-muted-foreground ${dayBg(d, i)}`} ${dayEdge(d)}`}
                         style={{ width: CELL_W }}
                       >
                         {dem ? DEMAND_SHORT[dem.band] : "·"}
@@ -760,72 +754,119 @@ export default function RateStrategyGrid({
                     );
                   })}
                 </div>
+              </div>
 
-                {/* Room-type / metric rows */}
-                {rows.map((row) => (
+              {/* ---- Room-type / metric rows ---- */}
+              {rows.map((row) => (
+                <div
+                  key={row.key}
+                  className={`flex ${row.kind === "group" ? "border-b border-b-foreground/25 bg-muted/50" : row.kind === "rate" ? "border-b" : "border-b bg-primary/10 font-semibold"}`}
+                  style={{ height: rowH(row.kind) }}
+                >
+                  {/* Frozen label cell */}
                   <div
-                    key={row.key}
-                    className={`flex border-b ${row.kind === "group" ? "bg-muted/50" : row.kind === "rate" ? "" : "bg-primary/10 font-semibold"}`}
-                    style={{ height: rowH(row.kind) }}
+                    className={`sticky left-0 z-20 flex items-center border-r px-2 ${row.kind === "group" ? "bg-muted font-semibold" : row.kind === "rate" ? "bg-card text-muted-foreground" : "bg-primary/10 border-l-2 border-l-primary font-semibold"}`}
+                    style={{ width: LEFT_W }}
                   >
-                    {dates.map((d) => {
-                      if (row.kind === "group") {
-                        const units = row.units;
-                        const left = leftByTypeDate?.get(`${row.rawName}|${d}`);
-                        return (
-                          <div
-                            key={d}
-                            title={left === undefined
-                              ? `${row.typeName} · availability not synced for ${d}`
-                              : `${row.typeName} · ${left} of ${units} left on ${d}`}
-                            className={`flex items-center justify-center shrink-0 text-[10px] tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}
-                            style={{ width: CELL_W }}
-                          >
-                            {left === undefined ? "" : left === 0 ? "Sold out" : `${left} left`}
-                          </div>
-                        );
-                      }
-                      if (row.kind !== "rate") {
-                        return (
-                          <div
-                            key={d}
-                            className={`flex items-center justify-center shrink-0 tabular-nums ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""}`}
-                            style={{ width: CELL_W }}
-                          >
-                            {cellFor(row, d)}
-                          </div>
-                        );
-                      }
-                      const published = row.obk ? priceMap.get(row.obk)?.get(row.occ)?.get(d) : undefined;
-                      const draft = drafts.get(`${d}|${row.roomTypeName}|${row.occ}`);
-                      const shown = draft ?? published;
-                      const tone = rateTone(shown, thresholds);
+                    {railed ? (
+                      <span className="w-full truncate text-center text-[10px]" title={row.label}>
+                        {row.kind === "rate" ? `${row.occ}g` : railLabel(row.label)}
+                      </span>
+                    ) : row.kind === "group" ? (
+                      <span className="leading-tight line-clamp-2 break-words" title={row.label}>
+                        {row.label}
+                        <span className="ml-1 text-[10px] font-normal text-muted-foreground">{row.note}</span>
+                      </span>
+                    ) : (
+                      <span className="truncate" title={row.label}>{row.label}</span>
+                    )}
+                    {!railed && row.kind === "adr" && (
+                      <MetricInfo
+                        title="ADR = Average Daily Rate"
+                        body="Room revenue ÷ rooms sold. The average price of the rooms you actually sold that night. Calculated in Hotel Care from Previo booking data."
+                      />
+                    )}
+                    {!railed && row.kind === "revpar" && (
+                      <MetricInfo
+                        title="RevPAR = ADR × Occupancy"
+                        body="Revenue per available room: room revenue ÷ all sellable rooms. What every room in the hotel earns on average, sold or not."
+                      />
+                    )}
+                  </div>
+
+                  {dates.map((d, i) => {
+                    if (row.kind === "group") {
+                      const units = row.units;
+                      const left = leftByTypeDate?.get(`${row.rawName}|${d}`);
                       return (
-                        <button
+                        <div
                           key={d}
-                          type="button"
-                          disabled={!canEditRates}
-                          onClick={() => canEditRates && (setApplyDays(1), setApplyWeekdays("all"), setApplyAllOcc(false), setEditMode("set"), setEdit({
-                            stay_date: d,
-                            obk_id: row.obk,
-                            room_type_name: row.roomTypeName,
-                            occupancy: row.occ,
-                            old_price: published ?? null,
-                            value: String(shown ?? ""),
-                          }))}
-                          title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${tone.label}`}
-                          className={`flex items-center justify-center shrink-0 tabular-nums ${tone.className} ${isWeekend(d) ? "bg-muted/40" : ""} ${d.endsWith("-01") ? "border-l-2 border-l-foreground/30" : ""} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""}`}
+                          title={left === undefined
+                            ? `${row.typeName} · availability not synced for ${d}`
+                            : `${row.typeName} · ${left} of ${units} left on ${d}`}
+                          className={`flex items-center justify-center shrink-0 text-[10px] tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
                           style={{ width: CELL_W }}
                         >
-                          {shown === undefined ? <span className="text-muted-foreground">—</span> : eur(shown)}
-                        </button>
+                          {left === undefined ? "" : left === 0 ? "Sold out" : `${left} left`}
+                        </div>
                       );
-                    })}
-                  </div>
-                ))}
-              </div>
+                    }
+                    if (row.kind !== "rate") {
+                      const value = row.kind === "adr"
+                        ? metricByDate.get(d)?.adrEur ?? null
+                        : metricByDate.get(d)?.revparEur ?? null;
+                      return (
+                        <div
+                          key={d}
+                          title={value === null ? `${d} · no data` : `${d} · ${eur(value)}`}
+                          className={`flex items-center justify-center shrink-0 tabular-nums ${dayEdge(d)}`}
+                          style={{ width: CELL_W }}
+                        >
+                          {value === null ? eur(null) : priceLabel(value)}
+                        </div>
+                      );
+                    }
+                    const published = row.obk ? priceMap.get(row.obk)?.get(row.occ)?.get(d) : undefined;
+                    const draft = drafts.get(`${d}|${row.roomTypeName}|${row.occ}`);
+                    const shown = draft ?? published;
+                    const tone = rateTone(shown, thresholds);
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        disabled={!canEditRates}
+                        onClick={() => canEditRates && (setApplyDays(1), setApplyWeekdays("all"), setApplyAllOcc(false), setEditMode("set"), setEdit({
+                          stay_date: d,
+                          obk_id: row.obk,
+                          room_type_name: row.roomTypeName,
+                          occupancy: row.occ,
+                          old_price: published ?? null,
+                          value: String(shown ?? ""),
+                        }))}
+                        title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label}`}
+                        className={`flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""}`}
+                        style={{ width: CELL_W }}
+                      >
+                        {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+
+              {/* Drag handle for the frozen column — sits on the divider. */}
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize room type column"
+                onPointerDown={(e) => { e.preventDefault(); startResize(e.clientX, LEFT_W); }}
+                onDoubleClick={() => { setRailed(false); setLeftW(DEFAULT_LEFT_W); }}
+                className="sticky left-0 z-50 hidden sm:block cursor-col-resize"
+                style={{ marginLeft: LEFT_W - 3, width: 6, height: 0 }}
+              />
             </div>
           </div>
+
         )}
       </CardContent>
 
