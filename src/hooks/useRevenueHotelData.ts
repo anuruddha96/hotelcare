@@ -123,8 +123,9 @@ export function useRevenueHotelData(
             .order("stay_date"),
         ),
         supabase.from("hotel_revenue_settings")
-          .select("sellable_rooms, rate_warn_below_eur, rate_critical_below_eur, rate_max_sane_eur, occupancy_low_pct, occupancy_high_pct, pickup_strong_threshold")
+          .select("sellable_rooms, rate_warn_below_eur, rate_critical_below_eur, rate_max_sane_eur, occupancy_low_pct, occupancy_high_pct, pickup_strong_threshold, base_currency, eur_conversion_rate")
           .eq("hotel_id", hotelId).maybeSingle(),
+
         supabase.from("pms_sync_history")
           .select("created_at, synced_by_name").eq("hotel_id", hotelId).eq("sync_type", "revenue_sync")
           .order("created_at", { ascending: false }).limit(1).maybeSingle(),
