@@ -199,6 +199,70 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     }
   };
 
+  // Drag anywhere on the board -> show a sticky dock of housekeeper drop
+  // targets so a unit/venue never has to be dragged across the whole page.
+  const [dragActive, setDragActive] = useState(false);
+  useEffect(() => {
+    const start = () => setDragActive(true);
+    const end = () => setDragActive(false);
+    window.addEventListener('dragstart', start);
+    window.addEventListener('dragend', end);
+    window.addEventListener('drop', end);
+    return () => {
+      window.removeEventListener('dragstart', start);
+      window.removeEventListener('dragend', end);
+      window.removeEventListener('drop', end);
+    };
+  }, []);
+
+  const handleDropOnStaff = (e: React.DragEvent, staff: { id: string; full_name: string }) => {
+    e.preventDefault();
+    setDropTargetStaffId(null);
+    setDragActive(false);
+    const payload = readRoomDragPayload(e);
+    if (!payload) return;
+    if (payload.bulk && payload.bulk.length > 0 && stagedEnabled) {
+      let staged = 0;
+      payload.bulk.forEach(item => {
+        if (item.assignedTo === staff.id) return;
+        stageMove({
+          roomId: item.roomId,
+          roomNumber: item.roomNumber,
+          toStaffId: staff.id,
+          toStaffName: staff.full_name,
+          fromStaffId: item.assignedTo ?? null,
+          fromStaffName: item.assignedToName ?? null,
+          sourceType: item.sourceType,
+        });
+        staged += 1;
+      });
+      if (staged > 0) toast.success(`${staged} ${terms.unitPlural.toLowerCase()} staged for ${staff.full_name}`);
+      return;
+    }
+    if (payload.assignedTo === staff.id) return;
+    if (stagedEnabled) {
+      stageMove({
+        roomId: payload.roomId,
+        roomNumber: payload.roomNumber,
+        toStaffId: staff.id,
+        toStaffName: staff.full_name,
+        fromStaffId: payload.assignedTo ?? null,
+        fromStaffName: payload.assignedToName ?? null,
+        sourceType: payload.sourceType,
+      });
+      return;
+    }
+    setPendingAssign({
+      roomId: payload.roomId,
+      roomNumber: payload.roomNumber,
+      staffId: staff.id,
+      staffName: staff.full_name,
+      sourceType: payload.sourceType,
+      fromName: payload.assignedToName ?? null,
+    });
+  };
+
+
 
 
   useEffect(() => {
