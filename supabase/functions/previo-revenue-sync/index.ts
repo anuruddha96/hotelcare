@@ -260,8 +260,12 @@ function parseReservationNights(xml: string, from: string, to: string): Night[] 
         guests,
         source_name: source,
         total_price_eur: Number.isFinite(total) ? total : null,
+        source_currency: sourceCurrency,
+        original_nightly_price: nightly,
+        original_total_price: Number.isFinite(total) ? total : null,
         stay_from: stayFrom,
         stay_to: stayTo,
+
       });
     }
   }
