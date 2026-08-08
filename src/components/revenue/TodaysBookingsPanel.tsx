@@ -201,7 +201,8 @@ export default function TodaysBookingsPanel({ hotelId, today }: Props) {
     };
   }, [bookings]);
 
-  const hasSource = bookings.some((b) => b.source);
+
+
 
   const kpis = [
     { label: "Bookings", value: String(totals.count), hint: "Reservations (one line per room) created in this period." },
