@@ -270,6 +270,39 @@ export default function RateStrategyGrid({
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
   const [pushing, setPushing] = useState(false);
+  /** Result of the harmless Previo rate-write capability check. */
+  const [probing, setProbing] = useState(false);
+  const [probe, setProbe] = useState<{ ok: boolean; message: string; support?: string | null } | null>(null);
+
+  /**
+   * Ask Previo whether this property accepts rate writes at all, by writing a
+   * future date's current price back to itself. Nothing changes either way.
+   */
+  async function checkWriteAccess() {
+    if (!hotelId) return;
+    setProbing(true);
+    setProbe(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("previo-rate-write-probe", { body: { hotelId } });
+      if (error) throw error;
+      const res = data as { ok?: boolean; method?: string | null; error?: string; supportRequest?: string | null; attempts?: Array<{ method: string; status: number; message: string }> };
+      if (res.ok) {
+        setProbe({ ok: true, message: `Previo accepts price writes (${res.method}). Pushes will go live.` });
+      } else {
+        const first = res.attempts?.[0];
+        setProbe({
+          ok: false,
+          message: res.error ?? `Previo refused every rate-write call${first ? ` — ${first.method}: ${first.message}` : ""}. Send the text below to Previo support.`,
+          support: res.supportRequest ?? null,
+        });
+      }
+    } catch (e) {
+      setProbe({ ok: false, message: e instanceof Error ? e.message : "Could not reach Previo" });
+    } finally {
+      setProbing(false);
+    }
+  }
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
 
