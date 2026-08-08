@@ -114,6 +114,42 @@ function leftTone(left: number, units: number): string {
   return "text-muted-foreground";
 }
 
+/** Monday starts a new week — the strongest rhythm the eye can follow. */
+function isMonday(d: string): boolean {
+  return new Date(`${d}T00:00:00Z`).getUTCDay() === 1;
+}
+
+/** Vertical rules: month > week > day, so columns never blur together. */
+function dayEdge(d: string): string {
+  if (d.endsWith("-01")) return "border-l-2 border-l-foreground/40";
+  if (isMonday(d)) return "border-l border-l-foreground/25";
+  return "border-l border-l-border/40";
+}
+
+/** Zebra shading so a long row of numbers stays trackable. */
+function dayBg(d: string, i: number): string {
+  if (isWeekend(d)) return "bg-muted/60";
+  return i % 2 === 1 ? "bg-foreground/[0.03]" : "";
+}
+
+/** Compact money for a 60px column; the exact figure lives in the tooltip. */
+function priceLabel(v: number): string {
+  if (Math.abs(v) >= 10000) {
+    const k = v / 1000;
+    return `${(Math.abs(k) >= 100 ? Math.round(k) : Math.round(k * 10) / 10).toString().replace(".", ",")}k`;
+  }
+  return eur(v);
+}
+
+/** Two or three characters that still identify a row in the collapsed rail. */
+function railLabel(label: string): string {
+  const words = label.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "—";
+  if (words.length === 1) return words[0].slice(0, 3);
+  return words.slice(0, 3).map((w) => w[0]).join("").toUpperCase();
+}
+
+
 /** Small info bubble that works on hover and on touch. */
 function MetricInfo({ title, body }: { title: string; body: string }) {
   return (
