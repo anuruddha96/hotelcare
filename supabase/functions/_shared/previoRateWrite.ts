@@ -1,14 +1,35 @@
-// Writing nightly prices back to Previo.
+// Writing nightly prices back to Previo — EQC AvailRateUpdate.
 //
-// Previo splits its API: the XML API is the read/reservation API (that is what
-// `getRates` lives in) while rates and availability are documented as the EQC
-// channel. Which write scope an account actually has is a per-property
-// entitlement, so this module keeps a short, ordered list of candidate write
-// calls, tries them in order, and reports the verbatim Previo answer. Once a
-// hotel is known to accept one of them, the method name is stored on
-// `hotel_revenue_settings.rate_write_method` and used directly from then on.
+// Previo's XML API (api.previo.app/x1) is read/reservation only: every rate
+// write operation name is rejected with `2001 Invalid operation ... service
+// 'hotel'`. Previo documents a separate channel for sending prices:
+//
+//   EQC (a copy of Expedia QuickConnect 0.8.5)
+//   POST https://api.previo.app/eqc1/ar
+//   Authorization: ApiKey <key>
+//   <AvailRateUpdateRQ xmlns="http://www.expediaconnect.com/EQC/AR/2007/02">
+//     <Hotel id="…"/>
+//     <DateRange from="…" to="…"/>
+//     <RoomType id="…">
+//       <RatePlan id="…">
+//         <Rate currency="EUR"><PerOccupancy rate="150.00" occupancy="2"/></Rate>
+//       </RatePlan>
+//     </RoomType>
+//   </AvailRateUpdateRQ>
+//
+// This module speaks exactly that call. Reading a price back for verification
+// still uses the XML API's getRates.
 
 import { callPrevioXml, type PrevioCredentials } from "./previoCredentials.ts";
+
+const EQC_AR_ENDPOINT = "https://api.previo.app/eqc1/ar";
+const EQC_AR_NS = "http://www.expediaconnect.com/EQC/AR/2007/02";
+
+/** The single supported write transport. */
+export const RATE_WRITE_METHOD = "eqc:AvailRateUpdate";
+/** Kept for callers that report what was attempted. */
+export const RATE_WRITE_METHODS = [RATE_WRITE_METHOD] as const;
+export type RateWriteMethod = string;
 
 export interface RateWriteTarget {
   /** Previo rate plan (pricelist) id. */
@@ -24,46 +45,35 @@ export interface RateWriteTarget {
   currency: string;
 }
 
-/** Ordered candidates. The first that Previo accepts wins and gets stored. */
-export const RATE_WRITE_METHODS = [
-  "setRates",
-  "setRate",
-  "setPrices",
-  "setPrice",
-  "updateRates",
-] as const;
-
-export type RateWriteMethod = string;
-
 function esc(v: string | number): string {
   return String(v)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
-/**
- * Body shaped like the `getRates` response: rate plan -> season -> object kind
- * -> rate(occupancy, price). Previo's write methods mirror the read shape.
- */
-export function buildRateWriteXml(t: RateWriteTarget): string {
-  return `<ratePlan>
-  <prlId>${esc(t.prlId)}</prlId>
-  <season>
-    <from>${esc(t.from)}</from>
-    <to>${esc(t.to)}</to>
-    <objectKind>
-      <obkId>${esc(t.obkId)}</obkId>
-      <rate>
-        <occupancy>${esc(t.occupancy)}</occupancy>
-        <price>
-          <amount>${esc(t.price)}</amount>
-          <code>${esc(t.currency || "EUR")}</code>
-        </price>
-      </rate>
-    </objectKind>
-  </season>
-</ratePlan>`;
+/** The API key EQC authenticates with — a dedicated EQC key wins when present. */
+export function eqcApiKey(creds: PrevioCredentials): string {
+  const dedicated = (creds as { eqcApiKey?: string }).eqcApiKey;
+  if (dedicated) return dedicated;
+  if (creds.protocol === "xml") return creds.apiKey;
+  return creds.apiKey || creds.password || "";
+}
+
+export function buildAvailRateUpdateXml(hotelId: string, t: RateWriteTarget): string {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<AvailRateUpdateRQ xmlns="${EQC_AR_NS}">
+  <Hotel id="${esc(hotelId)}" />
+  <DateRange from="${esc(t.from)}" to="${esc(t.to)}" />
+  <RoomType id="${esc(t.obkId)}">
+    <RatePlan id="${esc(t.prlId)}">
+      <Rate currency="${esc(t.currency || "EUR")}">
+        <PerOccupancy rate="${esc(Number(t.price).toFixed(2))}" occupancy="${esc(Math.max(1, Math.round(t.occupancy || 2)))}" />
+      </Rate>
+    </RatePlan>
+  </RoomType>
+</AvailRateUpdateRQ>`;
 }
 
 export interface RateWriteAttempt {
@@ -76,56 +86,76 @@ export interface RateWriteAttempt {
 
 export interface RateWriteResult {
   ok: boolean;
-  /** The method that Previo accepted, when one did. */
+  /** The transport Previo accepted, when it did. */
   method: string | null;
   attempts: RateWriteAttempt[];
 }
 
-function summarise(text: string, errorMessage: string | null): string {
-  const msg = (errorMessage ?? "").trim();
-  if (msg) return msg;
-  return text.replace(/\s+/g, " ").trim().slice(0, 300);
-}
-
-/**
- * Try to write one price. When `preferredMethod` is set it is attempted first
- * and, if it works, nothing else is sent.
- */
+/** Write one nightly price through Previo EQC. */
 export async function writePrevioRate(opts: {
   creds: PrevioCredentials;
   pmsHotelId: string;
   target: RateWriteTarget;
+  /** Ignored — kept so existing callers compile. */
   preferredMethod?: string | null;
-  /** Only try the preferred method — used by the push path once verified. */
   onlyPreferred?: boolean;
 }): Promise<RateWriteResult> {
-  const extraXml = buildRateWriteXml(opts.target);
-  const ordered = opts.preferredMethod
-    ? (opts.onlyPreferred
-      ? [opts.preferredMethod]
-      : [opts.preferredMethod, ...RATE_WRITE_METHODS.filter((m) => m !== opts.preferredMethod)])
-    : [...RATE_WRITE_METHODS];
-
-  const attempts: RateWriteAttempt[] = [];
-  for (const method of ordered) {
-    const res = await callPrevioXml({
-      method,
-      creds: opts.creds,
-      pmsHotelId: opts.pmsHotelId,
-      extraXml,
-    });
-    const message = summarise(res.text, res.errorMessage);
-    attempts.push({ method, ok: res.ok, status: res.status, message });
-    if (res.ok) return { ok: true, method, attempts };
-
-    // An unknown/forbidden method means "try the next candidate"; anything
-    // else is a real validation error and must surface as-is.
-    const unknownMethod = res.status === 404
-      || /unknown method|method not|not supported|not implemented|no permission|not allowed|access denied|forbidden|2004|2005/i
-        .test(message);
-    if (!unknownMethod) return { ok: false, method: null, attempts };
+  const key = eqcApiKey(opts.creds);
+  if (!key) {
+    return {
+      ok: false,
+      method: null,
+      attempts: [{
+        method: RATE_WRITE_METHOD,
+        ok: false,
+        status: 0,
+        message:
+          "No Previo API key available for EQC. Save the property's EQC api key on its Previo credentials secret (field \"eqcApiKey\").",
+      }],
+    };
   }
-  return { ok: false, method: null, attempts };
+
+  const body = buildAvailRateUpdateXml(String(opts.pmsHotelId ?? ""), opts.target);
+  let status = 0;
+  let text = "";
+  try {
+    const resp = await fetch(EQC_AR_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        "Authorization": `ApiKey ${key}`,
+      },
+      body,
+    });
+    status = resp.status;
+    text = await resp.text();
+  } catch (e) {
+    return {
+      ok: false,
+      method: null,
+      attempts: [{
+        method: RATE_WRITE_METHOD,
+        ok: false,
+        status: 0,
+        message: e instanceof Error ? e.message : String(e),
+      }],
+    };
+  }
+
+  const err = text.match(/<Error[^>]*code="([^"]*)"[^>]*>([^<]*)<\/Error>/i);
+  const success = /<Success\s*\/?>/i.test(text);
+  const ok = status >= 200 && status < 300 && !err && success;
+  const message = err
+    ? `${err[1]}: ${err[2].trim()}`
+    : ok
+      ? "Success"
+      : text.replace(/\s+/g, " ").trim().slice(0, 300);
+
+  return {
+    ok,
+    method: ok ? RATE_WRITE_METHOD : null,
+    attempts: [{ method: RATE_WRITE_METHOD, ok, status, message }],
+  };
 }
 
 /** Read back one price so a push can be confirmed against Previo itself. */
