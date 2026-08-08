@@ -468,7 +468,11 @@ export default function RateStrategyGrid({
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
             <span className="text-xs">
               <strong>{pending.length}</strong> price change{pending.length === 1 ? "" : "s"} saved as draft — not in Previo yet.
+              {failedCount > 0 && (
+                <span className="text-destructive"> {failedCount} failed to push — open to see why and retry.</span>
+              )}
             </span>
+
             <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
               <Send className="h-3.5 w-3.5 mr-1" />Review &amp; push
             </Button>
