@@ -492,9 +492,14 @@ serve(async (req) => {
   }
 
   // ---------- 2. rates ----------
-  const ratesCall = await chunkedCall("getRates", creds, hotId, from, to, 45);
-  errors.push(...ratesCall.errors);
-  const rateRows = ratesCall.xml.flatMap((x) => parseRates(x, null));
+  const rateRows: RateRow[] = [];
+  for (const acc of liveAccounts) {
+    const ratesCall = await chunkedCall("getRates", acc.creds as any, acc.hotId, from, to, 45);
+    errors.push(...ratesCall.errors.map((e) => `${acc.label} ${e}`));
+    for (const r of ratesCall.xml.flatMap((x) => parseRates(x, null))) {
+      rateRows.push({ ...r, obk_id: scopeObk(acc, String(r.obk_id)) } as RateRow);
+    }
+  }
   const dedupedRates = new Map<string, RateRow>();
   for (const r of rateRows) {
     if (r.stay_date < from || r.stay_date > to) continue;
@@ -526,36 +531,46 @@ serve(async (req) => {
   }
 
   // ---------- 3. reservations -> booking nights ----------
-  const resCall = await chunkedCall("searchReservations", creds, hotId, from, to, 31);
-  errors.push(...resCall.errors);
+  const resErrors: string[] = [];
   const nightMap = new Map<string, Night>();
-  for (const xml of resCall.xml) {
-    for (const n of parseReservationNights(xml, from, to)) {
-      // Keyed per room item, so a two-room booking keeps both rooms.
-      nightMap.set(`${n.res_id}|${n.room_key}|${n.stay_date}`, n);
-    }
-  }
-  // The default search returns only live bookings, so cancellations and
-  // no-shows never reach us and pickup can never go negative. Ask for those
-  // statuses explicitly. If the endpoint rejects the filter we simply keep the
-  // live-only picture rather than failing the whole sync.
-  for (const statusId of [CANCELLED_STATUS, NOSHOW_STATUS]) {
-    const cancCall = await chunkedCall(
-      "searchReservations", creds, hotId, from, to, 31,
-      `<statusId>${statusId}</statusId>`,
-    );
-    if (cancCall.errors.length) {
-      softNotes.push(`cancelled pass (status ${statusId}) unavailable: ${cancCall.errors[0]}`);
+  for (const acc of liveAccounts) {
+    const resCall = await chunkedCall("searchReservations", acc.creds as any, acc.hotId, from, to, 31);
+    if (resCall.errors.length) {
+      resErrors.push(...resCall.errors.map((e) => `${acc.label} ${e}`));
       continue;
     }
-    for (const xml of cancCall.xml) {
+    for (const xml of resCall.xml) {
       for (const n of parseReservationNights(xml, from, to)) {
-        const key = `${n.res_id}|${n.room_key}|${n.stay_date}`;
-        // A cancelled row always wins over a live row for the same room-night.
-        if (n.cancelled_at || !nightMap.has(key)) nightMap.set(key, n);
+        // Keyed per room item, so a two-room booking keeps both rooms.
+        const scoped = { ...n, obk_id: n.obk_id ? scopeObk(acc, String(n.obk_id)) : n.obk_id };
+        nightMap.set(`${acc.hotId}|${n.res_id}|${n.room_key}|${n.stay_date}`, scoped as Night);
+      }
+    }
+    // The default search returns only live bookings, so cancellations and
+    // no-shows never reach us and pickup can never go negative. Ask for those
+    // statuses explicitly. If the endpoint rejects the filter we simply keep the
+    // live-only picture rather than failing the whole sync.
+    for (const statusId of [CANCELLED_STATUS, NOSHOW_STATUS]) {
+      const cancCall = await chunkedCall(
+        "searchReservations", acc.creds as any, acc.hotId, from, to, 31,
+        `<statusId>${statusId}</statusId>`,
+      );
+      if (cancCall.errors.length) {
+        softNotes.push(`${acc.label} cancelled pass (status ${statusId}) unavailable: ${cancCall.errors[0]}`);
+        continue;
+      }
+      for (const xml of cancCall.xml) {
+        for (const n of parseReservationNights(xml, from, to)) {
+          const key = `${acc.hotId}|${n.res_id}|${n.room_key}|${n.stay_date}`;
+          const scoped = { ...n, obk_id: n.obk_id ? scopeObk(acc, String(n.obk_id)) : n.obk_id } as Night;
+          // A cancelled row always wins over a live row for the same room-night.
+          if (n.cancelled_at || !nightMap.has(key)) nightMap.set(key, scoped);
+        }
       }
     }
   }
+  errors.push(...resErrors);
+
 
   const allNights = Array.from(nightMap.values());
   const nights = allNights.filter((n) => !n.cancelled_at);
