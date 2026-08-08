@@ -443,6 +443,127 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     return out;
   }, [liveBookings, leakage, goals.targetAdr, kpi.adr, nightsByStayDate]);
 
+  /* ------------------------------------------- signal actions + AI review */
+  const [aiSignals, setAiSignals] = useState<AiSignal[]>([]);
+  const [aiHeadline, setAiHeadline] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [actions, setActions] = useState<Record<string, SignalAction>>({});
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState("");
+
+  const loadActions = useCallback(async () => {
+    if (!hotelId) return;
+    const { data } = await supabase
+      .from("revenue_signal_actions")
+      .select("signal_key, decision, note")
+      .eq("hotel_id", hotelId)
+      .eq("business_date", today);
+    const map: Record<string, SignalAction> = {};
+    for (const r of data ?? []) {
+      map[String(r.signal_key)] = { decision: String(r.decision) as SignalAction["decision"], note: r.note ?? null };
+    }
+    setActions(map);
+  }, [hotelId, today]);
+
+  useEffect(() => { void loadActions(); }, [loadActions]);
+
+  const displayedSignals = useMemo<DisplaySignal[]>(() => {
+    if (aiSignals.length) {
+      return aiSignals
+        .slice()
+        .sort((a, b) => (a.priority ?? 9) - (b.priority ?? 9))
+        .map((s) => ({
+          key: s.key || slugify(s.title),
+          title: s.title,
+          why: s.why,
+          action: s.action ?? null,
+          tone: s.tone ?? "warn",
+          confidence: s.confidence ?? null,
+          ai: true,
+        }));
+    }
+    return recommendations.map((r) => ({
+      key: slugify(r.title), title: r.title, why: r.why, action: null, tone: r.tone, confidence: null, ai: false,
+    }));
+  }, [aiSignals, recommendations]);
+
+  const recordAction = useCallback(async (
+    signal: DisplaySignal,
+    decision: SignalAction["decision"],
+    note?: string | null,
+  ) => {
+    if (!hotelId) return;
+    const previous = actions[signal.key];
+    setActions((prev) => ({ ...prev, [signal.key]: { decision, note: note ?? null } }));
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth?.user?.id;
+    if (!uid) return;
+    const { error } = await supabase
+      .from("revenue_signal_actions")
+      .upsert({
+        hotel_id: hotelId,
+        business_date: today,
+        signal_key: signal.key,
+        signal_snapshot: signal as unknown as Record<string, unknown>,
+        decision,
+        note: note ?? null,
+        acted_by: uid,
+      }, { onConflict: "hotel_id,business_date,signal_key" });
+    if (error) {
+      setActions((prev) => {
+        const next = { ...prev };
+        if (previous) next[signal.key] = previous; else delete next[signal.key];
+        return next;
+      });
+    }
+  }, [hotelId, today, actions]);
+
+  const clearAction = useCallback(async (signal: DisplaySignal) => {
+    if (!hotelId) return;
+    setActions((prev) => { const n = { ...prev }; delete n[signal.key]; return n; });
+    await supabase
+      .from("revenue_signal_actions")
+      .delete()
+      .eq("hotel_id", hotelId)
+      .eq("business_date", today)
+      .eq("signal_key", signal.key);
+  }, [hotelId, today]);
+
+  const sharpenWithAi = useCallback(async () => {
+    if (!hotelId) return;
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const evidence = {
+        currency: currencySymbol ? undefined : undefined,
+        goals,
+        kpi: { adr: kpi.adr, roomNights: kpi.roomNights, value: kpi.value },
+        heuristics: recommendations,
+        leakage: {
+          channel: leakage.channel, roomType: leakage.roomType,
+          directOta: leakage.directOta, los: leakage.los, stayDate: leakage.stayDate.slice(0, 20),
+        },
+        bookings: liveBookings.slice(0, 80).map((b) => ({
+          created: b.created, stayFrom: b.stayFrom, nights: b.roomNights,
+          adr: b.adr, channel: b.channel, roomType: b.roomType, direct: b.direct,
+        })),
+      };
+      const { data, error } = await supabase.functions.invoke("revenue-signals", {
+        body: { hotelId, businessDate: today, evidence },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(String(data.error));
+      setAiSignals(Array.isArray(data?.signals) ? data.signals : []);
+      setAiHeadline(data?.headline ?? null);
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "Could not reach the analysis service.");
+    } finally {
+      setAiLoading(false);
+    }
+  }, [hotelId, today, goals, kpi, recommendations, leakage, liveBookings]);
+
+
   /* -------------------------------------------------------- booking list */
   const listed = useMemo(() => {
     let list = periodBookings.slice();
