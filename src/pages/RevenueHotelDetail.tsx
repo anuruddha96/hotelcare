@@ -29,6 +29,8 @@ import StrategyCalendar from "@/components/revenue/StrategyCalendar";
 import StrategyRecommendationsPanel from "@/components/revenue/StrategyRecommendationsPanel";
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
+import DemandPricingPanel from "@/components/revenue/DemandPricingPanel";
+
 import RevenuePulsePanel from "@/components/revenue/RevenuePulsePanel";
 import PickupMovementBoard from "@/components/revenue/PickupMovementBoard";
 import PickupHorizonChart from "@/components/revenue/PickupHorizonChart";
@@ -665,8 +667,17 @@ export default function RevenueHotelDetail() {
             demandByDate={demandByDate}
             leftByTypeDate={leftByTypeDate}
           />
+          <DemandPricingPanel
+            hotelId={hotelId ?? null}
+            organizationSlug={organizationSlug ?? null}
+            today={live.today}
+            nights={live.nights}
+            rates={live.rates}
+            canEdit={revAdmin}
+          />
           <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
           <PickupMovementBoard metrics={live.metrics} windowDays={pickupWindow} />
+
           {/* AI analysis at the bottom */}
           <RevenueIntelligencePanel hotelId={hotelId ?? null} />
 

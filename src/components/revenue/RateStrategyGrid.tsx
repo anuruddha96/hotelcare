@@ -270,6 +270,39 @@ export default function RateStrategyGrid({
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
   const [pushing, setPushing] = useState(false);
+  /** Result of the harmless Previo rate-write capability check. */
+  const [probing, setProbing] = useState(false);
+  const [probe, setProbe] = useState<{ ok: boolean; message: string; support?: string | null } | null>(null);
+
+  /**
+   * Ask Previo whether this property accepts rate writes at all, by writing a
+   * future date's current price back to itself. Nothing changes either way.
+   */
+  async function checkWriteAccess() {
+    if (!hotelId) return;
+    setProbing(true);
+    setProbe(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("previo-rate-write-probe", { body: { hotelId } });
+      if (error) throw error;
+      const res = data as { ok?: boolean; method?: string | null; error?: string; supportRequest?: string | null; attempts?: Array<{ method: string; status: number; message: string }> };
+      if (res.ok) {
+        setProbe({ ok: true, message: `Previo accepts price writes (${res.method}). Pushes will go live.` });
+      } else {
+        const first = res.attempts?.[0];
+        setProbe({
+          ok: false,
+          message: res.error ?? `Previo refused every rate-write call${first ? ` — ${first.method}: ${first.message}` : ""}. Send the text below to Previo support.`,
+          support: res.supportRequest ?? null,
+        });
+      }
+    } catch (e) {
+      setProbe({ ok: false, message: e instanceof Error ? e.message : "Could not reach Previo" });
+    } finally {
+      setProbing(false);
+    }
+  }
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
 
@@ -773,13 +806,15 @@ export default function RateStrategyGrid({
               {rows.map((row) => (
                 <div
                   key={row.key}
-                  className={`flex ${row.kind === "group" ? "border-b border-b-foreground/25 bg-muted/50" : row.kind === "rate" ? "border-b" : "border-b bg-primary/10 font-semibold"}`}
+                  className={`flex ${row.kind === "group" ? "border-b border-b-foreground/25 bg-muted/50" : row.kind === "rate" ? "border-b" : "border-b border-t-2 border-t-foreground/20 bg-primary/10 font-semibold"}`}
                   style={{ height: rowH(row.kind) }}
                 >
-                  {/* Frozen label cell */}
+                  {/* Frozen label cell — must stay fully opaque, otherwise the
+                      scrolling date cells read through it. */}
                   <div
-                    className={`sticky left-0 z-20 flex items-center border-r px-2 ${row.kind === "group" ? "bg-muted font-semibold" : row.kind === "rate" ? "bg-card text-muted-foreground" : "bg-primary/10 border-l-2 border-l-primary font-semibold"}`}
+                    className={`sticky left-0 z-20 flex items-center border-r px-2 ${row.kind === "group" ? "bg-muted font-semibold" : row.kind === "rate" ? "bg-card text-muted-foreground" : "bg-muted border-l-2 border-l-primary font-semibold text-foreground"}`}
                     style={{ width: LEFT_W }}
+
                   >
                     {railed ? (
                       <span className="w-full truncate text-center text-[10px]" title={row.label}>
@@ -1007,10 +1042,38 @@ export default function RateStrategyGrid({
               These prices are written to Previo immediately and become live for guests.
               Anything that fails stays here with its error so you can retry.
             </p>
-            <p className="text-xs rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5">
-              Writing prices back requires Previo to enable rate-write access for this property.
-              Until they confirm the endpoint, pushes will fail with a Previo error and your drafts stay safe here.
-            </p>
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 space-y-1.5">
+              <p className="text-xs">
+                Prices are written back through Previo's rate-write call. Some Previo accounts have that
+                scope switched off — the check below writes a date's current price back to itself
+                (changing nothing) and reports exactly what Previo answers.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm" variant="outline" className="h-7 text-[11px]"
+                  disabled={probing}
+                  onClick={() => void checkWriteAccess()}
+                >
+                  {probing && <Loader2 className="h-3 w-3 animate-spin mr-1" />}Check write access
+                </Button>
+                {probe && (
+                  <span className={`text-[11px] ${probe.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                    {probe.message}
+                  </span>
+                )}
+              </div>
+              {probe?.support && (
+                <textarea
+                  readOnly
+                  rows={4}
+                  value={probe.support}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="w-full rounded border bg-background p-1.5 text-[10px] font-mono"
+                  aria-label="Message to send to Previo support"
+                />
+              )}
+            </div>
+
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPushOpen(false)}>Cancel</Button>

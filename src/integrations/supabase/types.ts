@@ -1603,20 +1603,30 @@ export type Database = {
           eur_rate_updated_at: string | null
           floor_price_eur: number
           hotel_id: string
+          idle_decay_eur: number
+          idle_decay_hours: number
           is_engine_enabled: boolean
+          low_demand_decrease_eur: number
           max_daily_change_eur: number
+          min_adr: number | null
           notify_email: string[]
           notify_on: Json
           notify_sms: string[]
           occupancy_high_pct: number
           occupancy_low_pct: number
           organization_slug: string
+          pickup_burst_minutes: number
           pickup_increase_tiers: Json
+          pickup_step_1_eur: number
+          pickup_step_2_eur: number
+          pickup_step_3_eur: number
           pickup_strong_threshold: number
           rate_alert_emails_enabled: boolean
           rate_critical_below_eur: number
           rate_max_sane_eur: number
           rate_warn_below_eur: number
+          rate_write_method: string | null
+          rate_write_verified_at: string | null
           sellable_rooms: number | null
           skip_within_days: number
           surge_increase_eur: number
@@ -1641,20 +1651,30 @@ export type Database = {
           eur_rate_updated_at?: string | null
           floor_price_eur?: number
           hotel_id: string
+          idle_decay_eur?: number
+          idle_decay_hours?: number
           is_engine_enabled?: boolean
+          low_demand_decrease_eur?: number
           max_daily_change_eur?: number
+          min_adr?: number | null
           notify_email?: string[]
           notify_on?: Json
           notify_sms?: string[]
           occupancy_high_pct?: number
           occupancy_low_pct?: number
           organization_slug: string
+          pickup_burst_minutes?: number
           pickup_increase_tiers?: Json
+          pickup_step_1_eur?: number
+          pickup_step_2_eur?: number
+          pickup_step_3_eur?: number
           pickup_strong_threshold?: number
           rate_alert_emails_enabled?: boolean
           rate_critical_below_eur?: number
           rate_max_sane_eur?: number
           rate_warn_below_eur?: number
+          rate_write_method?: string | null
+          rate_write_verified_at?: string | null
           sellable_rooms?: number | null
           skip_within_days?: number
           surge_increase_eur?: number
@@ -1679,20 +1699,30 @@ export type Database = {
           eur_rate_updated_at?: string | null
           floor_price_eur?: number
           hotel_id?: string
+          idle_decay_eur?: number
+          idle_decay_hours?: number
           is_engine_enabled?: boolean
+          low_demand_decrease_eur?: number
           max_daily_change_eur?: number
+          min_adr?: number | null
           notify_email?: string[]
           notify_on?: Json
           notify_sms?: string[]
           occupancy_high_pct?: number
           occupancy_low_pct?: number
           organization_slug?: string
+          pickup_burst_minutes?: number
           pickup_increase_tiers?: Json
+          pickup_step_1_eur?: number
+          pickup_step_2_eur?: number
+          pickup_step_3_eur?: number
           pickup_strong_threshold?: number
           rate_alert_emails_enabled?: boolean
           rate_critical_below_eur?: number
           rate_max_sane_eur?: number
           rate_warn_below_eur?: number
+          rate_write_method?: string | null
+          rate_write_verified_at?: string | null
           sellable_rooms?: number | null
           skip_within_days?: number
           surge_increase_eur?: number
@@ -4573,6 +4603,48 @@ export type Database = {
         }
         Relationships: []
       }
+      revenue_demand_ratings: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          created_by_name: string | null
+          event_name: string | null
+          hotel_id: string
+          id: string
+          organization_slug: string | null
+          rating: string
+          reason: string | null
+          stay_date: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          created_by_name?: string | null
+          event_name?: string | null
+          hotel_id: string
+          id?: string
+          organization_slug?: string | null
+          rating: string
+          reason?: string | null
+          stay_date: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          created_by_name?: string | null
+          event_name?: string | null
+          hotel_id?: string
+          id?: string
+          organization_slug?: string | null
+          rating?: string
+          reason?: string | null
+          stay_date?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       revenue_ingest_runs: {
         Row: {
           duration_ms: number | null
@@ -4619,6 +4691,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      revenue_pickup_actions: {
+        Row: {
+          clamped_by_min_adr: boolean
+          created_at: string
+          delta_eur: number
+          hotel_id: string
+          id: string
+          new_price: number | null
+          occurred_at: string
+          old_price: number | null
+          organization_slug: string | null
+          stay_date: string
+          step_index: number | null
+          trigger_detail: string | null
+          trigger_kind: string
+        }
+        Insert: {
+          clamped_by_min_adr?: boolean
+          created_at?: string
+          delta_eur?: number
+          hotel_id: string
+          id?: string
+          new_price?: number | null
+          occurred_at?: string
+          old_price?: number | null
+          organization_slug?: string | null
+          stay_date: string
+          step_index?: number | null
+          trigger_detail?: string | null
+          trigger_kind: string
+        }
+        Update: {
+          clamped_by_min_adr?: boolean
+          created_at?: string
+          delta_eur?: number
+          hotel_id?: string
+          id?: string
+          new_price?: number | null
+          occurred_at?: string
+          old_price?: number | null
+          organization_slug?: string | null
+          stay_date?: string
+          step_index?: number | null
+          trigger_detail?: string | null
+          trigger_kind?: string
+        }
+        Relationships: []
       }
       revenue_rate_alerts: {
         Row: {

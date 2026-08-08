@@ -2,11 +2,17 @@
 //
 // The grid stores every manual price change as a draft; nothing leaves the
 // app until someone with rate-push rights confirms. This function validates
-// the caller, sends each draft to Previo, and records the outcome per draft
-// so a partial failure is visible instead of silent.
+// the caller, sends each draft to Previo through the confirmed rate-write
+// method, reads the price back to prove it landed, and records the outcome per
+// draft so a partial failure is visible instead of silent.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
-import { fetchPrevioWithAuth } from "../_shared/previoAuth.ts";
+import { loadPrevioCredentials } from "../_shared/previoCredentials.ts";
+import { readPrevioRate, writePrevioRate } from "../_shared/previoRateWrite.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
 const PUSH_ROLES = ["admin", "top_management", "top_management_manager"];
 
@@ -72,6 +78,14 @@ Deno.serve(async (req) => {
     }
     const defaultMap = validMaps.find((m: any) => m.is_default) ?? validMaps[0];
 
+    const { data: settings } = await admin
+      .from("hotel_revenue_settings")
+      .select("rate_write_method, base_currency")
+      .eq("hotel_id", hotelId)
+      .maybeSingle();
+
+    let writeMethod: string | null = settings?.rate_write_method ?? null;
+
     // --- drafts to push --------------------------------------------------
     let q = admin
       .from("revenue_rate_drafts")
@@ -86,39 +100,79 @@ Deno.serve(async (req) => {
       return json({ ok: true, pushed: 0, failed: 0, message: "Nothing to push." });
     }
 
-    const ratePath = Deno.env.get("PREVIO_RATE_UPDATE_PATH") || "/v1/rates/update";
+    let creds;
+    try {
+      creds = loadPrevioCredentials(cfg.credentials_secret_name);
+    } catch (e) {
+      return json({
+        code: "no_credentials",
+        error: e instanceof Error ? e.message : String(e),
+      }, 412);
+    }
+    const pmsHotelId = String(cfg.pms_hotel_id ?? "");
+
     let pushed = 0;
     let failed = 0;
+    let verified = 0;
     const errors: Array<{ stay_date: string; room_type_name: string; error: string }> = [];
 
     for (const d of drafts as any[]) {
       const mapForType = validMaps.find((m: any) => String(m.previo_room_type_id) === String(d.obk_id));
-      const map = mapForType ?? defaultMap;
-      const payload = {
-        hotelId: cfg.pms_hotel_id,
-        rateId: map.previo_rate_plan_id,
-        roomTypeId: map.previo_room_type_id ?? d.obk_id,
-        date: d.stay_date,
-        occupancy: d.occupancy,
-        priceEur: Number(d.new_price),
-        currency: d.currency ?? "EUR",
-      };
+      const map: any = mapForType ?? defaultMap;
+      // Multi-account hotels prefix the obk id with the Previo hotId.
+      const obkId = String(map.previo_room_type_id ?? d.obk_id).split(":").pop() as string;
 
       try {
-        const { response } = await fetchPrevioWithAuth({
-          credentialsSecretName: cfg.credentials_secret_name,
-          path: ratePath,
-          pmsHotelId: String(cfg.pms_hotel_id || ""),
-          method: "POST",
-          body: JSON.stringify(payload),
+        const result = await writePrevioRate({
+          creds,
+          pmsHotelId,
+          preferredMethod: writeMethod,
+          target: {
+            prlId: String(map.previo_rate_plan_id),
+            obkId,
+            from: d.stay_date,
+            to: d.stay_date,
+            occupancy: Number(d.occupancy) || 2,
+            price: Number(d.new_price),
+            currency: d.currency ?? settings?.base_currency ?? "EUR",
+          },
         });
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(`Previo ${response.status}: ${text.slice(0, 200)}`);
+
+        if (!result.ok) {
+          const detail = result.attempts
+            .map((a) => `${a.method} → ${a.status}${a.message ? `: ${a.message}` : ""}`)
+            .join(" | ");
+          throw new Error(`Previo rejected the price change. ${detail}`);
         }
 
+        if (result.method && result.method !== writeMethod) {
+          writeMethod = result.method;
+          await admin
+            .from("hotel_revenue_settings")
+            .update({ rate_write_method: result.method, rate_write_verified_at: new Date().toISOString() })
+            .eq("hotel_id", hotelId);
+        }
+
+        // Prove it landed: read the price straight back from Previo.
+        const readBack = await readPrevioRate({
+          creds,
+          pmsHotelId,
+          from: d.stay_date,
+          to: d.stay_date,
+          obkId,
+          occupancy: Number(d.occupancy) || 2,
+        });
+        const isVerified = readBack !== null && Math.round(readBack) === Math.round(Number(d.new_price));
+        if (isVerified) verified += 1;
+
         await admin.from("revenue_rate_drafts")
-          .update({ status: "pushed", pushed_at: new Date().toISOString(), push_error: null })
+          .update({
+            status: "pushed",
+            pushed_at: new Date().toISOString(),
+            push_error: isVerified
+              ? null
+              : `Sent to Previo, but the read-back price was ${readBack === null ? "unavailable" : readBack}. Re-sync to confirm.`,
+          })
           .eq("id", d.id);
 
         await admin.from("rate_history").insert({
@@ -128,7 +182,7 @@ Deno.serve(async (req) => {
           old_rate_eur: d.old_price,
           new_rate_eur: d.new_price,
           source: "manual_push",
-          notes: `${d.room_type_name} · ${d.occupancy} guest(s) · pushed by ${user.email ?? user.id}`,
+          notes: `${d.room_type_name} · ${d.occupancy} guest(s) · ${result.method} · ${isVerified ? "verified in Previo" : "not verified"} · pushed by ${user.email ?? user.id}`,
         });
 
         pushed += 1;
@@ -148,11 +202,11 @@ Deno.serve(async (req) => {
       direction: "to_previo",
       hotel_id: hotelId,
       sync_status: failed === 0 ? "success" : pushed === 0 ? "failed" : "partial",
-      data: { pushed, failed, errors: errors.slice(0, 10), by: user.email ?? user.id },
+      data: { pushed, failed, verified, method: writeMethod, errors: errors.slice(0, 10), by: user.email ?? user.id },
       error_message: failed > 0 ? errors[0]?.error : null,
     });
 
-    return json({ ok: true, pushed, failed, errors });
+    return json({ ok: true, pushed, failed, verified, method: writeMethod, errors });
   } catch (e) {
     console.error("revenue-push-drafts error", e);
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
