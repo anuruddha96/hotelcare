@@ -689,8 +689,12 @@ serve(async (req) => {
       guests: n.guests,
       source_name: n.source_name,
       total_price_eur: n.total_price_eur,
+      source_currency: n.source_currency ?? baseCurrency,
+      original_nightly_price: n.original_nightly_price,
+      original_total_price: n.original_total_price,
       stay_from: n.stay_from,
       stay_to: n.stay_to,
+
       captured_at: new Date().toISOString(),
     }));
     // The horizon was just deleted and the payload is already de-duplicated
