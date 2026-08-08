@@ -201,6 +201,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   // Rental portfolios (SLNT) have many small units: keep the chips tight so a
   // whole venue fits on one phone screen and tapping stays easy.
   const compactChips = terms.isProperty;
+  // Dense multi-column venue layout so ~60 units fit without endless scrolling.
+  const [denseVenues, setDenseVenues] = useState<boolean>(() => {
+    try { return localStorage.getItem('hc-dense-venues') !== '0'; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('hc-dense-venues', denseVenues ? '1' : '0'); } catch { /* ignore */ }
+  }, [denseVenues]);
   const selectedUnitIds = new Set(selectedUnits.map((u) => u.roomId));
   const longPressRef = useRef<NodeJS.Timeout | null>(null);
   const longPressFiredRef = useRef(false);
