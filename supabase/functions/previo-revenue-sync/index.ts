@@ -316,15 +316,49 @@ serve(async (req) => {
   const from = today;
   const to = addDays(today, horizonDays);
 
+  // Portfolio tenants (SLNT) keep several Previo profiles under ONE hotel row
+  // in `pms_accounts`; classic tenants (Ottofiori, RD Hotels) still use the
+  // single `pms_configurations` row. Resolve both into a list of accounts.
+  const { data: accountRows } = await service
+    .from("pms_accounts")
+    .select("id, label, pms_hotel_id, credentials_secret_name, is_active")
+    .eq("hotel_id", hotelId)
+    .eq("pms_type", "previo")
+    .eq("is_active", true);
+
   const { data: cfg } = await service
     .from("pms_configurations")
     .select("pms_hotel_id, credentials_secret_name")
     .eq("hotel_id", hotelId)
     .eq("pms_type", "previo")
     .maybeSingle();
-  if (!cfg) return json({ error: `No Previo configuration for ${hotelId}` }, 404);
 
-  const conf = cfg as { pms_hotel_id?: string; credentials_secret_name?: string };
+  const fallbackSecret = () =>
+    (Deno.env.get("PREVIO_CREDS_SLNT") ? "PREVIO_CREDS_SLNT" : null)
+    || (Deno.env.get("PREVIO_CREDS_OTTOFIORI") ? "PREVIO_CREDS_OTTOFIORI" : null);
+
+  type Account = { label: string; hotId: string; secretName: string | null };
+  const accounts: Account[] = ((accountRows ?? []) as any[]).length
+    ? ((accountRows ?? []) as any[]).map((a) => ({
+        label: a.label || String(a.pms_hotel_id || ""),
+        hotId: String(a.pms_hotel_id || ""),
+        secretName: a.credentials_secret_name || fallbackSecret(),
+      }))
+    : cfg
+    ? [{
+        label: hotelId,
+        hotId: String((cfg as any).pms_hotel_id || ""),
+        secretName: (cfg as any).credentials_secret_name ?? null,
+      }]
+    : [];
+
+  if (accounts.length === 0) return json({ error: `No Previo configuration for ${hotelId}` }, 404);
+  const missingCreds = accounts.filter((a) => !a.secretName || !a.hotId);
+  if (missingCreds.length === accounts.length) {
+    return json({
+      error: `No Previo credentials available for ${hotelId}. Ask a super admin to store the API key as PREVIO_CREDS_SLNT.`,
+    }, 400);
+  }
 
   // Organization slug lives on hotel_configurations -> organizations.
   const { data: hotelCfg } = await service
@@ -338,26 +372,57 @@ serve(async (req) => {
     const { data: org } = await service.from("organizations").select("slug").eq("id", orgId).maybeSingle();
     orgSlug = (org as { slug?: string } | null)?.slug || orgSlug;
   }
-  if (!orgSlug) return json({ error: `No organization found for ${hotelId}` }, 404);
-  const hotId = String(conf.pms_hotel_id || "");
-  let creds;
-  try {
-    creds = loadPrevioCredentials(conf.credentials_secret_name);
-  } catch (e) {
-    return json({ error: `Previo credentials unavailable: ${String(e)}` }, 500);
+  if (!orgSlug) {
+    const { data: hc } = await service
+      .from("hotel_configurations")
+      .select("organization_slug")
+      .eq("hotel_id", hotelId)
+      .maybeSingle();
+    orgSlug = (hc as any)?.organization_slug || "";
   }
+  if (!orgSlug) return json({ error: `No organization found for ${hotelId}` }, 404);
+
 
   const errors: string[] = [];
   /** Non-fatal notes: optional data the PMS did not expose this run. */
   const softNotes: string[] = [];
 
+  // Load credentials once per account; skip (and report) accounts we cannot auth.
+  type LiveAccount = { label: string; hotId: string; creds: unknown; idx: number };
+  const liveAccounts: LiveAccount[] = [];
+  accounts.forEach((a, idx) => {
+    if (!a.secretName || !a.hotId) {
+      errors.push(`${a.label}: no Previo credentials configured`);
+      return;
+    }
+    try {
+      liveAccounts.push({ label: a.label, hotId: a.hotId, creds: loadPrevioCredentials(a.secretName), idx });
+    } catch (e) {
+      errors.push(`${a.label}: credentials unavailable: ${String(e)}`);
+    }
+  });
+  if (liveAccounts.length === 0) {
+    return json({ error: `Previo credentials unavailable for ${hotelId}: ${errors.join(" | ")}` }, 500);
+  }
+  const multi = liveAccounts.length > 1;
+  /** Keep obk ids unique across profiles when a hotel merges several accounts. */
+  const scopeObk = (acc: LiveAccount, obkId: string) => (multi ? `${acc.hotId}:${obkId}` : obkId);
+
   // ---------- 1. room types ----------
-  let roomTypes: RoomTypeInfo[] = [];
-  const kindsRes = await callPrevioXml({ method: "getObjectKinds", creds, pmsHotelId: hotId, extraXml: "" });
-  if (kindsRes.ok) roomTypes = parseObjectKinds(kindsRes.text);
-  else errors.push(`getObjectKinds: [${kindsRes.status}] ${kindsRes.errorMessage ?? "failed"}`);
+  const roomTypes: RoomTypeInfo[] = [];
+  for (const acc of liveAccounts) {
+    const kindsRes = await callPrevioXml({ method: "getObjectKinds", creds: acc.creds as any, pmsHotelId: acc.hotId, extraXml: "" });
+    if (!kindsRes.ok) {
+      errors.push(`${acc.label} getObjectKinds: [${kindsRes.status}] ${kindsRes.errorMessage ?? "failed"}`);
+      continue;
+    }
+    for (const rt of parseObjectKinds(kindsRes.text)) {
+      roomTypes.push({ ...rt, obkId: scopeObk(acc, rt.obkId), order: rt.order + acc.idx * 1000 });
+    }
+  }
 
   const nameByObk = new Map(roomTypes.map((r) => [r.obkId, r.name]));
+
 
   // Previo mixes three things in getObjectKinds: physical unit groups
   // ("Room (cap 2) — 15 units"), sellable rate-plan room types covering the
@@ -427,9 +492,14 @@ serve(async (req) => {
   }
 
   // ---------- 2. rates ----------
-  const ratesCall = await chunkedCall("getRates", creds, hotId, from, to, 45);
-  errors.push(...ratesCall.errors);
-  const rateRows = ratesCall.xml.flatMap((x) => parseRates(x, null));
+  const rateRows: RateRow[] = [];
+  for (const acc of liveAccounts) {
+    const ratesCall = await chunkedCall("getRates", acc.creds as any, acc.hotId, from, to, 45);
+    errors.push(...ratesCall.errors.map((e) => `${acc.label} ${e}`));
+    for (const r of ratesCall.xml.flatMap((x) => parseRates(x, null))) {
+      rateRows.push({ ...r, obk_id: scopeObk(acc, String(r.obk_id)) } as RateRow);
+    }
+  }
   const dedupedRates = new Map<string, RateRow>();
   for (const r of rateRows) {
     if (r.stay_date < from || r.stay_date > to) continue;
@@ -461,42 +531,52 @@ serve(async (req) => {
   }
 
   // ---------- 3. reservations -> booking nights ----------
-  const resCall = await chunkedCall("searchReservations", creds, hotId, from, to, 31);
-  errors.push(...resCall.errors);
+  const resErrors: string[] = [];
   const nightMap = new Map<string, Night>();
-  for (const xml of resCall.xml) {
-    for (const n of parseReservationNights(xml, from, to)) {
-      // Keyed per room item, so a two-room booking keeps both rooms.
-      nightMap.set(`${n.res_id}|${n.room_key}|${n.stay_date}`, n);
-    }
-  }
-  // The default search returns only live bookings, so cancellations and
-  // no-shows never reach us and pickup can never go negative. Ask for those
-  // statuses explicitly. If the endpoint rejects the filter we simply keep the
-  // live-only picture rather than failing the whole sync.
-  for (const statusId of [CANCELLED_STATUS, NOSHOW_STATUS]) {
-    const cancCall = await chunkedCall(
-      "searchReservations", creds, hotId, from, to, 31,
-      `<statusId>${statusId}</statusId>`,
-    );
-    if (cancCall.errors.length) {
-      softNotes.push(`cancelled pass (status ${statusId}) unavailable: ${cancCall.errors[0]}`);
+  for (const acc of liveAccounts) {
+    const resCall = await chunkedCall("searchReservations", acc.creds as any, acc.hotId, from, to, 31);
+    if (resCall.errors.length) {
+      resErrors.push(...resCall.errors.map((e) => `${acc.label} ${e}`));
       continue;
     }
-    for (const xml of cancCall.xml) {
+    for (const xml of resCall.xml) {
       for (const n of parseReservationNights(xml, from, to)) {
-        const key = `${n.res_id}|${n.room_key}|${n.stay_date}`;
-        // A cancelled row always wins over a live row for the same room-night.
-        if (n.cancelled_at || !nightMap.has(key)) nightMap.set(key, n);
+        // Keyed per room item, so a two-room booking keeps both rooms.
+        const scoped = { ...n, obk_id: n.obk_id ? scopeObk(acc, String(n.obk_id)) : n.obk_id };
+        nightMap.set(`${acc.hotId}|${n.res_id}|${n.room_key}|${n.stay_date}`, scoped as Night);
+      }
+    }
+    // The default search returns only live bookings, so cancellations and
+    // no-shows never reach us and pickup can never go negative. Ask for those
+    // statuses explicitly. If the endpoint rejects the filter we simply keep the
+    // live-only picture rather than failing the whole sync.
+    for (const statusId of [CANCELLED_STATUS, NOSHOW_STATUS]) {
+      const cancCall = await chunkedCall(
+        "searchReservations", acc.creds as any, acc.hotId, from, to, 31,
+        `<statusId>${statusId}</statusId>`,
+      );
+      if (cancCall.errors.length) {
+        softNotes.push(`${acc.label} cancelled pass (status ${statusId}) unavailable: ${cancCall.errors[0]}`);
+        continue;
+      }
+      for (const xml of cancCall.xml) {
+        for (const n of parseReservationNights(xml, from, to)) {
+          const key = `${acc.hotId}|${n.res_id}|${n.room_key}|${n.stay_date}`;
+          const scoped = { ...n, obk_id: n.obk_id ? scopeObk(acc, String(n.obk_id)) : n.obk_id } as Night;
+          // A cancelled row always wins over a live row for the same room-night.
+          if (n.cancelled_at || !nightMap.has(key)) nightMap.set(key, scoped);
+        }
       }
     }
   }
+  errors.push(...resErrors);
+
 
   const allNights = Array.from(nightMap.values());
   const nights = allNights.filter((n) => !n.cancelled_at);
   const cancelledNights = allNights.filter((n) => !!n.cancelled_at);
 
-  if (!resCall.errors.length) {
+  if (!resErrors.length) {
     // Full replace for the horizon so cancellations disappear immediately.
     const { error: delErr } = await service
       .from("revenue_booking_nights")
@@ -537,7 +617,7 @@ serve(async (req) => {
   }
 
   // ---------- 3b. cancelled nights (make pickup able to go negative) ----------
-  if (!resCall.errors.length) {
+  if (!resErrors.length) {
     const { error: delCancelErr } = await service
       .from("revenue_cancelled_nights")
       .delete()
@@ -598,7 +678,7 @@ serve(async (req) => {
     new_bookings: v.created,
     captured_at: new Date().toISOString(),
   }));
-  if (!resCall.errors.length) {
+  if (!resErrors.length) {
     for (let i = 0; i < snapshots.length; i += 500) {
       const { error } = await service
         .from("revenue_daily_snapshots")
