@@ -180,9 +180,15 @@ interface Night {
   /** Booking channel / OTA name when Previo exposes it. */
   source_name: string | null;
   total_price_eur: number | null;
+  /** Currency the reservation was actually priced in, when Previo says so. */
+  source_currency: string | null;
+  /** Amounts exactly as Previo returned them, before any conversion. */
+  original_nightly_price: number | null;
+  original_total_price: number | null;
   stay_from: string;
   stay_to: string;
 }
+
 
 function parseReservationNights(xml: string, from: string, to: string): Night[] {
   const out: Night[] = [];
