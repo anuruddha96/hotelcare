@@ -534,7 +534,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
         hotel_id: hotelId,
         business_date: today,
         signal_key: signal.key,
-        signal_snapshot: signal as unknown as Record<string, unknown>,
+        signal_snapshot: JSON.parse(JSON.stringify(signal)),
         decision,
         note: note ?? null,
         acted_by: uid,
