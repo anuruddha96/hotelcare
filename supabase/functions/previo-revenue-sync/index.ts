@@ -660,7 +660,7 @@ serve(async (req) => {
   errors.push(...resErrors);
 
 
-  const allNights = Array.from(nightMap.values());
+  const allNights = Array.from(nightMap.values()).map(normaliseNight);
   const nights = allNights.filter((n) => !n.cancelled_at);
   const cancelledNights = allNights.filter((n) => !!n.cancelled_at);
 
