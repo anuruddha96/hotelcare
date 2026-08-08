@@ -41,11 +41,11 @@ Deno.serve(async (req) => {
 
     const { bucket, files }: DeleteRequest = await req.json();
 
-    if (!bucket || !files || files.length === 0) {
+    if (!bucket || !Array.isArray(files) || files.length === 0 || files.length > 1000) {
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: 'Bucket and files array are required' 
+          error: 'A bucket and a files array of 1-1000 paths are required' 
         }),
         {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -53,6 +53,21 @@ Deno.serve(async (req) => {
         }
       );
     }
+
+    if (!ALLOWED_BUCKETS.includes(bucket)) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Unsupported bucket' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      );
+    }
+
+    if (files.some((f) => typeof f !== 'string' || f.length === 0 || f.includes('..'))) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid file path in request' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      );
+    }
+
 
     console.log(`Deleting ${files.length} files from bucket: ${bucket}`);
 
