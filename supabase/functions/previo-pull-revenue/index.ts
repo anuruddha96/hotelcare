@@ -123,18 +123,32 @@ serve(async (req) => {
       orgSlug = (hc as any)?.organization_slug || "rdhotels";
     }
 
-    const { data: cfg } = await service
+    const { data: legacyCfg } = await service
       .from("pms_configurations")
       .select("id, hotel_id, pms_hotel_id, credentials_secret_name, is_active, settings")
       .eq("hotel_id", hotelId)
       .eq("pms_type", "previo")
       .maybeSingle();
-    if (!cfg || !cfg.is_active) {
+    const { data: portfolioAccounts } = await service
+      .from("pms_accounts")
+      .select("id, hotel_id, label, pms_hotel_id, credentials_secret_name, is_active, settings")
+      .eq("hotel_id", hotelId)
+      .eq("pms_type", "previo")
+      .eq("is_active", true);
+    const configs: any[] = (portfolioAccounts ?? []).length > 0
+      ? (portfolioAccounts ?? []).map((account: any) => ({
+          ...account,
+          credentials_secret_name: account.credentials_secret_name
+            || (Deno.env.get("PREVIO_CREDS_SLNT") ? "PREVIO_CREDS_SLNT" : null),
+        }))
+      : (legacyCfg?.is_active ? [legacyCfg] : []);
+    if (configs.length === 0 || configs.some((config) => !config.credentials_secret_name || !config.pms_hotel_id)) {
       return new Response(JSON.stringify({
         ok: true, supported: false,
-        message: `Live Previo revenue sync is only available for hotels with an active Previo PMS config — use XLSX upload for ${hotelId}.`,
+        message: `Live Previo revenue sync needs active, credentialed Previo accounts for ${hotelId}.`,
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+    const cfg = configs[0];
     const configuredPricelistId: string | null = (() => {
       const s: any = (cfg as any).settings || {};
       const v = s.previo_pricelist_id ?? s.previoPricelistId ?? null;
@@ -142,47 +156,38 @@ serve(async (req) => {
     })();
 
     // ---- 1. Total room inventory (denominator for occupancy) ----
-    const { response: roomsResp } = await fetchPrevioWithAuth({
-      credentialsSecretName: cfg.credentials_secret_name,
-      path: "/rest/rooms",
-      pmsHotelId: String(cfg.pms_hotel_id || ""),
-    });
-    if (!roomsResp.ok) {
-      const t = await roomsResp.text();
-      return new Response(
-        JSON.stringify({ ok: false, error: `Previo /rest/rooms ${roomsResp.status}: ${t.slice(0, 200)}` }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-    const previoRooms = await safePrevioJson<PrevioRoom[]>(roomsResp, { path: "/rest/rooms" });
-    const totalRooms = previoRooms.length;
+    const previoRooms: PrevioRoom[] = [];
 
     // ---- 2. Pull reservations for [today, today+days) via XML API ----
     const today = isoDate(new Date());
     const horizon = addDays(today, days);
 
-    const creds = loadPrevioCredentials(cfg.credentials_secret_name);
-    const xmlResult = await callPrevioXml({
-      method: "searchReservations",
-      creds,
-      pmsHotelId: String(cfg.pms_hotel_id || ""),
-      extraXml: `<term><from>${today}</from><to>${horizon}</to></term>`,
-    });
-    const xmlText = xmlResult.text;
-    if (!xmlResult.ok) {
-      return new Response(
-        JSON.stringify({ ok: false, error: `Previo XML ${xmlResult.status}: ${xmlResult.errorMessage || xmlText.slice(0, 200)}` }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
     const reservations: ParsedReservation[] = [];
-    const blocks = xmlText.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
     const grab = (s: string, tag: string) => {
       const m = s.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
       return m ? m[1].trim() : "";
     };
-    for (const block of blocks) {
+    const accountResults: Array<{ id: string; label: string; rooms: number; reservations: number }> = [];
+    for (const account of configs) {
+      const { response: roomsResp } = await fetchPrevioWithAuth({
+        credentialsSecretName: account.credentials_secret_name,
+        path: "/rest/rooms",
+        pmsHotelId: String(account.pms_hotel_id || ""),
+      });
+      if (!roomsResp.ok) throw new Error(`Previo ${account.label || account.pms_hotel_id} room list failed (${roomsResp.status})`);
+      const accountRooms = await safePrevioJson<PrevioRoom[]>(roomsResp, { path: "/rest/rooms" });
+      previoRooms.push(...accountRooms);
+      const accountCreds = loadPrevioCredentials(account.credentials_secret_name);
+      const xmlResult = await callPrevioXml({
+        method: "searchReservations",
+        creds: accountCreds,
+        pmsHotelId: String(account.pms_hotel_id || ""),
+        extraXml: `<term><from>${today}</from><to>${horizon}</to></term>`,
+      });
+      if (!xmlResult.ok) throw new Error(`Previo ${account.label || account.pms_hotel_id} reservations failed (${xmlResult.status})`);
+      const blocks = xmlResult.text.match(/<reservation>[\s\S]*?<\/reservation>/g) || [];
+      const before = reservations.length;
+      for (const block of blocks) {
       const fromStr = grab(block, "from");
       const toStr = grab(block, "to");
       if (!fromStr || !toStr) continue;
@@ -214,7 +219,16 @@ serve(async (req) => {
         note: noteMatch ? (noteMatch[1].trim() || null) : null,
         priceEur, nights,
       });
+      }
+      accountResults.push({
+        id: String(account.id),
+        label: String(account.label || account.pms_hotel_id),
+        rooms: accountRooms.length,
+        reservations: reservations.length - before,
+      });
     }
+    const totalRooms = previoRooms.length;
+    const creds = loadPrevioCredentials(cfg.credentials_secret_name);
 
     // ---- 2b. Pricelist XML (the prices visible in Previo's Pricelist screen) ----
     // Previo's working endpoint is `pricelist/getPriceList` and requires a
@@ -618,7 +632,7 @@ serve(async (req) => {
         sync_status: "success",
         changed_by: userId,
         data: {
-          days, totalRooms, reservations: reservations.length,
+           days, totalRooms, reservations: reservations.length, accounts: accountResults,
           occInserted, pickupInserted, breakfastUpserted,
           roomTypesSeeded, dailyRatesSeeded, dailyRatesPms, refPricesUpserted,
           minStaySynced,
@@ -642,6 +656,16 @@ serve(async (req) => {
         })
         .eq("hotel_id", hotelId).eq("pms_type", "previo");
     } catch { /* non-fatal */ }
+    if ((portfolioAccounts ?? []).length > 0) {
+      const nowIso = new Date().toISOString();
+      await service.from("pms_accounts").update({
+        last_sync_at: nowIso,
+        last_sync_success_at: nowIso,
+        last_sync_status: "success",
+        last_sync_error: null,
+        consecutive_failures: 0,
+      }).eq("hotel_id", hotelId).eq("pms_type", "previo").eq("is_active", true);
+    }
 
     // ---- 7. Chain autopilot tick (best-effort, non-blocking error) ----
     try {
@@ -652,7 +676,7 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        ok: true, supported: true, days, totalRooms,
+        ok: true, supported: true, days, totalRooms, accounts: accountResults,
         reservations: reservations.length,
         pricelist: { id: resolvedPricelistId, method: pricelistMethodUsed, entries: pricelistEntries.length, error: pricelistError, available: availablePricelists },
         upserts: {
