@@ -55,7 +55,7 @@ serve(async (req: Request) => {
     // Verify caller is admin, manager, or housekeeping_manager
     const { data: roleData, error: roleErr } = await supabase
       .from("profiles")
-      .select("role")
+      .select("role, organization_slug")
       .eq("id", caller.id)
       .maybeSingle();
 
@@ -68,6 +68,33 @@ serve(async (req: Request) => {
 
     // Service-role client for auth.admin operations
     const supabaseAdmin = createClient(supabaseUrl, serviceKey);
+
+    // Enforce tenant isolation: non-admins may only modify users in their own organization,
+    // and may never modify an admin account.
+    const { data: targetScope, error: targetScopeErr } = await supabaseAdmin
+      .from('profiles')
+      .select('role, organization_slug')
+      .eq('id', target_user_id)
+      .maybeSingle();
+
+    if (targetScopeErr || !targetScope) {
+      return new Response(JSON.stringify({ error: "Target user not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
+    if (roleData.role !== 'admin') {
+      const sameOrg = !!roleData.organization_slug &&
+        roleData.organization_slug === targetScope.organization_slug;
+      if (!sameOrg || targetScope.role === 'admin') {
+        return new Response(JSON.stringify({ error: "Forbidden" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        });
+      }
+    }
+
 
     // Normalize inputs (treat empty strings as undefined)
     const emailInput = new_email && new_email.trim().length > 0 ? new_email.trim() : undefined;
