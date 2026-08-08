@@ -78,6 +78,7 @@ export default function RevenueHotelDetail() {
   const { organizationSlug, hotelId } = useParams<{ organizationSlug: string; hotelId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  useRevenueCurrency(); // re-render the whole page when the Ft/€ switch flips
 
   const [hotelName, setHotelName] = useState("");
   const [snapshots, setSnapshots] = useState<Snap[]>([]);
