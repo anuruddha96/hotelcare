@@ -1009,10 +1009,38 @@ export default function RateStrategyGrid({
               These prices are written to Previo immediately and become live for guests.
               Anything that fails stays here with its error so you can retry.
             </p>
-            <p className="text-xs rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5">
-              Writing prices back requires Previo to enable rate-write access for this property.
-              Until they confirm the endpoint, pushes will fail with a Previo error and your drafts stay safe here.
-            </p>
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 space-y-1.5">
+              <p className="text-xs">
+                Prices are written back through Previo's rate-write call. Some Previo accounts have that
+                scope switched off — the check below writes a date's current price back to itself
+                (changing nothing) and reports exactly what Previo answers.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm" variant="outline" className="h-7 text-[11px]"
+                  disabled={probing}
+                  onClick={() => void checkWriteAccess()}
+                >
+                  {probing && <Loader2 className="h-3 w-3 animate-spin mr-1" />}Check write access
+                </Button>
+                {probe && (
+                  <span className={`text-[11px] ${probe.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                    {probe.message}
+                  </span>
+                )}
+              </div>
+              {probe?.support && (
+                <textarea
+                  readOnly
+                  rows={4}
+                  value={probe.support}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="w-full rounded border bg-background p-1.5 text-[10px] font-mono"
+                  aria-label="Message to send to Previo support"
+                />
+              )}
+            </div>
+
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPushOpen(false)}>Cancel</Button>
