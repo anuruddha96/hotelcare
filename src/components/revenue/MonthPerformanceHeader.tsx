@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ChevronLeft, ChevronRight, BedDouble, Coins, Gauge, DoorOpen, TrendingUp, TrendingDown, Info } from "lucide-react";
 import { formatMonth, type DayMetrics } from "@/lib/revenueAnalytics";
-import { money, eurEquivalent, getRevenueCurrency, setRevenueCurrency, isForeignCurrency } from "@/lib/revenueCurrency";
+import { money, eurEquivalent, setRevenueCurrency, setDisplayCurrency, currencySymbol, useRevenueCurrency, isForeignCurrency } from "@/lib/revenueCurrency";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -83,7 +83,7 @@ export default function MonthPerformanceHeader({
   canEdit?: boolean;
 }) {
   const [month, setMonth] = useState(() => monthKey(today));
-  const currency = getRevenueCurrency();
+  const currency = useRevenueCurrency();
   const [rateInput, setRateInput] = useState(currency.eurRate ? String(currency.eurRate) : "");
 
   useEffect(() => {
@@ -178,8 +178,27 @@ export default function MonthPerformanceHeader({
 
         {isForeignCurrency() && (
           <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-2 py-1.5 text-[11px]">
-            <span className="font-medium">Prices in {currency.code}</span>
-            <span className="text-muted-foreground">as published by the PMS</span>
+            <span className="font-medium">Show prices in</span>
+            <div className="flex rounded-md border overflow-hidden">
+              {[currency.code, "EUR"].map((c) => {
+                const disabled = c === "EUR" && !(currency.eurRate && currency.eurRate > 0);
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => setDisplayCurrency(c, hotelId)}
+                    className={`px-2 py-0.5 text-[11px] ${currency.displayCode === c ? "bg-primary text-primary-foreground" : disabled ? "opacity-40" : "hover:bg-muted"}`}
+                  >
+                    {c === "EUR" ? "€ EUR" : `${currencySymbol(c)} ${c}`}
+                  </button>
+                );
+              })}
+            </div>
+            <span className="text-muted-foreground">
+              PMS publishes {currency.code}
+              {currency.displayCode === "EUR" ? " · converted at the rate below" : ""}
+            </span>
             {canEdit ? (
               <span className="flex items-center gap-1">
                 <span className="text-muted-foreground">1 € =</span>
@@ -197,7 +216,7 @@ export default function MonthPerformanceHeader({
             ) : currency.eurRate ? (
               <span className="text-muted-foreground">1 € = {currency.eurRate} {currency.code}</span>
             ) : (
-              <span className="text-muted-foreground">no euro rate set</span>
+              <span className="text-muted-foreground">no euro rate set — ask an admin</span>
             )}
           </div>
         )}

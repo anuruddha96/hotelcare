@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { money } from "@/lib/revenueCurrency";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -113,7 +114,7 @@ export default function AnalystPanel({ hotelId, onAfterRun }: { hotelId: string;
                     </div>
                   </div>
                   <Badge variant={e.acted ? "default" : "secondary"}>
-                    {e.acted ? `+€${e.recommended_increase_eur}` : "queued"}
+                    {e.acted ? `+${money(e.recommended_increase_eur)}` : "queued"}
                   </Badge>
                 </div>
               ))}
@@ -143,11 +144,11 @@ export default function AnalystPanel({ hotelId, onAfterRun }: { hotelId: string;
                       <Badge variant="outline" className="text-[10px]">{d.decision_type}</Badge>
                       {d.delta_eur != null && (
                         <span className={`text-xs font-semibold ${Number(d.delta_eur) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                          {Number(d.delta_eur) > 0 ? "+" : ""}{d.delta_eur}€
+                          {Number(d.delta_eur) > 0 ? "+" : ""}{money(Number(d.delta_eur))}
                         </span>
                       )}
                       {d.before_rate_eur != null && d.after_rate_eur != null && (
-                        <span className="text-xs text-muted-foreground">€{d.before_rate_eur} → €{d.after_rate_eur}</span>
+                        <span className="text-xs text-muted-foreground">{money(d.before_rate_eur)} → {money(d.after_rate_eur)}</span>
                       )}
                     </div>
                     {d.reason && <div className="text-xs text-muted-foreground mt-0.5">{d.reason}</div>}

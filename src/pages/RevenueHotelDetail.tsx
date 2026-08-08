@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 import { computeSuggestedRate, type PricingMultipliers, type EngineSettings, leadTimeBucket, DOW_NAMES, MONTH_NAMES, LEAD_LABELS } from "@/lib/revenuePricing";
-import { setRevenueCurrency } from "@/lib/revenueCurrency";
+import { setRevenueCurrency, useRevenueCurrency, money, getRevenueCurrency } from "@/lib/revenueCurrency";
 import RoomsSetupTab from "@/components/revenue/settings/RoomsSetupTab";
 import PercentAdjustmentTab from "@/components/revenue/settings/PercentAdjustmentTab";
 import { CalendarYearView, CalendarQuarterView } from "@/components/revenue/CalendarYearView";
@@ -78,6 +78,7 @@ export default function RevenueHotelDetail() {
   const { organizationSlug, hotelId } = useParams<{ organizationSlug: string; hotelId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  useRevenueCurrency(); // re-render the whole page when the Ft/€ switch flips
 
   const [hotelName, setHotelName] = useState("");
   const [snapshots, setSnapshots] = useState<Snap[]>([]);
@@ -264,6 +265,7 @@ export default function RevenueHotelDetail() {
     // Money on this page is whatever the PMS publishes (HUF for SLNT, EUR for
     // Ottofiori) — configure the formatter before anything renders numbers.
     setRevenueCurrency({
+      hotelId: hotelId ?? undefined,
       code: (st as any)?.base_currency ?? "EUR",
       eurRate: (st as any)?.eur_conversion_rate ?? null,
       eurRateSource: (st as any)?.eur_rate_source ?? null,
@@ -613,7 +615,7 @@ export default function RevenueHotelDetail() {
           </div>
           <div>
             <span className="text-muted-foreground">Base reference price: </span>
-            <span className="font-bold text-base">€{refRoomInfo.base_price_eur}</span>
+            <span className="font-bold text-base">{money(refRoomInfo.base_price_eur)}</span>
             <span className="text-muted-foreground text-xs"> / night</span>
           </div>
         </div>
@@ -773,7 +775,7 @@ export default function RevenueHotelDetail() {
           {selectedRow && (
             <div className="space-y-4 mt-4 text-sm">
               <div className="grid grid-cols-2 gap-2">
-                <Stat label="Current rate" value={selectedRow.rate != null ? `€${selectedRow.rate}` : "—"} />
+                <Stat label="Current rate" value={selectedRow.rate != null ? money(selectedRow.rate) : "—"} />
                 <Stat label="Occupancy" value={selectedRow.occupancy != null ? `${selectedRow.occupancy}%` : "—"} />
                 <Stat label="Pickup Δ" value={`${selectedRow.pickupDelta>0?"+":""}${selectedRow.pickupDelta}`}
                   positive={selectedRow.pickupDelta>0} negative={selectedRow.pickupDelta<0} />
@@ -802,16 +804,16 @@ export default function RevenueHotelDetail() {
                     Pending recommendation
                   </div>
                   <div className="text-2xl font-bold">
-                    €{selectedRow.rec.recommended_rate_eur}
+                    {money(selectedRow.rec.recommended_rate_eur)}
                     <span className={`text-sm ml-2 ${selectedRow.rec.delta_eur>=0?"text-green-600":"text-red-600"}`}>
-                      ({selectedRow.rec.delta_eur>0?"+":""}{selectedRow.rec.delta_eur}€)
+                      ({selectedRow.rec.delta_eur>0?"+":""}{money(selectedRow.rec.delta_eur)})
                     </span>
                   </div>
                   <div className="text-xs text-muted-foreground">{selectedRow.rec.reason}</div>
                   <div className="flex gap-2">
                     <Button size="sm" onClick={() => approve(selectedRow.rec!)}><Check className="h-4 w-4 mr-1" />Approve</Button>
                     <Button size="sm" variant="outline" onClick={async () => {
-                      const v = prompt("New rate €", String(selectedRow.rec!.recommended_rate_eur));
+                      const v = prompt(`New rate (${getRevenueCurrency().code})`, String(selectedRow.rec!.recommended_rate_eur));
                       if (!v) return;
                       const newRate = parseFloat(v);
                       if (Number.isNaN(newRate)) return;
@@ -838,9 +840,9 @@ export default function RevenueHotelDetail() {
                 <div className="rounded border p-3 space-y-2">
                   <div className="font-semibold">Engine suggests</div>
                   <div className="text-2xl font-bold">
-                    €{selectedRow.suggestedRate}
+                    {money(selectedRow.suggestedRate)}
                     <span className={`text-sm ml-2 ${selectedRow.suggestedDelta!>=0?"text-green-600":"text-red-600"}`}>
-                      ({selectedRow.suggestedDelta!>0?"+":""}{selectedRow.suggestedDelta}€)
+                      ({selectedRow.suggestedDelta!>0?"+":""}{money(selectedRow.suggestedDelta)})
                     </span>
                   </div>
                   <Button size="sm" onClick={() => createRecFromSuggestion(selectedRow)}>
@@ -931,7 +933,7 @@ function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect, showYoyMom
                 {/* Rate row */}
                 <div className="mt-1 flex items-baseline gap-1">
                   <div className="text-base font-bold leading-none">
-                    {r?.rate != null ? `€${r.rate}` : <span className="text-muted-foreground text-sm font-normal">—</span>}
+                    {r?.rate != null ? money(r.rate) : <span className="text-muted-foreground text-sm font-normal">—</span>}
                   </div>
                   {r?.rate != null && (
                     <span className={`text-[9px] uppercase tracking-wide ${srcMeta.cls}`} title={srcMeta.title}>
@@ -943,14 +945,14 @@ function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect, showYoyMom
                   <div className={`mt-0.5 inline-flex items-center gap-1 text-[10px] px-1 py-0.5 rounded
                     ${r.rec.delta_eur>=0?"bg-green-100 text-green-800":"bg-red-100 text-red-700"}`}>
                     {r.rec.delta_eur>=0 ? <TrendingUp className="h-2.5 w-2.5"/> : <TrendingDown className="h-2.5 w-2.5"/>}
-                    €{r.rec.recommended_rate_eur}
+                    {money(r.rec.recommended_rate_eur)}
                   </div>
                 )}
                 {!r?.rec && r?.suggestedRate != null && (
                   <div className={`mt-0.5 inline-flex items-center gap-1 text-[10px] px-1 py-0.5 rounded border
                     ${r.suggestedDelta>=0?"text-green-700 border-green-300":"text-red-700 border-red-300"}`}>
                     {r.suggestedDelta>=0 ? <TrendingUp className="h-2.5 w-2.5"/> : <TrendingDown className="h-2.5 w-2.5"/>}
-                    €{r.suggestedRate}
+                    {money(r.suggestedRate)}
                   </div>
                 )}
 
@@ -988,7 +990,7 @@ function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect, showYoyMom
                   const momDate = new Date(cellDate); momDate.setUTCDate(momDate.getUTCDate() - 30);
                   const yoyIso = yoyDate.toISOString().slice(0, 10);
                   const momIso = momDate.toISOString().slice(0, 10);
-                  const fmtDelta = (n: number | null) => n == null ? "—" : `${n >= 0 ? "+" : ""}€${Math.round(n)}`;
+                  const fmtDelta = (n: number | null) => n == null ? "—" : `${n >= 0 ? "+" : ""}${money(n)}`;
                   const fmtPp = (n: number | null) => n == null ? "" : ` / ${n >= 0 ? "+" : ""}${Math.round(n)}pp`;
                   return (
                     <div className="mt-1 flex flex-wrap gap-1">
@@ -998,8 +1000,8 @@ function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect, showYoyMom
                         const positive = (dRate ?? 0) >= 0 && (dOcc ?? 0) >= 0;
                         const tip = [
                           `Year-over-year vs ${yoyIso}`,
-                          `This day: €${r.rate ?? "—"} · ${r.occupancy != null ? Math.round(r.occupancy) + "%" : "—"} occ`,
-                          `Last year: €${r.yoyRate ?? "—"} · ${r.yoyOcc != null ? Math.round(r.yoyOcc) + "%" : "—"} occ`,
+                          `This day: ${money(r.rate)} · ${r.occupancy != null ? Math.round(r.occupancy) + "%" : "—"} occ`,
+                          `Last year: ${money(r.yoyRate)} · ${r.yoyOcc != null ? Math.round(r.yoyOcc) + "%" : "—"} occ`,
                           `Δ rate ${fmtDelta(dRate)}${dOcc != null ? `, Δ occ ${dOcc >= 0 ? "+" : ""}${Math.round(dOcc)}pp` : ""}`,
                         ].join("\n");
                         return (
@@ -1016,8 +1018,8 @@ function CalendarGrid({ days, rowsByDate, inMonth, variant, onSelect, showYoyMom
                         const positive = (dRate ?? 0) >= 0 && (dOcc ?? 0) >= 0;
                         const tip = [
                           `Month-over-month vs ${momIso}`,
-                          `This day: €${r.rate ?? "—"} · ${r.occupancy != null ? Math.round(r.occupancy) + "%" : "—"} occ`,
-                          `30 days ago: €${r.momRate ?? "—"} · ${r.momOcc != null ? Math.round(r.momOcc) + "%" : "—"} occ`,
+                          `This day: ${money(r.rate)} · ${r.occupancy != null ? Math.round(r.occupancy) + "%" : "—"} occ`,
+                          `30 days ago: ${money(r.momRate)} · ${r.momOcc != null ? Math.round(r.momOcc) + "%" : "—"} occ`,
                           `Δ rate ${fmtDelta(dRate)}${dOcc != null ? `, Δ occ ${dOcc >= 0 ? "+" : ""}${Math.round(dOcc)}pp` : ""}`,
                         ].join("\n");
                         return (
@@ -1362,7 +1364,7 @@ function BulkEditDialog({ open, onClose, hotelId, orgSlug, userId, rowsByDate, o
       recs.push({
         hotel_id: hotelId, organization_slug: orgSlug, stay_date: date,
         current_rate_eur: row.rate, recommended_rate_eur: newRate, delta_eur: delta,
-        reason: `Bulk edit: ${mode==="percent"?`${amount>0?"+":""}${amount}%`:`${amount>0?"+":""}€${amount}`}`,
+        reason: `Bulk edit: ${mode==="percent"?`${amount>0?"+":""}${amount}%`:`${amount>0?"+":""}${amount} ${getRevenueCurrency().code}`}`,
         status: "approved", reviewed_by: userId, reviewed_at: new Date().toISOString(),
       });
     }
@@ -1396,12 +1398,12 @@ function BulkEditDialog({ open, onClose, hotelId, orgSlug, userId, rowsByDate, o
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="percent">Percent (%)</SelectItem>
-                  <SelectItem value="absolute">Absolute (€)</SelectItem>
+                  <SelectItem value="absolute">Absolute ({getRevenueCurrency().code})</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label>Amount {mode === "percent" ? "(%)" : "(€)"}</Label>
+              <Label>Amount {mode === "percent" ? "(%)" : `(${getRevenueCurrency().code})`}</Label>
               <Input type="number" value={amount} onChange={e => setAmount(parseFloat(e.target.value)||0)} />
             </div>
           </div>

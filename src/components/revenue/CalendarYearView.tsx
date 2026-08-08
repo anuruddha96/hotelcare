@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { money } from "@/lib/revenueCurrency";
 
 export interface MiniDay {
   date: string;
@@ -60,7 +61,7 @@ function MiniMonth({ month, rowsByDate, onSelect }: { month: Date; rowsByDate: M
               type="button"
               onClick={() => inMonth && onSelect(date)}
               disabled={!inMonth}
-              title={inMonth && r?.rate != null ? `${date} · €${r.rate}${delta ? ` (${delta>0?'+':''}${delta})` : ""}` : ""}
+              title={inMonth && r?.rate != null ? `${date} · ${money(r.rate)}${delta ? ` (${delta>0?'+':''}${delta})` : ""}` : ""}
               className={`aspect-square rounded-sm text-[9px] font-medium flex items-center justify-center transition
                 ${inMonth ? "hover:ring-1 hover:ring-primary cursor-pointer" : "opacity-20"}
                 ${bg}
