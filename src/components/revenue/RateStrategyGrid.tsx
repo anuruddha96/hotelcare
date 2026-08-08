@@ -243,17 +243,18 @@ export default function RateStrategyGrid({
     return out;
   }, [pricedTypes, priceMap, language]);
 
-  /** Load pending drafts so edited cells show their new price immediately. */
+  /** Load pending + failed drafts so nothing silently disappears after a push. */
   const refreshDrafts = useCallback(async () => {
     if (!hotelId) return;
     const { data } = await supabase
       .from("revenue_rate_drafts")
-      .select("id, stay_date, room_type_name, occupancy, old_price, new_price")
+      .select("id, stay_date, room_type_name, occupancy, old_price, new_price, status, push_error")
       .eq("hotel_id", hotelId)
-      .eq("status", "draft")
+      .in("status", ["draft", "failed"])
       .order("stay_date");
     const rows = (data ?? []) as PendingDraft[];
     setPending(rows);
+
     const m = new Map<string, number>();
     for (const d of rows) {
       m.set(`${d.stay_date}|${d.room_type_name}|${d.occupancy}`, Number(d.new_price));
