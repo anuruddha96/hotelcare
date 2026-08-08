@@ -208,7 +208,16 @@ function parseReservationNights(xml: string, from: string, to: string): Night[] 
     const nights = Math.max(1, daysBetween(stayFrom, stayTo));
     const total = parseFloat(grab(r, "price") ?? "");
     const nightly = Number.isFinite(total) ? Math.round((total / nights) * 100) / 100 : null;
+    // Previo prices OTA bookings in the channel's currency, so a HUF property
+    // still receives euro amounts. Capture whatever currency it declares.
+    const currencyRaw =
+      grab(r, "currency") ?? grab(r, "currencyCode") ?? grab(r, "curr") ??
+      grabAttr(r, "price", "currency") ?? grabAttr(r, "price", "code") ?? null;
+    const sourceCurrency = currencyRaw
+      ? (currencyRaw.replace(/<[^>]*>/g, "").trim().toUpperCase() || null)
+      : null;
     const guests = blocks(r, "guest").length || 1;
+
     const obkId = grab(grab(r, "objectKind") ?? "", "obkId") ?? grab(r, "obkId");
     const objId = grab(grab(r, "object") ?? "", "objId") ?? grab(r, "objId");
     const created = pmsTimestampToIso(grab(r, "created"));
