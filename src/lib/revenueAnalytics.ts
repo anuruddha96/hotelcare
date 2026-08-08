@@ -7,6 +7,8 @@
 //
 // All calendar maths is done in Budapest time, matching the property clock.
 
+import { money } from "@/lib/revenueCurrency";
+
 export const BUDAPEST_TZ = "Europe/Budapest";
 
 export function budapestToday(): string {
