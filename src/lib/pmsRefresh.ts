@@ -379,6 +379,7 @@ export async function runPmsRefresh(
       for (const r of (rosterRooms ?? []) as any[]) {
         resolverEntries.push({ roomId: r.id as string, names: [r.room_number] });
       }
+      appUnitCount = (rosterRooms ?? []).length;
     }
   } catch (e) {
     console.warn("[pmsRefresh] unit alias map unavailable:", e);
