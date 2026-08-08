@@ -8,6 +8,7 @@ import { Bar, CartesianGrid, Cell, ComposedChart, LabelList, Legend, Line, Refer
 import { Activity } from "lucide-react";
 import type { DayMetrics } from "@/lib/revenueAnalytics";
 import { budapestToday, daysBetween } from "@/lib/revenueAnalytics";
+import { money } from "@/lib/revenueCurrency";
 
 const RANGES = [
   { value: 14, label: "14d" },
@@ -197,7 +198,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                 contentStyle={{ fontSize: 11, padding: "4px 8px" }}
                 formatter={(value: unknown, name: string) => {
                   if (name === "Occupancy") return [`${value}%`, name];
-                  if (name === "ADR") return [`€${value}`, name];
+                  if (name === "ADR") return [money(Number(value)), name];
                   const n = value as number;
                   return [`${n > 0 ? "+" : ""}${n} room${Math.abs(n) === 1 ? "" : "s"}`, name];
                 }}
@@ -217,7 +218,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                 ]}
               />
               <Bar yAxisId="pickup" dataKey="pickup" name="Pickup" radius={[2, 2, 0, 0]} maxBarSize={18} minPointSize={3}
-                fill={PICKUP_LEGEND_COLOR} isAnimationActive={false}>
+                fill={PICKUP_LEGEND_COLOR} isAnimationActive animationDuration={550}>
                 {data.map((d) => <Cell key={d.date} fill={barColor(d.pickup)} />)}
                 {showLabels && (
                   <LabelList
