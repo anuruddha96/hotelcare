@@ -345,6 +345,10 @@ export async function runPmsRefresh(
   const resolverEntries: Array<{ roomId: string; names: Array<string | null | undefined>; externalIds?: Array<string | null | undefined> }> = [];
   const mappingIdByRoomId = new Map<string, string>();
   let portfolioMode = false;
+  // Number of units this tenant actually has in Hotel Care. For portfolio
+  // tenants (SLNT) this — not the number of Previo listing rows — is the
+  // denominator of the "x/y rooms" counter.
+  let appUnitCount = 0;
   try {
     const { data: unitMaps } = await supabase
       .from("pms_unit_mappings")
