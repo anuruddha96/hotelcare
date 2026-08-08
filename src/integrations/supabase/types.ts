@@ -1593,10 +1593,14 @@ export type Database = {
           auto_apply: boolean
           auto_push_to_pms: boolean
           autopilot_enabled: boolean
+          base_currency: string
           created_at: string
           decay_window_days: number
           decrease_interval_hours: number
           engine_uses_room_setup: boolean
+          eur_conversion_rate: number | null
+          eur_rate_source: string | null
+          eur_rate_updated_at: string | null
           floor_price_eur: number
           hotel_id: string
           is_engine_enabled: boolean
@@ -1627,10 +1631,14 @@ export type Database = {
           auto_apply?: boolean
           auto_push_to_pms?: boolean
           autopilot_enabled?: boolean
+          base_currency?: string
           created_at?: string
           decay_window_days?: number
           decrease_interval_hours?: number
           engine_uses_room_setup?: boolean
+          eur_conversion_rate?: number | null
+          eur_rate_source?: string | null
+          eur_rate_updated_at?: string | null
           floor_price_eur?: number
           hotel_id: string
           is_engine_enabled?: boolean
@@ -1661,10 +1669,14 @@ export type Database = {
           auto_apply?: boolean
           auto_push_to_pms?: boolean
           autopilot_enabled?: boolean
+          base_currency?: string
           created_at?: string
           decay_window_days?: number
           decrease_interval_hours?: number
           engine_uses_room_setup?: boolean
+          eur_conversion_rate?: number | null
+          eur_rate_source?: string | null
+          eur_rate_updated_at?: string | null
           floor_price_eur?: number
           hotel_id?: string
           is_engine_enabled?: boolean

@@ -530,6 +530,31 @@ serve(async (req) => {
     if (error) errors.push(`rates upsert: ${error.message}`);
   }
 
+  // Record the currency Previo actually publishes for this hotel, so the app
+  // stops labelling forints as euros. Majority vote across the rate rows.
+  try {
+    const tally = new Map<string, number>();
+    for (const r of dedupedRates.values()) {
+      const c = (r.currency || "").toUpperCase();
+      if (!c) continue;
+      tally.set(c, (tally.get(c) ?? 0) + 1);
+    }
+    let detected: string | null = null;
+    let best = 0;
+    for (const [c, n] of tally) if (n > best) { best = n; detected = c; }
+    if (detected) {
+      await service
+        .from("hotel_revenue_settings")
+        .update({ base_currency: detected })
+        .eq("hotel_id", hotelId)
+        .neq("base_currency", detected);
+    }
+  } catch (e) {
+    errors.push(`currency detection: ${(e as Error).message}`);
+  }
+
+
+
   // ---------- 3. reservations -> booking nights ----------
   const resErrors: string[] = [];
   const nightMap = new Map<string, Night>();

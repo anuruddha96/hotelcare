@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { addDays, budapestDayOf, eur } from "@/lib/revenueAnalytics";
+import { currencySymbol } from "@/lib/revenueCurrency";
 
 /* ------------------------------------------------------------------ types */
 
@@ -549,10 +550,10 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="pt-2 grid grid-cols-2 gap-2">
-            <GoalInput label="Target ADR (€)" value={goals.targetAdr} onChange={(v) => saveGoals({ ...goals, targetAdr: v })} />
+            <GoalInput label={`Target ADR (${currencySymbol()})`} value={goals.targetAdr} onChange={(v) => saveGoals({ ...goals, targetAdr: v })} />
             <GoalInput label="Room-night target" value={goals.targetRoomNights} onChange={(v) => saveGoals({ ...goals, targetRoomNights: v })} />
-            <GoalInput label="Booking value target (€)" value={goals.targetValue} onChange={(v) => saveGoals({ ...goals, targetValue: v })} />
-            <GoalInput label="Max promotion budget (€)" value={goals.promoBudget} onChange={(v) => saveGoals({ ...goals, promoBudget: v })} />
+            <GoalInput label={`Booking value target (${currencySymbol()})`} value={goals.targetValue} onChange={(v) => saveGoals({ ...goals, targetValue: v })} />
+            <GoalInput label={`Max promotion budget (${currencySymbol()})`} value={goals.promoBudget} onChange={(v) => saveGoals({ ...goals, promoBudget: v })} />
             <p className="col-span-2 text-[11px] text-muted-foreground">Saved on this device as your default goals.</p>
           </CollapsibleContent>
         </Collapsible>
@@ -596,7 +597,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                 className={adrTone === "good" ? "[&>div]:bg-emerald-500" : adrTone === "warn" ? "[&>div]:bg-amber-500" : "[&>div]:bg-red-500"}
               />
               <div className="flex justify-between text-[11px] text-muted-foreground">
-                <span>€0</span>
+                <span>{eur(0)}</span>
                 <span>{kpi.adr === null ? "—" : `${pct(kpi.adrGoalPct)} of ADR goal achieved`}</span>
                 <span>{eur(goals.targetAdr)}{kpi.adrGoalPct > 100 ? "+" : ""}</span>
               </div>

@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 import { computeSuggestedRate, type PricingMultipliers, type EngineSettings, leadTimeBucket, DOW_NAMES, MONTH_NAMES, LEAD_LABELS } from "@/lib/revenuePricing";
+import { setRevenueCurrency } from "@/lib/revenueCurrency";
 import RoomsSetupTab from "@/components/revenue/settings/RoomsSetupTab";
 import PercentAdjustmentTab from "@/components/revenue/settings/PercentAdjustmentTab";
 import { CalendarYearView, CalendarQuarterView } from "@/components/revenue/CalendarYearView";
@@ -260,6 +261,13 @@ export default function RevenueHotelDetail() {
     setMinStays((ms ?? []) as MinStay[]);
     setAbnormalDates(new Set((alerts ?? []).map((a: any) => a.stay_date)));
     setSettings(st as any);
+    // Money on this page is whatever the PMS publishes (HUF for SLNT, EUR for
+    // Ottofiori) — configure the formatter before anything renders numbers.
+    setRevenueCurrency({
+      code: (st as any)?.base_currency ?? "EUR",
+      eurRate: (st as any)?.eur_conversion_rate ?? null,
+      eurRateSource: (st as any)?.eur_rate_source ?? null,
+    });
 
     // Latest occupancy snapshot per date (occSnaps already ordered desc by captured_at).
     const occMap = new Map<string, { occupancy_pct: number; rooms_sold: number }>();
@@ -622,13 +630,16 @@ export default function RevenueHotelDetail() {
           <TabsTrigger value="syncs"><HistoryIcon className="h-4 w-4 mr-1" />Sync history</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="grid" className="space-y-3">
-          {/* Decisions first: month performance, then tonight, then outlook */}
+        <TabsContent value="grid" className="space-y-3 min-w-0 overflow-x-hidden">
+          {/* Order: headline analytics → today's performance → rate & pickup
+              calendar → horizon → what moved → AI analysis last. */}
           <MonthPerformanceHeader
             today={live.today}
             metrics={live.metrics}
             pickupWindowDays={pickupWindow}
             onPickupWindowChange={setPickupWindow}
+            hotelId={hotelId ?? null}
+            canEdit={revAdmin}
           />
           <RevenuePulsePanel
             today={live.today}
@@ -636,10 +647,7 @@ export default function RevenueHotelDetail() {
             roomsAvailable={live.roomsAvailable}
             thresholds={live.thresholds}
           />
-          <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] items-start">
-            <RevenueIntelligencePanel hotelId={hotelId ?? null} />
-            <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
-          </div>
+          <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
           <RateStrategyGrid
             loading={live.loading}
             today={live.today}
@@ -656,11 +664,13 @@ export default function RevenueHotelDetail() {
             leftByTypeDate={leftByTypeDate}
           />
           <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
-          {/* Detail last */}
           <PickupMovementBoard metrics={live.metrics} windowDays={pickupWindow} />
+          {/* AI analysis at the bottom */}
+          <RevenueIntelligencePanel hotelId={hotelId ?? null} />
 
           {live.error && <p className="text-sm text-destructive">{live.error}</p>}
         </TabsContent>
+
 
 
 

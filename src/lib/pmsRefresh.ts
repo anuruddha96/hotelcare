@@ -345,6 +345,10 @@ export async function runPmsRefresh(
   const resolverEntries: Array<{ roomId: string; names: Array<string | null | undefined>; externalIds?: Array<string | null | undefined> }> = [];
   const mappingIdByRoomId = new Map<string, string>();
   let portfolioMode = false;
+  // Number of units this tenant actually has in Hotel Care. For portfolio
+  // tenants (SLNT) this — not the number of Previo listing rows — is the
+  // denominator of the "x/y rooms" counter.
+  let appUnitCount = 0;
   try {
     const { data: unitMaps } = await supabase
       .from("pms_unit_mappings")
@@ -375,6 +379,7 @@ export async function runPmsRefresh(
       for (const r of (rosterRooms ?? []) as any[]) {
         resolverEntries.push({ roomId: r.id as string, names: [r.room_number] });
       }
+      appUnitCount = (rosterRooms ?? []).length;
     }
   } catch (e) {
     console.warn("[pmsRefresh] unit alias map unavailable:", e);
@@ -1152,7 +1157,9 @@ export async function runPmsRefresh(
           trigger,
           updated,
           notFound,
-          total: portfolioMode ? consideredRows : rows.length,
+          total: portfolioMode ? (appUnitCount || consideredRows) : rows.length,
+          previoRows: portfolioMode ? consideredRows : rows.length,
+          unmappedListings: portfolioMode ? unmatchedRoomNumbers.length : undefined,
 
           checkouts,
           dailyCount: dailyRoomNumbers.length,
@@ -1173,7 +1180,7 @@ export async function runPmsRefresh(
   }
 
   return {
-    status, updated, total: portfolioMode ? consideredRows : rows.length, notFound, checkouts, errors,
+    status, updated, total: portfolioMode ? (appUnitCount || consideredRows) : rows.length, notFound, checkouts, errors,
     managerMessage: reservationManagerMessage,
     reservationDataAuthoritative,
     reservationIssue,
