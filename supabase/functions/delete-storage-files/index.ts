@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.4';
+import { requireRole } from '../_shared/requireAdmin.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -10,9 +11,19 @@ interface DeleteRequest {
   files: string[];
 }
 
+const ALLOWED_BUCKETS = ['room-photos', 'dnd-photos', 'ticket-attachments', 'hotel-assets'];
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
+  }
+
+  const auth = await requireRole(req, ['admin']);
+  if (!auth.ok) {
+    return new Response(JSON.stringify({ success: false, error: auth.error }), {
+      status: auth.status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
   }
 
   try {
@@ -27,13 +38,14 @@ Deno.serve(async (req) => {
       }
     );
 
+
     const { bucket, files }: DeleteRequest = await req.json();
 
-    if (!bucket || !files || files.length === 0) {
+    if (!bucket || !Array.isArray(files) || files.length === 0 || files.length > 1000) {
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: 'Bucket and files array are required' 
+          error: 'A bucket and a files array of 1-1000 paths are required' 
         }),
         {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -41,6 +53,21 @@ Deno.serve(async (req) => {
         }
       );
     }
+
+    if (!ALLOWED_BUCKETS.includes(bucket)) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Unsupported bucket' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      );
+    }
+
+    if (files.some((f) => typeof f !== 'string' || f.length === 0 || f.includes('..'))) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Invalid file path in request' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+      );
+    }
+
 
     console.log(`Deleting ${files.length} files from bucket: ${bucket}`);
 

@@ -6322,6 +6322,7 @@ export type Database = {
         Returns: Json
       }
       purge_old_daily_overview_snapshots: { Args: never; Returns: number }
+      run_auto_signout: { Args: never; Returns: number }
       slnt_venue_visible: {
         Args: { _user_id: string; _venue_id: string }
         Returns: boolean

@@ -40,12 +40,20 @@ const handler = async (req: Request): Promise<Response> => {
       .eq('email', email)
       .single();
 
+    // Generic response prevents account enumeration through this endpoint.
+    const genericResponse = () => new Response(
+      JSON.stringify({
+        success: true,
+        message: "If an account exists for that email address, a password reset email has been sent.",
+      }),
+      { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+    );
+
     if (profileError || !profile) {
-      return new Response(JSON.stringify({ error: "No account found with this email address" }), {
-        status: 404,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
+      console.log('Password reset requested for unknown address');
+      return genericResponse();
     }
+
 
     // Generate password reset link
     const redirectUrl = `${Deno.env.get("SITE_URL") || "http://localhost:3000"}/auth?mode=recovery`;

@@ -40,12 +40,20 @@ const handler = async (req: Request): Promise<Response> => {
       .ilike('email', email)
       .single();
 
+    // Generic response prevents account enumeration through this endpoint.
+    const genericResponse = () => new Response(
+      JSON.stringify({
+        success: true,
+        message: "If an account exists for that email address, a login link has been sent.",
+      }),
+      { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+    );
+
     if (profileError || !profile) {
-      return new Response(JSON.stringify({ error: "No account found with this email address" }), {
-        status: 404,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
+      console.log('Login link requested for unknown address');
+      return genericResponse();
     }
+
 
     // Generate one-time login link using Supabase Admin API
     const { data: linkData, error: linkError } = await supabase.auth.admin.generateLink({

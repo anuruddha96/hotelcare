@@ -84,7 +84,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Non-admin managers can only reset passwords for housekeeping staff in their hotel
+    // Non-admin managers can only reset passwords for housekeeping staff in their own hotel
     if (callerProfile.role !== 'admin') {
       // Check if target is a housekeeper
       if (targetProfile.role !== 'housekeeping') {
@@ -94,18 +94,20 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Check same hotel (or same organization if no hotel assigned)
-      const sameHotel = callerProfile.assigned_hotel && 
+      // Must be the same organization AND the same assigned hotel
+      const sameOrg = !!callerProfile.organization_slug &&
+        callerProfile.organization_slug === targetProfile.organization_slug;
+      const sameHotel = !!callerProfile.assigned_hotel &&
         callerProfile.assigned_hotel === targetProfile.assigned_hotel;
-      const sameOrg = callerProfile.organization_slug === targetProfile.organization_slug;
 
-      if (!sameHotel && !sameOrg) {
+      if (!sameOrg || !sameHotel) {
         return new Response(JSON.stringify({ error: 'You can only reset passwords for staff in your hotel' }), {
           status: 403,
           headers: { 'Content-Type': 'application/json', ...corsHeaders },
         });
       }
     }
+
 
     console.log(`Manager ${userData.user.id} resetting password for ${target_user_id}`);
 
