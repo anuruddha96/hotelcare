@@ -157,7 +157,10 @@ interface PendingDraft {
   occupancy: number;
   old_price: number | null;
   new_price: number;
+  status?: string | null;
+  push_error?: string | null;
 }
+
 
 /**
  * Previo-style pricelist: room types down a FROZEN left column with one
