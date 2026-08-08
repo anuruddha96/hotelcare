@@ -284,7 +284,7 @@ export function PmsRefreshButton({ onRefreshed }: Props) {
                 {notFound > 0 && (
                   <>
                     <span className="opacity-40">·</span>
-                    <span className="text-amber-600 dark:text-amber-500">{notFound} unmatched</span>
+                    <span className="text-amber-600 dark:text-amber-500">{notFound} PMS listing{notFound === 1 ? '' : 's'} not mapped</span>
                   </>
                 )}
               </>
