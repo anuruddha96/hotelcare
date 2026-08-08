@@ -201,16 +201,33 @@ export default function TodaysBookingsPanel({ hotelId, today }: Props) {
     };
   }, [bookings]);
 
-  const hasSource = bookings.some((b) => b.source);
+
+
+
+  const kpis = [
+    { label: "Bookings", value: String(totals.count), hint: "Reservations (one line per room) created in this period." },
+    { label: "Room-nights", value: String(totals.roomNights), hint: "Total nights those bookings added to the calendar." },
+    { label: "Value", value: eur(Math.round(totals.revenue)), hint: "Total value of the new bookings." },
+    { label: "Avg stay", value: `${totals.los.toFixed(1)} n`, hint: "Average length of stay of the new bookings." },
+    { label: "Avg / night", value: eur(Math.round(totals.adr)), hint: "Value ÷ room-nights: the rate today's demand is paying." },
+  ];
 
   return (
     <Card>
-      <CardHeader className="pb-3 gap-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-            <ListChecks className="h-4 w-4 text-primary" />
-            Bookings created
-          </CardTitle>
+      <CardHeader className="pb-3 gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+              <ListChecks className="h-4 w-4 text-primary" />
+              Booking flow — reservations created
+            </CardTitle>
+            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground max-w-2xl">
+              This is your <strong>sales pace</strong>: everything Previo recorded in the selected period
+              (Budapest time), not the guests staying tonight. Watch it to see whether demand is coming in,
+              at what rate and for which dates — and react with a price change before the dates get close.
+              Cancellations appear on the day they were cancelled.
+            </p>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Select value={range} onValueChange={(v) => setRange(v as RangeKey)}>
               <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
@@ -245,22 +262,23 @@ export default function TodaysBookingsPanel({ hotelId, today }: Props) {
             </Button>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2 text-[11px]">
-          <Badge variant="secondary" className="font-normal">{totals.count} bookings</Badge>
-          <Badge variant="secondary" className="font-normal">{totals.roomNights} room-nights</Badge>
-          <Badge variant="secondary" className="font-normal">{eur(Math.round(totals.revenue))} value</Badge>
-          <Badge variant="secondary" className="font-normal">{totals.los.toFixed(1)} avg nights</Badge>
-          <Badge variant="secondary" className="font-normal">{eur(Math.round(totals.adr))} avg / night</Badge>
-          {totals.cancelled > 0 && (
-            <Badge variant="destructive" className="font-normal">{totals.cancelled} cancelled / no-show</Badge>
-          )}
+
+        {/* Summary of the period, read left to right: volume → value → quality */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {kpis.map((k) => (
+            <div key={k.label} title={k.hint} className="rounded-lg border bg-muted/30 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{k.label}</p>
+              <p className="text-base font-semibold tabular-nums leading-tight">{k.value}</p>
+            </div>
+          ))}
         </div>
-        <p className="text-[11px] text-muted-foreground">
-          Every reservation Previo recorded in this period (Budapest time), one line per room, with
-          its stay dates, length, guests, value and status. Cancellations are listed on the day they
-          were cancelled. Source: Previo reservations, refreshed at each revenue sync.
-        </p>
+        {totals.cancelled > 0 && (
+          <Badge variant="destructive" className="w-fit font-normal">
+            {totals.cancelled} cancelled / no-show in this period
+          </Badge>
+        )}
       </CardHeader>
+
       <CardContent className="p-0">
         {loading ? (
           <div className="p-6 flex items-center gap-2 text-sm text-muted-foreground">
@@ -268,51 +286,56 @@ export default function TodaysBookingsPanel({ hotelId, today }: Props) {
           </div>
         ) : bookings.length === 0 ? (
           <div className="p-6 text-sm text-muted-foreground">
-            No reservations were created in this period.
+            No reservations were created in this period. Nothing sold — worth checking your rates and availability.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-[640px]">
-              <thead className="text-muted-foreground bg-muted/40">
-                <tr>
-                  <th className="text-left font-medium px-3 py-2 whitespace-nowrap">Created</th>
-                  <th className="text-left font-medium px-3 py-2 whitespace-nowrap">Stay</th>
-                  <th className="text-right font-medium px-3 py-2">Nights</th>
-                  <th className="text-left font-medium px-3 py-2">Room type</th>
-                  <th className="text-right font-medium px-3 py-2">Pax</th>
-                  <th className="text-right font-medium px-3 py-2">Value</th>
-                  <th className="text-left font-medium px-3 py-2">Status</th>
-                  {hasSource && <th className="text-left font-medium px-3 py-2">Source</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {bookings.map((b) => {
-                  const dead = b.status === "cancelled" || b.status === "no_show";
-                  return (
-                    <tr key={`${b.key}-${b.status}`} className={`border-t ${dead ? "text-muted-foreground" : ""}`}>
-                      <td className="px-3 py-2 whitespace-nowrap">{fmtTime(b.created)}</td>
-                      <td className={`px-3 py-2 whitespace-nowrap ${dead ? "line-through" : ""}`}>{b.from} → {b.to}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{b.nights}</td>
-                      <td className="px-3 py-2">{b.roomType}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{b.guests}</td>
-                      <td className="px-3 py-2 text-right tabular-nums font-medium">{eur(b.total)}</td>
-                      <td className="px-3 py-2">
-                        <Badge
-                          variant={dead ? "destructive" : b.status === "option" ? "outline" : "secondary"}
-                          className="font-normal"
-                        >
-                          {STATUS_LABEL[b.status]}
-                        </Badge>
-                      </td>
-                      {hasSource && <td className="px-3 py-2">{b.source ?? "—"}</td>}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="divide-y">
+            {bookings.map((b) => {
+              const dead = b.status === "cancelled" || b.status === "no_show";
+              const lead = daysBetween(today, b.from);
+              const perNight = b.total !== null && b.nights ? Math.round(b.total / b.nights) : null;
+              return (
+                <div
+                  key={`${b.key}-${b.status}`}
+                  className={`flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 sm:px-4 ${dead ? "bg-muted/30 text-muted-foreground" : "hover:bg-muted/30"}`}
+                >
+                  {/* Stay window — the most important thing on the line */}
+                  <div className="min-w-[190px] flex-1">
+                    <p className={`text-sm font-medium ${dead ? "line-through" : ""}`}>
+                      {b.from} → {b.to}
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                        {b.nights} night{b.nights === 1 ? "" : "s"} · {b.guests} pax
+                      </span>
+                    </p>
+                    <p className="text-[11px] text-muted-foreground truncate">
+                      {b.roomType}
+                      {b.source ? ` · ${b.source}` : ""}
+                      {" · booked "}{fmtTime(b.created)}
+                      {lead > 0 ? ` · ${lead} days out` : lead === 0 ? " · arrives today" : ""}
+                    </p>
+                  </div>
+
+                  {/* Money */}
+                  <div className="text-right">
+                    <p className="text-sm font-semibold tabular-nums">{eur(b.total)}</p>
+                    <p className="text-[11px] text-muted-foreground tabular-nums">
+                      {perNight === null ? "—" : `${eur(perNight)} / night`}
+                    </p>
+                  </div>
+
+                  <Badge
+                    variant={dead ? "destructive" : b.status === "option" ? "outline" : "secondary"}
+                    className="font-normal shrink-0"
+                  >
+                    {STATUS_LABEL[b.status]}
+                  </Badge>
+                </div>
+              );
+            })}
           </div>
         )}
       </CardContent>
     </Card>
   );
 }
+

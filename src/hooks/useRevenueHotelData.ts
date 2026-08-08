@@ -123,8 +123,9 @@ export function useRevenueHotelData(
             .order("stay_date"),
         ),
         supabase.from("hotel_revenue_settings")
-          .select("sellable_rooms, rate_warn_below_eur, rate_critical_below_eur, rate_max_sane_eur, occupancy_low_pct, occupancy_high_pct, pickup_strong_threshold")
+          .select("sellable_rooms, rate_warn_below_eur, rate_critical_below_eur, rate_max_sane_eur, occupancy_low_pct, occupancy_high_pct, pickup_strong_threshold, base_currency, eur_conversion_rate")
           .eq("hotel_id", hotelId).maybeSingle(),
+
         supabase.from("pms_sync_history")
           .select("created_at, synced_by_name").eq("hotel_id", hotelId).eq("sync_type", "revenue_sync")
           .order("created_at", { ascending: false }).limit(1).maybeSingle(),
@@ -141,14 +142,21 @@ export function useRevenueHotelData(
       setCancellations(cancelRows);
       const s = (settings as any)?.data ?? null;
       setSellableOverride((s?.sellable_rooms as number | null) ?? null);
+      // The safety-net limits are stored as euro amounts. A property that
+      // publishes forints would otherwise have every price flagged "critical",
+      // so scale the euro limits into the property's own currency.
+      const baseCur = String(s?.base_currency ?? "EUR").toUpperCase();
+      const eurRate = Number(s?.eur_conversion_rate) || 0;
+      const scale = baseCur !== "EUR" && eurRate > 0 ? eurRate : 1;
       setThresholds({
-        rateWarnBelowEur: Number(s?.rate_warn_below_eur ?? DEFAULT_THRESHOLDS.rateWarnBelowEur),
-        rateCriticalBelowEur: Number(s?.rate_critical_below_eur ?? DEFAULT_THRESHOLDS.rateCriticalBelowEur),
-        rateMaxSaneEur: Number(s?.rate_max_sane_eur ?? DEFAULT_THRESHOLDS.rateMaxSaneEur),
+        rateWarnBelowEur: Number(s?.rate_warn_below_eur ?? DEFAULT_THRESHOLDS.rateWarnBelowEur) * scale,
+        rateCriticalBelowEur: Number(s?.rate_critical_below_eur ?? DEFAULT_THRESHOLDS.rateCriticalBelowEur) * scale,
+        rateMaxSaneEur: Number(s?.rate_max_sane_eur ?? DEFAULT_THRESHOLDS.rateMaxSaneEur) * scale,
         occupancyLowPct: Number(s?.occupancy_low_pct ?? DEFAULT_THRESHOLDS.occupancyLowPct),
         occupancyHighPct: Number(s?.occupancy_high_pct ?? DEFAULT_THRESHOLDS.occupancyHighPct),
         pickupStrongThreshold: Number(s?.pickup_strong_threshold ?? DEFAULT_THRESHOLDS.pickupStrongThreshold),
       });
+
       const syncRow = sync.data as { created_at?: string; synced_by_name?: string | null } | null;
       setLastSyncAt(syncRow?.created_at ?? null);
       setLastSyncBy(syncRow?.synced_by_name ?? null);

@@ -56,6 +56,13 @@ function grab(block: string, tag: string): string | null {
   return m ? m[1].trim() : null;
 }
 
+/** Read an attribute off a tag, e.g. <price currency="EUR">120</price>. */
+function grabAttr(block: string, tag: string, attr: string): string | null {
+  const m = block.match(new RegExp(`<${tag}\\b[^>]*\\b${attr}\\s*=\\s*"([^"]*)"`, "i"));
+  return m ? m[1].trim() : null;
+}
+
+
 function blocks(xml: string, tag: string): string[] {
   const out: string[] = [];
   const re = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "g");
@@ -173,9 +180,15 @@ interface Night {
   /** Booking channel / OTA name when Previo exposes it. */
   source_name: string | null;
   total_price_eur: number | null;
+  /** Currency the reservation was actually priced in, when Previo says so. */
+  source_currency: string | null;
+  /** Amounts exactly as Previo returned them, before any conversion. */
+  original_nightly_price: number | null;
+  original_total_price: number | null;
   stay_from: string;
   stay_to: string;
 }
+
 
 function parseReservationNights(xml: string, from: string, to: string): Night[] {
   const out: Night[] = [];
@@ -195,7 +208,16 @@ function parseReservationNights(xml: string, from: string, to: string): Night[] 
     const nights = Math.max(1, daysBetween(stayFrom, stayTo));
     const total = parseFloat(grab(r, "price") ?? "");
     const nightly = Number.isFinite(total) ? Math.round((total / nights) * 100) / 100 : null;
+    // Previo prices OTA bookings in the channel's currency, so a HUF property
+    // still receives euro amounts. Capture whatever currency it declares.
+    const currencyRaw =
+      grab(r, "currency") ?? grab(r, "currencyCode") ?? grab(r, "curr") ??
+      grabAttr(r, "price", "currency") ?? grabAttr(r, "price", "code") ?? null;
+    const sourceCurrency = currencyRaw
+      ? (currencyRaw.replace(/<[^>]*>/g, "").trim().toUpperCase() || null)
+      : null;
     const guests = blocks(r, "guest").length || 1;
+
     const obkId = grab(grab(r, "objectKind") ?? "", "obkId") ?? grab(r, "obkId");
     const objId = grab(grab(r, "object") ?? "", "objId") ?? grab(r, "objId");
     const created = pmsTimestampToIso(grab(r, "created"));
@@ -238,8 +260,12 @@ function parseReservationNights(xml: string, from: string, to: string): Night[] 
         guests,
         source_name: source,
         total_price_eur: Number.isFinite(total) ? total : null,
+        source_currency: sourceCurrency,
+        original_nightly_price: nightly,
+        original_total_price: Number.isFinite(total) ? total : null,
         stay_from: stayFrom,
         stay_to: stayTo,
+
       });
     }
   }
@@ -439,12 +465,13 @@ serve(async (req) => {
     .reduce((s, r) => s + r.numRooms, 0);
   const { data: revSettings } = await service
     .from("hotel_revenue_settings")
-    .select("sellable_rooms")
+    .select("sellable_rooms, base_currency, eur_conversion_rate")
     .eq("hotel_id", hotelId)
     .maybeSingle();
   const totalRooms =
     Number((revSettings as { sellable_rooms?: number } | null)?.sellable_rooms || 0) ||
     totalRoomsFromKinds;
+
 
   if (roomTypes.length && orgSlug) {
     const { data: existing } = await service
@@ -532,6 +559,7 @@ serve(async (req) => {
 
   // Record the currency Previo actually publishes for this hotel, so the app
   // stops labelling forints as euros. Majority vote across the rate rows.
+  let detectedCurrency: string | null = null;
   try {
     const tally = new Map<string, number>();
     for (const r of dedupedRates.values()) {
@@ -542,6 +570,7 @@ serve(async (req) => {
     let detected: string | null = null;
     let best = 0;
     for (const [c, n] of tally) if (n > best) { best = n; detected = c; }
+    detectedCurrency = detected;
     if (detected) {
       await service
         .from("hotel_revenue_settings")
@@ -552,6 +581,40 @@ serve(async (req) => {
   } catch (e) {
     errors.push(`currency detection: ${(e as Error).message}`);
   }
+
+  // Every stored amount must be in ONE currency — the property's own — or the
+  // ADR, revenue and pickup numbers mix euros with forints and become fiction.
+  const baseCurrency = (
+    detectedCurrency ??
+    (revSettings as { base_currency?: string | null } | null)?.base_currency ??
+    "EUR"
+  ).toUpperCase();
+  const eurRate = Number((revSettings as { eur_conversion_rate?: number | null } | null)?.eur_conversion_rate) || null;
+  /**
+   * Convert one amount into the property's base currency.
+   * When Previo declares no currency we only intervene if the amount is far
+   * too small to be a plausible base-currency price (a euro amount sitting in
+   * a forint property), and only when we have a rate to convert with.
+   */
+  const toBase = (amount: number | null, cur: string | null): number | null => {
+    if (amount === null || !Number.isFinite(amount)) return amount;
+    const c = (cur || "").toUpperCase();
+    if (c && c === baseCurrency) return amount;
+    if (!eurRate || eurRate <= 0) return amount;
+    if (c === "EUR" && baseCurrency !== "EUR") return Math.round(amount * eurRate * 100) / 100;
+    if (baseCurrency === "EUR" && c && c !== "EUR") return Math.round((amount / eurRate) * 100) / 100;
+    if (!c && baseCurrency !== "EUR" && eurRate > 20 && amount > 0 && amount < eurRate / 2) {
+      return Math.round(amount * eurRate * 100) / 100;
+    }
+    return amount;
+  };
+  const normaliseNight = (n: Night): Night => ({
+    ...n,
+    nightly_price_eur: toBase(n.original_nightly_price ?? n.nightly_price_eur, n.source_currency),
+    total_price_eur: toBase(n.original_total_price ?? n.total_price_eur, n.source_currency),
+  });
+
+
 
 
 
@@ -597,7 +660,7 @@ serve(async (req) => {
   errors.push(...resErrors);
 
 
-  const allNights = Array.from(nightMap.values());
+  const allNights = Array.from(nightMap.values()).map(normaliseNight);
   const nights = allNights.filter((n) => !n.cancelled_at);
   const cancelledNights = allNights.filter((n) => !!n.cancelled_at);
 
@@ -626,8 +689,12 @@ serve(async (req) => {
       guests: n.guests,
       source_name: n.source_name,
       total_price_eur: n.total_price_eur,
+      source_currency: n.source_currency ?? baseCurrency,
+      original_nightly_price: n.original_nightly_price,
+      original_total_price: n.original_total_price,
       stay_from: n.stay_from,
       stay_to: n.stay_to,
+
       captured_at: new Date().toISOString(),
     }));
     // The horizon was just deleted and the payload is already de-duplicated
@@ -666,9 +733,13 @@ serve(async (req) => {
       created_at_pms: n.created_at_pms,
       guests: n.guests,
       total_price_eur: n.total_price_eur,
+      source_currency: n.source_currency ?? baseCurrency,
+      original_nightly_price: n.original_nightly_price,
+      original_total_price: n.original_total_price,
       stay_from: n.stay_from,
       stay_to: n.stay_to,
       source_name: n.source_name,
+
     }));
     for (let i = 0; i < cancelPayload.length; i += 500) {
       const { error } = await service
