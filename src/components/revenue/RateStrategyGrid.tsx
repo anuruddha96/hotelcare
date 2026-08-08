@@ -854,16 +854,6 @@ export default function RateStrategyGrid({
                 </div>
               ))}
 
-              {/* Drag handle for the frozen column — sits on the divider. */}
-              <div
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="Resize room type column"
-                onPointerDown={(e) => { e.preventDefault(); startResize(e.clientX, LEFT_W); }}
-                onDoubleClick={() => { setRailed(false); setLeftW(DEFAULT_LEFT_W); }}
-                className="sticky left-0 z-50 hidden sm:block cursor-col-resize"
-                style={{ marginLeft: LEFT_W - 3, width: 6, height: 0 }}
-              />
             </div>
           </div>
 
