@@ -109,6 +109,35 @@ function pct(n: number) {
   return `${Math.round(n * 10) / 10}%`;
 }
 
+interface AiSignal {
+  key: string;
+  title: string;
+  why: string;
+  action?: string | null;
+  tone?: "good" | "warn" | "bad";
+  priority?: number;
+  confidence?: "high" | "medium" | "low" | null;
+}
+
+interface SignalAction {
+  decision: "done" | "dismissed";
+  note: string | null;
+}
+
+interface DisplaySignal {
+  key: string;
+  title: string;
+  why: string;
+  action: string | null;
+  tone: "good" | "warn" | "bad";
+  confidence: "high" | "medium" | "low" | null;
+  ai: boolean;
+}
+
+function slugify(v: string): string {
+  return v.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
+}
+
 /* -------------------------------------------------------------- component */
 
 interface Props {
@@ -443,6 +472,126 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     return out;
   }, [liveBookings, leakage, goals.targetAdr, kpi.adr, nightsByStayDate]);
 
+  /* ------------------------------------------- signal actions + AI review */
+  const [aiSignals, setAiSignals] = useState<AiSignal[]>([]);
+  const [aiHeadline, setAiHeadline] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [actions, setActions] = useState<Record<string, SignalAction>>({});
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState("");
+
+  const loadActions = useCallback(async () => {
+    if (!hotelId) return;
+    const { data } = await supabase
+      .from("revenue_signal_actions")
+      .select("signal_key, decision, note")
+      .eq("hotel_id", hotelId)
+      .eq("business_date", today);
+    const map: Record<string, SignalAction> = {};
+    for (const r of data ?? []) {
+      map[String(r.signal_key)] = { decision: String(r.decision) as SignalAction["decision"], note: r.note ?? null };
+    }
+    setActions(map);
+  }, [hotelId, today]);
+
+  useEffect(() => { void loadActions(); }, [loadActions]);
+
+  const displayedSignals = useMemo<DisplaySignal[]>(() => {
+    if (aiSignals.length) {
+      return aiSignals
+        .slice()
+        .sort((a, b) => (a.priority ?? 9) - (b.priority ?? 9))
+        .map((s) => ({
+          key: s.key || slugify(s.title),
+          title: s.title,
+          why: s.why,
+          action: s.action ?? null,
+          tone: s.tone ?? "warn",
+          confidence: s.confidence ?? null,
+          ai: true,
+        }));
+    }
+    return recommendations.map((r) => ({
+      key: slugify(r.title), title: r.title, why: r.why, action: null, tone: r.tone, confidence: null, ai: false,
+    }));
+  }, [aiSignals, recommendations]);
+
+  const recordAction = useCallback(async (
+    signal: DisplaySignal,
+    decision: SignalAction["decision"],
+    note?: string | null,
+  ) => {
+    if (!hotelId) return;
+    const previous = actions[signal.key];
+    setActions((prev) => ({ ...prev, [signal.key]: { decision, note: note ?? null } }));
+    const { data: auth } = await supabase.auth.getUser();
+    const uid = auth?.user?.id;
+    if (!uid) return;
+    const { error } = await supabase
+      .from("revenue_signal_actions")
+      .upsert([{
+        hotel_id: hotelId,
+        business_date: today,
+        signal_key: signal.key,
+        signal_snapshot: JSON.parse(JSON.stringify(signal)),
+        decision,
+        note: note ?? null,
+        acted_by: uid,
+      }], { onConflict: "hotel_id,business_date,signal_key" });
+    if (error) {
+      setActions((prev) => {
+        const next = { ...prev };
+        if (previous) next[signal.key] = previous; else delete next[signal.key];
+        return next;
+      });
+    }
+  }, [hotelId, today, actions]);
+
+  const clearAction = useCallback(async (signal: DisplaySignal) => {
+    if (!hotelId) return;
+    setActions((prev) => { const n = { ...prev }; delete n[signal.key]; return n; });
+    await supabase
+      .from("revenue_signal_actions")
+      .delete()
+      .eq("hotel_id", hotelId)
+      .eq("business_date", today)
+      .eq("signal_key", signal.key);
+  }, [hotelId, today]);
+
+  const sharpenWithAi = useCallback(async () => {
+    if (!hotelId) return;
+    setAiLoading(true);
+    setAiError(null);
+    try {
+      const evidence = {
+        goals,
+        kpi: { adr: kpi.adr, roomNights: kpi.roomNights, revenue: kpi.revenue },
+        heuristics: recommendations,
+        leakage: {
+          channel: leakage.channel, roomType: leakage.roomType,
+          directOta: leakage.directOta, los: leakage.los, stayDate: leakage.stayDate.slice(0, 20),
+        },
+        bookings: liveBookings.slice(0, 80).map((b) => ({
+          created: b.created, stayFrom: b.stayFrom, nights: b.roomNights,
+          adr: b.adr, channel: b.channel, roomType: b.roomType, direct: b.direct,
+        })),
+      };
+      const { data, error } = await supabase.functions.invoke("revenue-signals", {
+        body: { hotelId, businessDate: today, evidence },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(String(data.error));
+      setAiSignals(Array.isArray(data?.signals) ? data.signals : []);
+      setAiHeadline(data?.headline ?? null);
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "Could not reach the analysis service.");
+    } finally {
+      setAiLoading(false);
+    }
+  }, [hotelId, today, goals, kpi, recommendations, leakage, liveBookings]);
+
+
   /* -------------------------------------------------------- booking list */
   const listed = useMemo(() => {
     let list = periodBookings.slice();
@@ -706,25 +855,85 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
 
             {/* --------------------------------------- recommendations */}
             <Section title="Quick signals from today’s sales" defaultOpen icon={<Lightbulb className="h-4 w-4 text-primary" />}>
-              {recommendations.length === 0 ? (
+              <div className="flex flex-wrap items-center gap-2 pb-2">
+                <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void sharpenWithAi()} disabled={aiLoading || !hotelId}>
+                  {aiLoading ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Lightbulb className="h-3.5 w-3.5 mr-1" />}
+                  {aiSignals.length ? "Re-run AI review" : "Sharpen with AI"}
+                </Button>
+                {aiSignals.length > 0 && (
+                  <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => { setAiSignals([]); setAiHeadline(null); }}>
+                    Show rule-based signals
+                  </Button>
+                )}
+                <span className="text-[11px] text-muted-foreground">
+                  {Object.values(actions).filter((a) => a.decision === "done").length} marked done today
+                </span>
+              </div>
+              {aiError && <p className="text-xs text-red-600 dark:text-red-400 pb-2">{aiError}</p>}
+              {aiHeadline && <p className="text-sm font-medium pb-2">{aiHeadline}</p>}
+
+              {displayedSignals.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Signals appear once bookings are created today.</p>
               ) : (
                 <ul className="space-y-2">
-                  {recommendations.map((r) => (
-                    <li key={r.title} className="rounded-md border p-2">
-                      <p className={`text-sm font-medium ${r.tone === "bad" ? "text-red-600 dark:text-red-400" : r.tone === "warn" ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                        {r.title}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">{r.why}</p>
-                    </li>
-                  ))}
+                  {displayedSignals.map((r) => {
+                    const act = actions[r.key];
+                    return (
+                      <li key={r.key} className={`rounded-md border p-2 ${act?.decision === "dismissed" ? "opacity-55" : ""} ${act?.decision === "done" ? "border-emerald-400/70 bg-emerald-50/50 dark:bg-emerald-950/20" : ""}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <p className={`text-sm font-medium ${r.tone === "bad" ? "text-red-600 dark:text-red-400" : r.tone === "warn" ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                            {r.title}
+                          </p>
+                          {r.confidence && (
+                            <Badge variant="outline" className="text-[10px] shrink-0">{r.confidence} confidence</Badge>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">{r.why}</p>
+                        {r.action && <p className="text-[11px] mt-1"><span className="font-medium">Do now:</span> {r.action}</p>}
+                        {act?.note && <p className="text-[11px] mt-1 italic text-muted-foreground">Note: {act.note}</p>}
+
+                        <div className="flex flex-wrap items-center gap-1.5 pt-2">
+                          {act ? (
+                            <>
+                              <Badge variant={act.decision === "done" ? "default" : "secondary"} className="text-[10px]">
+                                {act.decision === "done" ? "Done" : "Dismissed"}
+                              </Badge>
+                              <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => void clearAction(r)}>Undo</Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => void recordAction(r, "done")}>Mark done</Button>
+                              <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => void recordAction(r, "dismissed")}>Dismiss</Button>
+                              <Button size="sm" variant="ghost" className="h-7 text-[11px]"
+                                onClick={() => { setNoteFor(noteFor === r.key ? null : r.key); setNoteText(""); }}>
+                                Add note
+                              </Button>
+                            </>
+                          )}
+                        </div>
+
+                        {noteFor === r.key && !act && (
+                          <div className="flex items-center gap-1.5 pt-2">
+                            <Input value={noteText} onChange={(e) => setNoteText(e.target.value)}
+                              placeholder="What did you do?" className="h-8 text-xs" />
+                            <Button size="sm" className="h-8 text-[11px]"
+                              onClick={() => { void recordAction(r, "done", noteText.trim() || null); setNoteFor(null); }}>
+                              Save
+                            </Button>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
               <p className="text-[11px] text-muted-foreground pt-2">
+                Marked actions are stored per day, so the system learns which signals the team acts on.
                 Prioritised, evidence-backed actions for the next 90 arrival dates are in the
                 Revenue Intelligence section above.
               </p>
             </Section>
+
 
 
             {/* ------------------------------------------ booking list */}

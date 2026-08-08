@@ -4896,6 +4896,90 @@ export type Database = {
         }
         Relationships: []
       }
+      revenue_signal_actions: {
+        Row: {
+          acted_by: string | null
+          acted_by_name: string | null
+          business_date: string
+          created_at: string
+          decision: string
+          hotel_id: string
+          id: string
+          note: string | null
+          organization_slug: string | null
+          signal_key: string
+          signal_snapshot: Json
+          updated_at: string
+        }
+        Insert: {
+          acted_by?: string | null
+          acted_by_name?: string | null
+          business_date?: string
+          created_at?: string
+          decision?: string
+          hotel_id: string
+          id?: string
+          note?: string | null
+          organization_slug?: string | null
+          signal_key: string
+          signal_snapshot?: Json
+          updated_at?: string
+        }
+        Update: {
+          acted_by?: string | null
+          acted_by_name?: string | null
+          business_date?: string
+          created_at?: string
+          decision?: string
+          hotel_id?: string
+          id?: string
+          note?: string | null
+          organization_slug?: string | null
+          signal_key?: string
+          signal_snapshot?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      revenue_signal_runs: {
+        Row: {
+          business_date: string
+          created_at: string
+          error: string | null
+          hotel_id: string
+          id: string
+          input_digest: string | null
+          model: string | null
+          organization_slug: string | null
+          signals: Json
+          updated_at: string
+        }
+        Insert: {
+          business_date?: string
+          created_at?: string
+          error?: string | null
+          hotel_id: string
+          id?: string
+          input_digest?: string | null
+          model?: string | null
+          organization_slug?: string | null
+          signals?: Json
+          updated_at?: string
+        }
+        Update: {
+          business_date?: string
+          created_at?: string
+          error?: string | null
+          hotel_id?: string
+          id?: string
+          input_digest?: string | null
+          model?: string | null
+          organization_slug?: string | null
+          signals?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
       rm_analysis_runs: {
         Row: {
           cached: boolean

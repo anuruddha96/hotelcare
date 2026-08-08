@@ -9,7 +9,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadPrevioCredentials } from "../_shared/previoCredentials.ts";
-import { readPrevioRate, writePrevioRate, RATE_WRITE_METHODS } from "../_shared/previoRateWrite.ts";
+import { readPrevioRate, writePrevioRate, RATE_WRITE_METHOD } from "../_shared/previoRateWrite.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -74,7 +74,7 @@ Deno.serve(async (req) => {
       return json({
         code: "no_mapping",
         error: "No Previo rate-plan mapping configured. Add room-type and rate-plan ids in Pricing Strategy → Rooms Setup first.",
-        methodsTried: RATE_WRITE_METHODS,
+        methodsTried: [RATE_WRITE_METHOD],
       }, 412);
     }
     const map: any = valid.find((m: any) => m.is_default) ?? valid[0];
@@ -138,9 +138,9 @@ Deno.serve(async (req) => {
         : [
           `Hotel: ${hotelId} (Previo hotId ${pmsHotelId})`,
           `Rate plan: ${map.previo_rate_plan_id}, room type: ${map.previo_room_type_id}`,
-          "We can read prices with getRates but every rate-write call is rejected.",
+          "We read prices with the XML API getRates and write them with EQC AvailRateUpdate (POST https://api.previo.app/eqc1/ar).",
           `Methods tried: ${write.attempts.map((a) => `${a.method} (${a.status}: ${a.message})`).join(" | ")}`,
-          "Please enable rate write access (XML rate write or EQC) for this property and confirm the exact method and payload we should send.",
+          "Please enable EQC (AvailRateUpdate) access for this property and confirm the EQC api key, hotel id, room type ids and rate plan ids we should send.",
         ].join("\n"),
     });
   } catch (e) {

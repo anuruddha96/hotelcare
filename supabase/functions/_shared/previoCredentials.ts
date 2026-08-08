@@ -24,6 +24,8 @@ export type PrevioCredentials =
       /** Optional dedicated XML login (Previo XML API accepts login/password, NOT the REST ApiKey). */
       xmlLogin?: string;
       xmlPassword?: string;
+      /** Dedicated EQC api key used for rate writes (POST /eqc1/ar). */
+      eqcApiKey?: string;
       source: string;
     }
   | {
@@ -36,6 +38,8 @@ export type PrevioCredentials =
       /** Optional dedicated XML login for tenants that mix REST + XML. */
       xmlLogin?: string;
       xmlPassword?: string;
+      /** Dedicated EQC api key used for rate writes (POST /eqc1/ar). */
+      eqcApiKey?: string;
       source: string;
     };
 
@@ -88,6 +92,7 @@ export function parsePrevioCredentialValue(
       const authElement = clean(j.authElement ?? j.auth_element) || "apiKey";
       const xmlLogin = clean(j.xmlLogin ?? j.xml_login ?? j.xmlUsername ?? j.xml_username) || undefined;
       const xmlPassword = clean(j.xmlPassword ?? j.xml_password) || undefined;
+      const eqcApiKey = clean(j.eqcApiKey ?? j.eqc_api_key ?? j.eqcKey ?? j.eqc_key) || undefined;
 
       if (protocol === "xml") {
         if (!apiKey) {
@@ -95,7 +100,7 @@ export function parsePrevioCredentialValue(
             `Previo credential "${sourceName}" declares protocol=xml but has no apiKey field.`,
           );
         }
-        return { protocol: "xml", apiKey, authElement, xmlLogin, xmlPassword, source: sourceName };
+        return { protocol: "xml", apiKey, authElement, xmlLogin, xmlPassword, eqcApiKey, source: sourceName };
       }
       if (protocol === "rest") {
         if (!username || !password) {
@@ -103,15 +108,15 @@ export function parsePrevioCredentialValue(
             `Previo credential "${sourceName}" declares protocol=rest but is missing username or password.`,
           );
         }
-        return { protocol: "rest", username, password, apiKey: xmlApiKey, authElement, xmlLogin, xmlPassword, source: sourceName };
+        return { protocol: "rest", username, password, apiKey: xmlApiKey, authElement, xmlLogin, xmlPassword, eqcApiKey, source: sourceName };
       }
 
       // Implicit protocol inference from present fields.
       if (apiKey && !username && !password) {
-        return { protocol: "xml", apiKey, authElement, xmlLogin, xmlPassword, source: sourceName };
+        return { protocol: "xml", apiKey, authElement, xmlLogin, xmlPassword, eqcApiKey, source: sourceName };
       }
       if (username && password) {
-        return { protocol: "rest", username, password, apiKey: xmlApiKey, authElement, xmlLogin, xmlPassword, source: sourceName };
+        return { protocol: "rest", username, password, apiKey: xmlApiKey, authElement, xmlLogin, xmlPassword, eqcApiKey, source: sourceName };
       }
       throw new PrevioCredentialParseError(
         `Previo credential "${sourceName}" JSON has no recognized fields. Expected apiKey (xml) or username+password (rest).`,
