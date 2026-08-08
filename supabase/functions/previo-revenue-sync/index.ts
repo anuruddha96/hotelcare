@@ -733,9 +733,13 @@ serve(async (req) => {
       created_at_pms: n.created_at_pms,
       guests: n.guests,
       total_price_eur: n.total_price_eur,
+      source_currency: n.source_currency ?? baseCurrency,
+      original_nightly_price: n.original_nightly_price,
+      original_total_price: n.original_total_price,
       stay_from: n.stay_from,
       stay_to: n.stay_to,
       source_name: n.source_name,
+
     }));
     for (let i = 0; i < cancelPayload.length; i += 500) {
       const { error } = await service
