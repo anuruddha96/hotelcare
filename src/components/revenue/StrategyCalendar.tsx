@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, TrendingDown, TrendingUp, Zap } from "lucide-react";
+import { money } from "@/lib/revenueCurrency";
 
 interface Row {
   date: string;
@@ -66,7 +67,7 @@ function MonthCard({ month, rowsByDate, onSelect, decisionsByDate, dense }: {
                 type="button"
                 disabled={!inMonth}
                 onClick={() => inMonth && onSelect(date)}
-                title={inMonth && r ? `${date} · €${rate ?? "—"}${occ != null ? ` · ${occ}% occ` : ""}${r.pickupDelta ? ` · pickup ${r.pickupDelta > 0 ? "+" : ""}${r.pickupDelta}` : ""}${decision ? ` · ${decision.reason ?? decision.decision_type}` : ""}` : ""}
+                title={inMonth && r ? `${date} · ${money(rate)}${occ != null ? ` · ${occ}% occ` : ""}${r.pickupDelta ? ` · pickup ${r.pickupDelta > 0 ? "+" : ""}${r.pickupDelta}` : ""}${decision ? ` · ${decision.reason ?? decision.decision_type}` : ""}` : ""}
                 className={`text-left rounded-md border p-1 transition
                   ${dense ? "min-h-[44px]" : "min-h-[78px]"}
                   ${inMonth ? "hover:border-primary cursor-pointer" : "opacity-25"}
@@ -79,10 +80,10 @@ function MonthCard({ month, rowsByDate, onSelect, decisionsByDate, dense }: {
                 </div>
                 {inMonth && rate != null && (
                   <div className={`text-[11px] font-bold leading-tight ${r?.rec ? "text-primary" : ""}`}>
-                    €{Math.round(rate)}
+                    {money(rate)}
                     {delta != null && delta !== 0 && (
                       <span className={`ml-1 text-[9px] font-medium ${delta > 0 ? "text-emerald-600" : "text-red-600"}`}>
-                        {delta > 0 ? "+" : ""}{Math.round(delta)}
+                        {delta > 0 ? "+" : ""}{money(delta)}
                       </span>
                     )}
                   </div>

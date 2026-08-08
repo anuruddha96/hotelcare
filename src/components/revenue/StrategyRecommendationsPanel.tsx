@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Check, Sparkles, TrendingDown, TrendingUp, X, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { money } from "@/lib/revenueCurrency";
 import { toast } from "sonner";
 
 interface Rec {
@@ -91,7 +92,7 @@ export default function StrategyRecommendationsPanel({
   }
   async function approveAllDecay(maxAbs = 10) {
     const targets = filtered.filter(r => driver(r).tone === "decay" && Math.abs(r.delta_eur) <= maxAbs);
-    if (!targets.length) { toast.info(`No decay recs ≤ €${maxAbs}`); return; }
+    if (!targets.length) { toast.info(`No decay recs ≤ ${money(maxAbs)}`); return; }
     for (const r of targets) await approve(r);
   }
 
@@ -110,10 +111,10 @@ export default function StrategyRecommendationsPanel({
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
-              <Stat label="Floor" value={`€${settings.floor_price_eur}`} />
-              <Stat label="Max daily Δ" value={`€${settings.max_daily_change_eur}`} />
-              <Stat label="Weekday decay" value={`-€${settings.weekday_decrease_eur}`} />
-              <Stat label="Weekend decay" value={`-€${settings.weekend_decrease_eur}`} />
+              <Stat label="Floor" value={money(settings.floor_price_eur)} />
+              <Stat label="Max daily Δ" value={money(settings.max_daily_change_eur)} />
+              <Stat label="Weekday decay" value={`-${money(settings.weekday_decrease_eur)}`} />
+              <Stat label="Weekend decay" value={`-${money(settings.weekend_decrease_eur)}`} />
               <Stat label="Surge threshold" value={`${settings.abnormal_pickup_threshold} bookings/h`} />
               <Stat label="Surge bump" value={`+€${settings.surge_increase_eur ?? 25}`} />
             </div>
