@@ -576,7 +576,7 @@ serve(async (req) => {
   const nights = allNights.filter((n) => !n.cancelled_at);
   const cancelledNights = allNights.filter((n) => !!n.cancelled_at);
 
-  if (!resCall.errors.length) {
+  if (!resErrors.length) {
     // Full replace for the horizon so cancellations disappear immediately.
     const { error: delErr } = await service
       .from("revenue_booking_nights")
@@ -617,7 +617,7 @@ serve(async (req) => {
   }
 
   // ---------- 3b. cancelled nights (make pickup able to go negative) ----------
-  if (!resCall.errors.length) {
+  if (!resErrors.length) {
     const { error: delCancelErr } = await service
       .from("revenue_cancelled_nights")
       .delete()
@@ -678,7 +678,7 @@ serve(async (req) => {
     new_bookings: v.created,
     captured_at: new Date().toISOString(),
   }));
-  if (!resCall.errors.length) {
+  if (!resErrors.length) {
     for (let i = 0; i < snapshots.length; i += 500) {
       const { error } = await service
         .from("revenue_daily_snapshots")
