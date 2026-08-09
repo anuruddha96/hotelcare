@@ -392,6 +392,27 @@ export default function RateStrategyGrid({
   const failedCount = useMemo(() => pending.filter((d) => d.status === "failed").length, [pending]);
 
 
+  /** Fill the Previo pricelist mapping from Previo itself. */
+  async function syncRatePlans() {
+    if (!hotelId) return;
+    setProbing(true);
+    setProbe(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("previo-sync-rate-plans", { body: { hotelId } });
+      if (error) throw error;
+      const res = data as { ok?: boolean; mapped?: number; error?: string | null };
+      if (res?.ok) {
+        setProbe({ ok: true, message: `Matched ${res.mapped} room type${res.mapped === 1 ? "" : "s"} to a Previo pricelist. You can push prices now.` });
+      } else {
+        setProbe({ ok: false, message: res?.error || "Previo did not return any pricelist." });
+      }
+    } catch (e) {
+      setProbe({ ok: false, message: e instanceof Error ? e.message : "Could not reach Previo" });
+    } finally {
+      setProbing(false);
+    }
+  }
+
   /** Send the confirmed drafts to Previo. Nothing leaves the app before this. */
   async function pushDrafts() {
     if (!hotelId || pending.length === 0) return;
@@ -401,21 +422,25 @@ export default function RateStrategyGrid({
         body: { hotelId, draftIds: pending.map((d) => d.id) },
       });
       if (error) throw error;
-      const res = data as { pushed?: number; failed?: number; error?: string };
-      if (res?.error) throw new Error(res.error);
+      const res = data as { ok?: boolean; pushed?: number; failed?: number; error?: string };
+      if (res?.error || res?.ok === false) throw new Error(res?.error || "Previo refused the price push.");
       if (res?.failed) {
-        toast.error(`${res.pushed ?? 0} sent, ${res.failed} failed — check Sync history`);
-      } else {
-        toast.success(`${res?.pushed ?? 0} price change${res?.pushed === 1 ? "" : "s"} sent to Previo`);
+        toast.error(`${res.pushed ?? 0} sent, ${res.failed} failed — open the list to see why`);
+        await refreshDrafts();
+        return;
       }
+      toast.success(`${res?.pushed ?? 0} price change${res?.pushed === 1 ? "" : "s"} sent to Previo`);
       setPushOpen(false);
       await refreshDrafts();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not push the prices to Previo");
+      const message = e instanceof Error ? e.message : "Could not push the prices to Previo";
+      setProbe({ ok: false, message });
+      toast.error(message);
     } finally {
       setPushing(false);
     }
   }
+
 
   async function discardDraft(id: string) {
     const { error } = await supabase.from("revenue_rate_drafts").delete().eq("id", id);
