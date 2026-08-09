@@ -1126,7 +1126,153 @@ export default function RateStrategyGrid({
         </DialogContent>
       </Dialog>
 
+      {/* ---- Whole-day price tool: tap a date in the header ---- */}
+      <Dialog open={!!dayTool} onOpenChange={(o) => !o && setDayTool(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-base">Change prices for {dayTool}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">What to do</label>
+                <Select value={dayMode} onValueChange={(v) => setDayMode(v as typeof dayMode)}>
+                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="percent">Change by %</SelectItem>
+                    <SelectItem value="amount">Change by amount</SelectItem>
+                    <SelectItem value="set">Set a fixed price</SelectItem>
+                    <SelectItem value="round">Only round the prices</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">
+                  {dayMode === "percent" ? "Percent (− to lower)" : dayMode === "round" ? "Not used" : `Amount in ${getRevenueCurrency()}`}
+                </label>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  value={dayValue}
+                  disabled={dayMode === "round"}
+                  onChange={(e) => setDayValue(e.target.value)}
+                  className="h-9 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { label: "Peak day +10%", mode: "percent" as const, value: "10" },
+                { label: "Event +20%", mode: "percent" as const, value: "20" },
+                { label: "Soft day −5%", mode: "percent" as const, value: "-5" },
+                { label: "Last-minute −10%", mode: "percent" as const, value: "-10" },
+              ].map((p) => (
+                <Button
+                  key={p.label}
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[11px]"
+                  onClick={() => { setDayMode(p.mode); setDayValue(p.value); }}
+                >
+                  {p.label}
+                </Button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Days from here</label>
+                <Select value={String(dayRange)} onValueChange={(v) => setDayRange(Number(v))}>
+                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {[1, 3, 7, 14, 30, 60, 90].map((n) => (
+                      <SelectItem key={n} value={String(n)}>{n === 1 ? "This day" : `${n} days`}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Which days</label>
+                <Select value={dayWeekdays} onValueChange={(v) => setDayWeekdays(v as typeof dayWeekdays)}>
+                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All days</SelectItem>
+                    <SelectItem value="weekend">Weekends only</SelectItem>
+                    <SelectItem value="weekday">Weekdays only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Round to</label>
+                <Select value={String(dayRound)} onValueChange={(v) => setDayRound(Number(v))}>
+                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {[1, 5, 10, 100, 500, 1000].map((n) => (
+                      <SelectItem key={n} value={String(n)}>{n === 1 ? "Whole number" : n}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Room types (none selected = all)</label>
+              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                {Array.from(new Set(rateRows.map((r) => r.roomTypeName))).map((name) => {
+                  const on = dayTypes.has(name);
+                  return (
+                    <Button
+                      key={name}
+                      size="sm"
+                      variant={on ? "default" : "outline"}
+                      className="h-7 text-[11px]"
+                      onClick={() => setDayTypes((prev) => {
+                        const next = new Set(prev);
+                        if (on) next.delete(name); else next.add(name);
+                        return next;
+                      })}
+                    >
+                      {name}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-md border bg-muted/30 p-2 text-xs">
+              <p className="font-medium mb-1">
+                {dayToolChanges.length} price{dayToolChanges.length === 1 ? "" : "s"} will change
+                {dayToolDates.length > 1 ? ` across ${dayToolDates.length} days` : ""}
+              </p>
+              <div className="max-h-28 overflow-y-auto space-y-0.5">
+                {dayToolChanges.slice(0, 12).map((c) => (
+                  <div key={`${c.date}-${c.row.key}`} className="flex justify-between gap-2 tabular-nums">
+                    <span className="truncate">{c.date} · {c.row.roomTypeName} · {c.row.occ}g</span>
+                    <span>{moneyBase(c.from)} → <strong>{moneyBase(c.to)}</strong></span>
+                  </div>
+                ))}
+                {dayToolChanges.length > 12 && (
+                  <p className="text-muted-foreground">+{dayToolChanges.length - 12} more…</p>
+                )}
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Saved as drafts only. Nothing reaches Previo until you push.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDayTool(null)}>Cancel</Button>
+            <Button onClick={() => void applyDayTool()} disabled={saving || dayToolChanges.length === 0}>
+              {saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+              Save {dayToolChanges.length} draft{dayToolChanges.length === 1 ? "" : "s"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={pushOpen} onOpenChange={(o) => !o && setPushOpen(false)}>
+
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-base">Send price changes to Previo</DialogTitle>
