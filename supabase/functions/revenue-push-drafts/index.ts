@@ -8,6 +8,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { readPrevioRate, writePrevioRate } from "../_shared/previoRateWrite.ts";
+import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -154,7 +156,12 @@ Deno.serve(async (req) => {
       const mapForType = validMaps.find((m: any) => String(m.previo_room_type_id) === String(d.obk_id));
       const map: any = mapForType ?? defaultMap;
       // Multi-account hotels prefix the obk id with the Previo hotId.
-      const obkId = String(map.previo_room_type_id ?? d.obk_id).split(":").pop() as string;
+      const scoped = String(map.previo_room_type_id ?? d.obk_id);
+      const parts = scoped.split(":");
+      const obkId = parts.pop() as string;
+      const account = (parts.length ? accounts.get(parts.join(":")) : null) ?? fallback!;
+      const creds = account.creds;
+      const pmsHotelId = account.hotId;
 
       try {
         const result = await writePrevioRate({
@@ -198,6 +205,7 @@ Deno.serve(async (req) => {
         });
         const isVerified = readBack !== null && Math.round(readBack) === Math.round(Number(d.new_price));
         if (isVerified) verified += 1;
+
 
         await admin.from("revenue_rate_drafts")
           .update({
