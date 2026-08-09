@@ -111,16 +111,39 @@ Deno.serve(async (req) => {
       return json({ ok: true, pushed: 0, failed: 0, message: "Nothing to push." });
     }
 
-    let creds;
-    try {
-      creds = loadPrevioCredentials(cfg.credentials_secret_name);
-    } catch (e) {
-      return json({
-        code: "no_credentials",
-        error: e instanceof Error ? e.message : String(e),
-      }, 412);
+    // Credentials per Previo account — SLNT merges two profiles under one hotel,
+    // so the account is chosen from the obk id prefix ("<hotId>:<obkId>").
+    type Account = { hotId: string; creds: any };
+    const accounts = new Map<string, Account>();
+    let fallback: Account | null = null;
+    const { data: accountRows } = await admin
+      .from("pms_accounts")
+      .select("pms_hotel_id, credentials_secret_name, is_active")
+      .eq("hotel_id", hotelId)
+      .eq("is_active", true);
+    for (const a of (accountRows ?? []) as any[]) {
+      if (!a.pms_hotel_id || !a.credentials_secret_name) continue;
+      try {
+        const acc = { hotId: String(a.pms_hotel_id), creds: loadPrevioCredentials(a.credentials_secret_name) };
+        accounts.set(acc.hotId, acc);
+        fallback ??= acc;
+      } catch { /* reported below if nothing else works */ }
     }
-    const pmsHotelId = String(cfg.pms_hotel_id ?? "");
+    if (!fallback) {
+      try {
+        fallback = {
+          hotId: String(cfg.pms_hotel_id ?? ""),
+          creds: loadPrevioCredentials(cfg.credentials_secret_name),
+        };
+      } catch (e) {
+        return json({
+          ok: false,
+          code: "no_credentials",
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
 
     let pushed = 0;
     let failed = 0;
