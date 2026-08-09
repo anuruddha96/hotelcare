@@ -60,23 +60,34 @@ Deno.serve(async (req) => {
       .eq("hotel_id", hotelId)
       .maybeSingle();
     if (!cfg || !cfg.is_active) {
-      return json({ code: "pms_inactive", error: "PMS is not configured or is inactive for this hotel" }, 412);
+      return json({ ok: false, code: "pms_inactive", error: "PMS is not configured or is inactive for this hotel." });
     }
 
-    const { data: mappings } = await admin
-      .from("previo_rate_plan_mapping")
-      .select("room_type_id, previo_rate_plan_id, previo_room_type_id, is_default")
-      .eq("hotel_id", hotelId);
-    const validMaps = (mappings ?? []).filter(
-      (m: any) => m.previo_rate_plan_id && m.previo_room_type_id,
-    );
+    const loadMaps = async () => {
+      const { data } = await admin
+        .from("previo_rate_plan_mapping")
+        .select("room_type_id, previo_rate_plan_id, previo_room_type_id, is_default")
+        .eq("hotel_id", hotelId);
+      return ((data ?? []) as any[]).filter((m) => m.previo_rate_plan_id && m.previo_room_type_id);
+    };
+
+    let validMaps = await loadMaps();
+    let mappingNote = "";
+    if (validMaps.length === 0) {
+      // Nobody typed the pricelist ids — read them from Previo instead of failing.
+      const derived = await syncPrevioRatePlanMappings(admin, hotelId);
+      mappingNote = derived.notes.join(" ");
+      validMaps = await loadMaps();
+    }
     if (validMaps.length === 0) {
       return json({
+        ok: false,
         code: "no_mapping",
-        error: "No Previo rate-plan mapping configured. Add room-type and rate-plan IDs in Pricing Strategy → Rooms Setup.",
-      }, 412);
+        error: `No Previo pricelist could be resolved for this hotel. ${mappingNote} Run a revenue sync, then try “Sync rate plans” again.`.trim(),
+      });
     }
     const defaultMap = validMaps.find((m: any) => m.is_default) ?? validMaps[0];
+
 
     const { data: settings } = await admin
       .from("hotel_revenue_settings")
