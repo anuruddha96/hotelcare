@@ -329,10 +329,21 @@ export default function RateStrategyGrid({
     return m;
   }, [metrics]);
 
+  /**
+   * Room types must never blink out of the grid while a reload is in flight —
+   * an empty prop for a moment used to leave only ADR and RevPAR on screen.
+   */
+  const [stickyTypes, setStickyTypes] = useState<RevenueRoomType[]>(roomTypes);
+  useEffect(() => {
+    if (roomTypes.length > 0) setStickyTypes(roomTypes);
+  }, [roomTypes]);
+
   const pricedTypes = useMemo(() => {
-    const priced = roomTypes.filter((rt) => rt.pms_room_id && priceMap.has(rt.pms_room_id));
-    return priced.length ? priced : roomTypes;
-  }, [roomTypes, priceMap]);
+    const source = roomTypes.length > 0 ? roomTypes : stickyTypes;
+    const priced = source.filter((rt) => rt.pms_room_id && priceMap.has(rt.pms_room_id));
+    return priced.length ? priced : source;
+  }, [roomTypes, stickyTypes, priceMap]);
+
 
   const allRows = useMemo<Row[]>(() => {
     const out: Row[] = [];
