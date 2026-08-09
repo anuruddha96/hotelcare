@@ -1092,6 +1092,15 @@ export default function RateStrategyGrid({
                 >
                   {probing && <Loader2 className="h-3 w-3 animate-spin mr-1" />}Check write access
                 </Button>
+                <Button
+                  size="sm" variant="outline" className="h-7 text-[11px]"
+                  disabled={probing}
+                  onClick={() => void syncRatePlans()}
+                  title="Read the pricelist ids for every room type from Previo"
+                >
+                  Sync rate plans
+                </Button>
+
                 {probe && (
                   <span className={`text-[11px] ${probe.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
                     {probe.message}
