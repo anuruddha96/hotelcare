@@ -265,6 +265,15 @@ export default function RateStrategyGrid({
   const [applyWeekdays, setApplyWeekdays] = useState<"all" | "weekend" | "weekday">("all");
   const [applyAllOcc, setApplyAllOcc] = useState(false);
   const [editMode, setEditMode] = useState<"set" | "percent">("set");
+  /** Whole-day price tool, opened by tapping a date in the header. */
+  const [dayTool, setDayTool] = useState<string | null>(null);
+  const [dayMode, setDayMode] = useState<"percent" | "amount" | "set" | "round">("percent");
+  const [dayValue, setDayValue] = useState("5");
+  const [dayRange, setDayRange] = useState(1);
+  const [dayWeekdays, setDayWeekdays] = useState<"all" | "weekend" | "weekday">("all");
+  const [dayTypes, setDayTypes] = useState<Set<string>>(new Set());
+  const [dayRound, setDayRound] = useState(1);
+
   const [saving, setSaving] = useState(false);
   const [drafts, setDrafts] = useState<Map<string, number>>(new Map());
   const [pending, setPending] = useState<PendingDraft[]>([]);
@@ -329,10 +338,21 @@ export default function RateStrategyGrid({
     return m;
   }, [metrics]);
 
+  /**
+   * Room types must never blink out of the grid while a reload is in flight —
+   * an empty prop for a moment used to leave only ADR and RevPAR on screen.
+   */
+  const [stickyTypes, setStickyTypes] = useState<RevenueRoomType[]>(roomTypes);
+  useEffect(() => {
+    if (roomTypes.length > 0) setStickyTypes(roomTypes);
+  }, [roomTypes]);
+
   const pricedTypes = useMemo(() => {
-    const priced = roomTypes.filter((rt) => rt.pms_room_id && priceMap.has(rt.pms_room_id));
-    return priced.length ? priced : roomTypes;
-  }, [roomTypes, priceMap]);
+    const source = roomTypes.length > 0 ? roomTypes : stickyTypes;
+    const priced = source.filter((rt) => rt.pms_room_id && priceMap.has(rt.pms_room_id));
+    return priced.length ? priced : source;
+  }, [roomTypes, stickyTypes, priceMap]);
+
 
   const allRows = useMemo<Row[]>(() => {
     const out: Row[] = [];
@@ -381,6 +401,27 @@ export default function RateStrategyGrid({
   const failedCount = useMemo(() => pending.filter((d) => d.status === "failed").length, [pending]);
 
 
+  /** Fill the Previo pricelist mapping from Previo itself. */
+  async function syncRatePlans() {
+    if (!hotelId) return;
+    setProbing(true);
+    setProbe(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("previo-sync-rate-plans", { body: { hotelId } });
+      if (error) throw error;
+      const res = data as { ok?: boolean; mapped?: number; error?: string | null };
+      if (res?.ok) {
+        setProbe({ ok: true, message: `Matched ${res.mapped} room type${res.mapped === 1 ? "" : "s"} to a Previo pricelist. You can push prices now.` });
+      } else {
+        setProbe({ ok: false, message: res?.error || "Previo did not return any pricelist." });
+      }
+    } catch (e) {
+      setProbe({ ok: false, message: e instanceof Error ? e.message : "Could not reach Previo" });
+    } finally {
+      setProbing(false);
+    }
+  }
+
   /** Send the confirmed drafts to Previo. Nothing leaves the app before this. */
   async function pushDrafts() {
     if (!hotelId || pending.length === 0) return;
@@ -390,21 +431,25 @@ export default function RateStrategyGrid({
         body: { hotelId, draftIds: pending.map((d) => d.id) },
       });
       if (error) throw error;
-      const res = data as { pushed?: number; failed?: number; error?: string };
-      if (res?.error) throw new Error(res.error);
+      const res = data as { ok?: boolean; pushed?: number; failed?: number; error?: string };
+      if (res?.error || res?.ok === false) throw new Error(res?.error || "Previo refused the price push.");
       if (res?.failed) {
-        toast.error(`${res.pushed ?? 0} sent, ${res.failed} failed — check Sync history`);
-      } else {
-        toast.success(`${res?.pushed ?? 0} price change${res?.pushed === 1 ? "" : "s"} sent to Previo`);
+        toast.error(`${res.pushed ?? 0} sent, ${res.failed} failed — open the list to see why`);
+        await refreshDrafts();
+        return;
       }
+      toast.success(`${res?.pushed ?? 0} price change${res?.pushed === 1 ? "" : "s"} sent to Previo`);
       setPushOpen(false);
       await refreshDrafts();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not push the prices to Previo");
+      const message = e instanceof Error ? e.message : "Could not push the prices to Previo";
+      setProbe({ ok: false, message });
+      toast.error(message);
     } finally {
       setPushing(false);
     }
   }
+
 
   async function discardDraft(id: string) {
     const { error } = await supabase.from("revenue_rate_drafts").delete().eq("id", id);
@@ -487,7 +532,86 @@ export default function RateStrategyGrid({
     }
   }
 
+  /** Rate rows the day tool can act on (room type × guest count). */
+  const rateRows = useMemo(
+    () => allRows.filter((r): r is Extract<Row, { kind: "rate" }> => r.kind === "rate" && !!r.obk),
+    [allRows],
+  );
+
+  /** Dates the day tool will touch, given range and weekday filter. */
+  const dayToolDates = useMemo(() => {
+    if (!dayTool) return [] as string[];
+    const start = allDates.indexOf(dayTool);
+    const span = (start >= 0 ? allDates.slice(start, start + dayRange) : [dayTool]);
+    return span.filter((d) =>
+      dayWeekdays === "all" ? true : dayWeekdays === "weekend" ? isWeekend(d) : !isWeekend(d));
+  }, [dayTool, dayRange, dayWeekdays, allDates]);
+
+  /** Compute the new price for one cell under the current day-tool settings. */
+  const dayToolNext = useCallback((current: number | null): number | null => {
+    const input = Number(dayValue);
+    if (dayMode !== "round" && !Number.isFinite(input)) return null;
+    let next: number | null = null;
+    if (dayMode === "set") next = input;
+    else if (current === null) return null;
+    else if (dayMode === "percent") next = current * (1 + input / 100);
+    else if (dayMode === "amount") next = current + input;
+    else next = current;
+    if (next === null || !Number.isFinite(next) || next <= 0) return null;
+    const step = Math.max(1, dayRound);
+    return Math.max(step, Math.round(next / step) * step);
+  }, [dayMode, dayValue, dayRound]);
+
+  /** Everything the day tool would change, ready to preview or save. */
+  const dayToolChanges = useMemo(() => {
+    if (!dayTool) return [] as Array<{ date: string; row: Extract<Row, { kind: "rate" }>; from: number | null; to: number }>;
+    const out: Array<{ date: string; row: Extract<Row, { kind: "rate" }>; from: number | null; to: number }> = [];
+    for (const row of rateRows) {
+      if (dayTypes.size > 0 && !dayTypes.has(row.roomTypeName)) continue;
+      for (const d of dayToolDates) {
+        const current = row.obk ? priceMap.get(row.obk)?.get(row.occ)?.get(d) ?? null : null;
+        const next = dayToolNext(current);
+        if (next === null || (current !== null && Math.round(next) === Math.round(current))) continue;
+        out.push({ date: d, row, from: current, to: next });
+      }
+    }
+    return out;
+  }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext]);
+
+  /** Save every change the day tool previews as a draft. */
+  async function applyDayTool() {
+    if (!hotelId || dayToolChanges.length === 0) return;
+    setSaving(true);
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const rowsToSave = dayToolChanges.map((c) => ({
+        hotel_id: hotelId,
+        organization_slug: organizationSlug ?? null,
+        stay_date: c.date,
+        obk_id: c.row.obk,
+        room_type_name: c.row.roomTypeName,
+        occupancy: c.row.occ,
+        old_price: c.from,
+        new_price: c.to,
+        status: "draft",
+        created_by: auth.user?.id ?? null,
+      }));
+      const { error } = await supabase.from("revenue_rate_drafts").upsert(rowsToSave, {
+        onConflict: "hotel_id,stay_date,room_type_name,occupancy,status",
+      });
+      if (error) throw error;
+      await refreshDrafts();
+      toast.success(`${rowsToSave.length} price${rowsToSave.length === 1 ? "" : "s"} saved as draft — not sent to Previo yet`);
+      setDayTool(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save the drafts");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   /** Cells priced below the critical safety-net threshold — likely typos. */
+
   const flagged = useMemo(() => {
     let count = 0;
     const dateKeys = new Set<string>();
@@ -660,15 +784,25 @@ export default function RateStrategyGrid({
                   </div>
 
                   {dates.map((d, i) => (
-                    <div
+                    <button
                       key={d}
-                      className={`flex flex-col items-center justify-center shrink-0 ${dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""}`}
-                      style={{ width: CELL_W }}
+                      type="button"
+                      disabled={!canEditRates}
+                      onClick={() => {
+                        if (!canEditRates) return;
+                        setDayTypes(new Set());
+                        setDayRange(1);
+                        setDayTool(d);
+                      }}
+                      title={canEditRates ? `Change every price on ${d}` : d}
+                      className={`flex flex-col items-center justify-center shrink-0 ${dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
+                      style={{ width: CELL_W, height: DAY_H }}
                     >
                       <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
                       <span className="font-medium">{formatDay(d)}</span>
-                    </div>
+                    </button>
                   ))}
+
                 </div>
 
                 {/* Pickup */}
@@ -992,7 +1126,153 @@ export default function RateStrategyGrid({
         </DialogContent>
       </Dialog>
 
+      {/* ---- Whole-day price tool: tap a date in the header ---- */}
+      <Dialog open={!!dayTool} onOpenChange={(o) => !o && setDayTool(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-base">Change prices for {dayTool}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">What to do</label>
+                <Select value={dayMode} onValueChange={(v) => setDayMode(v as typeof dayMode)}>
+                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="percent">Change by %</SelectItem>
+                    <SelectItem value="amount">Change by amount</SelectItem>
+                    <SelectItem value="set">Set a fixed price</SelectItem>
+                    <SelectItem value="round">Only round the prices</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">
+                  {dayMode === "percent" ? "Percent (− to lower)" : dayMode === "round" ? "Not used" : `Amount in ${getRevenueCurrency()}`}
+                </label>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  value={dayValue}
+                  disabled={dayMode === "round"}
+                  onChange={(e) => setDayValue(e.target.value)}
+                  className="h-9 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { label: "Peak day +10%", mode: "percent" as const, value: "10" },
+                { label: "Event +20%", mode: "percent" as const, value: "20" },
+                { label: "Soft day −5%", mode: "percent" as const, value: "-5" },
+                { label: "Last-minute −10%", mode: "percent" as const, value: "-10" },
+              ].map((p) => (
+                <Button
+                  key={p.label}
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[11px]"
+                  onClick={() => { setDayMode(p.mode); setDayValue(p.value); }}
+                >
+                  {p.label}
+                </Button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Days from here</label>
+                <Select value={String(dayRange)} onValueChange={(v) => setDayRange(Number(v))}>
+                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {[1, 3, 7, 14, 30, 60, 90].map((n) => (
+                      <SelectItem key={n} value={String(n)}>{n === 1 ? "This day" : `${n} days`}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Which days</label>
+                <Select value={dayWeekdays} onValueChange={(v) => setDayWeekdays(v as typeof dayWeekdays)}>
+                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All days</SelectItem>
+                    <SelectItem value="weekend">Weekends only</SelectItem>
+                    <SelectItem value="weekday">Weekdays only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Round to</label>
+                <Select value={String(dayRound)} onValueChange={(v) => setDayRound(Number(v))}>
+                  <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {[1, 5, 10, 100, 500, 1000].map((n) => (
+                      <SelectItem key={n} value={String(n)}>{n === 1 ? "Whole number" : n}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Room types (none selected = all)</label>
+              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                {Array.from(new Set(rateRows.map((r) => r.roomTypeName))).map((name) => {
+                  const on = dayTypes.has(name);
+                  return (
+                    <Button
+                      key={name}
+                      size="sm"
+                      variant={on ? "default" : "outline"}
+                      className="h-7 text-[11px]"
+                      onClick={() => setDayTypes((prev) => {
+                        const next = new Set(prev);
+                        if (on) next.delete(name); else next.add(name);
+                        return next;
+                      })}
+                    >
+                      {name}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-md border bg-muted/30 p-2 text-xs">
+              <p className="font-medium mb-1">
+                {dayToolChanges.length} price{dayToolChanges.length === 1 ? "" : "s"} will change
+                {dayToolDates.length > 1 ? ` across ${dayToolDates.length} days` : ""}
+              </p>
+              <div className="max-h-28 overflow-y-auto space-y-0.5">
+                {dayToolChanges.slice(0, 12).map((c) => (
+                  <div key={`${c.date}-${c.row.key}`} className="flex justify-between gap-2 tabular-nums">
+                    <span className="truncate">{c.date} · {c.row.roomTypeName} · {c.row.occ}g</span>
+                    <span>{moneyBase(c.from)} → <strong>{moneyBase(c.to)}</strong></span>
+                  </div>
+                ))}
+                {dayToolChanges.length > 12 && (
+                  <p className="text-muted-foreground">+{dayToolChanges.length - 12} more…</p>
+                )}
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Saved as drafts only. Nothing reaches Previo until you push.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDayTool(null)}>Cancel</Button>
+            <Button onClick={() => void applyDayTool()} disabled={saving || dayToolChanges.length === 0}>
+              {saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+              Save {dayToolChanges.length} draft{dayToolChanges.length === 1 ? "" : "s"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={pushOpen} onOpenChange={(o) => !o && setPushOpen(false)}>
+
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-base">Send price changes to Previo</DialogTitle>
@@ -1056,6 +1336,15 @@ export default function RateStrategyGrid({
                 >
                   {probing && <Loader2 className="h-3 w-3 animate-spin mr-1" />}Check write access
                 </Button>
+                <Button
+                  size="sm" variant="outline" className="h-7 text-[11px]"
+                  disabled={probing}
+                  onClick={() => void syncRatePlans()}
+                  title="Read the pricelist ids for every room type from Previo"
+                >
+                  Sync rate plans
+                </Button>
+
                 {probe && (
                   <span className={`text-[11px] ${probe.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
                     {probe.message}

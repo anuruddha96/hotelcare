@@ -8,6 +8,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { readPrevioRate, writePrevioRate } from "../_shared/previoRateWrite.ts";
+import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -60,23 +62,34 @@ Deno.serve(async (req) => {
       .eq("hotel_id", hotelId)
       .maybeSingle();
     if (!cfg || !cfg.is_active) {
-      return json({ code: "pms_inactive", error: "PMS is not configured or is inactive for this hotel" }, 412);
+      return json({ ok: false, code: "pms_inactive", error: "PMS is not configured or is inactive for this hotel." });
     }
 
-    const { data: mappings } = await admin
-      .from("previo_rate_plan_mapping")
-      .select("room_type_id, previo_rate_plan_id, previo_room_type_id, is_default")
-      .eq("hotel_id", hotelId);
-    const validMaps = (mappings ?? []).filter(
-      (m: any) => m.previo_rate_plan_id && m.previo_room_type_id,
-    );
+    const loadMaps = async () => {
+      const { data } = await admin
+        .from("previo_rate_plan_mapping")
+        .select("room_type_id, previo_rate_plan_id, previo_room_type_id, is_default")
+        .eq("hotel_id", hotelId);
+      return ((data ?? []) as any[]).filter((m) => m.previo_rate_plan_id && m.previo_room_type_id);
+    };
+
+    let validMaps = await loadMaps();
+    let mappingNote = "";
+    if (validMaps.length === 0) {
+      // Nobody typed the pricelist ids — read them from Previo instead of failing.
+      const derived = await syncPrevioRatePlanMappings(admin, hotelId);
+      mappingNote = derived.notes.join(" ");
+      validMaps = await loadMaps();
+    }
     if (validMaps.length === 0) {
       return json({
+        ok: false,
         code: "no_mapping",
-        error: "No Previo rate-plan mapping configured. Add room-type and rate-plan IDs in Pricing Strategy → Rooms Setup.",
-      }, 412);
+        error: `No Previo pricelist could be resolved for this hotel. ${mappingNote} Run a revenue sync, then try “Sync rate plans” again.`.trim(),
+      });
     }
     const defaultMap = validMaps.find((m: any) => m.is_default) ?? validMaps[0];
+
 
     const { data: settings } = await admin
       .from("hotel_revenue_settings")
@@ -100,16 +113,39 @@ Deno.serve(async (req) => {
       return json({ ok: true, pushed: 0, failed: 0, message: "Nothing to push." });
     }
 
-    let creds;
-    try {
-      creds = loadPrevioCredentials(cfg.credentials_secret_name);
-    } catch (e) {
-      return json({
-        code: "no_credentials",
-        error: e instanceof Error ? e.message : String(e),
-      }, 412);
+    // Credentials per Previo account — SLNT merges two profiles under one hotel,
+    // so the account is chosen from the obk id prefix ("<hotId>:<obkId>").
+    type Account = { hotId: string; creds: any };
+    const accounts = new Map<string, Account>();
+    let fallback: Account | null = null;
+    const { data: accountRows } = await admin
+      .from("pms_accounts")
+      .select("pms_hotel_id, credentials_secret_name, is_active")
+      .eq("hotel_id", hotelId)
+      .eq("is_active", true);
+    for (const a of (accountRows ?? []) as any[]) {
+      if (!a.pms_hotel_id || !a.credentials_secret_name) continue;
+      try {
+        const acc = { hotId: String(a.pms_hotel_id), creds: loadPrevioCredentials(a.credentials_secret_name) };
+        accounts.set(acc.hotId, acc);
+        fallback ??= acc;
+      } catch { /* reported below if nothing else works */ }
     }
-    const pmsHotelId = String(cfg.pms_hotel_id ?? "");
+    if (!fallback) {
+      try {
+        fallback = {
+          hotId: String(cfg.pms_hotel_id ?? ""),
+          creds: loadPrevioCredentials(cfg.credentials_secret_name),
+        };
+      } catch (e) {
+        return json({
+          ok: false,
+          code: "no_credentials",
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
 
     let pushed = 0;
     let failed = 0;
@@ -120,7 +156,12 @@ Deno.serve(async (req) => {
       const mapForType = validMaps.find((m: any) => String(m.previo_room_type_id) === String(d.obk_id));
       const map: any = mapForType ?? defaultMap;
       // Multi-account hotels prefix the obk id with the Previo hotId.
-      const obkId = String(map.previo_room_type_id ?? d.obk_id).split(":").pop() as string;
+      const scoped = String(map.previo_room_type_id ?? d.obk_id);
+      const parts = scoped.split(":");
+      const obkId = parts.pop() as string;
+      const account = (parts.length ? accounts.get(parts.join(":")) : null) ?? fallback!;
+      const creds = account.creds;
+      const pmsHotelId = account.hotId;
 
       try {
         const result = await writePrevioRate({
@@ -164,6 +205,7 @@ Deno.serve(async (req) => {
         });
         const isVerified = readBack !== null && Math.round(readBack) === Math.round(Number(d.new_price));
         if (isVerified) verified += 1;
+
 
         await admin.from("revenue_rate_drafts")
           .update({

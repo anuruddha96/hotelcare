@@ -724,7 +724,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       map.get(key)!.push(room);
     });
     const nameOf = (key: string) =>
-      key === '__none__' ? 'Unassigned' : (venues.find(v => v.id === key)?.name ?? 'Unassigned');
+      key === '__none__' ? 'No venue set' : (venues.find(v => v.id === key)?.name ?? 'No venue set');
+
     return Array.from(map.entries())
       .map(([key, list]) => ({
         key,
@@ -956,11 +957,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           {roomFlags.cleanNotes && (
             <span className="text-[8px]" title={summarizePmsNote(roomFlags.cleanNotes) || roomFlags.cleanNotes}>📝</span>
           )}
-          {staffName && !terms.isProperty && (
+          {staffName && (
             <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[48px]">
               {staffName}
             </span>
           )}
+
         </div>
       </div>
     );
@@ -1642,21 +1644,26 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 onDragStart: (e: React.DragEvent) => {
                   const first = group.rooms[0];
                   if (!first) return;
+                  const nameFor = (roomId: string) => {
+                    const a = assignmentMap.get(roomId);
+                    return a ? staffMap[a.assigned_to] ?? null : null;
+                  };
                   setRoomDragPayload(e, {
                     roomId: first.id,
                     roomNumber: first.room_number,
                     sourceType: sectionType,
                     origin: 'overview' as const,
                     assignedTo: assignmentMap.get(first.id)?.assigned_to ?? null,
-                    assignedToName: null,
+                    assignedToName: nameFor(first.id),
                     bulk: group.rooms.map(r => ({
                       roomId: r.id,
                       roomNumber: r.room_number,
                       sourceType: sectionType,
                       assignedTo: assignmentMap.get(r.id)?.assigned_to ?? null,
-                      assignedToName: null,
+                      assignedToName: nameFor(r.id),
                     })),
                   });
+
                 },
               } : {};
               const onPillClick = selectionEnabled ? () => {
