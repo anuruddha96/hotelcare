@@ -784,15 +784,25 @@ export default function RateStrategyGrid({
                   </div>
 
                   {dates.map((d, i) => (
-                    <div
+                    <button
                       key={d}
-                      className={`flex flex-col items-center justify-center shrink-0 ${dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""}`}
-                      style={{ width: CELL_W }}
+                      type="button"
+                      disabled={!canEditRates}
+                      onClick={() => {
+                        if (!canEditRates) return;
+                        setDayTypes(new Set());
+                        setDayRange(1);
+                        setDayTool(d);
+                      }}
+                      title={canEditRates ? `Change every price on ${d}` : d}
+                      className={`flex flex-col items-center justify-center shrink-0 ${dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
+                      style={{ width: CELL_W, height: DAY_H }}
                     >
                       <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
                       <span className="font-medium">{formatDay(d)}</span>
-                    </div>
+                    </button>
                   ))}
+
                 </div>
 
                 {/* Pickup */}
