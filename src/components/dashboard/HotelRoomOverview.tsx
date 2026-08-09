@@ -724,7 +724,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       map.get(key)!.push(room);
     });
     const nameOf = (key: string) =>
-      key === '__none__' ? 'Unassigned' : (venues.find(v => v.id === key)?.name ?? 'Unassigned');
+      key === '__none__' ? 'No venue set' : (venues.find(v => v.id === key)?.name ?? 'No venue set');
+
     return Array.from(map.entries())
       .map(([key, list]) => ({
         key,
@@ -956,11 +957,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           {roomFlags.cleanNotes && (
             <span className="text-[8px]" title={summarizePmsNote(roomFlags.cleanNotes) || roomFlags.cleanNotes}>📝</span>
           )}
-          {staffName && !terms.isProperty && (
+          {staffName && (
             <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[48px]">
               {staffName}
             </span>
           )}
+
         </div>
       </div>
     );
