@@ -265,6 +265,15 @@ export default function RateStrategyGrid({
   const [applyWeekdays, setApplyWeekdays] = useState<"all" | "weekend" | "weekday">("all");
   const [applyAllOcc, setApplyAllOcc] = useState(false);
   const [editMode, setEditMode] = useState<"set" | "percent">("set");
+  /** Whole-day price tool, opened by tapping a date in the header. */
+  const [dayTool, setDayTool] = useState<string | null>(null);
+  const [dayMode, setDayMode] = useState<"percent" | "amount" | "set" | "round">("percent");
+  const [dayValue, setDayValue] = useState("5");
+  const [dayRange, setDayRange] = useState(1);
+  const [dayWeekdays, setDayWeekdays] = useState<"all" | "weekend" | "weekday">("all");
+  const [dayTypes, setDayTypes] = useState<Set<string>>(new Set());
+  const [dayRound, setDayRound] = useState(1);
+
   const [saving, setSaving] = useState(false);
   const [drafts, setDrafts] = useState<Map<string, number>>(new Map());
   const [pending, setPending] = useState<PendingDraft[]>([]);
