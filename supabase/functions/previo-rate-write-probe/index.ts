@@ -10,6 +10,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { readPrevioRate, writePrevioRate, RATE_WRITE_METHOD } from "../_shared/previoRateWrite.ts";
+import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -121,7 +122,7 @@ Deno.serve(async (req) => {
       pmsHotelId,
       from: stayDate,
       to: stayDate,
-      obkId: String(map.previo_room_type_id),
+      obkId,
       occupancy,
     });
 
@@ -138,7 +139,7 @@ Deno.serve(async (req) => {
       pmsHotelId,
       target: {
         prlId: String(map.previo_rate_plan_id),
-        obkId: String(map.previo_room_type_id),
+        obkId,
         from: stayDate,
         to: stayDate,
         occupancy,
