@@ -532,7 +532,86 @@ export default function RateStrategyGrid({
     }
   }
 
+  /** Rate rows the day tool can act on (room type × guest count). */
+  const rateRows = useMemo(
+    () => allRows.filter((r): r is Extract<Row, { kind: "rate" }> => r.kind === "rate" && !!r.obk),
+    [allRows],
+  );
+
+  /** Dates the day tool will touch, given range and weekday filter. */
+  const dayToolDates = useMemo(() => {
+    if (!dayTool) return [] as string[];
+    const start = allDates.indexOf(dayTool);
+    const span = (start >= 0 ? allDates.slice(start, start + dayRange) : [dayTool]);
+    return span.filter((d) =>
+      dayWeekdays === "all" ? true : dayWeekdays === "weekend" ? isWeekend(d) : !isWeekend(d));
+  }, [dayTool, dayRange, dayWeekdays, allDates]);
+
+  /** Compute the new price for one cell under the current day-tool settings. */
+  const dayToolNext = useCallback((current: number | null): number | null => {
+    const input = Number(dayValue);
+    if (dayMode !== "round" && !Number.isFinite(input)) return null;
+    let next: number | null = null;
+    if (dayMode === "set") next = input;
+    else if (current === null) return null;
+    else if (dayMode === "percent") next = current * (1 + input / 100);
+    else if (dayMode === "amount") next = current + input;
+    else next = current;
+    if (next === null || !Number.isFinite(next) || next <= 0) return null;
+    const step = Math.max(1, dayRound);
+    return Math.max(step, Math.round(next / step) * step);
+  }, [dayMode, dayValue, dayRound]);
+
+  /** Everything the day tool would change, ready to preview or save. */
+  const dayToolChanges = useMemo(() => {
+    if (!dayTool) return [] as Array<{ date: string; row: Extract<Row, { kind: "rate" }>; from: number | null; to: number }>;
+    const out: Array<{ date: string; row: Extract<Row, { kind: "rate" }>; from: number | null; to: number }> = [];
+    for (const row of rateRows) {
+      if (dayTypes.size > 0 && !dayTypes.has(row.roomTypeName)) continue;
+      for (const d of dayToolDates) {
+        const current = row.obk ? priceMap.get(row.obk)?.get(row.occ)?.get(d) ?? null : null;
+        const next = dayToolNext(current);
+        if (next === null || (current !== null && Math.round(next) === Math.round(current))) continue;
+        out.push({ date: d, row, from: current, to: next });
+      }
+    }
+    return out;
+  }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext]);
+
+  /** Save every change the day tool previews as a draft. */
+  async function applyDayTool() {
+    if (!hotelId || dayToolChanges.length === 0) return;
+    setSaving(true);
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const rowsToSave = dayToolChanges.map((c) => ({
+        hotel_id: hotelId,
+        organization_slug: organizationSlug ?? null,
+        stay_date: c.date,
+        obk_id: c.row.obk,
+        room_type_name: c.row.roomTypeName,
+        occupancy: c.row.occ,
+        old_price: c.from,
+        new_price: c.to,
+        status: "draft",
+        created_by: auth.user?.id ?? null,
+      }));
+      const { error } = await supabase.from("revenue_rate_drafts").upsert(rowsToSave, {
+        onConflict: "hotel_id,stay_date,room_type_name,occupancy,status",
+      });
+      if (error) throw error;
+      await refreshDrafts();
+      toast.success(`${rowsToSave.length} price${rowsToSave.length === 1 ? "" : "s"} saved as draft — not sent to Previo yet`);
+      setDayTool(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save the drafts");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   /** Cells priced below the critical safety-net threshold — likely typos. */
+
   const flagged = useMemo(() => {
     let count = 0;
     const dateKeys = new Set<string>();
