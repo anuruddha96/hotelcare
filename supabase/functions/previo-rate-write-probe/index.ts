@@ -62,25 +62,53 @@ Deno.serve(async (req) => {
       .eq("hotel_id", hotelId)
       .maybeSingle();
     if (!cfg || !cfg.is_active) {
-      return json({ code: "pms_inactive", error: "Previo is not configured or is inactive for this hotel" }, 412);
+      return json({ ok: false, code: "pms_inactive", error: "Previo is not configured or is inactive for this hotel" });
     }
 
-    const { data: mappings } = await admin
-      .from("previo_rate_plan_mapping")
-      .select("previo_rate_plan_id, previo_room_type_id, is_default")
-      .eq("hotel_id", hotelId);
-    const valid = (mappings ?? []).filter((m: any) => m.previo_rate_plan_id && m.previo_room_type_id);
+    const loadMaps = async () => {
+      const { data } = await admin
+        .from("previo_rate_plan_mapping")
+        .select("previo_rate_plan_id, previo_room_type_id, is_default")
+        .eq("hotel_id", hotelId);
+      return ((data ?? []) as any[]).filter((m) => m.previo_rate_plan_id && m.previo_room_type_id);
+    };
+
+    let valid = await loadMaps();
+    let mappingNote = "";
+    if (valid.length === 0) {
+      const derived = await syncPrevioRatePlanMappings(admin, hotelId);
+      mappingNote = derived.notes.join(" ");
+      valid = await loadMaps();
+    }
     if (valid.length === 0) {
       return json({
+        ok: false,
         code: "no_mapping",
-        error: "No Previo rate-plan mapping configured. Add room-type and rate-plan ids in Pricing Strategy → Rooms Setup first.",
+        error: `No Previo pricelist could be resolved for this hotel. ${mappingNote} Run a revenue sync and try again.`.trim(),
         methodsTried: [RATE_WRITE_METHOD],
-      }, 412);
+      });
     }
     const map: any = valid.find((m: any) => m.is_default) ?? valid[0];
 
-    const creds = loadPrevioCredentials(cfg.credentials_secret_name);
-    const pmsHotelId = String(cfg.pms_hotel_id ?? "");
+    // Multi-account hotels prefix the obk id with the Previo hotId.
+    const scoped = String(map.previo_room_type_id);
+    const scopedParts = scoped.split(":");
+    const obkId = scopedParts.pop() as string;
+    let pmsHotelId = String(cfg.pms_hotel_id ?? "");
+    let creds = loadPrevioCredentials(cfg.credentials_secret_name);
+    if (scopedParts.length) {
+      const { data: acc } = await admin
+        .from("pms_accounts")
+        .select("pms_hotel_id, credentials_secret_name")
+        .eq("hotel_id", hotelId)
+        .eq("pms_hotel_id", scopedParts.join(":"))
+        .maybeSingle();
+      if (acc?.credentials_secret_name) {
+        creds = loadPrevioCredentials(acc.credentials_secret_name);
+        pmsHotelId = String(acc.pms_hotel_id);
+      }
+    }
+
 
     // Pick a date far enough out that a same-value write is harmless.
     const day = new Date();
