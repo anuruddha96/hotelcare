@@ -1135,10 +1135,11 @@ export default function RateStrategyGrid({
 
       {/* ---- Whole-day price tool: tap a date in the header ---- */}
       <Dialog open={!!dayTool} onOpenChange={(o) => !o && setDayTool(null)}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl p-4 sm:w-full sm:max-w-lg sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-base">Change prices for {dayTool}</DialogTitle>
           </DialogHeader>
+
           <div className="space-y-3 text-sm">
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
