@@ -667,6 +667,8 @@ export default function RevenueHotelDetail() {
             demandByDate={demandByDate}
             leftByTypeDate={leftByTypeDate}
           />
+          <RateActivityPanel hotelId={hotelId ?? null} />
+
           <DemandPricingPanel
             hotelId={hotelId ?? null}
             organizationSlug={organizationSlug ?? null}
