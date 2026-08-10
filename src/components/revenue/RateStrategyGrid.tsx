@@ -48,7 +48,10 @@ interface Props {
   demandByDate?: Map<string, { score: number; band: DemandBand; drivers: string[] }>;
   /** Rooms still sellable per `${roomTypeLabel}|${date}`. */
   leftByTypeDate?: Map<string, number>;
+  /** Reload the hotel's rates after Previo confirms a price push. */
+  onRatesUpdated?: () => void | Promise<void>;
 }
+
 
 const RANGE_OPTIONS = [
   { value: 14, label: "14d" },
