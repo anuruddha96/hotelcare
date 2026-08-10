@@ -109,7 +109,14 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
 
   const byCell = useMemo(() => {
     const map = new Map<string, RateAuditRow[]>();
-    for (const r of rows) {
+    // The shared window is small and easily filled by bulk work, so the
+    // dedicated hand-made rows are merged in — otherwise a cell the user just
+    // priced would show no history at all.
+    const seen = new Set<string>();
+    const merged = [...rows, ...manualRows]
+      .filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)))
+      .sort((a, b) => b.performed_at.localeCompare(a.performed_at));
+    for (const r of merged) {
       const rt = r.payload?.room_type_name;
       const occ = r.payload?.occupancy;
       if (!r.stay_date || !rt || occ === undefined) continue;
@@ -118,7 +125,8 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
       if (bucket) bucket.push(r); else map.set(key, [r]);
     }
     return map;
-  }, [rows]);
+  }, [rows, manualRows]);
+
 
   /** Only hand-made, short-range changes — this drives the blue cell marker. */
   const manualByCell = useMemo(() => {
