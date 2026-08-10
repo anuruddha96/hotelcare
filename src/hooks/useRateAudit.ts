@@ -19,12 +19,13 @@ export const MANUAL_SOURCES = ["day-tool", "cell-edit", "pickup-board"];
  */
 export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem = false) {
   const [rows, setRows] = useState<RateAuditRow[]>([]);
+  const [manualRows, setManualRows] = useState<RateAuditRow[]>([]);
   const [names, setNames] = useState<Map<string, string>>(new Map());
   const [systemCount, setSystemCount] = useState(0);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
-    if (!hotelId) { setRows([]); return; }
+    if (!hotelId) { setRows([]); setManualRows([]); return; }
     setLoading(true);
     try {
       let query = supabase
