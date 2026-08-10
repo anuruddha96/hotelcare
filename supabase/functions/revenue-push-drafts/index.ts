@@ -156,6 +156,9 @@ Deno.serve(async (req) => {
     }
     if (!fallback) {
       try {
+        if (!cfg?.credentials_secret_name) {
+          throw new Error("No Previo credentials are saved for this hotel (neither a PMS configuration nor an active PMS account).");
+        }
         fallback = {
           hotId: String(cfg.pms_hotel_id ?? ""),
           creds: loadPrevioCredentials(cfg.credentials_secret_name),
@@ -168,6 +171,7 @@ Deno.serve(async (req) => {
         });
       }
     }
+
 
 
     let pushed = 0;
