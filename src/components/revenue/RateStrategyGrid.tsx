@@ -218,7 +218,7 @@ interface PendingDraft {
 export default function RateStrategyGrid({
   loading, today, hotelId, organizationSlug, roomTypes, rates, metrics,
   pickupWindowDays, onPickupWindowChange, thresholds = DEFAULT_THRESHOLDS, canEditRates = false,
-  demandByDate, leftByTypeDate,
+  demandByDate, leftByTypeDate, onRatesUpdated,
 }: Props) {
   const { language } = useTranslation();
   useRevenueCurrency(); // re-render when the Ft/€ switch flips
