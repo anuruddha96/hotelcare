@@ -933,24 +933,28 @@ export default function RateStrategyGrid({
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Prices come straight from the Previo pricelist (one row per room type and guest count).
-          Pickup and occupancy come from Previo reservations; ADR and RevPAR are calculated in Hotel Care.
-          {canEditRates ? " Tap any price to draft a change — nothing reaches Previo until you push it." : ""}
+          Live Previo prices.
+          {canEditRates ? " Tap a price, or a date to change a whole day." : ""}
+          <MetricInfo
+            title="Where these numbers come from"
+            body="Prices come straight from the Previo pricelist — one row per room type and guest count. Pickup and occupancy come from Previo reservations; ADR and RevPAR are calculated in Hotel Care."
+          />
         </p>
         {canEditRates && pending.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
             <span className="text-xs">
-              <strong>{pending.length}</strong> price change{pending.length === 1 ? "" : "s"} saved as draft — not in Previo yet.
+              <strong>{pending.length}</strong> price change{pending.length === 1 ? "" : "s"} waiting.
               {failedCount > 0 && (
-                <span className="text-destructive"> {failedCount} failed to push — open to see why and retry.</span>
+                <span className="text-destructive"> {failedCount} refused by Previo.</span>
               )}
             </span>
 
             <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
-              <Send className="h-3.5 w-3.5 mr-1" />Review &amp; push
+              <Send className="h-3.5 w-3.5 mr-1" />Push to Previo
             </Button>
           </div>
         )}
+
       </CardHeader>
       <CardContent className="p-0">
         {loading ? (
