@@ -382,6 +382,7 @@ export default function RateStrategyGrid({
     if (picked.length === 0) return;
     setDayTypes(new Set());
     setDayRange(1);
+    setDayResult(null);
     setSelDates(new Set(picked));
     setDayTool(picked[0]);
   }, []);
@@ -410,6 +411,26 @@ export default function RateStrategyGrid({
     };
     window.addEventListener("pointerup", finish);
   }, [openDayTool]);
+
+  /** Touch-friendly alternative to dragging: tap dates to build a selection. */
+  const [multiMode, setMultiMode] = useState(false);
+  const [pickedDates, setPickedDates] = useState<Set<string>>(new Set());
+  const togglePicked = useCallback((d: string) => {
+    setPickedDates((cur) => {
+      const next = new Set(cur);
+      if (next.has(d)) next.delete(d); else next.add(d);
+      return next;
+    });
+  }, []);
+  /** Full-screen pricing mode — the calendar and nothing else. */
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (!expanded) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [expanded]);
+
 
 
 
