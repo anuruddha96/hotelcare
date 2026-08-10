@@ -879,8 +879,12 @@ export default function RateStrategyGrid({
   }
 
   return (
-    <Card data-training="revenue-grid">
+    <Card
+      data-training="revenue-grid"
+      className={expanded ? "fixed inset-0 z-50 flex flex-col rounded-none border-0 overflow-auto" : undefined}
+    >
       <CardHeader className="pb-3 gap-2">
+
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-sm sm:text-base flex items-center gap-2">
             <CalendarRange className="h-4 w-4 text-primary" />
