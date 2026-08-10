@@ -1419,14 +1419,32 @@ export default function RateStrategyGrid({
                         key={d}
                         type="button"
                         disabled={!canEditRates}
-                        onClick={() => canEditRates && (setApplyDays(1), setApplyWeekdays("all"), setApplyAllOcc(false), setEditMode("set"), setEdit({
-                          stay_date: d,
-                          obk_id: row.obk,
-                          room_type_name: row.roomTypeName,
-                          occupancy: row.occ,
-                          old_price: published ?? null,
-                          value: String(shown ?? ""),
-                        }))}
+                        onClick={() => {
+                          if (!canEditRates) return;
+                          // On a phone there is no hover, so a tap tells the
+                          // cell's story first and offers editing from there.
+                          if (isMobile) {
+                            setCellInfo({
+                              date: d,
+                              roomTypeName: row.roomTypeName,
+                              occ: row.occ,
+                              published: published ?? null,
+                              draft: draft ?? null,
+                              obk: row.obk,
+                            });
+                            return;
+                          }
+                          setApplyDays(1); setApplyWeekdays("all"); setApplyAllOcc(false); setEditMode("set");
+                          setEdit({
+                            stay_date: d,
+                            obk_id: row.obk,
+                            room_type_name: row.roomTypeName,
+                            occupancy: row.occ,
+                            old_price: published ?? null,
+                            value: String(shown ?? ""),
+                          });
+                        }}
+
                         title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label}`}
                         className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""}`}
                         style={{ width: CELL_W }}
