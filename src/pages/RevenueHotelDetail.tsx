@@ -669,7 +669,9 @@ export default function RevenueHotelDetail() {
             onPickupWindowChange={setPickupWindow}
             demandByDate={demandByDate}
             leftByTypeDate={leftByTypeDate}
+            onRatesUpdated={live.reload}
           />
+
 
 
 

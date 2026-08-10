@@ -48,7 +48,10 @@ interface Props {
   demandByDate?: Map<string, { score: number; band: DemandBand; drivers: string[] }>;
   /** Rooms still sellable per `${roomTypeLabel}|${date}`. */
   leftByTypeDate?: Map<string, number>;
+  /** Reload the hotel's rates after Previo confirms a price push. */
+  onRatesUpdated?: () => void | Promise<void>;
 }
+
 
 const RANGE_OPTIONS = [
   { value: 14, label: "14d" },
@@ -215,7 +218,7 @@ interface PendingDraft {
 export default function RateStrategyGrid({
   loading, today, hotelId, organizationSlug, roomTypes, rates, metrics,
   pickupWindowDays, onPickupWindowChange, thresholds = DEFAULT_THRESHOLDS, canEditRates = false,
-  demandByDate, leftByTypeDate,
+  demandByDate, leftByTypeDate, onRatesUpdated,
 }: Props) {
   const { language } = useTranslation();
   useRevenueCurrency(); // re-render when the Ft/€ switch flips
@@ -516,13 +519,17 @@ export default function RateStrategyGrid({
       if (res?.failed) {
         toast.error(`${res.pushed ?? 0} sent, ${res.failed} failed — open the list to see why`);
         await refreshDrafts();
+        // Previo confirmed the ones that landed — pull the live prices back in.
+        if (res.pushed) await onRatesUpdated?.();
         return;
       }
       toast.success(`${res?.pushed ?? 0} price change${res?.pushed === 1 ? "" : "s"} sent to Previo`);
       setPushOpen(false);
       setPushConsent(false);
       await refreshDrafts();
+      await onRatesUpdated?.();
     } catch (e) {
+
       const message = e instanceof Error ? e.message : "Could not push the prices to Previo";
       setProbe({ ok: false, message });
       toast.error(message);

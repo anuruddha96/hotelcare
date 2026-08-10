@@ -280,6 +280,44 @@ Deno.serve(async (req) => {
           obkId: g.obkId,
         });
 
+        // Bring Hotel Care's own price list in line with what Previo now
+        // publishes, so the grid shows the confirmed price immediately
+        // instead of the stale one until the next revenue sync.
+        const gridObkId = String(g.drafts[0]?.obk_id ?? g.obkId);
+        for (const [occ, price] of readBack.entries()) {
+          const { data: updated } = await admin
+            .from("revenue_room_type_rates")
+            .update({
+              price,
+              currency: g.currency,
+              source: "previo_push",
+              captured_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("hotel_id", hotelId)
+            .eq("stay_date", g.stay_date)
+            .eq("obk_id", gridObkId)
+            .eq("occupancy", occ)
+            .select("id");
+
+          if (!updated || updated.length === 0) {
+            await admin.from("revenue_room_type_rates").upsert({
+              hotel_id: hotelId,
+              organization_slug: hotelOrgSlug ?? profile.organization_slug ?? "",
+              stay_date: g.stay_date,
+              obk_id: gridObkId,
+              room_type_name: g.room_type_name,
+              rate_plan_id: g.prlId,
+              occupancy: occ,
+              price,
+              currency: g.currency,
+              source: "previo_push",
+              captured_at: new Date().toISOString(),
+            }, { onConflict: "hotel_id,stay_date,obk_id,rate_plan_id,occupancy" });
+          }
+        }
+
+
         for (const d of g.drafts) {
           const occ = Math.max(1, Math.round(Number(d.occupancy) || 2));
           const back = readBack.get(occ) ?? null;
