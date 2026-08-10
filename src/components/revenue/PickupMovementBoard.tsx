@@ -274,7 +274,17 @@ export default function PickupMovementBoard({
             snapshots build up, rooms that quietly disappear will also be caught.
           </p>
         )}
+
+        <QuickRateAdjustDialog
+          target={adjust}
+          hotelId={hotelId}
+          organizationSlug={organizationSlug}
+          rates={rates}
+          onClose={() => setAdjust(null)}
+          onApplied={() => onRatesUpdated?.()}
+        />
       </CardContent>
+
     </Card>
   );
 }
