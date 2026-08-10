@@ -1361,12 +1361,17 @@ export default function RateStrategyGrid({
                         style={{ width: CELL_W }}
                       >
                         {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
-                        {history && (
-                          <span
-                            aria-hidden
-                            className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-primary/70"
-                          />
-                        )}
+                        {history && (() => {
+                          const last = Math.max(...history.map((h) => new Date(h.performed_at).getTime()));
+                          const fresh = Date.now() - last < 24 * 60 * 60 * 1000;
+                          return (
+                            <span
+                              aria-hidden
+                              className={`absolute right-0.5 top-0.5 rounded-full ${fresh ? "h-2 w-2 bg-primary ring-2 ring-primary/25" : "h-1.5 w-1.5 bg-muted-foreground/40"}`}
+                            />
+                          );
+                        })()}
+
                       </button>
                     );
                     if (!history) return cellButton;
