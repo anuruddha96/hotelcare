@@ -115,12 +115,17 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
   /** Only hand-made, short-range changes — this drives the blue cell marker. */
   const manualByCell = useMemo(() => {
     const map = new Map<string, RateAuditRow[]>();
-    for (const [key, list] of byCell.entries()) {
-      const manual = list.filter((r) => r.source && MANUAL_SOURCES.includes(r.source));
-      if (manual.length > 0) map.set(key, manual);
+    for (const r of manualRows) {
+      const rt = r.payload?.room_type_name;
+      const occ = r.payload?.occupancy;
+      if (!r.stay_date || !rt || occ === undefined) continue;
+      if (!r.source || !MANUAL_SOURCES.includes(r.source)) continue;
+      const key = cellKey(r.stay_date, rt, occ);
+      const bucket = map.get(key);
+      if (bucket) bucket.push(r); else map.set(key, [r]);
     }
     return map;
-  }, [byCell]);
+  }, [manualRows]);
 
   return { rows, byCell, manualByCell, names, loading, systemCount, reload: load };
 
