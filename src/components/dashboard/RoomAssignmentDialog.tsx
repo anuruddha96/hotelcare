@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
@@ -468,7 +469,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                                   <User className="h-3 w-3 mr-1" />
                                   Already assigned to {room.assignment.assigned_to_name}
                                 </div>
-                                {(profile?.role === 'admin' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager') && (
+                                {hasManagerPowers(profile?.role) && (
                                   <Button
                                     size="sm"
                                     variant="outline"
@@ -535,7 +536,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                                   <User className="h-3 w-3 mr-1" />
                                   Already assigned to {room.assignment.assigned_to_name}
                                 </div>
-                                {(profile?.role === 'admin' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager') && (
+                                {hasManagerPowers(profile?.role) && (
                                   <Button
                                     size="sm"
                                     variant="outline"

@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { useToast } from '@/hooks/use-toast';
 import { 
   Clock, 
@@ -1242,7 +1243,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             )}
 
             {/* Change to Checkout Button - Only for managers/admins with daily cleaning */}
-            {(profile?.role === 'admin' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager') && 
+            {hasManagerPowers(profile?.role) && 
              assignment.assignment_type === 'daily_cleaning' && (
               <Button 
                 size="lg"
@@ -1432,7 +1433,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           )}
 
           {/* Management Action Buttons */}
-          {assignment.rooms && (user?.role === 'manager' || user?.role === 'admin' || user?.role === 'housekeeping_manager') && (
+          {assignment.rooms && hasManagerPowers(user?.role) && (
             <div className="flex gap-2">
               <Button 
                 size="sm" 

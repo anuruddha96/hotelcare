@@ -11,6 +11,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { MaintenanceIssueDialog } from './MaintenanceIssueDialog';
 import { MaintenanceResolutionDialog } from './MaintenanceResolutionDialog';
 
@@ -63,8 +64,8 @@ export function MaintenancePhotosManagement() {
   });
 
   const canDelete = (profile?.role && ['admin'].includes(profile.role)) || profile?.is_super_admin;
-  const canCreate = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
-  const canResolve = profile?.role && ['admin', 'manager', 'housekeeping_manager', 'maintenance'].includes(profile.role);
+  const canCreate = hasManagerPowers(profile?.role);
+  const canResolve = hasManagerPowers(profile?.role) || profile?.role === 'maintenance';
 
   useEffect(() => {
     fetchMaintenanceIssues();

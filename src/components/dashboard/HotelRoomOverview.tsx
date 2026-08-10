@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -189,7 +190,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [pendingUnassign, setPendingUnassign] = useState<{ roomId: string; roomNumber: string; staffName: string | null } | null>(null);
   const [unassigning, setUnassigning] = useState(false);
 
-  const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
+  const isManagerOrAdmin = hasManagerPowers(profile?.role);
   const isSupervisor = profile?.role === 'supervisor';
   // Supervisors may move work around the board (RLS keeps them inside their
   // scoped venues) but keep every other manager-only mutation untouched.

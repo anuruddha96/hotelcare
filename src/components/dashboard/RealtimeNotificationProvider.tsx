@@ -17,7 +17,7 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
     // Manager-only channels (room assignment notifications are handled by useNotifications hook)
 
       // Break requests for managers
-      ...(profile?.role && ['manager', 'housekeeping_manager', 'admin'].includes(profile.role) ? [
+      ...(profile?.role && ['manager', 'housekeeping_manager', 'admin', 'top_management', 'top_management_manager'].includes(profile.role) ? [
         supabase
           .channel('break-requests-notifications')
           .on(
@@ -39,7 +39,7 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
       ] : []),
 
       // Supervisor approvals for room assignments (filtered by hotel)
-      ...(profile?.role && ['manager', 'housekeeping_manager', 'admin'].includes(profile.role) ? [
+      ...(profile?.role && ['manager', 'housekeeping_manager', 'admin', 'top_management', 'top_management_manager'].includes(profile.role) ? [
         supabase
           .channel('supervisor-approvals-notifications')
           .on(

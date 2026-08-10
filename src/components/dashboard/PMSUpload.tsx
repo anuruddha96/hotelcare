@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { useDropzone } from 'react-dropzone';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { normalizeUnitName, isTechnicalRow } from '@/lib/slntUnitMapping';
 import { CheckoutRoomsView } from './CheckoutRoomsView';
@@ -1418,7 +1419,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
       const hotelKey = cfg?.hotel_id;
       const isPrevioTest = hotelKey === 'previo-test' || hotelKey === 'hotelcare-test';
       if (isPrevioTest) {
-        const hasPermission = userRole === 'admin' || userRole === 'manager' || userRole === 'housekeeping_manager';
+        const hasPermission = hasManagerPowers(userRole);
         setPrevioSyncEnabled(hasPermission);
       } else {
         setPrevioSyncEnabled(false);
@@ -1609,7 +1610,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               {previoSyncEnabled && (
                 <Button
                   onClick={handlePrevioSync}
-                  disabled={uploading || isSyncingPrevio || !(userRole === 'admin' || userRole === 'manager' || userRole === 'housekeeping_manager')}
+                  disabled={uploading || isSyncingPrevio || !hasManagerPowers(userRole)}
                   className="w-full max-w-xs"
                   variant="outline"
                 >
@@ -1686,7 +1687,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             </div>
             
             {/* Show statistics to admins and managers */}
-            {(userRole === 'admin' || userRole === 'manager' || userRole === 'housekeeping_manager') && (
+            {hasManagerPowers(userRole) && (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="text-center p-4 bg-blue-50 rounded-lg">
                   <div className="text-2xl font-bold text-blue-600">{results.processed}</div>

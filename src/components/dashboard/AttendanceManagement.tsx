@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { useToast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
 import { CalendarDays, Clock, MapPin, TrendingUp, Users, Download, FileText, UserPlus } from 'lucide-react';
@@ -53,8 +54,8 @@ export const AttendanceManagement = () => {
   const [selectedUserForCheckIn, setSelectedUserForCheckIn] = useState<string>('');
 
   // Enhanced role permissions - HR and admins see everything, managers see their hotel only
-  const isAdmin = profile?.role === 'admin' || profile?.role === 'hr' || profile?.role === 'top_management';
-  const isManager = profile?.role === 'manager' || profile?.role === 'housekeeping_manager';
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'hr' || profile?.role === 'top_management' || profile?.role === 'top_management_manager';
+  const isManager = hasManagerPowers(profile?.role);
   const hasAttendanceAccess = isAdmin || isManager;
 
   useEffect(() => {

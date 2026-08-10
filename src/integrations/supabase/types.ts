@@ -6512,6 +6512,7 @@ export type Database = {
         Args: { user_id: string }
         Returns: Database["public"]["Enums"]["user_role"]
       }
+      has_hk_manager_powers: { Args: { _user_id: string }; Returns: boolean }
       has_pms_access: { Args: { user_id: string }; Returns: boolean }
       has_ticket_creation_permission: {
         Args: { _user_id: string }
@@ -6524,6 +6525,7 @@ export type Database = {
       hotel_has_active_previo: { Args: { _hotel_id: string }; Returns: boolean }
       is_revenue_user: { Args: { _uid: string }; Returns: boolean }
       is_super_admin: { Args: { user_id: string }; Returns: boolean }
+      is_top_management: { Args: { _user_id: string }; Returns: boolean }
       manager_assignable_role: {
         Args: { _role: Database["public"]["Enums"]["user_role"] }
         Returns: boolean

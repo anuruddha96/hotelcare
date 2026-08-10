@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -43,7 +44,7 @@ export function WorkingRoomDetailDialog({
   const { profile } = useAuth();
   const [assignments, setAssignments] = useState<WorkingAssignment[]>([]);
   const [loading, setLoading] = useState(false);
-  const canReleaseCheckout = !!profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
+  const canReleaseCheckout = hasManagerPowers(profile?.role);
 
   useEffect(() => {
     if (open && staffId) {

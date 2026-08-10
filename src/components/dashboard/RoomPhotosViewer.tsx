@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { Camera, Eye, X } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -32,7 +33,7 @@ export function RoomPhotosViewer({ open, onOpenChange, roomId, roomNumber }: Roo
   const [loading, setLoading] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<RoomPhoto | null>(null);
 
-  const canViewPhotos = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
+  const canViewPhotos = hasManagerPowers(profile?.role);
 
   useEffect(() => {
     if (open && canViewPhotos) {

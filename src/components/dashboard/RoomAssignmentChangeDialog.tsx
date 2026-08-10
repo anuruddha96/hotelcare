@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { AlertTriangle, ArrowRight } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
 
@@ -29,7 +30,7 @@ export function RoomAssignmentChangeDialog({
   const { user, profile } = useAuth();
   const [isChanging, setIsChanging] = useState(false);
 
-  const isAuthorized = profile?.role === 'admin' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager';
+  const isAuthorized = hasManagerPowers(profile?.role);
 
   const handleAssignmentChange = async () => {
     if (!user?.id || !isAuthorized) return;
