@@ -817,15 +817,22 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                       domain={[0, (max: number) => Math.max(goals.targetAdr * 1.2, max * 1.1)]} />
                     <RTooltip
                       contentStyle={{ fontSize: 11, padding: "4px 8px" }}
-                      formatter={(value: unknown, name: string) => {
+                      formatter={(value: unknown, name: string, item: any) => {
                         if (name === "Room nights") return [String(value), name];
+                        if (name === "Booked in this window") {
+                          const n = item?.payload?.windowBookings ?? 0;
+                          return [`${eur(Number(value))} · ${n} booking${n === 1 ? "" : "s"}`, name];
+                        }
                         return [eur(Number(value)), name];
                       }}
-                      labelFormatter={(l) => `${l} Budapest`}
+                      labelFormatter={(l) => `${l} Budapest · booked in the 2h up to this point`}
                     />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     <ReferenceLine yAxisId="adr" y={goals.targetAdr} stroke="hsl(var(--primary))" strokeDasharray="5 3"
                       label={{ value: `ADR target ${eur(goals.targetAdr)}`, position: "insideTopRight", fontSize: 10, fill: "hsl(var(--primary))" }} />
+                    {/* Bars show WHEN the bookings actually landed, not the running total. */}
+                    <Bar yAxisId="v" dataKey="windowValue" name="Booked in this window"
+                      fill="hsl(199 89% 48% / 0.35)" barSize={14} radius={[3, 3, 0, 0]} />
                     <Area yAxisId="v" type="monotone" dataKey="value" name="Booking value" stroke="hsl(199 89% 48%)"
                       fill="hsl(199 89% 48% / 0.15)" strokeWidth={2} />
                     <Line yAxisId="v" type="monotone" dataKey="compare" name={compareLabel} stroke="hsl(var(--muted-foreground))"
@@ -836,10 +843,39 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                 </ResponsiveContainer>
               </div>
               <p className="text-[11px] text-muted-foreground">
-                Cumulative booking value, room nights and ADR from 00:00 Budapest in two-hour steps,
-                against {compareLabel.toLowerCase()}. End-of-day goal: {eur(goals.targetValue)} value ·
-                {" "}{goals.targetRoomNights} room nights.
+                Bars show what was actually booked in each two-hour window; lines show the running total,
+                room nights and ADR from 00:00 Budapest, against {compareLabel.toLowerCase()}.
+                End-of-day goal: {eur(goals.targetValue)} value · {goals.targetRoomNights} room nights.
               </p>
+
+              {bookingTiming && (
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                    <Mini label="First booking" value={bookingTiming.first?.time ?? "—"} />
+                    <Mini label="Latest booking" value={bookingTiming.last?.time ?? "—"} />
+                    <Mini label="Busiest window" value={bookingTiming.peak ? `${bookingTiming.peak.label}` : "—"} />
+                    <Mini label="Booked in that window" value={eur(bookingTiming.peak?.windowValue ?? 0)} />
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {bookingTiming.times.slice(0, 24).map((t) => (
+                      <span key={t.key}
+                        className="rounded-md border bg-background px-2 py-1 text-[11px] tabular-nums"
+                        title={`${t.res} · ${t.channel} · ${t.nights} night${t.nights === 1 ? "" : "s"}`}>
+                        <span className="font-medium">{t.time}</span>
+                        <span className="text-muted-foreground"> · {eur(Math.round(t.revenue))}</span>
+                      </span>
+                    ))}
+                    {bookingTiming.times.length > 24 && (
+                      <span className="px-2 py-1 text-[11px] text-muted-foreground">
+                        +{bookingTiming.times.length - 24} more
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Booking times are Budapest time, taken from when each reservation was created in Previo.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* ---------------------------------------------- recovery */}
