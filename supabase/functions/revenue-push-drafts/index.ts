@@ -7,7 +7,7 @@
 // draft so a partial failure is visible instead of silent.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadPrevioCredentials } from "../_shared/previoCredentials.ts";
-import { readPrevioRate, writePrevioRate } from "../_shared/previoRateWrite.ts";
+import { readPrevioRateLevels, writePrevioRate } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 
 
@@ -179,6 +179,22 @@ Deno.serve(async (req) => {
     let verified = 0;
     const errors: Array<{ stay_date: string; room_type_name: string; error: string }> = [];
 
+    // Previo rejects an occupancy level whose lower levels are absent from the
+    // same message ("3092 … levels have to be created sequentially"). So one
+    // message per stay date + room type, carrying every level 1..max: the
+    // edited ones from the drafts, the rest read straight back from Previo so
+    // nothing else changes.
+    type Group = {
+      stay_date: string;
+      obkId: string;
+      prlId: string;
+      account: { hotId: string; creds: any };
+      currency: string;
+      room_type_name: string;
+      drafts: any[];
+    };
+    const groups = new Map<string, Group>();
+
     for (const d of drafts as any[]) {
       const mapForType = validMaps.find((m: any) => String(m.previo_room_type_id) === String(d.obk_id));
       const map: any = mapForType ?? defaultMap;
@@ -187,22 +203,55 @@ Deno.serve(async (req) => {
       const parts = scoped.split(":");
       const obkId = parts.pop() as string;
       const account = (parts.length ? accounts.get(parts.join(":")) : null) ?? fallback!;
-      const creds = account.creds;
-      const pmsHotelId = account.hotId;
+      const key = `${d.stay_date}|${account.hotId}|${obkId}`;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.drafts.push(d);
+      } else {
+        groups.set(key, {
+          stay_date: d.stay_date,
+          obkId,
+          prlId: String(map.previo_rate_plan_id),
+          account,
+          currency: d.currency ?? settings?.base_currency ?? "EUR",
+          room_type_name: d.room_type_name,
+          drafts: [d],
+        });
+      }
+    }
 
+    for (const g of groups.values()) {
+      const creds = g.account.creds;
+      const pmsHotelId = g.account.hotId;
       try {
+        const published = await readPrevioRateLevels({
+          creds,
+          pmsHotelId,
+          date: g.stay_date,
+          obkId: g.obkId,
+        });
+
+        const wanted = new Map<number, number>(published);
+        for (const d of g.drafts) {
+          wanted.set(Math.max(1, Math.round(Number(d.occupancy) || 2)), Number(d.new_price));
+        }
+        const levels = Array.from(wanted.entries())
+          .sort((a, b) => a[0] - b[0])
+          .map(([occupancy, price]) => ({ occupancy, price }));
+
         const result = await writePrevioRate({
           creds,
           pmsHotelId,
           preferredMethod: writeMethod,
           target: {
-            prlId: String(map.previo_rate_plan_id),
-            obkId,
-            from: d.stay_date,
-            to: d.stay_date,
-            occupancy: Number(d.occupancy) || 2,
-            price: Number(d.new_price),
-            currency: d.currency ?? settings?.base_currency ?? "EUR",
+            prlId: g.prlId,
+            obkId: g.obkId,
+            from: g.stay_date,
+            to: g.stay_date,
+            occupancy: levels[levels.length - 1]?.occupancy ?? 2,
+            price: levels[levels.length - 1]?.price ?? 0,
+            currency: g.currency,
+            levels,
           },
         });
 
@@ -221,50 +270,55 @@ Deno.serve(async (req) => {
             .eq("hotel_id", hotelId);
         }
 
-        // Prove it landed: read the price straight back from Previo.
-        const readBack = await readPrevioRate({
+        // Prove it landed: read the prices straight back from Previo.
+        const readBack = await readPrevioRateLevels({
           creds,
           pmsHotelId,
-          from: d.stay_date,
-          to: d.stay_date,
-          obkId,
-          occupancy: Number(d.occupancy) || 2,
-        });
-        const isVerified = readBack !== null && Math.round(readBack) === Math.round(Number(d.new_price));
-        if (isVerified) verified += 1;
-
-
-        await admin.from("revenue_rate_drafts")
-          .update({
-            status: "pushed",
-            pushed_at: new Date().toISOString(),
-            push_error: isVerified
-              ? null
-              : `Sent to Previo, but the read-back price was ${readBack === null ? "unavailable" : readBack}. Re-sync to confirm.`,
-          })
-          .eq("id", d.id);
-
-        await admin.from("rate_history").insert({
-          hotel_id: hotelId,
-          organization_slug: hotelOrgSlug ?? profile.organization_slug ?? null,
-          stay_date: d.stay_date,
-          old_rate_eur: d.old_price,
-          new_rate_eur: d.new_price,
-          source: "manual_push",
-          notes: `${d.room_type_name} · ${d.occupancy} guest(s) · ${result.method} · ${isVerified ? "verified in Previo" : "not verified"} · pushed by ${user.email ?? user.id}`,
+          date: g.stay_date,
+          obkId: g.obkId,
         });
 
-        pushed += 1;
+        for (const d of g.drafts) {
+          const occ = Math.max(1, Math.round(Number(d.occupancy) || 2));
+          const back = readBack.get(occ) ?? null;
+          const isVerified = back !== null && Math.round(back) === Math.round(Number(d.new_price));
+          if (isVerified) verified += 1;
+
+          await admin.from("revenue_rate_drafts")
+            .update({
+              status: "pushed",
+              pushed_at: new Date().toISOString(),
+              push_error: isVerified
+                ? null
+                : `Sent to Previo, but the read-back price was ${back === null ? "unavailable" : back}. Re-sync to confirm.`,
+            })
+            .eq("id", d.id);
+
+          await admin.from("rate_history").insert({
+            hotel_id: hotelId,
+            organization_slug: hotelOrgSlug ?? profile.organization_slug ?? null,
+            stay_date: d.stay_date,
+            old_rate_eur: d.old_price,
+            new_rate_eur: d.new_price,
+            source: "manual_push",
+            notes: `${d.room_type_name} · ${d.occupancy} guest(s) · ${result.method} · ${isVerified ? "verified in Previo" : "not verified"} · pushed by ${user.email ?? user.id}`,
+          });
+
+          pushed += 1;
+        }
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
-        failed += 1;
-        errors.push({ stay_date: d.stay_date, room_type_name: d.room_type_name, error: message });
-        await admin.from("revenue_rate_drafts")
-          .update({ status: "failed", push_error: message.slice(0, 500) })
-          .eq("id", d.id);
-        console.error("rate push failed", d.stay_date, message);
+        for (const d of g.drafts) {
+          failed += 1;
+          errors.push({ stay_date: d.stay_date, room_type_name: d.room_type_name, error: message });
+          await admin.from("revenue_rate_drafts")
+            .update({ status: "failed", push_error: message.slice(0, 500) })
+            .eq("id", d.id);
+        }
+        console.error("rate push failed", g.stay_date, g.obkId, message);
       }
     }
+
 
     await admin.from("pms_sync_history").insert({
       sync_type: "rate_push",

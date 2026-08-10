@@ -9,7 +9,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadPrevioCredentials } from "../_shared/previoCredentials.ts";
-import { readPrevioRate, writePrevioRate, RATE_WRITE_METHOD } from "../_shared/previoRateWrite.ts";
+import { readPrevioRateLevels, writePrevioRate, RATE_WRITE_METHOD } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 
 const corsHeaders = {
@@ -131,14 +131,16 @@ Deno.serve(async (req) => {
     const stayDate = day.toISOString().slice(0, 10);
     const occupancy = 2;
 
-    const current = await readPrevioRate({
+    // Read every occupancy level: Previo only accepts a write that carries the
+    // full sequential ladder, so the probe has to send them all back.
+    const publishedLevels = await readPrevioRateLevels({
       creds,
       pmsHotelId,
-      from: stayDate,
-      to: stayDate,
+      date: stayDate,
       obkId,
-      occupancy,
     });
+    const current = publishedLevels.get(occupancy)
+      ?? (publishedLevels.size ? Array.from(publishedLevels.values())[0] : null);
 
     if (current === null) {
       return json({
@@ -147,6 +149,10 @@ Deno.serve(async (req) => {
         error: `Could not read a current price for ${stayDate} (room type ${map.previo_room_type_id}, ${occupancy} guests). Run a revenue sync first.`,
       }, 200);
     }
+
+    const levels = Array.from(publishedLevels.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([occ, price]) => ({ occupancy: occ, price }));
 
     const write = await writePrevioRate({
       creds,
@@ -159,8 +165,10 @@ Deno.serve(async (req) => {
         occupancy,
         price: current, // same value in, same value out — nothing changes
         currency: "EUR",
+        levels: levels.length ? levels : undefined,
       },
     });
+
 
     if (write.ok && write.method) {
       await admin

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Loader2, CalendarRange, Info, AlertTriangle, Send, Trash2 } from "lucide-react";
+import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -795,13 +795,20 @@ export default function RateStrategyGrid({
                         setDayTool(d);
                       }}
                       title={canEditRates ? `Change every price on ${d}` : d}
-                      className={`flex flex-col items-center justify-center shrink-0 ${dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
+                      className={`group relative flex flex-col items-center justify-center shrink-0 ${dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
                       style={{ width: CELL_W, height: DAY_H }}
                     >
                       <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
                       <span className="font-medium">{formatDay(d)}</span>
+                      {canEditRates && (
+                        <ChevronDown
+                          className="pointer-events-none absolute bottom-0.5 right-1 h-3 w-3 text-primary opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                          aria-hidden
+                        />
+                      )}
                     </button>
                   ))}
+
 
                 </div>
 
@@ -1128,10 +1135,11 @@ export default function RateStrategyGrid({
 
       {/* ---- Whole-day price tool: tap a date in the header ---- */}
       <Dialog open={!!dayTool} onOpenChange={(o) => !o && setDayTool(null)}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl p-4 sm:w-full sm:max-w-lg sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-base">Change prices for {dayTool}</DialogTitle>
           </DialogHeader>
+
           <div className="space-y-3 text-sm">
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
@@ -1148,7 +1156,7 @@ export default function RateStrategyGrid({
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">
-                  {dayMode === "percent" ? "Percent (− to lower)" : dayMode === "round" ? "Not used" : `Amount in ${getRevenueCurrency()}`}
+                  {dayMode === "percent" ? "Percent (− to lower)" : dayMode === "round" ? "Not used" : `Amount in ${getRevenueCurrency().code}`}
                 </label>
                 <Input
                   type="number"

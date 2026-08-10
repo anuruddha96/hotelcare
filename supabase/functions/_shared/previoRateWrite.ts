@@ -43,6 +43,13 @@ export interface RateWriteTarget {
   occupancy: number;
   price: number;
   currency: string;
+  /**
+   * Previo refuses a price for occupancy N unless every level below it is in
+   * the same message ("levels have to be created sequentially", error 3092).
+   * When set, these are sent instead of the single occupancy/price above, in
+   * ascending order and with no gaps.
+   */
+  levels?: Array<{ occupancy: number; price: number }>;
 }
 
 function esc(v: string | number): string {
@@ -61,7 +68,36 @@ export function eqcApiKey(creds: PrevioCredentials): string {
   return creds.apiKey || creds.password || "";
 }
 
+/** Ascending, gap-free occupancy levels for one room type / date. */
+export function normalizeLevels(t: RateWriteTarget): Array<{ occupancy: number; price: number }> {
+  const raw = (t.levels && t.levels.length > 0)
+    ? t.levels
+    : [{ occupancy: Math.max(1, Math.round(t.occupancy || 2)), price: Number(t.price) }];
+
+  const byOcc = new Map<number, number>();
+  for (const l of raw) {
+    const occ = Math.max(1, Math.round(Number(l.occupancy) || 1));
+    const price = Number(l.price);
+    if (!Number.isFinite(price)) continue;
+    byOcc.set(occ, price);
+  }
+  const max = Math.max(...byOcc.keys());
+  const out: Array<{ occupancy: number; price: number }> = [];
+  let lastKnown: number | null = null;
+  for (let occ = 1; occ <= max; occ++) {
+    const price = byOcc.get(occ) ?? lastKnown;
+    if (price === null || price === undefined) continue; // no price for level 1 yet — skip until one is known
+    lastKnown = price;
+    out.push({ occupancy: occ, price });
+  }
+  return out.length > 0 ? out : [{ occupancy: max, price: byOcc.get(max)! }];
+}
+
 export function buildAvailRateUpdateXml(hotelId: string, t: RateWriteTarget): string {
+  const levels = normalizeLevels(t);
+  const perOccupancy = levels
+    .map((l) => `        <PerOccupancy rate="${esc(Number(l.price).toFixed(2))}" occupancy="${esc(l.occupancy)}" />`)
+    .join("\n");
   return `<?xml version="1.0" encoding="utf-8"?>
 <AvailRateUpdateRQ xmlns="${EQC_AR_NS}">
   <Hotel id="${esc(hotelId)}" />
@@ -69,12 +105,13 @@ export function buildAvailRateUpdateXml(hotelId: string, t: RateWriteTarget): st
   <RoomType id="${esc(t.obkId)}">
     <RatePlan id="${esc(t.prlId)}">
       <Rate currency="${esc(t.currency || "EUR")}">
-        <PerOccupancy rate="${esc(Number(t.price).toFixed(2))}" occupancy="${esc(Math.max(1, Math.round(t.occupancy || 2)))}" />
+${perOccupancy}
       </Rate>
     </RatePlan>
   </RoomType>
 </AvailRateUpdateRQ>`;
 }
+
 
 export interface RateWriteAttempt {
   method: string;
@@ -196,4 +233,44 @@ export async function readPrevioRate(opts: {
     }
   }
   return null;
+}
+
+/**
+ * All published occupancy levels for one room type on one date.
+ * Used to fill the levels the user did not edit so a push never "skips a
+ * level" (Previo error 3092).
+ */
+export async function readPrevioRateLevels(opts: {
+  creds: PrevioCredentials;
+  pmsHotelId: string;
+  date: string;
+  obkId: string;
+}): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  const res = await callPrevioXml({
+    method: "getRates",
+    creds: opts.creds,
+    pmsHotelId: opts.pmsHotelId,
+    extraXml: `<term><from>${esc(opts.date)}</from><to>${esc(opts.date)}</to></term>`,
+  });
+  if (!res.ok) return out;
+
+  const kindBlocks = res.text.split(/<objectKind>/i).slice(1);
+  for (const raw of kindBlocks) {
+    const block = raw.split(/<\/objectKind>/i)[0] ?? "";
+    const obk = block.match(/<obkId>([^<]*)<\/obkId>/i)?.[1]?.trim();
+    if (obk !== opts.obkId) continue;
+    for (const rateRaw of block.split(/<rate>/i).slice(1)) {
+      const rate = rateRaw.split(/<\/rate>/i)[0] ?? "";
+      const occ = parseInt(rate.match(/<occupancy>([^<]*)<\/occupancy>/i)?.[1] ?? "", 10);
+      if (!Number.isFinite(occ)) continue;
+      const price = parseFloat(
+        rate.match(/<amount>([^<]*)<\/amount>/i)?.[1]
+          ?? rate.match(/<price>\s*([\d.,]+)\s*<\/price>/i)?.[1]
+          ?? "",
+      );
+      if (Number.isFinite(price)) out.set(occ, price);
+    }
+  }
+  return out;
 }
