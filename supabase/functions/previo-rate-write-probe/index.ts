@@ -57,14 +57,29 @@ Deno.serve(async (req) => {
       return json({ error: "You can only probe your own hotel" }, 403);
     }
 
-    const { data: cfg } = await admin
+    // Hotels running on pms_accounts (SLNT) have no pms_configurations row —
+    // that is not an error. Only a failed read, or no Previo credentials at
+    // all, blocks the probe.
+    const { data: cfg, error: cfgErr } = await admin
       .from("pms_configurations")
       .select("pms_hotel_id, credentials_secret_name, is_active")
       .eq("hotel_id", hotelId)
       .maybeSingle();
-    if (!cfg || !cfg.is_active) {
+    if (cfgErr) {
+      return json({ ok: false, code: "pms_read_failed", error: `Could not read the PMS configuration: ${cfgErr.message}` });
+    }
+    const { data: probeAccounts } = await admin
+      .from("pms_accounts")
+      .select("pms_hotel_id, credentials_secret_name")
+      .eq("hotel_id", hotelId)
+      .eq("is_active", true);
+    const usableAccounts = ((probeAccounts ?? []) as any[]).filter(
+      (a) => a.pms_hotel_id && a.credentials_secret_name,
+    );
+    if (usableAccounts.length === 0 && (!cfg || !cfg.is_active)) {
       return json({ ok: false, code: "pms_inactive", error: "Previo is not configured or is inactive for this hotel" });
     }
+
 
     const loadMaps = async () => {
       const { data } = await admin
