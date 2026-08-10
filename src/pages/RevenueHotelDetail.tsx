@@ -33,6 +33,8 @@ import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
 import DemandPricingPanel from "@/components/revenue/DemandPricingPanel";
 
 import RevenuePulsePanel from "@/components/revenue/RevenuePulsePanel";
+import RevenueToolsBar from "@/components/revenue/RevenueToolsBar";
+
 import PickupMovementBoard from "@/components/revenue/PickupMovementBoard";
 import PickupHorizonChart from "@/components/revenue/PickupHorizonChart";
 import TodaysSalesAdrGoal from "@/components/revenue/TodaysSalesAdrGoal";
