@@ -67,13 +67,26 @@ export default function BulkPriceEditor({
   const [showAll, setShowAll] = useState(false);
   const [busy, setBusy] = useState(false);
   const [consent, setConsent] = useState(false);
+  const [stage, setStage] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [failedIds, setFailedIds] = useState<string[]>([]);
+  const [pushErrors, setPushErrors] = useState<string[]>([]);
+  const [cancelled, setCancelled] = useState(false);
+  const cancelRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
     setRange({ from: parse(today), to: parse(addDays(today, 29)) });
     setShowAll(false);
     setConsent(false);
+    setStage(null);
+    setProgress(null);
+    setFailedIds([]);
+    setPushErrors([]);
+    setCancelled(false);
+    cancelRef.current = false;
   }, [open, today]);
+
 
   const allTypes = useMemo(() => {
     const s = new Set<string>();
