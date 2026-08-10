@@ -70,7 +70,9 @@ interface Row {
 const ALLOWED = ["admin", "top_management", "top_management_manager"];
 
 /** Data younger than this is considered fresh — no automatic re-sync. */
-const FRESH_SYNC_MS = 15 * 60 * 1000;
+const FRESH_SYNC_MS = 3 * 60 * 1000;
+/** How often the page quietly pulls Previo again while it stays open. */
+const BACKGROUND_SYNC_MS = 5 * 60 * 1000;
 const DOW_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 function fmtMonth(d: Date) { return d.toLocaleString("en-US", { month: "long", year: "numeric" }); }
@@ -225,6 +227,20 @@ export default function RevenueHotelDetail() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, profile?.role, hotelId]);
+
+  // Keep the page honest while it stays open: pull Previo again every few
+  // minutes, but only while the tab is actually visible.
+  useEffect(() => {
+    if (!hotelId) return;
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void runSync();
+    }, BACKGROUND_SYNC_MS);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotelId]);
+
+
 
   async function load() {
     if (!hotelId) return;
@@ -714,7 +730,13 @@ export default function RevenueHotelDetail() {
             windowDays={pickupWindow}
             nights={live.nights}
             cancellations={live.cancellations}
+            hotelId={hotelId ?? null}
+            organizationSlug={organizationSlug ?? null}
+            rates={live.rates}
+            canEdit={revAdmin}
+            onRatesUpdated={live.reload}
           />
+
 
           {live.error && <p className="text-sm text-destructive">{live.error}</p>}
         </TabsContent>

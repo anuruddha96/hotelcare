@@ -25,7 +25,7 @@ import { getRevenueCurrency, moneyBase, useRevenueCurrency } from "@/lib/revenue
 import type { RevenueRoomType } from "@/hooks/useRevenueHotelData";
 import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 import { useRateAudit } from "@/hooks/useRateAudit";
-import { cellKey, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
+import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -300,7 +300,24 @@ export default function RateStrategyGrid({
   const [probe, setProbe] = useState<{ ok: boolean; message: string; support?: string | null } | null>(null);
 
   /** Price-change trail: cell history on hover, and the activity panel below. */
-  const { byCell: auditByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
+  const { rows: auditRows, byCell: auditByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
+
+  /** One-line "who last touched this date" summary for the date header hover. */
+  const auditByDate = useMemo(() => {
+    const map = new Map<string, { last: (typeof auditRows)[number]; count: number; avgDelta: number }>();
+    for (const r of auditRows) {
+      if (!r.stay_date) continue;
+      const cur = map.get(r.stay_date);
+      if (!cur) map.set(r.stay_date, { last: r, count: 1, avgDelta: r.delta_eur ?? 0 });
+      else {
+        cur.avgDelta = (cur.avgDelta * cur.count + (r.delta_eur ?? 0)) / (cur.count + 1);
+        cur.count += 1;
+      }
+    }
+    return map;
+  }, [auditRows]);
+
+
 
 
   /**
@@ -926,7 +943,8 @@ export default function RateStrategyGrid({
 
                   {dates.map((d, i) => {
                     const picked = selecting && selDates.has(d);
-                    return (
+                    const trail = auditByDate.get(d);
+                    const dayButton = (
                       <button
                         key={d}
                         type="button"
@@ -947,6 +965,9 @@ export default function RateStrategyGrid({
                       >
                         <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
                         <span className="font-medium">{formatDay(d)}</span>
+                        {trail && (
+                          <span className="pointer-events-none absolute left-1 top-1 h-1.5 w-1.5 rounded-full bg-primary/70" aria-hidden />
+                        )}
                         {canEditRates && (
                           <ChevronDown
                             className="pointer-events-none absolute bottom-0.5 right-1 h-3 w-3 text-primary opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
@@ -955,7 +976,34 @@ export default function RateStrategyGrid({
                         )}
                       </button>
                     );
+
+                    if (!trail) return dayButton;
+                    const who = (trail.last.performed_by && auditNames.get(trail.last.performed_by)) || "Someone";
+                    const up = trail.avgDelta >= 0;
+                    return (
+                      <HoverCard key={d} openDelay={150} closeDelay={60}>
+                        <HoverCardTrigger asChild>{dayButton}</HoverCardTrigger>
+                        <HoverCardContent align="center" className="w-64 p-3 text-xs space-y-1">
+                          <p className="font-medium">{formatWeekday(d)} {formatDay(d)} · last price update</p>
+                          <p className="tabular-nums">
+                            {trail.count} price{trail.count === 1 ? "" : "s"} changed
+                            {trail.avgDelta !== 0 && (
+                              <span className={up ? " text-emerald-600 dark:text-emerald-400" : " text-sky-600 dark:text-sky-400"}>
+                                {" "}avg {up ? "+" : "−"}{moneyBase(Math.abs(trail.avgDelta))}
+                              </span>
+                            )}
+                          </p>
+                          <p className="tabular-nums">
+                            {moneyBase(trail.last.old_rate_eur)} → <strong>{moneyBase(trail.last.new_rate_eur)}</strong>
+                          </p>
+                          <p className="text-muted-foreground">
+                            {formatWhen(trail.last.performed_at)} · {who} · {trail.last.source === "push" ? "Sent to Previo" : "Draft"}
+                          </p>
+                        </HoverCardContent>
+                      </HoverCard>
+                    );
                   })}
+
 
 
 

@@ -2,8 +2,9 @@ import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowDownRight, ArrowUpRight, ChevronDown, ChevronRight, Scale } from "lucide-react";
-import { eur, type DayMetrics, type BookingNight, type CancelledNight } from "@/lib/revenueAnalytics";
+import { ArrowDownRight, ArrowUpRight, ChevronDown, ChevronRight, Scale, SlidersHorizontal } from "lucide-react";
+import { eur, addDays, budapestDayOf, budapestToday, type DayMetrics, type BookingNight, type CancelledNight, type RoomTypeRate } from "@/lib/revenueAnalytics";
+import QuickRateAdjustDialog, { type QuickAdjustTarget } from "./QuickRateAdjustDialog";
 
 type Filter = "all" | "gained" | "lost";
 
@@ -16,7 +17,9 @@ function fmtDay(iso: string) {
 function fmtStamp(iso: string | null) {
   if (!iso) return "unknown date";
   const d = new Date(iso);
-  return d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString(undefined, {
+    timeZone: "Europe/Budapest", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+  });
 }
 
 interface DetailLine {
@@ -26,6 +29,8 @@ interface DetailLine {
   guests: number | null;
   nights: number;
   span: string;
+  from: string;
+  to: string;
   roomType: string | null;
   value: number;
 }
@@ -33,17 +38,26 @@ interface DetailLine {
 /**
  * "What moved in this pickup window?" — how many room-nights each stay date
  * gained and lost, what it is worth, and the actual bookings behind it.
+ * Eligible users can re-price the affected range straight from a row.
  */
 export default function PickupMovementBoard({
   metrics, windowDays, nights = [], cancellations = [],
+  hotelId = null, organizationSlug = null, rates = [], canEdit = false, onRatesUpdated,
 }: {
   metrics: DayMetrics[];
   windowDays: number;
   nights?: BookingNight[];
   cancellations?: CancelledNight[];
+  hotelId?: string | null;
+  organizationSlug?: string | null;
+  rates?: RoomTypeRate[];
+  canEdit?: boolean;
+  onRatesUpdated?: () => void;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [open, setOpen] = useState<string | null>(null);
+  const [adjust, setAdjust] = useState<QuickAdjustTarget | null>(null);
+
 
   const rows = useMemo(
     () => metrics.filter((m) => (m.netPickup ?? 0) !== 0 || m.roomsLost > 0 || m.newBookings > 0),
@@ -84,14 +98,14 @@ export default function PickupMovementBoard({
     return map;
   }, [nights]);
 
-  const windowStart = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - Math.max(0, windowDays - 1));
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
-  }, [windowDays]);
+  // The window is counted in Budapest calendar days, so "last 1 day" means
+  // "today in Budapest", not the last 24 hours of UTC.
+  const windowFirstDay = useMemo(
+    () => addDays(budapestToday(), -Math.max(0, windowDays - 1)),
+    [windowDays],
+  );
 
-  const inWindow = (iso: string | null) => !!iso && new Date(iso).getTime() >= windowStart;
+  const inWindow = (iso: string | null) => !!iso && budapestDayOf(iso) >= windowFirstDay;
 
   const detailsFor = (stayDate: string): DetailLine[] => {
     const lines: DetailLine[] = [];
@@ -105,6 +119,8 @@ export default function PickupMovementBoard({
         guests: n.guests,
         nights: span?.count ?? 1,
         span: span && span.from !== span.to ? `${fmtDay(span.from)} – ${fmtDay(span.to)}` : fmtDay(n.stay_date),
+        from: span?.from ?? n.stay_date,
+        to: span?.to ?? n.stay_date,
         roomType: n.room_type_name,
         value: n.nightly_price_eur ?? 0,
       });
@@ -118,12 +134,15 @@ export default function PickupMovementBoard({
         guests: null,
         nights: 1,
         span: fmtDay(c.stay_date),
+        from: c.stay_date,
+        to: c.stay_date,
         roomType: null,
         value: 0,
       });
     }
     return lines.sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
   };
+
 
   const noBaseline = rows.length > 0 && rows.every((m) => !m.baselineAvailable);
 
@@ -176,25 +195,36 @@ export default function PickupMovementBoard({
                 const details = isOpen ? detailsFor(m.stay_date) : [];
                 return (
                   <div key={m.stay_date} className="animate-fade-in">
-                    <button
-                      type="button"
-                      onClick={() => setOpen(isOpen ? null : m.stay_date)}
-                      className="grid w-full grid-cols-[1fr_auto_auto_auto] gap-2 px-2 py-1.5 text-sm items-center text-left hover:bg-muted/40"
-                    >
-                      <span className="flex min-w-0 items-center gap-1 truncate">
-                        {isOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
-                        {fmtDay(m.stay_date)}
-                      </span>
-                      <span className="text-right tabular-nums text-emerald-600 dark:text-emerald-400">
-                        {m.newBookings ? `+${m.newBookings}` : "—"}
-                      </span>
-                      <span className="text-right tabular-nums text-sky-600 dark:text-sky-400">
-                        {m.roomsLost ? `−${m.roomsLost}` : "—"}
-                      </span>
-                      <span className={`text-right tabular-nums w-20 font-medium ${net < 0 ? "text-destructive" : ""}`}>
-                        {netEur === 0 ? "—" : `${netEur > 0 ? "+" : "−"}${eur(Math.abs(netEur))}`}
-                      </span>
-                    </button>
+                    <div className="flex items-center hover:bg-muted/40">
+                      <button
+                        type="button"
+                        onClick={() => setOpen(isOpen ? null : m.stay_date)}
+                        className="grid flex-1 min-w-0 grid-cols-[1fr_auto_auto_auto] gap-2 px-2 py-1.5 text-sm items-center text-left"
+                      >
+                        <span className="flex min-w-0 items-center gap-1 truncate">
+                          {isOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+                          {fmtDay(m.stay_date)}
+                        </span>
+                        <span className="text-right tabular-nums text-emerald-600 dark:text-emerald-400">
+                          {m.newBookings ? `+${m.newBookings}` : "—"}
+                        </span>
+                        <span className="text-right tabular-nums text-sky-600 dark:text-sky-400">
+                          {m.roomsLost ? `−${m.roomsLost}` : "—"}
+                        </span>
+                        <span className={`text-right tabular-nums w-20 font-medium ${net < 0 ? "text-destructive" : ""}`}>
+                          {netEur === 0 ? "—" : `${netEur > 0 ? "+" : "−"}${eur(Math.abs(netEur))}`}
+                        </span>
+                      </button>
+                      {canEdit && (
+                        <Button
+                          size="sm" variant="ghost" className="h-7 shrink-0 gap-1 px-2 text-[11px]"
+                          onClick={() => setAdjust({ from: m.stay_date, to: m.stay_date, label: fmtDay(m.stay_date) })}
+                        >
+                          <SlidersHorizontal className="h-3.5 w-3.5" />
+                          Re-price
+                        </Button>
+                      )}
+                    </div>
 
                     {isOpen && (
                       <div className="bg-muted/30 px-3 py-2 space-y-1 text-[11px]">
@@ -214,12 +244,25 @@ export default function PickupMovementBoard({
                             {d.kind === "booked" && d.value > 0 && (
                               <span className="tabular-nums font-medium">· {eur(d.value)}/night</span>
                             )}
+                            {canEdit && d.kind === "booked" && (
+                              <button
+                                type="button"
+                                className="text-primary underline underline-offset-2"
+                                onClick={() => setAdjust({
+                                  from: d.from, to: d.to, roomTypeName: d.roomType,
+                                  label: d.span,
+                                })}
+                              >
+                                Re-price {d.nights === 1 ? "this date" : "this range"}
+                              </button>
+                            )}
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
                 );
+
               })}
             </div>
           </div>
@@ -231,7 +274,17 @@ export default function PickupMovementBoard({
             snapshots build up, rooms that quietly disappear will also be caught.
           </p>
         )}
+
+        <QuickRateAdjustDialog
+          target={adjust}
+          hotelId={hotelId}
+          organizationSlug={organizationSlug}
+          rates={rates}
+          onClose={() => setAdjust(null)}
+          onApplied={() => onRatesUpdated?.()}
+        />
       </CardContent>
+
     </Card>
   );
 }
