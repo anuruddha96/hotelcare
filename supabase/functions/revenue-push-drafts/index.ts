@@ -305,6 +305,8 @@ Deno.serve(async (req) => {
           });
 
           pushed += 1;
+          pushedIds.push(d.id);
+
         }
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
