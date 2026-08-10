@@ -1372,7 +1372,22 @@ export default function RateStrategyGrid({
       </Dialog>
 
       {/* ---- Whole-day price tool: tap a date in the header ---- */}
+      <BulkPriceEditor
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        hotelId={hotelId ?? null}
+        organizationSlug={organizationSlug ?? null}
+        rates={rates}
+        today={today}
+        canPush={!!canEditRates}
+        onSaved={async () => {
+          await Promise.all([refreshDrafts(), reloadAudit()]);
+          await onRatesUpdated?.();
+        }}
+      />
+
       <Dialog open={!!dayTool} onOpenChange={(o) => !o && setDayTool(null)}>
+
         <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl p-4 sm:w-full sm:max-w-lg sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-base">
