@@ -175,6 +175,8 @@ Deno.serve(async (req) => {
 
 
     let pushed = 0;
+    const pushedIds: string[] = [];
+
     let failed = 0;
     let verified = 0;
     const errors: Array<{ stay_date: string; room_type_name: string; error: string }> = [];
