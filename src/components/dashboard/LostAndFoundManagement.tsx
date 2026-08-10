@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { format, startOfDay, endOfDay } from 'date-fns';
 import { Calendar as CalendarIcon, Package, Search, Eye, CheckCircle, Trash2, Plus } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';

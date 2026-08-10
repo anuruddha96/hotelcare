@@ -26,6 +26,7 @@ import {
   Camera
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { DNDPhotosViewer } from './DNDPhotosViewer';
 
 interface Room {

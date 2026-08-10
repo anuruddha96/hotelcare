@@ -11,6 +11,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { MaintenanceIssueDialog } from './MaintenanceIssueDialog';
 import { MaintenanceResolutionDialog } from './MaintenanceResolutionDialog';
 

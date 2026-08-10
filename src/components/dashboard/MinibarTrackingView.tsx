@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { Input } from '@/components/ui/input';
 import { MinibarQuickAdd } from './MinibarQuickAdd';
 import { MinibarQRManagement } from './MinibarQRManagement';

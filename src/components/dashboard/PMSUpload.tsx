@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { useDropzone } from 'react-dropzone';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { normalizeUnitName, isTechnicalRow } from '@/lib/slntUnitMapping';
 import { CheckoutRoomsView } from './CheckoutRoomsView';
