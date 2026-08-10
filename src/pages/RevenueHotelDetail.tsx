@@ -686,21 +686,21 @@ export default function RevenueHotelDetail() {
             onRatesUpdated={live.reload}
           />
 
+          <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
+          <PickupMovementBoard
+            metrics={live.metrics}
+            windowDays={pickupWindow}
+            nights={live.nights}
+            cancellations={live.cancellations}
+            hotelId={hotelId ?? null}
+            organizationSlug={organizationSlug ?? null}
+            rates={live.rates}
+            canEdit={revAdmin}
+            onRatesUpdated={live.reload}
+          />
+
           <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
 
-
-           <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
-           <PickupMovementBoard
-             metrics={live.metrics}
-             windowDays={pickupWindow}
-             nights={live.nights}
-             cancellations={live.cancellations}
-             hotelId={hotelId ?? null}
-             organizationSlug={organizationSlug ?? null}
-             rates={live.rates}
-             canEdit={revAdmin}
-             onRatesUpdated={live.reload}
-           />
 
            {isTechnicalAdmin && <RevenueToolsBar
             tools={[
