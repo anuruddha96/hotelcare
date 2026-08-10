@@ -732,9 +732,10 @@ export default function RateStrategyGrid({
   }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext]);
 
   /** Save every change the day tool previews as a draft. */
-  async function applyDayTool() {
+  async function applyDayTool(mode: "draft" | "push" = "draft") {
     if (!hotelId || dayToolChanges.length === 0) return;
     setSaving(true);
+    setDayResult(null);
     try {
       const { data: auth } = await supabase.auth.getUser();
       const rowsToSave = dayToolChanges.map((c) => ({
@@ -747,17 +748,19 @@ export default function RateStrategyGrid({
         old_price: c.from,
         new_price: c.to,
         status: "draft",
+        push_error: null,
         created_by: auth.user?.id ?? null,
       }));
-      const { error } = await supabase.from("revenue_rate_drafts").upsert(rowsToSave, {
-        onConflict: "hotel_id,stay_date,room_type_name,occupancy,status",
-      });
+      const { data: savedRows, error } = await supabase
+        .from("revenue_rate_drafts")
+        .upsert(rowsToSave, { onConflict: "hotel_id,stay_date,room_type_name,occupancy,status" })
+        .select("id");
       if (error) throw error;
       await logRateChanges({
         hotelId,
         organizationSlug: organizationSlug ?? null,
         source: "day-tool",
-        action: "draft_saved",
+        action: mode === "push" ? "pushed_to_previo" : "draft_saved",
         notes: dayMode === "percent" ? `${dayValue}%` : dayMode === "amount" ? `${dayValue} ${getRevenueCurrency().code}` : dayMode,
         changes: dayToolChanges.map((c) => ({
           stay_date: c.date,
@@ -767,17 +770,47 @@ export default function RateStrategyGrid({
           new_price: c.to,
         })),
       });
-      await Promise.all([refreshDrafts(), reloadAudit()]);
-      toast.success(`${rowsToSave.length} price${rowsToSave.length === 1 ? "" : "s"} saved as draft — not sent to Previo yet`);
-      setDayTool(null);
-      setSelDates(new Set());
 
+      if (mode === "draft") {
+        await Promise.all([refreshDrafts(), reloadAudit()]);
+        toast.success(`${rowsToSave.length} price${rowsToSave.length === 1 ? "" : "s"} saved — not sent to Previo yet`);
+        setDayTool(null);
+        setSelDates(new Set());
+        return;
+      }
+
+      const draftIds = ((savedRows ?? []) as Array<{ id: string }>).map((r) => r.id);
+      const { data, error: pushErr } = await supabase.functions.invoke("revenue-push-drafts", {
+        body: { hotelId, draftIds },
+      });
+      if (pushErr) throw pushErr;
+      const res = data as {
+        ok?: boolean; pushed?: number; failed?: number; error?: string;
+        errors?: Array<{ stay_date: string; room_type_name: string; error: string }>;
+      };
+      if (res?.error || res?.ok === false) throw new Error(res?.error || "Previo refused the price update.");
+
+      await Promise.all([refreshDrafts(), reloadAudit()]);
+      await onRatesUpdated?.();
+
+      const failed = res?.failed ?? 0;
+      setDayResult({ pushed: res?.pushed ?? 0, failed, errors: res?.errors ?? [] });
+      if (failed === 0) {
+        toast.success(`${res?.pushed ?? 0} price${res?.pushed === 1 ? "" : "s"} live in Previo`);
+        setDayTool(null);
+        setSelDates(new Set());
+      } else {
+        toast.error(`${res?.pushed ?? 0} updated, ${failed} refused by Previo`);
+      }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not save the drafts");
+      const message = e instanceof Error ? e.message : "Could not update the prices";
+      if (mode === "push") setDayResult({ pushed: 0, failed: dayToolChanges.length, errors: [], message });
+      toast.error(message);
     } finally {
       setSaving(false);
     }
   }
+
 
   /** Cells priced below the critical safety-net threshold — likely typos. */
 
