@@ -1325,19 +1325,17 @@ export default function RateStrategyGrid({
                         style={{ width: CELL_W }}
                       >
                         {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
-                        {confirmedHistory?.length && (() => {
+                        {confirmedHistory?.length ? (() => {
                           const last = Math.max(...confirmedHistory.map((h) => new Date(h.performed_at).getTime()));
-                          const age = Date.now() - last;
-                          const fresh = age < 24 * 60 * 60 * 1000;
-                          const recent = age < 7 * 24 * 60 * 60 * 1000;
-                          if (!recent) return null;
+                          const fresh = Date.now() - last < 24 * 60 * 60 * 1000;
                           return (
                             <span
                               aria-hidden
                               className={`absolute right-0.5 top-0.5 h-2 w-2 rounded-full border border-primary ${fresh ? "bg-primary ring-2 ring-primary/25" : "bg-card"}`}
                             />
                           );
-                        })()}
+                        })() : null}
+
 
                       </button>
                     );
