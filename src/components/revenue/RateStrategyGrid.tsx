@@ -1221,8 +1221,14 @@ export default function RateStrategyGrid({
 
             <div className="grid grid-cols-3 gap-2">
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Days from here</label>
-                <Select value={String(dayRange)} onValueChange={(v) => setDayRange(Number(v))}>
+                <label className="text-xs text-muted-foreground">
+                  {selDates.size > 1 ? `${selDates.size} dates selected` : "Days from here"}
+                </label>
+                <Select
+                  value={String(dayRange)}
+                  disabled={selDates.size > 1}
+                  onValueChange={(v) => setDayRange(Number(v))}
+                >
                   <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {[1, 3, 7, 14, 30, 60, 90].map((n) => (
@@ -1230,6 +1236,7 @@ export default function RateStrategyGrid({
                     ))}
                   </SelectContent>
                 </Select>
+
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">Which days</label>
