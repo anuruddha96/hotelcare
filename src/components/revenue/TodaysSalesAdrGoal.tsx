@@ -280,11 +280,14 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   const kpi = useMemo(() => {
     const roomNights = liveBookings.reduce((s, b) => s + b.roomNights, 0);
     const revenue = liveBookings.reduce((s, b) => s + b.revenue, 0);
+    const reservationIds = new Set(liveBookings.map((b) => b.res_id));
+    const cancelledReservationIds = new Set(periodBookings.filter((b) => b.cancelled).map((b) => b.res_id));
     const adr = roomNights ? revenue / roomNights : null;
     const variance = adr === null ? null : adr - goals.targetAdr;
     return {
-      bookings: liveBookings.length,
-      cancelled: periodBookings.length - liveBookings.length,
+      bookings: reservationIds.size,
+      roomGroups: liveBookings.length,
+      cancelled: cancelledReservationIds.size,
       roomNights,
       revenue,
       adr,
@@ -293,7 +296,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
       adrGoalPct: adr === null || !goals.targetAdr ? 0 : (adr / goals.targetAdr) * 100,
       valueGoalPct: goals.targetValue ? (revenue / goals.targetValue) * 100 : 0,
       nightsGoalPct: goals.targetRoomNights ? (roomNights / goals.targetRoomNights) * 100 : 0,
-      los: liveBookings.length ? roomNights / liveBookings.length : 0,
+      los: reservationIds.size ? roomNights / reservationIds.size : 0,
     };
   }, [liveBookings, periodBookings, goals]);
 
@@ -715,7 +718,11 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
           <>
             {/* --------------------------------------------------- KPIs */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <Kpi label="Bookings created" value={String(kpi.bookings)} />
+               <Kpi
+                 label="Bookings created"
+                 value={String(kpi.bookings)}
+                 sub={kpi.roomGroups > kpi.bookings ? `${kpi.roomGroups} rooms across these reservations` : undefined}
+               />
               <Kpi label="Room nights sold" value={String(kpi.roomNights)} />
               <Kpi label="Booking value" value={eur(Math.round(kpi.revenue))} />
               <Kpi label="Actual ADR" value={kpi.adr === null ? "—" : eur(Math.round(kpi.adr))} tone={toneClass} />

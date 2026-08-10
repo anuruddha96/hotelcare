@@ -148,6 +148,7 @@ export default function RevenueHotelDetail() {
   });
 
   const revAdmin = isRevenueAdmin(profile?.role);
+  const isTechnicalAdmin = profile?.role === "admin";
   const [syncing, setSyncing] = useState(false);
   const [syncStep, setSyncStep] = useState("Connecting to Previo…");
   const [syncPct, setSyncPct] = useState(0);
@@ -558,7 +559,7 @@ export default function RevenueHotelDetail() {
       <div className="container mx-auto p-3 sm:p-4 space-y-3">
       {/* Header — quiet by default, tools only for revenue admins */}
       <div className="flex items-center gap-2 flex-wrap">
-        {revAdmin && (
+        {isTechnicalAdmin && (
           <Button variant="ghost" size="sm" onClick={() => navigate(`/${organizationSlug}/revenue`)}>
             <ArrowLeft className="h-4 w-4 mr-1" /> Back
           </Button>
@@ -577,7 +578,7 @@ export default function RevenueHotelDetail() {
           {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
           Sync now
         </Button>
-        {revAdmin && (
+        {isTechnicalAdmin && (
           <>
             <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}><Edit3 className="h-4 w-4 mr-1" />Bulk Edit</Button>
             <Button variant="outline" size="sm" onClick={pullFromPrevio}>
@@ -594,7 +595,7 @@ export default function RevenueHotelDetail() {
       </div>
 
       {/* Calendar navigation only matters on the calendar-style admin tabs */}
-      {revAdmin && (tab === "prices" || tab === "calendar") && (
+      {isTechnicalAdmin && (tab === "prices" || tab === "calendar") && (
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1">
             <Button variant="outline" size="icon" onClick={() => setCursor(c => view === "week" ? addDays(c,-7) : addDays(startOfMonth(c),-1))}><ChevronLeft className="h-4 w-4" /></Button>
@@ -627,7 +628,7 @@ export default function RevenueHotelDetail() {
       )}
 
       {/* Reference price banner (admin detail — noise for executives) */}
-      {revAdmin && refRoomInfo && (
+      {isTechnicalAdmin && refRoomInfo && (
         <div className="rounded-lg border bg-muted/30 px-3 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
           <div>
             <span className="text-muted-foreground">Reference room: </span>
@@ -649,8 +650,8 @@ export default function RevenueHotelDetail() {
           <TabsTrigger value="calendar"><CalIcon className="h-4 w-4 mr-1" />Strategy Calendar</TabsTrigger>
           <TabsTrigger value="events">Events</TabsTrigger>
           <TabsTrigger value="analyst"><Bot className="h-4 w-4 mr-1" />Analyst</TabsTrigger>
-          <TabsTrigger value="strategy"><Settings2 className="h-4 w-4 mr-1" />Pricing Strategy</TabsTrigger>
-          <TabsTrigger value="syncs"><HistoryIcon className="h-4 w-4 mr-1" />Sync history</TabsTrigger>
+          {isTechnicalAdmin && <TabsTrigger value="strategy"><Settings2 className="h-4 w-4 mr-1" />Pricing Strategy</TabsTrigger>}
+          {isTechnicalAdmin && <TabsTrigger value="syncs"><HistoryIcon className="h-4 w-4 mr-1" />Sync history</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="grid" className="space-y-3 min-w-0 overflow-x-hidden">
@@ -662,7 +663,7 @@ export default function RevenueHotelDetail() {
             pickupWindowDays={pickupWindow}
             onPickupWindowChange={setPickupWindow}
             hotelId={hotelId ?? null}
-            canEdit={revAdmin}
+            canEdit={isTechnicalAdmin}
             roomsAvailable={live.roomsAvailable}
           />
 
@@ -685,7 +686,20 @@ export default function RevenueHotelDetail() {
             onRatesUpdated={live.reload}
           />
 
-          <RevenueToolsBar
+           <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
+           <PickupMovementBoard
+             metrics={live.metrics}
+             windowDays={pickupWindow}
+             nights={live.nights}
+             cancellations={live.cancellations}
+             hotelId={hotelId ?? null}
+             organizationSlug={organizationSlug ?? null}
+             rates={live.rates}
+             canEdit={revAdmin}
+             onRatesUpdated={live.reload}
+           />
+
+           {isTechnicalAdmin && <RevenueToolsBar
             tools={[
               {
                 key: "demand",
@@ -722,20 +736,7 @@ export default function RevenueHotelDetail() {
                 render: () => <RevenueIntelligencePanel hotelId={hotelId ?? null} />,
               },
             ]}
-          />
-
-          <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
-          <PickupMovementBoard
-            metrics={live.metrics}
-            windowDays={pickupWindow}
-            nights={live.nights}
-            cancellations={live.cancellations}
-            hotelId={hotelId ?? null}
-            organizationSlug={organizationSlug ?? null}
-            rates={live.rates}
-            canEdit={revAdmin}
-            onRatesUpdated={live.reload}
-          />
+           />}
 
 
           {live.error && <p className="text-sm text-destructive">{live.error}</p>}

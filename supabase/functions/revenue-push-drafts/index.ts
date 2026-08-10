@@ -309,6 +309,7 @@ Deno.serve(async (req) => {
             .eq("hotel_id", hotelId)
             .eq("stay_date", g.stay_date)
             .eq("obk_id", gridObkId)
+            .eq("rate_plan_id", g.prlId)
             .eq("occupancy", occ)
             .select("id");
 

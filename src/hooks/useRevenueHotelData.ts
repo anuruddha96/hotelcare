@@ -100,7 +100,7 @@ export function useRevenueHotelData(
           .eq("hotel_id", hotelId).order("sort_order"),
         fetchAll<BookingNight>(
           () => supabase.from("revenue_booking_nights") as any,
-          (q) => q.select("stay_date, res_id, obk_id, room_type_name, nightly_price_eur, created_at_pms, guests")
+          (q) => q.select("stay_date, res_id, room_key, obk_id, room_type_name, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, guests")
             .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
             .order("stay_date"),
         ),
@@ -112,13 +112,13 @@ export function useRevenueHotelData(
         ),
         fetchAll<RoomTypeRate>(
           () => supabase.from("revenue_room_type_rates") as any,
-          (q) => q.select("stay_date, obk_id, room_type_name, occupancy, price, currency")
+          (q) => q.select("stay_date, obk_id, room_type_name, occupancy, price, currency, rate_plan_id, captured_at, updated_at")
             .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
-            .order("stay_date"),
+            .order("captured_at", { ascending: false }),
         ),
         fetchAll<CancelledNight>(
           () => supabase.from("revenue_cancelled_nights") as any,
-          (q) => q.select("stay_date, res_id, obk_id, cancelled_at")
+          (q) => q.select("stay_date, res_id, room_key, obk_id, room_type_name, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, guests, cancelled_at")
             .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
             .order("stay_date"),
         ),
@@ -138,7 +138,15 @@ export function useRevenueHotelData(
       })) as RevenueRoomType[]);
       setNights(nightRows);
       setSnapshots(snapRows);
-      setRates(rateRows);
+      // Previo can retain historical rows for an older pricelist. Keep the
+      // newest capture for each visible cell so stale duplicates never win by
+      // database return order after a successful push.
+      const newestRates = new Map<string, RoomTypeRate>();
+      for (const rate of rateRows) {
+        const key = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
+        if (!newestRates.has(key)) newestRates.set(key, rate);
+      }
+      setRates(Array.from(newestRates.values()));
       setCancellations(cancelRows);
       const s = (settings as any)?.data ?? null;
       setSellableOverride((s?.sellable_rooms as number | null) ?? null);

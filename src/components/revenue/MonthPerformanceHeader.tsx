@@ -41,12 +41,13 @@ function Explain({ title, body }: { title: string; body: string }) {
   );
 }
 
-function Tile({ label, value, sub, icon, tone, explain }: {
+function Tile({ label, value, sub, icon, tone, surface, explain }: {
   label: string; value: string; sub?: string; icon: React.ReactNode; tone?: string;
+  surface?: string;
   explain?: { title: string; body: string };
 }) {
   return (
-    <div className="flex-1 min-w-[128px] rounded-lg border p-3 min-w-0">
+    <div className={`flex-1 min-w-[128px] rounded-lg border border-l-4 p-3 min-w-0 ${surface ?? "border-l-border"}`}>
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         {icon}<span className="truncate">{label}</span>
         {explain && <Explain {...explain} />}
@@ -262,6 +263,7 @@ export default function MonthPerformanceHeader({
             value={agg.capacity ? `${Math.round(agg.occupancyPct)}%` : "—"}
             sub={`${agg.sold} of ${agg.capacity} room-nights · ${monthLabel}`}
             icon={<BedDouble className="h-3.5 w-3.5" />}
+            surface={agg.occupancyPct >= 75 ? "border-l-emerald-500 bg-emerald-500/5" : agg.occupancyPct >= 45 ? "border-l-amber-500 bg-amber-500/5" : "border-l-sky-500 bg-sky-500/5"}
             explain={{ title: `Occupancy — ${monthLabel}`, body: "Room-nights sold in this month ÷ sellable room-nights in this month (units × days). Source: Previo reservations." }}
           />
           <Tile
@@ -269,6 +271,7 @@ export default function MonthPerformanceHeader({
             value={money(agg.adr)}
             sub={eurEquivalent(agg.adr) || `${monthLabel} · revenue ÷ nights sold`}
             icon={<Coins className="h-3.5 w-3.5" />}
+            surface="border-l-violet-500 bg-violet-500/5"
             explain={{ title: "ADR = Average Daily Rate", body: `Room revenue ÷ room-nights sold for ${monthLabel}. Shown in ${currency.code}.` }}
           />
           <Tile
@@ -276,6 +279,7 @@ export default function MonthPerformanceHeader({
             value={money(agg.revpar)}
             sub={eurEquivalent(agg.revpar) || `${monthLabel} · ADR × occupancy`}
             icon={<Gauge className="h-3.5 w-3.5" />}
+            surface="border-l-cyan-500 bg-cyan-500/5"
             explain={{ title: "RevPAR = ADR × Occupancy", body: `Room revenue ÷ all sellable room-nights in ${monthLabel}. What every unit earns on average, sold or not.` }}
           />
           <Tile
@@ -283,6 +287,7 @@ export default function MonthPerformanceHeader({
             value={money(agg.revenue)}
             sub={eurEquivalent(agg.revenue) || `${monthLabel} · ${agg.days} day${agg.days === 1 ? "" : "s"}`}
             icon={<Coins className="h-3.5 w-3.5" />}
+            surface="border-l-emerald-500 bg-emerald-500/5"
             explain={{
               title: `Revenue on the books — ${monthLabel}`,
               body: `Sum of every confirmed room-night with a stay date in ${monthLabel} (${agg.days} day${agg.days === 1 ? "" : "s"} in view), priced at the rate on the booking. Cancellations and no-shows are excluded. It is booked-to-date, not forecast.`,
@@ -293,6 +298,7 @@ export default function MonthPerformanceHeader({
             value={agg.capacity ? String(agg.left) : "—"}
             sub={`${monthLabel} · whole month`}
             icon={<DoorOpen className="h-3.5 w-3.5" />}
+            surface="border-l-amber-500 bg-amber-500/5"
             explain={{ title: `Rooms left to sell — ${monthLabel}`, body: `Sellable room-nights still open across every date in ${monthLabel}: capacity (${agg.capacity}) − sold (${agg.sold}). It counts nights, not units.` }}
           />
           <Tile
@@ -300,6 +306,7 @@ export default function MonthPerformanceHeader({
             value={`${agg.pickup > 0 ? "+" : ""}${agg.pickup}`}
             sub={`booked in: ${windowLabel(pickupWindowDays).toLowerCase()}`}
             icon={agg.pickup >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+            surface={agg.pickup < 0 ? "border-l-destructive bg-destructive/5" : "border-l-emerald-500 bg-emerald-500/5"}
             tone={agg.pickup < 0 ? "text-destructive" : agg.pickup > 0 ? "text-emerald-600 dark:text-emerald-400" : ""}
             explain={{
               title: "Pickup in window",

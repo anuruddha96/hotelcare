@@ -302,6 +302,9 @@ export default function RateStrategyGrid({
   const [pushing, setPushing] = useState(false);
   /** Explicit go-ahead before anything becomes live in Previo. */
   const [pushConsent, setPushConsent] = useState(false);
+  const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+  const [removingDrafts, setRemovingDrafts] = useState(false);
   /** Result of the harmless Previo rate-write capability check. */
   const [probing, setProbing] = useState(false);
   const [probe, setProbe] = useState<{ ok: boolean; message: string; support?: string | null } | null>(null);
@@ -568,6 +571,23 @@ export default function RateStrategyGrid({
     const { error } = await supabase.from("revenue_rate_drafts").delete().eq("id", id);
     if (error) { toast.error("Could not discard the draft"); return; }
     await refreshDrafts();
+  }
+
+  async function discardSelectedDrafts() {
+    const ids = Array.from(selectedDraftIds);
+    if (ids.length === 0) return;
+    setRemovingDrafts(true);
+    const { error } = await supabase
+      .from("revenue_rate_drafts")
+      .delete()
+      .in("id", ids)
+      .in("status", ["draft", "failed"]);
+    setRemovingDrafts(false);
+    if (error) { toast.error("Could not remove the selected drafts"); return; }
+    setSelectedDraftIds(new Set());
+    setRemoveConfirmOpen(false);
+    await refreshDrafts();
+    toast.success(`${ids.length} draft${ids.length === 1 ? "" : "s"} removed`);
   }
 
   /** Sticky month label + auto-extend the horizon when the user scrolls right. */
@@ -1597,7 +1617,12 @@ export default function RateStrategyGrid({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={pushOpen} onOpenChange={(o) => !o && setPushOpen(false)}>
+      <Dialog open={pushOpen} onOpenChange={(o) => {
+        if (!o) {
+          setPushOpen(false);
+          setSelectedDraftIds(new Set());
+        }
+      }}>
 
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -1607,6 +1632,13 @@ export default function RateStrategyGrid({
             <table className="w-full text-xs">
               <thead className="text-muted-foreground">
                 <tr className="border-b">
+                  <th className="w-8 py-1.5">
+                    <Checkbox
+                      aria-label="Select all price changes"
+                      checked={pending.length > 0 && selectedDraftIds.size === pending.length}
+                      onCheckedChange={(checked) => setSelectedDraftIds(checked === true ? new Set(pending.map((d) => d.id)) : new Set())}
+                    />
+                  </th>
                   <th className="text-left py-1.5">Date</th>
                   <th className="text-left py-1.5">Room type</th>
                   <th className="text-right py-1.5">Now</th>
@@ -1617,6 +1649,17 @@ export default function RateStrategyGrid({
               <tbody>
                 {pending.map((d) => (
                   <tr key={d.id} className="border-b last:border-0">
+                    <td className="py-1.5">
+                      <Checkbox
+                        aria-label={`Select ${d.room_type_name} on ${d.stay_date}`}
+                        checked={selectedDraftIds.has(d.id)}
+                        onCheckedChange={(checked) => setSelectedDraftIds((current) => {
+                          const next = new Set(current);
+                          if (checked === true) next.add(d.id); else next.delete(d.id);
+                          return next;
+                        })}
+                      />
+                    </td>
                     <td className="py-1.5 whitespace-nowrap">{d.stay_date}</td>
                     <td className="py-1.5">
                       {d.room_type_name} · {d.occupancy}g
@@ -1695,6 +1738,11 @@ export default function RateStrategyGrid({
               <Checkbox checked={pushConsent} onCheckedChange={(v) => setPushConsent(v === true)} />
               I confirm these prices should go live in Previo
             </label>
+            {selectedDraftIds.size > 0 && (
+              <Button variant="destructive" onClick={() => setRemoveConfirmOpen(true)}>
+                <Trash2 className="mr-1 h-4 w-4" />Remove selected ({selectedDraftIds.size})
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setPushOpen(false)}>Cancel</Button>
             <Button onClick={() => void pushDrafts()} disabled={pushing || pending.length === 0 || !pushConsent}>
               {pushing && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
@@ -1702,6 +1750,23 @@ export default function RateStrategyGrid({
             </Button>
           </DialogFooter>
 
+        </DialogContent>
+      </Dialog>
+      <Dialog open={removeConfirmOpen} onOpenChange={setRemoveConfirmOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base">Remove selected drafts?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This removes {selectedDraftIds.size} unsent price change{selectedDraftIds.size === 1 ? "" : "s"} from Hotel Care. Live Previo prices are not changed.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRemoveConfirmOpen(false)}>Keep drafts</Button>
+            <Button variant="destructive" onClick={() => void discardSelectedDrafts()} disabled={removingDrafts}>
+              {removingDrafts && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Remove drafts
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </Card>
