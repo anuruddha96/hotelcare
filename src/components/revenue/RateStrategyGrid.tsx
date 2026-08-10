@@ -310,6 +310,8 @@ export default function RateStrategyGrid({
   const [pushing, setPushing] = useState(false);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+  const [clearAllMode, setClearAllMode] = useState(false);
+
   const [removingDrafts, setRemovingDrafts] = useState(false);
   /** Result of the harmless Previo rate-write capability check. */
   const [probing, setProbing] = useState(false);
