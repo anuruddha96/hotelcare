@@ -1399,6 +1399,26 @@ export default function RateStrategyGrid({
         )}
       </CardContent>
 
+      {multiMode && pickedDates.size > 0 && (
+        <div className="fixed inset-x-3 bottom-4 z-[60] flex items-center justify-between gap-2 rounded-full border bg-card px-4 py-2 shadow-lg sm:left-auto sm:right-6 sm:w-auto">
+          <span className="text-xs font-medium">
+            {pickedDates.size} day{pickedDates.size === 1 ? "" : "s"} selected
+          </span>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setPickedDates(new Set())}>
+              Clear
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => openDayTool(allDates.filter((d) => pickedDates.has(d)))}
+            >
+              Change prices
+            </Button>
+          </div>
+        </div>
+      )}
+
       <Dialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
