@@ -244,9 +244,10 @@ export default function MonthPerformanceHeader({
             How {monthLabel} is performing
           </h2>
           <span className="text-[11px] text-muted-foreground">
-            on the books today · scroll for more
+            {roomsAvailable ? `inventory: ${roomsAvailable} rooms · ` : ""}on the books today · scroll for more
           </span>
         </div>
+
 
         <div
           ref={tileScrollRef}
