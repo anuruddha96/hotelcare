@@ -87,12 +87,16 @@ export default function RevenuePulsePanel({
           />
         </div>
 
-        {moved.length > 0 && (
-          <p className="text-[11px] text-muted-foreground">
-            {gained.length} date{gained.length === 1 ? "" : "s"} up · {lost.length} down — see the
-            movement board below for the detail.
-          </p>
-        )}
+        <div className="rounded-md border bg-muted/30 px-2.5 py-2 text-[11px]">
+          <span className="font-medium">What to do now: </span>
+          <span className="text-muted-foreground">{action}</span>
+          {moved.length > 0 && (
+            <span className="text-muted-foreground">
+              {" "}({gained.length} date{gained.length === 1 ? "" : "s"} up · {lost.length} down — detail in the movement board below.)
+            </span>
+          )}
+        </div>
+
 
       </CardContent>
     </Card>
