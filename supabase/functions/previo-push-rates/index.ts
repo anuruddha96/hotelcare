@@ -37,7 +37,7 @@ serve(async (req) => {
     // Hotel + PMS config
     const { data: cfg } = await supabase
       .from("pms_configurations")
-      .select("hotel_id, pms_hotel_id, credentials_secret_name, is_active, organization_slug")
+      .select("hotel_id, pms_hotel_id, credentials_secret_name, is_active")
       .eq("hotel_id", hotelId)
       .maybeSingle();
 

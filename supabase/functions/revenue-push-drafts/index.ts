@@ -58,7 +58,7 @@ Deno.serve(async (req) => {
     // --- PMS config + rate-plan mapping ---------------------------------
     const { data: cfg } = await admin
       .from("pms_configurations")
-      .select("hotel_id, pms_hotel_id, credentials_secret_name, is_active, organization_slug")
+      .select("hotel_id, pms_hotel_id, credentials_secret_name, is_active")
       .eq("hotel_id", hotelId)
       .maybeSingle();
     if (!cfg || !cfg.is_active) {

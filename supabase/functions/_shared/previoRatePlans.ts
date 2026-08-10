@@ -45,7 +45,7 @@ export async function syncPrevioRatePlanMappings(
 
   const { data: cfg } = await service
     .from("pms_configurations")
-    .select("pms_hotel_id, credentials_secret_name, is_active, organization_slug")
+    .select("pms_hotel_id, credentials_secret_name, is_active")
     .eq("hotel_id", hotelId)
     .maybeSingle();
   if (!cfg || !cfg.is_active) {

@@ -59,7 +59,7 @@ Deno.serve(async (req) => {
 
     const { data: cfg } = await admin
       .from("pms_configurations")
-      .select("pms_hotel_id, credentials_secret_name, is_active, organization_slug")
+      .select("pms_hotel_id, credentials_secret_name, is_active")
       .eq("hotel_id", hotelId)
       .maybeSingle();
     if (!cfg || !cfg.is_active) {
