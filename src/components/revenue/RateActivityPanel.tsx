@@ -181,7 +181,8 @@ export default function RateActivityPanel({ hotelId, embedded }: { hotelId?: str
             </div>
           );
         })}
-      </CardContent>
-    </Card>
+      </Body>
+    </Wrapper>
+
   );
 }
