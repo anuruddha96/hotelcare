@@ -221,7 +221,22 @@ export default function MonthPerformanceHeader({
           </div>
         )}
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold">
+            How {monthLabel} is performing
+          </h2>
+          <span className="text-[11px] text-muted-foreground">
+            on the books today · scroll for more
+          </span>
+        </div>
+
+        <div
+          ref={tileScrollRef}
+          onMouseEnter={() => setAutoScroll(false)}
+          onMouseLeave={() => setAutoScroll(true)}
+          onPointerDown={() => setAutoScroll(false)}
+          className="-mx-1 flex gap-2 px-1 overflow-x-auto scroll-smooth snap-x"
+        >
           <Tile
             label="Occupancy"
             value={agg.capacity ? `${Math.round(agg.occupancyPct)}%` : "—"}
@@ -230,14 +245,14 @@ export default function MonthPerformanceHeader({
             explain={{ title: `Occupancy — ${monthLabel}`, body: "Room-nights sold in this month ÷ sellable room-nights in this month (units × days). Source: Previo reservations." }}
           />
           <Tile
-            label="ADR"
+            label="ADR — average price per sold night"
             value={money(agg.adr)}
             sub={eurEquivalent(agg.adr) || `${monthLabel} · revenue ÷ nights sold`}
             icon={<Coins className="h-3.5 w-3.5" />}
             explain={{ title: "ADR = Average Daily Rate", body: `Room revenue ÷ room-nights sold for ${monthLabel}. Shown in ${currency.code}.` }}
           />
           <Tile
-            label="RevPAR"
+            label="RevPAR — earned per available unit"
             value={money(agg.revpar)}
             sub={eurEquivalent(agg.revpar) || `${monthLabel} · ADR × occupancy`}
             icon={<Gauge className="h-3.5 w-3.5" />}
@@ -272,6 +287,7 @@ export default function MonthPerformanceHeader({
             }}
           />
         </div>
+
 
         {/* Six-month outlook, current month highlighted */}
         <div className="-mx-1 overflow-x-auto">
