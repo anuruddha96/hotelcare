@@ -43,6 +43,13 @@ export interface RateWriteTarget {
   occupancy: number;
   price: number;
   currency: string;
+  /**
+   * Previo refuses a price for occupancy N unless every level below it is in
+   * the same message ("levels have to be created sequentially", error 3092).
+   * When set, these are sent instead of the single occupancy/price above, in
+   * ascending order and with no gaps.
+   */
+  levels?: Array<{ occupancy: number; price: number }>;
 }
 
 function esc(v: string | number): string {
@@ -61,7 +68,36 @@ export function eqcApiKey(creds: PrevioCredentials): string {
   return creds.apiKey || creds.password || "";
 }
 
+/** Ascending, gap-free occupancy levels for one room type / date. */
+export function normalizeLevels(t: RateWriteTarget): Array<{ occupancy: number; price: number }> {
+  const raw = (t.levels && t.levels.length > 0)
+    ? t.levels
+    : [{ occupancy: Math.max(1, Math.round(t.occupancy || 2)), price: Number(t.price) }];
+
+  const byOcc = new Map<number, number>();
+  for (const l of raw) {
+    const occ = Math.max(1, Math.round(Number(l.occupancy) || 1));
+    const price = Number(l.price);
+    if (!Number.isFinite(price)) continue;
+    byOcc.set(occ, price);
+  }
+  const max = Math.max(...byOcc.keys());
+  const out: Array<{ occupancy: number; price: number }> = [];
+  let lastKnown: number | null = null;
+  for (let occ = 1; occ <= max; occ++) {
+    const price = byOcc.get(occ) ?? lastKnown;
+    if (price === null || price === undefined) continue; // no price for level 1 yet — skip until one is known
+    lastKnown = price;
+    out.push({ occupancy: occ, price });
+  }
+  return out.length > 0 ? out : [{ occupancy: max, price: byOcc.get(max)! }];
+}
+
 export function buildAvailRateUpdateXml(hotelId: string, t: RateWriteTarget): string {
+  const levels = normalizeLevels(t);
+  const perOccupancy = levels
+    .map((l) => `        <PerOccupancy rate="${esc(Number(l.price).toFixed(2))}" occupancy="${esc(l.occupancy)}" />`)
+    .join("\n");
   return `<?xml version="1.0" encoding="utf-8"?>
 <AvailRateUpdateRQ xmlns="${EQC_AR_NS}">
   <Hotel id="${esc(hotelId)}" />
@@ -69,12 +105,13 @@ export function buildAvailRateUpdateXml(hotelId: string, t: RateWriteTarget): st
   <RoomType id="${esc(t.obkId)}">
     <RatePlan id="${esc(t.prlId)}">
       <Rate currency="${esc(t.currency || "EUR")}">
-        <PerOccupancy rate="${esc(Number(t.price).toFixed(2))}" occupancy="${esc(Math.max(1, Math.round(t.occupancy || 2)))}" />
+${perOccupancy}
       </Rate>
     </RatePlan>
   </RoomType>
 </AvailRateUpdateRQ>`;
 }
+
 
 export interface RateWriteAttempt {
   method: string;
