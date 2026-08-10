@@ -1514,6 +1514,53 @@ export default function RateStrategyGrid({
         </div>
       )}
 
+      {/* Tap a price on a phone: who changed it, when, and by how much. */}
+      <Sheet open={!!cellInfo} onOpenChange={(o) => !o && setCellInfo(null)}>
+        <SheetContent side="bottom" className="max-h-[75vh] overflow-y-auto">
+          {cellInfo && (
+            <>
+              <SheetHeader className="text-left">
+                <SheetTitle className="text-sm">
+                  {cellInfo.roomTypeName} · {cellInfo.occ} guest{cellInfo.occ === 1 ? "" : "s"} · {cellInfo.date}
+                </SheetTitle>
+              </SheetHeader>
+              <div className="mt-3 space-y-3">
+                <div className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">Current price</span>
+                  <span className="tabular-nums font-semibold">{moneyBase(cellInfo.published)}</span>
+                </div>
+                <RateCellHistory
+                  history={auditByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ)) ?? []}
+                  names={auditNames}
+                  draftPrice={cellInfo.draft}
+                />
+                {canEditRates && (
+                  <Button
+                    className="w-full"
+                    onClick={() => {
+                      setApplyDays(1); setApplyWeekdays("all"); setApplyAllOcc(false); setEditMode("set");
+                      setEdit({
+                        stay_date: cellInfo.date,
+                        obk_id: cellInfo.obk ?? null,
+                        room_type_name: cellInfo.roomTypeName,
+                        occupancy: cellInfo.occ,
+                        old_price: cellInfo.published,
+                        value: String(cellInfo.draft ?? cellInfo.published ?? ""),
+                      });
+                      setCellInfo(null);
+                    }}
+                  >
+                    Edit price
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
+
+
+
       <Dialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
