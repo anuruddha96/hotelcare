@@ -43,7 +43,7 @@ export function PendingRoomsDialog({
   const { profile } = useAuth();
   const [assignments, setAssignments] = useState<PendingAssignment[]>([]);
   const [loading, setLoading] = useState(false);
-  const canReleaseCheckout = !!profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
+  const canReleaseCheckout = hasManagerPowers(profile?.role);
 
   useEffect(() => {
     if (open && staffId) {
