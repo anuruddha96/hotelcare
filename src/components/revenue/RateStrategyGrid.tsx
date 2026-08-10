@@ -437,6 +437,9 @@ export default function RateStrategyGrid({
   const lpAnchor = useRef<string | null>(null);
   const lpStartX = useRef(0);
   const lpStartY = useRef(0);
+  /** Stops the click that follows a long-press from undoing the selection. */
+  const suppressDayClick = useRef(false);
+
 
   const cancelLongPress = useCallback(() => {
     if (lpTimer.current !== null) { window.clearTimeout(lpTimer.current); lpTimer.current = null; }
