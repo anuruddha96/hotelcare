@@ -57,3 +57,13 @@ export function isRevenueAdmin(role: string | null | undefined): boolean {
   return role === "admin" || isExecutiveRole(role);
 }
 
+/**
+ * Who sees the multi-hotel portfolio overview at /:org/revenue. Only the
+ * admin oversees every hotel; top management works inside the hotel they
+ * have selected, so they are sent straight to it.
+ */
+export function canSeeRevenuePortfolio(role: string | null | undefined): boolean {
+  return role === "admin";
+}
+
+

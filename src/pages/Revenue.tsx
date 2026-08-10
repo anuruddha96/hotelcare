@@ -16,7 +16,7 @@ import { ComposedChart, Area, Bar, Line, XAxis, YAxis, Tooltip as RTooltip, Resp
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 import { MainTabsBar } from "@/components/layout/MainTabsBar";
 import { Header } from "@/components/layout/Header";
-import { isRevenueAdmin } from "@/lib/roleAccess";
+import { isRevenueAdmin, canSeeRevenuePortfolio } from "@/lib/roleAccess";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
 
 interface PickupDateRow { stay_date: string; delta: number }
@@ -74,9 +74,11 @@ export default function Revenue() {
       navigate(`/${organizationSlug || "rdhotels"}`);
       return;
     }
-    // Top management never sees the multi-hotel picker: send them straight to
-    // their own hotel's Rate Grid, which auto-syncs on arrival.
-    if (!isRevenueAdmin(profile.role)) {
+    // Only the admin oversees every hotel. Everyone else (top management)
+    // goes straight to the hotel they have selected in the header switcher,
+    // whose Rate Grid auto-syncs on arrival.
+    if (!canSeeRevenuePortfolio(profile.role)) {
+
       void (async () => {
         const keys = await resolveHotelKeys(profile.assigned_hotel);
         const { data } = await supabase
