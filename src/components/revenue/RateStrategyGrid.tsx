@@ -1642,18 +1642,36 @@ export default function RateStrategyGrid({
                 })()}
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Saved as drafts only. Nothing reaches Previo until you push.
-            </p>
+            {dayResult && (dayResult.failed > 0 || dayResult.message) && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs space-y-1">
+                <p className="font-medium text-destructive">
+                  {dayResult.pushed > 0 ? `${dayResult.pushed} updated · ` : ""}
+                  {dayResult.failed} not accepted by Previo
+                </p>
+                {dayResult.message && <p className="text-muted-foreground">{dayResult.message}</p>}
+                {dayResult.errors.slice(0, 6).map((e, i) => (
+                  <p key={`${e.stay_date}-${i}`} className="text-muted-foreground">
+                    {e.stay_date} · {e.room_type_name}: {e.error}
+                  </p>
+                ))}
+                {dayResult.errors.length > 6 && (
+                  <p className="text-muted-foreground">+{dayResult.errors.length - 6} more</p>
+                )}
+              </div>
+            )}
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDayTool(null)}>Cancel</Button>
-            <Button onClick={() => void applyDayTool()} disabled={saving || dayToolChanges.length === 0}>
-              {saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
-              Save {dayToolChanges.length} draft{dayToolChanges.length === 1 ? "" : "s"}
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => setDayTool(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => void applyDayTool("draft")} disabled={saving || dayToolChanges.length === 0}>
+              Save for later
+            </Button>
+            <Button onClick={() => void applyDayTool("push")} disabled={saving || dayToolChanges.length === 0}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
+              {dayResult?.failed ? "Retry" : "Update"} {dayToolChanges.length} price{dayToolChanges.length === 1 ? "" : "s"}
             </Button>
           </DialogFooter>
+
         </DialogContent>
       </Dialog>
 
