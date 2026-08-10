@@ -280,13 +280,23 @@ Deno.serve(async (req) => {
           pmsHotelId,
           date: g.stay_date,
           obkId: g.obkId,
+          prlId: g.prlId,
         });
+
+        // Previo accepted the write. When the read-back says nothing (its
+        // getRates answer is not always available straight after a write),
+        // trust what we just sent instead of leaving a stale price in the
+        // grid — that is what made pushed changes look like drafts.
+        const confirmed = readBack.size > 0;
+        const effective = confirmed ? readBack : new Map<number, number>(
+          levels.map((l) => [l.occupancy, l.price] as const),
+        );
 
         // Bring Hotel Care's own price list in line with what Previo now
         // publishes, so the grid shows the confirmed price immediately
         // instead of the stale one until the next revenue sync.
         const gridObkId = String(g.drafts[0]?.obk_id ?? g.obkId);
-        for (const [occ, price] of readBack.entries()) {
+        for (const [occ, price] of effective.entries()) {
           const { data: updated } = await admin
             .from("revenue_room_type_rates")
             .update({
@@ -332,7 +342,9 @@ Deno.serve(async (req) => {
               pushed_at: new Date().toISOString(),
               push_error: isVerified
                 ? null
-                : `Sent to Previo, but the read-back price was ${back === null ? "unavailable" : back}. Re-sync to confirm.`,
+                : back === null
+                  ? "Sent to Previo — awaiting confirmation from the next sync."
+                  : `Sent to Previo, but Previo reports ${back}. Re-sync to confirm.`,
             })
             .eq("id", d.id);
 
@@ -343,13 +355,14 @@ Deno.serve(async (req) => {
             old_rate_eur: d.old_price,
             new_rate_eur: d.new_price,
             source: "manual_push",
-            notes: `${d.room_type_name} · ${d.occupancy} guest(s) · ${result.method} · ${isVerified ? "verified in Previo" : "not verified"} · pushed by ${user.email ?? user.id}`,
+            notes: `${d.room_type_name} · ${d.occupancy} guest(s) · ${result.method} · ${isVerified ? "verified in Previo" : "sent, awaiting confirmation"} · pushed by ${user.email ?? user.id}`,
           });
 
           pushed += 1;
           pushedIds.push(d.id);
 
         }
+
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         for (const d of g.drafts) {
