@@ -1155,7 +1155,7 @@ export default function RateStrategyGrid({
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">
-                  {dayMode === "percent" ? "Percent (− to lower)" : dayMode === "round" ? "Not used" : `Amount in ${getRevenueCurrency()}`}
+                  {dayMode === "percent" ? "Percent (− to lower)" : dayMode === "round" ? "Not used" : `Amount in ${getRevenueCurrency().code}`}
                 </label>
                 <Input
                   type="number"
