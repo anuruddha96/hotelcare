@@ -15,6 +15,7 @@ import {
   DEFAULT_LADDER, DEMAND_RATING_LABEL, GROUP_PRESETS, applyPreset, suggestLadderPrice,
   type DemandRating, type GroupPreset, type LadderSettings,
 } from "@/lib/demandPricing";
+import { saveRateDrafts } from "@/lib/rateDrafts";
 
 interface Night { stay_date: string; created_at_pms?: string | null; room_type_name?: string | null }
 
@@ -227,9 +228,7 @@ export default function DemandPricingPanel({
       }).filter((r) => r.new_price > 0 && r.new_price !== r.old_price);
 
       if (rows.length === 0) { toast.info("Nothing to change on that date"); return; }
-      const { error } = await supabase.from("revenue_rate_drafts")
-        .upsert(rows, { onConflict: "hotel_id,stay_date,room_type_name,occupancy,status" });
-      if (error) throw error;
+      await saveRateDrafts({ hotelId, organizationSlug, changes: rows });
       onDraftsChanged?.();
       toast.success(`${rows.length} price${rows.length === 1 ? "" : "s"} staged for ${formatDay(date)} — not in Previo yet`);
     } catch (e) {
@@ -268,9 +267,7 @@ export default function DemandPricingPanel({
         .filter((r): r is NonNullable<typeof r> => !!r && r.new_price !== r.old_price);
 
       if (rows.length === 0) { toast.error("Nothing to change with these options"); return; }
-      const { error } = await supabase.from("revenue_rate_drafts")
-        .upsert(rows, { onConflict: "hotel_id,stay_date,room_type_name,occupancy,status" });
-      if (error) throw error;
+      await saveRateDrafts({ hotelId, organizationSlug, changes: rows });
       onDraftsChanged?.();
       toast.success(`${rows.length} price${rows.length === 1 ? "" : "s"} staged across ${span.length} date${span.length === 1 ? "" : "s"}`);
       setGroupOpen(false);

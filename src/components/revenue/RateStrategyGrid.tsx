@@ -545,32 +545,8 @@ export default function RateStrategyGrid({
   async function pushDrafts() {
     if (!hotelId || pending.length === 0) return;
     setPushing(true);
-    const attempted = pending.map((d) => ({ ...d }));
     try {
-      const { data, error } = await supabase.functions.invoke("revenue-push-drafts", {
-        body: { hotelId, draftIds: pending.map((d) => d.id) },
-      });
-      if (error) throw error;
-      const res = data as { ok?: boolean; pushed?: number; failed?: number; error?: string; pushedIds?: string[] };
-      if (res?.error || res?.ok === false) throw new Error(res?.error || "Previo refused the price push.");
-
-      const sentIds = new Set(res?.pushedIds ?? []);
-      const sent = res?.pushedIds
-        ? attempted.filter((d) => sentIds.has(d.id))
-        : res?.failed ? [] : attempted;
-      await logRateChanges({
-        hotelId,
-        organizationSlug: organizationSlug ?? null,
-        source: "push",
-        action: "pushed_to_previo",
-        changes: sent.map((d) => ({
-          stay_date: d.stay_date,
-          room_type_name: d.room_type_name,
-          occupancy: d.occupancy,
-          old_price: d.old_price,
-          new_price: Number(d.new_price),
-        })),
-      });
+      const res = await pushRateDrafts(hotelId, pending.map((d) => d.id));
       await reloadAudit();
 
       if (res?.failed) {
