@@ -308,7 +308,7 @@ export default function RateStrategyGrid({
   const [pushOpen, setPushOpen] = useState(false);
   const [pushing, setPushing] = useState(false);
   /** Explicit go-ahead before anything becomes live in Previo. */
-  const [pushConsent, setPushConsent] = useState(false);
+  const [, setPushConsent] = useState(false);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [removingDrafts, setRemovingDrafts] = useState(false);
