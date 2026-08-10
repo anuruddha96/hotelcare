@@ -763,7 +763,9 @@ serve(async (req) => {
     if (!slot) continue;
     slot.sold += 1;
     slot.revenue += n.nightly_price_eur ?? 0;
-    if (n.created_at_pms && n.created_at_pms.slice(0, 10) === today) slot.created += 1;
+    // Stored as UTC; a booking made at 01:00 Budapest is still "yesterday" in
+    // UTC, so compare Budapest calendar days or early-morning pickup is lost.
+    if (n.created_at_pms && budapestDayOf(n.created_at_pms) === today) slot.created += 1;
   }
   const snapshots = Array.from(perDate.entries()).map(([stayDate, v]) => ({
     hotel_id: hotelId,
