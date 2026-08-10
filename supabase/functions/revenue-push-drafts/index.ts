@@ -56,14 +56,37 @@ Deno.serve(async (req) => {
     }
 
     // --- PMS config + rate-plan mapping ---------------------------------
-    const { data: cfg } = await admin
+    // SLNT-style hotels have no pms_configurations row at all (they run on
+    // pms_accounts), so a missing row is not by itself a failure. Only a real
+    // read error, or no usable Previo account anywhere, stops the push.
+    const { data: cfg, error: cfgErr } = await admin
       .from("pms_configurations")
       .select("hotel_id, pms_hotel_id, credentials_secret_name, is_active")
       .eq("hotel_id", hotelId)
       .maybeSingle();
-    if (!cfg || !cfg.is_active) {
+    if (cfgErr) {
+      return json({ ok: false, code: "pms_read_failed", error: `Could not read the PMS configuration: ${cfgErr.message}` });
+    }
+    const { data: activeAccounts } = await admin
+      .from("pms_accounts")
+      .select("pms_hotel_id, credentials_secret_name")
+      .eq("hotel_id", hotelId)
+      .eq("is_active", true);
+    const hasAccounts = ((activeAccounts ?? []) as any[]).some(
+      (a) => a.pms_hotel_id && a.credentials_secret_name,
+    );
+    if (!hasAccounts && (!cfg || !cfg.is_active)) {
       return json({ ok: false, code: "pms_inactive", error: "PMS is not configured or is inactive for this hotel." });
     }
+
+    const { data: orgRow } = await admin
+      .from("room_types")
+      .select("organization_slug")
+      .eq("hotel_id", hotelId)
+      .limit(1)
+      .maybeSingle();
+    const hotelOrgSlug: string | null = (orgRow as any)?.organization_slug ?? null;
+
 
     const loadMaps = async () => {
       const { data } = await admin

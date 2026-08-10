@@ -35,15 +35,27 @@ serve(async (req) => {
     }
 
     // Hotel + PMS config
-    const { data: cfg } = await supabase
+    const { data: cfg, error: cfgErr } = await supabase
       .from("pms_configurations")
       .select("hotel_id, pms_hotel_id, credentials_secret_name, is_active")
       .eq("hotel_id", hotelId)
       .maybeSingle();
 
+    if (cfgErr) {
+      return json({ error: `Could not read the PMS configuration: ${cfgErr.message}` }, 500);
+    }
     if (!cfg || !cfg.is_active) {
       return json({ error: "PMS not configured or inactive for this hotel" }, 400);
     }
+
+    const { data: orgRow } = await supabase
+      .from("room_types")
+      .select("organization_slug")
+      .eq("hotel_id", hotelId)
+      .limit(1)
+      .maybeSingle();
+    const hotelOrgSlug: string = (orgRow as any)?.organization_slug ?? "";
+
 
     // Mapping
     const { data: mappings } = await supabase
