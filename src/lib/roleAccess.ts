@@ -50,9 +50,10 @@ export function canSeeRevenue(role: string | null | undefined): boolean {
 
 /**
  * Revenue "admin" surfaces (Strategy Calendar, Events, Analyst, Pricing
- * Strategy, Sync history, Push/Autopilot). Top management sees the read
- * + rate-grid surface only.
+ * Strategy, Sync history, Push/Autopilot). Top management gets exactly the
+ * same revenue powers as an admin — the edge functions already allow it.
  */
 export function isRevenueAdmin(role: string | null | undefined): boolean {
-  return role === "admin";
+  return role === "admin" || isExecutiveRole(role);
 }
+
