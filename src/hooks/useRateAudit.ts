@@ -3,7 +3,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { cellKey, type RateAuditRow } from "@/lib/rateAudit";
 
 /** Sources written by a person acting in the app (not the alert engine). */
-export const HUMAN_SOURCES = ["day-tool", "cell-edit", "demand", "push", "autopilot"];
+export const HUMAN_SOURCES = ["day-tool", "cell-edit", "demand", "push", "autopilot", "bulk-editor"];
+
+/**
+ * Short-range, hand-made price work. Only these earn the blue marker on a cell:
+ * a season-wide bulk edit must not sprinkle dots across every day.
+ */
+export const MANUAL_SOURCES = ["day-tool", "cell-edit", "pickup-board"];
+
 
 /**
  * Price-change activity for one hotel: the newest entries for the activity
