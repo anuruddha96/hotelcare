@@ -179,12 +179,22 @@ export default function QuickRateAdjustDialog({
           </p>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="gap-2 sm:justify-between">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => void apply()} disabled={saving || changes.length === 0}>
-            Save {changes.length} draft{changes.length === 1 ? "" : "s"}
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => void apply(false)} disabled={saving || changes.length === 0}>
+              {saving && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+              Save {changes.length} draft{changes.length === 1 ? "" : "s"}
+            </Button>
+            {canPush && (
+              <Button onClick={() => void apply(true)} disabled={saving || changes.length === 0}>
+                <Send className="mr-1 h-3.5 w-3.5" />
+                Send to Previo now
+              </Button>
+            )}
+          </div>
         </DialogFooter>
+
       </DialogContent>
     </Dialog>
   );
