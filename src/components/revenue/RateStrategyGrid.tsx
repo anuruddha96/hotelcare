@@ -1303,7 +1303,10 @@ export default function RateStrategyGrid({
                     const shown = draft ?? published;
                     const tone = rateTone(shown, thresholds);
                     const history = auditByCell.get(cellKey(d, row.roomTypeName, row.occ));
-                    const confirmedHistory = history?.filter((entry) => entry.source === "push");
+                    // The dot marks a day someone priced by hand. A bulk edit
+                    // changes the price but never adds or clears the marker.
+                    const confirmedHistory = manualAuditByCell.get(cellKey(d, row.roomTypeName, row.occ));
+
                     const cellButton = (
                       <button
                         key={d}
