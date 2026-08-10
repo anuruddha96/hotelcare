@@ -2,20 +2,48 @@ import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowDownRight, ArrowUpRight, Scale } from "lucide-react";
-import { eur, type DayMetrics } from "@/lib/revenueAnalytics";
+import { ArrowDownRight, ArrowUpRight, ChevronDown, ChevronRight, Scale } from "lucide-react";
+import { eur, type DayMetrics, type BookingNight, type CancelledNight } from "@/lib/revenueAnalytics";
 
 type Filter = "all" | "gained" | "lost";
 
+function fmtDay(iso: string) {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, {
+    timeZone: "UTC", weekday: "short", day: "numeric", month: "short",
+  });
+}
+
+function fmtStamp(iso: string | null) {
+  if (!iso) return "unknown date";
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+interface DetailLine {
+  key: string;
+  kind: "booked" | "cancelled";
+  at: string | null;
+  guests: number | null;
+  nights: number;
+  span: string;
+  roomType: string | null;
+  value: number;
+}
+
 /**
- * "What moved in this pickup window?" — one readable board instead of a row of
- * chips: how many room-nights each stay date gained, how many it lost, and
- * what that is worth in money.
+ * "What moved in this pickup window?" — how many room-nights each stay date
+ * gained and lost, what it is worth, and the actual bookings behind it.
  */
 export default function PickupMovementBoard({
-  metrics, windowDays,
-}: { metrics: DayMetrics[]; windowDays: number }) {
+  metrics, windowDays, nights = [], cancellations = [],
+}: {
+  metrics: DayMetrics[];
+  windowDays: number;
+  nights?: BookingNight[];
+  cancellations?: CancelledNight[];
+}) {
   const [filter, setFilter] = useState<Filter>("all");
+  const [open, setOpen] = useState<string | null>(null);
 
   const rows = useMemo(
     () => metrics.filter((m) => (m.netPickup ?? 0) !== 0 || m.roomsLost > 0 || m.newBookings > 0),
@@ -40,6 +68,62 @@ export default function PickupMovementBoard({
   const visible = useMemo(() => rows
     .filter((m) => (filter === "gained" ? m.newBookings > 0 : filter === "lost" ? m.roomsLost > 0 : true))
     .sort((a, b) => a.stay_date.localeCompare(b.stay_date)), [rows, filter]);
+
+  // Reservation shape: how many nights each booking covers and over what span.
+  const resSpan = useMemo(() => {
+    const map = new Map<string, { count: number; from: string; to: string }>();
+    for (const n of nights) {
+      const cur = map.get(n.res_id);
+      if (!cur) map.set(n.res_id, { count: 1, from: n.stay_date, to: n.stay_date });
+      else {
+        cur.count += 1;
+        if (n.stay_date < cur.from) cur.from = n.stay_date;
+        if (n.stay_date > cur.to) cur.to = n.stay_date;
+      }
+    }
+    return map;
+  }, [nights]);
+
+  const windowStart = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - Math.max(0, windowDays - 1));
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }, [windowDays]);
+
+  const inWindow = (iso: string | null) => !!iso && new Date(iso).getTime() >= windowStart;
+
+  const detailsFor = (stayDate: string): DetailLine[] => {
+    const lines: DetailLine[] = [];
+    for (const n of nights) {
+      if (n.stay_date !== stayDate || !inWindow(n.created_at_pms)) continue;
+      const span = resSpan.get(n.res_id);
+      lines.push({
+        key: `b-${n.res_id}-${n.stay_date}`,
+        kind: "booked",
+        at: n.created_at_pms,
+        guests: n.guests,
+        nights: span?.count ?? 1,
+        span: span && span.from !== span.to ? `${fmtDay(span.from)} – ${fmtDay(span.to)}` : fmtDay(n.stay_date),
+        roomType: n.room_type_name,
+        value: n.nightly_price_eur ?? 0,
+      });
+    }
+    for (const c of cancellations) {
+      if (c.stay_date !== stayDate || !inWindow(c.cancelled_at)) continue;
+      lines.push({
+        key: `c-${c.res_id}-${c.stay_date}`,
+        kind: "cancelled",
+        at: c.cancelled_at,
+        guests: null,
+        nights: 1,
+        span: fmtDay(c.stay_date),
+        roomType: null,
+        value: 0,
+      });
+    }
+    return lines.sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
+  };
 
   const noBaseline = rows.length > 0 && rows.every((m) => !m.baselineAvailable);
 
@@ -84,29 +168,56 @@ export default function PickupMovementBoard({
               <span>Stay date</span><span className="text-right">Gained</span>
               <span className="text-right">Lost</span><span className="text-right w-20">Net value</span>
             </div>
-            <div className="max-h-80 overflow-y-auto divide-y">
+            <div className="max-h-96 overflow-y-auto divide-y">
               {visible.map((m) => {
                 const net = m.newBookings - m.roomsLost;
                 const netEur = Math.round((m.newRevenueEur - m.lostRevenueEur) * 100) / 100;
+                const isOpen = open === m.stay_date;
+                const details = isOpen ? detailsFor(m.stay_date) : [];
                 return (
-                  <div
-                    key={m.stay_date}
-                    className="grid grid-cols-[1fr_auto_auto_auto] gap-2 px-2 py-1.5 text-sm items-center animate-fade-in"
-                  >
-                    <span className="truncate">
-                      {new Date(`${m.stay_date}T00:00:00Z`).toLocaleDateString(undefined, {
-                        timeZone: "UTC", weekday: "short", day: "numeric", month: "short",
-                      })}
-                    </span>
-                    <span className="text-right tabular-nums text-emerald-600 dark:text-emerald-400">
-                      {m.newBookings ? `+${m.newBookings}` : "—"}
-                    </span>
-                    <span className="text-right tabular-nums text-sky-600 dark:text-sky-400">
-                      {m.roomsLost ? `−${m.roomsLost}` : "—"}
-                    </span>
-                    <span className={`text-right tabular-nums w-20 font-medium ${net < 0 ? "text-destructive" : ""}`}>
-                      {netEur === 0 ? "—" : `${netEur > 0 ? "+" : "−"}${eur(Math.abs(netEur))}`}
-                    </span>
+                  <div key={m.stay_date} className="animate-fade-in">
+                    <button
+                      type="button"
+                      onClick={() => setOpen(isOpen ? null : m.stay_date)}
+                      className="grid w-full grid-cols-[1fr_auto_auto_auto] gap-2 px-2 py-1.5 text-sm items-center text-left hover:bg-muted/40"
+                    >
+                      <span className="flex min-w-0 items-center gap-1 truncate">
+                        {isOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+                        {fmtDay(m.stay_date)}
+                      </span>
+                      <span className="text-right tabular-nums text-emerald-600 dark:text-emerald-400">
+                        {m.newBookings ? `+${m.newBookings}` : "—"}
+                      </span>
+                      <span className="text-right tabular-nums text-sky-600 dark:text-sky-400">
+                        {m.roomsLost ? `−${m.roomsLost}` : "—"}
+                      </span>
+                      <span className={`text-right tabular-nums w-20 font-medium ${net < 0 ? "text-destructive" : ""}`}>
+                        {netEur === 0 ? "—" : `${netEur > 0 ? "+" : "−"}${eur(Math.abs(netEur))}`}
+                      </span>
+                    </button>
+
+                    {isOpen && (
+                      <div className="bg-muted/30 px-3 py-2 space-y-1 text-[11px]">
+                        {details.length === 0 ? (
+                          <p className="text-muted-foreground">No booking detail available for this date.</p>
+                        ) : details.map((d) => (
+                          <div key={d.key} className="flex flex-wrap items-baseline gap-x-1.5">
+                            <span className={d.kind === "booked"
+                              ? "font-medium text-emerald-600 dark:text-emerald-400"
+                              : "font-medium text-sky-600 dark:text-sky-400"}>
+                              {d.kind === "booked" ? "Booked" : "Cancelled"}
+                            </span>
+                            <span className="tabular-nums">{fmtStamp(d.at)}</span>
+                            {d.guests != null && <span className="text-muted-foreground">· {d.guests} guest{d.guests === 1 ? "" : "s"}</span>}
+                            <span className="text-muted-foreground">· {d.nights} night{d.nights === 1 ? "" : "s"} ({d.span})</span>
+                            {d.roomType && <span className="text-muted-foreground">· {d.roomType}</span>}
+                            {d.kind === "booked" && d.value > 0 && (
+                              <span className="tabular-nums font-medium">· {eur(d.value)}/night</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
