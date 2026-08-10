@@ -39,6 +39,16 @@ function budapestToday(): string {
   }).format(new Date());
 }
 
+/** Budapest calendar day of any timestamp (YYYY-MM-DD). */
+function budapestDayOf(iso: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Budapest",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
+}
+
 function addDays(isoDate: string, days: number): string {
   const d = new Date(`${isoDate}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
