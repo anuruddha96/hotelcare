@@ -328,10 +328,15 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     const seriesFor = (list: SaleBooking[]) => {
       let value = 0, nights = 0;
       return buckets.map((m) => {
+        let windowValue = 0;
+        const windowRes = new Set<string>();
         for (const b of list) {
-          if (b.createdMinutes <= m && b.createdMinutes > m - 120) { value += b.revenue; nights += b.roomNights; }
+          if (b.createdMinutes <= m && b.createdMinutes > m - 120) {
+            value += b.revenue; nights += b.roomNights;
+            windowValue += b.revenue; windowRes.add(b.res_id);
+          }
         }
-        return { value: Math.round(value), nights };
+        return { value: Math.round(value), nights, windowValue: Math.round(windowValue), windowBookings: windowRes.size };
       });
     };
 
@@ -349,10 +354,35 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
       label: `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`,
       value: base[i].value,
       nights: base[i].nights,
+      // Non-cumulative: what actually got booked inside this two-hour window.
+      windowValue: base[i].windowValue,
+      windowBookings: base[i].windowBookings,
       adr: base[i].nights ? Math.round(base[i].value / base[i].nights) : null,
       compare: cmp ? cmp[i].value : goals.targetValue ? Math.round((goals.targetValue * (m + 1)) / (24 * 60)) : null,
     }));
   }, [liveBookings, allBookings, compare, today, goals.targetValue, isTodayPeriod, nowMinutes]);
+
+  /** Busiest booking window and the individual booking times behind it. */
+  const bookingTiming = useMemo(() => {
+    const withTime = liveBookings.filter((b) => b.created);
+    if (withTime.length === 0) return null;
+    let peak = chart[0];
+    for (const c of chart) if (c.windowValue > (peak?.windowValue ?? 0)) peak = c;
+    const times = withTime
+      .slice()
+      .sort((a, b) => b.createdMinutes - a.createdMinutes)
+      .map((b) => ({
+        key: b.key,
+        res: b.res_id,
+        time: `${String(Math.floor(b.createdMinutes / 60)).padStart(2, "0")}:${String(b.createdMinutes % 60).padStart(2, "0")}`,
+        revenue: b.revenue,
+        nights: b.roomNights,
+        channel: b.channel,
+      }));
+    const first = times[times.length - 1];
+    const last = times[0];
+    return { peak, times, first, last };
+  }, [liveBookings, chart]);
 
   const compareLabel = compare === "yesterday" ? "Yesterday" : compare === "lastweek" ? "Same weekday last week" : "Daily goal pace";
 
