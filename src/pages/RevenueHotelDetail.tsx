@@ -29,6 +29,8 @@ import StrategyCalendar from "@/components/revenue/StrategyCalendar";
 import StrategyRecommendationsPanel from "@/components/revenue/StrategyRecommendationsPanel";
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
+import RateActivityPanel from "@/components/revenue/RateActivityPanel";
+
 import DemandPricingPanel from "@/components/revenue/DemandPricingPanel";
 
 import RevenuePulsePanel from "@/components/revenue/RevenuePulsePanel";
@@ -667,6 +669,8 @@ export default function RevenueHotelDetail() {
             demandByDate={demandByDate}
             leftByTypeDate={leftByTypeDate}
           />
+          <RateActivityPanel hotelId={hotelId ?? null} />
+
           <DemandPricingPanel
             hotelId={hotelId ?? null}
             organizationSlug={organizationSlug ?? null}

@@ -175,6 +175,8 @@ Deno.serve(async (req) => {
 
 
     let pushed = 0;
+    const pushedIds: string[] = [];
+
     let failed = 0;
     let verified = 0;
     const errors: Array<{ stay_date: string; room_type_name: string; error: string }> = [];
@@ -305,6 +307,8 @@ Deno.serve(async (req) => {
           });
 
           pushed += 1;
+          pushedIds.push(d.id);
+
         }
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
@@ -329,7 +333,7 @@ Deno.serve(async (req) => {
       error_message: failed > 0 ? errors[0]?.error : null,
     });
 
-    return json({ ok: true, pushed, failed, verified, method: writeMethod, errors });
+    return json({ ok: true, pushed, pushedIds, failed, verified, method: writeMethod, errors });
   } catch (e) {
     console.error("revenue-push-drafts error", e);
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
