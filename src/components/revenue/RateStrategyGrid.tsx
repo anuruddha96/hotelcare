@@ -1746,67 +1746,45 @@ export default function RateStrategyGrid({
           </div>
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
-              These prices are written to Previo immediately and become live for guests.
-              Anything that fails stays here with its error so you can retry.
+              Pushing sends these prices to Previo straight away. Anything Previo refuses stays here with the reason.
             </p>
-            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 space-y-1.5">
-              <p className="text-xs">
-                Prices are written back through Previo's rate-write call. Some Previo accounts have that
-                scope switched off — the check below writes a date's current price back to itself
-                (changing nothing) and reports exactly what Previo answers.
-              </p>
+            {failedCount > 0 && (
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   size="sm" variant="outline" className="h-7 text-[11px]"
                   disabled={probing}
                   onClick={() => void checkWriteAccess()}
                 >
-                  {probing && <Loader2 className="h-3 w-3 animate-spin mr-1" />}Check write access
+                  {probing && <Loader2 className="h-3 w-3 animate-spin mr-1" />}Check Previo access
                 </Button>
                 <Button
                   size="sm" variant="outline" className="h-7 text-[11px]"
                   disabled={probing}
                   onClick={() => void syncRatePlans()}
-                  title="Read the pricelist ids for every room type from Previo"
                 >
-                  Sync rate plans
+                  Refresh room mapping
                 </Button>
-
                 {probe && (
                   <span className={`text-[11px] ${probe.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
                     {probe.message}
                   </span>
                 )}
               </div>
-              {probe?.support && (
-                <textarea
-                  readOnly
-                  rows={4}
-                  value={probe.support}
-                  onFocus={(e) => e.currentTarget.select()}
-                  className="w-full rounded border bg-background p-1.5 text-[10px] font-mono"
-                  aria-label="Message to send to Previo support"
-                />
-              )}
-            </div>
-
+            )}
           </div>
-          <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center">
-            <label className="flex items-center gap-2 text-xs text-muted-foreground mr-auto">
-              <Checkbox checked={pushConsent} onCheckedChange={(v) => setPushConsent(v === true)} />
-              I confirm these prices should go live in Previo
-            </label>
+          <DialogFooter className="gap-2">
             {selectedDraftIds.size > 0 && (
-              <Button variant="destructive" onClick={() => setRemoveConfirmOpen(true)}>
-                <Trash2 className="mr-1 h-4 w-4" />Remove selected ({selectedDraftIds.size})
+              <Button variant="destructive" className="mr-auto" onClick={() => setRemoveConfirmOpen(true)}>
+                <Trash2 className="mr-1 h-4 w-4" />Remove ({selectedDraftIds.size})
               </Button>
             )}
-            <Button variant="outline" onClick={() => setPushOpen(false)}>Cancel</Button>
-            <Button onClick={() => void pushDrafts()} disabled={pushing || pending.length === 0 || !pushConsent}>
-              {pushing && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+            <Button variant="ghost" onClick={() => setPushOpen(false)}>Cancel</Button>
+            <Button onClick={() => void pushDrafts()} disabled={pushing || pending.length === 0}>
+              {pushing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
               Push {pending.length} change{pending.length === 1 ? "" : "s"}
             </Button>
           </DialogFooter>
+
 
         </DialogContent>
       </Dialog>
