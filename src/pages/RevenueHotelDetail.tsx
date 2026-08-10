@@ -643,16 +643,18 @@ export default function RevenueHotelDetail() {
         </div>
       )}
 
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className={`flex-wrap h-auto ${revAdmin ? "" : "hidden"}`}>
+      <Tabs value={isTechnicalAdmin ? tab : "grid"} onValueChange={setTab}>
+        {/* Top management works from the rate grid alone; the other views are admin tooling. */}
+        <TabsList className={`flex-wrap h-auto ${isTechnicalAdmin ? "" : "hidden"}`}>
           <TabsTrigger value="grid"><CalIcon className="h-4 w-4 mr-1" />Rate Grid</TabsTrigger>
           <TabsTrigger value="prices"><CalIcon className="h-4 w-4 mr-1" />Calendar</TabsTrigger>
           <TabsTrigger value="calendar"><CalIcon className="h-4 w-4 mr-1" />Strategy Calendar</TabsTrigger>
           <TabsTrigger value="events">Events</TabsTrigger>
           <TabsTrigger value="analyst"><Bot className="h-4 w-4 mr-1" />Analyst</TabsTrigger>
-          {isTechnicalAdmin && <TabsTrigger value="strategy"><Settings2 className="h-4 w-4 mr-1" />Pricing Strategy</TabsTrigger>}
-          {isTechnicalAdmin && <TabsTrigger value="syncs"><HistoryIcon className="h-4 w-4 mr-1" />Sync history</TabsTrigger>}
+          <TabsTrigger value="strategy"><Settings2 className="h-4 w-4 mr-1" />Pricing Strategy</TabsTrigger>
+          <TabsTrigger value="syncs"><HistoryIcon className="h-4 w-4 mr-1" />Sync history</TabsTrigger>
         </TabsList>
+
 
         <TabsContent value="grid" className="space-y-3 min-w-0 overflow-x-hidden">
           {/* Order: headline analytics → price list (the hero) → today's sales
