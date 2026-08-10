@@ -270,23 +270,32 @@ export default function RateStrategyGrid({
   const [applyWeekdays, setApplyWeekdays] = useState<"all" | "weekend" | "weekday">("all");
   const [applyAllOcc, setApplyAllOcc] = useState(false);
   const [editMode, setEditMode] = useState<"set" | "percent">("set");
-  /** Whole-day price tool, opened by tapping a date in the header. */
+  /** Whole-day price tool, opened by tapping (or dragging across) date headers. */
   const [dayTool, setDayTool] = useState<string | null>(null);
-  const [dayMode, setDayMode] = useState<"percent" | "amount" | "set" | "round">("percent");
-  const [dayValue, setDayValue] = useState("5");
+  const [dayMode, setDayMode] = useState<"percent" | "amount" | "set" | "round">("amount");
+  const [dayValue, setDayValue] = useState("2");
   const [dayRange, setDayRange] = useState(1);
   const [dayWeekdays, setDayWeekdays] = useState<"all" | "weekend" | "weekday">("all");
   const [dayTypes, setDayTypes] = useState<Set<string>>(new Set());
   const [dayRound, setDayRound] = useState(1);
+  /** Drag a range of dates in the header to price several days at once. */
+  const [selDates, setSelDates] = useState<Set<string>>(new Set());
+  const [selecting, setSelecting] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [drafts, setDrafts] = useState<Map<string, number>>(new Map());
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
   const [pushing, setPushing] = useState(false);
+  /** Explicit go-ahead before anything becomes live in Previo. */
+  const [pushConsent, setPushConsent] = useState(false);
   /** Result of the harmless Previo rate-write capability check. */
   const [probing, setProbing] = useState(false);
   const [probe, setProbe] = useState<{ ok: boolean; message: string; support?: string | null } | null>(null);
+
+  /** Price-change trail: cell history on hover, and the activity panel below. */
+  const { byCell: auditByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
+
 
   /**
    * Ask Previo whether this property accepts rate writes at all, by writing a
