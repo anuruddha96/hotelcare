@@ -70,7 +70,7 @@ export async function syncPrevioRatePlanMappings(
         secretName: String(a.credentials_secret_name),
       }));
 
-  if (accounts.length === 0 && cfg.pms_hotel_id && cfg.credentials_secret_name) {
+  if (accounts.length === 0 && cfg?.is_active && cfg.pms_hotel_id && cfg.credentials_secret_name) {
     accounts.push({
       label: String(cfg.pms_hotel_id),
       hotId: String(cfg.pms_hotel_id),
@@ -135,7 +135,7 @@ export async function syncPrevioRatePlanMappings(
     ((types ?? []) as any[]).filter((t) => t.pms_room_id).map((t) => [String(t.pms_room_id), t]),
   );
   const orgSlug =
-    ((types ?? []) as any[])[0]?.organization_slug ?? cfg.organization_slug ?? null;
+    ((types ?? []) as any[])[0]?.organization_slug ?? null;
   if (!orgSlug) {
     return { ok: false, mapped: 0, notes: [...notes, "No organization is set for this hotel."] };
   }
