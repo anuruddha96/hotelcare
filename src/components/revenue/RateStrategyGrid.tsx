@@ -1016,7 +1016,7 @@ export default function RateStrategyGrid({
             ref={scrollRef}
             onScroll={onScroll}
             className={`relative overflow-auto overscroll-x-contain text-[11px] sm:text-xs ${dragging ? "select-none" : ""}`}
-            style={{ maxHeight: isMobile ? "68vh" : "72vh", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
+            style={{ maxHeight: expanded ? "calc(100vh - 190px)" : isMobile ? "68vh" : "72vh", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
           >
             <div ref={gridRef} style={{ width: LEFT_W + dates.length * CELL_W }}>
               {/* ---- Sticky header: month, dates and the day metrics ---- */}
