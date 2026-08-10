@@ -788,31 +788,39 @@ export default function RateStrategyGrid({
                     </div>
                   </div>
 
-                  {dates.map((d, i) => (
-                    <button
-                      key={d}
-                      type="button"
-                      disabled={!canEditRates}
-                      onClick={() => {
-                        if (!canEditRates) return;
-                        setDayTypes(new Set());
-                        setDayRange(1);
-                        setDayTool(d);
-                      }}
-                      title={canEditRates ? `Change every price on ${d}` : d}
-                      className={`group relative flex flex-col items-center justify-center shrink-0 ${dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
-                      style={{ width: CELL_W, height: DAY_H }}
-                    >
-                      <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
-                      <span className="font-medium">{formatDay(d)}</span>
-                      {canEditRates && (
-                        <ChevronDown
-                          className="pointer-events-none absolute bottom-0.5 right-1 h-3 w-3 text-primary opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
-                          aria-hidden
-                        />
-                      )}
-                    </button>
-                  ))}
+                  {dates.map((d, i) => {
+                    const picked = selecting && selDates.has(d);
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        disabled={!canEditRates}
+                        onPointerDown={(e) => {
+                          if (!canEditRates) return;
+                          e.preventDefault();
+                          beginDateSelect(d);
+                        }}
+                        onPointerEnter={() => extendDateSelect(d)}
+                        onKeyDown={(e) => {
+                          if (!canEditRates) return;
+                          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDayTool([d]); }
+                        }}
+                        title={canEditRates ? `Change every price on ${d} — drag across dates to select several` : d}
+                        className={`group relative flex flex-col items-center justify-center shrink-0 select-none touch-none ${picked ? "bg-primary/20" : dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
+                        style={{ width: CELL_W, height: DAY_H }}
+                      >
+                        <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
+                        <span className="font-medium">{formatDay(d)}</span>
+                        {canEditRates && (
+                          <ChevronDown
+                            className="pointer-events-none absolute bottom-0.5 right-1 h-3 w-3 text-primary opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                            aria-hidden
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+
 
 
                 </div>
