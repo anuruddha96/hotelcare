@@ -1094,7 +1094,8 @@ export default function RateStrategyGrid({
                 </div>
 
                 {/* Date header */}
-                <div className="flex border-b bg-card" style={{ height: DAY_H }}>
+                <div ref={headerRowRef} className="flex border-b bg-card" style={{ height: DAY_H }}>
+
                   <div className="sticky left-0 z-40 border-r bg-card" style={{ width: LEFT_W }}>
                     <div
                       role="separator"
