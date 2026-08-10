@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, Trash2, History } from "lucide-react";
+import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, Trash2, History, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -28,6 +28,8 @@ import { useRateAudit } from "@/hooks/useRateAudit";
 import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
+import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
+
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
 
@@ -284,6 +286,11 @@ export default function RateStrategyGrid({
   const [dayWeekdays, setDayWeekdays] = useState<"all" | "weekend" | "weekday">("all");
   const [dayTypes, setDayTypes] = useState<Set<string>>(new Set());
   const [dayRound, setDayRound] = useState(1);
+  /** "Show all" for the change preview in the day tool. */
+  const [dayShowAll, setDayShowAll] = useState(false);
+  /** The full bulk price editor (date range, weekdays, room types). */
+  const [bulkOpen, setBulkOpen] = useState(false);
+
   /** Drag a range of dates in the header to price several days at once. */
   const [selDates, setSelDates] = useState<Set<string>>(new Set());
   const [selecting, setSelecting] = useState(false);
@@ -829,6 +836,13 @@ export default function RateStrategyGrid({
                 </div>
               </SheetContent>
             </Sheet>
+            {canEditRates && (
+              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => setBulkOpen(true)}>
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                Bulk edit prices
+              </Button>
+            )}
+
             <Select value={String(pickupWindowDays)} onValueChange={(v) => onPickupWindowChange(Number(v))}>
               <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -1358,8 +1372,23 @@ export default function RateStrategyGrid({
       </Dialog>
 
       {/* ---- Whole-day price tool: tap a date in the header ---- */}
+      <BulkPriceEditor
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        hotelId={hotelId ?? null}
+        organizationSlug={organizationSlug ?? null}
+        rates={rates}
+        today={today}
+        canPush={!!canEditRates}
+        onSaved={async () => {
+          await Promise.all([refreshDrafts(), reloadAudit()]);
+          await onRatesUpdated?.();
+        }}
+      />
+
       <Dialog open={!!dayTool} onOpenChange={(o) => !o && setDayTool(null)}>
-        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl p-4 sm:w-full sm:max-w-lg sm:p-6">
+
+        <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl p-4 sm:w-full sm:max-w-lg sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-base">
               {selDates.size > 1
@@ -1369,7 +1398,8 @@ export default function RateStrategyGrid({
 
           </DialogHeader>
 
-          <div className="space-y-3 text-sm">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 text-sm">
+
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">What to do</label>
@@ -1515,22 +1545,48 @@ export default function RateStrategyGrid({
                 {dayToolChanges.length} price{dayToolChanges.length === 1 ? "" : "s"} will change
                 {dayToolDates.length > 1 ? ` across ${dayToolDates.length} days` : ""}
               </p>
-              <div className="max-h-28 overflow-y-auto space-y-0.5">
-                {dayToolChanges.slice(0, 12).map((c) => (
-                  <div key={`${c.date}-${c.row.key}`} className="flex justify-between gap-2 tabular-nums">
-                    <span className="truncate">{c.date} · {c.row.roomTypeName} · {c.row.occ}g</span>
-                    <span>{moneyBase(c.from)} → <strong>{moneyBase(c.to)}</strong></span>
-                  </div>
-                ))}
-                {dayToolChanges.length > 12 && (
-                  <p className="text-muted-foreground">+{dayToolChanges.length - 12} more…</p>
-                )}
+              <div className="max-h-52 overflow-y-auto space-y-1.5">
+                {(() => {
+                  const groups = new Map<string, typeof dayToolChanges>();
+                  for (const c of dayToolChanges) {
+                    const list = groups.get(c.date) ?? [];
+                    list.push(c);
+                    groups.set(c.date, list);
+                  }
+                  const entries = Array.from(groups.entries());
+                  const shown = dayShowAll ? entries : entries.slice(0, 3);
+                  return (
+                    <>
+                      {shown.map(([date, list]) => (
+                        <div key={date}>
+                          <p className="font-medium">{formatDay(date)}</p>
+                          {list.map((c) => (
+                            <div key={`${c.date}-${c.row.key}`} className="flex justify-between gap-2 tabular-nums text-muted-foreground">
+                              <span className="truncate">{c.row.roomTypeName} · {c.row.occ}g</span>
+                              <span>{moneyBase(c.from)} → <strong className="text-foreground">{moneyBase(c.to)}</strong></span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                      {entries.length > 3 && (
+                        <button
+                          type="button"
+                          className="text-primary underline underline-offset-2"
+                          onClick={() => setDayShowAll((v) => !v)}
+                        >
+                          {dayShowAll ? "Show less" : `Show all ${dayToolChanges.length} prices (${entries.length} days)`}
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
               Saved as drafts only. Nothing reaches Previo until you push.
             </p>
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setDayTool(null)}>Cancel</Button>
             <Button onClick={() => void applyDayTool()} disabled={saving || dayToolChanges.length === 0}>

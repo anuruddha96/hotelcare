@@ -57,6 +57,9 @@ export default function PickupMovementBoard({
   const [filter, setFilter] = useState<Filter>("all");
   const [open, setOpen] = useState<string | null>(null);
   const [adjust, setAdjust] = useState<QuickAdjustTarget | null>(null);
+  /** "Raised 12 prices · sent" shown on the row that was just re-priced. */
+  const [results, setResults] = useState<Record<string, string>>({});
+
 
 
   const rows = useMemo(
@@ -221,10 +224,16 @@ export default function PickupMovementBoard({
                           onClick={() => setAdjust({ from: m.stay_date, to: m.stay_date, label: fmtDay(m.stay_date) })}
                         >
                           <SlidersHorizontal className="h-3.5 w-3.5" />
-                          Re-price
+                          Adjust price
                         </Button>
                       )}
                     </div>
+                    {results[m.stay_date] && (
+                      <p className="px-3 pb-1 text-[11px] text-emerald-600 dark:text-emerald-400">
+                        {results[m.stay_date]}
+                      </p>
+                    )}
+
 
                     {isOpen && (
                       <div className="bg-muted/30 px-3 py-2 space-y-1 text-[11px]">
@@ -253,11 +262,12 @@ export default function PickupMovementBoard({
                                   label: d.span,
                                 })}
                               >
-                                Re-price {d.nights === 1 ? "this date" : "this range"}
+                                Adjust {d.nights === 1 ? "this date" : "this range"}
                               </button>
                             )}
                           </div>
                         ))}
+
                       </div>
                     )}
                   </div>
@@ -280,9 +290,14 @@ export default function PickupMovementBoard({
           hotelId={hotelId}
           organizationSlug={organizationSlug}
           rates={rates}
+          canPush={canEdit}
           onClose={() => setAdjust(null)}
-          onApplied={() => onRatesUpdated?.()}
+          onApplied={(summary) => {
+            if (summary && adjust) setResults((r) => ({ ...r, [adjust.from]: summary }));
+            onRatesUpdated?.();
+          }}
         />
+
       </CardContent>
 
     </Card>

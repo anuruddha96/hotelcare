@@ -3,10 +3,11 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { logRateChanges } from "@/lib/rateAudit";
 import { moneyBase, getRevenueCurrency } from "@/lib/revenueCurrency";
+import { pushRateDrafts, saveRateDrafts } from "@/lib/rateDrafts";
 import type { RoomTypeRate } from "@/lib/revenueAnalytics";
 
 const PRESETS = [2, 3, 8, 11, 22];
@@ -20,18 +21,19 @@ export interface QuickAdjustTarget {
 
 /**
  * "This date range just picked up — raise it." A tiny pricing tool opened
- * straight from a movement row: pick a preset, see what would change, save
- * drafts. Nothing reaches Previo until the usual confirmed push.
+ * straight from a movement row: pick a preset, see what would change, then
+ * either keep it as a draft or send it to Previo right away.
  */
 export default function QuickRateAdjustDialog({
-  target, hotelId, organizationSlug, rates, onClose, onApplied,
+  target, hotelId, organizationSlug, rates, canPush = false, onClose, onApplied,
 }: {
   target: QuickAdjustTarget | null;
   hotelId: string | null;
   organizationSlug: string | null;
   rates: RoomTypeRate[];
+  canPush?: boolean;
   onClose: () => void;
-  onApplied?: () => void;
+  onApplied?: (summary?: string) => void;
 }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -48,6 +50,7 @@ export default function QuickRateAdjustDialog({
     setDirection(1);
     setOnlyType(!!target.roomTypeName);
   }, [target]);
+
 
   const changes = useMemo(() => {
     if (!target || !from || !to) return [];
@@ -67,31 +70,26 @@ export default function QuickRateAdjustDialog({
     return { avgFrom, avgTo };
   }, [changes]);
 
-  async function apply() {
+  async function apply(push: boolean) {
     if (!hotelId || changes.length === 0) return;
     setSaving(true);
     try {
-      const { data: auth } = await supabase.auth.getUser();
-      const rows = changes.map((c) => ({
-        hotel_id: hotelId,
-        organization_slug: organizationSlug ?? null,
-        stay_date: c.rate.stay_date,
-        obk_id: c.rate.obk_id,
-        room_type_name: c.rate.room_type_name,
-        occupancy: c.rate.occupancy,
-        old_price: c.from,
-        new_price: c.to,
-        status: "draft",
-        created_by: auth.user?.id ?? null,
-      }));
-      const { error } = await supabase.from("revenue_rate_drafts").upsert(rows, {
-        onConflict: "hotel_id,stay_date,room_type_name,occupancy,status",
+      const ids = await saveRateDrafts({
+        hotelId,
+        organizationSlug,
+        changes: changes.map((c) => ({
+          stay_date: c.rate.stay_date,
+          obk_id: c.rate.obk_id,
+          room_type_name: c.rate.room_type_name ?? "",
+          occupancy: c.rate.occupancy,
+          old_price: c.from,
+          new_price: c.to,
+        })),
       });
-      if (error) throw error;
       await logRateChanges({
         hotelId,
         organizationSlug: organizationSlug ?? null,
-        source: "day-tool",
+        source: "pickup-board",
         action: "draft_saved",
         notes: `${direction > 0 ? "+" : "−"}${amount} ${getRevenueCurrency().code} from pickup`,
         changes: changes.map((c) => ({
@@ -102,8 +100,21 @@ export default function QuickRateAdjustDialog({
           new_price: c.to,
         })),
       });
-      toast.success(`${rows.length} price${rows.length === 1 ? "" : "s"} saved as draft — not sent to Previo yet`);
-      onApplied?.();
+
+      const verb = direction > 0 ? "Raised" : "Lowered";
+      if (!push) {
+        toast.success(`${ids.length} price${ids.length === 1 ? "" : "s"} saved as draft — not sent to Previo yet`);
+        onApplied?.(`${verb} ${ids.length} price${ids.length === 1 ? "" : "s"} · draft`);
+      } else {
+        const res = await pushRateDrafts(hotelId, ids);
+        if (res.failed) {
+          toast.error(`${res.pushed} sent, ${res.failed} failed — open the price list to see why`);
+          onApplied?.(`${verb} ${res.pushed} · ${res.failed} failed`);
+        } else {
+          toast.success(`${res.pushed} price${res.pushed === 1 ? "" : "s"} sent to Previo`);
+          onApplied?.(`${verb} ${res.pushed} price${res.pushed === 1 ? "" : "s"} · sent`);
+        }
+      }
       onClose();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save the drafts");
@@ -111,6 +122,7 @@ export default function QuickRateAdjustDialog({
       setSaving(false);
     }
   }
+
 
   return (
     <Dialog open={!!target} onOpenChange={(o) => !o && onClose()}>
@@ -167,12 +179,22 @@ export default function QuickRateAdjustDialog({
           </p>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="gap-2 sm:justify-between">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => void apply()} disabled={saving || changes.length === 0}>
-            Save {changes.length} draft{changes.length === 1 ? "" : "s"}
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => void apply(false)} disabled={saving || changes.length === 0}>
+              {saving && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+              Save {changes.length} draft{changes.length === 1 ? "" : "s"}
+            </Button>
+            {canPush && (
+              <Button onClick={() => void apply(true)} disabled={saving || changes.length === 0}>
+                <Send className="mr-1 h-3.5 w-3.5" />
+                Send to Previo now
+              </Button>
+            )}
+          </div>
         </DialogFooter>
+
       </DialogContent>
     </Dialog>
   );

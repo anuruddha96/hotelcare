@@ -235,42 +235,74 @@ export async function readPrevioRate(opts: {
   return null;
 }
 
+/** Pull `occupancy -> price` pairs out of one XML fragment, tolerating the
+ *  element form (`<occupancy>2</occupancy><amount>150</amount>`) and the
+ *  attribute form (`<rate occupancy="2" amount="150"/>`). */
+function parseRateLevels(fragment: string, into: Map<number, number>) {
+  for (const rateRaw of fragment.split(/<rate\b/i).slice(1)) {
+    const rate = rateRaw.split(/<\/rate>/i)[0] ?? rateRaw.slice(0, 400);
+    const occ = parseInt(
+      rate.match(/<occupancy>([^<]*)<\/occupancy>/i)?.[1]
+        ?? rate.match(/\boccupancy\s*=\s*"([^"]*)"/i)?.[1]
+        ?? "",
+      10,
+    );
+    if (!Number.isFinite(occ)) continue;
+    const rawPrice = rate.match(/<amount>([^<]*)<\/amount>/i)?.[1]
+      ?? rate.match(/<price>\s*([\d.,]+)\s*<\/price>/i)?.[1]
+      ?? rate.match(/\b(?:amount|price|rate)\s*=\s*"([\d.,]+)"/i)?.[1]
+      ?? "";
+    const price = parseFloat(String(rawPrice).replace(/\s/g, "").replace(",", "."));
+    if (Number.isFinite(price)) into.set(occ, price);
+  }
+}
+
 /**
  * All published occupancy levels for one room type on one date.
  * Used to fill the levels the user did not edit so a push never "skips a
- * level" (Previo error 3092).
+ * level" (Previo error 3092), and to confirm a push landed.
+ *
+ * Previo's getRates answer is not always shaped the same way, so this reads
+ * the object-kind block when it can find one and falls back to the whole
+ * document, and retries once before giving up.
  */
 export async function readPrevioRateLevels(opts: {
   creds: PrevioCredentials;
   pmsHotelId: string;
   date: string;
   obkId: string;
+  prlId?: string | null;
 }): Promise<Map<number, number>> {
-  const out = new Map<number, number>();
-  const res = await callPrevioXml({
-    method: "getRates",
-    creds: opts.creds,
-    pmsHotelId: opts.pmsHotelId,
-    extraXml: `<term><from>${esc(opts.date)}</from><to>${esc(opts.date)}</to></term>`,
-  });
-  if (!res.ok) return out;
+  const attempt = async (): Promise<Map<number, number>> => {
+    const out = new Map<number, number>();
+    const res = await callPrevioXml({
+      method: "getRates",
+      creds: opts.creds,
+      pmsHotelId: opts.pmsHotelId,
+      extraXml:
+        `<term><from>${esc(opts.date)}</from><to>${esc(opts.date)}</to></term>` +
+        (opts.prlId ? `<prlId>${esc(opts.prlId)}</prlId>` : ""),
+    });
+    if (!res.ok) return out;
 
-  const kindBlocks = res.text.split(/<objectKind>/i).slice(1);
-  for (const raw of kindBlocks) {
-    const block = raw.split(/<\/objectKind>/i)[0] ?? "";
-    const obk = block.match(/<obkId>([^<]*)<\/obkId>/i)?.[1]?.trim();
-    if (obk !== opts.obkId) continue;
-    for (const rateRaw of block.split(/<rate>/i).slice(1)) {
-      const rate = rateRaw.split(/<\/rate>/i)[0] ?? "";
-      const occ = parseInt(rate.match(/<occupancy>([^<]*)<\/occupancy>/i)?.[1] ?? "", 10);
-      if (!Number.isFinite(occ)) continue;
-      const price = parseFloat(
-        rate.match(/<amount>([^<]*)<\/amount>/i)?.[1]
-          ?? rate.match(/<price>\s*([\d.,]+)\s*<\/price>/i)?.[1]
-          ?? "",
-      );
-      if (Number.isFinite(price)) out.set(occ, price);
+    const kindBlocks = res.text.split(/<objectKind>/i).slice(1);
+    let matchedKind = false;
+    for (const raw of kindBlocks) {
+      const block = raw.split(/<\/objectKind>/i)[0] ?? "";
+      const obk = block.match(/<obkId>([^<]*)<\/obkId>/i)?.[1]?.trim()
+        ?? block.match(/\bobkId\s*=\s*"([^"]*)"/i)?.[1]?.trim();
+      if (obk !== opts.obkId) continue;
+      matchedKind = true;
+      parseRateLevels(block, out);
     }
-  }
-  return out;
+    // Some answers do not wrap rates in <objectKind> at all — if the room type
+    // id appears anywhere in the document, read the rates from the whole body.
+    if (!matchedKind && res.text.includes(opts.obkId)) parseRateLevels(res.text, out);
+    return out;
+  };
+
+  const first = await attempt();
+  if (first.size > 0) return first;
+  return await attempt();
 }
+
