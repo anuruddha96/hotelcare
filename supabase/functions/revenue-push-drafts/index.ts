@@ -7,7 +7,7 @@
 // draft so a partial failure is visible instead of silent.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadPrevioCredentials } from "../_shared/previoCredentials.ts";
-import { readPrevioRate, writePrevioRate } from "../_shared/previoRateWrite.ts";
+import { readPrevioRateLevels, writePrevioRate } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 
 
