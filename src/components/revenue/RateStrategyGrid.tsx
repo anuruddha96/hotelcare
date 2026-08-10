@@ -424,6 +424,76 @@ export default function RateStrategyGrid({
       return next;
     });
   }, []);
+
+  /**
+   * Touch gesture: press and hold a date, then slide across the header to pick
+   * a range. Native drag events never fire on a phone, so the whole thing is
+   * driven by touch events with a non-passive move listener (the browser must
+   * be told not to scroll the grid while a range is being drawn).
+   */
+  const headerRowRef = useRef<HTMLDivElement | null>(null);
+  const lpTimer = useRef<number | null>(null);
+  const lpActive = useRef(false);
+  const lpAnchor = useRef<string | null>(null);
+  const lpStartX = useRef(0);
+  const lpStartY = useRef(0);
+
+  const cancelLongPress = useCallback(() => {
+    if (lpTimer.current !== null) { window.clearTimeout(lpTimer.current); lpTimer.current = null; }
+  }, []);
+
+  const beginTouchSelect = useCallback((d: string, x: number, y: number) => {
+    if (!canEditRates) return;
+    cancelLongPress();
+    lpStartX.current = x;
+    lpStartY.current = y;
+    lpTimer.current = window.setTimeout(() => {
+      lpTimer.current = null;
+      lpActive.current = true;
+      lpAnchor.current = d;
+      try { navigator.vibrate?.(15); } catch { /* not supported */ }
+      setMultiMode(true);
+      setPickedDates(new Set([d]));
+    }, 350);
+  }, [canEditRates, cancelLongPress]);
+
+  const endTouchSelect = useCallback(() => {
+    cancelLongPress();
+    lpActive.current = false;
+    lpAnchor.current = null;
+  }, [cancelLongPress]);
+
+  useEffect(() => {
+    const el = headerRowRef.current;
+    if (!el) return;
+    const onMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      if (!lpActive.current) {
+        // Moved before the hold completed — that is an ordinary scroll.
+        if (Math.abs(t.clientX - lpStartX.current) > 8 || Math.abs(t.clientY - lpStartY.current) > 8) cancelLongPress();
+        return;
+      }
+      e.preventDefault();
+      const target = document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null;
+      const d = target?.closest<HTMLElement>("[data-date]")?.dataset.date;
+      const anchor = lpAnchor.current;
+      if (!d || !anchor) return;
+      const a = allDates.indexOf(anchor);
+      const b = allDates.indexOf(d);
+      if (a < 0 || b < 0) return;
+      setPickedDates(new Set(allDates.slice(Math.min(a, b), Math.max(a, b) + 1)));
+    };
+    el.addEventListener("touchmove", onMove, { passive: false });
+    return () => el.removeEventListener("touchmove", onMove);
+  }, [allDates, cancelLongPress]);
+
+  /** Price-cell history on touch: tap a cell to read who changed it and when. */
+  const [cellInfo, setCellInfo] = useState<{
+    date: string; roomTypeName: string; occ: number; published: number | null; draft: number | null;
+    obk?: string | null;
+  } | null>(null);
+
   /** Full-screen pricing mode — the calendar and nothing else. */
   const [expanded, setExpanded] = useState(false);
   useEffect(() => {
