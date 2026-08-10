@@ -519,13 +519,17 @@ export default function RateStrategyGrid({
       if (res?.failed) {
         toast.error(`${res.pushed ?? 0} sent, ${res.failed} failed — open the list to see why`);
         await refreshDrafts();
+        // Previo confirmed the ones that landed — pull the live prices back in.
+        if (res.pushed) await onRatesUpdated?.();
         return;
       }
       toast.success(`${res?.pushed ?? 0} price change${res?.pushed === 1 ? "" : "s"} sent to Previo`);
       setPushOpen(false);
       setPushConsent(false);
       await refreshDrafts();
+      await onRatesUpdated?.();
     } catch (e) {
+
       const message = e instanceof Error ? e.message : "Could not push the prices to Previo";
       setProbe({ ok: false, message });
       toast.error(message);
