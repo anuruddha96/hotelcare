@@ -231,7 +231,9 @@ Deno.serve(async (req) => {
           pmsHotelId,
           date: g.stay_date,
           obkId: g.obkId,
+          prlId: g.prlId,
         });
+
 
         const wanted = new Map<number, number>(published);
         for (const d of g.drafts) {
