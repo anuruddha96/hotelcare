@@ -714,7 +714,13 @@ export default function RevenueHotelDetail() {
             windowDays={pickupWindow}
             nights={live.nights}
             cancellations={live.cancellations}
+            hotelId={hotelId ?? null}
+            organizationSlug={organizationSlug ?? null}
+            rates={live.rates}
+            canEdit={revAdmin}
+            onRatesUpdated={live.reload}
           />
+
 
           {live.error && <p className="text-sm text-destructive">{live.error}</p>}
         </TabsContent>
