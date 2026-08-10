@@ -57,14 +57,29 @@ Deno.serve(async (req) => {
       return json({ error: "You can only probe your own hotel" }, 403);
     }
 
-    const { data: cfg } = await admin
+    // Hotels running on pms_accounts (SLNT) have no pms_configurations row —
+    // that is not an error. Only a failed read, or no Previo credentials at
+    // all, blocks the probe.
+    const { data: cfg, error: cfgErr } = await admin
       .from("pms_configurations")
-      .select("pms_hotel_id, credentials_secret_name, is_active, organization_slug")
+      .select("pms_hotel_id, credentials_secret_name, is_active")
       .eq("hotel_id", hotelId)
       .maybeSingle();
-    if (!cfg || !cfg.is_active) {
+    if (cfgErr) {
+      return json({ ok: false, code: "pms_read_failed", error: `Could not read the PMS configuration: ${cfgErr.message}` });
+    }
+    const { data: probeAccounts } = await admin
+      .from("pms_accounts")
+      .select("pms_hotel_id, credentials_secret_name")
+      .eq("hotel_id", hotelId)
+      .eq("is_active", true);
+    const usableAccounts = ((probeAccounts ?? []) as any[]).filter(
+      (a) => a.pms_hotel_id && a.credentials_secret_name,
+    );
+    if (usableAccounts.length === 0 && (!cfg || !cfg.is_active)) {
       return json({ ok: false, code: "pms_inactive", error: "Previo is not configured or is inactive for this hotel" });
     }
+
 
     const loadMaps = async () => {
       const { data } = await admin
@@ -95,20 +110,19 @@ Deno.serve(async (req) => {
     const scoped = String(map.previo_room_type_id);
     const scopedParts = scoped.split(":");
     const obkId = scopedParts.pop() as string;
-    let pmsHotelId = String(cfg.pms_hotel_id ?? "");
-    let creds = loadPrevioCredentials(cfg.credentials_secret_name);
+    const baseAccount = cfg?.is_active && cfg.credentials_secret_name
+      ? { pms_hotel_id: cfg.pms_hotel_id, credentials_secret_name: cfg.credentials_secret_name }
+      : usableAccounts[0];
+    let pmsHotelId = String(baseAccount?.pms_hotel_id ?? "");
+    let creds = loadPrevioCredentials(String(baseAccount?.credentials_secret_name ?? ""));
     if (scopedParts.length) {
-      const { data: acc } = await admin
-        .from("pms_accounts")
-        .select("pms_hotel_id, credentials_secret_name")
-        .eq("hotel_id", hotelId)
-        .eq("pms_hotel_id", scopedParts.join(":"))
-        .maybeSingle();
+      const acc = usableAccounts.find((a) => String(a.pms_hotel_id) === scopedParts.join(":"));
       if (acc?.credentials_secret_name) {
         creds = loadPrevioCredentials(acc.credentials_secret_name);
         pmsHotelId = String(acc.pms_hotel_id);
       }
     }
+
 
 
     // Pick a date far enough out that a same-value write is harmless.

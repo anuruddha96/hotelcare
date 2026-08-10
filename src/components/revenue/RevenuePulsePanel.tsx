@@ -40,10 +40,25 @@ export default function RevenuePulsePanel({
   const lost = moved.filter((m) => (m.netPickup ?? 0) < 0);
   const occTone = occupancyTone2(tonight?.occupancyPct ?? 0, thresholds);
 
+  const roomsLeftTonight = Math.max(0, roomsAvailable - (tonight?.roomsSold ?? 0));
+  const action = roomsLeftTonight === 0
+    ? "Sold out tonight — protect rate on the next open dates."
+    : occTone.severity === "critical"
+      ? `${roomsLeftTonight} unit${roomsLeftTonight === 1 ? "" : "s"} still open tonight — consider a short-term price cut, but never below the minimum ADR.`
+      : totalPickup > 0
+        ? `Pickup is positive (${totalPickup} net) — hold or raise prices on the dates that moved.`
+        : `${roomsLeftTonight} unit${roomsLeftTonight === 1 ? "" : "s"} left tonight — watch pickup before changing anything.`;
+
   return (
     <Card>
       <CardContent className="p-3 space-y-3">
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 className="text-sm font-semibold">Today's performance</h2>
+          <span className="text-[11px] text-muted-foreground">tonight's stay date</span>
+        </div>
+
         <div className="flex flex-wrap gap-2">
+
           <Tile
             label="Pickup in window"
             value={`${totalPickup > 0 ? "+" : ""}${totalPickup}`}
@@ -72,12 +87,16 @@ export default function RevenuePulsePanel({
           />
         </div>
 
-        {moved.length > 0 && (
-          <p className="text-[11px] text-muted-foreground">
-            {gained.length} date{gained.length === 1 ? "" : "s"} up · {lost.length} down — see the
-            movement board below for the detail.
-          </p>
-        )}
+        <div className="rounded-md border bg-muted/30 px-2.5 py-2 text-[11px]">
+          <span className="font-medium">What to do now: </span>
+          <span className="text-muted-foreground">{action}</span>
+          {moved.length > 0 && (
+            <span className="text-muted-foreground">
+              {" "}({gained.length} date{gained.length === 1 ? "" : "s"} up · {lost.length} down — detail in the movement board below.)
+            </span>
+          )}
+        </div>
+
 
       </CardContent>
     </Card>

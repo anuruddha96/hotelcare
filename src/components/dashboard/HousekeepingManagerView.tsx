@@ -26,6 +26,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { usePropertyTerms } from '@/lib/propertyTerminology';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { setRoomDragPayload, readRoomDragPayload, assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
@@ -138,7 +139,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const terms = usePropertyTerms();
   const { venuesEnabled } = useTenantFeatures();
   // Managers/supervisors may move work between housekeepers by drag & drop.
-  const canDragAssign = !!profile?.role && ['admin', 'manager', 'housekeeping_manager', 'supervisor'].includes(profile.role);
+  const canDragAssign = !!profile?.role && ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager', 'supervisor'].includes(profile.role);
   const [housekeepingStaff, setHousekeepingStaff] = useState<HousekeepingStaff[]>([]);
   const [teamAssignments, setTeamAssignments] = useState<TeamAssignment[]>([]);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -765,10 +766,10 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         </div>
         
         <div className="flex flex-wrap gap-2 justify-end w-full sm:w-auto relative z-10">
-          {profile && (profile.role === 'admin' || profile.role === 'manager' || profile.role === 'housekeeping_manager') && (
+          {profile && hasManagerPowers(profile.role) && (
             <PmsRefreshButton />
           )}
-          {profile && (profile.role === 'admin' || profile.role === 'manager' || profile.role === 'housekeeping_manager') && (
+          {profile && hasManagerPowers(profile.role) && (
             <>
               <Button
                 variant={bulkUnassignMode ? "destructive" : "outline"}

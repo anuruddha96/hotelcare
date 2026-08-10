@@ -35,15 +35,27 @@ serve(async (req) => {
     }
 
     // Hotel + PMS config
-    const { data: cfg } = await supabase
+    const { data: cfg, error: cfgErr } = await supabase
       .from("pms_configurations")
-      .select("hotel_id, pms_hotel_id, credentials_secret_name, is_active, organization_slug")
+      .select("hotel_id, pms_hotel_id, credentials_secret_name, is_active")
       .eq("hotel_id", hotelId)
       .maybeSingle();
 
+    if (cfgErr) {
+      return json({ error: `Could not read the PMS configuration: ${cfgErr.message}` }, 500);
+    }
     if (!cfg || !cfg.is_active) {
       return json({ error: "PMS not configured or inactive for this hotel" }, 400);
     }
+
+    const { data: orgRow } = await supabase
+      .from("room_types")
+      .select("organization_slug")
+      .eq("hotel_id", hotelId)
+      .limit(1)
+      .maybeSingle();
+    const hotelOrgSlug: string = (orgRow as any)?.organization_slug ?? "";
+
 
     // Mapping
     const { data: mappings } = await supabase
@@ -133,7 +145,7 @@ serve(async (req) => {
 
         await supabase.from("rate_history").insert({
           hotel_id: hotelId,
-          organization_slug: cfg.organization_slug,
+          organization_slug: hotelOrgSlug,
           stay_date: rec.stay_date,
           old_rate_eur: rec.current_rate_eur,
           new_rate_eur: rec.recommended_rate_eur,
