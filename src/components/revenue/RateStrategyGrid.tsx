@@ -374,14 +374,8 @@ export default function RateStrategyGrid({
     window.addEventListener("pointerup", finish);
   }, [openDayTool]);
 
-  /** "3 h ago" style stamp for the cell history card. */
-  function auditWhen(iso: string): string {
-    const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-    if (mins < 1) return "just now";
-    if (mins < 60) return `${mins} min ago`;
-    if (mins < 60 * 24) return `${Math.round(mins / 60)} h ago`;
-    return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  }
+
+
 
 
   // obk_id -> occupancy -> stay_date -> price
