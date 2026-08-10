@@ -795,13 +795,20 @@ export default function RateStrategyGrid({
                         setDayTool(d);
                       }}
                       title={canEditRates ? `Change every price on ${d}` : d}
-                      className={`flex flex-col items-center justify-center shrink-0 ${dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
+                      className={`group relative flex flex-col items-center justify-center shrink-0 ${dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
                       style={{ width: CELL_W, height: DAY_H }}
                     >
                       <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
                       <span className="font-medium">{formatDay(d)}</span>
+                      {canEditRates && (
+                        <ChevronDown
+                          className="pointer-events-none absolute bottom-0.5 right-1 h-3 w-3 text-primary opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+                          aria-hidden
+                        />
+                      )}
                     </button>
                   ))}
+
 
                 </div>
 
