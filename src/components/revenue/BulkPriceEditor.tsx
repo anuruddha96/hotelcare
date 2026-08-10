@@ -152,7 +152,11 @@ export default function BulkPriceEditor({
   async function run(push: boolean) {
     if (!hotelId || changes.length === 0) return;
     setBusy(true);
+    setCancelled(false);
+    setFailedIds([]);
+    setProgress(null);
     try {
+      setStage(`Saving ${changes.length} price${changes.length === 1 ? "" : "s"}…`);
       const ids = await saveRateDrafts({
         hotelId,
         organizationSlug,
@@ -175,19 +179,59 @@ export default function BulkPriceEditor({
 
       if (!push) {
         toast.success(`${ids.length} price${ids.length === 1 ? "" : "s"} saved as draft — not sent to Previo yet`);
-      } else {
-        const res = await pushRateDrafts(hotelId, ids);
-        if (res.failed) toast.error(`${res.pushed} sent, ${res.failed} failed — open the push list to see why`);
-        else toast.success(`${res.pushed} price${res.pushed === 1 ? "" : "s"} sent to Previo`);
+        await onSaved?.();
+        onOpenChange(false);
+        return;
       }
+
+      await sendDrafts(ids);
       await onSaved?.();
+      if (cancelRef.current) return;
       onOpenChange(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not apply the bulk change");
     } finally {
       setBusy(false);
+      setStage(null);
     }
   }
+
+  /** Send drafts in batches, reporting progress and keeping the failures. */
+  async function sendDrafts(ids: string[]) {
+    if (!hotelId || ids.length === 0) return;
+    cancelRef.current = false;
+    setStage("Sending to Previo…");
+    setProgress({ done: 0, total: ids.length });
+    const res = await pushRateDraftsBatched(hotelId, ids, {
+      onProgress: (done, total) => setProgress({ done, total }),
+      shouldCancel: () => cancelRef.current,
+    });
+    setFailedIds(res.failedIds ?? []);
+    setPushErrors((res.errors ?? []).slice(0, 5).map((e) => e.error));
+    if (res.cancelled) {
+      setCancelled(true);
+      toast.message(`Stopped — ${res.pushed} price${res.pushed === 1 ? "" : "s"} already sent to Previo`);
+    } else if (res.failed) {
+      toast.error(`${res.pushed} sent, ${res.failed} failed — retry below or open the push list`);
+    } else {
+      toast.success(`${res.pushed} price${res.pushed === 1 ? "" : "s"} sent to Previo`);
+    }
+  }
+
+  async function retryFailed() {
+    if (!hotelId || failedIds.length === 0) return;
+    setBusy(true);
+    try {
+      await sendDrafts(failedIds);
+      await onSaved?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Retry failed");
+    } finally {
+      setBusy(false);
+      setStage(null);
+    }
+  }
+
 
   const toggle = <T,>(set: Set<T>, v: T, apply: (s: Set<T>) => void) => {
     const next = new Set(set);
