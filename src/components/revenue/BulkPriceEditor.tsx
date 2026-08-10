@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,7 @@ import type { DateRange } from "react-day-picker";
 import { addDays, isWeekend, type RoomTypeRate } from "@/lib/revenueAnalytics";
 import { getRevenueCurrency, moneyBase } from "@/lib/revenueCurrency";
 import { logRateChanges } from "@/lib/rateAudit";
-import { pushRateDrafts, saveRateDrafts, type DraftChange } from "@/lib/rateDrafts";
+import { pushRateDraftsBatched, saveRateDrafts, type DraftChange } from "@/lib/rateDrafts";
 
 type Mode = "amount" | "percent" | "set" | "round";
 type Rounding = "1" | "5" | "90";
