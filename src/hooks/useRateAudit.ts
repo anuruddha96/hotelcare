@@ -42,6 +42,20 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
       const list = (data ?? []) as unknown as RateAuditRow[];
       setRows(list);
 
+      // Hand-made changes are fetched on their own: a season-wide bulk edit can
+      // write thousands of rows and would otherwise push every manual entry out
+      // of the shared window, making the blue dots disappear from the grid.
+      const { data: manualData } = await supabase
+        .from("rate_change_audit")
+        .select("id, stay_date, action, source, old_rate_eur, new_rate_eur, delta_eur, notes, performed_at, performed_by, payload")
+        .eq("hotel_id", hotelId)
+        .in("source", MANUAL_SOURCES)
+        .order("performed_at", { ascending: false })
+        .limit(3000);
+      setManualRows((manualData ?? []) as unknown as RateAuditRow[]);
+
+
+
       if (!includeSystem) {
         const { count } = await supabase
           .from("rate_change_audit")
