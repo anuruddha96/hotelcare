@@ -67,7 +67,11 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
         setSystemCount(0);
       }
 
-      const ids = Array.from(new Set(list.map((r) => r.performed_by).filter(Boolean))) as string[];
+      const ids = Array.from(new Set(
+        [...list, ...((manualData ?? []) as unknown as RateAuditRow[])]
+          .map((r) => r.performed_by)
+          .filter(Boolean),
+      )) as string[];
       if (ids.length > 0) {
         const { data: profs } = await supabase
           .from("profiles").select("id, full_name, nickname").in("id", ids);
