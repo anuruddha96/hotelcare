@@ -19,12 +19,13 @@ export const MANUAL_SOURCES = ["day-tool", "cell-edit", "pickup-board"];
  */
 export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem = false) {
   const [rows, setRows] = useState<RateAuditRow[]>([]);
+  const [manualRows, setManualRows] = useState<RateAuditRow[]>([]);
   const [names, setNames] = useState<Map<string, string>>(new Map());
   const [systemCount, setSystemCount] = useState(0);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
-    if (!hotelId) { setRows([]); return; }
+    if (!hotelId) { setRows([]); setManualRows([]); return; }
     setLoading(true);
     try {
       let query = supabase
@@ -41,6 +42,20 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
       const list = (data ?? []) as unknown as RateAuditRow[];
       setRows(list);
 
+      // Hand-made changes are fetched on their own: a season-wide bulk edit can
+      // write thousands of rows and would otherwise push every manual entry out
+      // of the shared window, making the blue dots disappear from the grid.
+      const { data: manualData } = await supabase
+        .from("rate_change_audit")
+        .select("id, stay_date, action, source, old_rate_eur, new_rate_eur, delta_eur, notes, performed_at, performed_by, payload")
+        .eq("hotel_id", hotelId)
+        .in("source", MANUAL_SOURCES)
+        .order("performed_at", { ascending: false })
+        .limit(3000);
+      setManualRows((manualData ?? []) as unknown as RateAuditRow[]);
+
+
+
       if (!includeSystem) {
         const { count } = await supabase
           .from("rate_change_audit")
@@ -52,7 +67,11 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
         setSystemCount(0);
       }
 
-      const ids = Array.from(new Set(list.map((r) => r.performed_by).filter(Boolean))) as string[];
+      const ids = Array.from(new Set(
+        [...list, ...((manualData ?? []) as unknown as RateAuditRow[])]
+          .map((r) => r.performed_by)
+          .filter(Boolean),
+      )) as string[];
       if (ids.length > 0) {
         const { data: profs } = await supabase
           .from("profiles").select("id, full_name, nickname").in("id", ids);
@@ -96,12 +115,17 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
   /** Only hand-made, short-range changes — this drives the blue cell marker. */
   const manualByCell = useMemo(() => {
     const map = new Map<string, RateAuditRow[]>();
-    for (const [key, list] of byCell.entries()) {
-      const manual = list.filter((r) => r.source && MANUAL_SOURCES.includes(r.source));
-      if (manual.length > 0) map.set(key, manual);
+    for (const r of manualRows) {
+      const rt = r.payload?.room_type_name;
+      const occ = r.payload?.occupancy;
+      if (!r.stay_date || !rt || occ === undefined) continue;
+      if (!r.source || !MANUAL_SOURCES.includes(r.source)) continue;
+      const key = cellKey(r.stay_date, rt, occ);
+      const bucket = map.get(key);
+      if (bucket) bucket.push(r); else map.set(key, [r]);
     }
     return map;
-  }, [byCell]);
+  }, [manualRows]);
 
   return { rows, byCell, manualByCell, names, loading, systemCount, reload: load };
 
