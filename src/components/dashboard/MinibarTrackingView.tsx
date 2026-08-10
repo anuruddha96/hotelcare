@@ -562,9 +562,9 @@ export function MinibarTrackingView() {
 
   const isSuperAdmin = profile?.is_super_admin || false;
   const canClearAll = ['admin'].includes(userRole) || isSuperAdmin;
-  const canQuickAdd = ['admin', 'manager', 'housekeeping_manager', 'reception'].includes(userRole);
+  const canQuickAdd = hasManagerPowers(userRole) || userRole === 'reception';
   const canManageQR = ['admin'].includes(userRole) || isSuperAdmin;
-  const canManageItems = ['admin', 'manager', 'housekeeping_manager'].includes(userRole);
+  const canManageItems = hasManagerPowers(userRole);
 
   const handleClearAllRecords = async () => {
     setLoading(true);

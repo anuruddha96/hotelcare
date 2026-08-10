@@ -54,8 +54,8 @@ export const AttendanceManagement = () => {
   const [selectedUserForCheckIn, setSelectedUserForCheckIn] = useState<string>('');
 
   // Enhanced role permissions - HR and admins see everything, managers see their hotel only
-  const isAdmin = profile?.role === 'admin' || profile?.role === 'hr' || profile?.role === 'top_management';
-  const isManager = profile?.role === 'manager' || profile?.role === 'housekeeping_manager';
+  const isAdmin = profile?.role === 'admin' || profile?.role === 'hr' || profile?.role === 'top_management' || profile?.role === 'top_management_manager';
+  const isManager = hasManagerPowers(profile?.role);
   const hasAttendanceAccess = isAdmin || isManager;
 
   useEffect(() => {

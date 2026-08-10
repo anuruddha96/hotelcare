@@ -21,6 +21,7 @@ interface Props {
 const MANAGER_ROLES = new Set([
   'admin',
   'top_management',
+  'top_management_manager',
   'manager',
   'housekeeping_manager',
   'front_office',
