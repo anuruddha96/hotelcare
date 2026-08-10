@@ -762,24 +762,29 @@ export default function RateStrategyGrid({
       }));
       const draftIds = await saveRateDrafts({ hotelId, organizationSlug, changes: rowsToSave });
 
+      // The day tool is hand-made pricing: record it whichever way the user
+      // finishes, so the "priced by hand" marker appears on the cells even when
+      // the change goes straight to Previo.
+      await logRateChanges({
+        hotelId,
+        organizationSlug: organizationSlug ?? null,
+        source: "day-tool",
+        action: mode === "draft" ? "draft_saved" : "sent_to_previo",
+        notes: dayMode === "percent" ? `${dayValue}%` : dayMode === "amount" ? `${dayValue} ${getRevenueCurrency().code}` : dayMode,
+        changes: dayToolChanges.map((c) => ({
+          stay_date: c.date, room_type_name: c.row.roomTypeName, occupancy: c.row.occ,
+          old_price: c.from, new_price: c.to,
+        })),
+      });
+
       if (mode === "draft") {
-        await logRateChanges({
-          hotelId,
-          organizationSlug: organizationSlug ?? null,
-          source: "day-tool",
-          action: "draft_saved",
-          notes: dayMode === "percent" ? `${dayValue}%` : dayMode === "amount" ? `${dayValue} ${getRevenueCurrency().code}` : dayMode,
-          changes: dayToolChanges.map((c) => ({
-            stay_date: c.date, room_type_name: c.row.roomTypeName, occupancy: c.row.occ,
-            old_price: c.from, new_price: c.to,
-          })),
-        });
         await Promise.all([refreshDrafts(), reloadAudit()]);
         toast.success(`${rowsToSave.length} price${rowsToSave.length === 1 ? "" : "s"} saved — not sent to Previo yet`);
         setDayTool(null);
         setSelDates(new Set());
         return;
       }
+
 
       const res = await pushRateDrafts(hotelId, draftIds);
 
