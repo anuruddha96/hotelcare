@@ -234,3 +234,43 @@ export async function readPrevioRate(opts: {
   }
   return null;
 }
+
+/**
+ * All published occupancy levels for one room type on one date.
+ * Used to fill the levels the user did not edit so a push never "skips a
+ * level" (Previo error 3092).
+ */
+export async function readPrevioRateLevels(opts: {
+  creds: PrevioCredentials;
+  pmsHotelId: string;
+  date: string;
+  obkId: string;
+}): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  const res = await callPrevioXml({
+    method: "getRates",
+    creds: opts.creds,
+    pmsHotelId: opts.pmsHotelId,
+    extraXml: `<term><from>${esc(opts.date)}</from><to>${esc(opts.date)}</to></term>`,
+  });
+  if (!res.ok) return out;
+
+  const kindBlocks = res.text.split(/<objectKind>/i).slice(1);
+  for (const raw of kindBlocks) {
+    const block = raw.split(/<\/objectKind>/i)[0] ?? "";
+    const obk = block.match(/<obkId>([^<]*)<\/obkId>/i)?.[1]?.trim();
+    if (obk !== opts.obkId) continue;
+    for (const rateRaw of block.split(/<rate>/i).slice(1)) {
+      const rate = rateRaw.split(/<\/rate>/i)[0] ?? "";
+      const occ = parseInt(rate.match(/<occupancy>([^<]*)<\/occupancy>/i)?.[1] ?? "", 10);
+      if (!Number.isFinite(occ)) continue;
+      const price = parseFloat(
+        rate.match(/<amount>([^<]*)<\/amount>/i)?.[1]
+          ?? rate.match(/<price>\s*([\d.,]+)\s*<\/price>/i)?.[1]
+          ?? "",
+      );
+      if (Number.isFinite(price)) out.set(occ, price);
+    }
+  }
+  return out;
+}
