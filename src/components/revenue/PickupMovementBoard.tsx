@@ -195,25 +195,36 @@ export default function PickupMovementBoard({
                 const details = isOpen ? detailsFor(m.stay_date) : [];
                 return (
                   <div key={m.stay_date} className="animate-fade-in">
-                    <button
-                      type="button"
-                      onClick={() => setOpen(isOpen ? null : m.stay_date)}
-                      className="grid w-full grid-cols-[1fr_auto_auto_auto] gap-2 px-2 py-1.5 text-sm items-center text-left hover:bg-muted/40"
-                    >
-                      <span className="flex min-w-0 items-center gap-1 truncate">
-                        {isOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
-                        {fmtDay(m.stay_date)}
-                      </span>
-                      <span className="text-right tabular-nums text-emerald-600 dark:text-emerald-400">
-                        {m.newBookings ? `+${m.newBookings}` : "—"}
-                      </span>
-                      <span className="text-right tabular-nums text-sky-600 dark:text-sky-400">
-                        {m.roomsLost ? `−${m.roomsLost}` : "—"}
-                      </span>
-                      <span className={`text-right tabular-nums w-20 font-medium ${net < 0 ? "text-destructive" : ""}`}>
-                        {netEur === 0 ? "—" : `${netEur > 0 ? "+" : "−"}${eur(Math.abs(netEur))}`}
-                      </span>
-                    </button>
+                    <div className="flex items-center hover:bg-muted/40">
+                      <button
+                        type="button"
+                        onClick={() => setOpen(isOpen ? null : m.stay_date)}
+                        className="grid flex-1 min-w-0 grid-cols-[1fr_auto_auto_auto] gap-2 px-2 py-1.5 text-sm items-center text-left"
+                      >
+                        <span className="flex min-w-0 items-center gap-1 truncate">
+                          {isOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+                          {fmtDay(m.stay_date)}
+                        </span>
+                        <span className="text-right tabular-nums text-emerald-600 dark:text-emerald-400">
+                          {m.newBookings ? `+${m.newBookings}` : "—"}
+                        </span>
+                        <span className="text-right tabular-nums text-sky-600 dark:text-sky-400">
+                          {m.roomsLost ? `−${m.roomsLost}` : "—"}
+                        </span>
+                        <span className={`text-right tabular-nums w-20 font-medium ${net < 0 ? "text-destructive" : ""}`}>
+                          {netEur === 0 ? "—" : `${netEur > 0 ? "+" : "−"}${eur(Math.abs(netEur))}`}
+                        </span>
+                      </button>
+                      {canEdit && (
+                        <Button
+                          size="sm" variant="ghost" className="h-7 shrink-0 gap-1 px-2 text-[11px]"
+                          onClick={() => setAdjust({ from: m.stay_date, to: m.stay_date, label: fmtDay(m.stay_date) })}
+                        >
+                          <SlidersHorizontal className="h-3.5 w-3.5" />
+                          Re-price
+                        </Button>
+                      )}
+                    </div>
 
                     {isOpen && (
                       <div className="bg-muted/30 px-3 py-2 space-y-1 text-[11px]">
@@ -233,12 +244,25 @@ export default function PickupMovementBoard({
                             {d.kind === "booked" && d.value > 0 && (
                               <span className="tabular-nums font-medium">· {eur(d.value)}/night</span>
                             )}
+                            {canEdit && d.kind === "booked" && (
+                              <button
+                                type="button"
+                                className="text-primary underline underline-offset-2"
+                                onClick={() => setAdjust({
+                                  from: d.from, to: d.to, roomTypeName: d.roomType,
+                                  label: d.span,
+                                })}
+                              >
+                                Re-price {d.nights === 1 ? "this date" : "this range"}
+                              </button>
+                            )}
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
                 );
+
               })}
             </div>
           </div>
