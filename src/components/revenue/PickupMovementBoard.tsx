@@ -2,8 +2,9 @@ import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowDownRight, ArrowUpRight, ChevronDown, ChevronRight, Scale } from "lucide-react";
-import { eur, type DayMetrics, type BookingNight, type CancelledNight } from "@/lib/revenueAnalytics";
+import { ArrowDownRight, ArrowUpRight, ChevronDown, ChevronRight, Scale, SlidersHorizontal } from "lucide-react";
+import { eur, addDays, budapestDayOf, budapestToday, type DayMetrics, type BookingNight, type CancelledNight, type RoomTypeRate } from "@/lib/revenueAnalytics";
+import QuickRateAdjustDialog, { type QuickAdjustTarget } from "./QuickRateAdjustDialog";
 
 type Filter = "all" | "gained" | "lost";
 
@@ -16,7 +17,9 @@ function fmtDay(iso: string) {
 function fmtStamp(iso: string | null) {
   if (!iso) return "unknown date";
   const d = new Date(iso);
-  return d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString(undefined, {
+    timeZone: "Europe/Budapest", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+  });
 }
 
 interface DetailLine {
@@ -26,6 +29,8 @@ interface DetailLine {
   guests: number | null;
   nights: number;
   span: string;
+  from: string;
+  to: string;
   roomType: string | null;
   value: number;
 }
@@ -33,17 +38,26 @@ interface DetailLine {
 /**
  * "What moved in this pickup window?" — how many room-nights each stay date
  * gained and lost, what it is worth, and the actual bookings behind it.
+ * Eligible users can re-price the affected range straight from a row.
  */
 export default function PickupMovementBoard({
   metrics, windowDays, nights = [], cancellations = [],
+  hotelId = null, organizationSlug = null, rates = [], canEdit = false, onRatesUpdated,
 }: {
   metrics: DayMetrics[];
   windowDays: number;
   nights?: BookingNight[];
   cancellations?: CancelledNight[];
+  hotelId?: string | null;
+  organizationSlug?: string | null;
+  rates?: RoomTypeRate[];
+  canEdit?: boolean;
+  onRatesUpdated?: () => void;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [open, setOpen] = useState<string | null>(null);
+  const [adjust, setAdjust] = useState<QuickAdjustTarget | null>(null);
+
 
   const rows = useMemo(
     () => metrics.filter((m) => (m.netPickup ?? 0) !== 0 || m.roomsLost > 0 || m.newBookings > 0),
