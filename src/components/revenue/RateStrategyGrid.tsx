@@ -300,7 +300,24 @@ export default function RateStrategyGrid({
   const [probe, setProbe] = useState<{ ok: boolean; message: string; support?: string | null } | null>(null);
 
   /** Price-change trail: cell history on hover, and the activity panel below. */
-  const { byCell: auditByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
+  const { rows: auditRows, byCell: auditByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
+
+  /** One-line "who last touched this date" summary for the date header hover. */
+  const auditByDate = useMemo(() => {
+    const map = new Map<string, { last: (typeof auditRows)[number]; count: number; avgDelta: number }>();
+    for (const r of auditRows) {
+      if (!r.stay_date) continue;
+      const cur = map.get(r.stay_date);
+      if (!cur) map.set(r.stay_date, { last: r, count: 1, avgDelta: r.delta_eur ?? 0 });
+      else {
+        cur.avgDelta = (cur.avgDelta * cur.count + (r.delta_eur ?? 0)) / (cur.count + 1);
+        cur.count += 1;
+      }
+    }
+    return map;
+  }, [auditRows]);
+
+
 
 
   /**
