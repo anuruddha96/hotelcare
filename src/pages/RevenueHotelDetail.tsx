@@ -29,7 +29,6 @@ import StrategyCalendar from "@/components/revenue/StrategyCalendar";
 import StrategyRecommendationsPanel from "@/components/revenue/StrategyRecommendationsPanel";
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
-import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 
 import DemandPricingPanel from "@/components/revenue/DemandPricingPanel";
 
