@@ -337,7 +337,7 @@ Deno.serve(async (req) => {
           const isVerified = back !== null && Math.round(back) === Math.round(Number(d.new_price));
           if (isVerified) verified += 1;
 
-          await admin.from("revenue_rate_drafts")
+          const { error: finalizeError } = await admin.from("revenue_rate_drafts")
             .update({
               status: "pushed",
               pushed_at: new Date().toISOString(),
@@ -348,6 +348,9 @@ Deno.serve(async (req) => {
                   : `Sent to Previo, but Previo reports ${back}. Re-sync to confirm.`,
             })
             .eq("id", d.id);
+          if (finalizeError) {
+            throw new Error(`Previo accepted the price, but Hotel Care could not finalize it: ${finalizeError.message}`);
+          }
 
           await admin.from("rate_history").insert({
             hotel_id: hotelId,
@@ -369,9 +372,10 @@ Deno.serve(async (req) => {
         for (const d of g.drafts) {
           failed += 1;
           errors.push({ stay_date: d.stay_date, room_type_name: d.room_type_name, error: message });
-          await admin.from("revenue_rate_drafts")
+          const { error: failedUpdateError } = await admin.from("revenue_rate_drafts")
             .update({ status: "failed", push_error: message.slice(0, 500) })
             .eq("id", d.id);
+          if (failedUpdateError) console.error("could not persist failed rate push", d.id, failedUpdateError.message);
         }
         console.error("rate push failed", g.stay_date, g.obkId, message);
       }

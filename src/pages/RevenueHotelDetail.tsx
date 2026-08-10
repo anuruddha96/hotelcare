@@ -655,7 +655,7 @@ export default function RevenueHotelDetail() {
         </TabsList>
 
         <TabsContent value="grid" className="space-y-3 min-w-0 overflow-x-hidden">
-          {/* Order: headline analytics → today's sales → price list (the hero)
+          {/* Order: headline analytics → price list (the hero) → today's sales
               → pickup charts → everything else behind the tools row. */}
           <MonthPerformanceHeader
             today={live.today}
@@ -666,8 +666,6 @@ export default function RevenueHotelDetail() {
             canEdit={isTechnicalAdmin}
             roomsAvailable={live.roomsAvailable}
           />
-
-          <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
 
           <RateStrategyGrid
             loading={live.loading}
@@ -685,6 +683,8 @@ export default function RevenueHotelDetail() {
             leftByTypeDate={leftByTypeDate}
             onRatesUpdated={live.reload}
           />
+
+          <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
 
            <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
            <PickupMovementBoard

@@ -60,6 +60,19 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
 
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    if (!hotelId) return;
+    const channel = supabase
+      .channel(`rate-audit:${hotelId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "rate_change_audit", filter: `hotel_id=eq.${hotelId}` },
+        () => { void load(); },
+      )
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [hotelId, load]);
+
   const byCell = useMemo(() => {
     const map = new Map<string, RateAuditRow[]>();
     for (const r of rows) {
