@@ -148,6 +148,7 @@ export default function RevenueHotelDetail() {
   });
 
   const revAdmin = isRevenueAdmin(profile?.role);
+  const isAdmin = profile?.role === "admin";
   const technicalAdmin = profile?.role === "admin";
   const [syncing, setSyncing] = useState(false);
   const [syncStep, setSyncStep] = useState("Connecting to Previo…");
