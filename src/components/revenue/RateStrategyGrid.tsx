@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, Trash2, History, SlidersHorizontal } from "lucide-react";
+import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, Trash2, History, SlidersHorizontal, Maximize2, Minimize2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -280,6 +280,13 @@ export default function RateStrategyGrid({
   const [editMode, setEditMode] = useState<"set" | "percent">("set");
   /** Whole-day price tool, opened by tapping (or dragging across) date headers. */
   const [dayTool, setDayTool] = useState<string | null>(null);
+  /** Outcome of the last direct push from the day tool. */
+  const [dayResult, setDayResult] = useState<{
+    pushed: number;
+    failed: number;
+    errors: Array<{ stay_date: string; room_type_name: string; error: string }>;
+    message?: string;
+  } | null>(null);
   const [dayMode, setDayMode] = useState<"percent" | "amount" | "set" | "round">("amount");
   const [dayValue, setDayValue] = useState("2");
   const [dayRange, setDayRange] = useState(1);
@@ -301,7 +308,7 @@ export default function RateStrategyGrid({
   const [pushOpen, setPushOpen] = useState(false);
   const [pushing, setPushing] = useState(false);
   /** Explicit go-ahead before anything becomes live in Previo. */
-  const [pushConsent, setPushConsent] = useState(false);
+  const [, setPushConsent] = useState(false);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [removingDrafts, setRemovingDrafts] = useState(false);
@@ -375,6 +382,7 @@ export default function RateStrategyGrid({
     if (picked.length === 0) return;
     setDayTypes(new Set());
     setDayRange(1);
+    setDayResult(null);
     setSelDates(new Set(picked));
     setDayTool(picked[0]);
   }, []);
@@ -403,6 +411,26 @@ export default function RateStrategyGrid({
     };
     window.addEventListener("pointerup", finish);
   }, [openDayTool]);
+
+  /** Touch-friendly alternative to dragging: tap dates to build a selection. */
+  const [multiMode, setMultiMode] = useState(false);
+  const [pickedDates, setPickedDates] = useState<Set<string>>(new Set());
+  const togglePicked = useCallback((d: string) => {
+    setPickedDates((cur) => {
+      const next = new Set(cur);
+      if (next.has(d)) next.delete(d); else next.add(d);
+      return next;
+    });
+  }, []);
+  /** Full-screen pricing mode — the calendar and nothing else. */
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (!expanded) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [expanded]);
+
 
 
 
@@ -732,9 +760,10 @@ export default function RateStrategyGrid({
   }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext]);
 
   /** Save every change the day tool previews as a draft. */
-  async function applyDayTool() {
+  async function applyDayTool(mode: "draft" | "push" = "draft") {
     if (!hotelId || dayToolChanges.length === 0) return;
     setSaving(true);
+    setDayResult(null);
     try {
       const { data: auth } = await supabase.auth.getUser();
       const rowsToSave = dayToolChanges.map((c) => ({
@@ -747,17 +776,19 @@ export default function RateStrategyGrid({
         old_price: c.from,
         new_price: c.to,
         status: "draft",
+        push_error: null,
         created_by: auth.user?.id ?? null,
       }));
-      const { error } = await supabase.from("revenue_rate_drafts").upsert(rowsToSave, {
-        onConflict: "hotel_id,stay_date,room_type_name,occupancy,status",
-      });
+      const { data: savedRows, error } = await supabase
+        .from("revenue_rate_drafts")
+        .upsert(rowsToSave, { onConflict: "hotel_id,stay_date,room_type_name,occupancy,status" })
+        .select("id");
       if (error) throw error;
       await logRateChanges({
         hotelId,
         organizationSlug: organizationSlug ?? null,
         source: "day-tool",
-        action: "draft_saved",
+        action: mode === "push" ? "pushed_to_previo" : "draft_saved",
         notes: dayMode === "percent" ? `${dayValue}%` : dayMode === "amount" ? `${dayValue} ${getRevenueCurrency().code}` : dayMode,
         changes: dayToolChanges.map((c) => ({
           stay_date: c.date,
@@ -767,17 +798,47 @@ export default function RateStrategyGrid({
           new_price: c.to,
         })),
       });
-      await Promise.all([refreshDrafts(), reloadAudit()]);
-      toast.success(`${rowsToSave.length} price${rowsToSave.length === 1 ? "" : "s"} saved as draft — not sent to Previo yet`);
-      setDayTool(null);
-      setSelDates(new Set());
 
+      if (mode === "draft") {
+        await Promise.all([refreshDrafts(), reloadAudit()]);
+        toast.success(`${rowsToSave.length} price${rowsToSave.length === 1 ? "" : "s"} saved — not sent to Previo yet`);
+        setDayTool(null);
+        setSelDates(new Set());
+        return;
+      }
+
+      const draftIds = ((savedRows ?? []) as Array<{ id: string }>).map((r) => r.id);
+      const { data, error: pushErr } = await supabase.functions.invoke("revenue-push-drafts", {
+        body: { hotelId, draftIds },
+      });
+      if (pushErr) throw pushErr;
+      const res = data as {
+        ok?: boolean; pushed?: number; failed?: number; error?: string;
+        errors?: Array<{ stay_date: string; room_type_name: string; error: string }>;
+      };
+      if (res?.error || res?.ok === false) throw new Error(res?.error || "Previo refused the price update.");
+
+      await Promise.all([refreshDrafts(), reloadAudit()]);
+      await onRatesUpdated?.();
+
+      const failed = res?.failed ?? 0;
+      setDayResult({ pushed: res?.pushed ?? 0, failed, errors: res?.errors ?? [] });
+      if (failed === 0) {
+        toast.success(`${res?.pushed ?? 0} price${res?.pushed === 1 ? "" : "s"} live in Previo`);
+        setDayTool(null);
+        setSelDates(new Set());
+      } else {
+        toast.error(`${res?.pushed ?? 0} updated, ${failed} refused by Previo`);
+      }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not save the drafts");
+      const message = e instanceof Error ? e.message : "Could not update the prices";
+      if (mode === "push") setDayResult({ pushed: 0, failed: dayToolChanges.length, errors: [], message });
+      toast.error(message);
     } finally {
       setSaving(false);
     }
   }
+
 
   /** Cells priced below the critical safety-net threshold — likely typos. */
 
@@ -818,8 +879,12 @@ export default function RateStrategyGrid({
   }
 
   return (
-    <Card data-training="revenue-grid">
+    <Card
+      data-training="revenue-grid"
+      className={expanded ? "fixed inset-0 z-50 flex flex-col rounded-none border-0 overflow-auto" : undefined}
+    >
       <CardHeader className="pb-3 gap-2">
+
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-sm sm:text-base flex items-center gap-2">
             <CalendarRange className="h-4 w-4 text-primary" />
@@ -862,6 +927,27 @@ export default function RateStrategyGrid({
                 Bulk edit prices
               </Button>
             )}
+            {canEditRates && (
+              <Button
+                size="sm"
+                variant={multiMode ? "default" : "outline"}
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => { setMultiMode((v) => !v); setPickedDates(new Set()); }}
+              >
+                <CalendarRange className="h-3.5 w-3.5" />
+                {multiMode ? "Done selecting" : "Select days"}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 text-xs"
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+              {expanded ? "Close" : "Expand"}
+            </Button>
+
 
             <Select value={String(pickupWindowDays)} onValueChange={(v) => onPickupWindowChange(Number(v))}>
               <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
@@ -893,24 +979,28 @@ export default function RateStrategyGrid({
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Prices come straight from the Previo pricelist (one row per room type and guest count).
-          Pickup and occupancy come from Previo reservations; ADR and RevPAR are calculated in Hotel Care.
-          {canEditRates ? " Tap any price to draft a change — nothing reaches Previo until you push it." : ""}
+          Live Previo prices.
+          {canEditRates ? " Tap a price, or a date to change a whole day." : ""}
+          <MetricInfo
+            title="Where these numbers come from"
+            body="Prices come straight from the Previo pricelist — one row per room type and guest count. Pickup and occupancy come from Previo reservations; ADR and RevPAR are calculated in Hotel Care."
+          />
         </p>
         {canEditRates && pending.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
             <span className="text-xs">
-              <strong>{pending.length}</strong> price change{pending.length === 1 ? "" : "s"} saved as draft — not in Previo yet.
+              <strong>{pending.length}</strong> price change{pending.length === 1 ? "" : "s"} waiting.
               {failedCount > 0 && (
-                <span className="text-destructive"> {failedCount} failed to push — open to see why and retry.</span>
+                <span className="text-destructive"> {failedCount} refused by Previo.</span>
               )}
             </span>
 
             <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
-              <Send className="h-3.5 w-3.5 mr-1" />Review &amp; push
+              <Send className="h-3.5 w-3.5 mr-1" />Push to Previo
             </Button>
           </div>
         )}
+
       </CardHeader>
       <CardContent className="p-0">
         {loading ? (
@@ -926,7 +1016,7 @@ export default function RateStrategyGrid({
             ref={scrollRef}
             onScroll={onScroll}
             className={`relative overflow-auto overscroll-x-contain text-[11px] sm:text-xs ${dragging ? "select-none" : ""}`}
-            style={{ maxHeight: isMobile ? "68vh" : "72vh", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
+            style={{ maxHeight: expanded ? "calc(100vh - 190px)" : isMobile ? "68vh" : "72vh", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
           >
             <div ref={gridRef} style={{ width: LEFT_W + dates.length * CELL_W }}>
               {/* ---- Sticky header: month, dates and the day metrics ---- */}
@@ -976,7 +1066,7 @@ export default function RateStrategyGrid({
                   </div>
 
                   {dates.map((d, i) => {
-                    const picked = selecting && selDates.has(d);
+                    const picked = multiMode ? pickedDates.has(d) : selecting && selDates.has(d);
                     const trail = auditByDate.get(d);
                     const dayButton = (
                       <button
@@ -984,17 +1074,18 @@ export default function RateStrategyGrid({
                         type="button"
                         disabled={!canEditRates}
                         onPointerDown={(e) => {
-                          if (!canEditRates) return;
+                          if (!canEditRates || multiMode) return;
                           e.preventDefault();
                           beginDateSelect(d);
                         }}
-                        onPointerEnter={() => extendDateSelect(d)}
+                        onClick={() => { if (canEditRates && multiMode) togglePicked(d); }}
+                        onPointerEnter={() => { if (!multiMode) extendDateSelect(d); }}
                         onKeyDown={(e) => {
-                          if (!canEditRates) return;
+                          if (!canEditRates || multiMode) return;
                           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDayTool([d]); }
                         }}
-                        title={canEditRates ? `Change every price on ${d} — drag across dates to select several` : d}
-                        className={`group relative flex flex-col items-center justify-center shrink-0 select-none touch-none ${picked ? "bg-primary/20" : dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
+                        title={canEditRates ? (multiMode ? `Tap to add ${d} to the selection` : `Change every price on ${d}`) : d}
+                        className={`group relative flex flex-col items-center justify-center shrink-0 select-none ${multiMode ? "" : "touch-none"} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
                         style={{ width: CELL_W, height: DAY_H }}
                       >
                         <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
@@ -1002,6 +1093,7 @@ export default function RateStrategyGrid({
                         {trail && (
                           <span className="pointer-events-none absolute left-1 top-1 h-1.5 w-1.5 rounded-full bg-primary/70" aria-hidden />
                         )}
+
                         {canEditRates && (
                           <ChevronDown
                             className="pointer-events-none absolute bottom-0.5 right-1 h-3 w-3 text-primary opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
@@ -1269,12 +1361,17 @@ export default function RateStrategyGrid({
                         style={{ width: CELL_W }}
                       >
                         {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
-                        {history && (
-                          <span
-                            aria-hidden
-                            className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-primary/70"
-                          />
-                        )}
+                        {history && (() => {
+                          const last = Math.max(...history.map((h) => new Date(h.performed_at).getTime()));
+                          const fresh = Date.now() - last < 24 * 60 * 60 * 1000;
+                          return (
+                            <span
+                              aria-hidden
+                              className={`absolute right-0.5 top-0.5 rounded-full ${fresh ? "h-2 w-2 bg-primary ring-2 ring-primary/25" : "h-1.5 w-1.5 bg-muted-foreground/40"}`}
+                            />
+                          );
+                        })()}
+
                       </button>
                     );
                     if (!history) return cellButton;
@@ -1306,6 +1403,26 @@ export default function RateStrategyGrid({
 
         )}
       </CardContent>
+
+      {multiMode && pickedDates.size > 0 && (
+        <div className="fixed inset-x-3 bottom-4 z-[60] flex items-center justify-between gap-2 rounded-full border bg-card px-4 py-2 shadow-lg sm:left-auto sm:right-6 sm:w-auto">
+          <span className="text-xs font-medium">
+            {pickedDates.size} day{pickedDates.size === 1 ? "" : "s"} selected
+          </span>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setPickedDates(new Set())}>
+              Clear
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => openDayTool(allDates.filter((d) => pickedDates.has(d)))}
+            >
+              Change prices
+            </Button>
+          </div>
+        </div>
+      )}
 
       <Dialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)}>
         <DialogContent className="sm:max-w-sm">
@@ -1602,18 +1719,36 @@ export default function RateStrategyGrid({
                 })()}
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Saved as drafts only. Nothing reaches Previo until you push.
-            </p>
+            {dayResult && (dayResult.failed > 0 || dayResult.message) && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs space-y-1">
+                <p className="font-medium text-destructive">
+                  {dayResult.pushed > 0 ? `${dayResult.pushed} updated · ` : ""}
+                  {dayResult.failed} not accepted by Previo
+                </p>
+                {dayResult.message && <p className="text-muted-foreground">{dayResult.message}</p>}
+                {dayResult.errors.slice(0, 6).map((e, i) => (
+                  <p key={`${e.stay_date}-${i}`} className="text-muted-foreground">
+                    {e.stay_date} · {e.room_type_name}: {e.error}
+                  </p>
+                ))}
+                {dayResult.errors.length > 6 && (
+                  <p className="text-muted-foreground">+{dayResult.errors.length - 6} more</p>
+                )}
+              </div>
+            )}
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDayTool(null)}>Cancel</Button>
-            <Button onClick={() => void applyDayTool()} disabled={saving || dayToolChanges.length === 0}>
-              {saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
-              Save {dayToolChanges.length} draft{dayToolChanges.length === 1 ? "" : "s"}
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => setDayTool(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => void applyDayTool("draft")} disabled={saving || dayToolChanges.length === 0}>
+              Save for later
+            </Button>
+            <Button onClick={() => void applyDayTool("push")} disabled={saving || dayToolChanges.length === 0}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
+              {dayResult?.failed ? "Retry" : "Update"} {dayToolChanges.length} price{dayToolChanges.length === 1 ? "" : "s"}
             </Button>
           </DialogFooter>
+
         </DialogContent>
       </Dialog>
 
@@ -1626,7 +1761,7 @@ export default function RateStrategyGrid({
 
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-base">Send price changes to Previo</DialogTitle>
+            <DialogTitle className="text-base">Price changes waiting to go live</DialogTitle>
           </DialogHeader>
           <div className="max-h-[50vh] overflow-y-auto -mx-2 px-2">
             <table className="w-full text-xs">
@@ -1688,67 +1823,45 @@ export default function RateStrategyGrid({
           </div>
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
-              These prices are written to Previo immediately and become live for guests.
-              Anything that fails stays here with its error so you can retry.
+              Pushing sends these prices to Previo straight away. Anything Previo refuses stays here with the reason.
             </p>
-            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 space-y-1.5">
-              <p className="text-xs">
-                Prices are written back through Previo's rate-write call. Some Previo accounts have that
-                scope switched off — the check below writes a date's current price back to itself
-                (changing nothing) and reports exactly what Previo answers.
-              </p>
+            {failedCount > 0 && (
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   size="sm" variant="outline" className="h-7 text-[11px]"
                   disabled={probing}
                   onClick={() => void checkWriteAccess()}
                 >
-                  {probing && <Loader2 className="h-3 w-3 animate-spin mr-1" />}Check write access
+                  {probing && <Loader2 className="h-3 w-3 animate-spin mr-1" />}Check Previo access
                 </Button>
                 <Button
                   size="sm" variant="outline" className="h-7 text-[11px]"
                   disabled={probing}
                   onClick={() => void syncRatePlans()}
-                  title="Read the pricelist ids for every room type from Previo"
                 >
-                  Sync rate plans
+                  Refresh room mapping
                 </Button>
-
                 {probe && (
                   <span className={`text-[11px] ${probe.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
                     {probe.message}
                   </span>
                 )}
               </div>
-              {probe?.support && (
-                <textarea
-                  readOnly
-                  rows={4}
-                  value={probe.support}
-                  onFocus={(e) => e.currentTarget.select()}
-                  className="w-full rounded border bg-background p-1.5 text-[10px] font-mono"
-                  aria-label="Message to send to Previo support"
-                />
-              )}
-            </div>
-
+            )}
           </div>
-          <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center">
-            <label className="flex items-center gap-2 text-xs text-muted-foreground mr-auto">
-              <Checkbox checked={pushConsent} onCheckedChange={(v) => setPushConsent(v === true)} />
-              I confirm these prices should go live in Previo
-            </label>
+          <DialogFooter className="gap-2">
             {selectedDraftIds.size > 0 && (
-              <Button variant="destructive" onClick={() => setRemoveConfirmOpen(true)}>
-                <Trash2 className="mr-1 h-4 w-4" />Remove selected ({selectedDraftIds.size})
+              <Button variant="destructive" className="mr-auto" onClick={() => setRemoveConfirmOpen(true)}>
+                <Trash2 className="mr-1 h-4 w-4" />Remove ({selectedDraftIds.size})
               </Button>
             )}
-            <Button variant="outline" onClick={() => setPushOpen(false)}>Cancel</Button>
-            <Button onClick={() => void pushDrafts()} disabled={pushing || pending.length === 0 || !pushConsent}>
-              {pushing && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+            <Button variant="ghost" onClick={() => setPushOpen(false)}>Cancel</Button>
+            <Button onClick={() => void pushDrafts()} disabled={pushing || pending.length === 0}>
+              {pushing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
               Push {pending.length} change{pending.length === 1 ? "" : "s"}
             </Button>
           </DialogFooter>
+
 
         </DialogContent>
       </Dialog>
