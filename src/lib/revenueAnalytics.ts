@@ -72,9 +72,14 @@ export function formatMonth(isoDate: string): string {
 export interface BookingNight {
   stay_date: string;
   res_id: string;
+  room_key?: string | null;
   obk_id: string | null;
   room_type_name: string | null;
   nightly_price_eur: number | null;
+  total_price_eur?: number | null;
+  stay_from?: string | null;
+  stay_to?: string | null;
+  source_name?: string | null;
   created_at_pms: string | null;
   guests: number | null;
 }
@@ -93,7 +98,16 @@ export interface DailySnapshot {
 export interface CancelledNight {
   stay_date: string;
   res_id: string;
+  room_key?: string | null;
   obk_id: string | null;
+  room_type_name?: string | null;
+  nightly_price_eur?: number | null;
+  total_price_eur?: number | null;
+  stay_from?: string | null;
+  stay_to?: string | null;
+  source_name?: string | null;
+  created_at_pms?: string | null;
+  guests?: number | null;
   cancelled_at: string | null;
 }
 
@@ -104,6 +118,9 @@ export interface RoomTypeRate {
   occupancy: number;
   price: number;
   currency: string;
+  rate_plan_id?: string | null;
+  captured_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface DayMetrics {

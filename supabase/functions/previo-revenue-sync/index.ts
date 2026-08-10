@@ -571,6 +571,44 @@ serve(async (req) => {
     if (error) errors.push(`rates upsert: ${error.message}`);
   }
 
+  // A write can be accepted before Previo's immediate read-back endpoint
+  // reflects it. The next authoritative pull is therefore the final arbiter:
+  // clear only drafts whose requested price now exactly matches Previo.
+  let reconciledDrafts = 0;
+  if (ratePayload.length > 0) {
+    const livePrice = new Map<string, number>();
+    for (const rate of ratePayload) {
+      livePrice.set(`${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`, Number(rate.price));
+    }
+    const { data: outstanding, error: draftReadError } = await service
+      .from("revenue_rate_drafts")
+      .select("id, stay_date, obk_id, occupancy, new_price")
+      .eq("hotel_id", hotelId)
+      .in("status", ["draft", "failed"])
+      .gte("stay_date", from)
+      .lte("stay_date", to);
+    if (draftReadError) {
+      errors.push(`draft reconciliation read: ${draftReadError.message}`);
+    } else {
+      const matchedIds = ((outstanding ?? []) as Array<{
+        id: string; stay_date: string; obk_id: string | null; occupancy: number; new_price: number;
+      }>).filter((draft) => {
+        if (!draft.obk_id) return false;
+        const current = livePrice.get(`${draft.stay_date}|${draft.obk_id}|${draft.occupancy}`);
+        return current !== undefined && Math.abs(current - Number(draft.new_price)) < 0.01;
+      }).map((draft) => draft.id);
+      for (let i = 0; i < matchedIds.length; i += 500) {
+        const ids = matchedIds.slice(i, i + 500);
+        const { error: reconcileError } = await service
+          .from("revenue_rate_drafts")
+          .update({ status: "pushed", pushed_at: new Date().toISOString(), push_error: null })
+          .in("id", ids);
+        if (reconcileError) errors.push(`draft reconciliation update: ${reconcileError.message}`);
+        else reconciledDrafts += ids.length;
+      }
+    }
+  }
+
   // Record the currency Previo actually publishes for this hotel, so the app
   // stops labelling forints as euros. Majority vote across the rate rows.
   let detectedCurrency: string | null = null;
@@ -807,6 +845,7 @@ serve(async (req) => {
     roomTypes: roomTypes.length,
     totalRooms,
     rates: ratePayload.length,
+    reconciledDrafts,
     bookingNights: nights.length,
     snapshots: snapshots.length,
     durationMs: Date.now() - started,
