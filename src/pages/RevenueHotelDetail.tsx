@@ -646,7 +646,9 @@ export default function RevenueHotelDetail() {
             onPickupWindowChange={setPickupWindow}
             hotelId={hotelId ?? null}
             canEdit={revAdmin}
+            roomsAvailable={live.roomsAvailable}
           />
+
           <RevenuePulsePanel
             today={live.today}
             metrics={live.metrics}
