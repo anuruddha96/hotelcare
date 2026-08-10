@@ -605,9 +605,25 @@ export default function RateStrategyGrid({
         onConflict: "hotel_id,stay_date,room_type_name,occupancy,status",
       });
       if (error) throw error;
-      await refreshDrafts();
+      await logRateChanges({
+        hotelId,
+        organizationSlug: organizationSlug ?? null,
+        source: "day-tool",
+        action: "draft_saved",
+        notes: dayMode === "percent" ? `${dayValue}%` : dayMode === "amount" ? `${dayValue} ${getRevenueCurrency().code}` : dayMode,
+        changes: dayToolChanges.map((c) => ({
+          stay_date: c.date,
+          room_type_name: c.row.roomTypeName,
+          occupancy: c.row.occ,
+          old_price: c.from,
+          new_price: c.to,
+        })),
+      });
+      await Promise.all([refreshDrafts(), reloadAudit()]);
       toast.success(`${rowsToSave.length} price${rowsToSave.length === 1 ? "" : "s"} saved as draft — not sent to Previo yet`);
       setDayTool(null);
+      setSelDates(new Set());
+
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save the drafts");
     } finally {
