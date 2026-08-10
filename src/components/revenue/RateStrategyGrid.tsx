@@ -424,6 +424,79 @@ export default function RateStrategyGrid({
       return next;
     });
   }, []);
+
+  /**
+   * Touch gesture: press and hold a date, then slide across the header to pick
+   * a range. Native drag events never fire on a phone, so the whole thing is
+   * driven by touch events with a non-passive move listener (the browser must
+   * be told not to scroll the grid while a range is being drawn).
+   */
+  const headerRowRef = useRef<HTMLDivElement | null>(null);
+  const lpTimer = useRef<number | null>(null);
+  const lpActive = useRef(false);
+  const lpAnchor = useRef<string | null>(null);
+  const lpStartX = useRef(0);
+  const lpStartY = useRef(0);
+  /** Stops the click that follows a long-press from undoing the selection. */
+  const suppressDayClick = useRef(false);
+
+
+  const cancelLongPress = useCallback(() => {
+    if (lpTimer.current !== null) { window.clearTimeout(lpTimer.current); lpTimer.current = null; }
+  }, []);
+
+  const beginTouchSelect = useCallback((d: string, x: number, y: number) => {
+    if (!canEditRates) return;
+    cancelLongPress();
+    lpStartX.current = x;
+    lpStartY.current = y;
+    lpTimer.current = window.setTimeout(() => {
+      lpTimer.current = null;
+      lpActive.current = true;
+      lpAnchor.current = d;
+      try { navigator.vibrate?.(15); } catch { /* not supported */ }
+      setMultiMode(true);
+      setPickedDates(new Set([d]));
+    }, 350);
+  }, [canEditRates, cancelLongPress]);
+
+  const endTouchSelect = useCallback(() => {
+    cancelLongPress();
+    lpActive.current = false;
+    lpAnchor.current = null;
+  }, [cancelLongPress]);
+
+  useEffect(() => {
+    const el = headerRowRef.current;
+    if (!el) return;
+    const onMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      if (!lpActive.current) {
+        // Moved before the hold completed — that is an ordinary scroll.
+        if (Math.abs(t.clientX - lpStartX.current) > 8 || Math.abs(t.clientY - lpStartY.current) > 8) cancelLongPress();
+        return;
+      }
+      e.preventDefault();
+      const target = document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null;
+      const d = target?.closest<HTMLElement>("[data-date]")?.dataset.date;
+      const anchor = lpAnchor.current;
+      if (!d || !anchor) return;
+      const a = allDates.indexOf(anchor);
+      const b = allDates.indexOf(d);
+      if (a < 0 || b < 0) return;
+      setPickedDates(new Set(allDates.slice(Math.min(a, b), Math.max(a, b) + 1)));
+    };
+    el.addEventListener("touchmove", onMove, { passive: false });
+    return () => el.removeEventListener("touchmove", onMove);
+  }, [allDates, cancelLongPress]);
+
+  /** Price-cell history on touch: tap a cell to read who changed it and when. */
+  const [cellInfo, setCellInfo] = useState<{
+    date: string; roomTypeName: string; occ: number; published: number | null; draft: number | null;
+    obk?: string | null;
+  } | null>(null);
+
   /** Full-screen pricing mode — the calendar and nothing else. */
   const [expanded, setExpanded] = useState(false);
   useEffect(() => {
@@ -762,24 +835,29 @@ export default function RateStrategyGrid({
       }));
       const draftIds = await saveRateDrafts({ hotelId, organizationSlug, changes: rowsToSave });
 
+      // The day tool is hand-made pricing: record it whichever way the user
+      // finishes, so the "priced by hand" marker appears on the cells even when
+      // the change goes straight to Previo.
+      await logRateChanges({
+        hotelId,
+        organizationSlug: organizationSlug ?? null,
+        source: "day-tool",
+        action: mode === "draft" ? "draft_saved" : "sent_to_previo",
+        notes: dayMode === "percent" ? `${dayValue}%` : dayMode === "amount" ? `${dayValue} ${getRevenueCurrency().code}` : dayMode,
+        changes: dayToolChanges.map((c) => ({
+          stay_date: c.date, room_type_name: c.row.roomTypeName, occupancy: c.row.occ,
+          old_price: c.from, new_price: c.to,
+        })),
+      });
+
       if (mode === "draft") {
-        await logRateChanges({
-          hotelId,
-          organizationSlug: organizationSlug ?? null,
-          source: "day-tool",
-          action: "draft_saved",
-          notes: dayMode === "percent" ? `${dayValue}%` : dayMode === "amount" ? `${dayValue} ${getRevenueCurrency().code}` : dayMode,
-          changes: dayToolChanges.map((c) => ({
-            stay_date: c.date, room_type_name: c.row.roomTypeName, occupancy: c.row.occ,
-            old_price: c.from, new_price: c.to,
-          })),
-        });
         await Promise.all([refreshDrafts(), reloadAudit()]);
         toast.success(`${rowsToSave.length} price${rowsToSave.length === 1 ? "" : "s"} saved — not sent to Previo yet`);
         setDayTool(null);
         setSelDates(new Set());
         return;
       }
+
 
       const res = await pushRateDrafts(hotelId, draftIds);
 
@@ -1019,7 +1097,8 @@ export default function RateStrategyGrid({
                 </div>
 
                 {/* Date header */}
-                <div className="flex border-b bg-card" style={{ height: DAY_H }}>
+                <div ref={headerRowRef} className="flex border-b bg-card" style={{ height: DAY_H }}>
+
                   <div className="sticky left-0 z-40 border-r bg-card" style={{ width: LEFT_W }}>
                     <div
                       role="separator"
@@ -1041,22 +1120,41 @@ export default function RateStrategyGrid({
                       <button
                         key={d}
                         type="button"
+                        data-date={d}
                         disabled={!canEditRates}
                         onPointerDown={(e) => {
+                          if (e.pointerType === "touch") return;
                           if (!canEditRates || multiMode) return;
                           e.preventDefault();
                           beginDateSelect(d);
                         }}
-                        onClick={() => { if (canEditRates && multiMode) togglePicked(d); }}
-                        onPointerEnter={() => { if (!multiMode) extendDateSelect(d); }}
+                        onTouchStart={(e) => {
+                          if (multiMode) return;
+                          const t = e.touches[0];
+                          beginTouchSelect(d, t?.clientX ?? 0, t?.clientY ?? 0);
+                        }}
+                        onTouchEnd={() => {
+                          const wasSelecting = lpActive.current;
+                          endTouchSelect();
+                          if (wasSelecting) suppressDayClick.current = true;
+                        }}
+                        onTouchCancel={endTouchSelect}
+                        onClick={() => {
+                          if (suppressDayClick.current) { suppressDayClick.current = false; return; }
+                          if (!canEditRates) return;
+                          if (multiMode) { togglePicked(d); return; }
+                          if (isMobile) openDayTool([d]);
+                        }}
+                        onPointerEnter={(e) => { if (e.pointerType !== "touch" && !multiMode) extendDateSelect(d); }}
                         onKeyDown={(e) => {
                           if (!canEditRates || multiMode) return;
                           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDayTool([d]); }
                         }}
                         title={canEditRates ? (multiMode ? `Tap to add ${d} to the selection` : `Change every price on ${d}`) : d}
-                        className={`group relative flex flex-col items-center justify-center shrink-0 select-none ${multiMode ? "" : "touch-none"} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
+                        className={`group relative flex flex-col items-center justify-center shrink-0 select-none ${multiMode || isMobile ? "" : "touch-none"} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
                         style={{ width: CELL_W, height: DAY_H }}
                       >
+
                         <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
                         <span className="font-medium">{formatDay(d)}</span>
                         {trail && (
@@ -1321,14 +1419,32 @@ export default function RateStrategyGrid({
                         key={d}
                         type="button"
                         disabled={!canEditRates}
-                        onClick={() => canEditRates && (setApplyDays(1), setApplyWeekdays("all"), setApplyAllOcc(false), setEditMode("set"), setEdit({
-                          stay_date: d,
-                          obk_id: row.obk,
-                          room_type_name: row.roomTypeName,
-                          occupancy: row.occ,
-                          old_price: published ?? null,
-                          value: String(shown ?? ""),
-                        }))}
+                        onClick={() => {
+                          if (!canEditRates) return;
+                          // On a phone there is no hover, so a tap tells the
+                          // cell's story first and offers editing from there.
+                          if (isMobile) {
+                            setCellInfo({
+                              date: d,
+                              roomTypeName: row.roomTypeName,
+                              occ: row.occ,
+                              published: published ?? null,
+                              draft: draft ?? null,
+                              obk: row.obk,
+                            });
+                            return;
+                          }
+                          setApplyDays(1); setApplyWeekdays("all"); setApplyAllOcc(false); setEditMode("set");
+                          setEdit({
+                            stay_date: d,
+                            obk_id: row.obk,
+                            room_type_name: row.roomTypeName,
+                            occupancy: row.occ,
+                            old_price: published ?? null,
+                            value: String(shown ?? ""),
+                          });
+                        }}
+
                         title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label}`}
                         className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""}`}
                         style={{ width: CELL_W }}
@@ -1348,7 +1464,7 @@ export default function RateStrategyGrid({
 
                       </button>
                     );
-                    if (!history) return cellButton;
+                    if (!history || isMobile) return cellButton;
                     return (
                       <HoverCard key={d} openDelay={120} closeDelay={60}>
                         <HoverCardTrigger asChild>{cellButton}</HoverCardTrigger>
@@ -1397,6 +1513,53 @@ export default function RateStrategyGrid({
           </div>
         </div>
       )}
+
+      {/* Tap a price on a phone: who changed it, when, and by how much. */}
+      <Sheet open={!!cellInfo} onOpenChange={(o) => !o && setCellInfo(null)}>
+        <SheetContent side="bottom" className="max-h-[75vh] overflow-y-auto">
+          {cellInfo && (
+            <>
+              <SheetHeader className="text-left">
+                <SheetTitle className="text-sm">
+                  {cellInfo.roomTypeName} · {cellInfo.occ} guest{cellInfo.occ === 1 ? "" : "s"} · {cellInfo.date}
+                </SheetTitle>
+              </SheetHeader>
+              <div className="mt-3 space-y-3">
+                <div className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">Current price</span>
+                  <span className="tabular-nums font-semibold">{moneyBase(cellInfo.published)}</span>
+                </div>
+                <RateCellHistory
+                  history={auditByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ)) ?? []}
+                  names={auditNames}
+                  draftPrice={cellInfo.draft}
+                />
+                {canEditRates && (
+                  <Button
+                    className="w-full"
+                    onClick={() => {
+                      setApplyDays(1); setApplyWeekdays("all"); setApplyAllOcc(false); setEditMode("set");
+                      setEdit({
+                        stay_date: cellInfo.date,
+                        obk_id: cellInfo.obk ?? null,
+                        room_type_name: cellInfo.roomTypeName,
+                        occupancy: cellInfo.occ,
+                        old_price: cellInfo.published,
+                        value: String(cellInfo.draft ?? cellInfo.published ?? ""),
+                      });
+                      setCellInfo(null);
+                    }}
+                  >
+                    Edit price
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
+
+
 
       <Dialog open={!!edit} onOpenChange={(o) => !o && setEdit(null)}>
         <DialogContent className="sm:max-w-sm">

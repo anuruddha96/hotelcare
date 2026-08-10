@@ -11,6 +11,14 @@ export const HUMAN_SOURCES = ["day-tool", "cell-edit", "demand", "push", "autopi
  */
 export const MANUAL_SOURCES = ["day-tool", "cell-edit", "pickup-board"];
 
+/**
+ * A direct push carries no source of its own, so a short-range push (a handful
+ * of dates sent in one go) counts as hand-made work too; a season-wide bulk
+ * push does not.
+ */
+const SHORT_RANGE_DAYS = 7;
+
+
 
 /**
  * Price-change activity for one hotel: the newest entries for the activity
@@ -49,7 +57,7 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
         .from("rate_change_audit")
         .select("id, stay_date, action, source, old_rate_eur, new_rate_eur, delta_eur, notes, performed_at, performed_by, payload")
         .eq("hotel_id", hotelId)
-        .in("source", MANUAL_SOURCES)
+        .in("source", [...MANUAL_SOURCES, "push"])
         .order("performed_at", { ascending: false })
         .limit(3000);
       setManualRows((manualData ?? []) as unknown as RateAuditRow[]);
@@ -101,7 +109,14 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
 
   const byCell = useMemo(() => {
     const map = new Map<string, RateAuditRow[]>();
-    for (const r of rows) {
+    // The shared window is small and easily filled by bulk work, so the
+    // dedicated hand-made rows are merged in — otherwise a cell the user just
+    // priced would show no history at all.
+    const seen = new Set<string>();
+    const merged = [...rows, ...manualRows]
+      .filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)))
+      .sort((a, b) => b.performed_at.localeCompare(a.performed_at));
+    for (const r of merged) {
       const rt = r.payload?.room_type_name;
       const occ = r.payload?.occupancy;
       if (!r.stay_date || !rt || occ === undefined) continue;
@@ -110,22 +125,39 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
       if (bucket) bucket.push(r); else map.set(key, [r]);
     }
     return map;
-  }, [rows]);
+  }, [rows, manualRows]);
+
 
   /** Only hand-made, short-range changes — this drives the blue cell marker. */
   const manualByCell = useMemo(() => {
+    // Direct pushes carry no origin, so cluster them by user and time: a
+    // cluster covering a handful of dates was hand-made, a season-wide bulk
+    // push was not and must not sprinkle dots everywhere.
+    const clusters = new Map<string, Set<string>>();
+    const clusterKey = (r: RateAuditRow) =>
+      `${r.performed_by ?? "-"}|${Math.floor(new Date(r.performed_at).getTime() / 300000)}`;
+    for (const r of manualRows) {
+      if (r.source !== "push" || !r.stay_date) continue;
+      const k = clusterKey(r);
+      const set = clusters.get(k);
+      if (set) set.add(r.stay_date); else clusters.set(k, new Set([r.stay_date]));
+    }
+
     const map = new Map<string, RateAuditRow[]>();
     for (const r of manualRows) {
       const rt = r.payload?.room_type_name;
       const occ = r.payload?.occupancy;
-      if (!r.stay_date || !rt || occ === undefined) continue;
-      if (!r.source || !MANUAL_SOURCES.includes(r.source)) continue;
+      if (!r.stay_date || !rt || occ === undefined || !r.source) continue;
+      const handMade = MANUAL_SOURCES.includes(r.source)
+        || (r.source === "push" && (clusters.get(clusterKey(r))?.size ?? 0) <= SHORT_RANGE_DAYS);
+      if (!handMade) continue;
       const key = cellKey(r.stay_date, rt, occ);
       const bucket = map.get(key);
       if (bucket) bucket.push(r); else map.set(key, [r]);
     }
     return map;
   }, [manualRows]);
+
 
   return { rows, byCell, manualByCell, names, loading, systemCount, reload: load };
 
