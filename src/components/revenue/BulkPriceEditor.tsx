@@ -450,10 +450,47 @@ export default function BulkPriceEditor({
               I understand that sending makes these prices live in Previo straight away.
             </label>
           )}
+          {(stage || progress) && (
+            <div className="rounded-md border bg-muted/40 p-2 text-[11px]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">
+                  {stage}
+                  {progress ? ` ${progress.done} / ${progress.total}` : ""}
+                </span>
+                {progress && busy && (
+                  <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]"
+                    onClick={() => { cancelRef.current = true; }}>
+                    Stop
+                  </Button>
+                )}
+              </div>
+              {progress && (
+                <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                  <div className="h-full bg-primary transition-all"
+                    style={{ width: `${Math.round((progress.done / Math.max(1, progress.total)) * 100)}%` }} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {(failedIds.length > 0 || cancelled) && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-2 text-[11px]">
+              <p className="font-medium text-destructive">
+                {cancelled ? "Stopped before the end." : `${failedIds.length} price${failedIds.length === 1 ? "" : "s"} did not reach Previo.`}
+              </p>
+              {pushErrors.map((e, i) => <p key={i} className="text-muted-foreground">{e}</p>)}
+              {failedIds.length > 0 && (
+                <Button size="sm" variant="outline" className="mt-1 h-7 text-[11px]" disabled={busy}
+                  onClick={() => void retryFailed()}>
+                  Retry {failedIds.length}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
 
         <DialogFooter className="shrink-0 gap-2 sm:justify-between">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Close</Button>
           <div className="flex gap-2">
             <Button variant="outline" disabled={busy || changes.length === 0} onClick={() => void run(false)}>
               {busy && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
@@ -467,6 +504,7 @@ export default function BulkPriceEditor({
             )}
           </div>
         </DialogFooter>
+
       </DialogContent>
     </Dialog>
   );
