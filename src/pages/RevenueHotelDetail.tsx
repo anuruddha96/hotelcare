@@ -636,8 +636,8 @@ export default function RevenueHotelDetail() {
         </TabsList>
 
         <TabsContent value="grid" className="space-y-3 min-w-0 overflow-x-hidden">
-          {/* Order: headline analytics → today's performance → rate & pickup
-              calendar → horizon → what moved → AI analysis last. */}
+          {/* Order: headline analytics → today's sales → price list (the hero)
+              → pickup charts → everything else behind the tools row. */}
           <MonthPerformanceHeader
             today={live.today}
             metrics={live.metrics}
@@ -648,13 +648,8 @@ export default function RevenueHotelDetail() {
             roomsAvailable={live.roomsAvailable}
           />
 
-          <RevenuePulsePanel
-            today={live.today}
-            metrics={live.metrics}
-            roomsAvailable={live.roomsAvailable}
-            thresholds={live.thresholds}
-          />
           <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
+
           <RateStrategyGrid
             loading={live.loading}
             today={live.today}
@@ -672,25 +667,56 @@ export default function RevenueHotelDetail() {
             onRatesUpdated={live.reload}
           />
 
-
-
-
-          <DemandPricingPanel
-            hotelId={hotelId ?? null}
-            organizationSlug={organizationSlug ?? null}
-            today={live.today}
-            nights={live.nights}
-            rates={live.rates}
-            canEdit={revAdmin}
+          <RevenueToolsBar
+            tools={[
+              {
+                key: "demand",
+                label: "Demand desk",
+                icon: <Gauge className="h-4 w-4" />,
+                render: () => (
+                  <DemandPricingPanel
+                    hotelId={hotelId ?? null}
+                    organizationSlug={organizationSlug ?? null}
+                    today={live.today}
+                    nights={live.nights}
+                    rates={live.rates}
+                    canEdit={revAdmin}
+                  />
+                ),
+              },
+              {
+                key: "pulse",
+                label: "Revenue pulse",
+                icon: <Activity className="h-4 w-4" />,
+                render: () => (
+                  <RevenuePulsePanel
+                    today={live.today}
+                    metrics={live.metrics}
+                    roomsAvailable={live.roomsAvailable}
+                    thresholds={live.thresholds}
+                  />
+                ),
+              },
+              {
+                key: "ai",
+                label: "AI intelligence",
+                icon: <Sparkles className="h-4 w-4" />,
+                render: () => <RevenueIntelligencePanel hotelId={hotelId ?? null} />,
+              },
+            ]}
           />
-          <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
-          <PickupMovementBoard metrics={live.metrics} windowDays={pickupWindow} />
 
-          {/* AI analysis at the bottom */}
-          <RevenueIntelligencePanel hotelId={hotelId ?? null} />
+          <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
+          <PickupMovementBoard
+            metrics={live.metrics}
+            windowDays={pickupWindow}
+            nights={live.nights}
+            cancellations={live.cancellations}
+          />
 
           {live.error && <p className="text-sm text-destructive">{live.error}</p>}
         </TabsContent>
+
 
 
 
