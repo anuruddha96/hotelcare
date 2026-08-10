@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { toast } from '@/hooks/use-toast';
 import { format, differenceInDays, startOfDay, addDays } from 'date-fns';
 import { AlertTriangle, CheckCircle2, Clock, Plus, CheckSquare, Square, RefreshCw, Package, Trash2, Wine, Loader2, Receipt, CalendarIcon, Luggage, Home, ArrowRightLeft, BellOff } from 'lucide-react';
@@ -606,7 +607,7 @@ export function PerishablePlacementManager({ hotel, organizationSlug }: Perishab
   const selectAllRooms = () => setSelectedRoomIds(new Set(rooms.map(r => r.id)));
   const deselectAllRooms = () => setSelectedRoomIds(new Set());
 
-  const canPlace = ['admin', 'manager', 'housekeeping_manager', 'reception'].includes(profile?.role || '');
+  const canPlace = hasManagerPowers(profile?.role) || profile?.role === 'reception';
 
   const getChipClasses = (roomId: string): string => {
     const info = roomStatusMap.get(roomId);
