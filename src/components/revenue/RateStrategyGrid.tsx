@@ -316,7 +316,7 @@ export default function RateStrategyGrid({
   const [probe, setProbe] = useState<{ ok: boolean; message: string; support?: string | null } | null>(null);
 
   /** Price-change trail: cell history on hover, and the activity panel below. */
-  const { rows: auditRows, byCell: auditByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
+  const { rows: auditRows, byCell: auditByCell, manualByCell: manualAuditByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
 
   /** One-line "who last touched this date" summary for the date header hover. */
   const auditByDate = useMemo(() => {
