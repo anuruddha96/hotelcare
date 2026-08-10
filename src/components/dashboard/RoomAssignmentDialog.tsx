@@ -469,7 +469,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                                   <User className="h-3 w-3 mr-1" />
                                   Already assigned to {room.assignment.assigned_to_name}
                                 </div>
-                                {(profile?.role === 'admin' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager') && (
+                                {hasManagerPowers(profile?.role) && (
                                   <Button
                                     size="sm"
                                     variant="outline"
@@ -536,7 +536,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                                   <User className="h-3 w-3 mr-1" />
                                   Already assigned to {room.assignment.assigned_to_name}
                                 </div>
-                                {(profile?.role === 'admin' || profile?.role === 'manager' || profile?.role === 'housekeeping_manager') && (
+                                {hasManagerPowers(profile?.role) && (
                                   <Button
                                     size="sm"
                                     variant="outline"

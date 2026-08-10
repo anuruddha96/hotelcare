@@ -40,7 +40,7 @@ export function DNDPhotosViewer({
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>('');
 
-  const canViewPhotos = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
+  const canViewPhotos = hasManagerPowers(profile?.role);
 
   useEffect(() => {
     if (open && canViewPhotos) {

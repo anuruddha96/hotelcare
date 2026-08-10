@@ -33,7 +33,7 @@ export function RoomPhotosViewer({ open, onOpenChange, roomId, roomNumber }: Roo
   const [loading, setLoading] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<RoomPhoto | null>(null);
 
-  const canViewPhotos = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
+  const canViewPhotos = hasManagerPowers(profile?.role);
 
   useEffect(() => {
     if (open && canViewPhotos) {

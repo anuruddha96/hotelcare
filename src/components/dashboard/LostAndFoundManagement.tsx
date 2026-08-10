@@ -50,7 +50,7 @@ export function LostAndFoundManagement() {
   const [showAddDialog, setShowAddDialog] = useState(false);
 
   const canDelete = (profile?.role && ['admin'].includes(profile.role)) || profile?.is_super_admin;
-  const canAddItems = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
+  const canAddItems = hasManagerPowers(profile?.role);
 
   useEffect(() => {
     fetchLostAndFound();

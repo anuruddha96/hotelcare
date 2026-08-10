@@ -190,7 +190,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [pendingUnassign, setPendingUnassign] = useState<{ roomId: string; roomNumber: string; staffName: string | null } | null>(null);
   const [unassigning, setUnassigning] = useState(false);
 
-  const isManagerOrAdmin = profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role);
+  const isManagerOrAdmin = hasManagerPowers(profile?.role);
   const isSupervisor = profile?.role === 'supervisor';
   // Supervisors may move work around the board (RLS keeps them inside their
   // scoped venues) but keep every other manager-only mutation untouched.

@@ -558,7 +558,8 @@ export function MinibarTrackingView() {
     }
   };
 
-  const canDelete = ['admin', 'manager', 'housekeeping_manager'].includes(userRole);
+  const canDelete = hasManagerPowers(userRole);
+
   const isSuperAdmin = profile?.is_super_admin || false;
   const canClearAll = ['admin'].includes(userRole) || isSuperAdmin;
   const canQuickAdd = ['admin', 'manager', 'housekeeping_manager', 'reception'].includes(userRole);

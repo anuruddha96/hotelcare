@@ -522,7 +522,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                 </div>
 
                 {/* Room Size & Capacity - Admin/Manager only */}
-                {profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role) && (
+                {hasManagerPowers(profile?.role) && (
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-sm font-medium">Room Size (m²)</label>
@@ -569,7 +569,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                 )}
 
                 {/* DND Photos Button for Managers/Admins */}
-                {profile?.role && ['admin', 'manager', 'housekeeping_manager'].includes(profile.role) && (
+                {hasManagerPowers(profile?.role) && (
                   <div className="pt-2">
                     <Button
                       variant="outline"
