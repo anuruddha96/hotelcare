@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { cellKey, type RateAuditRow } from "@/lib/rateAudit";
 
 /** Sources written by a person acting in the app (not the alert engine). */
-export const HUMAN_SOURCES = ["day-tool", "cell-edit", "demand", "push", "autopilot", "bulk-editor"];
+export const HUMAN_SOURCES = ["day-tool", "cell-edit", "demand", "push", "autopilot", "bulk-editor", "pickup-board"];
 
 /**
  * Short-range, hand-made price work. Only these earn the blue marker on a cell:
