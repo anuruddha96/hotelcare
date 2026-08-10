@@ -927,6 +927,27 @@ export default function RateStrategyGrid({
                 Bulk edit prices
               </Button>
             )}
+            {canEditRates && (
+              <Button
+                size="sm"
+                variant={multiMode ? "default" : "outline"}
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => { setMultiMode((v) => !v); setPickedDates(new Set()); }}
+              >
+                <CalendarRange className="h-3.5 w-3.5" />
+                {multiMode ? "Done selecting" : "Select days"}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 text-xs"
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+              {expanded ? "Close" : "Expand"}
+            </Button>
+
 
             <Select value={String(pickupWindowDays)} onValueChange={(v) => onPickupWindowChange(Number(v))}>
               <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
