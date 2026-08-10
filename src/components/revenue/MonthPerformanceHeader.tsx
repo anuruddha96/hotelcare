@@ -134,21 +134,74 @@ export default function MonthPerformanceHeader({
   const monthLabel = formatMonth(`${month}-01`);
 
   /**
-   * The KPI strip drifts slowly to the left so every card gets seen on a
-   * phone; any touch, hover or manual scroll stops it for good.
+   * The KPI strip drifts gently to the left so every card gets seen on a phone.
+   * It stops at the last card, pauses while the user is touching it (resuming a
+   * few seconds later), and also follows the page: scrolling down nudges the
+   * tiles left, scrolling back up brings them back.
    */
   const tileScrollRef = useRef<HTMLDivElement | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
+  const resumeTimer = useRef<number | null>(null);
+  const pauseAuto = () => {
+    setAutoScroll(false);
+    if (resumeTimer.current) window.clearTimeout(resumeTimer.current);
+    resumeTimer.current = window.setTimeout(() => setAutoScroll(true), 4000);
+  };
+
+  useEffect(() => {
+    const el = tileScrollRef.current;
+    if (!el) return;
+    el.scrollLeft = 0;
+  }, [month]);
+
   useEffect(() => {
     const el = tileScrollRef.current;
     if (!el || !autoScroll) return;
-    const id = window.setInterval(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    let raf = 0;
+    let last = performance.now();
+    let visible = true;
+    const io = new IntersectionObserver(([e]) => { visible = e.isIntersecting; }, { threshold: 0.2 });
+    io.observe(el);
+
+    const step = (now: number) => {
+      const dt = Math.min(64, now - last);
+      last = now;
       const max = el.scrollWidth - el.clientWidth;
-      if (max <= 4) return;
-      el.scrollLeft = el.scrollLeft >= max - 2 ? 0 : el.scrollLeft + 1;
-    }, 40);
-    return () => window.clearInterval(id);
+      if (visible && max > 4 && el.scrollLeft < max - 1) {
+        // ~18 px per second: readable, never jumpy on high-refresh screens.
+        el.scrollLeft = Math.min(max, el.scrollLeft + (dt / 1000) * 18);
+      }
+      raf = window.requestAnimationFrame(step);
+    };
+    raf = window.requestAnimationFrame(step);
+    return () => { window.cancelAnimationFrame(raf); io.disconnect(); };
   }, [autoScroll, month]);
+
+  // Page scroll drives the strip too — down moves left, up moves right.
+  useEffect(() => {
+    const el = tileScrollRef.current;
+    if (!el) return;
+    let lastY = window.scrollY;
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        const node = tileScrollRef.current;
+        if (!node) return;
+        const dy = window.scrollY - lastY;
+        lastY = window.scrollY;
+        const max = node.scrollWidth - node.clientWidth;
+        if (max <= 4) return;
+        node.scrollLeft = Math.max(0, Math.min(max, node.scrollLeft + dy * 0.35));
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => { window.removeEventListener("scroll", onScroll); if (raf) window.cancelAnimationFrame(raf); };
+  }, []);
+
 
 
   const saveRate = async () => {
