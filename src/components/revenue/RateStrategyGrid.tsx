@@ -527,9 +527,24 @@ export default function RateStrategyGrid({
         onConflict: "hotel_id,stay_date,room_type_name,occupancy,status",
       });
       if (error) throw error;
-      await refreshDrafts();
+      await logRateChanges({
+        hotelId,
+        organizationSlug: organizationSlug ?? null,
+        source: "cell-edit",
+        action: "draft_saved",
+        notes: editMode === "percent" ? `${input}%` : `set ${input}`,
+        changes: rowsToSave.map((r) => ({
+          stay_date: r.stay_date,
+          room_type_name: r.room_type_name,
+          occupancy: r.occupancy,
+          old_price: r.old_price,
+          new_price: r.new_price,
+        })),
+      });
+      await Promise.all([refreshDrafts(), reloadAudit()]);
       toast.success(`${rowsToSave.length} price${rowsToSave.length === 1 ? "" : "s"} saved as draft — not sent to Previo yet`);
       setEdit(null);
+
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save the draft");
     } finally {
