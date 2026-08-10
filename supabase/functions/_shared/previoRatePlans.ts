@@ -43,14 +43,17 @@ export async function syncPrevioRatePlanMappings(
 ): Promise<RatePlanSyncResult> {
   const notes: string[] = [];
 
-  const { data: cfg } = await service
+  // A missing pms_configurations row is normal for hotels that run on
+  // pms_accounts (SLNT), so only a read error is fatal here.
+  const { data: cfg, error: cfgErr } = await service
     .from("pms_configurations")
     .select("pms_hotel_id, credentials_secret_name, is_active")
     .eq("hotel_id", hotelId)
     .maybeSingle();
-  if (!cfg || !cfg.is_active) {
-    return { ok: false, mapped: 0, notes: ["Previo is not configured or is inactive for this hotel."] };
+  if (cfgErr) {
+    return { ok: false, mapped: 0, notes: [`Could not read the PMS configuration: ${cfgErr.message}`] };
   }
+
 
   const { data: accountRows } = await service
     .from("pms_accounts")
