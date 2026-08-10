@@ -789,6 +789,22 @@ export default function RateStrategyGrid({
             )}
           </CardTitle>
           <div className="flex flex-wrap items-center gap-2">
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
+                  <History className="h-3.5 w-3.5" />
+                  Price activity
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="w-full sm:max-w-lg flex flex-col p-4">
+                <SheetHeader className="pb-2">
+                  <SheetTitle className="text-base">Price activity</SheetTitle>
+                </SheetHeader>
+                <div className="flex-1 min-h-0 overflow-y-auto">
+                  <RateActivityPanel hotelId={hotelId ?? null} embedded />
+                </div>
+              </SheetContent>
+            </Sheet>
             <Select value={String(pickupWindowDays)} onValueChange={(v) => onPickupWindowChange(Number(v))}>
               <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
