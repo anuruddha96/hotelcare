@@ -1117,22 +1117,41 @@ export default function RateStrategyGrid({
                       <button
                         key={d}
                         type="button"
+                        data-date={d}
                         disabled={!canEditRates}
                         onPointerDown={(e) => {
+                          if (e.pointerType === "touch") return;
                           if (!canEditRates || multiMode) return;
                           e.preventDefault();
                           beginDateSelect(d);
                         }}
-                        onClick={() => { if (canEditRates && multiMode) togglePicked(d); }}
-                        onPointerEnter={() => { if (!multiMode) extendDateSelect(d); }}
+                        onTouchStart={(e) => {
+                          if (multiMode) return;
+                          const t = e.touches[0];
+                          beginTouchSelect(d, t?.clientX ?? 0, t?.clientY ?? 0);
+                        }}
+                        onTouchEnd={() => {
+                          const wasSelecting = lpActive.current;
+                          endTouchSelect();
+                          if (wasSelecting) suppressDayClick.current = true;
+                        }}
+                        onTouchCancel={endTouchSelect}
+                        onClick={() => {
+                          if (suppressDayClick.current) { suppressDayClick.current = false; return; }
+                          if (!canEditRates) return;
+                          if (multiMode) { togglePicked(d); return; }
+                          if (isMobile) openDayTool([d]);
+                        }}
+                        onPointerEnter={(e) => { if (e.pointerType !== "touch" && !multiMode) extendDateSelect(d); }}
                         onKeyDown={(e) => {
                           if (!canEditRates || multiMode) return;
                           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDayTool([d]); }
                         }}
                         title={canEditRates ? (multiMode ? `Tap to add ${d} to the selection` : `Change every price on ${d}`) : d}
-                        className={`group relative flex flex-col items-center justify-center shrink-0 select-none ${multiMode ? "" : "touch-none"} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
+                        className={`group relative flex flex-col items-center justify-center shrink-0 select-none ${multiMode || isMobile ? "" : "touch-none"} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
                         style={{ width: CELL_W, height: DAY_H }}
                       >
+
                         <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
                         <span className="font-medium">{formatDay(d)}</span>
                         {trail && (
