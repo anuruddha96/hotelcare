@@ -1464,7 +1464,7 @@ export default function RateStrategyGrid({
 
                       </button>
                     );
-                    if (!history) return cellButton;
+                    if (!history || isMobile) return cellButton;
                     return (
                       <HoverCard key={d} openDelay={120} closeDelay={60}>
                         <HoverCardTrigger asChild>{cellButton}</HoverCardTrigger>
