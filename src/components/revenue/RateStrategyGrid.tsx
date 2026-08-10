@@ -546,11 +546,16 @@ export default function RateStrategyGrid({
   /** Dates the day tool will touch, given range and weekday filter. */
   const dayToolDates = useMemo(() => {
     if (!dayTool) return [] as string[];
-    const start = allDates.indexOf(dayTool);
-    const span = (start >= 0 ? allDates.slice(start, start + dayRange) : [dayTool]);
+    const span = selDates.size > 1
+      ? allDates.filter((d) => selDates.has(d))
+      : (() => {
+        const start = allDates.indexOf(dayTool);
+        return start >= 0 ? allDates.slice(start, start + dayRange) : [dayTool];
+      })();
     return span.filter((d) =>
       dayWeekdays === "all" ? true : dayWeekdays === "weekend" ? isWeekend(d) : !isWeekend(d));
-  }, [dayTool, dayRange, dayWeekdays, allDates]);
+  }, [dayTool, dayRange, dayWeekdays, allDates, selDates]);
+
 
   /** Compute the new price for one cell under the current day-tool settings. */
   const dayToolNext = useCallback((current: number | null): number | null => {
