@@ -316,7 +316,7 @@ export default function RateStrategyGrid({
   const [probe, setProbe] = useState<{ ok: boolean; message: string; support?: string | null } | null>(null);
 
   /** Price-change trail: cell history on hover, and the activity panel below. */
-  const { rows: auditRows, byCell: auditByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
+  const { rows: auditRows, byCell: auditByCell, manualByCell: manualAuditByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
 
   /** One-line "who last touched this date" summary for the date header hover. */
   const auditByDate = useMemo(() => {
@@ -933,7 +933,7 @@ export default function RateStrategyGrid({
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-amber-200 dark:bg-amber-800 border inline-block" />below target</span>
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-emerald-400 border inline-block" />strong</span>
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
-          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary ring-2 ring-primary/25 inline-block" />confirmed in Previo</span>
+          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary ring-2 ring-primary/25 inline-block" />priced by hand for this day</span>
           <span className="underline decoration-dotted underline-offset-2">underlined = draft</span>
         </div>
         <p className="text-[11px] text-muted-foreground">
@@ -1303,7 +1303,10 @@ export default function RateStrategyGrid({
                     const shown = draft ?? published;
                     const tone = rateTone(shown, thresholds);
                     const history = auditByCell.get(cellKey(d, row.roomTypeName, row.occ));
-                    const confirmedHistory = history?.filter((entry) => entry.source === "push");
+                    // The dot marks a day someone priced by hand. A bulk edit
+                    // changes the price but never adds or clears the marker.
+                    const confirmedHistory = manualAuditByCell.get(cellKey(d, row.roomTypeName, row.occ));
+
                     const cellButton = (
                       <button
                         key={d}
@@ -1322,19 +1325,17 @@ export default function RateStrategyGrid({
                         style={{ width: CELL_W }}
                       >
                         {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
-                        {confirmedHistory?.length && (() => {
+                        {confirmedHistory?.length ? (() => {
                           const last = Math.max(...confirmedHistory.map((h) => new Date(h.performed_at).getTime()));
-                          const age = Date.now() - last;
-                          const fresh = age < 24 * 60 * 60 * 1000;
-                          const recent = age < 7 * 24 * 60 * 60 * 1000;
-                          if (!recent) return null;
+                          const fresh = Date.now() - last < 24 * 60 * 60 * 1000;
                           return (
                             <span
                               aria-hidden
                               className={`absolute right-0.5 top-0.5 h-2 w-2 rounded-full border border-primary ${fresh ? "bg-primary ring-2 ring-primary/25" : "bg-card"}`}
                             />
                           );
-                        })()}
+                        })() : null}
+
 
                       </button>
                     );

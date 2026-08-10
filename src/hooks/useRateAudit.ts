@@ -3,7 +3,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { cellKey, type RateAuditRow } from "@/lib/rateAudit";
 
 /** Sources written by a person acting in the app (not the alert engine). */
-export const HUMAN_SOURCES = ["day-tool", "cell-edit", "demand", "push", "autopilot"];
+export const HUMAN_SOURCES = ["day-tool", "cell-edit", "demand", "push", "autopilot", "bulk-editor", "pickup-board"];
+
+/**
+ * Short-range, hand-made price work. Only these earn the blue marker on a cell:
+ * a season-wide bulk edit must not sprinkle dots across every day.
+ */
+export const MANUAL_SOURCES = ["day-tool", "cell-edit", "pickup-board"];
+
 
 /**
  * Price-change activity for one hotel: the newest entries for the activity
@@ -86,5 +93,16 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
     return map;
   }, [rows]);
 
-  return { rows, byCell, names, loading, systemCount, reload: load };
+  /** Only hand-made, short-range changes — this drives the blue cell marker. */
+  const manualByCell = useMemo(() => {
+    const map = new Map<string, RateAuditRow[]>();
+    for (const [key, list] of byCell.entries()) {
+      const manual = list.filter((r) => r.source && MANUAL_SOURCES.includes(r.source));
+      if (manual.length > 0) map.set(key, manual);
+    }
+    return map;
+  }, [byCell]);
+
+  return { rows, byCell, manualByCell, names, loading, systemCount, reload: load };
+
 }

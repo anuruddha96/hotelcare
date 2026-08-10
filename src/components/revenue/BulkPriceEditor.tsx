@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,7 @@ import type { DateRange } from "react-day-picker";
 import { addDays, isWeekend, type RoomTypeRate } from "@/lib/revenueAnalytics";
 import { getRevenueCurrency, moneyBase } from "@/lib/revenueCurrency";
 import { logRateChanges } from "@/lib/rateAudit";
-import { pushRateDrafts, saveRateDrafts, type DraftChange } from "@/lib/rateDrafts";
+import { pushRateDraftsBatched, saveRateDrafts, type DraftChange } from "@/lib/rateDrafts";
 
 type Mode = "amount" | "percent" | "set" | "round";
 type Rounding = "1" | "5" | "90";
@@ -67,13 +67,26 @@ export default function BulkPriceEditor({
   const [showAll, setShowAll] = useState(false);
   const [busy, setBusy] = useState(false);
   const [consent, setConsent] = useState(false);
+  const [stage, setStage] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [failedIds, setFailedIds] = useState<string[]>([]);
+  const [pushErrors, setPushErrors] = useState<string[]>([]);
+  const [cancelled, setCancelled] = useState(false);
+  const cancelRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
     setRange({ from: parse(today), to: parse(addDays(today, 29)) });
     setShowAll(false);
     setConsent(false);
+    setStage(null);
+    setProgress(null);
+    setFailedIds([]);
+    setPushErrors([]);
+    setCancelled(false);
+    cancelRef.current = false;
   }, [open, today]);
+
 
   const allTypes = useMemo(() => {
     const s = new Set<string>();
@@ -152,7 +165,11 @@ export default function BulkPriceEditor({
   async function run(push: boolean) {
     if (!hotelId || changes.length === 0) return;
     setBusy(true);
+    setCancelled(false);
+    setFailedIds([]);
+    setProgress(null);
     try {
+      setStage(`Saving ${changes.length} price${changes.length === 1 ? "" : "s"}…`);
       const ids = await saveRateDrafts({
         hotelId,
         organizationSlug,
@@ -175,19 +192,59 @@ export default function BulkPriceEditor({
 
       if (!push) {
         toast.success(`${ids.length} price${ids.length === 1 ? "" : "s"} saved as draft — not sent to Previo yet`);
-      } else {
-        const res = await pushRateDrafts(hotelId, ids);
-        if (res.failed) toast.error(`${res.pushed} sent, ${res.failed} failed — open the push list to see why`);
-        else toast.success(`${res.pushed} price${res.pushed === 1 ? "" : "s"} sent to Previo`);
+        await onSaved?.();
+        onOpenChange(false);
+        return;
       }
+
+      await sendDrafts(ids);
       await onSaved?.();
+      if (cancelRef.current) return;
       onOpenChange(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not apply the bulk change");
     } finally {
       setBusy(false);
+      setStage(null);
     }
   }
+
+  /** Send drafts in batches, reporting progress and keeping the failures. */
+  async function sendDrafts(ids: string[]) {
+    if (!hotelId || ids.length === 0) return;
+    cancelRef.current = false;
+    setStage("Sending to Previo…");
+    setProgress({ done: 0, total: ids.length });
+    const res = await pushRateDraftsBatched(hotelId, ids, {
+      onProgress: (done, total) => setProgress({ done, total }),
+      shouldCancel: () => cancelRef.current,
+    });
+    setFailedIds(res.failedIds ?? []);
+    setPushErrors((res.errors ?? []).slice(0, 5).map((e) => e.error));
+    if (res.cancelled) {
+      setCancelled(true);
+      toast.message(`Stopped — ${res.pushed} price${res.pushed === 1 ? "" : "s"} already sent to Previo`);
+    } else if (res.failed) {
+      toast.error(`${res.pushed} sent, ${res.failed} failed — retry below or open the push list`);
+    } else {
+      toast.success(`${res.pushed} price${res.pushed === 1 ? "" : "s"} sent to Previo`);
+    }
+  }
+
+  async function retryFailed() {
+    if (!hotelId || failedIds.length === 0) return;
+    setBusy(true);
+    try {
+      await sendDrafts(failedIds);
+      await onSaved?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Retry failed");
+    } finally {
+      setBusy(false);
+      setStage(null);
+    }
+  }
+
 
   const toggle = <T,>(set: Set<T>, v: T, apply: (s: Set<T>) => void) => {
     const next = new Set(set);
@@ -393,10 +450,47 @@ export default function BulkPriceEditor({
               I understand that sending makes these prices live in Previo straight away.
             </label>
           )}
+          {(stage || progress) && (
+            <div className="rounded-md border bg-muted/40 p-2 text-[11px]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">
+                  {stage}
+                  {progress ? ` ${progress.done} / ${progress.total}` : ""}
+                </span>
+                {progress && busy && (
+                  <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]"
+                    onClick={() => { cancelRef.current = true; }}>
+                    Stop
+                  </Button>
+                )}
+              </div>
+              {progress && (
+                <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                  <div className="h-full bg-primary transition-all"
+                    style={{ width: `${Math.round((progress.done / Math.max(1, progress.total)) * 100)}%` }} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {(failedIds.length > 0 || cancelled) && (
+            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-2 text-[11px]">
+              <p className="font-medium text-destructive">
+                {cancelled ? "Stopped before the end." : `${failedIds.length} price${failedIds.length === 1 ? "" : "s"} did not reach Previo.`}
+              </p>
+              {pushErrors.map((e, i) => <p key={i} className="text-muted-foreground">{e}</p>)}
+              {failedIds.length > 0 && (
+                <Button size="sm" variant="outline" className="mt-1 h-7 text-[11px]" disabled={busy}
+                  onClick={() => void retryFailed()}>
+                  Retry {failedIds.length}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
 
         <DialogFooter className="shrink-0 gap-2 sm:justify-between">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Close</Button>
           <div className="flex gap-2">
             <Button variant="outline" disabled={busy || changes.length === 0} onClick={() => void run(false)}>
               {busy && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
@@ -410,6 +504,7 @@ export default function BulkPriceEditor({
             )}
           </div>
         </DialogFooter>
+
       </DialogContent>
     </Dialog>
   );
