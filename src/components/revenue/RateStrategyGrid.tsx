@@ -1377,13 +1377,18 @@ export default function RateStrategyGrid({
             </div>
 
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground mr-auto">
+              <Checkbox checked={pushConsent} onCheckedChange={(v) => setPushConsent(v === true)} />
+              I confirm these prices should go live in Previo
+            </label>
             <Button variant="outline" onClick={() => setPushOpen(false)}>Cancel</Button>
-            <Button onClick={() => void pushDrafts()} disabled={pushing || pending.length === 0}>
+            <Button onClick={() => void pushDrafts()} disabled={pushing || pending.length === 0 || !pushConsent}>
               {pushing && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
               Push {pending.length} change{pending.length === 1 ? "" : "s"}
             </Button>
           </DialogFooter>
+
         </DialogContent>
       </Dialog>
     </Card>
