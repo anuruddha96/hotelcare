@@ -70,31 +70,26 @@ export default function QuickRateAdjustDialog({
     return { avgFrom, avgTo };
   }, [changes]);
 
-  async function apply() {
+  async function apply(push: boolean) {
     if (!hotelId || changes.length === 0) return;
     setSaving(true);
     try {
-      const { data: auth } = await supabase.auth.getUser();
-      const rows = changes.map((c) => ({
-        hotel_id: hotelId,
-        organization_slug: organizationSlug ?? null,
-        stay_date: c.rate.stay_date,
-        obk_id: c.rate.obk_id,
-        room_type_name: c.rate.room_type_name,
-        occupancy: c.rate.occupancy,
-        old_price: c.from,
-        new_price: c.to,
-        status: "draft",
-        created_by: auth.user?.id ?? null,
-      }));
-      const { error } = await supabase.from("revenue_rate_drafts").upsert(rows, {
-        onConflict: "hotel_id,stay_date,room_type_name,occupancy,status",
+      const ids = await saveRateDrafts({
+        hotelId,
+        organizationSlug,
+        changes: changes.map((c) => ({
+          stay_date: c.rate.stay_date,
+          obk_id: c.rate.obk_id,
+          room_type_name: c.rate.room_type_name ?? "",
+          occupancy: c.rate.occupancy,
+          old_price: c.from,
+          new_price: c.to,
+        })),
       });
-      if (error) throw error;
       await logRateChanges({
         hotelId,
         organizationSlug: organizationSlug ?? null,
-        source: "day-tool",
+        source: "pickup-board",
         action: "draft_saved",
         notes: `${direction > 0 ? "+" : "−"}${amount} ${getRevenueCurrency().code} from pickup`,
         changes: changes.map((c) => ({
@@ -105,8 +100,21 @@ export default function QuickRateAdjustDialog({
           new_price: c.to,
         })),
       });
-      toast.success(`${rows.length} price${rows.length === 1 ? "" : "s"} saved as draft — not sent to Previo yet`);
-      onApplied?.();
+
+      const verb = direction > 0 ? "Raised" : "Lowered";
+      if (!push) {
+        toast.success(`${ids.length} price${ids.length === 1 ? "" : "s"} saved as draft — not sent to Previo yet`);
+        onApplied?.(`${verb} ${ids.length} price${ids.length === 1 ? "" : "s"} · draft`);
+      } else {
+        const res = await pushRateDrafts(hotelId, ids);
+        if (res.failed) {
+          toast.error(`${res.pushed} sent, ${res.failed} failed — open the price list to see why`);
+          onApplied?.(`${verb} ${res.pushed} · ${res.failed} failed`);
+        } else {
+          toast.success(`${res.pushed} price${res.pushed === 1 ? "" : "s"} sent to Previo`);
+          onApplied?.(`${verb} ${res.pushed} price${res.pushed === 1 ? "" : "s"} · sent`);
+        }
+      }
       onClose();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save the drafts");
@@ -114,6 +122,7 @@ export default function QuickRateAdjustDialog({
       setSaving(false);
     }
   }
+
 
   return (
     <Dialog open={!!target} onOpenChange={(o) => !o && onClose()}>
