@@ -46,6 +46,18 @@ export function cellKey(date: string, roomTypeName: string, occupancy: number) {
   return `${date}|${roomTypeName}|${occupancy}`;
 }
 
+/** "Today 09:14", "Yesterday 18:12", then "7 Aug 11:20". */
+export function formatWhen(iso: string): string {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.round((day(new Date()) - day(d)) / 86400000);
+  if (diffDays === 0) return `Today ${time}`;
+  if (diffDays === 1) return `Yesterday ${time}`;
+  return `${d.toLocaleDateString(undefined, { day: "numeric", month: "short" })} ${time}`;
+}
+
+
 /** Percent change, rounded to one decimal, or null when there is no base. */
 export function percentChange(from: number | null, to: number): number | null {
   if (from === null || !Number.isFinite(from) || from === 0) return null;

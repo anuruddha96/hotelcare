@@ -2,29 +2,48 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { cellKey, type RateAuditRow } from "@/lib/rateAudit";
 
+/** Sources written by a person acting in the app (not the alert engine). */
+export const HUMAN_SOURCES = ["day-tool", "cell-edit", "demand", "push", "autopilot"];
+
 /**
  * Price-change activity for one hotel: the newest entries for the activity
  * panel, plus an index by cell so the grid can show a date/room type's own
  * history on hover.
  */
-export function useRateAudit(hotelId?: string | null, limit = 400) {
+export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem = false) {
   const [rows, setRows] = useState<RateAuditRow[]>([]);
   const [names, setNames] = useState<Map<string, string>>(new Map());
+  const [systemCount, setSystemCount] = useState(0);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!hotelId) { setRows([]); return; }
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from("rate_change_audit")
         .select("id, stay_date, action, source, old_rate_eur, new_rate_eur, delta_eur, notes, performed_at, performed_by, payload")
-        .eq("hotel_id", hotelId)
+        .eq("hotel_id", hotelId);
+      // The rate-alert engine writes tens of thousands of rows with no user and
+      // no room type; without this filter they bury everything a person did.
+      if (!includeSystem) query = query.in("source", HUMAN_SOURCES);
+      const { data, error } = await query
         .order("performed_at", { ascending: false })
         .limit(limit);
       if (error) throw error;
       const list = (data ?? []) as unknown as RateAuditRow[];
       setRows(list);
+
+      if (!includeSystem) {
+        const { count } = await supabase
+          .from("rate_change_audit")
+          .select("id", { count: "exact", head: true })
+          .eq("hotel_id", hotelId)
+          .not("source", "in", `(${HUMAN_SOURCES.join(",")})`);
+        setSystemCount(count ?? 0);
+      } else {
+        setSystemCount(0);
+      }
 
       const ids = Array.from(new Set(list.map((r) => r.performed_by).filter(Boolean))) as string[];
       if (ids.length > 0) {
@@ -37,7 +56,7 @@ export function useRateAudit(hotelId?: string | null, limit = 400) {
     } finally {
       setLoading(false);
     }
-  }, [hotelId, limit]);
+  }, [hotelId, limit, includeSystem]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -54,5 +73,5 @@ export function useRateAudit(hotelId?: string | null, limit = 400) {
     return map;
   }, [rows]);
 
-  return { rows, byCell, names, loading, reload: load };
+  return { rows, byCell, names, loading, systemCount, reload: load };
 }

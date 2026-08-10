@@ -73,7 +73,7 @@ function shiftMonth(key: string, delta: number) {
  * SLNT), with a euro equivalent when an exchange rate is configured.
  */
 export default function MonthPerformanceHeader({
-  today, metrics, pickupWindowDays, onPickupWindowChange, hotelId, canEdit,
+  today, metrics, pickupWindowDays, onPickupWindowChange, hotelId, canEdit, roomsAvailable,
 }: {
   today: string;
   metrics: DayMetrics[];
@@ -81,6 +81,7 @@ export default function MonthPerformanceHeader({
   onPickupWindowChange: (days: number) => void;
   hotelId?: string | null;
   canEdit?: boolean;
+  roomsAvailable?: number;
 }) {
   const [month, setMonth] = useState(() => monthKey(today));
   const currency = useRevenueCurrency();
@@ -244,9 +245,10 @@ export default function MonthPerformanceHeader({
             How {monthLabel} is performing
           </h2>
           <span className="text-[11px] text-muted-foreground">
-            on the books today · scroll for more
+            {roomsAvailable ? `inventory: ${roomsAvailable} rooms · ` : ""}on the books today · scroll for more
           </span>
         </div>
+
 
         <div
           ref={tileScrollRef}

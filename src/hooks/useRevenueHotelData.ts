@@ -178,9 +178,15 @@ export function useRevenueHotelData(
   const inventoryFromTypes = roomTypes
     .filter((r) => r.is_sellable !== false && r.counts_toward_inventory !== false)
     .reduce((s, r) => s + (r.num_rooms || 0), 0);
+  // Safety net: Previo's nightly snapshot knows the true sellable room count.
+  // If the summed room types are wildly larger (duplicated unit groups), trust
+  // the snapshot instead of halving every occupancy figure.
+  const snapshotRooms = snapshots[0]?.rooms_available ?? 0;
+  const typesLookInflated =
+    snapshotRooms > 0 && inventoryFromTypes > snapshotRooms * 1.2;
   const roomsAvailable = sellableOverride
-    || inventoryFromTypes
-    || (snapshots[0]?.rooms_available ?? 0);
+    || (typesLookInflated ? snapshotRooms : inventoryFromTypes)
+    || snapshotRooms;
 
   const metrics = buildDayMetrics({
     from: today,
