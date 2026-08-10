@@ -3,10 +3,11 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { logRateChanges } from "@/lib/rateAudit";
 import { moneyBase, getRevenueCurrency } from "@/lib/revenueCurrency";
+import { pushRateDrafts, saveRateDrafts } from "@/lib/rateDrafts";
 import type { RoomTypeRate } from "@/lib/revenueAnalytics";
 
 const PRESETS = [2, 3, 8, 11, 22];
@@ -20,18 +21,19 @@ export interface QuickAdjustTarget {
 
 /**
  * "This date range just picked up — raise it." A tiny pricing tool opened
- * straight from a movement row: pick a preset, see what would change, save
- * drafts. Nothing reaches Previo until the usual confirmed push.
+ * straight from a movement row: pick a preset, see what would change, then
+ * either keep it as a draft or send it to Previo right away.
  */
 export default function QuickRateAdjustDialog({
-  target, hotelId, organizationSlug, rates, onClose, onApplied,
+  target, hotelId, organizationSlug, rates, canPush = false, onClose, onApplied,
 }: {
   target: QuickAdjustTarget | null;
   hotelId: string | null;
   organizationSlug: string | null;
   rates: RoomTypeRate[];
+  canPush?: boolean;
   onClose: () => void;
-  onApplied?: () => void;
+  onApplied?: (summary?: string) => void;
 }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -48,6 +50,7 @@ export default function QuickRateAdjustDialog({
     setDirection(1);
     setOnlyType(!!target.roomTypeName);
   }, [target]);
+
 
   const changes = useMemo(() => {
     if (!target || !from || !to) return [];
