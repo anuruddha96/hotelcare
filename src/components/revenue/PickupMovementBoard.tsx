@@ -57,6 +57,9 @@ export default function PickupMovementBoard({
   const [filter, setFilter] = useState<Filter>("all");
   const [open, setOpen] = useState<string | null>(null);
   const [adjust, setAdjust] = useState<QuickAdjustTarget | null>(null);
+  /** "Raised 12 prices · sent" shown on the row that was just re-priced. */
+  const [results, setResults] = useState<Record<string, string>>({});
+
 
 
   const rows = useMemo(
