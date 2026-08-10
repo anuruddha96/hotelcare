@@ -228,6 +228,20 @@ export default function RevenueHotelDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, profile?.role, hotelId]);
 
+  // Keep the page honest while it stays open: pull Previo again every few
+  // minutes, but only while the tab is actually visible.
+  useEffect(() => {
+    if (!hotelId) return;
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void runSync();
+    }, BACKGROUND_SYNC_MS);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotelId]);
+
+
+
   async function load() {
     if (!hotelId) return;
     // Pull a full ±395d window so we can show historical months plus YoY / MoM
