@@ -1179,43 +1179,19 @@ export default function RateStrategyGrid({
                     return (
                       <HoverCard key={d} openDelay={120} closeDelay={60}>
                         <HoverCardTrigger asChild>{cellButton}</HoverCardTrigger>
-                        <HoverCardContent align="center" className="w-64 p-3 text-xs">
+                        <HoverCardContent align="center" className="w-72 p-3 text-xs">
                           <p className="font-medium">{row.roomTypeName} · {row.occ}g · {d}</p>
-                          <p className="mt-1 flex justify-between">
+                          <p className="mt-1 mb-2 flex justify-between">
                             <span className="text-muted-foreground">Current price</span>
                             <span className="tabular-nums font-semibold">{moneyBase(published ?? null)}</span>
                           </p>
-                          {draft !== undefined && (
-                            <p className="flex justify-between">
-                              <span className="text-muted-foreground">Draft (not sent)</span>
-                              <span className="tabular-nums font-semibold">{moneyBase(draft)}</span>
-                            </p>
-                          )}
-                          <p className="mt-2 mb-1 flex items-center gap-1 text-muted-foreground">
-                            <History className="h-3 w-3" /> Last changes
-                          </p>
-                          <div className="space-y-1">
-                            {history.slice(0, 4).map((h) => (
-                              <div key={h.id} className="flex justify-between gap-2 tabular-nums">
-                                <span className="text-muted-foreground truncate">{auditWhen(h.performed_at)}</span>
-                                <span className="whitespace-nowrap">
-                                  {moneyBase(h.old_rate_eur)} → <strong>{moneyBase(h.new_rate_eur)}</strong>
-                                  {h.payload?.percent !== null && h.payload?.percent !== undefined && (
-                                    <span className={h.payload.percent >= 0 ? "ml-1 text-emerald-600 dark:text-emerald-400" : "ml-1 text-destructive"}>
-                                      {h.payload.percent > 0 ? "+" : ""}{h.payload.percent}%
-                                    </span>
-                                  )}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                          <p className="mt-2 text-[10px] text-muted-foreground">
-                            {history[0].source === "push" ? "Last action was sent to Previo" : "Last action was a draft"}
-                            {history[0].performed_by && auditNames.get(history[0].performed_by)
-                              ? ` by ${auditNames.get(history[0].performed_by)}`
-                              : ""}
-                          </p>
+                          <RateCellHistory
+                            history={history}
+                            names={auditNames}
+                            draftPrice={draft ?? null}
+                          />
                         </HoverCardContent>
+
                       </HoverCard>
                     );
 
