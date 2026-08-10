@@ -131,6 +131,24 @@ export default function MonthPerformanceHeader({
 
   const monthLabel = formatMonth(`${month}-01`);
 
+  /**
+   * The KPI strip drifts slowly to the left so every card gets seen on a
+   * phone; any touch, hover or manual scroll stops it for good.
+   */
+  const tileScrollRef = useRef<HTMLDivElement | null>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+  useEffect(() => {
+    const el = tileScrollRef.current;
+    if (!el || !autoScroll) return;
+    const id = window.setInterval(() => {
+      const max = el.scrollWidth - el.clientWidth;
+      if (max <= 4) return;
+      el.scrollLeft = el.scrollLeft >= max - 2 ? 0 : el.scrollLeft + 1;
+    }, 40);
+    return () => window.clearInterval(id);
+  }, [autoScroll, month]);
+
+
   const saveRate = async () => {
     const value = Number(rateInput);
     if (!hotelId || !Number.isFinite(value) || value <= 0) return;
