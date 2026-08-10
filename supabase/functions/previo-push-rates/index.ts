@@ -133,7 +133,7 @@ serve(async (req) => {
 
         await supabase.from("rate_history").insert({
           hotel_id: hotelId,
-          organization_slug: cfg.organization_slug,
+          organization_slug: hotelOrgSlug,
           stay_date: rec.stay_date,
           old_rate_eur: rec.current_rate_eur,
           new_rate_eur: rec.recommended_rate_eur,
