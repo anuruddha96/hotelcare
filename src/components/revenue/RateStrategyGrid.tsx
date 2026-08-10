@@ -1688,7 +1688,7 @@ export default function RateStrategyGrid({
 
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-base">Send price changes to Previo</DialogTitle>
+            <DialogTitle className="text-base">Price changes waiting to go live</DialogTitle>
           </DialogHeader>
           <div className="max-h-[50vh] overflow-y-auto -mx-2 px-2">
             <table className="w-full text-xs">
