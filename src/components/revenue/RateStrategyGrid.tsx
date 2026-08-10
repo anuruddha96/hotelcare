@@ -1174,24 +1174,50 @@ export default function RateStrategyGrid({
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                { label: "Peak day +10%", mode: "percent" as const, value: "10" },
-                { label: "Event +20%", mode: "percent" as const, value: "20" },
-                { label: "Soft day −5%", mode: "percent" as const, value: "-5" },
-                { label: "Last-minute −10%", mode: "percent" as const, value: "-10" },
-              ].map((p) => (
-                <Button
-                  key={p.label}
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-[11px]"
-                  onClick={() => { setDayMode(p.mode); setDayValue(p.value); }}
-                >
-                  {p.label}
-                </Button>
-              ))}
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap gap-1.5">
+                {[1, 2, 8, 11, 18, 22].map((n) => (
+                  <Button
+                    key={`up-${n}`}
+                    size="sm"
+                    variant={dayMode === "amount" && dayValue === String(n) ? "default" : "outline"}
+                    className="h-8 min-w-[62px] text-[11px]"
+                    onClick={() => { setDayMode("amount"); setDayValue(String(n)); }}
+                  >
+                    +{n} {getRevenueCurrency().code}
+                  </Button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {[-1, -2, -5].map((n) => (
+                  <Button
+                    key={`down-${n}`}
+                    size="sm"
+                    variant={dayMode === "amount" && dayValue === String(n) ? "default" : "outline"}
+                    className="h-8 min-w-[62px] text-[11px]"
+                    onClick={() => { setDayMode("amount"); setDayValue(String(n)); }}
+                  >
+                    {n} {getRevenueCurrency().code}
+                  </Button>
+                ))}
+                {[
+                  { label: "Peak +10%", value: "10" },
+                  { label: "Event +20%", value: "20" },
+                  { label: "Soft −5%", value: "-5" },
+                ].map((p) => (
+                  <Button
+                    key={p.label}
+                    size="sm"
+                    variant={dayMode === "percent" && dayValue === p.value ? "default" : "outline"}
+                    className="h-8 text-[11px]"
+                    onClick={() => { setDayMode("percent"); setDayValue(p.value); }}
+                  >
+                    {p.label}
+                  </Button>
+                ))}
+              </div>
             </div>
+
 
             <div className="grid grid-cols-3 gap-2">
               <div className="space-y-1">
