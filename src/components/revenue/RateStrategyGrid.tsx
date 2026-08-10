@@ -6,7 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, Trash2 } from "lucide-react";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, Trash2, History } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -22,6 +24,9 @@ import {
 import { getRevenueCurrency, moneyBase, useRevenueCurrency } from "@/lib/revenueCurrency";
 import type { RevenueRoomType } from "@/hooks/useRevenueHotelData";
 import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
+import { useRateAudit } from "@/hooks/useRateAudit";
+import { cellKey, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
+
 
 interface Props {
   loading: boolean;
