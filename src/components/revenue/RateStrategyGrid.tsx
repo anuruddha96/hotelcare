@@ -333,6 +333,54 @@ export default function RateStrategyGrid({
   /** When on, the grid shows only the cells flagged by the safety net. */
   const [reviewOnly, setReviewOnly] = useState(false);
 
+  /* ---- Drag across the date header to price several days at once ---- */
+  const selAnchor = useRef<string | null>(null);
+  const selLatest = useRef<string[]>([]);
+
+  /** Open the day tool for an explicit set of dates. */
+  const openDayTool = useCallback((picked: string[]) => {
+    if (picked.length === 0) return;
+    setDayTypes(new Set());
+    setDayRange(1);
+    setSelDates(new Set(picked));
+    setDayTool(picked[0]);
+  }, []);
+
+  const extendDateSelect = useCallback((d: string) => {
+    const anchor = selAnchor.current;
+    if (!anchor) return;
+    const a = allDates.indexOf(anchor);
+    const b = allDates.indexOf(d);
+    if (a < 0 || b < 0) return;
+    const span = allDates.slice(Math.min(a, b), Math.max(a, b) + 1);
+    selLatest.current = span;
+    setSelDates(new Set(span));
+  }, [allDates]);
+
+  const beginDateSelect = useCallback((d: string) => {
+    selAnchor.current = d;
+    selLatest.current = [d];
+    setSelDates(new Set([d]));
+    setSelecting(true);
+    const finish = () => {
+      window.removeEventListener("pointerup", finish);
+      setSelecting(false);
+      selAnchor.current = null;
+      openDayTool(selLatest.current);
+    };
+    window.addEventListener("pointerup", finish);
+  }, [openDayTool]);
+
+  /** "3 h ago" style stamp for the cell history card. */
+  function auditWhen(iso: string): string {
+    const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins} min ago`;
+    if (mins < 60 * 24) return `${Math.round(mins / 60)} h ago`;
+    return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+
   // obk_id -> occupancy -> stay_date -> price
   const priceMap = useMemo(() => {
     const m = new Map<string, Map<number, Map<string, number>>>();
