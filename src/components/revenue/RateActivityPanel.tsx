@@ -71,14 +71,20 @@ export default function RateActivityPanel({ hotelId, embedded }: { hotelId?: str
   }, [rows, names, filter]);
 
 
+  const Wrapper = embedded ? "div" : Card;
+  const Head = embedded ? "div" : CardHeader;
+  const Body = embedded ? "div" : CardContent;
+
   return (
-    <Card>
-      <CardHeader className="pb-3">
+    <Wrapper>
+      <Head className={embedded ? "space-y-2 pb-3" : "pb-3"}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-            <History className="h-4 w-4 text-primary" />
-            Price activity
-          </CardTitle>
+          {!embedded && (
+            <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+              <History className="h-4 w-4 text-primary" />
+              Price activity
+            </CardTitle>
+          )}
           <div className="flex items-center gap-2">
             <div className="flex rounded-md border overflow-hidden">
               {FILTERS.map((f) => (
@@ -101,8 +107,20 @@ export default function RateActivityPanel({ hotelId, embedded }: { hotelId?: str
         <p className="text-xs text-muted-foreground">
           Every price you drafted or sent to Previo, newest first — who did it, when, and by how much.
         </p>
-      </CardHeader>
-      <CardContent className="space-y-2">
+        {(systemCount > 0 || includeSystem) && (
+          <button
+            type="button"
+            className="text-[11px] text-primary underline underline-offset-2"
+            onClick={() => setIncludeSystem((v) => !v)}
+          >
+            {includeSystem
+              ? "Hide automatic system entries"
+              : `Also show ${systemCount.toLocaleString()} automatic system entries`}
+          </button>
+        )}
+      </Head>
+      <Body className="space-y-2">
+
         {batches.length === 0 && (
           <p className="text-sm text-muted-foreground">
             {loading ? "Loading…" : "No price changes recorded yet. Changes you make in the calendar show up here."}
