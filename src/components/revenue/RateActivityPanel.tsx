@@ -43,9 +43,10 @@ interface Batch {
  * "What did we do to prices?" — every draft, day-tool run and Previo push,
  * grouped into the batch the user actually performed.
  */
-export default function RateActivityPanel({ hotelId }: { hotelId?: string | null }) {
+export default function RateActivityPanel({ hotelId, embedded }: { hotelId?: string | null; embedded?: boolean }) {
   useRevenueCurrency();
-  const { rows, names, loading, reload } = useRateAudit(hotelId);
+  const [includeSystem, setIncludeSystem] = useState(false);
+  const { rows, names, loading, systemCount, reload } = useRateAudit(hotelId, 400, includeSystem);
   const [filter, setFilter] = useState<(typeof FILTERS)[number]["value"]>("all");
   const [expanded, setExpanded] = useState<string | null>(null);
 
@@ -68,6 +69,7 @@ export default function RateActivityPanel({ hotelId }: { hotelId?: string | null
     }
     return Array.from(map.values()).slice(0, 60);
   }, [rows, names, filter]);
+
 
   return (
     <Card>
