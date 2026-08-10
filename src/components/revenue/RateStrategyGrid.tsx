@@ -943,7 +943,8 @@ export default function RateStrategyGrid({
 
                   {dates.map((d, i) => {
                     const picked = selecting && selDates.has(d);
-                    return (
+                    const trail = auditByDate.get(d);
+                    const dayButton = (
                       <button
                         key={d}
                         type="button"
@@ -964,6 +965,9 @@ export default function RateStrategyGrid({
                       >
                         <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
                         <span className="font-medium">{formatDay(d)}</span>
+                        {trail && (
+                          <span className="pointer-events-none absolute left-1 top-1 h-1.5 w-1.5 rounded-full bg-primary/70" aria-hidden />
+                        )}
                         {canEditRates && (
                           <ChevronDown
                             className="pointer-events-none absolute bottom-0.5 right-1 h-3 w-3 text-primary opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
@@ -972,7 +976,34 @@ export default function RateStrategyGrid({
                         )}
                       </button>
                     );
+
+                    if (!trail) return dayButton;
+                    const who = (trail.last.performed_by && auditNames.get(trail.last.performed_by)) || "Someone";
+                    const up = trail.avgDelta >= 0;
+                    return (
+                      <HoverCard key={d} openDelay={150} closeDelay={60}>
+                        <HoverCardTrigger asChild>{dayButton}</HoverCardTrigger>
+                        <HoverCardContent align="center" className="w-64 p-3 text-xs space-y-1">
+                          <p className="font-medium">{formatWeekday(d)} {formatDay(d)} · last price update</p>
+                          <p className="tabular-nums">
+                            {trail.count} price{trail.count === 1 ? "" : "s"} changed
+                            {trail.avgDelta !== 0 && (
+                              <span className={up ? " text-emerald-600 dark:text-emerald-400" : " text-sky-600 dark:text-sky-400"}>
+                                {" "}avg {up ? "+" : "−"}{moneyBase(Math.abs(trail.avgDelta))}
+                              </span>
+                            )}
+                          </p>
+                          <p className="tabular-nums">
+                            {moneyBase(trail.last.old_rate_eur)} → <strong>{moneyBase(trail.last.new_rate_eur)}</strong>
+                          </p>
+                          <p className="text-muted-foreground">
+                            {formatWhen(trail.last.performed_at)} · {who} · {trail.last.source === "push" ? "Sent to Previo" : "Draft"}
+                          </p>
+                        </HoverCardContent>
+                      </HoverCard>
+                    );
                   })}
+
 
 
 
