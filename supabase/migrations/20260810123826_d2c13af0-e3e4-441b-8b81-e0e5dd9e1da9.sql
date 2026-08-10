@@ -1,0 +1,2 @@
+ALTER TABLE public.revenue_rate_drafts
+  DROP CONSTRAINT IF EXISTS revenue_rate_drafts_hotel_id_stay_date_room_type_name_occup_key;

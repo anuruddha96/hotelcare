@@ -35,12 +35,27 @@ export async function saveRateDrafts(opts: {
     push_error: null,
     created_by: auth.user?.id ?? null,
   }));
-  const { data, error } = await supabase
-    .from("revenue_rate_drafts")
-    .upsert(rows, { onConflict: "hotel_id,stay_date,room_type_name,occupancy,status" })
-    .select("id");
-  if (error) throw error;
-  return ((data ?? []) as Array<{ id: string }>).map((r) => r.id);
+  const ids: string[] = [];
+  for (const row of rows) {
+    const { data: existing, error: readError } = await supabase
+      .from("revenue_rate_drafts")
+      .select("id")
+      .eq("hotel_id", row.hotel_id)
+      .eq("stay_date", row.stay_date)
+      .eq("room_type_name", row.room_type_name)
+      .eq("occupancy", row.occupancy)
+      .in("status", ["draft", "failed"])
+      .maybeSingle();
+    if (readError) throw readError;
+
+    const write = existing?.id
+      ? supabase.from("revenue_rate_drafts").update(row).eq("id", existing.id).select("id").single()
+      : supabase.from("revenue_rate_drafts").insert(row).select("id").single();
+    const { data, error } = await write;
+    if (error) throw error;
+    if (data?.id) ids.push(data.id);
+  }
+  return ids;
 }
 
 export interface PushOutcome {

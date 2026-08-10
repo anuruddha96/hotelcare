@@ -29,6 +29,7 @@ import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/ra
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
+import { pushRateDrafts, saveRateDrafts } from "@/lib/rateDrafts";
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
@@ -307,8 +308,6 @@ export default function RateStrategyGrid({
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
   const [pushing, setPushing] = useState(false);
-  /** Explicit go-ahead before anything becomes live in Previo. */
-  const [, setPushConsent] = useState(false);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [removingDrafts, setRemovingDrafts] = useState(false);
@@ -323,6 +322,7 @@ export default function RateStrategyGrid({
   const auditByDate = useMemo(() => {
     const map = new Map<string, { last: (typeof auditRows)[number]; count: number; avgDelta: number }>();
     for (const r of auditRows) {
+      if (r.source !== "push") continue;
       if (!r.stay_date) continue;
       const cur = map.get(r.stay_date);
       if (!cur) map.set(r.stay_date, { last: r, count: 1, avgDelta: r.delta_eur ?? 0 });
@@ -543,32 +543,8 @@ export default function RateStrategyGrid({
   async function pushDrafts() {
     if (!hotelId || pending.length === 0) return;
     setPushing(true);
-    const attempted = pending.map((d) => ({ ...d }));
     try {
-      const { data, error } = await supabase.functions.invoke("revenue-push-drafts", {
-        body: { hotelId, draftIds: pending.map((d) => d.id) },
-      });
-      if (error) throw error;
-      const res = data as { ok?: boolean; pushed?: number; failed?: number; error?: string; pushedIds?: string[] };
-      if (res?.error || res?.ok === false) throw new Error(res?.error || "Previo refused the price push.");
-
-      const sentIds = new Set(res?.pushedIds ?? []);
-      const sent = res?.pushedIds
-        ? attempted.filter((d) => sentIds.has(d.id))
-        : res?.failed ? [] : attempted;
-      await logRateChanges({
-        hotelId,
-        organizationSlug: organizationSlug ?? null,
-        source: "push",
-        action: "pushed_to_previo",
-        changes: sent.map((d) => ({
-          stay_date: d.stay_date,
-          room_type_name: d.room_type_name,
-          occupancy: d.occupancy,
-          old_price: d.old_price,
-          new_price: Number(d.new_price),
-        })),
-      });
+      const res = await pushRateDrafts(hotelId, pending.map((d) => d.id));
       await reloadAudit();
 
       if (res?.failed) {
@@ -580,7 +556,6 @@ export default function RateStrategyGrid({
       }
       toast.success(`${res?.pushed ?? 0} price change${res?.pushed === 1 ? "" : "s"} sent to Previo`);
       setPushOpen(false);
-      setPushConsent(false);
       await refreshDrafts();
       await onRatesUpdated?.();
     } catch (e) {
@@ -679,10 +654,7 @@ export default function RateStrategyGrid({
       }
       if (rowsToSave.length === 0) { toast.error("Nothing to change with these options"); return; }
 
-      const { error } = await supabase.from("revenue_rate_drafts").upsert(rowsToSave, {
-        onConflict: "hotel_id,stay_date,room_type_name,occupancy,status",
-      });
-      if (error) throw error;
+      await saveRateDrafts({ hotelId, organizationSlug, changes: rowsToSave });
       await logRateChanges({
         hotelId,
         organizationSlug: organizationSlug ?? null,
@@ -779,27 +751,20 @@ export default function RateStrategyGrid({
         push_error: null,
         created_by: auth.user?.id ?? null,
       }));
-      const { data: savedRows, error } = await supabase
-        .from("revenue_rate_drafts")
-        .upsert(rowsToSave, { onConflict: "hotel_id,stay_date,room_type_name,occupancy,status" })
-        .select("id");
-      if (error) throw error;
-      await logRateChanges({
-        hotelId,
-        organizationSlug: organizationSlug ?? null,
-        source: "day-tool",
-        action: mode === "push" ? "pushed_to_previo" : "draft_saved",
-        notes: dayMode === "percent" ? `${dayValue}%` : dayMode === "amount" ? `${dayValue} ${getRevenueCurrency().code}` : dayMode,
-        changes: dayToolChanges.map((c) => ({
-          stay_date: c.date,
-          room_type_name: c.row.roomTypeName,
-          occupancy: c.row.occ,
-          old_price: c.from,
-          new_price: c.to,
-        })),
-      });
+      const draftIds = await saveRateDrafts({ hotelId, organizationSlug, changes: rowsToSave });
 
       if (mode === "draft") {
+        await logRateChanges({
+          hotelId,
+          organizationSlug: organizationSlug ?? null,
+          source: "day-tool",
+          action: "draft_saved",
+          notes: dayMode === "percent" ? `${dayValue}%` : dayMode === "amount" ? `${dayValue} ${getRevenueCurrency().code}` : dayMode,
+          changes: dayToolChanges.map((c) => ({
+            stay_date: c.date, room_type_name: c.row.roomTypeName, occupancy: c.row.occ,
+            old_price: c.from, new_price: c.to,
+          })),
+        });
         await Promise.all([refreshDrafts(), reloadAudit()]);
         toast.success(`${rowsToSave.length} price${rowsToSave.length === 1 ? "" : "s"} saved — not sent to Previo yet`);
         setDayTool(null);
@@ -807,16 +772,7 @@ export default function RateStrategyGrid({
         return;
       }
 
-      const draftIds = ((savedRows ?? []) as Array<{ id: string }>).map((r) => r.id);
-      const { data, error: pushErr } = await supabase.functions.invoke("revenue-push-drafts", {
-        body: { hotelId, draftIds },
-      });
-      if (pushErr) throw pushErr;
-      const res = data as {
-        ok?: boolean; pushed?: number; failed?: number; error?: string;
-        errors?: Array<{ stay_date: string; room_type_name: string; error: string }>;
-      };
-      if (res?.error || res?.ok === false) throw new Error(res?.error || "Previo refused the price update.");
+      const res = await pushRateDrafts(hotelId, draftIds);
 
       await Promise.all([refreshDrafts(), reloadAudit()]);
       await onRatesUpdated?.();
@@ -977,6 +933,8 @@ export default function RateStrategyGrid({
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-amber-200 dark:bg-amber-800 border inline-block" />below target</span>
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-emerald-400 border inline-block" />strong</span>
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
+          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary ring-2 ring-primary/25 inline-block" />confirmed in Previo</span>
+          <span className="underline decoration-dotted underline-offset-2">underlined = draft</span>
         </div>
         <p className="text-[11px] text-muted-foreground">
           Live Previo prices.
@@ -1036,7 +994,9 @@ export default function RateStrategyGrid({
                     >
                       {railed ? "»" : "«"}
                     </button>
-                    {!railed && <span className="truncate text-[10px]">{visibleMonth}</span>}
+                    <span className="min-w-0 flex-1 truncate text-[10px]" title={visibleMonth}>
+                      {railed ? visibleMonth.slice(0, 3) : visibleMonth}
+                    </span>
                   </div>
                   {monthBands(dates).map((b) => (
                     <div
@@ -1343,6 +1303,7 @@ export default function RateStrategyGrid({
                     const shown = draft ?? published;
                     const tone = rateTone(shown, thresholds);
                     const history = auditByCell.get(cellKey(d, row.roomTypeName, row.occ));
+                    const confirmedHistory = history?.filter((entry) => entry.source === "push");
                     const cellButton = (
                       <button
                         key={d}
@@ -1361,13 +1322,16 @@ export default function RateStrategyGrid({
                         style={{ width: CELL_W }}
                       >
                         {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
-                        {history && (() => {
-                          const last = Math.max(...history.map((h) => new Date(h.performed_at).getTime()));
-                          const fresh = Date.now() - last < 24 * 60 * 60 * 1000;
+                        {confirmedHistory?.length && (() => {
+                          const last = Math.max(...confirmedHistory.map((h) => new Date(h.performed_at).getTime()));
+                          const age = Date.now() - last;
+                          const fresh = age < 24 * 60 * 60 * 1000;
+                          const recent = age < 7 * 24 * 60 * 60 * 1000;
+                          if (!recent) return null;
                           return (
                             <span
                               aria-hidden
-                              className={`absolute right-0.5 top-0.5 rounded-full ${fresh ? "h-2 w-2 bg-primary ring-2 ring-primary/25" : "h-1.5 w-1.5 bg-muted-foreground/40"}`}
+                              className={`absolute right-0.5 top-0.5 h-2 w-2 rounded-full border border-primary ${fresh ? "bg-primary ring-2 ring-primary/25" : "bg-card"}`}
                             />
                           );
                         })()}
