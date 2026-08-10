@@ -11,6 +11,14 @@ export const HUMAN_SOURCES = ["day-tool", "cell-edit", "demand", "push", "autopi
  */
 export const MANUAL_SOURCES = ["day-tool", "cell-edit", "pickup-board"];
 
+/**
+ * A direct push carries no source of its own, so a short-range push (a handful
+ * of dates sent in one go) counts as hand-made work too; a season-wide bulk
+ * push does not.
+ */
+const SHORT_RANGE_DAYS = 7;
+
+
 
 /**
  * Price-change activity for one hotel: the newest entries for the activity
