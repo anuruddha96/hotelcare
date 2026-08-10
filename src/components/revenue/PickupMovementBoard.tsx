@@ -98,14 +98,14 @@ export default function PickupMovementBoard({
     return map;
   }, [nights]);
 
-  const windowStart = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - Math.max(0, windowDays - 1));
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
-  }, [windowDays]);
+  // The window is counted in Budapest calendar days, so "last 1 day" means
+  // "today in Budapest", not the last 24 hours of UTC.
+  const windowFirstDay = useMemo(
+    () => addDays(budapestToday(), -Math.max(0, windowDays - 1)),
+    [windowDays],
+  );
 
-  const inWindow = (iso: string | null) => !!iso && new Date(iso).getTime() >= windowStart;
+  const inWindow = (iso: string | null) => !!iso && budapestDayOf(iso) >= windowFirstDay;
 
   const detailsFor = (stayDate: string): DetailLine[] => {
     const lines: DetailLine[] = [];
@@ -119,6 +119,8 @@ export default function PickupMovementBoard({
         guests: n.guests,
         nights: span?.count ?? 1,
         span: span && span.from !== span.to ? `${fmtDay(span.from)} – ${fmtDay(span.to)}` : fmtDay(n.stay_date),
+        from: span?.from ?? n.stay_date,
+        to: span?.to ?? n.stay_date,
         roomType: n.room_type_name,
         value: n.nightly_price_eur ?? 0,
       });
@@ -132,12 +134,15 @@ export default function PickupMovementBoard({
         guests: null,
         nights: 1,
         span: fmtDay(c.stay_date),
+        from: c.stay_date,
+        to: c.stay_date,
         roomType: null,
         value: 0,
       });
     }
     return lines.sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
   };
+
 
   const noBaseline = rows.length > 0 && rows.every((m) => !m.baselineAvailable);
 
