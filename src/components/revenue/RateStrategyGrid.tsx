@@ -308,8 +308,6 @@ export default function RateStrategyGrid({
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
   const [pushing, setPushing] = useState(false);
-  /** Explicit go-ahead before anything becomes live in Previo. */
-  const [, setPushConsent] = useState(false);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [removingDrafts, setRemovingDrafts] = useState(false);
@@ -558,7 +556,6 @@ export default function RateStrategyGrid({
       }
       toast.success(`${res?.pushed ?? 0} price change${res?.pushed === 1 ? "" : "s"} sent to Previo`);
       setPushOpen(false);
-      setPushConsent(false);
       await refreshDrafts();
       await onRatesUpdated?.();
     } catch (e) {
