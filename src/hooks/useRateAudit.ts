@@ -93,5 +93,16 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
     return map;
   }, [rows]);
 
-  return { rows, byCell, names, loading, systemCount, reload: load };
+  /** Only hand-made, short-range changes — this drives the blue cell marker. */
+  const manualByCell = useMemo(() => {
+    const map = new Map<string, RateAuditRow[]>();
+    for (const [key, list] of byCell.entries()) {
+      const manual = list.filter((r) => r.source && MANUAL_SOURCES.includes(r.source));
+      if (manual.length > 0) map.set(key, manual);
+    }
+    return map;
+  }, [byCell]);
+
+  return { rows, byCell, manualByCell, names, loading, systemCount, reload: load };
+
 }
