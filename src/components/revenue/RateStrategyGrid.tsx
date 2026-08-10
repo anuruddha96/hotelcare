@@ -280,6 +280,13 @@ export default function RateStrategyGrid({
   const [editMode, setEditMode] = useState<"set" | "percent">("set");
   /** Whole-day price tool, opened by tapping (or dragging across) date headers. */
   const [dayTool, setDayTool] = useState<string | null>(null);
+  /** Outcome of the last direct push from the day tool. */
+  const [dayResult, setDayResult] = useState<{
+    pushed: number;
+    failed: number;
+    errors: Array<{ stay_date: string; room_type_name: string; error: string }>;
+    message?: string;
+  } | null>(null);
   const [dayMode, setDayMode] = useState<"percent" | "amount" | "set" | "round">("amount");
   const [dayValue, setDayValue] = useState("2");
   const [dayRange, setDayRange] = useState(1);
