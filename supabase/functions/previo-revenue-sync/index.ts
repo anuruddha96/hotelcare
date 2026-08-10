@@ -457,9 +457,13 @@ serve(async (req) => {
   const NON_ROOM = /breakfast|coffee|dessert|reggeli|parking|transfer|ticket|látógat|latogat|spa|massage|extra/i;
   const UNIT_GROUP = /^Room \(cap/i;
   const isNonRoom = (name: string) => NON_ROOM.test(name);
-  const hasUnitGroups = roomTypes.some((r) => UNIT_GROUP.test(r.name));
+  // The auto-seeded "Room (cap N) — X units" rows describe the SAME physical
+  // rooms as the hotel's real, named room types. When both exist, the named
+  // types are the truth and the unit groups must not be counted again —
+  // otherwise the denominator doubles and occupancy shows half of reality.
+  const hasNamedTypes = roomTypes.some((r) => !UNIT_GROUP.test(r.name) && !isNonRoom(r.name));
   const countsForInventory = (name: string) =>
-    !isNonRoom(name) && (hasUnitGroups ? UNIT_GROUP.test(name) : true);
+    !isNonRoom(name) && (hasNamedTypes ? !UNIT_GROUP.test(name) : true);
   const totalRoomsFromKinds = roomTypes
     .filter((r) => countsForInventory(r.name))
     .reduce((s, r) => s + r.numRooms, 0);
