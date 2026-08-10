@@ -1824,11 +1824,18 @@ export default function RateStrategyGrid({
             )}
           </div>
           <DialogFooter className="gap-2">
-            {selectedDraftIds.size > 0 && (
-              <Button variant="destructive" className="mr-auto" onClick={() => setRemoveConfirmOpen(true)}>
-                <Trash2 className="mr-1 h-4 w-4" />Remove ({selectedDraftIds.size})
-              </Button>
-            )}
+            <div className="mr-auto flex flex-wrap gap-2">
+              {selectedDraftIds.size > 0 && (
+                <Button variant="destructive" onClick={() => { setClearAllMode(false); setRemoveConfirmOpen(true); }}>
+                  <Trash2 className="mr-1 h-4 w-4" />Remove ({selectedDraftIds.size})
+                </Button>
+              )}
+              {pending.length > 0 && (
+                <Button variant="outline" onClick={() => { setClearAllMode(true); setRemoveConfirmOpen(true); }}>
+                  <Trash2 className="mr-1 h-4 w-4" />Clear all ({pending.length})
+                </Button>
+              )}
+            </div>
             <Button variant="ghost" onClick={() => setPushOpen(false)}>Cancel</Button>
             <Button onClick={() => void pushDrafts()} disabled={pushing || pending.length === 0}>
               {pushing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
@@ -1839,21 +1846,25 @@ export default function RateStrategyGrid({
 
         </DialogContent>
       </Dialog>
-      <Dialog open={removeConfirmOpen} onOpenChange={setRemoveConfirmOpen}>
+      <Dialog open={removeConfirmOpen} onOpenChange={(o) => { setRemoveConfirmOpen(o); if (!o) setClearAllMode(false); }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-base">Remove selected drafts?</DialogTitle>
+            <DialogTitle className="text-base">
+              {clearAllMode ? "Clear every waiting change?" : "Remove selected drafts?"}
+            </DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            This removes {selectedDraftIds.size} unsent price change{selectedDraftIds.size === 1 ? "" : "s"} from Hotel Care. Live Previo prices are not changed.
+            This removes {clearAllMode ? pending.length : selectedDraftIds.size} unsent price change
+            {(clearAllMode ? pending.length : selectedDraftIds.size) === 1 ? "" : "s"} from Hotel Care. Live Previo prices are not changed.
           </p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRemoveConfirmOpen(false)}>Keep drafts</Button>
+            <Button variant="outline" onClick={() => { setRemoveConfirmOpen(false); setClearAllMode(false); }}>Keep drafts</Button>
             <Button variant="destructive" onClick={() => void discardSelectedDrafts()} disabled={removingDrafts}>
               {removingDrafts && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-              Remove drafts
+              {clearAllMode ? "Clear all" : "Remove drafts"}
             </Button>
           </DialogFooter>
+
         </DialogContent>
       </Dialog>
     </Card>
