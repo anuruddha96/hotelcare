@@ -5,18 +5,8 @@ import { cellKey, type RateAuditRow } from "@/lib/rateAudit";
 /** Sources written by a person acting in the app (not the alert engine). */
 export const HUMAN_SOURCES = ["day-tool", "cell-edit", "demand", "push", "autopilot", "bulk-editor", "pickup-board", "previo_confirmed", "previo_external", "previo_different"];
 
-/**
- * Short-range, hand-made price work. Only these earn the blue marker on a cell:
- * a season-wide bulk edit must not sprinkle dots across every day.
- */
+/** Only rates confirmed by an authoritative Previo pull earn a cell marker. */
 export const MANUAL_SOURCES = ["previo_confirmed"];
-
-/**
- * A direct push carries no source of its own, so a short-range push (a handful
- * of dates sent in one go) counts as hand-made work too; a season-wide bulk
- * push does not.
- */
-const SHORT_RANGE_DAYS = 7;
 
 
 
@@ -128,7 +118,7 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
   }, [rows, manualRows]);
 
 
-  /** Only hand-made, short-range changes — this drives the blue cell marker. */
+  /** Only authoritatively confirmed changes drive the blue/orange marker. */
   const manualByCell = useMemo(() => {
     const map = new Map<string, RateAuditRow[]>();
     for (const r of manualRows) {

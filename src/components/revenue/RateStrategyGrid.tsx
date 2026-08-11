@@ -322,11 +322,11 @@ export default function RateStrategyGrid({
   /** Price-change trail: cell history on hover, and the activity panel below. */
   const { rows: auditRows, byCell: auditByCell, manualByCell: manualAuditByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
 
-  /** One-line "who last touched this date" summary for the date header hover. */
+  /** One-line summary of the last Previo-confirmed change on each date. */
   const auditByDate = useMemo(() => {
     const map = new Map<string, { last: (typeof auditRows)[number]; count: number; avgDelta: number }>();
     for (const r of auditRows) {
-      if (r.source !== "push") continue;
+      if (r.source !== "previo_confirmed" && r.source !== "previo_different" && r.source !== "previo_external") continue;
       if (!r.stay_date) continue;
       const cur = map.get(r.stay_date);
       if (!cur) map.set(r.stay_date, { last: r, count: 1, avgDelta: r.delta_eur ?? 0 });
@@ -1215,7 +1215,7 @@ export default function RateStrategyGrid({
                             {moneyBase(trail.last.old_rate_eur)} → <strong>{moneyBase(trail.last.new_rate_eur)}</strong>
                           </p>
                           <p className="text-muted-foreground">
-                            {formatWhen(trail.last.performed_at)} · {who} · {trail.last.source === "push" ? "Sent to Previo" : "Draft"}
+                            {formatWhen(trail.last.performed_at)} · {who} · {trail.last.source === "previo_confirmed" ? "Confirmed in Previo" : trail.last.source === "previo_different" ? "Different in Previo" : "Changed in Previo"}
                           </p>
                         </HoverCardContent>
                       </HoverCard>

@@ -952,6 +952,7 @@ serve(async (req) => {
     totalRooms,
     rates: ratePayload.length,
     reconciledDrafts,
+    divergentDrafts,
     bookingNights: nights.length,
     snapshots: snapshots.length,
     durationMs: Date.now() - started,
