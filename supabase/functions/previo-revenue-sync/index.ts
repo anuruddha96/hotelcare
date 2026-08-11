@@ -200,6 +200,27 @@ interface Night {
 }
 
 
+/**
+ * Pull the ISO 4217 code out of whatever Previo returned ("9 HUF", "<code>EUR</code>", "eur").
+ */
+function normaliseCurrencyCode(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const cleaned = raw.replace(/<[^>]*>/g, " ").toUpperCase();
+  const match = cleaned.match(/\b(EUR|HUF|USD|GBP|CZK|PLN|CHF|RON|SEK|NOK|DKK)\b/);
+  if (match) return match[1];
+  const numeric = cleaned.replace(/[^0-9]/g, "");
+  const byId: Record<string, string> = { "1": "CZK", "2": "EUR", "3": "USD", "5": "GBP", "9": "HUF" };
+  if (numeric && byId[numeric]) return byId[numeric];
+  const bare = cleaned.trim();
+  return /^[A-Z]{3}$/.test(bare) ? bare : null;
+}
+
+/** Fallback FX per 1 EUR, used only when the property has no configured rate. */
+const EUR_FX: Record<string, number> = {
+  EUR: 1, HUF: 390, USD: 1.09, GBP: 0.85, CZK: 25, PLN: 4.3, CHF: 0.94,
+  RON: 4.97, SEK: 11.2, NOK: 11.6, DKK: 7.46,
+};
+
 function parseReservationNights(xml: string, from: string, to: string): Night[] {
   const out: Night[] = [];
   /** How many room items each reservation already produced in this document. */
@@ -223,9 +244,10 @@ function parseReservationNights(xml: string, from: string, to: string): Night[] 
     const currencyRaw =
       grab(r, "currency") ?? grab(r, "currencyCode") ?? grab(r, "curr") ??
       grabAttr(r, "price", "currency") ?? grabAttr(r, "price", "code") ?? null;
-    const sourceCurrency = currencyRaw
-      ? (currencyRaw.replace(/<[^>]*>/g, "").trim().toUpperCase() || null)
-      : null;
+    // Previo sometimes nests the currency (<currency><currId>9</currId><code>HUF</code></currency>),
+    // so the raw grab can read "9 HUF". Keep only the ISO code, otherwise the
+    // conversion below never matches and forint amounts are stored as euros.
+    const sourceCurrency = normaliseCurrencyCode(currencyRaw);
     const guests = blocks(r, "guest").length || 1;
 
     const obkId = grab(grab(r, "objectKind") ?? "", "obkId") ?? grab(r, "obkId");
@@ -783,12 +805,20 @@ serve(async (req) => {
    */
   const toBase = (amount: number | null, cur: string | null): number | null => {
     if (amount === null || !Number.isFinite(amount)) return amount;
-    const c = (cur || "").toUpperCase();
+    const c = normaliseCurrencyCode(cur) ?? "";
     if (c && c === baseCurrency) return amount;
+    if (c) {
+      // Cross via EUR: a configured per-property rate wins, otherwise the
+      // fallback table — anything is better than storing forints as euros.
+      const perEurFrom = c === "EUR" ? 1 : (baseCurrency !== "EUR" && c === baseCurrency && eurRate ? eurRate : EUR_FX[c]);
+      const perEurTo = baseCurrency === "EUR" ? 1 : (eurRate || EUR_FX[baseCurrency]);
+      if (perEurFrom && perEurTo) {
+        return Math.round(((amount / perEurFrom) * perEurTo) * 100) / 100;
+      }
+      return amount;
+    }
     if (!eurRate || eurRate <= 0) return amount;
-    if (c === "EUR" && baseCurrency !== "EUR") return Math.round(amount * eurRate * 100) / 100;
-    if (baseCurrency === "EUR" && c && c !== "EUR") return Math.round((amount / eurRate) * 100) / 100;
-    if (!c && baseCurrency !== "EUR" && eurRate > 20 && amount > 0 && amount < eurRate / 2) {
+    if (baseCurrency !== "EUR" && eurRate > 20 && amount > 0 && amount < eurRate / 2) {
       return Math.round(amount * eurRate * 100) / 100;
     }
     return amount;
