@@ -13,6 +13,8 @@ import {
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
+import { HotelSwitchOverlay } from './HotelSwitchOverlay';
+
 
 export function HotelSwitcher() {
   const { profile } = useAuth();
