@@ -17,6 +17,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { addDays, budapestDayOf, eur } from "@/lib/revenueAnalytics";
 import { currencySymbol } from "@/lib/revenueCurrency";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 /* ------------------------------------------------------------------ types */
 
@@ -161,6 +162,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   const [stayFrom, setStayFrom] = useState(today);
   const [stayTo, setStayTo] = useState(addDays(today, 90));
   const [showCancelled, setShowCancelled] = useState(false);
+  const isMobile = useIsMobile();
   const [compare, setCompare] = useState<CompareKey>("goal");
   const [filter, setFilter] = useState<BookingFilter>("all");
   const [sort, setSort] = useState<SortKey>("created");
@@ -812,13 +814,14 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                   <ComposedChart data={chart} margin={{ top: 8, right: 4, left: -8, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
                     <XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                    <YAxis yAxisId="v" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={44} />
-                    <YAxis yAxisId="adr" orientation="right" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={36}
-                      domain={[0, (max: number) => Math.max(goals.targetAdr * 1.2, max * 1.1)]} />
+                    {/* Compact labels (12k) so large euro totals are never clipped. */}
+                    <YAxis yAxisId="v" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={40}
+                      tickFormatter={(v: number) => (Math.abs(v) >= 1000 ? `${Math.round(v / 100) / 10}k` : String(Math.round(v)))} />
+                    <YAxis yAxisId="adr" orientation="right" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={38}
+                      domain={[0, (max: number) => Math.max(goals.targetAdr * 1.4, max * 1.15)]} />
                     <RTooltip
                       contentStyle={{ fontSize: 11, padding: "4px 8px" }}
                       formatter={(value: unknown, name: string, item: any) => {
-                        if (name === "Room nights") return [String(value), name];
                         if (name === "Booked in this window") {
                           const n = item?.payload?.windowBookings ?? 0;
                           return [`${eur(Number(value))} · ${n} booking${n === 1 ? "" : "s"}`, name];
@@ -829,22 +832,27 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                     />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     <ReferenceLine yAxisId="adr" y={goals.targetAdr} stroke="hsl(var(--primary))" strokeDasharray="5 3"
-                      label={{ value: `ADR target ${eur(goals.targetAdr)}`, position: "insideTopRight", fontSize: 10, fill: "hsl(var(--primary))" }} />
+                      label={{ value: `ADR target ${eur(goals.targetAdr)}`, position: "right", fontSize: 10, fill: "hsl(var(--primary))" }} />
                     {/* Bars show WHEN the bookings actually landed, not the running total. */}
                     <Bar yAxisId="v" dataKey="windowValue" name="Booked in this window"
                       fill="hsl(199 89% 48% / 0.35)" barSize={14} radius={[3, 3, 0, 0]} />
                     <Area yAxisId="v" type="monotone" dataKey="value" name="Booking value" stroke="hsl(199 89% 48%)"
                       fill="hsl(199 89% 48% / 0.15)" strokeWidth={2} />
-                    <Line yAxisId="v" type="monotone" dataKey="compare" name={compareLabel} stroke="hsl(var(--muted-foreground))"
-                      strokeDasharray="4 3" strokeWidth={1.5} dot={false} connectNulls />
+                    {/* The pace/compare line is desktop-only: on a phone it just
+                        adds a fifth overlapping series. */}
+                    {!isMobile && (
+                      <Line yAxisId="v" type="monotone" dataKey="compare" name={compareLabel} stroke="hsl(var(--muted-foreground))"
+                        strokeDasharray="4 3" strokeWidth={1.5} dot={false} connectNulls />
+                    )}
                     <Line yAxisId="adr" type="monotone" dataKey="adr" name="ADR" stroke="hsl(160 84% 39%)" strokeWidth={2} dot={false} connectNulls />
-                    <Line yAxisId="adr" type="monotone" dataKey="nights" name="Room nights" stroke="hsl(28 96% 60%)" strokeWidth={1.5} dot={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
               <p className="text-[11px] text-muted-foreground">
-                Bars show what was actually booked in each two-hour window; lines show the running total,
-                room nights and ADR from 00:00 Budapest, against {compareLabel.toLowerCase()}.
+                Bars show what was actually booked in each two-hour window (left axis, {currencySymbol()});
+                the filled line is the running total since 00:00 Budapest and the green line is ADR on the
+                right axis{isMobile ? "" : `, against ${compareLabel.toLowerCase()}`}.
+                Today so far: {kpi.roomNights} room night{kpi.roomNights === 1 ? "" : "s"}.
                 End-of-day goal: {eur(goals.targetValue)} value · {goals.targetRoomNights} room nights.
               </p>
 

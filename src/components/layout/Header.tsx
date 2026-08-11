@@ -17,7 +17,7 @@ import { DirtyLinenCartBadge } from '@/components/dashboard/DirtyLinenCartBadge'
 import { TrainingHelpButtonV2 as TrainingHelpButton } from '@/components/training/v2/TrainingHelpButtonV2';
 import { InstallAppPrompt } from '@/components/InstallAppPrompt';
 import { LiveSyncIndicator } from '@/components/layout/LiveSyncIndicator';
-import { LogOut, Settings, User } from 'lucide-react';
+import { Building2, LogOut, Settings, User } from 'lucide-react';
 import hotelcareLogo from '@/assets/hotelcare-logo-mark.png';
 import { Link, useParams } from 'react-router-dom';
 import {
@@ -216,6 +216,20 @@ export function Header() {
           </div>
         </div>
       </div>
+
+      {/* Mobile: which property am I looking at? The header badge truncates,
+          so phones get a full-width, untruncated context line. */}
+      {hotelDisplayName && (
+        <div className="sm:hidden border-t border-border bg-secondary/40 px-3 py-1.5 flex items-center gap-2">
+          <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
+          <span className="text-xs font-medium truncate">{hotelDisplayName}</span>
+          {profile && (
+            <Badge variant="outline" className="ml-auto text-[10px] px-1.5 py-0 shrink-0">
+              {getRoleLabel(profile.role)}
+            </Badge>
+          )}
+        </div>
+      )}
       
       <ProfileDialog 
         open={profileDialogOpen} 

@@ -8,7 +8,8 @@ import { Bar, CartesianGrid, Cell, ComposedChart, LabelList, Legend, Line, Refer
 import { Activity } from "lucide-react";
 import type { DayMetrics } from "@/lib/revenueAnalytics";
 import { budapestToday, daysBetween } from "@/lib/revenueAnalytics";
-import { money } from "@/lib/revenueCurrency";
+import { money, currencySymbol } from "@/lib/revenueCurrency";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const RANGES = [
   { value: 14, label: "14d" },
@@ -70,10 +71,12 @@ interface Props {
 
 /** Pickup + occupancy over an adjustable horizon, peaks in red. */
 export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickupWindowChange }: Props) {
-  const [days, setDays] = useState(60);
+  const isMobile = useIsMobile();
+  // Wide bars beat a long horizon on a phone: 30 days is still readable.
+  const [days, setDays] = useState(() => (typeof window !== "undefined" && window.innerWidth < 768 ? 30 : 60));
   /** Optional series the user can layer on top of pickup. */
   const [showOcc, setShowOcc] = useState(true);
-  const [showAdr, setShowAdr] = useState(true);
+  const [showAdr, setShowAdr] = useState(false);
   const [period, setPeriod] = useState<PeriodKey>("today");
   const [customDays, setCustomDays] = useState(7);
 
@@ -93,6 +96,16 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
   /** Numbers over each bar stay readable only while the bars are wide enough. */
   const showLabels = data.length <= 45;
 
+
+  /** A tight ADR band around the real values keeps the line meaningful. */
+  const adrDomain = useMemo<[number, number]>(() => {
+    const vals = data.map((d) => d.adr).filter((v): v is number => typeof v === "number" && v > 0);
+    if (vals.length === 0) return [0, 100];
+    const lo = Math.min(...vals);
+    const hi = Math.max(...vals);
+    const pad = Math.max(10, (hi - lo) * 0.15);
+    return [Math.max(0, Math.floor((lo - pad) / 10) * 10), Math.ceil((hi + pad) / 10) * 10];
+  }, [data]);
 
   const totalPickup = useMemo(() => data.reduce((s, d) => s + (d.pickup || 0), 0), [data]);
   const peak = useMemo(() => data.reduce((best, d) => (d.pickup > (best?.pickup ?? -99) ? d : best), data[0]), [data]);
@@ -164,9 +177,9 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
           </div>
           <div className="flex rounded-md border overflow-hidden">
             <Button size="sm" variant={showOcc ? "default" : "ghost"} className="h-7 rounded-none px-2 text-xs"
-              onClick={() => setShowOcc((v) => !v)}>Occupancy</Button>
+              onClick={() => { setShowOcc((v) => (isMobile ? true : !v)); if (isMobile) setShowAdr(false); }}>Occupancy</Button>
             <Button size="sm" variant={showAdr ? "default" : "ghost"} className="h-7 rounded-none px-2 text-xs"
-              onClick={() => setShowAdr((v) => !v)}>ADR</Button>
+              onClick={() => { setShowAdr((v) => (isMobile ? true : !v)); if (isMobile) setShowOcc(false); }}>ADR</Button>
           </div>
         </div>
       </CardHeader>
@@ -182,9 +195,14 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
               <YAxis yAxisId="pickup" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={24}
                 allowDecimals={false} domain={[(min: number) => Math.min(0, min) - 1, (max: number) => Math.max(2, max) + 1]} />
               <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={30}
+                tickFormatter={(v: number) => `${v}%`}
                 hide={!showOcc} />
-              {/* ADR gets its own hidden scale — shown in the tooltip and legend. */}
-              <YAxis yAxisId="adr" orientation="right" hide domain={["dataMin - 20", "dataMax + 20"]} />
+              {/* ADR keeps a real, labelled scale so the line can be read, not
+                  just admired. It is only shown when ADR is the chosen metric. */}
+              <YAxis yAxisId="adr" orientation="right" width={44} tick={{ fontSize: 10 }} axisLine={false} tickLine={false}
+                hide={!showAdr || showOcc}
+                tickFormatter={(v: number) => `${currencySymbol()}${Math.round(v)}`}
+                domain={adrDomain} />
               {monthMarks.map((m) => (
                 <ReferenceLine
                   key={m.date} yAxisId="pickup" x={m.label} stroke="hsl(var(--foreground) / 0.35)"
@@ -235,15 +253,17 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                 <Line yAxisId="right" type="monotone" dataKey="occ" name="Occupancy" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} opacity={0.85} />
               )}
               {showAdr && (
-                <Line yAxisId="adr" type="monotone" dataKey="adr" name="ADR" stroke={ADR_COLOR} strokeWidth={1.75} strokeDasharray="4 2" dot={false} connectNulls opacity={0.8} />
+                <Line yAxisId="adr" type="monotone" dataKey="adr" name="ADR" stroke={ADR_COLOR} strokeWidth={2} dot={false} connectNulls={false} opacity={0.9} />
               )}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
         <p className="px-3 pt-2 text-[11px] text-muted-foreground">
-          Bars show net pickup (new bookings minus cancellations) for each arrival date within the
-          measurement window, on the left axis — orange to red as pickup grows, blue when it turns
-          negative. Tap a legend entry to hide or show occupancy and ADR. Dashed lines mark the
+          Bars: net pickup per arrival date (new bookings minus cancellations) inside the measurement
+          window — left axis, in rooms. Orange to red as pickup grows, blue when it turns negative.
+          The line shows {showAdr && !showOcc ? "ADR for that date on the right axis" : "occupancy for that date on the right axis, in %"}
+          {isMobile ? " — one line at a time on mobile, use the Occupancy / ADR buttons to swap." : ". Tap a legend entry to hide or show a line."}
+          {" "}Dates with no ADR yet are left blank rather than joined up. Dashed vertical lines mark the
           start of each month. Source: Previo reservations, refreshed at each sync.
         </p>
 
