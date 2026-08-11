@@ -1506,6 +1506,14 @@ export default function RateStrategyGrid({
                             />
                           );
                         })() : null}
+                        {automationByCell.get(cellKey(d, row.roomTypeName, row.occ))?.length ? (
+                          <span
+                            aria-hidden
+                            className="absolute left-0.5 bottom-0.5 h-2 w-2 rounded-full border border-purple-600 bg-purple-400"
+                          />
+                        ) : null}
+
+
 
 
                       </button>
