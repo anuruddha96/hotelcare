@@ -1524,9 +1524,26 @@ export default function RateStrategyGrid({
                     const shown = draft ?? published;
                     const tone = rateTone(shown, thresholds);
                     const history = auditByCell.get(cellKey(d, row.roomTypeName, row.occ));
-                    // The dot marks a day someone priced by hand. A bulk edit
-                    // changes the price but never adds or clears the marker.
+                    // One marker system: where this price came from, proved by
+                    // a Previo read-back. Hotel Care, the pickup automation,
+                    // someone editing in Previo, or a value that disagrees.
                     const confirmedHistory = manualAuditByCell.get(cellKey(d, row.roomTypeName, row.occ));
+                    const cellAutomation = automationByCell.get(cellKey(d, row.roomTypeName, row.occ));
+                    const cellOrigin = cellOriginByCell.get(cellKey(d, row.roomTypeName, row.occ));
+                    const originLabel = (() => {
+                      if (draft !== undefined) return "unsent draft in Hotel Care";
+                      if (!cellOrigin) return "no recorded change";
+                      const who = cellOrigin.by ? auditNames.get(cellOrigin.by) ?? "someone" : null;
+                      const when = formatWhen(cellOrigin.at);
+                      if (cellOrigin.origin === "different") {
+                        return `requested ${eur(cellOrigin.requested ?? null)}, Previo published ${eur(cellOrigin.price)} · ${when}`;
+                      }
+                      if (cellOrigin.origin === "automation") return `pickup automation · confirmed ${when}`;
+                      if (cellOrigin.origin === "previo") return `changed in Previo · ${when}`;
+                      return `Hotel Care${who ? ` · ${who}` : ""} · confirmed ${when}`;
+                    })();
+
+
 
                     const cellButton = (
                       <button
