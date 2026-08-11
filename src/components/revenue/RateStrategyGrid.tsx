@@ -1100,9 +1100,11 @@ export default function RateStrategyGrid({
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-amber-200 dark:bg-amber-800 border inline-block" />below target</span>
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-emerald-400 border inline-block" />strong</span>
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
-          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary ring-2 ring-primary/25 inline-block" />manual change · last 4h</span>
-          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-orange-300 border border-orange-500 inline-block" />manual change · older than 4h</span>
+          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary ring-2 ring-primary/25 inline-block" />Hotel Care price · last 4h</span>
+          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-orange-300 border border-orange-500 inline-block" />Hotel Care price · older</span>
           <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-purple-400 border border-purple-600 inline-block" />pickup automation</span>
+          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-amber-400 border border-amber-600 inline-block" />changed in Previo</span>
+          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-destructive border border-destructive inline-block" />landed differently</span>
           <span className="underline decoration-dotted underline-offset-2">underlined = draft</span>
         </div>
         <p className="text-[11px] text-muted-foreground">
@@ -1115,18 +1117,43 @@ export default function RateStrategyGrid({
         </p>
         {canEditRates && pending.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
-            <span className="text-xs">
-              <strong>{pending.length}</strong> price change{pending.length === 1 ? "" : "s"} waiting.
+            <span className="text-xs space-x-2">
+              {unsentDrafts.length > 0 && (
+                <span><strong>{unsentDrafts.length}</strong> waiting to send.</span>
+              )}
               {failedCount > 0 && (
-                <span className="text-destructive"> {failedCount} refused by Previo.</span>
+                <span className="text-destructive">{failedCount} refused by Previo.</span>
+              )}
+              {awaitingDrafts.length > 0 && (
+                <span className="text-muted-foreground">
+                  {awaitingDrafts.length} sent · awaiting Previo confirmation.
+                </span>
+              )}
+              {divergentDrafts.length > 0 && (
+                <span className="text-amber-600 dark:text-amber-400">
+                  {divergentDrafts.length} landed on a different price.
+                </span>
               )}
             </span>
 
-            <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
-              <Send className="h-3.5 w-3.5 mr-1" />Push to Previo
-            </Button>
+            <span className="flex items-center gap-2">
+              {(awaitingDrafts.length > 0 || divergentDrafts.length > 0) && (
+                <Button
+                  size="sm" variant="outline" className="h-8 text-xs"
+                  disabled={checkingPrevio}
+                  onClick={() => void verifyWithPrevio()}
+                >
+                  {checkingPrevio && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}Check now
+                </Button>
+              )}
+              <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
+                <Send className="h-3.5 w-3.5 mr-1" />
+                {unsentDrafts.length > 0 ? `Push ${unsentDrafts.length} to Previo` : "Review changes"}
+              </Button>
+            </span>
           </div>
         )}
+
 
       </CardHeader>
       <CardContent className="p-0">
