@@ -15,7 +15,7 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend,
-  type DayMetrics, type RoomTypeRate,
+  type BookingNight, type DayMetrics, type RoomTypeRate,
 } from "@/lib/revenueAnalytics";
 import {
   localizedRoomTypeName, occupancyTone2, pickupTone, rateTone,
@@ -42,6 +42,7 @@ interface Props {
   roomTypes: RevenueRoomType[];
   rates: RoomTypeRate[];
   metrics: DayMetrics[];
+  nights?: BookingNight[];
   pickupWindowDays: number;
   onPickupWindowChange: (days: number) => void;
   thresholds?: RevenueThresholds;
@@ -219,7 +220,7 @@ interface PendingDraft {
  * visible, and scrolling to the right end automatically extends the horizon.
  */
 export default function RateStrategyGrid({
-  loading, today, hotelId, organizationSlug, roomTypes, rates, metrics,
+  loading, today, hotelId, organizationSlug, roomTypes, rates, metrics, nights = [],
   pickupWindowDays, onPickupWindowChange, thresholds = DEFAULT_THRESHOLDS, canEditRates = false,
   demandByDate, leftByTypeDate, onRatesUpdated,
 }: Props) {
@@ -374,6 +375,7 @@ export default function RateStrategyGrid({
   const allDates = useMemo(() => dateRange(today, addDays(today, days - 1)), [today, days]);
   /** When on, the grid shows only the cells flagged by the safety net. */
   const [reviewOnly, setReviewOnly] = useState(false);
+  const [pickupOnly, setPickupOnly] = useState(false);
 
   /* ---- Drag across the date header to price several days at once ---- */
   const selAnchor = useRef<string | null>(null);
@@ -907,9 +909,20 @@ export default function RateStrategyGrid({
 
   useEffect(() => { if (suspicious === 0) setReviewOnly(false); }, [suspicious]);
 
-  const dates = reviewOnly && flagged.dateKeys.size
-    ? allDates.filter((d) => flagged.dateKeys.has(d))
-    : allDates;
+  const latestPickupByDate = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const night of nights) {
+      if (!night.created_at_pms) continue;
+      const current = map.get(night.stay_date);
+      if (!current || Date.parse(night.created_at_pms) > Date.parse(current)) map.set(night.stay_date, night.created_at_pms);
+    }
+    return map;
+  }, [nights]);
+  const dates = allDates.filter((d) => {
+    if (reviewOnly && flagged.dateKeys.size && !flagged.dateKeys.has(d)) return false;
+    if (pickupOnly && (metricByDate.get(d)?.netPickup ?? 0) === 0) return false;
+    return true;
+  });
   const rows = reviewOnly && flagged.rowKeys.size
     ? allRows.filter((r) => (r.kind === "rate" ? flagged.rowKeys.has(r.key) : r.kind !== "group"))
     : allRows;
@@ -983,12 +996,21 @@ export default function RateStrategyGrid({
             )}
             <Button
               size="sm"
-              variant="outline"
-              className="h-8 gap-1.5 text-xs"
+              variant="default"
+              className="h-8 gap-1.5 text-xs shadow-sm"
               onClick={() => setExpanded((v) => !v)}
             >
               {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
               {expanded ? "Close" : "Expand"}
+            </Button>
+
+            <Button
+              size="sm"
+              variant={pickupOnly ? "default" : "outline"}
+              className="h-8 text-xs"
+              onClick={() => setPickupOnly((value) => !value)}
+            >
+              {pickupOnly ? "All dates" : "Dates with pickup"}
             </Button>
 
 
@@ -1020,7 +1042,8 @@ export default function RateStrategyGrid({
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-amber-200 dark:bg-amber-800 border inline-block" />below target</span>
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-emerald-400 border inline-block" />strong</span>
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
-          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary ring-2 ring-primary/25 inline-block" />priced by hand for this day</span>
+          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary ring-2 ring-primary/25 inline-block" />manual change · last 4h</span>
+          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-orange-300 border border-orange-500 inline-block" />manual change · older than 4h</span>
           <span className="underline decoration-dotted underline-offset-2">underlined = draft</span>
         </div>
         <p className="text-[11px] text-muted-foreground">
@@ -1048,7 +1071,7 @@ export default function RateStrategyGrid({
 
       </CardHeader>
       <CardContent className="p-0">
-        {loading ? (
+        {loading && rows.length === 0 ? (
           <div className="p-6 flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading calendar…
           </div>
@@ -1219,16 +1242,21 @@ export default function RateStrategyGrid({
                     const m = metricByDate.get(d);
                     const pickup = m?.netPickup ?? null;
                     const tone = pickupTone(pickup, thresholds);
+                    const latestPickup = latestPickupByDate.get(d);
+                    const latestLabel = latestPickup ? new Intl.DateTimeFormat("en-GB", {
+                      timeZone: "Europe/Budapest", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit",
+                    }).format(new Date(latestPickup)) : null;
                     return (
                       <div
                         key={d}
                         title={pickup === null
                           ? `${d} · pickup not available yet`
-                          : `${d} · ${pickup > 0 ? "+" : ""}${pickup} (${tone.label}) — ${m?.newBookings ?? 0} new, ${m?.cancelledBookings ?? 0} cancelled`}
-                        className={`flex items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)}`}
+                          : `${d} · ${pickup > 0 ? "+" : ""}${pickup} (${tone.label}) — ${m?.newBookings ?? 0} new, ${m?.cancelledBookings ?? 0} cancelled${latestLabel ? ` · last pickup ${latestLabel}` : ""}`}
+                        className={`flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)}`}
                         style={{ width: CELL_W }}
                       >
-                        {pickup === null || pickup === 0 ? "·" : `${pickup > 0 ? "+" : ""}${pickup}`}
+                        <span>{pickup === null || pickup === 0 ? "·" : `${pickup > 0 ? "+" : ""}${pickup}`}</span>
+                        {latestLabel && pickup !== 0 && <span className="max-w-[56px] truncate text-[8px] font-normal opacity-80">{latestLabel}</span>}
                       </div>
                     );
                   })}
@@ -1452,11 +1480,11 @@ export default function RateStrategyGrid({
                         {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
                         {confirmedHistory?.length ? (() => {
                           const last = Math.max(...confirmedHistory.map((h) => new Date(h.performed_at).getTime()));
-                          const fresh = Date.now() - last < 24 * 60 * 60 * 1000;
+                           const fresh = Date.now() - last < 4 * 60 * 60 * 1000;
                           return (
                             <span
                               aria-hidden
-                              className={`absolute right-0.5 top-0.5 h-2 w-2 rounded-full border border-primary ${fresh ? "bg-primary ring-2 ring-primary/25" : "bg-card"}`}
+                               className={`absolute right-0.5 top-0.5 h-2 w-2 rounded-full ${fresh ? "border border-primary bg-primary ring-2 ring-primary/25" : "border border-orange-500 bg-orange-300"}`}
                             />
                           );
                         })() : null}
@@ -1875,7 +1903,7 @@ export default function RateStrategyGrid({
             )}
           </div>
 
-          <DialogFooter className="gap-2">
+          <DialogFooter className="sticky bottom-0 -mx-4 -mb-4 gap-2 border-t bg-background p-4 sm:static sm:m-0 sm:border-0 sm:p-0">
             <Button variant="ghost" onClick={() => setDayTool(null)}>Cancel</Button>
             <Button variant="outline" onClick={() => void applyDayTool("draft")} disabled={saving || dayToolChanges.length === 0}>
               Save for later

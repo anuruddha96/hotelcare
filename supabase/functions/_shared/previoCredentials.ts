@@ -305,7 +305,7 @@ ${opts.extraXml ?? ""}
     method: "POST",
     headers,
     body,
-
+    signal: AbortSignal.timeout(10_000),
   });
   const text = await resp.text();
   const errMatch = text.match(/<error>[\s\S]*?<message>([^<]*)<\/message>[\s\S]*?<\/error>/i)
