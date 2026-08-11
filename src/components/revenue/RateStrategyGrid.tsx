@@ -2115,8 +2115,11 @@ export default function RateStrategyGrid({
           </div>
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
-              Pushing sends these prices to Previo straight away. Anything Previo refuses stays here with the reason.
+              Pushing sends the {unsentDrafts.length} unsent price{unsentDrafts.length === 1 ? "" : "s"} to Previo straight away and reads them back to confirm.
+              {awaitingDrafts.length > 0 ? ` ${awaitingDrafts.length} already reached Previo and only await confirmation.` : ""}
+              {" "}Anything Previo refuses stays here with the reason.
             </p>
+
             {failedCount > 0 && (
               <div className="flex flex-wrap items-center gap-2">
                 <Button
