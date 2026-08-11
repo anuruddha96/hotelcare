@@ -44,6 +44,7 @@ Deno.serve(async (req) => {
       const { data: userRes } = await admin.auth.getUser(token);
       const user = userRes?.user;
       if (!user) return json({ error: "Not signed in" }, 401);
+      pusherLabel = user.email ?? user.id;
 
       const { data: profileRow } = await admin
         .from("profiles")
