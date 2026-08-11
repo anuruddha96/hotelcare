@@ -401,7 +401,7 @@ Deno.serve(async (req) => {
 
         await admin.from("rate_history").insert(b.drafts.map((d: any) => ({
             hotel_id: hotelId,
-            organization_slug: hotelOrgSlug ?? profile?.organization_slug ?? null,
+            organization_slug: hotelOrgSlug,
             stay_date: d.stay_date,
             old_rate_eur: d.old_price,
             new_rate_eur: d.new_price,
