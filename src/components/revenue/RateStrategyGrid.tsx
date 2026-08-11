@@ -2158,10 +2158,11 @@ export default function RateStrategyGrid({
               )}
             </div>
             <Button variant="ghost" onClick={() => setPushOpen(false)}>Cancel</Button>
-            <Button onClick={() => void pushDrafts()} disabled={pushing || pending.length === 0}>
+            <Button onClick={() => void pushDrafts()} disabled={pushing || unsentDrafts.length === 0}>
               {pushing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
-              Push {pending.length} change{pending.length === 1 ? "" : "s"}
+              Push {unsentDrafts.length} change{unsentDrafts.length === 1 ? "" : "s"}
             </Button>
+
           </DialogFooter>
 
 
