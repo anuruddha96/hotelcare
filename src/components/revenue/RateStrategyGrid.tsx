@@ -1062,6 +1062,7 @@ export default function RateStrategyGrid({
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
           <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary ring-2 ring-primary/25 inline-block" />manual change · last 4h</span>
           <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-orange-300 border border-orange-500 inline-block" />manual change · older than 4h</span>
+          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-purple-400 border border-purple-600 inline-block" />pickup automation</span>
           <span className="underline decoration-dotted underline-offset-2">underlined = draft</span>
         </div>
         <p className="text-[11px] text-muted-foreground">
