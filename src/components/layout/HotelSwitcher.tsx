@@ -115,5 +115,7 @@ export function HotelSwitcher() {
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+    </>
   );
+
 }
