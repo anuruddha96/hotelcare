@@ -59,7 +59,7 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
         .from("rate_change_audit")
         .select("id, stay_date, action, source, old_rate_eur, new_rate_eur, delta_eur, notes, performed_at, performed_by, payload")
         .eq("hotel_id", hotelId)
-        .in("source", [...MANUAL_SOURCES, "previo_external", "previo_different"])
+        .in("source", [...MANUAL_SOURCES, "previo_automation_confirmed", "previo_external", "previo_different"])
         .order("performed_at", { ascending: false })
         .limit(3000);
       setManualRows((manualData ?? []) as unknown as RateAuditRow[]);
