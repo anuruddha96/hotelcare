@@ -662,7 +662,6 @@ export default function RevenueHotelDetail() {
           <MonthPerformanceHeader
             today={live.today}
             metrics={live.metrics}
-            nights={live.nights}
             pickupWindowDays={pickupWindow}
             onPickupWindowChange={setPickupWindow}
             hotelId={hotelId ?? null}
@@ -678,6 +677,7 @@ export default function RevenueHotelDetail() {
             roomTypes={live.roomTypes}
             rates={live.rates}
             metrics={live.metrics}
+            nights={live.nights}
             thresholds={live.thresholds}
             canEditRates={revAdmin}
             pickupWindowDays={pickupWindow}
