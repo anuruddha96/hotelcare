@@ -266,9 +266,17 @@ Deno.serve(async (req) => {
           insertedKeys.has(`${d.stay_date}|${d.obk_id}|${d.occupancy}`)
         );
         if (payload.length > 0) {
+          // A cell can only carry one pending draft, so clear any stale one
+          // for the same cell before writing the automated price.
+          for (const d of payload) {
+            await admin.from("revenue_rate_drafts").delete()
+              .eq("hotel_id", d.hotel_id).eq("stay_date", d.stay_date)
+              .eq("room_type_name", d.room_type_name).eq("occupancy", d.occupancy)
+              .in("status", ["draft", "failed"]);
+          }
           const { data: drafts, error: draftErr } = await admin
             .from("revenue_rate_drafts")
-            .upsert(payload, { onConflict: "hotel_id,stay_date,obk_id,occupancy" })
+            .insert(payload)
             .select("id");
           if (draftErr) throw draftErr;
           const draftIds = ((drafts ?? []) as any[]).map((d) => d.id);
