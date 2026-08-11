@@ -28,22 +28,36 @@ Deno.serve(async (req) => {
 
   try {
     // --- caller must be signed in and allowed to push rates -------------
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const token = authHeader.replace("Bearer ", "");
-    if (!token) return json({ error: "Not signed in" }, 401);
+    // The pickup automation engine runs with no human in the loop, so it
+    // authenticates with the service-role key instead of a user session.
+    const engineKey = req.headers.get("x-engine-key") ?? "";
+    const isEngine = engineKey.length > 0 &&
+      engineKey === (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "\u0000");
 
-    const { data: userRes } = await admin.auth.getUser(token);
-    const user = userRes?.user;
-    if (!user) return json({ error: "Not signed in" }, 401);
+    let profile: { role: string; assigned_hotel: string | null; organization_slug: string | null } | null = null;
+    let pusherLabel = "pickup automation";
 
-    const { data: profile } = await admin
-      .from("profiles")
-      .select("role, assigned_hotel, organization_slug")
-      .eq("id", user.id)
-      .maybeSingle();
 
-    if (!profile || !PUSH_ROLES.includes(String(profile.role))) {
-      return json({ error: "You do not have permission to push rates" }, 403);
+    if (!isEngine) {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      const token = authHeader.replace("Bearer ", "");
+      if (!token) return json({ error: "Not signed in" }, 401);
+
+      const { data: userRes } = await admin.auth.getUser(token);
+      const user = userRes?.user;
+      if (!user) return json({ error: "Not signed in" }, 401);
+      pusherLabel = user.email ?? user.id;
+
+      const { data: profileRow } = await admin
+        .from("profiles")
+        .select("role, assigned_hotel, organization_slug")
+        .eq("id", user.id)
+        .maybeSingle();
+      profile = profileRow as any;
+
+      if (!profile || !PUSH_ROLES.includes(String(profile.role))) {
+        return json({ error: "You do not have permission to push rates" }, 403);
+      }
     }
 
     const body = await req.json().catch(() => ({}));
@@ -52,9 +66,10 @@ Deno.serve(async (req) => {
     const requestedRunId: string | null = typeof body.pushRunId === "string" ? body.pushRunId : null;
     if (!hotelId) return json({ error: "hotelId is required" }, 400);
 
-    if (profile.role !== "admin" && profile.assigned_hotel && profile.assigned_hotel !== hotelId) {
+    if (profile && profile.role !== "admin" && profile.assigned_hotel && profile.assigned_hotel !== hotelId) {
       return json({ error: "You can only push rates for your own hotel" }, 403);
     }
+
 
     // --- PMS config + rate-plan mapping ---------------------------------
     // SLNT-style hotels have no pms_configurations row at all (they run on
@@ -314,12 +329,12 @@ Deno.serve(async (req) => {
 
         await admin.from("rate_history").insert(g.drafts.map((d) => ({
             hotel_id: hotelId,
-            organization_slug: hotelOrgSlug ?? profile.organization_slug ?? null,
+            organization_slug: hotelOrgSlug ?? profile?.organization_slug ?? null,
             stay_date: d.stay_date,
             old_rate_eur: d.old_price,
             new_rate_eur: d.new_price,
-            source: "manual_push",
-            notes: `${d.room_type_name} · ${d.occupancy} guest(s) · ${result.method} · accepted by Previo, queued for sync confirmation · pushed by ${user.email ?? user.id}`,
+            source: isEngine ? "pickup_automation" : "manual_push",
+            notes: `${d.room_type_name} · ${d.occupancy} guest(s) · ${result.method} · accepted by Previo, queued for sync confirmation · pushed by ${pusherLabel}`,
           })));
         return { pushedIds: successfulIds, failedIds: [], errors: [] };
       } catch (e) {
@@ -359,7 +374,7 @@ Deno.serve(async (req) => {
       direction: "to_previo",
       hotel_id: hotelId,
       sync_status: failed === 0 ? "success" : pushed === 0 ? "failed" : "partial",
-      data: { pushRunId, pushed, failed, verified, method: writeMethod, errors: errors.slice(0, 10), by: user.email ?? user.id },
+      data: { pushRunId, pushed, failed, verified, method: writeMethod, errors: errors.slice(0, 10), by: pusherLabel },
       error_message: failed > 0 ? errors[0]?.error : null,
     });
 

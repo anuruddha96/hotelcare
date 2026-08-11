@@ -13,14 +13,45 @@ interface Tier { max_days: number | null; increase: number; }
 interface Rule {
   id?: string; name: string; is_enabled: boolean; auto_publish: boolean;
   booking_window_tiers: Tier[]; same_hour_window_minutes: number;
-  second_pickup_surcharge: number; minimum_adr: number | null; version: number;
+  second_pickup_surcharge: number; minimum_adr: number | null;
+  max_daily_increase_per_date: number; last_run_at?: string | null; version: number;
 }
 
 const DEFAULT_RULE: Rule = {
   name: "Pickup pricing", is_enabled: false, auto_publish: true,
   booking_window_tiers: [{ max_days: 31, increase: 8 }, { max_days: 93, increase: 18 }, { max_days: null, increase: 22 }],
-  same_hour_window_minutes: 60, second_pickup_surcharge: 25, minimum_adr: 120, version: 1,
+  same_hour_window_minutes: 60, second_pickup_surcharge: 25, minimum_adr: 120,
+  max_daily_increase_per_date: 40, version: 1,
 };
+
+/** Turns the saved numbers into sentences a non-technical owner can check. */
+function explain(rule: Rule): string[] {
+  const tiers = rule.booking_window_tiers ?? [];
+  const lines: string[] = [];
+  lines.push(
+    "When a new booking arrives for a stay date, every room type and guest count on that one date goes up. No other dates are touched.",
+  );
+  tiers.forEach((tier, index) => {
+    const window = tier.max_days === null
+      ? "more than 3 months away"
+      : index === 0
+        ? "within the next month"
+        : `${tiers[index - 1]?.max_days ?? 0}–${tier.max_days} days away`;
+    lines.push(`If the stay date is ${window}: add €${tier.increase} to that date.`);
+  });
+  lines.push(
+    `If a third booking lands for the same date inside ${rule.same_hour_window_minutes} minutes, that date gets €${rule.second_pickup_surcharge} instead — demand is spiking.`,
+  );
+  if (rule.minimum_adr) lines.push(`Prices are never published below €${rule.minimum_adr}.`);
+  lines.push(`A single date can rise at most €${rule.max_daily_increase_per_date} in one day, no matter how many bookings arrive.`);
+  lines.push(
+    rule.auto_publish
+      ? "Matched changes are sent to Previo automatically and appear in the calendar with an automation marker."
+      : "Matched changes are only suggested — you publish them yourself from the calendar.",
+  );
+  return lines;
+}
+
 
 export default function PickupAutomationRules({ hotelId, organizationSlug }: Props) {
   const [rule, setRule] = useState<Rule>(DEFAULT_RULE);
@@ -51,7 +82,9 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       booking_window_tiers: rule.booking_window_tiers,
       same_hour_window_minutes: rule.same_hour_window_minutes,
       second_pickup_surcharge: rule.second_pickup_surcharge,
-      minimum_adr: rule.minimum_adr, version: rule.version + (rule.id ? 1 : 0),
+      minimum_adr: rule.minimum_adr,
+      max_daily_increase_per_date: rule.max_daily_increase_per_date,
+      version: rule.version + (rule.id ? 1 : 0),
       created_by: auth.user?.id ?? null, updated_by: auth.user?.id ?? null,
     };
     const { data, error } = await supabase.from("revenue_pickup_automation_rules")
@@ -92,8 +125,25 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
               </div>
             </div>
             <div className="space-y-3 border-t pt-4">
-              <div><Label className="text-xs">Minimum ADR (€)</Label><Input type="number" value={rule.minimum_adr ?? ""} onChange={(e) => setRule({ ...rule, minimum_adr: e.target.value ? Number(e.target.value) : null })} /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label className="text-xs">Minimum ADR (€)</Label><Input type="number" value={rule.minimum_adr ?? ""} onChange={(e) => setRule({ ...rule, minimum_adr: e.target.value ? Number(e.target.value) : null })} /></div>
+                <div><Label className="text-xs">Max rise per date, per day (€)</Label><Input type="number" value={rule.max_daily_increase_per_date} onChange={(e) => setRule({ ...rule, max_daily_increase_per_date: Number(e.target.value) })} /></div>
+              </div>
               <div className="flex items-center justify-between"><Label>Publish matched changes to Previo</Label><Switch checked={rule.auto_publish} onCheckedChange={(auto_publish) => setRule({ ...rule, auto_publish })} /></div>
+            </div>
+
+            <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
+              <p className="text-sm font-medium">What this rule does, in plain words</p>
+              <ul className="space-y-1.5 text-xs text-muted-foreground">
+                {explain(rule).map((line, index) => (
+                  <li key={index} className="flex gap-2"><span>•</span><span>{line}</span></li>
+                ))}
+              </ul>
+              {rule.last_run_at && (
+                <p className="pt-1 text-[11px] text-muted-foreground">
+                  Last checked {new Date(rule.last_run_at).toLocaleString()} · runs every 15 minutes.
+                </p>
+              )}
             </div>
           </div>
         )}

@@ -14,6 +14,7 @@ import { Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader
 import { formatDistanceToNow } from "date-fns";
 import { ComposedChart, Area, Bar, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
+import PortfolioComparisonPanel from "@/components/revenue/PortfolioComparisonPanel";
 import { MainTabsBar } from "@/components/layout/MainTabsBar";
 import { Header } from "@/components/layout/Header";
 import { isRevenueAdmin, canSeeRevenuePortfolio } from "@/lib/roleAccess";
@@ -354,6 +355,11 @@ export default function Revenue() {
         <SummaryStat label="Pending recs" value={hotels.reduce((a, h) => a + h.pending_recs, 0)} highlight={hotels.some((h) => h.pending_recs > 0)} />
         <SummaryStat label="Abnormal pickups" value={hotels.filter((h) => h.abnormal).length} danger={hotels.some((h) => h.abnormal)} />
       </div>
+
+      <PortfolioComparisonPanel
+        hotels={hotels.map((h) => ({ hotel_id: h.hotel_id, hotel_name: h.hotel_name }))}
+      />
+
 
       {liveSync.enabled && (() => {
         const rev = liveSync.tasks.revenue;

@@ -183,10 +183,23 @@ serve(async (req) => {
       const hotelKeys = Array.from(new Set([hotelCareHotelId, (hotelCfgForKeys as any)?.hotel_name].filter(Boolean)));
       const canonicalHotelName = (hotelCfgForKeys as any)?.hotel_name || hotelCareHotelId;
 
+      // Properties like Gozsdu Court reuse the same digits across different
+      // unit prefixes ("ST-109" and "AP-109"). Collapsing both to "109" made
+      // two physical rooms fight over one HotelCare row, so ambiguous numbers
+      // keep the full Previo name instead.
+      const numberCounts = new Map<string, number>();
+      for (const r of roomsData) {
+        const n = extractRoomNumber(r.name);
+        numberCounts.set(n, (numberCounts.get(n) ?? 0) + 1);
+      }
+
       for (const r of roomsData) {
         try {
           const rawName = r.name;
-          const roomNumber = extractRoomNumber(rawName);
+          const extracted = extractRoomNumber(rawName);
+          const roomNumber = (numberCounts.get(extracted) ?? 0) > 1
+            ? String(rawName ?? '').trim()
+            : extracted;
           const roomType = r.roomKindName || '';
           const roomCategory = r.roomKindName || null;
           const capacity = (r.capacity ?? 0) + (r.extraCapacity ?? 0);
