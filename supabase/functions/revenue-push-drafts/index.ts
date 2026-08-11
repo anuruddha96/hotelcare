@@ -7,7 +7,7 @@
 // draft so a partial failure is visible instead of silent.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadPrevioCredentials } from "../_shared/previoCredentials.ts";
-import { readPrevioRateLevels, writePrevioRate } from "../_shared/previoRateWrite.ts";
+import { writePrevioRate } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 
 
@@ -174,6 +174,14 @@ Deno.serve(async (req) => {
 
 
 
+    const pushRunId = crypto.randomUUID();
+    const draftIdList = (drafts as any[]).map((draft) => draft.id);
+    await admin.from("revenue_rate_drafts").update({
+      push_run_id: pushRunId,
+      claimed_at: new Date().toISOString(),
+      confirmation_status: "sending",
+    }).in("id", draftIdList);
+
     let pushed = 0;
     const pushedIds: string[] = [];
 
@@ -222,26 +230,43 @@ Deno.serve(async (req) => {
       }
     }
 
-    for (const g of groups.values()) {
+    const groupList = Array.from(groups.values());
+    const stayDates = groupList.map((group) => group.stay_date).sort();
+    const { data: storedRateRows } = await admin
+      .from("revenue_room_type_rates")
+      .select("stay_date, obk_id, occupancy, price")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", stayDates[0])
+      .lte("stay_date", stayDates[stayDates.length - 1]);
+    const storedLevels = new Map<string, Map<number, number>>();
+    for (const row of (storedRateRows ?? []) as any[]) {
+      const key = `${row.stay_date}|${String(row.obk_id).split(":").pop()}`;
+      const levels = storedLevels.get(key) ?? new Map<number, number>();
+      levels.set(Math.max(1, Number(row.occupancy) || 1), Number(row.price));
+      storedLevels.set(key, levels);
+    }
+
+    type GroupResult = { pushedIds: string[]; failedIds: string[]; errors: typeof errors };
+    const processGroup = async (g: Group): Promise<GroupResult> => {
       const creds = g.account.creds;
       const pmsHotelId = g.account.hotId;
       try {
-        const published = await readPrevioRateLevels({
-          creds,
-          pmsHotelId,
-          date: g.stay_date,
-          obkId: g.obkId,
-          prlId: g.prlId,
-        });
-
-
-        const wanted = new Map<number, number>(published);
+        // Use the latest HotelCare mirror as the unchanged occupancy baseline.
+        // This removes two Previo reads per room/date from the hot path while
+        // still sending the gap-free ladder required by EQC error 3092.
+        const wanted = new Map<number, number>(storedLevels.get(`${g.stay_date}|${g.obkId}`) ?? []);
         for (const d of g.drafts) {
           wanted.set(Math.max(1, Math.round(Number(d.occupancy) || 2)), Number(d.new_price));
         }
-        const levels = Array.from(wanted.entries())
-          .sort((a, b) => a[0] - b[0])
-          .map(([occupancy, price]) => ({ occupancy, price }));
+        const maxOccupancy = Math.max(...wanted.keys());
+        const firstKnown = Array.from(wanted.entries()).sort((a, b) => a[0] - b[0])[0]?.[1];
+        if (!Number.isFinite(firstKnown)) throw new Error("No valid occupancy price is available for this room type.");
+        const levels: Array<{ occupancy: number; price: number }> = [];
+        let previous = firstKnown;
+        for (let occupancy = 1; occupancy <= maxOccupancy; occupancy += 1) {
+          previous = wanted.get(occupancy) ?? previous;
+          levels.push({ occupancy, price: previous });
+        }
 
         const result = await writePrevioRate({
           creds,
@@ -274,111 +299,67 @@ Deno.serve(async (req) => {
             .eq("hotel_id", hotelId);
         }
 
-        // Prove it landed: read the prices straight back from Previo.
-        const readBack = await readPrevioRateLevels({
-          creds,
-          pmsHotelId,
-          date: g.stay_date,
-          obkId: g.obkId,
-          prlId: g.prlId,
-        });
-
-        // Previo accepted the write. When the read-back says nothing (its
-        // getRates answer is not always available straight after a write),
-        // trust what we just sent instead of leaving a stale price in the
-        // grid — that is what made pushed changes look like drafts.
-        const confirmed = readBack.size > 0;
-        const effective = confirmed ? readBack : new Map<number, number>(
-          levels.map((l) => [l.occupancy, l.price] as const),
-        );
-
         // Bring Hotel Care's own price list in line with what Previo now
         // publishes, so the grid shows the confirmed price immediately
         // instead of the stale one until the next revenue sync.
         const gridObkId = String(g.drafts[0]?.obk_id ?? g.obkId);
-        for (const [occ, price] of effective.entries()) {
-          const { data: updated } = await admin
-            .from("revenue_room_type_rates")
-            .update({
-              price,
-              currency: g.currency,
-              source: "previo_push",
-              captured_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq("hotel_id", hotelId)
-            .eq("stay_date", g.stay_date)
-            .eq("obk_id", gridObkId)
-            .eq("rate_plan_id", g.prlId)
-            .eq("occupancy", occ)
-            .select("id");
+        const now = new Date().toISOString();
+        const localRates = levels.map(({ occupancy, price }) => ({
+          hotel_id: hotelId, organization_slug: hotelOrgSlug ?? profile.organization_slug ?? "",
+          stay_date: g.stay_date, obk_id: gridObkId, room_type_name: g.room_type_name,
+          rate_plan_id: g.prlId, occupancy, price, currency: g.currency,
+          source: "previo_push", captured_at: now, updated_at: now,
+        }));
+        const { error: localRateError } = await admin.from("revenue_room_type_rates")
+          .upsert(localRates, { onConflict: "hotel_id,stay_date,obk_id,rate_plan_id,occupancy" });
+        if (localRateError) throw new Error(`Previo accepted the price, but Hotel Care could not refresh its grid: ${localRateError.message}`);
 
-          if (!updated || updated.length === 0) {
-            await admin.from("revenue_room_type_rates").upsert({
-              hotel_id: hotelId,
-              organization_slug: hotelOrgSlug ?? profile.organization_slug ?? "",
-              stay_date: g.stay_date,
-              obk_id: gridObkId,
-              room_type_name: g.room_type_name,
-              rate_plan_id: g.prlId,
-              occupancy: occ,
-              price,
-              currency: g.currency,
-              source: "previo_push",
-              captured_at: new Date().toISOString(),
-            }, { onConflict: "hotel_id,stay_date,obk_id,rate_plan_id,occupancy" });
-          }
-        }
+        const successfulIds = g.drafts.map((draft) => draft.id);
+        const { error: finalizeError } = await admin.from("revenue_rate_drafts").update({
+          status: "pushed", pushed_at: now, push_error: null,
+          confirmation_status: "sent", push_attempt_count: 1,
+        }).in("id", successfulIds);
+        if (finalizeError) throw new Error(`Previo accepted the price, but Hotel Care could not finalize it: ${finalizeError.message}`);
 
-
-        for (const d of g.drafts) {
-          const occ = Math.max(1, Math.round(Number(d.occupancy) || 2));
-          const back = readBack.get(occ) ?? null;
-          const isVerified = back !== null && Math.round(back) === Math.round(Number(d.new_price));
-          if (isVerified) verified += 1;
-
-          const { error: finalizeError } = await admin.from("revenue_rate_drafts")
-            .update({
-              status: "pushed",
-              pushed_at: new Date().toISOString(),
-              push_error: isVerified
-                ? null
-                : back === null
-                  ? "Sent to Previo — awaiting confirmation from the next sync."
-                  : `Sent to Previo, but Previo reports ${back}. Re-sync to confirm.`,
-            })
-            .eq("id", d.id);
-          if (finalizeError) {
-            throw new Error(`Previo accepted the price, but Hotel Care could not finalize it: ${finalizeError.message}`);
-          }
-
-          await admin.from("rate_history").insert({
+        await admin.from("rate_history").insert(g.drafts.map((d) => ({
             hotel_id: hotelId,
             organization_slug: hotelOrgSlug ?? profile.organization_slug ?? null,
             stay_date: d.stay_date,
             old_rate_eur: d.old_price,
             new_rate_eur: d.new_price,
             source: "manual_push",
-            notes: `${d.room_type_name} · ${d.occupancy} guest(s) · ${result.method} · ${isVerified ? "verified in Previo" : "sent, awaiting confirmation"} · pushed by ${user.email ?? user.id}`,
-          });
-
-          pushed += 1;
-          pushedIds.push(d.id);
-
-        }
-
+            notes: `${d.room_type_name} · ${d.occupancy} guest(s) · ${result.method} · accepted by Previo, queued for sync confirmation · pushed by ${user.email ?? user.id}`,
+          })));
+        return { pushedIds: successfulIds, failedIds: [], errors: [] };
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
-        for (const d of g.drafts) {
-          failed += 1;
-          errors.push({ stay_date: d.stay_date, room_type_name: d.room_type_name, error: message });
-          const { error: failedUpdateError } = await admin.from("revenue_rate_drafts")
-            .update({ status: "failed", push_error: message.slice(0, 500) })
-            .eq("id", d.id);
-          if (failedUpdateError) console.error("could not persist failed rate push", d.id, failedUpdateError.message);
-        }
+        const failedIds = g.drafts.map((draft) => draft.id);
+        const groupErrors = g.drafts.map((d) => ({ stay_date: d.stay_date, room_type_name: d.room_type_name, error: message }));
+        await admin.from("revenue_rate_drafts").update({
+          status: "failed", push_error: message.slice(0, 500),
+          confirmation_status: "failed", push_attempt_count: 1,
+        }).in("id", failedIds);
         console.error("rate push failed", g.stay_date, g.obkId, message);
+        return { pushedIds: [], failedIds, errors: groupErrors };
       }
+    };
+
+    // Different date/room-type groups are independent. A small concurrency
+    // pool cuts wall time drastically without flooding Previo.
+    const results: GroupResult[] = [];
+    const concurrency = 5;
+    let nextGroup = 0;
+    await Promise.all(Array.from({ length: Math.min(concurrency, groupList.length) }, async () => {
+      while (nextGroup < groupList.length) {
+        const index = nextGroup++;
+        results[index] = await processGroup(groupList[index]);
+      }
+    }));
+    for (const result of results) {
+      pushed += result.pushedIds.length;
+      failed += result.failedIds.length;
+      pushedIds.push(...result.pushedIds);
+      errors.push(...result.errors);
     }
 
 
@@ -387,11 +368,11 @@ Deno.serve(async (req) => {
       direction: "to_previo",
       hotel_id: hotelId,
       sync_status: failed === 0 ? "success" : pushed === 0 ? "failed" : "partial",
-      data: { pushed, failed, verified, method: writeMethod, errors: errors.slice(0, 10), by: user.email ?? user.id },
+      data: { pushRunId, pushed, failed, verified, method: writeMethod, errors: errors.slice(0, 10), by: user.email ?? user.id },
       error_message: failed > 0 ? errors[0]?.error : null,
     });
 
-    return json({ ok: true, pushed, pushedIds, failed, verified, method: writeMethod, errors });
+    return json({ ok: true, pushRunId, pushed, pushedIds, failed, verified, method: writeMethod, errors });
   } catch (e) {
     console.error("revenue-push-drafts error", e);
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
