@@ -35,6 +35,8 @@ Deno.serve(async (req) => {
       engineKey === (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "\u0000");
 
     let profile: { role: string; assigned_hotel: string | null; organization_slug: string | null } | null = null;
+    let pusherLabel = "pickup automation";
+
 
     if (!isEngine) {
       const authHeader = req.headers.get("Authorization") ?? "";
