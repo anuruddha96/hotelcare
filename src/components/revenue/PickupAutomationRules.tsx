@@ -13,14 +13,45 @@ interface Tier { max_days: number | null; increase: number; }
 interface Rule {
   id?: string; name: string; is_enabled: boolean; auto_publish: boolean;
   booking_window_tiers: Tier[]; same_hour_window_minutes: number;
-  second_pickup_surcharge: number; minimum_adr: number | null; version: number;
+  second_pickup_surcharge: number; minimum_adr: number | null;
+  max_daily_increase_per_date: number; last_run_at?: string | null; version: number;
 }
 
 const DEFAULT_RULE: Rule = {
   name: "Pickup pricing", is_enabled: false, auto_publish: true,
   booking_window_tiers: [{ max_days: 31, increase: 8 }, { max_days: 93, increase: 18 }, { max_days: null, increase: 22 }],
-  same_hour_window_minutes: 60, second_pickup_surcharge: 25, minimum_adr: 120, version: 1,
+  same_hour_window_minutes: 60, second_pickup_surcharge: 25, minimum_adr: 120,
+  max_daily_increase_per_date: 40, version: 1,
 };
+
+/** Turns the saved numbers into sentences a non-technical owner can check. */
+function explain(rule: Rule): string[] {
+  const tiers = rule.booking_window_tiers ?? [];
+  const lines: string[] = [];
+  lines.push(
+    "When a new booking arrives for a stay date, every room type and guest count on that one date goes up. No other dates are touched.",
+  );
+  tiers.forEach((tier, index) => {
+    const window = tier.max_days === null
+      ? "more than 3 months away"
+      : index === 0
+        ? "within the next month"
+        : `${tiers[index - 1]?.max_days ?? 0}–${tier.max_days} days away`;
+    lines.push(`If the stay date is ${window}: add €${tier.increase} to that date.`);
+  });
+  lines.push(
+    `If a third booking lands for the same date inside ${rule.same_hour_window_minutes} minutes, that date gets €${rule.second_pickup_surcharge} instead — demand is spiking.`,
+  );
+  if (rule.minimum_adr) lines.push(`Prices are never published below €${rule.minimum_adr}.`);
+  lines.push(`A single date can rise at most €${rule.max_daily_increase_per_date} in one day, no matter how many bookings arrive.`);
+  lines.push(
+    rule.auto_publish
+      ? "Matched changes are sent to Previo automatically and appear in the calendar with an automation marker."
+      : "Matched changes are only suggested — you publish them yourself from the calendar.",
+  );
+  return lines;
+}
+
 
 export default function PickupAutomationRules({ hotelId, organizationSlug }: Props) {
   const [rule, setRule] = useState<Rule>(DEFAULT_RULE);
