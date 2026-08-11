@@ -662,11 +662,12 @@ export default function RateStrategyGrid({
 
   /** Send the confirmed drafts to Previo. Nothing leaves the app before this. */
   async function pushDrafts() {
-    if (!hotelId || pending.length === 0) return;
+    if (!hotelId || unsentDrafts.length === 0) return;
     setPushing(true);
     try {
-      const retryable = pending.filter((d) => d.status === "draft" || d.status === "failed");
+      const retryable = unsentDrafts;
       if (retryable.length === 0) {
+
         toast.message("These prices are waiting for the next Previo sync or need review.");
         await onRatesUpdated?.();
         return;
