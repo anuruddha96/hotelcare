@@ -1615,10 +1615,12 @@ export default function RateStrategyGrid({
                         <HoverCardTrigger asChild>{cellButton}</HoverCardTrigger>
                         <HoverCardContent align="center" className="w-72 p-3 text-xs">
                           <p className="font-medium">{row.roomTypeName} · {row.occ}g · {d}</p>
+                          <p className="text-[11px] text-muted-foreground capitalize-first">{originLabel}</p>
                           <p className="mt-1 mb-2 flex justify-between">
                             <span className="text-muted-foreground">Current price</span>
                             <span className="tabular-nums font-semibold">{moneyBase(published ?? null)}</span>
                           </p>
+
                           <RateCellHistory
                             history={history}
                             names={auditNames}
