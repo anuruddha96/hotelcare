@@ -28,22 +28,33 @@ Deno.serve(async (req) => {
 
   try {
     // --- caller must be signed in and allowed to push rates -------------
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const token = authHeader.replace("Bearer ", "");
-    if (!token) return json({ error: "Not signed in" }, 401);
+    // The pickup automation engine runs with no human in the loop, so it
+    // authenticates with the service-role key instead of a user session.
+    const engineKey = req.headers.get("x-engine-key") ?? "";
+    const isEngine = engineKey.length > 0 &&
+      engineKey === (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "\u0000");
 
-    const { data: userRes } = await admin.auth.getUser(token);
-    const user = userRes?.user;
-    if (!user) return json({ error: "Not signed in" }, 401);
+    let profile: { role: string; assigned_hotel: string | null; organization_slug: string | null } | null = null;
 
-    const { data: profile } = await admin
-      .from("profiles")
-      .select("role, assigned_hotel, organization_slug")
-      .eq("id", user.id)
-      .maybeSingle();
+    if (!isEngine) {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      const token = authHeader.replace("Bearer ", "");
+      if (!token) return json({ error: "Not signed in" }, 401);
 
-    if (!profile || !PUSH_ROLES.includes(String(profile.role))) {
-      return json({ error: "You do not have permission to push rates" }, 403);
+      const { data: userRes } = await admin.auth.getUser(token);
+      const user = userRes?.user;
+      if (!user) return json({ error: "Not signed in" }, 401);
+
+      const { data: profileRow } = await admin
+        .from("profiles")
+        .select("role, assigned_hotel, organization_slug")
+        .eq("id", user.id)
+        .maybeSingle();
+      profile = profileRow as any;
+
+      if (!profile || !PUSH_ROLES.includes(String(profile.role))) {
+        return json({ error: "You do not have permission to push rates" }, 403);
+      }
     }
 
     const body = await req.json().catch(() => ({}));
@@ -52,9 +63,10 @@ Deno.serve(async (req) => {
     const requestedRunId: string | null = typeof body.pushRunId === "string" ? body.pushRunId : null;
     if (!hotelId) return json({ error: "hotelId is required" }, 400);
 
-    if (profile.role !== "admin" && profile.assigned_hotel && profile.assigned_hotel !== hotelId) {
+    if (profile && profile.role !== "admin" && profile.assigned_hotel && profile.assigned_hotel !== hotelId) {
       return json({ error: "You can only push rates for your own hotel" }, 403);
     }
+
 
     // --- PMS config + rate-plan mapping ---------------------------------
     // SLNT-style hotels have no pms_configurations row at all (they run on
