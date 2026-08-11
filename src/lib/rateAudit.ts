@@ -22,6 +22,10 @@ export interface RateAuditRow {
     occupancy?: number;
     batch_id?: string;
     percent?: number | null;
+    requested_price?: number | null;
+    actual_previo_price?: number | null;
+    confirmation_status?: string;
+    push_run_id?: string | null;
   } | null;
 }
 
