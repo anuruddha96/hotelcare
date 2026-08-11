@@ -371,7 +371,7 @@ Deno.serve(async (req) => {
       direction: "to_previo",
       hotel_id: hotelId,
       sync_status: failed === 0 ? "success" : pushed === 0 ? "failed" : "partial",
-      data: { pushRunId, pushed, failed, verified, method: writeMethod, errors: errors.slice(0, 10), by: user.email ?? user.id },
+      data: { pushRunId, pushed, failed, verified, method: writeMethod, errors: errors.slice(0, 10), by: pusherLabel },
       error_message: failed > 0 ? errors[0]?.error : null,
     });
 
