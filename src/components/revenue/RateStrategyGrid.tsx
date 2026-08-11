@@ -1576,8 +1576,8 @@ export default function RateStrategyGrid({
                           });
                         }}
 
-                        title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label}`}
-                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""}`}
+                        title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
+                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""}`}
                         style={{ width: CELL_W }}
                       >
                         {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
@@ -1590,13 +1590,19 @@ export default function RateStrategyGrid({
                                className={`absolute right-0.5 top-0.5 h-2 w-2 rounded-full ${fresh ? "border border-primary bg-primary ring-2 ring-primary/25" : "border border-orange-500 bg-orange-300"}`}
                             />
                           );
-                        })() : null}
-                        {automationByCell.get(cellKey(d, row.roomTypeName, row.occ))?.length ? (
+                        })() : cellOrigin?.origin === "previo" ? (
+                          <span
+                            aria-hidden
+                            className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full border border-amber-600 bg-amber-400"
+                          />
+                        ) : null}
+                        {cellAutomation?.length ? (
                           <span
                             aria-hidden
                             className="absolute left-0.5 bottom-0.5 h-2 w-2 rounded-full border border-purple-600 bg-purple-400"
                           />
                         ) : null}
+
 
 
 
