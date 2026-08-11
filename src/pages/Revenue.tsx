@@ -14,6 +14,7 @@ import { Upload, AlertTriangle, ArrowLeft, RefreshCw, Sparkles, Download, Loader
 import { formatDistanceToNow } from "date-fns";
 import { ComposedChart, Area, Bar, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
+import PortfolioComparisonPanel from "@/components/revenue/PortfolioComparisonPanel";
 import { MainTabsBar } from "@/components/layout/MainTabsBar";
 import { Header } from "@/components/layout/Header";
 import { isRevenueAdmin, canSeeRevenuePortfolio } from "@/lib/roleAccess";
