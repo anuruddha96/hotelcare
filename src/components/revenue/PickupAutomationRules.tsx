@@ -7,6 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface Props { hotelId: string | null; organizationSlug: string | null; }
 interface Tier { max_days: number | null; increase: number; }
@@ -17,6 +22,7 @@ interface Rule {
   max_daily_increase_per_date: number; last_run_at?: string | null; version: number;
 }
 
+/** Starting suggestions only — a hotel is never automated until it is saved with the switch on. */
 const DEFAULT_RULE: Rule = {
   name: "Pickup pricing", is_enabled: false, auto_publish: true,
   booking_window_tiers: [{ max_days: 31, increase: 8 }, { max_days: 93, increase: 18 }, { max_days: null, increase: 22 }],
@@ -25,11 +31,14 @@ const DEFAULT_RULE: Rule = {
 };
 
 /** Turns the saved numbers into sentences a non-technical owner can check. */
-function explain(rule: Rule): string[] {
+function explain(rule: Rule, hotelName: string): string[] {
+  if (!rule.is_enabled) {
+    return [`Automation is off for ${hotelName}. Nothing will change automatically here — the numbers below are only a starting point until you turn it on and save.`];
+  }
   const tiers = rule.booking_window_tiers ?? [];
   const lines: string[] = [];
   lines.push(
-    "When a new booking arrives for a stay date, every room type and guest count on that one date goes up. No other dates are touched.",
+    `When a new booking arrives for a stay date at ${hotelName}, every room type and guest count on that one date goes up. No other dates and no other hotels are touched.`,
   );
   tiers.forEach((tier, index) => {
     const window = tier.max_days === null
@@ -52,18 +61,45 @@ function explain(rule: Rule): string[] {
   return lines;
 }
 
-
 export default function PickupAutomationRules({ hotelId, organizationSlug }: Props) {
   const [rule, setRule] = useState<Rule>(DEFAULT_RULE);
+  const [hasSavedRule, setHasSavedRule] = useState(false);
+  const [savedEnabled, setSavedEnabled] = useState(false);
+  const [hotelName, setHotelName] = useState<string>(hotelId ?? "this hotel");
+  const [otherRules, setOtherRules] = useState<Array<{ hotel_id: string; label: string; rule: Rule }>>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [confirmOn, setConfirmOn] = useState(false);
 
   useEffect(() => {
     if (!hotelId) return;
     setLoading(true);
     void (async () => {
-      const { data } = await supabase.from("revenue_pickup_automation_rules").select("*").eq("hotel_id", hotelId).eq("name", "Pickup pricing").maybeSingle();
-      if (data) setRule(data as unknown as Rule);
+      const [ruleRes, nameRes, othersRes] = await Promise.all([
+        supabase.from("revenue_pickup_automation_rules").select("*").eq("hotel_id", hotelId).eq("name", "Pickup pricing").maybeSingle(),
+        supabase.from("hotel_configurations").select("hotel_id, hotel_name"),
+        supabase.from("revenue_pickup_automation_rules").select("*").neq("hotel_id", hotelId),
+      ]);
+
+      const names = new Map<string, string>();
+      for (const row of (nameRes.data ?? []) as any[]) names.set(row.hotel_id, row.hotel_name);
+      setHotelName(names.get(hotelId) ?? hotelId);
+
+      if (ruleRes.data) {
+        setRule(ruleRes.data as unknown as Rule);
+        setHasSavedRule(true);
+        setSavedEnabled(Boolean((ruleRes.data as any).is_enabled));
+      } else {
+        setRule(DEFAULT_RULE);
+        setHasSavedRule(false);
+        setSavedEnabled(false);
+      }
+
+      setOtherRules(((othersRes.data ?? []) as any[]).map((r) => ({
+        hotel_id: r.hotel_id,
+        label: names.get(r.hotel_id) ?? r.hotel_id,
+        rule: r as unknown as Rule,
+      })));
       setLoading(false);
     })();
   }, [hotelId]);
@@ -71,6 +107,28 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
   const updateTier = (index: number, increase: number) => setRule((current) => ({
     ...current, booking_window_tiers: current.booking_window_tiers.map((tier, i) => i === index ? { ...tier, increase } : tier),
   }));
+
+  function copyFrom(sourceHotelId: string) {
+    const source = otherRules.find((o) => o.hotel_id === sourceHotelId);
+    if (!source) return;
+    // Settings copy across, but the switch stays where it is — turning a hotel
+    // on is always a deliberate action.
+    setRule((current) => ({
+      ...current,
+      booking_window_tiers: source.rule.booking_window_tiers,
+      same_hour_window_minutes: source.rule.same_hour_window_minutes,
+      second_pickup_surcharge: source.rule.second_pickup_surcharge,
+      minimum_adr: source.rule.minimum_adr,
+      max_daily_increase_per_date: source.rule.max_daily_increase_per_date,
+      auto_publish: source.rule.auto_publish,
+    }));
+    toast.success(`Copied settings from ${source.label} — still off until you turn it on`);
+  }
+
+  function requestSave() {
+    if (rule.is_enabled && !savedEnabled) { setConfirmOn(true); return; }
+    void save();
+  }
 
   async function save() {
     if (!hotelId || !organizationSlug) return;
@@ -92,20 +150,63 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
     setSaving(false);
     if (error) { toast.error(error.message); return; }
     setRule(data as unknown as Rule);
-    toast.success(rule.is_enabled ? "Pickup automation enabled" : "Automation rule saved but remains off");
+    setHasSavedRule(true);
+    setSavedEnabled(Boolean((data as any).is_enabled));
+    toast.success(rule.is_enabled ? `Pickup automation is now ON for ${hotelName}` : `Saved — automation stays OFF for ${hotelName}`);
   }
 
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs"><Bot className="h-3.5 w-3.5" />Automation rules</Button>
+        <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
+          <Bot className="h-3.5 w-3.5" />
+          Automation
+          <span
+            className={`ml-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+              savedEnabled
+                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                : "bg-muted text-muted-foreground"
+            }`}
+          >
+            {savedEnabled ? "On" : "Off"}
+          </span>
+        </Button>
       </SheetTrigger>
       <SheetContent side="right" className="flex w-full flex-col sm:max-w-md">
-        <SheetHeader><SheetTitle>Pickup price automation</SheetTitle></SheetHeader>
+        <SheetHeader>
+          <SheetTitle>Pickup price automation</SheetTitle>
+          <p className="text-sm text-muted-foreground">{hotelName} — settings apply to this hotel only.</p>
+        </SheetHeader>
         {loading ? <div className="flex flex-1 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div> : (
           <div className="flex-1 min-h-0 space-y-5 overflow-y-auto py-4">
+            {!hasSavedRule && (
+              <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                Automation has never been set up for {hotelName}. It is <span className="font-semibold">off</span>. The numbers below are
+                suggested starting values — nothing runs until you turn the switch on and save.
+              </div>
+            )}
+
+            {otherRules.length > 0 && (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Copy settings from another hotel</Label>
+                <Select onValueChange={copyFrom}>
+                  <SelectTrigger><SelectValue placeholder="Choose a hotel…" /></SelectTrigger>
+                  <SelectContent>
+                    {otherRules.map((o) => (
+                      <SelectItem key={o.hotel_id} value={o.hotel_id}>
+                        {o.label}{o.rule.is_enabled ? " (on)" : " (off)"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="flex items-center justify-between border-b pb-4">
-              <div><p className="font-medium">Run on new pickups</p><p className="text-xs text-muted-foreground">Only pickup dates are changed.</p></div>
+              <div>
+                <p className="font-medium">Run on new pickups</p>
+                <p className="text-xs text-muted-foreground">Only pickup dates at {hotelName} are changed.</p>
+              </div>
               <Switch checked={rule.is_enabled} onCheckedChange={(is_enabled) => setRule({ ...rule, is_enabled })} />
             </div>
             <div className="space-y-3">
@@ -135,7 +236,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
             <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
               <p className="text-sm font-medium">What this rule does, in plain words</p>
               <ul className="space-y-1.5 text-xs text-muted-foreground">
-                {explain(rule).map((line, index) => (
+                {explain(rule, hotelName).map((line, index) => (
                   <li key={index} className="flex gap-2"><span>•</span><span>{line}</span></li>
                 ))}
               </ul>
@@ -147,7 +248,25 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
             </div>
           </div>
         )}
-        <Button onClick={() => void save()} disabled={saving || loading}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save automation rule</Button>
+        <Button onClick={requestSave} disabled={saving || loading}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save automation rule</Button>
+
+        <AlertDialog open={confirmOn} onOpenChange={setConfirmOn}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Turn automation on for {hotelName}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {rule.auto_publish
+                  ? `New bookings at ${hotelName} will raise that stay date's prices and the changes will be published to Previo automatically, without review.`
+                  : `New bookings at ${hotelName} will create suggested price changes for you to publish yourself.`}
+                {" "}No other hotel is affected.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => { setConfirmOn(false); void save(); }}>Turn on</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </SheetContent>
     </Sheet>
   );
