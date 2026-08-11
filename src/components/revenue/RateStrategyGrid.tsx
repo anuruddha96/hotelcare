@@ -25,6 +25,7 @@ import { getRevenueCurrency, moneyBase, useRevenueCurrency } from "@/lib/revenue
 import type { RevenueRoomType } from "@/hooks/useRevenueHotelData";
 import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 import { useRateAudit } from "@/hooks/useRateAudit";
+import { usePickupAutomationActions } from "@/hooks/usePickupAutomationActions";
 import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
