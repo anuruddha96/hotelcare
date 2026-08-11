@@ -3,10 +3,22 @@ import { supabase } from "@/integrations/supabase/client";
 import { cellKey, type RateAuditRow } from "@/lib/rateAudit";
 
 /** Sources written by a person acting in the app (not the alert engine). */
-export const HUMAN_SOURCES = ["day-tool", "cell-edit", "demand", "push", "autopilot", "bulk-editor", "pickup-board", "previo_confirmed", "previo_bulk_confirmed", "previo_external", "previo_different"];
+export const HUMAN_SOURCES = ["day-tool", "cell-edit", "demand", "push", "autopilot", "bulk-editor", "pickup-board", "previo_confirmed", "previo_automation_confirmed", "previo_bulk_confirmed", "previo_external", "previo_different"];
 
 /** Only rates confirmed by an authoritative Previo pull earn a cell marker. */
 export const MANUAL_SOURCES = ["previo_confirmed"];
+
+/** Where a confirmed price came from, for the cell marker and its wording. */
+export type CellOrigin = "hotelcare" | "automation" | "previo" | "different";
+
+export interface CellOriginInfo {
+  origin: CellOrigin;
+  at: string;
+  by: string | null;
+  price: number | null;
+  requested?: number | null;
+}
+
 
 
 
@@ -47,7 +59,7 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
         .from("rate_change_audit")
         .select("id, stay_date, action, source, old_rate_eur, new_rate_eur, delta_eur, notes, performed_at, performed_by, payload")
         .eq("hotel_id", hotelId)
-        .in("source", [...MANUAL_SOURCES, "previo_external", "previo_different"])
+        .in("source", [...MANUAL_SOURCES, "previo_automation_confirmed", "previo_external", "previo_different"])
         .order("performed_at", { ascending: false })
         .limit(3000);
       setManualRows((manualData ?? []) as unknown as RateAuditRow[]);
@@ -134,7 +146,36 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
     return map;
   }, [manualRows]);
 
+  /**
+   * The newest authoritative story per cell: who set this price and whether
+   * Previo published exactly what Hotel Care asked for.
+   */
+  const originByCell = useMemo(() => {
+    const map = new Map<string, CellOriginInfo>();
+    const ordered = [...manualRows].sort((a, b) => b.performed_at.localeCompare(a.performed_at));
+    for (const r of ordered) {
+      const rt = r.payload?.room_type_name;
+      const occ = r.payload?.occupancy;
+      if (!r.stay_date || !rt || occ === undefined || !r.source) continue;
+      const key = cellKey(r.stay_date, rt, occ);
+      if (map.has(key)) continue;
+      const origin: CellOrigin =
+        r.source === "previo_confirmed" ? "hotelcare"
+          : r.source === "previo_automation_confirmed" ? "automation"
+            : r.source === "previo_different" ? "different"
+              : "previo";
+      map.set(key, {
+        origin,
+        at: r.performed_at,
+        by: r.performed_by,
+        price: r.new_rate_eur,
+        requested: r.payload?.requested_price ?? null,
+      });
+    }
+    return map;
+  }, [manualRows]);
 
-  return { rows, byCell, manualByCell, names, loading, systemCount, reload: load };
+  return { rows, byCell, manualByCell, originByCell, names, loading, systemCount, reload: load };
 
 }
+

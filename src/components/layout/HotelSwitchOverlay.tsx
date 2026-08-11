@@ -1,20 +1,24 @@
 import { Building2, Loader2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
 
 interface HotelSwitchOverlayProps {
   hotelName?: string | null;
 }
 
 /**
- * Full-screen blur curtain shown the moment a manager picks a different hotel.
- * It hides the previous property's numbers immediately so nothing stale is
- * ever readable while the app reloads into the new tenant scope.
+ * Full-screen curtain shown the moment a manager picks a different hotel.
+ * Rendered through a body portal so it sits above the header and menus instead
+ * of inside the dropdown's own stacking context, and painted with a solid
+ * surface so nothing from the previous property stays readable.
  */
 export function HotelSwitchOverlay({ hotelName }: HotelSwitchOverlayProps) {
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <div
       role="status"
       aria-live="polite"
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-background/70 backdrop-blur-xl animate-fade-in"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-background animate-fade-in"
     >
       <div className="flex flex-col items-center gap-4 text-center px-6 animate-scale-in">
         <div className="relative">
@@ -24,7 +28,7 @@ export function HotelSwitchOverlay({ hotelName }: HotelSwitchOverlayProps) {
           </div>
         </div>
         <div className="space-y-1">
-          <p className="font-medium text-foreground">
+          <p className="text-lg font-semibold text-foreground">
             Switching to {hotelName || 'your hotel'}
           </p>
           <p className="text-sm text-muted-foreground flex items-center justify-center gap-2">
@@ -33,6 +37,8 @@ export function HotelSwitchOverlay({ hotelName }: HotelSwitchOverlayProps) {
           </p>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
+

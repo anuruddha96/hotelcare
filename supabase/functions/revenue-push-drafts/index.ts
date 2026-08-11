@@ -7,7 +7,7 @@
 // draft so a partial failure is visible instead of silent.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadPrevioCredentials } from "../_shared/previoCredentials.ts";
-import { writePrevioRate } from "../_shared/previoRateWrite.ts";
+import { writePrevioRate, readPrevioRateLevels } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 
 
@@ -141,7 +141,7 @@ Deno.serve(async (req) => {
     // --- drafts to push --------------------------------------------------
     let q = admin
       .from("revenue_rate_drafts")
-      .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, currency")
+      .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, currency, created_by")
       .eq("hotel_id", hotelId)
       .in("status", ["draft", "failed"]);
     if (draftIds.length > 0) q = q.in("id", draftIds);
@@ -387,9 +387,10 @@ Deno.serve(async (req) => {
             .eq("hotel_id", hotelId);
         }
 
-        // EQC acceptance is transport acknowledgement, not authoritative proof
-        // of the value now published by Previo. Keep the current live mirror
-        // untouched until previo-revenue-sync reads the price back.
+        // EQC acceptance is transport acknowledgement, not proof of publication.
+        // Reading the ladder straight back on the same connection turns a push
+        // into a finished change instead of a row that waits for the nightly
+        // sync — that wait is what looked like "stuck in draft".
         const now = new Date().toISOString();
         const successfulIds = b.drafts.map((draft: any) => draft.id);
         const { error: finalizeError } = await admin.from("revenue_rate_drafts").update({
@@ -399,6 +400,56 @@ Deno.serve(async (req) => {
         }).in("id", successfulIds);
         if (finalizeError) throw new Error(`Previo accepted the price, but Hotel Care could not finalize it: ${finalizeError.message}`);
 
+        let landed = new Map<number, number>();
+        try {
+          landed = await readPrevioRateLevels({
+            creds, pmsHotelId, date: b.from, obkId: b.obkId, prlId: b.prlId,
+          });
+        } catch { /* verification is best effort — the nightly sync stays the backstop */ }
+
+        const auditRows: Record<string, unknown>[] = [];
+        for (const d of b.drafts as any[]) {
+          const actual = landed.get(Math.max(1, Math.round(Number(d.occupancy) || 2)));
+          if (actual === undefined || !Number.isFinite(actual)) continue;
+          const isConfirmed = Math.abs(Number(actual) - Number(d.new_price)) < 0.01;
+          await admin.from("revenue_rate_drafts").update({
+            confirmation_status: isConfirmed ? "confirmed" : "different",
+            actual_previo_price: actual,
+            confirmed_at: isConfirmed ? now : null,
+            last_checked_at: now,
+            push_error: isConfirmed ? null : `Previo currently publishes ${actual}; requested ${d.new_price}`,
+          }).eq("id", d.id);
+          if (isConfirmed) verified += 1;
+          if (hotelOrgSlug) {
+            auditRows.push({
+              hotel_id: hotelId,
+              organization_slug: hotelOrgSlug,
+              action: isConfirmed ? "price_confirmed" : "price_landed_differently",
+              source: isConfirmed
+                ? (isEngine ? "previo_automation_confirmed" : "previo_confirmed")
+                : "previo_different",
+              stay_date: d.stay_date,
+              old_rate_eur: d.old_price,
+              new_rate_eur: actual,
+              delta_eur: d.old_price === null ? null : Math.round((Number(actual) - Number(d.old_price)) * 100) / 100,
+              notes: isConfirmed
+                ? `${d.room_type_name} confirmed by Previo`
+                : `${d.room_type_name}: requested ${d.new_price}, Previo published ${actual}`,
+              performed_by: d.created_by ?? null,
+              payload: {
+                room_type_name: d.room_type_name,
+                occupancy: d.occupancy,
+                requested_price: Number(d.new_price),
+                actual_previo_price: Number(actual),
+                confirmation_status: isConfirmed ? "confirmed" : "different",
+                push_run_id: pushRunId,
+                origin: isEngine ? "pickup-automation" : "hotelcare-push",
+              },
+            });
+          }
+        }
+        if (auditRows.length > 0) await admin.from("rate_change_audit").insert(auditRows);
+
         await admin.from("rate_history").insert(b.drafts.map((d: any) => ({
             hotel_id: hotelId,
             organization_slug: hotelOrgSlug,
@@ -406,9 +457,10 @@ Deno.serve(async (req) => {
             old_rate_eur: d.old_price,
             new_rate_eur: d.new_price,
             source: isEngine ? "pickup_automation" : "manual_push",
-            notes: `${d.room_type_name} · ${d.occupancy} guest(s) · ${result.method} · accepted by Previo, queued for sync confirmation · pushed by ${pusherLabel}`,
+            notes: `${d.room_type_name} · ${d.occupancy} guest(s) · ${result.method} · accepted by Previo · pushed by ${pusherLabel}`,
           })));
         return { pushedIds: successfulIds, failedIds: [], errors: [] };
+
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         const failedIds = b.drafts.map((draft: any) => draft.id);

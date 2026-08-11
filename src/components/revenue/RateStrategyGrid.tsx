@@ -323,7 +323,7 @@ export default function RateStrategyGrid({
   const [probe, setProbe] = useState<{ ok: boolean; message: string; support?: string | null } | null>(null);
 
   /** Price-change trail: cell history on hover, and the activity panel below. */
-  const { rows: auditRows, byCell: auditByCell, manualByCell: manualAuditByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
+  const { rows: auditRows, byCell: auditByCell, manualByCell: manualAuditByCell, originByCell: cellOriginByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
   const { byCell: automationByCell } = usePickupAutomationActions(hotelId);
 
   /** One-line summary of the last Previo-confirmed change on each date. */
@@ -599,6 +599,45 @@ export default function RateStrategyGrid({
 
   const failedCount = useMemo(() => pending.filter((d) => d.status === "failed").length, [pending]);
 
+  // Three very different states used to be counted as one "waiting" number:
+  // a price nobody has sent yet, a price Previo already accepted, and a price
+  // that landed on a different value. Keeping them apart is the difference
+  // between "the push failed" and "the push is done".
+  const unsentDrafts = useMemo(
+    () => pending.filter((d) => d.status === "draft" || d.status === "failed"),
+    [pending],
+  );
+  const awaitingDrafts = useMemo(
+    () => pending.filter((d) => d.status === "pushed" && d.confirmation_status !== "different"),
+    [pending],
+  );
+  const divergentDrafts = useMemo(
+    () => pending.filter((d) => d.confirmation_status === "different"),
+    [pending],
+  );
+
+  const [checkingPrevio, setCheckingPrevio] = useState(false);
+  /** Ask Previo now what it publishes, instead of waiting for the night sync. */
+  async function verifyWithPrevio() {
+    if (!hotelId) return;
+    setCheckingPrevio(true);
+    try {
+      const { error } = await supabase.functions.invoke("previo-revenue-sync", {
+        body: { hotelId, horizonDays: 190 },
+      });
+      if (error) throw error;
+      await refreshDrafts();
+      await reloadAudit();
+      await onRatesUpdated?.();
+      toast.success("Checked against Previo");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not reach Previo");
+    } finally {
+      setCheckingPrevio(false);
+    }
+  }
+
+
 
   /** Fill the Previo pricelist mapping from Previo itself. */
   async function syncRatePlans() {
@@ -623,11 +662,12 @@ export default function RateStrategyGrid({
 
   /** Send the confirmed drafts to Previo. Nothing leaves the app before this. */
   async function pushDrafts() {
-    if (!hotelId || pending.length === 0) return;
+    if (!hotelId || unsentDrafts.length === 0) return;
     setPushing(true);
     try {
-      const retryable = pending.filter((d) => d.status === "draft" || d.status === "failed");
+      const retryable = unsentDrafts;
       if (retryable.length === 0) {
+
         toast.message("These prices are waiting for the next Previo sync or need review.");
         await onRatesUpdated?.();
         return;
@@ -1060,9 +1100,11 @@ export default function RateStrategyGrid({
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-amber-200 dark:bg-amber-800 border inline-block" />below target</span>
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-emerald-400 border inline-block" />strong</span>
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
-          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary ring-2 ring-primary/25 inline-block" />manual change · last 4h</span>
-          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-orange-300 border border-orange-500 inline-block" />manual change · older than 4h</span>
+          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary ring-2 ring-primary/25 inline-block" />Hotel Care price · last 4h</span>
+          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-orange-300 border border-orange-500 inline-block" />Hotel Care price · older</span>
           <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-purple-400 border border-purple-600 inline-block" />pickup automation</span>
+          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-amber-400 border border-amber-600 inline-block" />changed in Previo</span>
+          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-destructive border border-destructive inline-block" />landed differently</span>
           <span className="underline decoration-dotted underline-offset-2">underlined = draft</span>
         </div>
         <p className="text-[11px] text-muted-foreground">
@@ -1075,18 +1117,43 @@ export default function RateStrategyGrid({
         </p>
         {canEditRates && pending.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
-            <span className="text-xs">
-              <strong>{pending.length}</strong> price change{pending.length === 1 ? "" : "s"} waiting.
+            <span className="text-xs space-x-2">
+              {unsentDrafts.length > 0 && (
+                <span><strong>{unsentDrafts.length}</strong> waiting to send.</span>
+              )}
               {failedCount > 0 && (
-                <span className="text-destructive"> {failedCount} refused by Previo.</span>
+                <span className="text-destructive">{failedCount} refused by Previo.</span>
+              )}
+              {awaitingDrafts.length > 0 && (
+                <span className="text-muted-foreground">
+                  {awaitingDrafts.length} sent · awaiting Previo confirmation.
+                </span>
+              )}
+              {divergentDrafts.length > 0 && (
+                <span className="text-amber-600 dark:text-amber-400">
+                  {divergentDrafts.length} landed on a different price.
+                </span>
               )}
             </span>
 
-            <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
-              <Send className="h-3.5 w-3.5 mr-1" />Push to Previo
-            </Button>
+            <span className="flex items-center gap-2">
+              {(awaitingDrafts.length > 0 || divergentDrafts.length > 0) && (
+                <Button
+                  size="sm" variant="outline" className="h-8 text-xs"
+                  disabled={checkingPrevio}
+                  onClick={() => void verifyWithPrevio()}
+                >
+                  {checkingPrevio && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}Check now
+                </Button>
+              )}
+              <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
+                <Send className="h-3.5 w-3.5 mr-1" />
+                {unsentDrafts.length > 0 ? `Push ${unsentDrafts.length} to Previo` : "Review changes"}
+              </Button>
+            </span>
           </div>
         )}
+
 
       </CardHeader>
       <CardContent className="p-0">
@@ -1457,9 +1524,26 @@ export default function RateStrategyGrid({
                     const shown = draft ?? published;
                     const tone = rateTone(shown, thresholds);
                     const history = auditByCell.get(cellKey(d, row.roomTypeName, row.occ));
-                    // The dot marks a day someone priced by hand. A bulk edit
-                    // changes the price but never adds or clears the marker.
+                    // One marker system: where this price came from, proved by
+                    // a Previo read-back. Hotel Care, the pickup automation,
+                    // someone editing in Previo, or a value that disagrees.
                     const confirmedHistory = manualAuditByCell.get(cellKey(d, row.roomTypeName, row.occ));
+                    const cellAutomation = automationByCell.get(cellKey(d, row.roomTypeName, row.occ));
+                    const cellOrigin = cellOriginByCell.get(cellKey(d, row.roomTypeName, row.occ));
+                    const originLabel = (() => {
+                      if (draft !== undefined) return "unsent draft in Hotel Care";
+                      if (!cellOrigin) return "no recorded change";
+                      const who = cellOrigin.by ? auditNames.get(cellOrigin.by) ?? "someone" : null;
+                      const when = formatWhen(cellOrigin.at);
+                      if (cellOrigin.origin === "different") {
+                        return `requested ${eur(cellOrigin.requested ?? null)}, Previo published ${eur(cellOrigin.price)} · ${when}`;
+                      }
+                      if (cellOrigin.origin === "automation") return `pickup automation · confirmed ${when}`;
+                      if (cellOrigin.origin === "previo") return `changed in Previo · ${when}`;
+                      return `Hotel Care${who ? ` · ${who}` : ""} · confirmed ${when}`;
+                    })();
+
+
 
                     const cellButton = (
                       <button
@@ -1492,8 +1576,8 @@ export default function RateStrategyGrid({
                           });
                         }}
 
-                        title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label}`}
-                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""}`}
+                        title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
+                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""}`}
                         style={{ width: CELL_W }}
                       >
                         {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
@@ -1506,13 +1590,19 @@ export default function RateStrategyGrid({
                                className={`absolute right-0.5 top-0.5 h-2 w-2 rounded-full ${fresh ? "border border-primary bg-primary ring-2 ring-primary/25" : "border border-orange-500 bg-orange-300"}`}
                             />
                           );
-                        })() : null}
-                        {automationByCell.get(cellKey(d, row.roomTypeName, row.occ))?.length ? (
+                        })() : cellOrigin?.origin === "previo" ? (
+                          <span
+                            aria-hidden
+                            className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full border border-amber-600 bg-amber-400"
+                          />
+                        ) : null}
+                        {cellAutomation?.length ? (
                           <span
                             aria-hidden
                             className="absolute left-0.5 bottom-0.5 h-2 w-2 rounded-full border border-purple-600 bg-purple-400"
                           />
                         ) : null}
+
 
 
 
@@ -1525,10 +1615,12 @@ export default function RateStrategyGrid({
                         <HoverCardTrigger asChild>{cellButton}</HoverCardTrigger>
                         <HoverCardContent align="center" className="w-72 p-3 text-xs">
                           <p className="font-medium">{row.roomTypeName} · {row.occ}g · {d}</p>
+                          <p className="text-[11px] text-muted-foreground">{originLabel}</p>
                           <p className="mt-1 mb-2 flex justify-between">
                             <span className="text-muted-foreground">Current price</span>
                             <span className="tabular-nums font-semibold">{moneyBase(published ?? null)}</span>
                           </p>
+
                           <RateCellHistory
                             history={history}
                             names={auditNames}
@@ -2023,8 +2115,11 @@ export default function RateStrategyGrid({
           </div>
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
-              Pushing sends these prices to Previo straight away. Anything Previo refuses stays here with the reason.
+              Pushing sends the {unsentDrafts.length} unsent price{unsentDrafts.length === 1 ? "" : "s"} to Previo straight away and reads them back to confirm.
+              {awaitingDrafts.length > 0 ? ` ${awaitingDrafts.length} already reached Previo and only await confirmation.` : ""}
+              {" "}Anything Previo refuses stays here with the reason.
             </p>
+
             {failedCount > 0 && (
               <div className="flex flex-wrap items-center gap-2">
                 <Button
@@ -2063,10 +2158,11 @@ export default function RateStrategyGrid({
               )}
             </div>
             <Button variant="ghost" onClick={() => setPushOpen(false)}>Cancel</Button>
-            <Button onClick={() => void pushDrafts()} disabled={pushing || pending.length === 0}>
+            <Button onClick={() => void pushDrafts()} disabled={pushing || unsentDrafts.length === 0}>
               {pushing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
-              Push {pending.length} change{pending.length === 1 ? "" : "s"}
+              Push {unsentDrafts.length} change{unsentDrafts.length === 1 ? "" : "s"}
             </Button>
+
           </DialogFooter>
 
 
