@@ -91,7 +91,9 @@ export function useRevenueHotelData(
 
   const reload = useCallback(async () => {
     if (!hotelId) { setLoading(false); return; }
-    setLoading(true);
+    // Keep the last successful calendar mounted during background refreshes.
+    // `loading` is only a blocking state before the first successful payload.
+    if (roomTypes.length === 0 && rates.length === 0) setLoading(true);
     setError(null);
     try {
       const [rt, nightRows, snapRows, rateRows, cancelRows, settings, sync] = await Promise.all([
@@ -142,6 +144,11 @@ export function useRevenueHotelData(
       // newest capture for each visible cell so stale duplicates never win by
       // database return order after a successful push.
       const newestRates = new Map<string, RoomTypeRate>();
+      rateRows.sort((a, b) => {
+        const aTime = Date.parse(a.updated_at ?? a.captured_at ?? "") || 0;
+        const bTime = Date.parse(b.updated_at ?? b.captured_at ?? "") || 0;
+        return bTime - aTime;
+      });
       for (const rate of rateRows) {
         const key = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
         if (!newestRates.has(key)) newestRates.set(key, rate);
@@ -174,7 +181,7 @@ export function useRevenueHotelData(
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hotelId, horizonDays]);
+  }, [hotelId, horizonDays, roomTypes.length, rates.length]);
 
   useEffect(() => { void reload(); }, [reload]);
 

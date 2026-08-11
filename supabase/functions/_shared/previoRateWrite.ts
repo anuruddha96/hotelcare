@@ -24,6 +24,7 @@ import { callPrevioXml, type PrevioCredentials } from "./previoCredentials.ts";
 
 const EQC_AR_ENDPOINT = "https://api.previo.app/eqc1/ar";
 const EQC_AR_NS = "http://www.expediaconnect.com/EQC/AR/2007/02";
+const PREVIO_WRITE_TIMEOUT_MS = 10_000;
 
 /** The single supported write transport. */
 export const RATE_WRITE_METHOD = "eqc:AvailRateUpdate";
@@ -163,6 +164,7 @@ export async function writePrevioRate(opts: {
         "Authorization": `ApiKey ${key}`,
       },
       body,
+      signal: AbortSignal.timeout(PREVIO_WRITE_TIMEOUT_MS),
     });
     status = resp.status;
     text = await resp.text();

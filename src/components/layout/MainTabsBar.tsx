@@ -58,7 +58,7 @@ export function MainTabsBar({ current, className }: MainTabsBarProps) {
   const base =
     'inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium transition-colors whitespace-nowrap shrink-0';
   const inactive = 'text-muted-foreground hover:text-foreground hover:bg-background/60';
-  const active = 'bg-background text-foreground shadow-sm';
+  const active = 'bg-primary text-primary-foreground shadow-sm';
 
   const btn = (key: Current) =>
     cn(base, current === key ? active : inactive);

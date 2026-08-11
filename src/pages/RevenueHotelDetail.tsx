@@ -677,6 +677,7 @@ export default function RevenueHotelDetail() {
             roomTypes={live.roomTypes}
             rates={live.rates}
             metrics={live.metrics}
+            nights={live.nights}
             thresholds={live.thresholds}
             canEditRates={revAdmin}
             pickupWindowDays={pickupWindow}
