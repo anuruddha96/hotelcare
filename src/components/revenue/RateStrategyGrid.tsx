@@ -323,6 +323,7 @@ export default function RateStrategyGrid({
 
   /** Price-change trail: cell history on hover, and the activity panel below. */
   const { rows: auditRows, byCell: auditByCell, manualByCell: manualAuditByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
+  const { byCell: automationByCell } = usePickupAutomationActions(hotelId);
 
   /** One-line summary of the last Previo-confirmed change on each date. */
   const auditByDate = useMemo(() => {
