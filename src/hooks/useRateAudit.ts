@@ -146,7 +146,36 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
     return map;
   }, [manualRows]);
 
+  /**
+   * The newest authoritative story per cell: who set this price and whether
+   * Previo published exactly what Hotel Care asked for.
+   */
+  const originByCell = useMemo(() => {
+    const map = new Map<string, CellOriginInfo>();
+    const ordered = [...manualRows].sort((a, b) => b.performed_at.localeCompare(a.performed_at));
+    for (const r of ordered) {
+      const rt = r.payload?.room_type_name;
+      const occ = r.payload?.occupancy;
+      if (!r.stay_date || !rt || occ === undefined || !r.source) continue;
+      const key = cellKey(r.stay_date, rt, occ);
+      if (map.has(key)) continue;
+      const origin: CellOrigin =
+        r.source === "previo_confirmed" ? "hotelcare"
+          : r.source === "previo_automation_confirmed" ? "automation"
+            : r.source === "previo_different" ? "different"
+              : "previo";
+      map.set(key, {
+        origin,
+        at: r.performed_at,
+        by: r.performed_by,
+        price: r.new_rate_eur,
+        requested: r.payload?.requested_price ?? null,
+      });
+    }
+    return map;
+  }, [manualRows]);
 
-  return { rows, byCell, manualByCell, names, loading, systemCount, reload: load };
+  return { rows, byCell, manualByCell, originByCell, names, loading, systemCount, reload: load };
 
 }
+
