@@ -125,8 +125,25 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
               </div>
             </div>
             <div className="space-y-3 border-t pt-4">
-              <div><Label className="text-xs">Minimum ADR (€)</Label><Input type="number" value={rule.minimum_adr ?? ""} onChange={(e) => setRule({ ...rule, minimum_adr: e.target.value ? Number(e.target.value) : null })} /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label className="text-xs">Minimum ADR (€)</Label><Input type="number" value={rule.minimum_adr ?? ""} onChange={(e) => setRule({ ...rule, minimum_adr: e.target.value ? Number(e.target.value) : null })} /></div>
+                <div><Label className="text-xs">Max rise per date, per day (€)</Label><Input type="number" value={rule.max_daily_increase_per_date} onChange={(e) => setRule({ ...rule, max_daily_increase_per_date: Number(e.target.value) })} /></div>
+              </div>
               <div className="flex items-center justify-between"><Label>Publish matched changes to Previo</Label><Switch checked={rule.auto_publish} onCheckedChange={(auto_publish) => setRule({ ...rule, auto_publish })} /></div>
+            </div>
+
+            <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
+              <p className="text-sm font-medium">What this rule does, in plain words</p>
+              <ul className="space-y-1.5 text-xs text-muted-foreground">
+                {explain(rule).map((line, index) => (
+                  <li key={index} className="flex gap-2"><span>•</span><span>{line}</span></li>
+                ))}
+              </ul>
+              {rule.last_run_at && (
+                <p className="pt-1 text-[11px] text-muted-foreground">
+                  Last checked {new Date(rule.last_run_at).toLocaleString()} · runs every 15 minutes.
+                </p>
+              )}
             </div>
           </div>
         )}
