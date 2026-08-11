@@ -7,7 +7,7 @@
 // draft so a partial failure is visible instead of silent.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadPrevioCredentials } from "../_shared/previoCredentials.ts";
-import { writePrevioRate } from "../_shared/previoRateWrite.ts";
+import { writePrevioRate, readPrevioRateLevels } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 
 
@@ -141,7 +141,7 @@ Deno.serve(async (req) => {
     // --- drafts to push --------------------------------------------------
     let q = admin
       .from("revenue_rate_drafts")
-      .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, currency")
+      .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, currency, created_by")
       .eq("hotel_id", hotelId)
       .in("status", ["draft", "failed"]);
     if (draftIds.length > 0) q = q.in("id", draftIds);
