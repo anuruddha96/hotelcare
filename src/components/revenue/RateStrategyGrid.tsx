@@ -664,17 +664,21 @@ export default function RateStrategyGrid({
 
   async function discardSelectedDrafts() {
     // "Clear all" wipes every waiting change; otherwise just the ticked rows.
+    // Rows already accepted by Previo are cleared too — removing them only
+    // stops Hotel Care waiting for a confirmation, it never changes Previo.
     const ids = clearAllMode ? pending.map((d) => d.id) : Array.from(selectedDraftIds);
     if (ids.length === 0) return;
     setRemovingDrafts(true);
     let failed = false;
+    let removed = 0;
     for (let i = 0; i < ids.length; i += 200) {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("revenue_rate_drafts")
         .delete()
         .in("id", ids.slice(i, i + 200))
-        .in("status", ["draft", "failed"]);
+        .select("id");
       if (error) { failed = true; break; }
+      removed += (data ?? []).length;
     }
     setRemovingDrafts(false);
     if (failed) { toast.error("Could not remove the drafts"); return; }
@@ -682,8 +686,10 @@ export default function RateStrategyGrid({
     setRemoveConfirmOpen(false);
     setClearAllMode(false);
     await refreshDrafts();
-    toast.success(`${ids.length} draft${ids.length === 1 ? "" : "s"} removed`);
+    if (removed === 0) toast.error("Nothing was removed — you may not have permission to clear these rows.");
+    else toast.success(`${removed} draft${removed === 1 ? "" : "s"} removed`);
   }
+
 
 
   /** Sticky month label + auto-extend the horizon when the user scrolls right. */
