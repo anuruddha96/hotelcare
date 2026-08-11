@@ -326,12 +326,12 @@ Deno.serve(async (req) => {
 
         await admin.from("rate_history").insert(g.drafts.map((d) => ({
             hotel_id: hotelId,
-            organization_slug: hotelOrgSlug ?? profile.organization_slug ?? null,
+            organization_slug: hotelOrgSlug ?? profile?.organization_slug ?? null,
             stay_date: d.stay_date,
             old_rate_eur: d.old_price,
             new_rate_eur: d.new_price,
-            source: "manual_push",
-            notes: `${d.room_type_name} · ${d.occupancy} guest(s) · ${result.method} · accepted by Previo, queued for sync confirmation · pushed by ${user.email ?? user.id}`,
+            source: isEngine ? "pickup_automation" : "manual_push",
+            notes: `${d.room_type_name} · ${d.occupancy} guest(s) · ${result.method} · accepted by Previo, queued for sync confirmation · pushed by ${pusherLabel}`,
           })));
         return { pushedIds: successfulIds, failedIds: [], errors: [] };
       } catch (e) {
