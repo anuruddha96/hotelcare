@@ -31,6 +31,16 @@ export default function RateCellHistory({
     const delta = r.delta_eur;
     const pct = r.payload?.percent;
     const up = (delta ?? 0) >= 0;
+    const requested = r.payload?.requested_price;
+    const actual = r.payload?.actual_previo_price;
+    const status = r.payload?.confirmation_status;
+    const statusLabel = status === "confirmed"
+      ? "Confirmed in Previo"
+      : status === "different"
+        ? "Different in Previo"
+        : r.source === "previo_external"
+          ? "Changed in Previo"
+          : r.source === "push" ? "Sent — awaiting Previo sync" : "Draft";
     return (
       <div key={key} className="space-y-0.5">
         <div className="flex flex-wrap items-baseline gap-x-1.5 text-xs tabular-nums">
@@ -43,8 +53,14 @@ export default function RateCellHistory({
           )}
         </div>
         <p className="text-[11px] text-muted-foreground">
-          {formatWhen(r.performed_at)} · {who} · {r.source === "push" ? "Sent to Previo" : "Draft"}
+          {formatWhen(r.performed_at)} · {who} · {statusLabel}
         </p>
+        {requested != null && actual != null && (
+          <p className={`text-[11px] ${status === "different" ? "text-destructive" : "text-muted-foreground"}`}>
+            Requested {moneyBase(requested)} · landed {moneyBase(actual)}
+            {requested !== actual ? ` · difference ${moneyBase(actual - requested)}` : ""}
+          </p>
+        )}
       </div>
     );
   };

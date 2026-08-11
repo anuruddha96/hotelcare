@@ -49,6 +49,7 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const hotelId: string | null = typeof body.hotelId === "string" ? body.hotelId : null;
     const draftIds: string[] = Array.isArray(body.draftIds) ? body.draftIds : [];
+    const requestedRunId: string | null = typeof body.pushRunId === "string" ? body.pushRunId : null;
     if (!hotelId) return json({ error: "hotelId is required" }, 400);
 
     if (profile.role !== "admin" && profile.assigned_hotel && profile.assigned_hotel !== hotelId) {
@@ -174,7 +175,7 @@ Deno.serve(async (req) => {
 
 
 
-    const pushRunId = crypto.randomUUID();
+    const pushRunId = requestedRunId ?? crypto.randomUUID();
     const draftIdList = (drafts as any[]).map((draft) => draft.id);
     await admin.from("revenue_rate_drafts").update({
       push_run_id: pushRunId,
@@ -299,25 +300,15 @@ Deno.serve(async (req) => {
             .eq("hotel_id", hotelId);
         }
 
-        // Bring Hotel Care's own price list in line with what Previo now
-        // publishes, so the grid shows the confirmed price immediately
-        // instead of the stale one until the next revenue sync.
-        const gridObkId = String(g.drafts[0]?.obk_id ?? g.obkId);
+        // EQC acceptance is transport acknowledgement, not authoritative proof
+        // of the value now published by Previo. Keep the current live mirror
+        // untouched until previo-revenue-sync reads the price back.
         const now = new Date().toISOString();
-        const localRates = levels.map(({ occupancy, price }) => ({
-          hotel_id: hotelId, organization_slug: hotelOrgSlug ?? profile.organization_slug ?? "",
-          stay_date: g.stay_date, obk_id: gridObkId, room_type_name: g.room_type_name,
-          rate_plan_id: g.prlId, occupancy, price, currency: g.currency,
-          source: "previo_push", captured_at: now, updated_at: now,
-        }));
-        const { error: localRateError } = await admin.from("revenue_room_type_rates")
-          .upsert(localRates, { onConflict: "hotel_id,stay_date,obk_id,rate_plan_id,occupancy" });
-        if (localRateError) throw new Error(`Previo accepted the price, but Hotel Care could not refresh its grid: ${localRateError.message}`);
-
         const successfulIds = g.drafts.map((draft) => draft.id);
         const { error: finalizeError } = await admin.from("revenue_rate_drafts").update({
           status: "pushed", pushed_at: now, push_error: null,
           confirmation_status: "sent", push_attempt_count: 1,
+          actual_previo_price: null, confirmed_at: null, last_checked_at: null,
         }).in("id", successfulIds);
         if (finalizeError) throw new Error(`Previo accepted the price, but Hotel Care could not finalize it: ${finalizeError.message}`);
 
@@ -372,7 +363,8 @@ Deno.serve(async (req) => {
       error_message: failed > 0 ? errors[0]?.error : null,
     });
 
-    return json({ ok: true, pushRunId, pushed, pushedIds, failed, verified, method: writeMethod, errors });
+    const failedIds = results.flatMap((result) => result.failedIds);
+    return json({ ok: true, pushRunId, pushed, pushedIds, failed, failedIds, verified, method: writeMethod, errors });
   } catch (e) {
     console.error("revenue-push-drafts error", e);
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);

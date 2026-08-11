@@ -210,6 +210,8 @@ interface PendingDraft {
   old_price: number | null;
   new_price: number;
   status?: string | null;
+  confirmation_status?: string | null;
+  actual_previo_price?: number | null;
   push_error?: string | null;
 }
 
@@ -322,11 +324,11 @@ export default function RateStrategyGrid({
   /** Price-change trail: cell history on hover, and the activity panel below. */
   const { rows: auditRows, byCell: auditByCell, manualByCell: manualAuditByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
 
-  /** One-line "who last touched this date" summary for the date header hover. */
+  /** One-line summary of the last Previo-confirmed change on each date. */
   const auditByDate = useMemo(() => {
     const map = new Map<string, { last: (typeof auditRows)[number]; count: number; avgDelta: number }>();
     for (const r of auditRows) {
-      if (r.source !== "push") continue;
+      if (r.source !== "previo_confirmed" && r.source !== "previo_different" && r.source !== "previo_external") continue;
       if (!r.stay_date) continue;
       const cur = map.get(r.stay_date);
       if (!cur) map.set(r.stay_date, { last: r, count: 1, avgDelta: r.delta_eur ?? 0 });
@@ -572,14 +574,14 @@ export default function RateStrategyGrid({
     return out;
   }, [pricedTypes, priceMap, language]);
 
-  /** Load pending + failed drafts so nothing silently disappears after a push. */
+  /** Load unsent, failed, awaiting-confirmation and divergent cells. */
   const refreshDrafts = useCallback(async () => {
     if (!hotelId) return;
     const { data } = await supabase
       .from("revenue_rate_drafts")
-      .select("id, stay_date, room_type_name, occupancy, old_price, new_price, status, push_error")
+      .select("id, stay_date, room_type_name, occupancy, old_price, new_price, status, confirmation_status, actual_previo_price, push_error")
       .eq("hotel_id", hotelId)
-      .in("status", ["draft", "failed"])
+      .or("status.in.(draft,failed),and(status.eq.pushed,confirmation_status.in.(sending,sent,checking,pending,different))")
       .order("stay_date");
     const rows = (data ?? []) as PendingDraft[];
     setPending(rows);
@@ -622,7 +624,13 @@ export default function RateStrategyGrid({
     if (!hotelId || pending.length === 0) return;
     setPushing(true);
     try {
-      const res = await pushRateDrafts(hotelId, pending.map((d) => d.id));
+      const retryable = pending.filter((d) => d.status === "draft" || d.status === "failed");
+      if (retryable.length === 0) {
+        toast.message("These prices are waiting for the next Previo sync or need review.");
+        await onRatesUpdated?.();
+        return;
+      }
+      const res = await pushRateDrafts(hotelId, retryable.map((d) => d.id));
       await reloadAudit();
 
       if (res?.failed) {
@@ -1215,7 +1223,7 @@ export default function RateStrategyGrid({
                             {moneyBase(trail.last.old_rate_eur)} → <strong>{moneyBase(trail.last.new_rate_eur)}</strong>
                           </p>
                           <p className="text-muted-foreground">
-                            {formatWhen(trail.last.performed_at)} · {who} · {trail.last.source === "push" ? "Sent to Previo" : "Draft"}
+                            {formatWhen(trail.last.performed_at)} · {who} · {trail.last.source === "previo_confirmed" ? "Confirmed in Previo" : trail.last.source === "previo_different" ? "Different in Previo" : "Changed in Previo"}
                           </p>
                         </HoverCardContent>
                       </HoverCard>
@@ -1968,6 +1976,14 @@ export default function RateStrategyGrid({
                       {d.status === "failed" && (
                         <span className="block text-[10px] text-destructive">
                           Failed: {d.push_error || "Previo rejected this price"} — will retry on next push
+                        </span>
+                      )}
+                      {d.status === "pushed" && d.confirmation_status !== "different" && (
+                        <span className="block text-[10px] text-muted-foreground">Accepted — awaiting confirmation from Previo sync</span>
+                      )}
+                      {d.confirmation_status === "different" && (
+                        <span className="block text-[10px] text-destructive">
+                          Requested {moneyBase(d.new_price)} · Previo has {moneyBase(d.actual_previo_price)}
                         </span>
                       )}
                     </td>

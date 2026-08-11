@@ -546,6 +546,27 @@ serve(async (req) => {
     if (r.stay_date < from || r.stay_date > to) continue;
     dedupedRates.set(`${r.stay_date}|${r.obk_id}|${r.rate_plan_id}|${r.occupancy}`, r);
   }
+  // Capture the previous authoritative mirror before overwriting it. This is
+  // what lets the activity trail distinguish a Previo-side edit from a value
+  // that merely appeared for the first time in Hotel Care.
+  const { data: previousRateRows, error: previousRateError } = await service
+    .from("revenue_room_type_rates")
+    .select("stay_date, obk_id, rate_plan_id, room_type_name, occupancy, price")
+    .eq("hotel_id", hotelId)
+    .eq("source", "previo")
+    .gte("stay_date", from)
+    .lte("stay_date", to);
+  if (previousRateError) errors.push(`previous rates read: ${previousRateError.message}`);
+  const previousPrice = new Map<string, { price: number; roomTypeName: string }>();
+  for (const row of (previousRateRows ?? []) as Array<{
+    stay_date: string; obk_id: string; rate_plan_id: string; room_type_name: string | null;
+    occupancy: number; price: number;
+  }>) {
+    previousPrice.set(
+      `${row.stay_date}|${row.obk_id}|${row.rate_plan_id}|${row.occupancy}`,
+      { price: Number(row.price), roomTypeName: row.room_type_name ?? "Room type" },
+    );
+  }
   const ratePayload = Array.from(dedupedRates.values()).map((r) => ({
     hotel_id: hotelId,
     organization_slug: orgSlug,
@@ -571,40 +592,152 @@ serve(async (req) => {
     if (error) errors.push(`rates upsert: ${error.message}`);
   }
 
-  // A write can be accepted before Previo's immediate read-back endpoint
-  // reflects it. The next authoritative pull is therefore the final arbiter:
-  // clear only drafts whose requested price now exactly matches Previo.
+  // EQC acceptance is not publication proof. This authoritative pull is the
+  // final arbiter for every requested cell and records requested vs. landed.
   let reconciledDrafts = 0;
+  let divergentDrafts = 0;
   if (ratePayload.length > 0) {
-    const livePrice = new Map<string, number>();
+    const livePrice = new Map<string, { price: number; ratePlanId: string }>();
     for (const rate of ratePayload) {
-      livePrice.set(`${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`, Number(rate.price));
+      livePrice.set(
+        `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`,
+        { price: Number(rate.price), ratePlanId: String(rate.rate_plan_id) },
+      );
     }
     const { data: outstanding, error: draftReadError } = await service
       .from("revenue_rate_drafts")
-      .select("id, stay_date, obk_id, occupancy, new_price")
+      .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, created_by, push_run_id, confirmation_status, actual_previo_price")
       .eq("hotel_id", hotelId)
-      .in("status", ["draft", "failed"])
+      .eq("status", "pushed")
+      .in("confirmation_status", ["sending", "sent", "checking", "pending", "different"])
       .gte("stay_date", from)
       .lte("stay_date", to);
     if (draftReadError) {
       errors.push(`draft reconciliation read: ${draftReadError.message}`);
     } else {
-      const matchedIds = ((outstanding ?? []) as Array<{
-        id: string; stay_date: string; obk_id: string | null; occupancy: number; new_price: number;
-      }>).filter((draft) => {
-        if (!draft.obk_id) return false;
-        const current = livePrice.get(`${draft.stay_date}|${draft.obk_id}|${draft.occupancy}`);
-        return current !== undefined && Math.abs(current - Number(draft.new_price)) < 0.01;
-      }).map((draft) => draft.id);
-      for (let i = 0; i < matchedIds.length; i += 500) {
-        const ids = matchedIds.slice(i, i + 500);
+      const checkedAt = new Date().toISOString();
+      // Preserve the meaning of the cell dot: a confirmed short manual edit
+      // gets one, while a season-wide bulk edit remains visible in history but
+      // does not cover the entire grid in markers.
+      const { data: originAuditRows } = await service
+        .from("rate_change_audit")
+        .select("stay_date, source, performed_at, payload")
+        .eq("hotel_id", hotelId)
+        .in("source", ["day-tool", "cell-edit", "pickup-board", "bulk-editor", "demand", "autopilot"])
+        .gte("stay_date", from)
+        .lte("stay_date", to)
+        .order("performed_at", { ascending: false })
+        .limit(10000);
+      const originByCell = new Map<string, string>();
+      for (const row of (originAuditRows ?? []) as Array<{
+        stay_date: string | null; source: string | null; payload: { room_type_name?: string; occupancy?: number } | null;
+      }>) {
+        const room = row.payload?.room_type_name;
+        const occupancy = row.payload?.occupancy;
+        if (!row.stay_date || !room || occupancy === undefined) continue;
+        const originKey = `${row.stay_date}|${room}|${occupancy}`;
+        if (!originByCell.has(originKey) && row.source) originByCell.set(originKey, row.source);
+      }
+      const auditRows: Record<string, unknown>[] = [];
+      const claimedCells = new Set<string>();
+      for (const draft of (outstanding ?? []) as Array<{
+        id: string; stay_date: string; obk_id: string | null; room_type_name: string;
+        occupancy: number; old_price: number | null; new_price: number; created_by: string | null;
+        push_run_id: string | null; confirmation_status: string | null; actual_previo_price: number | null;
+      }>) {
+        if (!draft.obk_id) continue;
+        const cell = `${draft.stay_date}|${draft.obk_id}|${draft.occupancy}`;
+        const live = livePrice.get(cell);
+        if (!live) continue;
+        claimedCells.add(`${draft.stay_date}|${draft.obk_id}|${live.ratePlanId}|${draft.occupancy}`);
+        const landed = live.price;
+        const confirmed = Math.abs(landed - Number(draft.new_price)) < 0.01;
+        const confirmationStatus = confirmed ? "confirmed" : "different";
+        const changedState = draft.confirmation_status !== confirmationStatus
+          || draft.actual_previo_price === null
+          || Math.abs(Number(draft.actual_previo_price) - landed) >= 0.01;
         const { error: reconcileError } = await service
           .from("revenue_rate_drafts")
-          .update({ status: "pushed", pushed_at: new Date().toISOString(), push_error: null })
-          .in("id", ids);
-        if (reconcileError) errors.push(`draft reconciliation update: ${reconcileError.message}`);
-        else reconciledDrafts += ids.length;
+          .update({
+            confirmation_status: confirmationStatus,
+            actual_previo_price: landed,
+            last_checked_at: checkedAt,
+            confirmed_at: confirmed ? checkedAt : null,
+            push_error: confirmed ? null : `Previo currently publishes ${landed}; requested ${draft.new_price}`,
+          })
+          .eq("id", draft.id);
+        if (reconcileError) {
+          errors.push(`draft reconciliation update: ${reconcileError.message}`);
+          continue;
+        }
+        if (confirmed) reconciledDrafts += 1; else divergentDrafts += 1;
+        if (changedState && orgSlug) {
+          const origin = originByCell.get(`${draft.stay_date}|${draft.room_type_name}|${draft.occupancy}`) ?? null;
+          const manualOrigin = origin === "day-tool" || origin === "cell-edit" || origin === "pickup-board";
+          auditRows.push({
+            hotel_id: hotelId,
+            organization_slug: orgSlug,
+            action: confirmed ? "price_confirmed" : "price_landed_differently",
+            source: confirmed
+              ? (manualOrigin ? "previo_confirmed" : "previo_bulk_confirmed")
+              : "previo_different",
+            stay_date: draft.stay_date,
+            old_rate_eur: draft.old_price,
+            new_rate_eur: landed,
+            delta_eur: draft.old_price === null ? null : Math.round((landed - Number(draft.old_price)) * 100) / 100,
+            notes: confirmed
+              ? `${draft.room_type_name} confirmed by Previo`
+              : `${draft.room_type_name}: requested ${draft.new_price}, Previo published ${landed}`,
+            performed_by: draft.created_by,
+            payload: {
+              room_type_name: draft.room_type_name,
+              occupancy: draft.occupancy,
+              requested_price: Number(draft.new_price),
+              actual_previo_price: landed,
+              confirmation_status: confirmationStatus,
+              push_run_id: draft.push_run_id,
+              origin,
+            },
+          });
+        }
+      }
+      if (auditRows.length > 0) {
+        const { error: auditError } = await service.from("rate_change_audit").insert(auditRows);
+        if (auditError) errors.push(`rate reconciliation audit: ${auditError.message}`);
+      }
+
+      // Any changed authoritative rate not claimed by a pending HotelCare push
+      // was changed in Previo (or by another connected channel manager).
+      const externalRows: Record<string, unknown>[] = [];
+      for (const rate of ratePayload) {
+        const fullKey = `${rate.stay_date}|${rate.obk_id}|${rate.rate_plan_id}|${rate.occupancy}`;
+        if (claimedCells.has(fullKey)) continue;
+        const before = previousPrice.get(fullKey);
+        if (!before || Math.abs(before.price - Number(rate.price)) < 0.01 || !orgSlug) continue;
+        externalRows.push({
+          hotel_id: hotelId,
+          organization_slug: orgSlug,
+          action: "external_price_change",
+          source: "previo_external",
+          stay_date: rate.stay_date,
+          old_rate_eur: before.price,
+          new_rate_eur: Number(rate.price),
+          delta_eur: Math.round((Number(rate.price) - before.price) * 100) / 100,
+          notes: `${rate.room_type_name ?? before.roomTypeName} changed in Previo`,
+          performed_by: null,
+          payload: {
+            room_type_name: rate.room_type_name ?? before.roomTypeName,
+            occupancy: rate.occupancy,
+            actual_previo_price: Number(rate.price),
+            confirmation_status: "external",
+          },
+        });
+      }
+      for (let i = 0; i < externalRows.length; i += 500) {
+        const { error: externalAuditError } = await service
+          .from("rate_change_audit")
+          .insert(externalRows.slice(i, i + 500));
+        if (externalAuditError) errors.push(`external rate audit: ${externalAuditError.message}`);
       }
     }
   }
@@ -846,6 +979,7 @@ serve(async (req) => {
     totalRooms,
     rates: ratePayload.length,
     reconciledDrafts,
+    divergentDrafts,
     bookingNights: nights.length,
     snapshots: snapshots.length,
     durationMs: Date.now() - started,

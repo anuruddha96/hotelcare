@@ -95,6 +95,9 @@ export async function saveRateDrafts(opts: {
 export interface PushOutcome {
   pushed: number;
   failed: number;
+  confirmed?: number;
+  checking?: number;
+  different?: number;
   errors?: Array<{ stay_date: string; room_type_name: string; error: string }>;
   /** Draft ids that did not land — the caller can retry exactly these. */
   failedIds?: string[];
@@ -102,17 +105,25 @@ export interface PushOutcome {
 }
 
 /** Send the given drafts to Previo. Throws with Previo's own message on refusal. */
-export async function pushRateDrafts(hotelId: string, draftIds: string[]): Promise<PushOutcome> {
+export async function pushRateDrafts(hotelId: string, draftIds: string[], pushRunId?: string): Promise<PushOutcome> {
   const { data, error } = await supabase.functions.invoke("revenue-push-drafts", {
-    body: { hotelId, draftIds },
+    body: { hotelId, draftIds, pushRunId },
   });
   if (error) throw error;
   const res = data as {
     ok?: boolean; pushed?: number; failed?: number; error?: string;
+    pushedIds?: string[];
+    failedIds?: string[];
     errors?: Array<{ stay_date: string; room_type_name: string; error: string }>;
   };
   if (res?.error || res?.ok === false) throw new Error(res?.error || "Previo refused the price push.");
-  return { pushed: res?.pushed ?? 0, failed: res?.failed ?? 0, errors: res?.errors };
+  return {
+    pushed: res?.pushed ?? 0,
+    failed: res?.failed ?? 0,
+    checking: res?.pushed ?? 0,
+    failedIds: res?.failedIds ?? [],
+    errors: res?.errors,
+  };
 }
 
 /**
@@ -129,9 +140,13 @@ export async function pushRateDraftsBatched(
     shouldCancel?: () => boolean;
   } = {},
 ): Promise<PushOutcome> {
-  const size = opts.chunkSize ?? 80;
+  // Keep each HTTP request short. Previo groups all occupancy levels for one
+  // room/date, so 24 drafts is normally about one or two dates and remains recoverable
+  // if the browser loses a response after Previo accepted it.
+  const size = opts.chunkSize ?? 24;
   const batches = chunk(draftIds, size);
   const outcome: PushOutcome = { pushed: 0, failed: 0, errors: [], failedIds: [] };
+  const pushRunId = crypto.randomUUID();
   let done = 0;
 
   let cursor = 0;
@@ -139,11 +154,11 @@ export async function pushRateDraftsBatched(
     while (cursor < batches.length && !opts.shouldCancel?.()) {
       const batch = batches[cursor++];
       try {
-        const res = await pushRateDrafts(hotelId, batch);
+        const res = await pushRateDrafts(hotelId, batch, pushRunId);
         outcome.pushed += res.pushed;
         outcome.failed += res.failed;
         if (res.errors?.length) outcome.errors!.push(...res.errors);
-        if (res.failed > 0) outcome.failedIds!.push(...batch);
+        if (res.failedIds?.length) outcome.failedIds!.push(...res.failedIds);
       } catch (e) {
         outcome.failed += batch.length;
         outcome.failedIds!.push(...batch);

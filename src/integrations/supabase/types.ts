@@ -4918,13 +4918,16 @@ export type Database = {
       }
       revenue_rate_drafts: {
         Row: {
+          actual_previo_price: number | null
           claimed_at: string | null
           confirmation_status: string
+          confirmed_at: string | null
           created_at: string
           created_by: string | null
           currency: string
           hotel_id: string
           id: string
+          last_checked_at: string | null
           new_price: number
           obk_id: string | null
           occupancy: number
@@ -4940,13 +4943,16 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          actual_previo_price?: number | null
           claimed_at?: string | null
           confirmation_status?: string
+          confirmed_at?: string | null
           created_at?: string
           created_by?: string | null
           currency?: string
           hotel_id: string
           id?: string
+          last_checked_at?: string | null
           new_price: number
           obk_id?: string | null
           occupancy?: number
@@ -4962,13 +4968,16 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          actual_previo_price?: number | null
           claimed_at?: string | null
           confirmation_status?: string
+          confirmed_at?: string | null
           created_at?: string
           created_by?: string | null
           currency?: string
           hotel_id?: string
           id?: string
+          last_checked_at?: string | null
           new_price?: number
           obk_id?: string | null
           occupancy?: number
