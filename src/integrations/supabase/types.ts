@@ -4829,6 +4829,8 @@ export type Database = {
           hotel_id: string
           id: string
           is_enabled: boolean
+          last_run_at: string | null
+          max_daily_increase_per_date: number
           maximum_increase: number | null
           minimum_adr: number | null
           name: string
@@ -4847,6 +4849,8 @@ export type Database = {
           hotel_id: string
           id?: string
           is_enabled?: boolean
+          last_run_at?: string | null
+          max_daily_increase_per_date?: number
           maximum_increase?: number | null
           minimum_adr?: number | null
           name?: string
@@ -4865,6 +4869,8 @@ export type Database = {
           hotel_id?: string
           id?: string
           is_enabled?: boolean
+          last_run_at?: string | null
+          max_daily_increase_per_date?: number
           maximum_increase?: number | null
           minimum_adr?: number | null
           name?: string
