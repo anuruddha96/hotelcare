@@ -262,41 +262,113 @@ Deno.serve(async (req) => {
       storedLevels.set(key, levels);
     }
 
-    type GroupResult = { pushedIds: string[]; failedIds: string[]; errors: typeof errors };
-    const processGroup = async (g: Group): Promise<GroupResult> => {
-      const creds = g.account.creds;
-      const pmsHotelId = g.account.hotId;
-      try {
-        // Use the latest HotelCare mirror as the unchanged occupancy baseline.
-        // This removes two Previo reads per room/date from the hot path while
-        // still sending the gap-free ladder required by EQC error 3092.
-        const wanted = new Map<number, number>(storedLevels.get(`${g.stay_date}|${g.obkId}`) ?? []);
-        for (const d of g.drafts) {
-          wanted.set(Math.max(1, Math.round(Number(d.occupancy) || 2)), Number(d.new_price));
-        }
-        const maxOccupancy = Math.max(...wanted.keys());
-        const firstKnown = Array.from(wanted.entries()).sort((a, b) => a[0] - b[0])[0]?.[1];
-        if (!Number.isFinite(firstKnown)) throw new Error("No valid occupancy price is available for this room type.");
-        const levels: Array<{ occupancy: number; price: number }> = [];
-        let previous = firstKnown;
-        for (let occupancy = 1; occupancy <= maxOccupancy; occupancy += 1) {
-          previous = wanted.get(occupancy) ?? previous;
-          levels.push({ occupancy, price: previous });
-        }
+    /** Gap-free occupancy ladder for one date + room type (EQC error 3092). */
+    const ladderFor = (g: Group): Array<{ occupancy: number; price: number }> => {
+      const wanted = new Map<number, number>(storedLevels.get(`${g.stay_date}|${g.obkId}`) ?? []);
+      for (const d of g.drafts) {
+        wanted.set(Math.max(1, Math.round(Number(d.occupancy) || 2)), Number(d.new_price));
+      }
+      const maxOccupancy = Math.max(...wanted.keys());
+      const firstKnown = Array.from(wanted.entries()).sort((a, b) => a[0] - b[0])[0]?.[1];
+      if (!Number.isFinite(firstKnown)) throw new Error("No valid occupancy price is available for this room type.");
+      const levels: Array<{ occupancy: number; price: number }> = [];
+      let previous = firstKnown;
+      for (let occupancy = 1; occupancy <= maxOccupancy; occupancy += 1) {
+        previous = wanted.get(occupancy) ?? previous;
+        levels.push({ occupancy, price: previous });
+      }
+      return levels;
+    };
 
+    // A season-wide change is normally the same ladder repeated over many days.
+    // EQC accepts a DateRange, so identical consecutive days collapse into one
+    // message instead of one call per day — the single biggest cost in a push.
+    type Batch = {
+      from: string;
+      to: string;
+      obkId: string;
+      prlId: string;
+      account: { hotId: string; creds: any };
+      currency: string;
+      room_type_name: string;
+      levels: Array<{ occupancy: number; price: number }>;
+      drafts: any[];
+    };
+    const batches: Batch[] = [];
+    const ladderBuckets = new Map<string, Group[]>();
+    for (const g of groupList) {
+      let levels: Array<{ occupancy: number; price: number }>;
+      try {
+        levels = ladderFor(g);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        const ids = g.drafts.map((d: any) => d.id);
+        await admin.from("revenue_rate_drafts").update({
+          status: "failed", push_error: message.slice(0, 500),
+          confirmation_status: "failed", push_attempt_count: 1,
+        }).in("id", ids);
+        failed += ids.length;
+        for (const d of g.drafts) errors.push({ stay_date: d.stay_date, room_type_name: d.room_type_name, error: message });
+        continue;
+      }
+      (g as any).levels = levels;
+      const sig = levels.map((l) => `${l.occupancy}:${l.price}`).join(",");
+      const key = `${g.account.hotId}|${g.obkId}|${g.prlId}|${g.currency}|${sig}`;
+      const list = ladderBuckets.get(key) ?? [];
+      list.push(g);
+      ladderBuckets.set(key, list);
+    }
+
+    const nextDay = (iso: string) => {
+      const d = new Date(`${iso}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + 1);
+      return d.toISOString().slice(0, 10);
+    };
+
+    for (const list of ladderBuckets.values()) {
+      list.sort((a, b) => a.stay_date.localeCompare(b.stay_date));
+      let run: Group[] = [];
+      const flush = () => {
+        if (run.length === 0) return;
+        const first = run[0];
+        batches.push({
+          from: first.stay_date,
+          to: run[run.length - 1].stay_date,
+          obkId: first.obkId,
+          prlId: first.prlId,
+          account: first.account,
+          currency: first.currency,
+          room_type_name: first.room_type_name,
+          levels: (first as any).levels,
+          drafts: run.flatMap((g) => g.drafts),
+        });
+        run = [];
+      };
+      for (const g of list) {
+        if (run.length > 0 && nextDay(run[run.length - 1].stay_date) !== g.stay_date) flush();
+        run.push(g);
+      }
+      flush();
+    }
+
+    type GroupResult = { pushedIds: string[]; failedIds: string[]; errors: typeof errors };
+    const processBatch = async (b: Batch): Promise<GroupResult> => {
+      const creds = b.account.creds;
+      const pmsHotelId = b.account.hotId;
+      try {
         const result = await writePrevioRate({
           creds,
           pmsHotelId,
           preferredMethod: writeMethod,
           target: {
-            prlId: g.prlId,
-            obkId: g.obkId,
-            from: g.stay_date,
-            to: g.stay_date,
-            occupancy: levels[levels.length - 1]?.occupancy ?? 2,
-            price: levels[levels.length - 1]?.price ?? 0,
-            currency: g.currency,
-            levels,
+            prlId: b.prlId,
+            obkId: b.obkId,
+            from: b.from,
+            to: b.to,
+            occupancy: b.levels[b.levels.length - 1]?.occupancy ?? 2,
+            price: b.levels[b.levels.length - 1]?.price ?? 0,
+            currency: b.currency,
+            levels: b.levels,
           },
         });
 
@@ -319,7 +391,7 @@ Deno.serve(async (req) => {
         // of the value now published by Previo. Keep the current live mirror
         // untouched until previo-revenue-sync reads the price back.
         const now = new Date().toISOString();
-        const successfulIds = g.drafts.map((draft) => draft.id);
+        const successfulIds = b.drafts.map((draft: any) => draft.id);
         const { error: finalizeError } = await admin.from("revenue_rate_drafts").update({
           status: "pushed", pushed_at: now, push_error: null,
           confirmation_status: "sent", push_attempt_count: 1,
@@ -327,7 +399,7 @@ Deno.serve(async (req) => {
         }).in("id", successfulIds);
         if (finalizeError) throw new Error(`Previo accepted the price, but Hotel Care could not finalize it: ${finalizeError.message}`);
 
-        await admin.from("rate_history").insert(g.drafts.map((d) => ({
+        await admin.from("rate_history").insert(b.drafts.map((d: any) => ({
             hotel_id: hotelId,
             organization_slug: hotelOrgSlug ?? profile?.organization_slug ?? null,
             stay_date: d.stay_date,
@@ -339,26 +411,26 @@ Deno.serve(async (req) => {
         return { pushedIds: successfulIds, failedIds: [], errors: [] };
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
-        const failedIds = g.drafts.map((draft) => draft.id);
-        const groupErrors = g.drafts.map((d) => ({ stay_date: d.stay_date, room_type_name: d.room_type_name, error: message }));
+        const failedIds = b.drafts.map((draft: any) => draft.id);
+        const groupErrors = b.drafts.map((d: any) => ({ stay_date: d.stay_date, room_type_name: d.room_type_name, error: message }));
         await admin.from("revenue_rate_drafts").update({
           status: "failed", push_error: message.slice(0, 500),
           confirmation_status: "failed", push_attempt_count: 1,
         }).in("id", failedIds);
-        console.error("rate push failed", g.stay_date, g.obkId, message);
+        console.error("rate push failed", b.from, b.to, b.obkId, message);
         return { pushedIds: [], failedIds, errors: groupErrors };
       }
     };
 
-    // Different date/room-type groups are independent. A small concurrency
-    // pool cuts wall time drastically without flooding Previo.
+    // Batches are independent. A concurrency pool cuts wall time without
+    // flooding Previo.
     const results: GroupResult[] = [];
-    const concurrency = 5;
-    let nextGroup = 0;
-    await Promise.all(Array.from({ length: Math.min(concurrency, groupList.length) }, async () => {
-      while (nextGroup < groupList.length) {
-        const index = nextGroup++;
-        results[index] = await processGroup(groupList[index]);
+    const concurrency = 8;
+    let nextBatch = 0;
+    await Promise.all(Array.from({ length: Math.min(concurrency, batches.length) }, async () => {
+      while (nextBatch < batches.length) {
+        const index = nextBatch++;
+        results[index] = await processBatch(batches[index]);
       }
     }));
     for (const result of results) {
@@ -367,6 +439,7 @@ Deno.serve(async (req) => {
       pushedIds.push(...result.pushedIds);
       errors.push(...result.errors);
     }
+    console.log(`push run ${pushRunId}: ${drafts.length} drafts → ${groupList.length} date/room groups → ${batches.length} Previo messages`);
 
 
     await admin.from("pms_sync_history").insert({
