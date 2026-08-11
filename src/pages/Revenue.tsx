@@ -355,6 +355,11 @@ export default function Revenue() {
         <SummaryStat label="Abnormal pickups" value={hotels.filter((h) => h.abnormal).length} danger={hotels.some((h) => h.abnormal)} />
       </div>
 
+      <PortfolioComparisonPanel
+        hotels={hotels.map((h) => ({ hotel_id: h.hotel_id, hotel_name: h.hotel_name }))}
+      />
+
+
       {liveSync.enabled && (() => {
         const rev = liveSync.tasks.revenue;
         const isSync = rev.status === 'syncing';
