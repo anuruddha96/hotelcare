@@ -70,6 +70,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmOn, setConfirmOn] = useState(false);
+  const [running, setRunning] = useState(false);
 
   useEffect(() => {
     if (!hotelId) return;
@@ -248,7 +249,27 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
             </div>
           </div>
         )}
-        <Button onClick={requestSave} disabled={saving || loading}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save automation rule</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={requestSave} disabled={saving || loading}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save automation rule</Button>
+          <Button
+            variant="outline"
+            disabled={running || !savedEnabled}
+            onClick={async () => {
+              setRunning(true);
+              const { data, error } = await supabase.functions.invoke("revenue-pickup-automation", { body: { hotelId } });
+              setRunning(false);
+              if (error) { toast.error("Could not run the automation now"); return; }
+              const summary = (data as any)?.summary?.[0];
+              toast.success(
+                summary
+                  ? `Checked ${summary.pickups ?? 0} new booking night(s) · ${summary.actions ?? 0} price change(s)`
+                  : "Automation ran — no new bookings to price",
+              );
+            }}
+          >
+            {running && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Run now
+          </Button>
+        </div>
 
         <AlertDialog open={confirmOn} onOpenChange={setConfirmOn}>
           <AlertDialogContent>

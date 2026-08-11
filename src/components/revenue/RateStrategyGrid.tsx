@@ -25,6 +25,7 @@ import { getRevenueCurrency, moneyBase, useRevenueCurrency } from "@/lib/revenue
 import type { RevenueRoomType } from "@/hooks/useRevenueHotelData";
 import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 import { useRateAudit } from "@/hooks/useRateAudit";
+import { usePickupAutomationActions } from "@/hooks/usePickupAutomationActions";
 import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
@@ -323,6 +324,7 @@ export default function RateStrategyGrid({
 
   /** Price-change trail: cell history on hover, and the activity panel below. */
   const { rows: auditRows, byCell: auditByCell, manualByCell: manualAuditByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
+  const { byCell: automationByCell } = usePickupAutomationActions(hotelId);
 
   /** One-line summary of the last Previo-confirmed change on each date. */
   const auditByDate = useMemo(() => {
@@ -664,17 +666,21 @@ export default function RateStrategyGrid({
 
   async function discardSelectedDrafts() {
     // "Clear all" wipes every waiting change; otherwise just the ticked rows.
+    // Rows already accepted by Previo are cleared too — removing them only
+    // stops Hotel Care waiting for a confirmation, it never changes Previo.
     const ids = clearAllMode ? pending.map((d) => d.id) : Array.from(selectedDraftIds);
     if (ids.length === 0) return;
     setRemovingDrafts(true);
     let failed = false;
+    let removed = 0;
     for (let i = 0; i < ids.length; i += 200) {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("revenue_rate_drafts")
         .delete()
         .in("id", ids.slice(i, i + 200))
-        .in("status", ["draft", "failed"]);
+        .select("id");
       if (error) { failed = true; break; }
+      removed += (data ?? []).length;
     }
     setRemovingDrafts(false);
     if (failed) { toast.error("Could not remove the drafts"); return; }
@@ -682,8 +688,10 @@ export default function RateStrategyGrid({
     setRemoveConfirmOpen(false);
     setClearAllMode(false);
     await refreshDrafts();
-    toast.success(`${ids.length} draft${ids.length === 1 ? "" : "s"} removed`);
+    if (removed === 0) toast.error("Nothing was removed — you may not have permission to clear these rows.");
+    else toast.success(`${removed} draft${removed === 1 ? "" : "s"} removed`);
   }
+
 
 
   /** Sticky month label + auto-extend the horizon when the user scrolls right. */
@@ -1054,6 +1062,7 @@ export default function RateStrategyGrid({
           <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
           <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary ring-2 ring-primary/25 inline-block" />manual change · last 4h</span>
           <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-orange-300 border border-orange-500 inline-block" />manual change · older than 4h</span>
+          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-purple-400 border border-purple-600 inline-block" />pickup automation</span>
           <span className="underline decoration-dotted underline-offset-2">underlined = draft</span>
         </div>
         <p className="text-[11px] text-muted-foreground">
@@ -1498,6 +1507,14 @@ export default function RateStrategyGrid({
                             />
                           );
                         })() : null}
+                        {automationByCell.get(cellKey(d, row.roomTypeName, row.occ))?.length ? (
+                          <span
+                            aria-hidden
+                            className="absolute left-0.5 bottom-0.5 h-2 w-2 rounded-full border border-purple-600 bg-purple-400"
+                          />
+                        ) : null}
+
+
 
 
                       </button>

@@ -81,13 +81,15 @@ Deno.serve(async (req) => {
         ),
       ).toISOString();
 
-      // 1. New booking nights created since the cursor.
+      // 1. New booking nights Hotel Care captured since the cursor. The cursor
+      //    follows capture time, not Previo's creation time: a booking made at
+      //    16:27 but only synced at 18:21 must still be priced.
       const { data: nightRows, error: nightErr } = await admin
         .from("revenue_booking_nights")
-        .select("stay_date, res_id, created_at_pms")
+        .select("stay_date, res_id, created_at_pms, captured_at")
         .eq("hotel_id", rule.hotel_id)
         .gte("stay_date", today)
-        .gte("created_at_pms", lookbackFrom)
+        .gte("captured_at", lookbackFrom)
         .limit(5000);
       if (nightErr) throw nightErr;
 
