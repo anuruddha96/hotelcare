@@ -129,33 +129,31 @@ export async function pushRateDraftsBatched(
     shouldCancel?: () => boolean;
   } = {},
 ): Promise<PushOutcome> {
-  const size = opts.chunkSize ?? 120;
+  const size = opts.chunkSize ?? 80;
   const batches = chunk(draftIds, size);
   const outcome: PushOutcome = { pushed: 0, failed: 0, errors: [], failedIds: [] };
   let done = 0;
 
-  for (const batch of batches) {
-    if (opts.shouldCancel?.()) {
-      outcome.cancelled = true;
-      break;
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(2, batches.length) }, async () => {
+    while (cursor < batches.length && !opts.shouldCancel?.()) {
+      const batch = batches[cursor++];
+      try {
+        const res = await pushRateDrafts(hotelId, batch);
+        outcome.pushed += res.pushed;
+        outcome.failed += res.failed;
+        if (res.errors?.length) outcome.errors!.push(...res.errors);
+        if (res.failed > 0) outcome.failedIds!.push(...batch);
+      } catch (e) {
+        outcome.failed += batch.length;
+        outcome.failedIds!.push(...batch);
+        outcome.errors!.push({ stay_date: "", room_type_name: "", error: e instanceof Error ? e.message : String(e) });
+      }
+      done += batch.length;
+      opts.onProgress?.(Math.min(done, draftIds.length), draftIds.length);
     }
-    try {
-      const res = await pushRateDrafts(hotelId, batch);
-      outcome.pushed += res.pushed;
-      outcome.failed += res.failed;
-      if (res.errors?.length) outcome.errors!.push(...res.errors);
-      if (res.failed > 0) outcome.failedIds!.push(...batch);
-    } catch (e) {
-      outcome.failed += batch.length;
-      outcome.failedIds!.push(...batch);
-      outcome.errors!.push({
-        stay_date: "",
-        room_type_name: "",
-        error: e instanceof Error ? e.message : String(e),
-      });
-    }
-    done += batch.length;
-    opts.onProgress?.(Math.min(done, draftIds.length), draftIds.length);
-  }
+  });
+  await Promise.all(workers);
+  if (opts.shouldCancel?.()) outcome.cancelled = true;
   return outcome;
 }

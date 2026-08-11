@@ -29,6 +29,7 @@ import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/ra
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
+import PickupAutomationRules from "@/components/revenue/PickupAutomationRules";
 import { pushRateDrafts, saveRateDrafts } from "@/lib/rateDrafts";
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -983,6 +984,7 @@ export default function RateStrategyGrid({
                 Bulk edit prices
               </Button>
             )}
+            {canEditRates && <PickupAutomationRules hotelId={hotelId ?? null} organizationSlug={organizationSlug ?? null} />}
             {canEditRates && (
               <Button
                 size="sm"
