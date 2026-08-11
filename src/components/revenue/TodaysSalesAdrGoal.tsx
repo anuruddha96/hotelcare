@@ -17,6 +17,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { addDays, budapestDayOf, eur } from "@/lib/revenueAnalytics";
 import { currencySymbol } from "@/lib/revenueCurrency";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 /* ------------------------------------------------------------------ types */
 
@@ -161,6 +162,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   const [stayFrom, setStayFrom] = useState(today);
   const [stayTo, setStayTo] = useState(addDays(today, 90));
   const [showCancelled, setShowCancelled] = useState(false);
+  const isMobile = useIsMobile();
   const [compare, setCompare] = useState<CompareKey>("goal");
   const [filter, setFilter] = useState<BookingFilter>("all");
   const [sort, setSort] = useState<SortKey>("created");
