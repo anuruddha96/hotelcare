@@ -599,6 +599,45 @@ export default function RateStrategyGrid({
 
   const failedCount = useMemo(() => pending.filter((d) => d.status === "failed").length, [pending]);
 
+  // Three very different states used to be counted as one "waiting" number:
+  // a price nobody has sent yet, a price Previo already accepted, and a price
+  // that landed on a different value. Keeping them apart is the difference
+  // between "the push failed" and "the push is done".
+  const unsentDrafts = useMemo(
+    () => pending.filter((d) => d.status === "draft" || d.status === "failed"),
+    [pending],
+  );
+  const awaitingDrafts = useMemo(
+    () => pending.filter((d) => d.status === "pushed" && d.confirmation_status !== "different"),
+    [pending],
+  );
+  const divergentDrafts = useMemo(
+    () => pending.filter((d) => d.confirmation_status === "different"),
+    [pending],
+  );
+
+  const [checkingPrevio, setCheckingPrevio] = useState(false);
+  /** Ask Previo now what it publishes, instead of waiting for the night sync. */
+  async function verifyWithPrevio() {
+    if (!hotelId) return;
+    setCheckingPrevio(true);
+    try {
+      const { error } = await supabase.functions.invoke("previo-revenue-sync", {
+        body: { hotelId, horizonDays: 190 },
+      });
+      if (error) throw error;
+      await refreshDrafts();
+      await reloadAudit();
+      await onRatesUpdated?.();
+      toast.success("Checked against Previo");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not reach Previo");
+    } finally {
+      setCheckingPrevio(false);
+    }
+  }
+
+
 
   /** Fill the Previo pricelist mapping from Previo itself. */
   async function syncRatePlans() {
