@@ -141,9 +141,9 @@ export async function pushRateDraftsBatched(
   } = {},
 ): Promise<PushOutcome> {
   // Keep each HTTP request short. Previo groups all occupancy levels for one
-  // room/date, so 12 drafts is normally about one date and remains recoverable
+  // room/date, so 24 drafts is normally about one or two dates and remains recoverable
   // if the browser loses a response after Previo accepted it.
-  const size = opts.chunkSize ?? 12;
+  const size = opts.chunkSize ?? 24;
   const batches = chunk(draftIds, size);
   const outcome: PushOutcome = { pushed: 0, failed: 0, errors: [], failedIds: [] };
   const pushRunId = crypto.randomUUID();

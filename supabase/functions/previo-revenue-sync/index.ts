@@ -616,6 +616,28 @@ serve(async (req) => {
       errors.push(`draft reconciliation read: ${draftReadError.message}`);
     } else {
       const checkedAt = new Date().toISOString();
+      // Preserve the meaning of the cell dot: a confirmed short manual edit
+      // gets one, while a season-wide bulk edit remains visible in history but
+      // does not cover the entire grid in markers.
+      const { data: originAuditRows } = await service
+        .from("rate_change_audit")
+        .select("stay_date, source, performed_at, payload")
+        .eq("hotel_id", hotelId)
+        .in("source", ["day-tool", "cell-edit", "pickup-board", "bulk-editor", "demand", "autopilot"])
+        .gte("stay_date", from)
+        .lte("stay_date", to)
+        .order("performed_at", { ascending: false })
+        .limit(10000);
+      const originByCell = new Map<string, string>();
+      for (const row of (originAuditRows ?? []) as Array<{
+        stay_date: string | null; source: string | null; payload: { room_type_name?: string; occupancy?: number } | null;
+      }>) {
+        const room = row.payload?.room_type_name;
+        const occupancy = row.payload?.occupancy;
+        if (!row.stay_date || !room || occupancy === undefined) continue;
+        const originKey = `${row.stay_date}|${room}|${occupancy}`;
+        if (!originByCell.has(originKey) && row.source) originByCell.set(originKey, row.source);
+      }
       const auditRows: Record<string, unknown>[] = [];
       const claimedCells = new Set<string>();
       for (const draft of (outstanding ?? []) as Array<{
@@ -650,11 +672,15 @@ serve(async (req) => {
         }
         if (confirmed) reconciledDrafts += 1; else divergentDrafts += 1;
         if (changedState && orgSlug) {
+          const origin = originByCell.get(`${draft.stay_date}|${draft.room_type_name}|${draft.occupancy}`) ?? null;
+          const manualOrigin = origin === "day-tool" || origin === "cell-edit" || origin === "pickup-board";
           auditRows.push({
             hotel_id: hotelId,
             organization_slug: orgSlug,
             action: confirmed ? "price_confirmed" : "price_landed_differently",
-            source: confirmed ? "previo_confirmed" : "previo_different",
+            source: confirmed
+              ? (manualOrigin ? "previo_confirmed" : "previo_bulk_confirmed")
+              : "previo_different",
             stay_date: draft.stay_date,
             old_rate_eur: draft.old_price,
             new_rate_eur: landed,
@@ -670,6 +696,7 @@ serve(async (req) => {
               actual_previo_price: landed,
               confirmation_status: confirmationStatus,
               push_run_id: draft.push_run_id,
+              origin,
             },
           });
         }

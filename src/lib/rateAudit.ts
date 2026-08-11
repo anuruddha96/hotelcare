@@ -26,6 +26,7 @@ export interface RateAuditRow {
     actual_previo_price?: number | null;
     confirmation_status?: string;
     push_run_id?: string | null;
+    origin?: string | null;
   } | null;
 }
 
