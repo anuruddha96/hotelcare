@@ -216,6 +216,20 @@ export function Header() {
           </div>
         </div>
       </div>
+
+      {/* Mobile: which property am I looking at? The header badge truncates,
+          so phones get a full-width, untruncated context line. */}
+      {hotelDisplayName && (
+        <div className="sm:hidden border-t border-border bg-secondary/40 px-3 py-1.5 flex items-center gap-2">
+          <Building2 className="h-3.5 w-3.5 text-primary shrink-0" />
+          <span className="text-xs font-medium truncate">{hotelDisplayName}</span>
+          {profile && (
+            <Badge variant="outline" className="ml-auto text-[10px] px-1.5 py-0 shrink-0">
+              {getRoleLabel(profile.role)}
+            </Badge>
+          )}
+        </div>
+      )}
       
       <ProfileDialog 
         open={profileDialogOpen} 
