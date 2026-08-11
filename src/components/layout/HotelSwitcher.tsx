@@ -13,11 +13,14 @@ import {
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
+import { HotelSwitchOverlay } from './HotelSwitchOverlay';
+
 
 export function HotelSwitcher() {
   const { profile } = useAuth();
   const { hotels } = useTenant();
   const [currentHotel, setCurrentHotel] = useState<string | null>(profile?.assigned_hotel || null);
+  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
 
   useEffect(() => {
     setCurrentHotel(profile?.assigned_hotel || null);
@@ -35,6 +38,14 @@ export function HotelSwitcher() {
   }
 
   const handleSwitchHotel = async (hotelId: string) => {
+    if (hotelId === currentHotel || switchingTo) return;
+    const selectedHotelData = hotels.find(h => h.hotel_id === hotelId);
+    const hotelName = selectedHotelData?.hotel_name || hotelId;
+
+    // Curtain first: the visible numbers belong to the previous property and
+    // must disappear before anything else happens.
+    setSwitchingTo(hotelName);
+
     try {
       const { error } = await supabase
         .from('profiles')
@@ -44,26 +55,34 @@ export function HotelSwitcher() {
       if (error) throw error;
 
       setCurrentHotel(hotelId);
-      
-      // Find the hotel name for the toast
-      const selectedHotelData = hotels.find(h => h.hotel_id === hotelId);
-      const hotelName = selectedHotelData?.hotel_name || hotelId;
-      
       toast.success(`Switched to ${hotelName}`);
-      
-      // Reload the page to refresh all data for the new hotel
-      window.location.reload();
+
+      // A hotel-scoped revenue detail route belongs to the old property, so
+      // fall back to the organization-level page instead of reloading it.
+      const path = window.location.pathname;
+      const revenueDetail = path.match(/^\/([^/]+)\/revenue\/[^/]+/);
+      const target = revenueDetail ? `/${revenueDetail[1]}/revenue` : path + window.location.search;
+
+      // Deliberate, unhurried hand-off so the reload never flashes stale data.
+      window.setTimeout(() => {
+        window.location.replace(target);
+      }, 900);
     } catch (error: any) {
+      setSwitchingTo(null);
       toast.error('Failed to switch hotel');
       console.error(error);
     }
   };
 
+
   const currentHotelData = hotels.find(h => h.hotel_id === currentHotel);
   const currentHotelName = currentHotelData?.hotel_name || currentHotel || 'All Hotels';
 
   return (
+    <>
+    {switchingTo && <HotelSwitchOverlay hotelName={switchingTo} />}
     <DropdownMenu>
+
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
@@ -96,5 +115,7 @@ export function HotelSwitcher() {
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+    </>
   );
+
 }
