@@ -79,7 +79,10 @@ export function HotelSwitcher() {
   const currentHotelName = currentHotelData?.hotel_name || currentHotel || 'All Hotels';
 
   return (
+    <>
+    {switchingTo && <HotelSwitchOverlay hotelName={switchingTo} />}
     <DropdownMenu>
+
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
