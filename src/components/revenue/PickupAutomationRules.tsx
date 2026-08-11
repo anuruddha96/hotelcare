@@ -82,7 +82,9 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       booking_window_tiers: rule.booking_window_tiers,
       same_hour_window_minutes: rule.same_hour_window_minutes,
       second_pickup_surcharge: rule.second_pickup_surcharge,
-      minimum_adr: rule.minimum_adr, version: rule.version + (rule.id ? 1 : 0),
+      minimum_adr: rule.minimum_adr,
+      max_daily_increase_per_date: rule.max_daily_increase_per_date,
+      version: rule.version + (rule.id ? 1 : 0),
       created_by: auth.user?.id ?? null, updated_by: auth.user?.id ?? null,
     };
     const { data, error } = await supabase.from("revenue_pickup_automation_rules")
