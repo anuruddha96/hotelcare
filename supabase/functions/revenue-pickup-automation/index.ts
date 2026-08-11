@@ -252,9 +252,6 @@ Deno.serve(async (req) => {
       let pushed = 0;
       // Only publish prices for events that were genuinely new this tick.
       if (rule.auto_publish && inserted > 0 && draftsToInsert.length > 0) {
-        const fresh = new Set((/* new rows only */ [] as any[]).concat(
-          [],
-        ));
         const insertedKeys = new Set<string>();
         const { data: freshRows } = await admin
           .from("revenue_pickup_automation_actions")
@@ -268,8 +265,6 @@ Deno.serve(async (req) => {
         const payload = draftsToInsert.filter((d) =>
           insertedKeys.has(`${d.stay_date}|${d.obk_id}|${d.occupancy}`)
         );
-        void fresh;
-
         if (payload.length > 0) {
           const { data: drafts, error: draftErr } = await admin
             .from("revenue_rate_drafts")
