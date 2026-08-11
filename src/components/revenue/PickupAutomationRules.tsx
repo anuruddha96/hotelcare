@@ -30,9 +30,11 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
   useEffect(() => {
     if (!hotelId) return;
     setLoading(true);
-    void supabase.from("revenue_pickup_automation_rules").select("*").eq("hotel_id", hotelId).eq("name", "Pickup pricing").maybeSingle()
-      .then(({ data }) => { if (data) setRule(data as unknown as Rule); })
-      .finally(() => setLoading(false));
+    void (async () => {
+      const { data } = await supabase.from("revenue_pickup_automation_rules").select("*").eq("hotel_id", hotelId).eq("name", "Pickup pricing").maybeSingle();
+      if (data) setRule(data as unknown as Rule);
+      setLoading(false);
+    })();
   }, [hotelId]);
 
   const updateTier = (index: number, increase: number) => setRule((current) => ({
@@ -53,7 +55,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       created_by: auth.user?.id ?? null, updated_by: auth.user?.id ?? null,
     };
     const { data, error } = await supabase.from("revenue_pickup_automation_rules")
-      .upsert(payload, { onConflict: "hotel_id,name" }).select("*").single();
+      .upsert(payload as any, { onConflict: "hotel_id,name" }).select("*").single();
     setSaving(false);
     if (error) { toast.error(error.message); return; }
     setRule(data as unknown as Rule);
