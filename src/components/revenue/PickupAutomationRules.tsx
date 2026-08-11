@@ -70,6 +70,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmOn, setConfirmOn] = useState(false);
+  const [running, setRunning] = useState(false);
 
   useEffect(() => {
     if (!hotelId) return;
