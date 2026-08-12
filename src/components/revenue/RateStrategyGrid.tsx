@@ -27,7 +27,7 @@ import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 import { useRateAudit } from "@/hooks/useRateAudit";
 import { usePickupAutomationActions, type AutomationAction } from "@/hooks/usePickupAutomationActions";
 import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
-import { cellOriginEvents, distinctOrigins, countByOrigin, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
+import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
