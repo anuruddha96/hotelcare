@@ -21,6 +21,13 @@ interface Rule {
   second_pickup_surcharge: number; minimum_adr: number | null;
   maximum_increase: number | null; max_daily_increase_per_date: number;
   application_scope: "booked_room_type" | "all_room_types";
+  positive_pickup_enabled: boolean; pickup_lookback_hours: number;
+  no_pickup_enabled: boolean; no_pickup_lookback_hours: number;
+  future_booking_window_days: number; no_pickup_run_times: string[];
+  run_timezone: string; no_pickup_decrease: number;
+  max_daily_decrease_per_date: number;
+  no_pickup_scope: "booked_room_type" | "all_room_types";
+  currency: string;
   last_run_at?: string | null; version: number;
 }
 
@@ -31,6 +38,11 @@ const DEFAULT_RULE: Rule = {
   same_hour_window_minutes: 60, second_pickup_surcharge: 25, minimum_adr: 120,
   maximum_increase: 25, max_daily_increase_per_date: 40,
   application_scope: "booked_room_type", version: 1,
+  positive_pickup_enabled: true, pickup_lookback_hours: 48,
+  no_pickup_enabled: false, no_pickup_lookback_hours: 8,
+  future_booking_window_days: 183, no_pickup_run_times: ["08:00", "14:00", "20:00"],
+  run_timezone: "Europe/Budapest", no_pickup_decrease: 2,
+  max_daily_decrease_per_date: 10, no_pickup_scope: "all_room_types", currency: "EUR",
 };
 
 /** Turns the saved numbers into sentences a non-technical owner can check. */
@@ -59,6 +71,9 @@ function explain(rule: Rule, hotelName: string): string[] {
   if (rule.minimum_adr) lines.push(`Prices are never published below €${rule.minimum_adr}.`);
   if (rule.maximum_increase) lines.push(`One pickup can add at most €${rule.maximum_increase}.`);
   lines.push(`A single date can rise at most €${rule.max_daily_increase_per_date} in one day, no matter how many bookings arrive.`);
+  if (rule.no_pickup_enabled) lines.push(
+    `At ${rule.no_pickup_run_times.join(", ")} ${rule.run_timezone}, dates in the next ${rule.future_booking_window_days} days with no new booking for ${rule.no_pickup_lookback_hours} hours decrease by ${rule.currency} ${rule.no_pickup_decrease}. A date never decreases by more than ${rule.currency} ${rule.max_daily_decrease_per_date} per day.`,
+  );
   lines.push(
     rule.auto_publish
       ? "Matched changes are sent to Previo automatically and appear in the calendar with an automation marker."
@@ -140,6 +155,17 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       max_daily_increase_per_date: source.rule.max_daily_increase_per_date,
       application_scope: source.rule.application_scope ?? "booked_room_type",
       auto_publish: source.rule.auto_publish,
+      positive_pickup_enabled: source.rule.positive_pickup_enabled ?? true,
+      pickup_lookback_hours: source.rule.pickup_lookback_hours ?? 48,
+      no_pickup_enabled: source.rule.no_pickup_enabled ?? false,
+      no_pickup_lookback_hours: source.rule.no_pickup_lookback_hours ?? 8,
+      future_booking_window_days: source.rule.future_booking_window_days ?? 183,
+      no_pickup_run_times: source.rule.no_pickup_run_times ?? ["08:00", "14:00", "20:00"],
+      run_timezone: source.rule.run_timezone ?? "Europe/Budapest",
+      no_pickup_decrease: source.rule.no_pickup_decrease ?? 2,
+      max_daily_decrease_per_date: source.rule.max_daily_decrease_per_date ?? 10,
+      no_pickup_scope: source.rule.no_pickup_scope ?? "all_room_types",
+      currency: source.rule.currency ?? "EUR",
     }));
     toast.success(`Copied settings from ${source.label} — still off until you turn it on`);
   }
@@ -163,6 +189,17 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       maximum_increase: rule.maximum_increase,
       max_daily_increase_per_date: rule.max_daily_increase_per_date,
       application_scope: rule.application_scope,
+      positive_pickup_enabled: rule.positive_pickup_enabled,
+      pickup_lookback_hours: rule.pickup_lookback_hours,
+      no_pickup_enabled: rule.no_pickup_enabled,
+      no_pickup_lookback_hours: rule.no_pickup_lookback_hours,
+      future_booking_window_days: rule.future_booking_window_days,
+      no_pickup_run_times: rule.no_pickup_run_times,
+      run_timezone: rule.run_timezone,
+      no_pickup_decrease: rule.no_pickup_decrease,
+      max_daily_decrease_per_date: rule.max_daily_decrease_per_date,
+      no_pickup_scope: rule.no_pickup_scope,
+      currency: rule.currency,
       version: rule.version + (rule.id ? 1 : 0),
       created_by: auth.user?.id ?? null, updated_by: auth.user?.id ?? null,
     };
@@ -225,10 +262,14 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
 
             <div className="flex items-center justify-between border-b pb-4">
               <div>
-                <p className="font-medium">Run on new pickups</p>
+                <p className="font-medium">Raise prices on new pickup</p>
                 <p className="text-xs text-muted-foreground">Only pickup dates at {hotelName} are changed.</p>
               </div>
               <Switch checked={rule.is_enabled} onCheckedChange={(is_enabled) => setRule({ ...rule, is_enabled })} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="text-xs">New-booking lookback (hours)</Label><Input type="number" min={1} max={168} value={rule.pickup_lookback_hours} onChange={(e) => setRule({ ...rule, pickup_lookback_hours: Number(e.target.value) })} /></div>
+              <div className="flex items-end justify-between rounded-md border px-3 py-2"><Label>Positive pickup</Label><Switch checked={rule.positive_pickup_enabled} onCheckedChange={(positive_pickup_enabled) => setRule({ ...rule, positive_pickup_enabled })} /></div>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">When a booking arrives, change</Label>
@@ -266,6 +307,28 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
               </div>
               <div><Label className="text-xs">Maximum increase from one pickup (€)</Label><Input type="number" value={rule.maximum_increase ?? ""} onChange={(e) => setRule({ ...rule, maximum_increase: e.target.value ? Number(e.target.value) : null })} /></div>
               <div className="flex items-center justify-between"><Label>Publish matched changes to Previo</Label><Switch checked={rule.auto_publish} onCheckedChange={(auto_publish) => setRule({ ...rule, auto_publish })} /></div>
+            </div>
+
+            <div className="space-y-3 border-t pt-4">
+              <div className="flex items-center justify-between">
+                <div><p className="text-sm font-medium">Reduce prices when there is no pickup</p><p className="text-xs text-muted-foreground">Runs only at the property-local times below.</p></div>
+                <Switch checked={rule.no_pickup_enabled} onCheckedChange={(no_pickup_enabled) => setRule({ ...rule, no_pickup_enabled })} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label className="text-xs">No-booking lookback (hours)</Label><Input type="number" min={1} max={168} value={rule.no_pickup_lookback_hours} onChange={(e) => setRule({ ...rule, no_pickup_lookback_hours: Number(e.target.value) })} /></div>
+                <div><Label className="text-xs">Future booking window (days)</Label><Input type="number" min={1} max={730} value={rule.future_booking_window_days} onChange={(e) => setRule({ ...rule, future_booking_window_days: Number(e.target.value) })} /></div>
+                <div><Label className="text-xs">Decrease per run ({rule.currency})</Label><Input type="number" min={1} max={3} value={rule.no_pickup_decrease} onChange={(e) => setRule({ ...rule, no_pickup_decrease: Number(e.target.value) })} /></div>
+                <div><Label className="text-xs">Daily decrease cap ({rule.currency})</Label><Input type="number" min={1} value={rule.max_daily_decrease_per_date} onChange={(e) => setRule({ ...rule, max_daily_decrease_per_date: Number(e.target.value) })} /></div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {rule.no_pickup_run_times.map((time, index) => (
+                  <div key={index}><Label className="text-xs">{["Morning", "Afternoon", "Evening"][index] ?? `Run ${index + 1}`}</Label><Input type="time" value={time} onChange={(e) => setRule({ ...rule, no_pickup_run_times: rule.no_pickup_run_times.map((v, i) => i === index ? e.target.value : v) })} /></div>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label className="text-xs">Property timezone</Label><Input value={rule.run_timezone} onChange={(e) => setRule({ ...rule, run_timezone: e.target.value })} /></div>
+                <div><Label className="text-xs">Currency</Label><Input value={rule.currency} maxLength={3} onChange={(e) => setRule({ ...rule, currency: e.target.value.toUpperCase() })} /></div>
+              </div>
             </div>
 
             <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
