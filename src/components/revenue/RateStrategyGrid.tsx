@@ -1204,6 +1204,43 @@ export default function RateStrategyGrid({
           </button>
         </div>
 
+        {/* Quiet, self-clearing publishing pill — never blocks the calendar. */}
+        {pushRun && (
+          <div
+            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] animate-fade-in
+              ${pushRun.state === "error"
+                ? "border-destructive/40 bg-destructive/10 text-destructive"
+                : pushRun.state === "done"
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700"
+                  : "border-primary/30 bg-primary/5 text-foreground"}`}
+            role="status"
+          >
+            {pushRun.state === "sending" && (
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+              </span>
+            )}
+            <span className="font-medium">
+              {pushRun.state === "error"
+                ? `${pushRun.failed || pushRun.total} price${(pushRun.failed || pushRun.total) === 1 ? "" : "s"} need attention`
+                : pushRun.state === "done"
+                  ? `${pushRun.total} price${pushRun.total === 1 ? "" : "s"} live in Previo`
+                  : `Sending ${pushRun.total} price${pushRun.total === 1 ? "" : "s"} to Previo — your prices are already up to date here`}
+            </span>
+            {pushRun.state === "sending" && pushRun.total > 0 && (
+              <span className="hidden sm:flex h-1 w-24 overflow-hidden rounded-full bg-primary/15">
+                <span
+                  className="h-full rounded-full bg-primary transition-all duration-500"
+                  style={{ width: `${Math.max(6, Math.min(100, Math.round((pushRun.done / pushRun.total) * 100)))}%` }}
+                />
+              </span>
+            )}
+          </div>
+        )}
+
+
+
         <p className="text-[11px] text-muted-foreground">
           Live Previo prices.
           {canEditRates ? " Tap a price, or a date to change a whole day." : ""}
