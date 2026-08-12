@@ -321,6 +321,14 @@ export default function RateStrategyGrid({
   const [pushElapsed, setPushElapsed] = useState(0);
   const [pushSummary, setPushSummary] = useState<{ count: number; seconds: number } | null>(null);
   const cancelPushRef = useRef(false);
+  const pushStartedAt = pushProgress?.startedAt ?? null;
+  useEffect(() => {
+    if (pushStartedAt === null) { setPushElapsed(0); return; }
+    const tick = () => setPushElapsed((Date.now() - pushStartedAt) / 1000);
+    tick();
+    const id = window.setInterval(tick, 100);
+    return () => window.clearInterval(id);
+  }, [pushStartedAt]);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [clearAllMode, setClearAllMode] = useState(false);
