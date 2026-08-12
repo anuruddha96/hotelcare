@@ -104,25 +104,30 @@ export function useRevenueHotelData(
           () => supabase.from("revenue_booking_nights") as any,
           (q) => q.select("stay_date, res_id, room_key, obk_id, room_type_name, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, guests")
             .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
-            .order("stay_date"),
+            .order("stay_date").order("res_id").order("room_key", { nullsFirst: true }),
         ),
         fetchAll<DailySnapshot>(
           () => supabase.from("revenue_daily_snapshots") as any,
+          // Paging needs a total order: thousands of rows share the same
+          // captured_date, and ties make Postgres return them in an arbitrary
+          // order per page, so rows get skipped or repeated between pages.
           (q) => q.select("stay_date, captured_date, rooms_sold, rooms_available, occupancy_pct, revenue_eur, adr_eur, new_bookings")
             .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
-            .order("captured_date", { ascending: false }),
+            .order("stay_date").order("captured_date", { ascending: false }),
         ),
         fetchAll<RoomTypeRate>(
           () => supabase.from("revenue_room_type_rates") as any,
+          // Same here — captured_at is identical across a whole sync batch,
+          // which is exactly how whole months of rates went missing.
           (q) => q.select("stay_date, obk_id, room_type_name, occupancy, price, currency, rate_plan_id, captured_at, updated_at")
             .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
-            .order("captured_at", { ascending: false }),
+            .order("stay_date").order("obk_id").order("occupancy").order("captured_at", { ascending: false }),
         ),
         fetchAll<CancelledNight>(
           () => supabase.from("revenue_cancelled_nights") as any,
           (q) => q.select("stay_date, res_id, room_key, obk_id, room_type_name, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, guests, cancelled_at")
             .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
-            .order("stay_date"),
+            .order("stay_date").order("res_id").order("room_key", { nullsFirst: true }),
         ),
         supabase.from("hotel_revenue_settings")
           .select("sellable_rooms, rate_warn_below_eur, rate_critical_below_eur, rate_max_sane_eur, occupancy_low_pct, occupancy_high_pct, pickup_strong_threshold, base_currency, eur_conversion_rate")

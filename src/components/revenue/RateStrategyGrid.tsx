@@ -471,13 +471,21 @@ export default function RateStrategyGrid({
     setDayTool(picked[0]);
   }, []);
 
+  /**
+   * Dates currently drawn in the header (filters applied). Dragging must only
+   * ever pick from these, otherwise a "dates with pickup" selection silently
+   * swallows every hidden day in between.
+   */
+  const visibleDatesRef = useRef<string[]>([]);
+
   const extendDateSelect = useCallback((d: string) => {
     const anchor = selAnchor.current;
     if (!anchor) return;
-    const a = allDates.indexOf(anchor);
-    const b = allDates.indexOf(d);
+    const list = visibleDatesRef.current.length ? visibleDatesRef.current : allDates;
+    const a = list.indexOf(anchor);
+    const b = list.indexOf(d);
     if (a < 0 || b < 0) return;
-    const span = allDates.slice(Math.min(a, b), Math.max(a, b) + 1);
+    const span = list.slice(Math.min(a, b), Math.max(a, b) + 1);
     selLatest.current = span;
     setSelDates(new Set(span));
   }, [allDates]);
@@ -564,10 +572,11 @@ export default function RateStrategyGrid({
       const d = target?.closest<HTMLElement>("[data-date]")?.dataset.date;
       const anchor = lpAnchor.current;
       if (!d || !anchor) return;
-      const a = allDates.indexOf(anchor);
-      const b = allDates.indexOf(d);
+      const list = visibleDatesRef.current.length ? visibleDatesRef.current : allDates;
+      const a = list.indexOf(anchor);
+      const b = list.indexOf(d);
       if (a < 0 || b < 0) return;
-      setPickedDates(new Set(allDates.slice(Math.min(a, b), Math.max(a, b) + 1)));
+      setPickedDates(new Set(list.slice(Math.min(a, b), Math.max(a, b) + 1)));
     };
     el.addEventListener("touchmove", onMove, { passive: false });
     return () => el.removeEventListener("touchmove", onMove);
@@ -819,6 +828,75 @@ export default function RateStrategyGrid({
   }
 
   /**
+   * Edge auto-scroll: a mouse user without a horizontal wheel can simply move
+   * the pointer near the left/right (or top/bottom) edge of the calendar and
+   * it glides that way. Speed ramps up the closer to the edge you get, and it
+   * stops the moment the pointer leaves the zone, the window loses focus, or
+   * a real wheel/touch scroll takes over.
+   */
+  const edgeVec = useRef({ x: 0, y: 0 });
+  const edgeRaf = useRef<number | null>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (isMobile) return;
+
+    const ZONE = 90;      // px from the edge where the pull starts
+    const MAX = 26;       // px per frame at the very edge
+
+    const stop = () => {
+      edgeVec.current = { x: 0, y: 0 };
+      if (edgeRaf.current !== null) { cancelAnimationFrame(edgeRaf.current); edgeRaf.current = null; }
+    };
+
+    const step = () => {
+      const node = scrollRef.current;
+      const { x, y } = edgeVec.current;
+      if (!node || (x === 0 && y === 0)) { edgeRaf.current = null; return; }
+      node.scrollLeft += x;
+      node.scrollTop += y;
+      edgeRaf.current = requestAnimationFrame(step);
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerType !== "mouse") return;
+      const r = el.getBoundingClientRect();
+      const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      if (!inside) { stop(); return; }
+
+      const ramp = (d: number) => Math.round(MAX * Math.pow(Math.max(0, (ZONE - d) / ZONE), 2));
+      let x = 0;
+      const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+      const canLeft = el.scrollLeft > 0;
+      // The frozen room-type column owns the far left, so only pull left once
+      // the pointer is past it.
+      if (e.clientX > r.right - ZONE && canRight) x = ramp(r.right - e.clientX);
+      else if (e.clientX < r.left + LEFT_W + ZONE && e.clientX > r.left + LEFT_W && canLeft) x = -ramp(e.clientX - (r.left + LEFT_W));
+
+      let y = 0;
+      const canDown = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+      const canUp = el.scrollTop > 0;
+      if (e.clientY > r.bottom - ZONE && canDown) y = ramp(r.bottom - e.clientY);
+      else if (e.clientY < r.top + ZONE && canUp) y = -ramp(e.clientY - r.top);
+
+      edgeVec.current = { x, y };
+      if ((x !== 0 || y !== 0) && edgeRaf.current === null) edgeRaf.current = requestAnimationFrame(step);
+      if (x === 0 && y === 0) stop();
+    };
+
+    window.addEventListener("pointermove", onMove, { passive: true });
+    window.addEventListener("blur", stop);
+    el.addEventListener("pointerleave", stop);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("blur", stop);
+      el.removeEventListener("pointerleave", stop);
+      stop();
+    };
+  }, [isMobile, LEFT_W]);
+
+
+  /**
    * Send prices to Previo without making anyone wait. The grid shows the new
    * price and its change dot straight away; queueing, sending and verifying
    * all happen after the dialog has closed. Only a real failure interrupts.
@@ -950,14 +1028,19 @@ export default function RateStrategyGrid({
     [allRows],
   );
 
-  /** Dates the day tool will touch, given range and weekday filter. */
+  /**
+   * Dates the day tool will touch. Only ever the days the user actually
+   * picked — a filtered selection (e.g. "dates with pickup") never expands
+   * into the whole span between the first and last day.
+   */
   const dayToolDates = useMemo(() => {
     if (!dayTool) return [] as string[];
+    const visible = visibleDatesRef.current.length ? visibleDatesRef.current : allDates;
     const span = selDates.size > 1
-      ? allDates.filter((d) => selDates.has(d))
+      ? visible.filter((d) => selDates.has(d))
       : (() => {
-        const start = allDates.indexOf(dayTool);
-        return start >= 0 ? allDates.slice(start, start + dayRange) : [dayTool];
+        const start = visible.indexOf(dayTool);
+        return start >= 0 ? visible.slice(start, start + dayRange) : [dayTool];
       })();
     return span.filter((d) =>
       dayWeekdays === "all" ? true : dayWeekdays === "weekend" ? isWeekend(d) : !isWeekend(d));
@@ -1064,6 +1147,8 @@ export default function RateStrategyGrid({
     if (pickupOnly && (metricByDate.get(d)?.netPickup ?? 0) === 0) return false;
     return true;
   });
+  // Selection helpers read this so a drag only ever covers what is on screen.
+  visibleDatesRef.current = dates;
   const rows = reviewOnly && flagged.rowKeys.size
     ? allRows.filter((r) => (r.kind === "rate" ? flagged.rowKeys.has(r.key) : r.kind !== "group"))
     : allRows;
@@ -1790,7 +1875,7 @@ export default function RateStrategyGrid({
             <Button
               size="sm"
               className="h-8 text-xs"
-              onClick={() => openDayTool(allDates.filter((d) => pickedDates.has(d)))}
+              onClick={() => openDayTool(dates.filter((d) => pickedDates.has(d)))}
             >
               Change prices
             </Button>
@@ -1955,7 +2040,9 @@ export default function RateStrategyGrid({
           <DialogHeader>
             <DialogTitle className="text-base">
               {selDates.size > 1
-                ? `Change prices for ${selDates.size} dates (${dayToolDates[0]} → ${dayToolDates[dayToolDates.length - 1]})`
+                ? `Change prices for ${dayToolDates.length} selected date${dayToolDates.length === 1 ? "" : "s"}${
+                    dayToolDates.length > 1 ? ` (${dayToolDates[0]} … ${dayToolDates[dayToolDates.length - 1]})` : ""
+                  }`
                 : `Change prices for ${dayTool}`}
             </DialogTitle>
 
