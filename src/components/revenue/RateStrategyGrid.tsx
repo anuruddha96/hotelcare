@@ -1548,24 +1548,42 @@ export default function RateStrategyGrid({
                     const shown = draft ?? published;
                     const tone = rateTone(shown, thresholds);
                     const history = auditByCell.get(cellKey(d, row.roomTypeName, row.occ));
-                    // One marker system: where this price came from, proved by
-                    // a Previo read-back. Hotel Care, the pickup automation,
-                    // someone editing in Previo, or a value that disagrees.
+                    // One dot per cell, and only for a change in the last 7
+                    // days: who last set this price, in plain words.
                     const confirmedHistory = manualAuditByCell.get(cellKey(d, row.roomTypeName, row.occ));
                     const cellAutomation = automationByCell.get(cellKey(d, row.roomTypeName, row.occ));
                     const cellOrigin = cellOriginByCell.get(cellKey(d, row.roomTypeName, row.occ));
+                    const lastChangeAt = (() => {
+                      const times: number[] = [];
+                      if (cellOrigin) times.push(new Date(cellOrigin.at).getTime());
+                      for (const h of confirmedHistory ?? []) times.push(new Date(h.performed_at).getTime());
+                      for (const a of cellAutomation ?? []) times.push(new Date(a.created_at).getTime());
+                      return times.length ? Math.max(...times) : null;
+                    })();
+                    const recent = lastChangeAt !== null && Date.now() - lastChangeAt < 7 * 24 * 60 * 60 * 1000;
+                    const marker: "team" | "automation" | "previo" | "failed" | null =
+                      !showMarkers || !recent ? null
+                        : cellOrigin?.origin === "different" ? "failed"
+                          : cellOrigin?.origin === "automation" || (cellAutomation?.length && !confirmedHistory?.length) ? "automation"
+                            : cellOrigin?.origin === "previo" ? "previo"
+                              : (confirmedHistory?.length || cellOrigin) ? "team" : null;
+                    const markerClass = marker === "failed" ? "bg-destructive"
+                      : marker === "automation" ? "bg-purple-500"
+                        : marker === "previo" ? "bg-amber-500"
+                          : "bg-primary";
                     const originLabel = (() => {
-                      if (draft !== undefined) return "unsent draft in Hotel Care";
-                      if (!cellOrigin) return "no recorded change";
+                      if (draft !== undefined) return "Not sent to Previo yet";
+                      if (!cellOrigin) return "No price change recorded";
                       const who = cellOrigin.by ? auditNames.get(cellOrigin.by) ?? "someone" : null;
                       const when = formatWhen(cellOrigin.at);
                       if (cellOrigin.origin === "different") {
-                        return `requested ${eur(cellOrigin.requested ?? null)}, Previo published ${eur(cellOrigin.price)} · ${when}`;
+                        return `Did not land: we asked for ${eur(cellOrigin.requested ?? null)}, Previo shows ${eur(cellOrigin.price)} (${when})`;
                       }
-                      if (cellOrigin.origin === "automation") return `pickup automation · confirmed ${when}`;
-                      if (cellOrigin.origin === "previo") return `changed in Previo · ${when}`;
-                      return `Hotel Care${who ? ` · ${who}` : ""} · confirmed ${when}`;
+                      if (cellOrigin.origin === "automation") return `Changed by automation, live in Previo (${when})`;
+                      if (cellOrigin.origin === "previo") return `Changed directly in Previo (${when})`;
+                      return `Changed by your team${who ? ` (${who})` : ""}, live in Previo (${when})`;
                     })();
+
 
 
 
