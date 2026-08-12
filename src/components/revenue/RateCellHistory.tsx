@@ -135,14 +135,15 @@ export default function RateCellHistory({
     );
   };
 
-  const rest = entries.length - 1;
+  const shown = entries.slice(0, 3);
+  const rest = entries.length - shown.length;
   return (
     <div className="space-y-1.5">
       {draftPrice != null && (
         <p className="text-[11px] text-amber-600 dark:text-amber-400">Draft {moneyBase(draftPrice)} — not sent yet</p>
       )}
-      {block(entries[0])}
-      {showAll && entries.slice(1).map((e) => block(e))}
+      {shown.map((e) => block(e))}
+      {showAll && entries.slice(3).map((e) => block(e))}
       {rest > 0 && (
         <button
           type="button"
