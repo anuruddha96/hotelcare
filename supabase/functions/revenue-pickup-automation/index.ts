@@ -180,10 +180,17 @@ Deno.serve(async (req) => {
         stay_date: string; res_id: string; at: string; sequence: number;
         obk_id: string | null; room_type_name: string | null; guests: number | null;
       }> = [];
+      let skippedStale = 0;
+      let skippedNegative = 0;
       for (const p of pickups) {
         const key = `${p.stay_date}|${p.res_id}`;
         if (seen.has(key)) continue;
         seen.add(key);
+        // Only a booking Previo itself created in the last 48h is pickup — a
+        // re-synced old booking must not move a price.
+        if (!p.created_at_pms || p.created_at_pms < freshFrom) { skippedStale++; continue; }
+        // And the stay date as a whole must be up on the day, not down.
+        if ((netPickup.get(p.stay_date) ?? 0) <= 0) { skippedNegative++; continue; }
         const at = Date.parse(p.created_at_pms);
         if (!Number.isFinite(at)) continue;
         const windowMs = Math.max(1, rule.same_hour_window_minutes) * 60_000;
