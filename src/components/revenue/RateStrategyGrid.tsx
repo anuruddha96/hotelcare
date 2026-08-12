@@ -1621,10 +1621,13 @@ export default function RateStrategyGrid({
                       return times.length ? Math.max(...times) : null;
                     })();
                     const recent = lastChangeAt !== null && Date.now() - lastChangeAt < 7 * 24 * 60 * 60 * 1000;
+                    // A purple dot is only drawn when the cell really has an
+                    // automation record behind it, so the history can prove it.
+                    const hasAutomationProof = Boolean(cellAutomation?.length) || cellOrigin?.origin === "automation";
                     const marker: "team" | "automation" | "previo" | "failed" | null =
                       !showMarkers || !recent ? null
                         : cellOrigin?.origin === "different" ? "failed"
-                          : cellOrigin?.origin === "automation" || (cellAutomation?.length && !confirmedHistory?.length) ? "automation"
+                          : hasAutomationProof ? "automation"
                             : cellOrigin?.origin === "previo" ? "previo"
                               : (confirmedHistory?.length || cellOrigin) ? "team" : null;
                     const markerClass = marker === "failed" ? "bg-destructive"
@@ -1633,16 +1636,21 @@ export default function RateStrategyGrid({
                           : "bg-primary";
                     const originLabel = (() => {
                       if (draft !== undefined) return "Not sent to Previo yet";
+                      if (marker === "automation" && cellAutomation?.length) {
+                        const a = cellAutomation[0];
+                        return `Changed by the pickup automation tool (${formatWhen(a.created_at)})`;
+                      }
                       if (!cellOrigin) return "No price change recorded";
                       const who = cellOrigin.by ? auditNames.get(cellOrigin.by) ?? "someone" : null;
                       const when = formatWhen(cellOrigin.at);
                       if (cellOrigin.origin === "different") {
                         return `Did not land: we asked for ${eur(cellOrigin.requested ?? null)}, Previo shows ${eur(cellOrigin.price)} (${when})`;
                       }
-                      if (cellOrigin.origin === "automation") return `Changed by automation, live in Previo (${when})`;
+                      if (cellOrigin.origin === "automation") return `Changed by the pickup automation tool, live in Previo (${when})`;
                       if (cellOrigin.origin === "previo") return `Changed directly in Previo (${when})`;
                       return `Changed by your team${who ? ` (${who})` : ""}, live in Previo (${when})`;
                     })();
+
 
 
 
