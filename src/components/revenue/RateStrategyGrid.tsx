@@ -32,7 +32,6 @@ import RateCellHistory from "@/components/revenue/RateCellHistory";
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
 import PickupAutomationRules from "@/components/revenue/PickupAutomationRules";
-import { pushRateDraftsBatched } from "@/lib/rateDrafts";
 import { publishRates } from "@/lib/ratePublishing";
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -324,18 +323,6 @@ export default function RateStrategyGrid({
   const [pushOpen, setPushOpen] = useState(false);
   const [pushing, setPushing] = useState(false);
   /** Live push telemetry so a long send never looks stuck. */
-  const [pushProgress, setPushProgress] = useState<{ done: number; total: number; startedAt: number } | null>(null);
-  const [pushElapsed, setPushElapsed] = useState(0);
-  const [pushSummary, setPushSummary] = useState<{ count: number; seconds: number } | null>(null);
-  const cancelPushRef = useRef(false);
-  const pushStartedAt = pushProgress?.startedAt ?? null;
-  useEffect(() => {
-    if (pushStartedAt === null) { setPushElapsed(0); return; }
-    const tick = () => setPushElapsed((Date.now() - pushStartedAt) / 1000);
-    tick();
-    const id = window.setInterval(tick, 100);
-    return () => window.clearInterval(id);
-  }, [pushStartedAt]);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [clearAllMode, setClearAllMode] = useState(false);
@@ -741,65 +728,6 @@ export default function RateStrategyGrid({
       setProbing(false);
     }
   }
-
-  /** Send the confirmed drafts to Previo. Nothing leaves the app before this. */
-  async function pushDrafts() {
-    if (!hotelId || unsentDrafts.length === 0) return;
-    setPushing(true);
-    cancelPushRef.current = false;
-    const startedAt = Date.now();
-    setPushSummary(null);
-    setPushProgress({ done: 0, total: unsentDrafts.length, startedAt });
-    try {
-      const retryable = unsentDrafts;
-      if (retryable.length === 0) {
-
-        toast.message("These prices are waiting for the next Previo sync or need review.");
-        await onRatesUpdated?.();
-        return;
-      }
-      const res = await pushRateDraftsBatched(hotelId, retryable.map((d) => d.id), {
-        onProgress: (done, total) => setPushProgress({ done, total, startedAt }),
-        shouldCancel: () => cancelPushRef.current,
-      });
-      const seconds = Math.max(0.1, (Date.now() - startedAt) / 1000);
-      setPushSummary({ count: res.pushed ?? 0, seconds });
-      await reloadAudit();
-
-      if (res?.failed) {
-        toast.error(`${res.pushed ?? 0} sent, ${res.failed} failed — open the list to see why`);
-        await refreshDrafts();
-        // Previo confirmed the ones that landed — pull the live prices back in.
-        if (res.pushed) await onRatesUpdated?.();
-        return;
-      }
-      toast.success(
-        `${res?.pushed ?? 0} price change${res?.pushed === 1 ? "" : "s"} live in Previo in ${seconds.toFixed(1)}s`,
-      );
-      setPushOpen(false);
-      await refreshDrafts();
-      await onRatesUpdated?.();
-      // Accepted prices are mirrored immediately; the background confirmation
-      // watcher above keeps checking until every price is settled.
-      for (const delay of [1500, 4000, 8000]) {
-        window.setTimeout(() => {
-          void Promise.all([refreshDrafts(), reloadAudit(), onRatesUpdated?.()]);
-        }, delay);
-      }
-    } catch (e) {
-
-      const message = e instanceof Error ? e.message : "Could not push the prices to Previo";
-      setProbe({ ok: false, message });
-      toast.error(message);
-    } finally {
-      setPushing(false);
-      setPushProgress(null);
-      window.setTimeout(() => setPushSummary(null), 12000);
-    }
-  }
-
-
-
 
   async function discardDraft(id: string) {
     const { error } = await supabase.from("revenue_rate_drafts").delete().eq("id", id);
@@ -1210,60 +1138,14 @@ export default function RateStrategyGrid({
             body="Prices come straight from the Previo pricelist — one row per room type and guest count. Pickup and occupancy come from Previo reservations; ADR and RevPAR are calculated in Hotel Care."
           />
         </p>
-        {canEditRates && (pushProgress || pushSummary) && (
-          <div className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 space-y-1.5">
-            {pushProgress ? (
-              <>
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <span className="flex items-center gap-2">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Sent <strong className="tabular-nums">{pushProgress.done.toLocaleString()}</strong> of{" "}
-                    <strong className="tabular-nums">{pushProgress.total.toLocaleString()}</strong> prices ·{" "}
-                    {pushElapsed.toFixed(1)}s elapsed
-                    {pushProgress.done > 0 && pushProgress.done < pushProgress.total && (
-                      <> · ~{Math.max(1, Math.round((pushElapsed / pushProgress.done) * (pushProgress.total - pushProgress.done)))}s left</>
-                    )}
-                  </span>
-                  <Button
-                    size="sm" variant="ghost" className="h-7 text-[11px]"
-                    onClick={() => { cancelPushRef.current = true; toast.message("Stopping after the current batch"); }}
-                  >
-                    Stop
-                  </Button>
-                </div>
-                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                  <div
-                    className="h-full bg-primary transition-all"
-                    style={{ width: `${Math.round((pushProgress.done / Math.max(1, pushProgress.total)) * 100)}%` }}
-                  />
-                </div>
-              </>
-            ) : pushSummary ? (
-              <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                {pushSummary.count.toLocaleString()} price{pushSummary.count === 1 ? "" : "s"} sent to Previo in{" "}
-                {pushSummary.seconds.toFixed(1)}s
-                {pushSummary.count > 0 && ` (≈${Math.round(pushSummary.count / pushSummary.seconds)} prices/sec)`}
-              </p>
-            ) : null}
-          </div>
-        )}
-        {canEditRates && pending.length > 0 && (
+        {canEditRates && (failedCount > 0 || divergentDrafts.length > 0) && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
             <span className="text-xs space-x-2">
-              {unsentDrafts.length > 0 && (
-                <span><strong>{unsentDrafts.length}</strong> waiting to send.</span>
-              )}
               {failedCount > 0 && (
                 <span className="text-destructive">{failedCount} refused by Previo.</span>
               )}
-              {awaitingDrafts.length > 0 && (
-                <span className="inline-flex items-center gap-1 text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  {awaitingDrafts.length} live in Previo · confirming in the background.
-                </span>
-              )}
               {divergentDrafts.length > 0 && (
-                <span className="text-amber-600 dark:text-amber-400">
+                <span className="text-destructive">
                   {divergentDrafts.length} landed on a different price.
                 </span>
               )}
@@ -1272,7 +1154,7 @@ export default function RateStrategyGrid({
             <span className="flex items-center gap-2">
               <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
                 <Send className="h-3.5 w-3.5 mr-1" />
-                {unsentDrafts.length > 0 ? `Push ${unsentDrafts.length} to Previo` : "Review changes"}
+                Review errors
               </Button>
             </span>
           </div>

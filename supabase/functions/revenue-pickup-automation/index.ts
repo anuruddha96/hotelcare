@@ -227,7 +227,7 @@ Deno.serve(async (req) => {
       //     old booking is not pickup, and a day that lost more nights than it
       //     gained must never be priced up — surge only follows real,
       //     positive, brand-new demand.
-      const NEW_BOOKING_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+      const NEW_BOOKING_MAX_AGE_MS = Math.max(1, Number(rule.pickup_lookback_hours || 48)) * 60 * 60 * 1000;
       const freshFrom = new Date(Date.now() - NEW_BOOKING_MAX_AGE_MS).toISOString();
       const netPickup = new Map<string, number>();
       for (const h of history) {
@@ -289,6 +289,7 @@ Deno.serve(async (req) => {
       let skippedStale = 0;
       let skippedNegative = 0;
       for (const p of pickups) {
+        if (rule.positive_pickup_enabled === false) continue;
         const key = `${p.stay_date}|${p.res_id}`;
         if (seen.has(key)) continue;
         seen.add(key);
