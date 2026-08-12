@@ -417,7 +417,10 @@ Deno.serve(async (req) => {
           }),
         ]);
         if (finalizeError) throw new Error(`Previo accepted the price, but Hotel Care could not finalize it: ${finalizeError.message}`);
-        if (mirrorError) throw new Error(`Previo accepted the price, but Hotel Care could not refresh the calendar: ${mirrorError.message}`);
+        // Never turn a Previo-accepted write into a retryable failure just
+        // because the local mirror had a transient error: retrying could apply
+        // the same increase twice. The nightly sync remains the backstop.
+        if (mirrorError) console.error("accepted rate mirror failed", b.from, b.to, b.obkId, mirrorError.message);
 
         const verifyAcceptedRates = async () => {
           try {
