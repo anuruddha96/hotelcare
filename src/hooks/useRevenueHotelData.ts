@@ -104,7 +104,7 @@ export function useRevenueHotelData(
           () => supabase.from("revenue_booking_nights") as any,
           (q) => q.select("stay_date, res_id, room_key, obk_id, room_type_name, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, guests")
             .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
-            .order("stay_date"),
+            .order("stay_date").order("res_id").order("room_key", { nullsFirst: true }),
         ),
         fetchAll<DailySnapshot>(
           () => supabase.from("revenue_daily_snapshots") as any,
@@ -127,7 +127,7 @@ export function useRevenueHotelData(
           () => supabase.from("revenue_cancelled_nights") as any,
           (q) => q.select("stay_date, res_id, room_key, obk_id, room_type_name, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, guests, cancelled_at")
             .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
-            .order("stay_date"),
+            .order("stay_date").order("res_id").order("room_key", { nullsFirst: true }),
         ),
         supabase.from("hotel_revenue_settings")
           .select("sellable_rooms, rate_warn_below_eur, rate_critical_below_eur, rate_max_sane_eur, occupancy_low_pct, occupancy_high_pct, pickup_strong_threshold, base_currency, eur_conversion_rate")
