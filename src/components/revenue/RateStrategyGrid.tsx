@@ -471,13 +471,21 @@ export default function RateStrategyGrid({
     setDayTool(picked[0]);
   }, []);
 
+  /**
+   * Dates currently drawn in the header (filters applied). Dragging must only
+   * ever pick from these, otherwise a "dates with pickup" selection silently
+   * swallows every hidden day in between.
+   */
+  const visibleDatesRef = useRef<string[]>([]);
+
   const extendDateSelect = useCallback((d: string) => {
     const anchor = selAnchor.current;
     if (!anchor) return;
-    const a = allDates.indexOf(anchor);
-    const b = allDates.indexOf(d);
+    const list = visibleDatesRef.current.length ? visibleDatesRef.current : allDates;
+    const a = list.indexOf(anchor);
+    const b = list.indexOf(d);
     if (a < 0 || b < 0) return;
-    const span = allDates.slice(Math.min(a, b), Math.max(a, b) + 1);
+    const span = list.slice(Math.min(a, b), Math.max(a, b) + 1);
     selLatest.current = span;
     setSelDates(new Set(span));
   }, [allDates]);
