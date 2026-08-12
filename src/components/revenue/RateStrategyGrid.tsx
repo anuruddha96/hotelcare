@@ -1347,6 +1347,9 @@ export default function RateStrategyGrid({
                   {dates.map((d, i) => {
                     const picked = multiMode ? pickedDates.has(d) : selecting && selDates.has(d);
                     const trail = auditByDate.get(d);
+                    const dayEvents = originEventsByDate.get(d) ?? [];
+                    const dayOrigins = distinctOrigins(dayEvents, 3);
+                    const dayBreakdown = countByOrigin(dayEvents);
                     const dayButton = (
                       <button
                         key={d}
