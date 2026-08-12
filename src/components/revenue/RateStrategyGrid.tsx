@@ -1391,9 +1391,14 @@ export default function RateStrategyGrid({
 
                         <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
                         <span className="font-medium">{formatDay(d)}</span>
-                        {trail && (
-                          <span className="pointer-events-none absolute left-1 top-1 h-1.5 w-1.5 rounded-full bg-primary/70" aria-hidden />
+                        {dayOrigins.length > 0 && (
+                          <span className="pointer-events-none absolute bottom-0.5 left-0 right-0 flex justify-center gap-[3px]" aria-hidden>
+                            {dayOrigins.map((o) => (
+                              <i key={o} className={`h-[3px] w-[3px] rounded-full ${ORIGIN_DOT_CLASS[o]}`} />
+                            ))}
+                          </span>
                         )}
+
 
                         {canEditRates && (
                           <ChevronDown
