@@ -64,6 +64,15 @@ const minutesOf = (value: string) => {
   return hour * 60 + minute;
 };
 
+/** UTC instant at which the property's local business day started. */
+function localDayStartUtc(timeZone: string): string {
+  const { date, time } = localParts(timeZone);
+  const elapsedMs = minutesOf(time) * 60_000;
+  void date;
+  return new Date(Date.now() - elapsedMs).toISOString();
+}
+
+
 /** Tiers are ordered by how far out the stay is; the last tier is the catch-all. */
 function tierIncrease(tiers: Tier[], daysOut: number): number {
   for (const tier of tiers) {
