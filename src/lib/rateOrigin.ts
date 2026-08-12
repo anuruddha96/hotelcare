@@ -34,7 +34,7 @@ export const ORIGIN_LABEL: Record<ChangeOrigin, string> = {
 
 export const RECENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-function fromAuditSource(source: string | null, confirmation?: string): ChangeOrigin | null {
+export function fromAuditSource(source: string | null, confirmation?: string): ChangeOrigin | null {
   if (confirmation === "different") return "failed";
   switch (source) {
     case "previo_confirmed": return "team";

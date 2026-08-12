@@ -27,7 +27,7 @@ import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 import { useRateAudit } from "@/hooks/useRateAudit";
 import { usePickupAutomationActions, type AutomationAction } from "@/hooks/usePickupAutomationActions";
 import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
-import { cellOriginEvents, distinctOrigins, countByOrigin, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
+import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
@@ -365,27 +365,50 @@ export default function RateStrategyGrid({
   }, [auditRows]);
 
   /**
-   * Which kinds of change landed on each stay date in the last week. The date
-   * row shows one tiny dot per kind, so a day's story is readable even with the
-   * per-cell dots switched off.
+   * The actual changes that landed on each stay date in the last week, newest
+   * first, with enough detail to read the story: who or what moved the price,
+   * from what to what, and when. The date row shows one dot for the newest of
+   * these; the hover card lists the last three.
    */
-  const originEventsByDate = useMemo(() => {
-    const audit = new Map<string, RateAuditRow[]>();
+  const dayChangesByDate = useMemo(() => {
+    interface DayChange {
+      at: string; origin: ChangeOrigin; old: number | null; next: number | null;
+      who: string; room: string | null; occ: number | null;
+    }
+    const map = new Map<string, DayChange[]>();
+    const push = (date: string, c: DayChange) => {
+      const b = map.get(date); if (b) b.push(c); else map.set(date, [c]);
+    };
+    const cutoff = Date.now() - RECENT_WINDOW_MS;
     for (const r of auditManualRows) {
       if (!r.stay_date) continue;
-      const b = audit.get(r.stay_date); if (b) b.push(r); else audit.set(r.stay_date, [r]);
+      const origin = fromAuditSource(r.source, r.payload?.confirmation_status);
+      if (!origin) continue;
+      if (Date.parse(r.performed_at) < cutoff) continue;
+      push(r.stay_date, {
+        at: r.performed_at, origin,
+        old: r.old_rate_eur, next: r.new_rate_eur,
+        who: origin === "previo"
+          ? "Changed directly in Previo"
+          : ((r.performed_by && auditNames.get(r.performed_by)) || "Someone on your team"),
+        room: r.payload?.room_type_name ?? null,
+        occ: r.payload?.occupancy ?? null,
+      });
     }
-    const auto = new Map<string, AutomationAction[]>();
     for (const a of automationRows) {
-      const b = auto.get(a.stay_date); if (b) b.push(a); else auto.set(a.stay_date, [a]);
+      if (a.status === "failed") continue;
+      if (Date.parse(a.created_at) < cutoff) continue;
+      push(a.stay_date, {
+        at: a.created_at, origin: "automation",
+        old: a.old_price, next: a.new_price,
+        who: "Pickup automation tool",
+        room: a.room_type_name, occ: a.occupancy,
+      });
     }
-    const map = new Map<string, OriginEvent[]>();
-    for (const d of new Set([...audit.keys(), ...auto.keys()])) {
-      const events = cellOriginEvents(audit.get(d), auto.get(d));
-      if (events.length) map.set(d, events);
-    }
+    for (const list of map.values()) list.sort((x, y) => y.at.localeCompare(x.at));
     return map;
-  }, [auditManualRows, automationRows]);
+  }, [auditManualRows, automationRows, auditNames]);
+
 
 
 
@@ -1347,9 +1370,8 @@ export default function RateStrategyGrid({
                   {dates.map((d, i) => {
                     const picked = multiMode ? pickedDates.has(d) : selecting && selDates.has(d);
                     const trail = auditByDate.get(d);
-                    const dayEvents = originEventsByDate.get(d) ?? [];
-                    const dayOrigins = distinctOrigins(dayEvents, 3);
-                    const dayBreakdown = countByOrigin(dayEvents);
+                    const dayChanges = dayChangesByDate.get(d) ?? [];
+                    const dayLatest = dayChanges[0];
                     const dayButton = (
                       <button
                         key={d}
@@ -1391,11 +1413,9 @@ export default function RateStrategyGrid({
 
                         <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
                         <span className="font-medium">{formatDay(d)}</span>
-                        {dayOrigins.length > 0 && (
-                          <span className="pointer-events-none absolute bottom-0.5 left-0 right-0 flex justify-center gap-[3px]" aria-hidden>
-                            {dayOrigins.map((o) => (
-                              <i key={o} className={`h-[3px] w-[3px] rounded-full ${ORIGIN_DOT_CLASS[o]}`} />
-                            ))}
+                        {dayLatest && (
+                          <span className="pointer-events-none absolute bottom-0.5 left-0 right-0 flex justify-center" aria-hidden>
+                            <i className={`h-1.5 w-1.5 rounded-full ${ORIGIN_DOT_CLASS[dayLatest.origin]}`} />
                           </span>
                         )}
 
@@ -1409,44 +1429,44 @@ export default function RateStrategyGrid({
                       </button>
                     );
 
-                    if (!trail && dayBreakdown.length === 0) return dayButton;
-                    const who = trail ? ((trail.last.performed_by && auditNames.get(trail.last.performed_by)) || "Someone") : null;
+                    if (!trail && dayChanges.length === 0) return dayButton;
                     const up = (trail?.avgDelta ?? 0) >= 0;
                     return (
                       <HoverCard key={d} openDelay={150} closeDelay={60}>
                         <HoverCardTrigger asChild>{dayButton}</HoverCardTrigger>
-                        <HoverCardContent align="center" className="w-64 p-3 text-xs space-y-1">
-                          <p className="font-medium">{formatWeekday(d)} {formatDay(d)} · last price update</p>
-                          {dayBreakdown.length > 0 && (
-                            <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                              {dayBreakdown.map((b) => (
-                                <span key={b.origin} className="inline-flex items-center gap-1">
-                                  <i className={`h-[5px] w-[5px] rounded-full ${ORIGIN_DOT_CLASS[b.origin]}`} />
-                                  {b.count} {ORIGIN_LABEL[b.origin]}
+                        <HoverCardContent align="center" className="w-72 p-3 text-xs space-y-2">
+                          <p className="font-medium">{formatWeekday(d)} {formatDay(d)} · last price changes</p>
+                          {trail && (
+                            <p className="tabular-nums text-muted-foreground">
+                              {trail.count} price{trail.count === 1 ? "" : "s"} changed on this date
+                              {trail.avgDelta !== 0 && (
+                                <span className={up ? " text-emerald-600 dark:text-emerald-400" : " text-sky-600 dark:text-sky-400"}>
+                                  {" "}· avg {up ? "+" : "−"}{moneyBase(Math.abs(trail.avgDelta))}
                                 </span>
-                              ))}
+                              )}
                             </p>
                           )}
-                          {trail && (
-                          <p className="tabular-nums">
-                            {trail.count} price{trail.count === 1 ? "" : "s"} changed
-                            {trail.avgDelta !== 0 && (
-                              <span className={up ? " text-emerald-600 dark:text-emerald-400" : " text-sky-600 dark:text-sky-400"}>
-                                {" "}avg {up ? "+" : "−"}{moneyBase(Math.abs(trail.avgDelta))}
-                              </span>
-                            )}
-                          </p>
-                          )}
-
-                          {trail && (
-                          <p className="tabular-nums">
-                            {moneyBase(trail.last.old_rate_eur)} → <strong>{moneyBase(trail.last.new_rate_eur)}</strong>
-                          </p>
-                          )}
-                          {trail && (
-                          <p className="text-muted-foreground">
-                            {formatWhen(trail.last.performed_at)} · {who} · {trail.last.source === "previo_confirmed" ? "Confirmed in Previo" : trail.last.source === "previo_different" ? "Different in Previo" : "Changed in Previo"}
-                          </p>
+                          {dayChanges.slice(0, 3).map((c, idx) => (
+                            <div key={`${c.at}-${idx}`} className="space-y-0.5">
+                              <p className="tabular-nums">
+                                <i className={`mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle ${ORIGIN_DOT_CLASS[c.origin]}`} />
+                                {moneyBase(c.old)} → <strong>{moneyBase(c.next)}</strong>
+                                {c.old != null && c.next != null && c.next !== c.old && (
+                                  <span className={c.next > c.old ? " text-emerald-600 dark:text-emerald-400" : " text-sky-600 dark:text-sky-400"}>
+                                    {" "}{c.next > c.old ? "+" : "−"}{moneyBase(Math.abs(c.next - c.old))}
+                                  </span>
+                                )}
+                              </p>
+                              <p className="text-[11px] text-muted-foreground">
+                                {c.who} · {formatWhen(c.at)}
+                                {c.room ? ` · ${c.room}${c.occ ? ` · ${c.occ}g` : ""}` : ""}
+                              </p>
+                            </div>
+                          ))}
+                          {dayChanges.length > 3 && (
+                            <p className="text-[11px] text-muted-foreground">
+                              +{dayChanges.length - 3} more change{dayChanges.length - 3 === 1 ? "" : "s"} — open a price cell for its full history
+                            </p>
                           )}
                         </HoverCardContent>
                       </HoverCard>
@@ -1677,7 +1697,9 @@ export default function RateStrategyGrid({
                     const cellAutomation = automationByCell.get(cellKey(d, row.roomTypeName, row.occ));
                     const cellOrigin = cellOriginByCell.get(cellKey(d, row.roomTypeName, row.occ));
                     const cellEvents = cellOriginEvents(history, cellAutomation);
-                    const cellOrigins: ChangeOrigin[] = showMarkers ? distinctOrigins(cellEvents, 2) : [];
+                    // One dot only — the most recent change. The full story
+                    // lives in the cell's hover card / tap sheet.
+                    const cellOrigin1: ChangeOrigin | null = showMarkers ? (cellEvents[0]?.origin ?? null) : null;
                     
                     const originLabel = (() => {
                       if (draft !== undefined) return "Not sent to Previo yet";
@@ -1735,12 +1757,11 @@ export default function RateStrategyGrid({
                         style={{ width: CELL_W }}
                       >
                         {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
-                        {cellOrigins.length > 0 ? (
-                          <span aria-hidden className="absolute right-0.5 top-0.5 flex gap-[2px]">
-                            {cellOrigins.map((o) => (
-                              <i key={o} className={`h-[3px] w-[3px] rounded-full ${ORIGIN_DOT_CLASS[o]}`} />
-                            ))}
-                          </span>
+                        {cellOrigin1 ? (
+                          <i
+                            aria-hidden
+                            className={`absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full ${ORIGIN_DOT_CLASS[cellOrigin1]}`}
+                          />
                         ) : null}
 
 
