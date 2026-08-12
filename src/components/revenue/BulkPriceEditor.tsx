@@ -153,13 +153,23 @@ export default function BulkPriceEditor({
 
   async function run() {
     if (!hotelId || changes.length === 0) return;
+    const payload = changes.map(({ label: _label, ...c }) => c);
+
+    // Nobody should wait for a season of prices. Hand the work to the
+    // calendar's background publisher and close straight away.
+    if (onPublish) {
+      onPublish(payload, noteFor());
+      onOpenChange(false);
+      return;
+    }
+
     setBusy(true);
     try {
       const result = await publishRates({
         hotelId,
         organizationSlug,
         source: "bulk",
-        changes: changes.map(({ label: _label, ...c }) => c),
+        changes: payload,
       });
       await logRateChanges({
         hotelId,
@@ -185,6 +195,7 @@ export default function BulkPriceEditor({
       setBusy(false);
     }
   }
+
 
 
   const toggle = <T,>(set: Set<T>, v: T, apply: (s: Set<T>) => void) => {
