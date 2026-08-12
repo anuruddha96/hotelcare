@@ -365,27 +365,50 @@ export default function RateStrategyGrid({
   }, [auditRows]);
 
   /**
-   * Which kinds of change landed on each stay date in the last week. The date
-   * row shows one tiny dot per kind, so a day's story is readable even with the
-   * per-cell dots switched off.
+   * The actual changes that landed on each stay date in the last week, newest
+   * first, with enough detail to read the story: who or what moved the price,
+   * from what to what, and when. The date row shows one dot for the newest of
+   * these; the hover card lists the last three.
    */
-  const originEventsByDate = useMemo(() => {
-    const audit = new Map<string, RateAuditRow[]>();
+  const dayChangesByDate = useMemo(() => {
+    interface DayChange {
+      at: string; origin: ChangeOrigin; old: number | null; next: number | null;
+      who: string; room: string | null; occ: number | null;
+    }
+    const map = new Map<string, DayChange[]>();
+    const push = (date: string, c: DayChange) => {
+      const b = map.get(date); if (b) b.push(c); else map.set(date, [c]);
+    };
+    const cutoff = Date.now() - RECENT_WINDOW_MS;
     for (const r of auditManualRows) {
       if (!r.stay_date) continue;
-      const b = audit.get(r.stay_date); if (b) b.push(r); else audit.set(r.stay_date, [r]);
+      const origin = fromAuditSource(r.source, r.payload?.confirmation_status);
+      if (!origin) continue;
+      if (Date.parse(r.performed_at) < cutoff) continue;
+      push(r.stay_date, {
+        at: r.performed_at, origin,
+        old: r.old_rate_eur, next: r.new_rate_eur,
+        who: origin === "previo"
+          ? "Changed directly in Previo"
+          : ((r.performed_by && auditNames.get(r.performed_by)) || "Someone on your team"),
+        room: r.payload?.room_type_name ?? null,
+        occ: r.payload?.occupancy ?? null,
+      });
     }
-    const auto = new Map<string, AutomationAction[]>();
     for (const a of automationRows) {
-      const b = auto.get(a.stay_date); if (b) b.push(a); else auto.set(a.stay_date, [a]);
+      if (a.status === "failed") continue;
+      if (Date.parse(a.created_at) < cutoff) continue;
+      push(a.stay_date, {
+        at: a.created_at, origin: "automation",
+        old: a.old_price, next: a.new_price,
+        who: "Pickup automation tool",
+        room: a.room_type_name, occ: a.occupancy,
+      });
     }
-    const map = new Map<string, OriginEvent[]>();
-    for (const d of new Set([...audit.keys(), ...auto.keys()])) {
-      const events = cellOriginEvents(audit.get(d), auto.get(d));
-      if (events.length) map.set(d, events);
-    }
+    for (const list of map.values()) list.sort((x, y) => y.at.localeCompare(x.at));
     return map;
-  }, [auditManualRows, automationRows]);
+  }, [auditManualRows, automationRows, auditNames]);
+
 
 
 
