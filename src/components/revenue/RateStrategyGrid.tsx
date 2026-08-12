@@ -277,6 +277,9 @@ export default function RateStrategyGrid({
   }, []);
 
   const [days, setDays] = useState(30);
+  // Markers were unreadable when every cell carried two or three dots. One dot
+  // per cell, only for the last 7 days, and the user can switch them off.
+  const [showMarkers, setShowMarkers] = useState(true);
   const [visibleMonth, setVisibleMonth] = useState<string>(formatMonth(today));
   const [edit, setEdit] = useState<DraftEdit | null>(null);
   /** Bulk options in the price editor. */
@@ -1103,18 +1106,31 @@ export default function RateStrategyGrid({
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
-          <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-destructive/40 border inline-block" />needs attention</span>
-          <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-amber-200 dark:bg-amber-800 border inline-block" />below target</span>
-          <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-emerald-400 border inline-block" />strong</span>
-          <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
-          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary ring-2 ring-primary/25 inline-block" />Hotel Care price · last 4h</span>
-          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-orange-300 border border-orange-500 inline-block" />Hotel Care price · older</span>
-          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-purple-400 border border-purple-600 inline-block" />pickup automation</span>
-          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-amber-400 border border-amber-600 inline-block" />changed in Previo</span>
-          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-destructive border border-destructive inline-block" />landed differently</span>
-          <span className="underline decoration-dotted underline-offset-2">underlined = draft</span>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className="font-medium text-foreground">Demand:</span>
+            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-emerald-400 border inline-block" />strong</span>
+            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-amber-200 dark:bg-amber-800 border inline-block" />below target</span>
+            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-destructive/40 border inline-block" />needs attention</span>
+            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="font-medium text-foreground">Changed in the last 7 days:</span>
+            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary inline-block" />by your team</span>
+            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-purple-500 inline-block" />by automation</span>
+            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-amber-500 inline-block" />in Previo</span>
+            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-destructive inline-block" />did not land</span>
+            <span className="underline decoration-dotted underline-offset-2">not sent yet</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowMarkers((v) => !v)}
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            {showMarkers ? "Hide change dots" : "Show change dots"}
+          </button>
         </div>
+
         <p className="text-[11px] text-muted-foreground">
           Live Previo prices.
           {canEditRates ? " Tap a price, or a date to change a whole day." : ""}
@@ -1532,24 +1548,42 @@ export default function RateStrategyGrid({
                     const shown = draft ?? published;
                     const tone = rateTone(shown, thresholds);
                     const history = auditByCell.get(cellKey(d, row.roomTypeName, row.occ));
-                    // One marker system: where this price came from, proved by
-                    // a Previo read-back. Hotel Care, the pickup automation,
-                    // someone editing in Previo, or a value that disagrees.
+                    // One dot per cell, and only for a change in the last 7
+                    // days: who last set this price, in plain words.
                     const confirmedHistory = manualAuditByCell.get(cellKey(d, row.roomTypeName, row.occ));
                     const cellAutomation = automationByCell.get(cellKey(d, row.roomTypeName, row.occ));
                     const cellOrigin = cellOriginByCell.get(cellKey(d, row.roomTypeName, row.occ));
+                    const lastChangeAt = (() => {
+                      const times: number[] = [];
+                      if (cellOrigin) times.push(new Date(cellOrigin.at).getTime());
+                      for (const h of confirmedHistory ?? []) times.push(new Date(h.performed_at).getTime());
+                      for (const a of cellAutomation ?? []) times.push(new Date(a.created_at).getTime());
+                      return times.length ? Math.max(...times) : null;
+                    })();
+                    const recent = lastChangeAt !== null && Date.now() - lastChangeAt < 7 * 24 * 60 * 60 * 1000;
+                    const marker: "team" | "automation" | "previo" | "failed" | null =
+                      !showMarkers || !recent ? null
+                        : cellOrigin?.origin === "different" ? "failed"
+                          : cellOrigin?.origin === "automation" || (cellAutomation?.length && !confirmedHistory?.length) ? "automation"
+                            : cellOrigin?.origin === "previo" ? "previo"
+                              : (confirmedHistory?.length || cellOrigin) ? "team" : null;
+                    const markerClass = marker === "failed" ? "bg-destructive"
+                      : marker === "automation" ? "bg-purple-500"
+                        : marker === "previo" ? "bg-amber-500"
+                          : "bg-primary";
                     const originLabel = (() => {
-                      if (draft !== undefined) return "unsent draft in Hotel Care";
-                      if (!cellOrigin) return "no recorded change";
+                      if (draft !== undefined) return "Not sent to Previo yet";
+                      if (!cellOrigin) return "No price change recorded";
                       const who = cellOrigin.by ? auditNames.get(cellOrigin.by) ?? "someone" : null;
                       const when = formatWhen(cellOrigin.at);
                       if (cellOrigin.origin === "different") {
-                        return `requested ${eur(cellOrigin.requested ?? null)}, Previo published ${eur(cellOrigin.price)} · ${when}`;
+                        return `Did not land: we asked for ${eur(cellOrigin.requested ?? null)}, Previo shows ${eur(cellOrigin.price)} (${when})`;
                       }
-                      if (cellOrigin.origin === "automation") return `pickup automation · confirmed ${when}`;
-                      if (cellOrigin.origin === "previo") return `changed in Previo · ${when}`;
-                      return `Hotel Care${who ? ` · ${who}` : ""} · confirmed ${when}`;
+                      if (cellOrigin.origin === "automation") return `Changed by automation, live in Previo (${when})`;
+                      if (cellOrigin.origin === "previo") return `Changed directly in Previo (${when})`;
+                      return `Changed by your team${who ? ` (${who})` : ""}, live in Previo (${when})`;
                     })();
+
 
 
 
@@ -1589,27 +1623,13 @@ export default function RateStrategyGrid({
                         style={{ width: CELL_W }}
                       >
                         {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
-                        {confirmedHistory?.length ? (() => {
-                          const last = Math.max(...confirmedHistory.map((h) => new Date(h.performed_at).getTime()));
-                           const fresh = Date.now() - last < 4 * 60 * 60 * 1000;
-                          return (
-                            <span
-                              aria-hidden
-                               className={`absolute right-0.5 top-0.5 h-2 w-2 rounded-full ${fresh ? "border border-primary bg-primary ring-2 ring-primary/25" : "border border-orange-500 bg-orange-300"}`}
-                            />
-                          );
-                        })() : cellOrigin?.origin === "previo" ? (
+                        {marker ? (
                           <span
                             aria-hidden
-                            className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full border border-amber-600 bg-amber-400"
+                            className={`absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full ${markerClass}`}
                           />
                         ) : null}
-                        {cellAutomation?.length ? (
-                          <span
-                            aria-hidden
-                            className="absolute left-0.5 bottom-0.5 h-2 w-2 rounded-full border border-purple-600 bg-purple-400"
-                          />
-                        ) : null}
+
 
 
 
