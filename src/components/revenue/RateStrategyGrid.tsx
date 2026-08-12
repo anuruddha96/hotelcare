@@ -321,8 +321,6 @@ export default function RateStrategyGrid({
   const [drafts, setDrafts] = useState<Map<string, number>>(new Map());
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
-  const [pushing, setPushing] = useState(false);
-  /** Live push telemetry so a long send never looks stuck. */
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [clearAllMode, setClearAllMode] = useState(false);
@@ -1119,7 +1117,7 @@ export default function RateStrategyGrid({
             <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-purple-500 inline-block" />by the automation tool</span>
             <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-amber-500 inline-block" />in Previo</span>
             <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-destructive inline-block" />did not land</span>
-            <span className="underline decoration-dotted underline-offset-2">not sent yet</span>
+            <span className="underline decoration-dotted underline-offset-2">publishing issue</span>
           </span>
           <button
             type="button"
@@ -1805,16 +1803,14 @@ export default function RateStrategyGrid({
                 </label>
               </div>
 
-              <p className="text-xs text-muted-foreground">
-                Saved as a draft only. Nothing is sent to Previo until a push is confirmed.
-              </p>
+              <p className="text-xs text-muted-foreground">The calendar updates immediately while Previo publishing continues in the background.</p>
             </div>
           )}
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setEdit(null)}>Cancel</Button>
             <Button onClick={() => void saveDraft()} disabled={saving}>
-              {saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}Save draft
+              {saving && <Loader2 className="h-4 w-4 animate-spin mr-1" />}Publish price
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2052,9 +2048,6 @@ export default function RateStrategyGrid({
 
           <DialogFooter className="sticky bottom-0 -mx-4 -mb-4 gap-2 border-t bg-background p-4 sm:static sm:m-0 sm:border-0 sm:p-0">
             <Button variant="ghost" onClick={() => setDayTool(null)}>Cancel</Button>
-            <Button variant="outline" onClick={() => void applyDayTool("draft")} disabled={saving || dayToolChanges.length === 0}>
-              Save for later
-            </Button>
             <Button onClick={() => void applyDayTool("push")} disabled={saving || dayToolChanges.length === 0}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
               {dayResult?.failed ? "Retry" : "Update"} {dayToolChanges.length} price{dayToolChanges.length === 1 ? "" : "s"}
@@ -2142,11 +2135,7 @@ export default function RateStrategyGrid({
             </table>
           </div>
           <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">
-              Pushing sends the {unsentDrafts.length} unsent price{unsentDrafts.length === 1 ? "" : "s"} to Previo straight away and reads them back to confirm.
-              {awaitingDrafts.length > 0 ? ` ${awaitingDrafts.length} already reached Previo and only await confirmation.` : ""}
-              {" "}Anything Previo refuses stays here with the reason.
-            </p>
+            <p className="text-xs text-muted-foreground">Only persistent Previo errors appear here. Successful publishing and verification stay in the background.</p>
 
             {failedCount > 0 && (
               <div className="flex flex-wrap items-center gap-2">
@@ -2185,11 +2174,7 @@ export default function RateStrategyGrid({
                 </Button>
               )}
             </div>
-            <Button variant="ghost" onClick={() => setPushOpen(false)}>Cancel</Button>
-            <Button onClick={() => void pushDrafts()} disabled={pushing || unsentDrafts.length === 0}>
-              {pushing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
-              Push {unsentDrafts.length} change{unsentDrafts.length === 1 ? "" : "s"}
-            </Button>
+            <Button variant="ghost" onClick={() => setPushOpen(false)}>Close</Button>
 
           </DialogFooter>
 
