@@ -366,6 +366,7 @@ Deno.serve(async (req) => {
 
       summary.push({
         hotel_id: rule.hotel_id, pickups: events.length,
+        skipped_not_new: skippedStale, skipped_negative_pickup: skippedNegative,
         actions: inserted, pushed, auto_publish: rule.auto_publish,
       });
     }
