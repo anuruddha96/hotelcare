@@ -7,7 +7,7 @@ import { Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
 import { logRateChanges } from "@/lib/rateAudit";
 import { moneyBase, getRevenueCurrency } from "@/lib/revenueCurrency";
-import { pushRateDrafts, saveRateDrafts } from "@/lib/rateDrafts";
+import { publishRates } from "@/lib/ratePublishing";
 import type { RoomTypeRate } from "@/lib/revenueAnalytics";
 
 const PRESETS = [2, 3, 8, 11, 22];
@@ -70,13 +70,14 @@ export default function QuickRateAdjustDialog({
     return { avgFrom, avgTo };
   }, [changes]);
 
-  async function apply(push: boolean) {
+  async function apply() {
     if (!hotelId || changes.length === 0) return;
     setSaving(true);
     try {
-      const ids = await saveRateDrafts({
+      const result = await publishRates({
         hotelId,
         organizationSlug,
+        source: "pickup-board",
         changes: changes.map((c) => ({
           stay_date: c.rate.stay_date,
           obk_id: c.rate.obk_id,
@@ -90,7 +91,7 @@ export default function QuickRateAdjustDialog({
         hotelId,
         organizationSlug: organizationSlug ?? null,
         source: "pickup-board",
-        action: "draft_saved",
+        action: "sent_to_previo",
         notes: `${direction > 0 ? "+" : "−"}${amount} ${getRevenueCurrency().code} from pickup`,
         changes: changes.map((c) => ({
           stay_date: c.rate.stay_date,
@@ -102,19 +103,8 @@ export default function QuickRateAdjustDialog({
       });
 
       const verb = direction > 0 ? "Raised" : "Lowered";
-      if (!push) {
-        toast.success(`${ids.length} price${ids.length === 1 ? "" : "s"} saved as draft — not sent to Previo yet`);
-        onApplied?.(`${verb} ${ids.length} price${ids.length === 1 ? "" : "s"} · draft`);
-      } else {
-        const res = await pushRateDrafts(hotelId, ids);
-        if (res.failed) {
-          toast.error(`${res.pushed} sent, ${res.failed} failed — open the price list to see why`);
-          onApplied?.(`${verb} ${res.pushed} · ${res.failed} failed`);
-        } else {
-          toast.success(`${res.pushed} price${res.pushed === 1 ? "" : "s"} sent to Previo`);
-          onApplied?.(`${verb} ${res.pushed} price${res.pushed === 1 ? "" : "s"} · sent`);
-        }
-      }
+      toast.success(`${result.queued} price${result.queued === 1 ? "" : "s"} sent to Previo`);
+      onApplied?.(`${verb} ${result.queued} price${result.queued === 1 ? "" : "s"}`);
       onClose();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save the drafts");
