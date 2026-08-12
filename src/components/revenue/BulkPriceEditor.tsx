@@ -43,7 +43,7 @@ function roundTo(value: number, rounding: Rounding): number {
  * separate, explicit click.
  */
 export default function BulkPriceEditor({
-  open, onOpenChange, hotelId, organizationSlug, rates, today, canPush = false, onSaved,
+  open, onOpenChange, hotelId, organizationSlug, rates, today, canPush = false, onSaved, onPublish,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -53,7 +53,10 @@ export default function BulkPriceEditor({
   today: string;
   canPush?: boolean;
   onSaved?: () => void | Promise<void>;
+  /** Hand the changes to the calendar's background publisher (no waiting). */
+  onPublish?: (changes: DraftChange[], note: string) => void;
 }) {
+
   const cur = getRevenueCurrency();
   const [range, setRange] = useState<DateRange | undefined>();
   const [dows, setDows] = useState<Set<number>>(new Set([0, 1, 2, 3, 4, 5, 6]));
@@ -150,13 +153,23 @@ export default function BulkPriceEditor({
 
   async function run() {
     if (!hotelId || changes.length === 0) return;
+    const payload = changes.map(({ label: _label, ...c }) => c);
+
+    // Nobody should wait for a season of prices. Hand the work to the
+    // calendar's background publisher and close straight away.
+    if (onPublish) {
+      onPublish(payload, noteFor());
+      onOpenChange(false);
+      return;
+    }
+
     setBusy(true);
     try {
       const result = await publishRates({
         hotelId,
         organizationSlug,
         source: "bulk",
-        changes: changes.map(({ label: _label, ...c }) => c),
+        changes: payload,
       });
       await logRateChanges({
         hotelId,
@@ -182,6 +195,7 @@ export default function BulkPriceEditor({
       setBusy(false);
     }
   }
+
 
 
   const toggle = <T,>(set: Set<T>, v: T, apply: (s: Set<T>) => void) => {

@@ -57,58 +57,74 @@ Deno.serve(async (req) => {
     }
     const changes = [...byCell.values()];
     const runId = crypto.randomUUID();
+    const orgSlug = organizationSlug ?? profile.organization_slug;
 
-    const dates = changes.map((change) => change.stay_date).sort();
-    const { data: existingDrafts } = await admin.from("revenue_rate_drafts")
-      .select("id,stay_date,room_type_name,occupancy")
-      .eq("hotel_id", hotelId).gte("stay_date", dates[0]).lte("stay_date", dates[dates.length - 1])
-      .in("status", ["draft", "failed"]);
-    const superseded = (existingDrafts ?? []).filter((row) => byCell.has(`${row.stay_date}|${row.room_type_name}|${row.occupancy}`)).map((row) => row.id);
-    for (const ids of chunks(superseded, 300)) await admin.from("revenue_rate_drafts").delete().in("id", ids);
-
+    // The only work the caller waits for: record the run. Everything else —
+    // expanding drafts, queueing items, sending to Previo — happens after the
+    // response so a 6-month bulk edit returns as fast as a single cell.
     const { error: runError } = await admin.from("revenue_rate_push_runs").insert({
-      id: runId, hotel_id: hotelId, organization_slug: organizationSlug ?? profile.organization_slug,
+      id: runId, hotel_id: hotelId, organization_slug: orgSlug,
       source, requested_count: changes.length, created_by: user.id,
     });
     if (runError) throw runError;
 
-    const draftIds: string[] = [];
-    for (const batch of chunks(changes, 500)) {
-      const draftRows = batch.map((change) => ({
-        hotel_id: hotelId, organization_slug: organizationSlug ?? profile.organization_slug,
-        ...change, status: "draft", push_error: null, created_by: user.id, push_run_id: runId,
-        confirmation_status: "sending",
-      }));
-      const { data: drafts, error } = await admin.from("revenue_rate_drafts").insert(draftRows).select("id,stay_date,room_type_name,occupancy");
-      if (error) throw error;
-      const idsByCell = new Map((drafts ?? []).map((draft) => [
-        `${draft.stay_date}|${draft.room_type_name}|${draft.occupancy}`, draft.id,
-      ]));
-      draftIds.push(...(drafts ?? []).map((draft) => draft.id));
+    const expandAndPush = async () => {
+      try {
+        const dates = changes.map((change) => change.stay_date).sort();
+        const { data: existingDrafts } = await admin.from("revenue_rate_drafts")
+          .select("id,stay_date,room_type_name,occupancy")
+          .eq("hotel_id", hotelId).gte("stay_date", dates[0]).lte("stay_date", dates[dates.length - 1])
+          .in("status", ["draft", "failed"]);
+        const superseded = (existingDrafts ?? []).filter((row) => byCell.has(`${row.stay_date}|${row.room_type_name}|${row.occupancy}`)).map((row) => row.id);
+        for (const ids of chunks(superseded, 300)) await admin.from("revenue_rate_drafts").delete().in("id", ids);
 
-      const items = batch.map((change) => ({
-        run_id: runId, hotel_id: hotelId, organization_slug: organizationSlug ?? profile.organization_slug,
-        stay_date: change.stay_date, obk_id: change.obk_id, room_type_name: change.room_type_name,
-        occupancy: change.occupancy, old_price: change.old_price, target_price: change.new_price,
-        draft_id: idsByCell.get(`${change.stay_date}|${change.room_type_name}|${change.occupancy}`),
-      }));
-      const { error: itemError } = await admin.from("revenue_rate_push_items").insert(items);
-      if (itemError) throw itemError;
+        const draftIds: string[] = [];
+        for (const batch of chunks(changes, 500)) {
+          const draftRows = batch.map((change) => ({
+            hotel_id: hotelId, organization_slug: orgSlug,
+            ...change, status: "draft", push_error: null, created_by: user.id, push_run_id: runId,
+            confirmation_status: "sending",
+          }));
+          const { data: drafts, error } = await admin.from("revenue_rate_drafts").insert(draftRows).select("id,stay_date,room_type_name,occupancy");
+          if (error) throw error;
+          const idsByCell = new Map((drafts ?? []).map((draft) => [
+            `${draft.stay_date}|${draft.room_type_name}|${draft.occupancy}`, draft.id,
+          ]));
+          draftIds.push(...(drafts ?? []).map((draft) => draft.id));
 
-    }
+          const items = batch.map((change) => ({
+            run_id: runId, hotel_id: hotelId, organization_slug: orgSlug,
+            stay_date: change.stay_date, obk_id: change.obk_id, room_type_name: change.room_type_name,
+            occupancy: change.occupancy, old_price: change.old_price, target_price: change.new_price,
+            draft_id: idsByCell.get(`${change.stay_date}|${change.room_type_name}|${change.occupancy}`),
+          }));
+          const { error: itemError } = await admin.from("revenue_rate_push_items").insert(items);
+          if (itemError) throw itemError;
+        }
 
-    const work = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-      },
-      body: JSON.stringify({ hotelId, draftIds, pushRunId: runId }),
-    }).catch((error) => console.error("background rate push failed to start", runId, error));
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+          },
+          body: JSON.stringify({ hotelId, draftIds, pushRunId: runId }),
+        });
+      } catch (error) {
+        console.error("background rate expansion failed", runId, error);
+        await admin.from("revenue_rate_push_runs").update({
+          status: "failed", finished_at: new Date().toISOString(),
+          last_error: error instanceof Error ? error.message : String(error),
+        }).eq("id", runId);
+      }
+    };
+
     const edgeRuntime = globalThis as typeof globalThis & { EdgeRuntime?: { waitUntil: (promise: Promise<unknown>) => void } };
-    edgeRuntime.EdgeRuntime?.waitUntil(work);
+    if (edgeRuntime.EdgeRuntime?.waitUntil) edgeRuntime.EdgeRuntime.waitUntil(expandAndPush());
+    else void expandAndPush();
 
     return json({ ok: true, runId, queued: changes.length });
+
   } catch (error) {
     console.error("rate enqueue failed", error);
     return json({ error: error instanceof Error ? error.message : String(error) }, 500);

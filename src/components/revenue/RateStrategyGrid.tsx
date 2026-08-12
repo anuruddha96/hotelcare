@@ -33,6 +33,8 @@ import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
 import PickupAutomationRules from "@/components/revenue/PickupAutomationRules";
 import { publishRates } from "@/lib/ratePublishing";
+import { rememberedRange, writeNumberPref } from "@/lib/revenuePrefs";
+
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
@@ -63,11 +65,13 @@ interface Props {
 const RANGE_OPTIONS = [
   { value: 14, label: "14d" },
   { value: 30, label: "30d" },
+  { value: 45, label: "1.5m" },
   { value: 60, label: "60d" },
   { value: 90, label: "90d" },
   { value: 120, label: "120d" },
   { value: 180, label: "6m" },
 ];
+
 
 const PICKUP_WINDOWS = [
   { value: 1, label: "Today" },
@@ -277,7 +281,17 @@ export default function RateStrategyGrid({
     window.addEventListener("pointerup", onUp);
   }, []);
 
-  const [days, setDays] = useState(30);
+  // Desktop opens on the full 6-month horizon; a phone stays at a readable
+  // month. Whatever the reader picks is remembered per device.
+  const [days, setDaysState] = useState(() => rememberedRange("grid-range", 30, 180));
+  const setDays = useCallback((next: number | ((d: number) => number)) => {
+    setDaysState((current) => {
+      const value = typeof next === "function" ? next(current) : next;
+      writeNumberPref("grid-range", value);
+      return value;
+    });
+  }, []);
+
   // Cell dots are off by default: the date row already says which days moved
   // and by whom. The user can switch the per-cell dots on and we remember it.
   const [showMarkers, setShowMarkers] = useState(() => {
@@ -318,6 +332,12 @@ export default function RateStrategyGrid({
   const [selecting, setSelecting] = useState(false);
 
   const [saving, setSaving] = useState(false);
+  /** Live progress of the prices currently on their way to Previo. */
+  const [pushRun, setPushRun] = useState<{
+    total: number; done: number; failed: number;
+    state: "sending" | "done" | "error"; message?: string;
+  } | null>(null);
+
   const [drafts, setDrafts] = useState<Map<string, number>>(new Map());
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
@@ -573,18 +593,44 @@ export default function RateStrategyGrid({
 
 
 
+  /**
+   * Prices the user just published, shown before Previo answers. Keyed
+   * `obk|occ|date`. They are dropped as soon as the reloaded rates agree.
+   */
+  const [optimistic, setOptimistic] = useState<Map<string, number>>(new Map());
+
   // obk_id -> occupancy -> stay_date -> price
   const priceMap = useMemo(() => {
     const m = new Map<string, Map<number, Map<string, number>>>();
-    for (const r of rates) {
-      let byOcc = m.get(r.obk_id);
-      if (!byOcc) { byOcc = new Map(); m.set(r.obk_id, byOcc); }
-      let byDate = byOcc.get(r.occupancy);
-      if (!byDate) { byDate = new Map(); byOcc.set(r.occupancy, byDate); }
-      byDate.set(r.stay_date, Number(r.price));
+    const put = (obk: string, occ: number, date: string, price: number) => {
+      let byOcc = m.get(obk);
+      if (!byOcc) { byOcc = new Map(); m.set(obk, byOcc); }
+      let byDate = byOcc.get(occ);
+      if (!byDate) { byDate = new Map(); byOcc.set(occ, byDate); }
+      byDate.set(date, price);
+    };
+    for (const r of rates) put(r.obk_id, r.occupancy, r.stay_date, Number(r.price));
+    for (const [key, price] of optimistic) {
+      const [obk, occ, date] = key.split("|");
+      if (obk && date) put(obk, Number(occ), date, price);
     }
     return m;
+  }, [rates, optimistic]);
+
+  // Once the reloaded Previo rates match what we showed optimistically, the
+  // overlay has nothing left to say.
+  useEffect(() => {
+    if (optimistic.size === 0) return;
+    const byCell = new Map(rates.map((r) => [`${r.obk_id}|${r.occupancy}|${r.stay_date}`, Number(r.price)]));
+    let changed = false;
+    const next = new Map(optimistic);
+    for (const [key, price] of optimistic) {
+      if (byCell.get(key) === price) { next.delete(key); changed = true; }
+    }
+    if (changed) setOptimistic(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rates]);
+
 
   const metricByDate = useMemo(() => {
     const m = new Map<string, DayMetrics>();
@@ -772,6 +818,81 @@ export default function RateStrategyGrid({
     }
   }
 
+  /**
+   * Send prices to Previo without making anyone wait. The grid shows the new
+   * price and its change dot straight away; queueing, sending and verifying
+   * all happen after the dialog has closed. Only a real failure interrupts.
+   */
+  const publishInBackground = useCallback((
+    rowsToSave: any[],
+    audit: { source: string; notes: string },
+  ) => {
+    if (!hotelId || rowsToSave.length === 0) return;
+
+    // 1. Optimistic mirror — the calendar reads the new prices immediately.
+    setOptimistic((prev) => {
+      const next = new Map(prev);
+      for (const r of rowsToSave) {
+        if (r.obk_id) next.set(`${r.obk_id}|${r.occupancy}|${r.stay_date}`, Number(r.new_price));
+      }
+      return next;
+    });
+    setPushRun({ total: rowsToSave.length, done: 0, failed: 0, state: "sending" });
+
+    void (async () => {
+      try {
+        const { runId } = await publishRates({ hotelId, organizationSlug, source: "manual", changes: rowsToSave });
+
+        // 2. The change dots come from the audit trail, so write it right away.
+        void logRateChanges({
+          hotelId,
+          organizationSlug: organizationSlug ?? null,
+          source: audit.source,
+          action: "sent_to_previo",
+          notes: audit.notes,
+          changes: rowsToSave.map((r) => ({
+            stay_date: r.stay_date, room_type_name: r.room_type_name, occupancy: r.occupancy,
+            old_price: r.old_price, new_price: r.new_price,
+          })),
+        }).then(() => reloadAudit());
+
+        // 3. Follow the run quietly and only speak up if something failed.
+        for (let attempt = 0; attempt < 90; attempt++) {
+          await new Promise((resolve) => setTimeout(resolve, attempt < 5 ? 1200 : 3000));
+          const { data } = await supabase.from("revenue_rate_push_runs")
+            .select("status, requested_count, processed_count, accepted_count, failed_count, last_error")
+            .eq("id", runId).maybeSingle();
+          if (!data) continue;
+          const total = Number(data.requested_count ?? rowsToSave.length);
+          const done = Number(data.processed_count ?? 0);
+          const failed = Number(data.failed_count ?? 0);
+          const finished = data.status === "completed" || data.status === "failed" || (done > 0 && done >= total);
+          setPushRun({
+            total, done, failed,
+            state: finished ? (failed > 0 || data.status === "failed" ? "error" : "done") : "sending",
+            message: data.last_error ?? undefined,
+          });
+          if (finished) {
+            await Promise.all([refreshDrafts(), reloadAudit(), onRatesUpdated?.()]);
+            if (failed > 0 || data.status === "failed") {
+              toast.error(`${failed || total} price${(failed || total) === 1 ? "" : "s"} did not reach Previo`);
+            } else {
+              window.setTimeout(() => setPushRun(null), 4000);
+            }
+            return;
+          }
+        }
+        setPushRun(null);
+      } catch (e) {
+        setPushRun({
+          total: rowsToSave.length, done: 0, failed: rowsToSave.length, state: "error",
+          message: e instanceof Error ? e.message : String(e),
+        });
+        toast.error(e instanceof Error ? e.message : "Could not send the prices to Previo");
+      }
+    })();
+  }, [hotelId, organizationSlug, refreshDrafts, reloadAudit, onRatesUpdated]);
+
   /** Publish one or many absolute target prices without blocking on Previo. */
   async function saveDraft() {
     if (!edit || !hotelId) return;
@@ -779,68 +900,49 @@ export default function RateStrategyGrid({
     if (!Number.isFinite(input) || (editMode === "set" && input <= 0)) {
       toast.error("Enter a valid number"); return;
     }
-    setSaving(true);
-    try {
-      const { data: auth } = await supabase.auth.getUser();
-      const start = dates.indexOf(edit.stay_date);
-      const targetDates = (start >= 0 ? dates.slice(start, start + applyDays) : [edit.stay_date])
-        .filter((d) =>
-          applyWeekdays === "all" ? true :
-          applyWeekdays === "weekend" ? isWeekend(d) : !isWeekend(d));
+    const { data: auth } = await supabase.auth.getUser();
+    const start = dates.indexOf(edit.stay_date);
+    const targetDates = (start >= 0 ? dates.slice(start, start + applyDays) : [edit.stay_date])
+      .filter((d) =>
+        applyWeekdays === "all" ? true :
+        applyWeekdays === "weekend" ? isWeekend(d) : !isWeekend(d));
 
-      const occs = applyAllOcc && edit.obk_id
-        ? Array.from(priceMap.get(edit.obk_id)?.keys() ?? [edit.occupancy])
-        : [edit.occupancy];
+    const occs = applyAllOcc && edit.obk_id
+      ? Array.from(priceMap.get(edit.obk_id)?.keys() ?? [edit.occupancy])
+      : [edit.occupancy];
 
-      const rowsToSave: any[] = [];
-      for (const d of targetDates) {
-        for (const occ of occs) {
-          const current = edit.obk_id ? priceMap.get(edit.obk_id)?.get(occ)?.get(d) ?? null : null;
-          const next = editMode === "set"
-            ? input
-            : current === null ? null : Math.round(current * (1 + input / 100));
-          if (next === null || !Number.isFinite(next) || next <= 0) continue;
-          rowsToSave.push({
-            hotel_id: hotelId,
-            organization_slug: organizationSlug ?? null,
-            stay_date: d,
-            obk_id: edit.obk_id,
-            room_type_name: edit.room_type_name,
-            occupancy: occ,
-            old_price: current,
-            new_price: next,
-            status: "draft",
-            created_by: auth.user?.id ?? null,
-          });
-        }
+    const rowsToSave: any[] = [];
+    for (const d of targetDates) {
+      for (const occ of occs) {
+        const current = edit.obk_id ? priceMap.get(edit.obk_id)?.get(occ)?.get(d) ?? null : null;
+        const next = editMode === "set"
+          ? input
+          : current === null ? null : Math.round(current * (1 + input / 100));
+        if (next === null || !Number.isFinite(next) || next <= 0) continue;
+        rowsToSave.push({
+          hotel_id: hotelId,
+          organization_slug: organizationSlug ?? null,
+          stay_date: d,
+          obk_id: edit.obk_id,
+          room_type_name: edit.room_type_name,
+          occupancy: occ,
+          old_price: current,
+          new_price: next,
+          status: "draft",
+          created_by: auth.user?.id ?? null,
+        });
       }
-      if (rowsToSave.length === 0) { toast.error("Nothing to change with these options"); return; }
-
-      const result = await publishRates({ hotelId, organizationSlug, source: "manual", changes: rowsToSave });
-      await logRateChanges({
-        hotelId,
-        organizationSlug: organizationSlug ?? null,
-        source: "cell-edit",
-        action: "sent_to_previo",
-        notes: editMode === "percent" ? `${input}%` : `set ${input}`,
-        changes: rowsToSave.map((r) => ({
-          stay_date: r.stay_date,
-          room_type_name: r.room_type_name,
-          occupancy: r.occupancy,
-          old_price: r.old_price,
-          new_price: r.new_price,
-        })),
-      });
-      await Promise.all([refreshDrafts(), reloadAudit(), onRatesUpdated?.()]);
-      toast.success(`${result.queued} price${result.queued === 1 ? "" : "s"} sent to Previo`);
-      setEdit(null);
-
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not save the draft");
-    } finally {
-      setSaving(false);
     }
+    if (rowsToSave.length === 0) { toast.error("Nothing to change with these options"); return; }
+
+    setEdit(null);
+    publishInBackground(rowsToSave, {
+      source: "cell-edit",
+      notes: editMode === "percent" ? `${input}%` : `set ${input}`,
+    });
   }
+
+
 
   /** Rate rows the day tool can act on (room type × guest count). */
   const rateRows = useMemo(
@@ -896,54 +998,32 @@ export default function RateStrategyGrid({
   /** Publish every change the day tool previews. */
   async function applyDayTool(_mode: "draft" | "push" = "push") {
     if (!hotelId || dayToolChanges.length === 0) return;
-    setSaving(true);
     setDayResult(null);
-    try {
-      const { data: auth } = await supabase.auth.getUser();
-      const rowsToSave = dayToolChanges.map((c) => ({
-        hotel_id: hotelId,
-        organization_slug: organizationSlug ?? null,
-        stay_date: c.date,
-        obk_id: c.row.obk,
-        room_type_name: c.row.roomTypeName,
-        occupancy: c.row.occ,
-        old_price: c.from,
-        new_price: c.to,
-        status: "draft",
-        push_error: null,
-        created_by: auth.user?.id ?? null,
-      }));
-      const result = await publishRates({ hotelId, organizationSlug, source: "manual", changes: rowsToSave });
+    const { data: auth } = await supabase.auth.getUser();
+    const rowsToSave = dayToolChanges.map((c) => ({
+      hotel_id: hotelId,
+      organization_slug: organizationSlug ?? null,
+      stay_date: c.date,
+      obk_id: c.row.obk,
+      room_type_name: c.row.roomTypeName,
+      occupancy: c.row.occ,
+      old_price: c.from,
+      new_price: c.to,
+      status: "draft",
+      push_error: null,
+      created_by: auth.user?.id ?? null,
+    }));
 
-      // The day tool is hand-made pricing: record it whichever way the user
-      // finishes, so the "priced by hand" marker appears on the cells even when
-      // the change goes straight to Previo.
-      await logRateChanges({
-        hotelId,
-        organizationSlug: organizationSlug ?? null,
-        source: "day-tool",
-        action: "sent_to_previo",
-        notes: dayMode === "percent" ? `${dayValue}%` : dayMode === "amount" ? `${dayValue} ${getRevenueCurrency().code}` : dayMode,
-        changes: dayToolChanges.map((c) => ({
-          stay_date: c.date, room_type_name: c.row.roomTypeName, occupancy: c.row.occ,
-          old_price: c.from, new_price: c.to,
-        })),
-      });
-
-      await Promise.all([refreshDrafts(), reloadAudit()]);
-      await onRatesUpdated?.();
-      setDayResult({ pushed: result.queued, failed: 0, errors: [] });
-      toast.success(`${result.queued} price${result.queued === 1 ? "" : "s"} sent to Previo`);
-      setDayTool(null);
-      setSelDates(new Set());
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Could not update the prices";
-      setDayResult({ pushed: 0, failed: dayToolChanges.length, errors: [], message });
-      toast.error(message);
-    } finally {
-      setSaving(false);
-    }
+    // The day tool is hand-made pricing, so the audit trail (and the blue
+    // "your team" dot) is written from the same background publisher.
+    setDayTool(null);
+    setSelDates(new Set());
+    publishInBackground(rowsToSave, {
+      source: "day-tool",
+      notes: dayMode === "percent" ? `${dayValue}%` : dayMode === "amount" ? `${dayValue} ${getRevenueCurrency().code}` : dayMode,
+    });
   }
+
 
 
   /** Cells priced below the critical safety-net threshold — likely typos. */
@@ -1123,6 +1203,43 @@ export default function RateStrategyGrid({
             {showMarkers ? "Hide change dots" : "Show change dots"}
           </button>
         </div>
+
+        {/* Quiet, self-clearing publishing pill — never blocks the calendar. */}
+        {pushRun && (
+          <div
+            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] animate-fade-in
+              ${pushRun.state === "error"
+                ? "border-destructive/40 bg-destructive/10 text-destructive"
+                : pushRun.state === "done"
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700"
+                  : "border-primary/30 bg-primary/5 text-foreground"}`}
+            role="status"
+          >
+            {pushRun.state === "sending" && (
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+              </span>
+            )}
+            <span className="font-medium">
+              {pushRun.state === "error"
+                ? `${pushRun.failed || pushRun.total} price${(pushRun.failed || pushRun.total) === 1 ? "" : "s"} need attention`
+                : pushRun.state === "done"
+                  ? `${pushRun.total} price${pushRun.total === 1 ? "" : "s"} live in Previo`
+                  : `Sending ${pushRun.total} price${pushRun.total === 1 ? "" : "s"} to Previo — your prices are already up to date here`}
+            </span>
+            {pushRun.state === "sending" && pushRun.total > 0 && (
+              <span className="hidden sm:flex h-1 w-24 overflow-hidden rounded-full bg-primary/15">
+                <span
+                  className="h-full rounded-full bg-primary transition-all duration-500"
+                  style={{ width: `${Math.max(6, Math.min(100, Math.round((pushRun.done / pushRun.total) * 100)))}%` }}
+                />
+              </span>
+            )}
+          </div>
+        )}
+
+
 
         <p className="text-[11px] text-muted-foreground">
           Live Previo prices.
@@ -1821,10 +1938,15 @@ export default function RateStrategyGrid({
         rates={rates}
         today={today}
         canPush={!!canEditRates}
+        onPublish={(changes, note) => publishInBackground(
+          changes.map((c) => ({ ...c, hotel_id: hotelId, organization_slug: organizationSlug ?? null, status: "draft" })),
+          { source: "bulk-editor", notes: note },
+        )}
         onSaved={async () => {
           await Promise.all([refreshDrafts(), reloadAudit()]);
           await onRatesUpdated?.();
         }}
+
       />
 
       <Dialog open={!!dayTool} onOpenChange={(o) => !o && setDayTool(null)}>
