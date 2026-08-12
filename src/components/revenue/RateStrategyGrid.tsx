@@ -332,6 +332,12 @@ export default function RateStrategyGrid({
   const [selecting, setSelecting] = useState(false);
 
   const [saving, setSaving] = useState(false);
+  /** Live progress of the prices currently on their way to Previo. */
+  const [pushRun, setPushRun] = useState<{
+    total: number; done: number; failed: number;
+    state: "sending" | "done" | "error"; message?: string;
+  } | null>(null);
+
   const [drafts, setDrafts] = useState<Map<string, number>>(new Map());
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
