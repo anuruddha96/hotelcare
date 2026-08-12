@@ -277,6 +277,9 @@ export default function RateStrategyGrid({
   }, []);
 
   const [days, setDays] = useState(30);
+  // Markers were unreadable when every cell carried two or three dots. One dot
+  // per cell, only for the last 7 days, and the user can switch them off.
+  const [showMarkers, setShowMarkers] = useState(true);
   const [visibleMonth, setVisibleMonth] = useState<string>(formatMonth(today));
   const [edit, setEdit] = useState<DraftEdit | null>(null);
   /** Bulk options in the price editor. */
