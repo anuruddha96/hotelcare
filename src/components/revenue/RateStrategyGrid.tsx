@@ -32,7 +32,8 @@ import RateCellHistory from "@/components/revenue/RateCellHistory";
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
 import PickupAutomationRules from "@/components/revenue/PickupAutomationRules";
-import { pushRateDrafts, pushRateDraftsBatched, saveRateDrafts } from "@/lib/rateDrafts";
+import { pushRateDraftsBatched } from "@/lib/rateDrafts";
+import { publishRates } from "@/lib/ratePublishing";
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
@@ -849,11 +850,7 @@ export default function RateStrategyGrid({
     }
   }
 
-  /**
-   * Save one or many drafts. The editor can set a fixed price or apply a
-   * percentage change across a date range, optionally for every occupancy
-   * level of the same room type. Nothing is sent to Previo here.
-   */
+  /** Publish one or many absolute target prices without blocking on Previo. */
   async function saveDraft() {
     if (!edit || !hotelId) return;
     const input = Number(edit.value);
@@ -897,12 +894,12 @@ export default function RateStrategyGrid({
       }
       if (rowsToSave.length === 0) { toast.error("Nothing to change with these options"); return; }
 
-      await saveRateDrafts({ hotelId, organizationSlug, changes: rowsToSave });
+      const result = await publishRates({ hotelId, organizationSlug, source: "manual", changes: rowsToSave });
       await logRateChanges({
         hotelId,
         organizationSlug: organizationSlug ?? null,
         source: "cell-edit",
-        action: "draft_saved",
+        action: "sent_to_previo",
         notes: editMode === "percent" ? `${input}%` : `set ${input}`,
         changes: rowsToSave.map((r) => ({
           stay_date: r.stay_date,
@@ -912,8 +909,8 @@ export default function RateStrategyGrid({
           new_price: r.new_price,
         })),
       });
-      await Promise.all([refreshDrafts(), reloadAudit()]);
-      toast.success(`${rowsToSave.length} price${rowsToSave.length === 1 ? "" : "s"} saved as draft — not sent to Previo yet`);
+      await Promise.all([reloadAudit(), onRatesUpdated?.()]);
+      toast.success(`${result.queued} price${result.queued === 1 ? "" : "s"} sent to Previo`);
       setEdit(null);
 
     } catch (e) {
@@ -974,8 +971,8 @@ export default function RateStrategyGrid({
     return out;
   }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext]);
 
-  /** Save every change the day tool previews as a draft. */
-  async function applyDayTool(mode: "draft" | "push" = "draft") {
+  /** Publish every change the day tool previews. */
+  async function applyDayTool(_mode: "draft" | "push" = "push") {
     if (!hotelId || dayToolChanges.length === 0) return;
     setSaving(true);
     setDayResult(null);
@@ -994,7 +991,7 @@ export default function RateStrategyGrid({
         push_error: null,
         created_by: auth.user?.id ?? null,
       }));
-      const draftIds = await saveRateDrafts({ hotelId, organizationSlug, changes: rowsToSave });
+      const result = await publishRates({ hotelId, organizationSlug, source: "manual", changes: rowsToSave });
 
       // The day tool is hand-made pricing: record it whichever way the user
       // finishes, so the "priced by hand" marker appears on the cells even when
@@ -1003,7 +1000,7 @@ export default function RateStrategyGrid({
         hotelId,
         organizationSlug: organizationSlug ?? null,
         source: "day-tool",
-        action: mode === "draft" ? "draft_saved" : "sent_to_previo",
+        action: "sent_to_previo",
         notes: dayMode === "percent" ? `${dayValue}%` : dayMode === "amount" ? `${dayValue} ${getRevenueCurrency().code}` : dayMode,
         changes: dayToolChanges.map((c) => ({
           stay_date: c.date, room_type_name: c.row.roomTypeName, occupancy: c.row.occ,
@@ -1011,32 +1008,15 @@ export default function RateStrategyGrid({
         })),
       });
 
-      if (mode === "draft") {
-        await Promise.all([refreshDrafts(), reloadAudit()]);
-        toast.success(`${rowsToSave.length} price${rowsToSave.length === 1 ? "" : "s"} saved — not sent to Previo yet`);
-        setDayTool(null);
-        setSelDates(new Set());
-        return;
-      }
-
-
-      const res = await pushRateDrafts(hotelId, draftIds);
-
-      await Promise.all([refreshDrafts(), reloadAudit()]);
+      await reloadAudit();
       await onRatesUpdated?.();
-
-      const failed = res?.failed ?? 0;
-      setDayResult({ pushed: res?.pushed ?? 0, failed, errors: res?.errors ?? [] });
-      if (failed === 0) {
-        toast.success(`${res?.pushed ?? 0} price${res?.pushed === 1 ? "" : "s"} live in Previo`);
-        setDayTool(null);
-        setSelDates(new Set());
-      } else {
-        toast.error(`${res?.pushed ?? 0} updated, ${failed} refused by Previo`);
-      }
+      setDayResult({ pushed: result.queued, failed: 0, errors: [] });
+      toast.success(`${result.queued} price${result.queued === 1 ? "" : "s"} sent to Previo`);
+      setDayTool(null);
+      setSelDates(new Set());
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not update the prices";
-      if (mode === "push") setDayResult({ pushed: 0, failed: dayToolChanges.length, errors: [], message });
+      setDayResult({ pushed: 0, failed: dayToolChanges.length, errors: [], message });
       toast.error(message);
     } finally {
       setSaving(false);
