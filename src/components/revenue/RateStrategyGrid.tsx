@@ -1409,14 +1409,25 @@ export default function RateStrategyGrid({
                       </button>
                     );
 
-                    if (!trail) return dayButton;
-                    const who = (trail.last.performed_by && auditNames.get(trail.last.performed_by)) || "Someone";
-                    const up = trail.avgDelta >= 0;
+                    if (!trail && dayBreakdown.length === 0) return dayButton;
+                    const who = trail ? ((trail.last.performed_by && auditNames.get(trail.last.performed_by)) || "Someone") : null;
+                    const up = (trail?.avgDelta ?? 0) >= 0;
                     return (
                       <HoverCard key={d} openDelay={150} closeDelay={60}>
                         <HoverCardTrigger asChild>{dayButton}</HoverCardTrigger>
                         <HoverCardContent align="center" className="w-64 p-3 text-xs space-y-1">
                           <p className="font-medium">{formatWeekday(d)} {formatDay(d)} · last price update</p>
+                          {dayBreakdown.length > 0 && (
+                            <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                              {dayBreakdown.map((b) => (
+                                <span key={b.origin} className="inline-flex items-center gap-1">
+                                  <i className={`h-[5px] w-[5px] rounded-full ${ORIGIN_DOT_CLASS[b.origin]}`} />
+                                  {b.count} {ORIGIN_LABEL[b.origin]}
+                                </span>
+                              ))}
+                            </p>
+                          )}
+                          {trail && (
                           <p className="tabular-nums">
                             {trail.count} price{trail.count === 1 ? "" : "s"} changed
                             {trail.avgDelta !== 0 && (
@@ -1425,6 +1436,8 @@ export default function RateStrategyGrid({
                               </span>
                             )}
                           </p>
+                          )}
+
                           <p className="tabular-nums">
                             {moneyBase(trail.last.old_rate_eur)} → <strong>{moneyBase(trail.last.new_rate_eur)}</strong>
                           </p>
