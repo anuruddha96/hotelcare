@@ -175,7 +175,7 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
     return map;
   }, [manualRows]);
 
-  return { rows, byCell, manualByCell, originByCell, names, loading, systemCount, reload: load };
+  return { rows, manualRows, byCell, manualByCell, originByCell, names, loading, systemCount, reload: load };
 
 }
 
