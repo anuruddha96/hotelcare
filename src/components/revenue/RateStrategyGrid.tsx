@@ -625,26 +625,37 @@ export default function RateStrategyGrid({
     [pending],
   );
 
-  const [checkingPrevio, setCheckingPrevio] = useState(false);
-  /** Ask Previo now what it publishes, instead of waiting for the night sync. */
-  async function verifyWithPrevio() {
-    if (!hotelId) return;
-    setCheckingPrevio(true);
-    try {
-      const { error } = await supabase.functions.invoke("previo-revenue-sync", {
-        body: { hotelId, horizonDays: 190 },
-      });
-      if (error) throw error;
-      await refreshDrafts();
-      await reloadAudit();
-      await onRatesUpdated?.();
-      toast.success("Checked against Previo");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not reach Previo");
-    } finally {
-      setCheckingPrevio(false);
-    }
-  }
+  /**
+   * Confirmation is nobody's chore. While prices are still waiting for Previo's
+   * read-back, the app quietly re-checks on its own: a couple of cheap refreshes
+   * first, then an authoritative Previo read if anything is still open.
+   */
+  const awaitingCount = awaitingDrafts.length;
+  const confirmRefs = useRef({ refreshDrafts, reloadAudit, onRatesUpdated });
+  confirmRefs.current = { refreshDrafts, reloadAudit, onRatesUpdated };
+  useEffect(() => {
+    if (!hotelId || awaitingCount === 0) return;
+    let cancelled = false;
+    const timers: number[] = [];
+    const soft = async () => {
+      if (cancelled) return;
+      const r = confirmRefs.current;
+      await Promise.all([r.refreshDrafts(), r.reloadAudit(), r.onRatesUpdated?.()]);
+    };
+    const hard = async () => {
+      if (cancelled) return;
+      try {
+        await supabase.functions.invoke("previo-revenue-sync", { body: { hotelId, horizonDays: 190 } });
+      } catch { /* the nightly sync remains the backstop */ }
+      await soft();
+    };
+    timers.push(window.setTimeout(() => void soft(), 5000));
+    timers.push(window.setTimeout(() => void soft(), 15000));
+    timers.push(window.setTimeout(() => void hard(), 60000));
+    timers.push(window.setTimeout(() => void hard(), 150000));
+    return () => { cancelled = true; timers.forEach((t) => window.clearTimeout(t)); };
+  }, [hotelId, awaitingCount]);
+
 
 
 
