@@ -1736,11 +1736,12 @@ export default function RateStrategyGrid({
                         style={{ width: CELL_W }}
                       >
                         {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
-                        {marker ? (
-                          <span
-                            aria-hidden
-                            className={`absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full ${markerClass}`}
-                          />
+                        {cellOrigins.length > 0 ? (
+                          <span aria-hidden className="absolute right-0.5 top-0.5 flex gap-[2px]">
+                            {cellOrigins.map((o) => (
+                              <i key={o} className={`h-[3px] w-[3px] rounded-full ${ORIGIN_DOT_CLASS[o]}`} />
+                            ))}
+                          </span>
                         ) : null}
 
 
