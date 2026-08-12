@@ -117,6 +117,29 @@ Deno.serve(async (req) => {
         .limit(20000);
       const history = (historyRows ?? []) as Array<{ stay_date: string; res_id: string; created_at_pms: string }>;
 
+      // 2b. Net pickup per stay date over the last 48 hours. A re-sync of an
+      //     old booking is not pickup, and a day that lost more nights than it
+      //     gained must never be priced up — surge only follows real,
+      //     positive, brand-new demand.
+      const NEW_BOOKING_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+      const freshFrom = new Date(Date.now() - NEW_BOOKING_MAX_AGE_MS).toISOString();
+      const netPickup = new Map<string, number>();
+      for (const h of history) {
+        if (h.created_at_pms >= freshFrom) {
+          netPickup.set(h.stay_date, (netPickup.get(h.stay_date) ?? 0) + 1);
+        }
+      }
+      const { data: cancelRows } = await admin
+        .from("revenue_cancelled_nights")
+        .select("stay_date, cancelled_at")
+        .eq("hotel_id", rule.hotel_id)
+        .in("stay_date", stayDates)
+        .gte("cancelled_at", freshFrom)
+        .limit(20000);
+      for (const c of (cancelRows ?? []) as Array<{ stay_date: string }>) {
+        netPickup.set(c.stay_date, (netPickup.get(c.stay_date) ?? 0) - 1);
+      }
+
       // 3. Current prices per stay date / room type / occupancy (newest wins).
       const { data: rateRows } = await admin
         .from("revenue_room_type_rates")
