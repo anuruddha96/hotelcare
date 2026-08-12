@@ -1681,18 +1681,17 @@ export default function RateStrategyGrid({
                     const marker = cellEvents[0]?.origin ?? null;
                     const originLabel = (() => {
                       if (draft !== undefined) return "Not sent to Previo yet";
-                      if (marker === "automation" && cellAutomation?.length) {
-                        const a = cellAutomation[0];
-                        return `Changed by the pickup automation tool (${formatWhen(a.created_at)})`;
+                      const latest = cellEvents[0];
+                      if (!latest) return "No price change recorded";
+                      const when = formatWhen(latest.at);
+                      if (latest.origin === "automation") return `Changed by the pickup automation tool, live in Previo (${when})`;
+                      if (latest.origin === "previo") return `Changed directly in Previo (${when})`;
+                      if (latest.origin === "failed") {
+                        return cellOrigin
+                          ? `Did not land: we asked for ${eur(cellOrigin.requested ?? null)}, Previo shows ${eur(cellOrigin.price)} (${when})`
+                          : `Did not land (${when})`;
                       }
-                      if (!cellOrigin) return "No price change recorded";
-                      const who = cellOrigin.by ? auditNames.get(cellOrigin.by) ?? "someone" : null;
-                      const when = formatWhen(cellOrigin.at);
-                      if (cellOrigin.origin === "different") {
-                        return `Did not land: we asked for ${eur(cellOrigin.requested ?? null)}, Previo shows ${eur(cellOrigin.price)} (${when})`;
-                      }
-                      if (cellOrigin.origin === "automation") return `Changed by the pickup automation tool, live in Previo (${when})`;
-                      if (cellOrigin.origin === "previo") return `Changed directly in Previo (${when})`;
+                      const who = cellOrigin?.by ? auditNames.get(cellOrigin.by) ?? "someone" : null;
                       return `Changed by your team${who ? ` (${who})` : ""}, live in Previo (${when})`;
                     })();
 
