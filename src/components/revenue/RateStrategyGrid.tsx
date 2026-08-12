@@ -1697,7 +1697,9 @@ export default function RateStrategyGrid({
                     const cellAutomation = automationByCell.get(cellKey(d, row.roomTypeName, row.occ));
                     const cellOrigin = cellOriginByCell.get(cellKey(d, row.roomTypeName, row.occ));
                     const cellEvents = cellOriginEvents(history, cellAutomation);
-                    const cellOrigins: ChangeOrigin[] = showMarkers ? distinctOrigins(cellEvents, 2) : [];
+                    // One dot only — the most recent change. The full story
+                    // lives in the cell's hover card / tap sheet.
+                    const cellOrigin1: ChangeOrigin | null = showMarkers ? (cellEvents[0]?.origin ?? null) : null;
                     
                     const originLabel = (() => {
                       if (draft !== undefined) return "Not sent to Previo yet";
