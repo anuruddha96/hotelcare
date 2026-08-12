@@ -1623,27 +1623,13 @@ export default function RateStrategyGrid({
                         style={{ width: CELL_W }}
                       >
                         {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
-                        {confirmedHistory?.length ? (() => {
-                          const last = Math.max(...confirmedHistory.map((h) => new Date(h.performed_at).getTime()));
-                           const fresh = Date.now() - last < 4 * 60 * 60 * 1000;
-                          return (
-                            <span
-                              aria-hidden
-                               className={`absolute right-0.5 top-0.5 h-2 w-2 rounded-full ${fresh ? "border border-primary bg-primary ring-2 ring-primary/25" : "border border-orange-500 bg-orange-300"}`}
-                            />
-                          );
-                        })() : cellOrigin?.origin === "previo" ? (
+                        {marker ? (
                           <span
                             aria-hidden
-                            className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full border border-amber-600 bg-amber-400"
+                            className={`absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full ${markerClass}`}
                           />
                         ) : null}
-                        {cellAutomation?.length ? (
-                          <span
-                            aria-hidden
-                            className="absolute left-0.5 bottom-0.5 h-2 w-2 rounded-full border border-purple-600 bg-purple-400"
-                          />
-                        ) : null}
+
 
 
 
