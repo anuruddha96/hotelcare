@@ -344,8 +344,8 @@ export default function RateStrategyGrid({
   const [probe, setProbe] = useState<{ ok: boolean; message: string; support?: string | null } | null>(null);
 
   /** Price-change trail: cell history on hover, and the activity panel below. */
-  const { rows: auditRows, byCell: auditByCell, manualByCell: manualAuditByCell, originByCell: cellOriginByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
-  const { byCell: automationByCell } = usePickupAutomationActions(hotelId);
+  const { rows: auditRows, manualRows: auditManualRows, byCell: auditByCell, manualByCell: manualAuditByCell, originByCell: cellOriginByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
+  const { rows: automationRows, byCell: automationByCell } = usePickupAutomationActions(hotelId);
 
   /** One-line summary of the last Previo-confirmed change on each date. */
   const auditByDate = useMemo(() => {
@@ -362,6 +362,30 @@ export default function RateStrategyGrid({
     }
     return map;
   }, [auditRows]);
+
+  /**
+   * Which kinds of change landed on each stay date in the last week. The date
+   * row shows one tiny dot per kind, so a day's story is readable even with the
+   * per-cell dots switched off.
+   */
+  const originEventsByDate = useMemo(() => {
+    const audit = new Map<string, RateAuditRow[]>();
+    for (const r of auditManualRows) {
+      if (!r.stay_date) continue;
+      const b = audit.get(r.stay_date); if (b) b.push(r); else audit.set(r.stay_date, [r]);
+    }
+    const auto = new Map<string, AutomationAction[]>();
+    for (const a of automationRows) {
+      const b = auto.get(a.stay_date); if (b) b.push(a); else auto.set(a.stay_date, [a]);
+    }
+    const map = new Map<string, OriginEvent[]>();
+    for (const d of new Set([...audit.keys(), ...auto.keys()])) {
+      const events = cellOriginEvents(audit.get(d), auto.get(d));
+      if (events.length) map.set(d, events);
+    }
+    return map;
+  }, [auditManualRows, automationRows]);
+
 
 
 
