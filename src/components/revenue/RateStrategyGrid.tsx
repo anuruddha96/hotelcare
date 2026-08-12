@@ -1901,10 +1901,15 @@ export default function RateStrategyGrid({
         rates={rates}
         today={today}
         canPush={!!canEditRates}
+        onPublish={(changes, note) => publishInBackground(
+          changes.map((c) => ({ ...c, hotel_id: hotelId, organization_slug: organizationSlug ?? null, status: "draft" })),
+          { source: "bulk-editor", notes: note },
+        )}
         onSaved={async () => {
           await Promise.all([refreshDrafts(), reloadAudit()]);
           await onRatesUpdated?.();
         }}
+
       />
 
       <Dialog open={!!dayTool} onOpenChange={(o) => !o && setDayTool(null)}>
