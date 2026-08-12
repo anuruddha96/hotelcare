@@ -4742,75 +4742,106 @@ export type Database = {
       }
       revenue_pickup_automation_actions: {
         Row: {
+          cap_applied: number | null
           confirmed_at: string | null
           created_at: string
+          decision_type: string
           hotel_id: string
           id: string
           increase_amount: number
+          local_business_date: string | null
+          net_pickup: number | null
           new_price: number
           obk_id: string
+          observation_from: string | null
+          observation_to: string | null
           occupancy: number
           old_price: number | null
           organization_slug: string
-          pickup_at: string
+          pickup_at: string | null
           pickup_sequence: number
           push_error: string | null
+          push_run_id: string | null
           pushed_at: string | null
-          reservation_id: string
+          reservation_id: string | null
           room_type_name: string
           rule_id: string
           rule_version: number
+          schedule_slot: string | null
           status: string
           stay_date: string
           updated_at: string
         }
         Insert: {
+          cap_applied?: number | null
           confirmed_at?: string | null
           created_at?: string
+          decision_type?: string
           hotel_id: string
           id?: string
           increase_amount: number
+          local_business_date?: string | null
+          net_pickup?: number | null
           new_price: number
           obk_id: string
+          observation_from?: string | null
+          observation_to?: string | null
           occupancy: number
           old_price?: number | null
           organization_slug: string
-          pickup_at: string
+          pickup_at?: string | null
           pickup_sequence?: number
           push_error?: string | null
+          push_run_id?: string | null
           pushed_at?: string | null
-          reservation_id: string
+          reservation_id?: string | null
           room_type_name: string
           rule_id: string
           rule_version: number
+          schedule_slot?: string | null
           status?: string
           stay_date: string
           updated_at?: string
         }
         Update: {
+          cap_applied?: number | null
           confirmed_at?: string | null
           created_at?: string
+          decision_type?: string
           hotel_id?: string
           id?: string
           increase_amount?: number
+          local_business_date?: string | null
+          net_pickup?: number | null
           new_price?: number
           obk_id?: string
+          observation_from?: string | null
+          observation_to?: string | null
           occupancy?: number
           old_price?: number | null
           organization_slug?: string
-          pickup_at?: string
+          pickup_at?: string | null
           pickup_sequence?: number
           push_error?: string | null
+          push_run_id?: string | null
           pushed_at?: string | null
-          reservation_id?: string
+          reservation_id?: string | null
           room_type_name?: string
           rule_id?: string
           rule_version?: number
+          schedule_slot?: string | null
           status?: string
           stay_date?: string
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "revenue_pickup_automation_actions_push_run_id_fkey"
+            columns: ["push_run_id"]
+            isOneToOne: false
+            referencedRelation: "revenue_rate_push_runs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "revenue_pickup_automation_actions_rule_id_fkey"
             columns: ["rule_id"]
@@ -4827,15 +4858,27 @@ export type Database = {
           booking_window_tiers: Json
           created_at: string
           created_by: string | null
+          currency: string
+          future_booking_window_days: number
           hotel_id: string
           id: string
           is_enabled: boolean
+          last_no_pickup_slot: string | null
           last_run_at: string | null
+          max_daily_decrease_per_date: number
           max_daily_increase_per_date: number
           maximum_increase: number | null
           minimum_adr: number | null
           name: string
+          no_pickup_decrease: number
+          no_pickup_enabled: boolean
+          no_pickup_lookback_hours: number
+          no_pickup_run_times: string[]
+          no_pickup_scope: string
           organization_slug: string
+          pickup_lookback_hours: number
+          positive_pickup_enabled: boolean
+          run_timezone: string
           same_hour_window_minutes: number
           second_pickup_surcharge: number
           updated_at: string
@@ -4848,15 +4891,27 @@ export type Database = {
           booking_window_tiers?: Json
           created_at?: string
           created_by?: string | null
+          currency?: string
+          future_booking_window_days?: number
           hotel_id: string
           id?: string
           is_enabled?: boolean
+          last_no_pickup_slot?: string | null
           last_run_at?: string | null
+          max_daily_decrease_per_date?: number
           max_daily_increase_per_date?: number
           maximum_increase?: number | null
           minimum_adr?: number | null
           name?: string
+          no_pickup_decrease?: number
+          no_pickup_enabled?: boolean
+          no_pickup_lookback_hours?: number
+          no_pickup_run_times?: string[]
+          no_pickup_scope?: string
           organization_slug: string
+          pickup_lookback_hours?: number
+          positive_pickup_enabled?: boolean
+          run_timezone?: string
           same_hour_window_minutes?: number
           second_pickup_surcharge?: number
           updated_at?: string
@@ -4869,15 +4924,27 @@ export type Database = {
           booking_window_tiers?: Json
           created_at?: string
           created_by?: string | null
+          currency?: string
+          future_booking_window_days?: number
           hotel_id?: string
           id?: string
           is_enabled?: boolean
+          last_no_pickup_slot?: string | null
           last_run_at?: string | null
+          max_daily_decrease_per_date?: number
           max_daily_increase_per_date?: number
           maximum_increase?: number | null
           minimum_adr?: number | null
           name?: string
+          no_pickup_decrease?: number
+          no_pickup_enabled?: boolean
+          no_pickup_lookback_hours?: number
+          no_pickup_run_times?: string[]
+          no_pickup_scope?: string
           organization_slug?: string
+          pickup_lookback_hours?: number
+          positive_pickup_enabled?: boolean
+          run_timezone?: string
           same_hour_window_minutes?: number
           second_pickup_surcharge?: number
           updated_at?: string
@@ -4999,6 +5066,150 @@ export type Database = {
           room_type_name?: string
           status?: string
           stay_date?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      revenue_rate_push_items: {
+        Row: {
+          accepted_at: string | null
+          actual_previo_price: number | null
+          attempt_count: number
+          claimed_at: string | null
+          confirmed_at: string | null
+          created_at: string
+          currency: string | null
+          draft_id: string | null
+          error: string | null
+          hotel_id: string
+          id: string
+          obk_id: string | null
+          occupancy: number
+          old_price: number | null
+          organization_slug: string | null
+          room_type_name: string
+          run_id: string
+          status: string
+          stay_date: string
+          target_price: number
+          updated_at: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          actual_previo_price?: number | null
+          attempt_count?: number
+          claimed_at?: string | null
+          confirmed_at?: string | null
+          created_at?: string
+          currency?: string | null
+          draft_id?: string | null
+          error?: string | null
+          hotel_id: string
+          id?: string
+          obk_id?: string | null
+          occupancy: number
+          old_price?: number | null
+          organization_slug?: string | null
+          room_type_name: string
+          run_id: string
+          status?: string
+          stay_date: string
+          target_price: number
+          updated_at?: string
+        }
+        Update: {
+          accepted_at?: string | null
+          actual_previo_price?: number | null
+          attempt_count?: number
+          claimed_at?: string | null
+          confirmed_at?: string | null
+          created_at?: string
+          currency?: string | null
+          draft_id?: string | null
+          error?: string | null
+          hotel_id?: string
+          id?: string
+          obk_id?: string | null
+          occupancy?: number
+          old_price?: number | null
+          organization_slug?: string | null
+          room_type_name?: string
+          run_id?: string
+          status?: string
+          stay_date?: string
+          target_price?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "revenue_rate_push_items_draft_id_fkey"
+            columns: ["draft_id"]
+            isOneToOne: false
+            referencedRelation: "revenue_rate_drafts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "revenue_rate_push_items_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "revenue_rate_push_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      revenue_rate_push_runs: {
+        Row: {
+          accepted_count: number
+          compressed_message_count: number
+          created_at: string
+          created_by: string | null
+          failed_count: number
+          finished_at: string | null
+          hotel_id: string
+          id: string
+          last_error: string | null
+          organization_slug: string | null
+          processed_count: number
+          requested_count: number
+          source: string
+          started_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          accepted_count?: number
+          compressed_message_count?: number
+          created_at?: string
+          created_by?: string | null
+          failed_count?: number
+          finished_at?: string | null
+          hotel_id: string
+          id?: string
+          last_error?: string | null
+          organization_slug?: string | null
+          processed_count?: number
+          requested_count?: number
+          source?: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          accepted_count?: number
+          compressed_message_count?: number
+          created_at?: string
+          created_by?: string | null
+          failed_count?: number
+          finished_at?: string | null
+          hotel_id?: string
+          id?: string
+          last_error?: string | null
+          organization_slug?: string | null
+          processed_count?: number
+          requested_count?: number
+          source?: string
+          started_at?: string | null
+          status?: string
           updated_at?: string
         }
         Relationships: []

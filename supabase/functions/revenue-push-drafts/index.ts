@@ -192,6 +192,12 @@ Deno.serve(async (req) => {
 
     const pushRunId = requestedRunId ?? crypto.randomUUID();
     const draftIdList = (drafts as any[]).map((draft) => draft.id);
+    await admin.from("revenue_rate_push_runs").update({
+      status: "processing", started_at: new Date().toISOString(), last_error: null,
+    }).eq("id", pushRunId);
+    await admin.from("revenue_rate_push_items").update({
+      status: "processing", claimed_at: new Date().toISOString(),
+    }).eq("run_id", pushRunId).in("draft_id", draftIdList);
     await admin.from("revenue_rate_drafts").update({
       push_run_id: pushRunId,
       claimed_at: new Date().toISOString(),
@@ -416,6 +422,9 @@ Deno.serve(async (req) => {
             onConflict: "hotel_id,stay_date,obk_id,rate_plan_id,occupancy",
           }),
         ]);
+        await admin.from("revenue_rate_push_items").update({
+          status: "accepted", accepted_at: now, attempt_count: 1, error: null,
+        }).eq("run_id", pushRunId).in("draft_id", successfulIds);
         if (finalizeError) throw new Error(`Previo accepted the price, but Hotel Care could not finalize it: ${finalizeError.message}`);
         // Never turn a Previo-accepted write into a retryable failure just
         // because the local mirror had a transient error: retrying could apply
@@ -480,6 +489,14 @@ Deno.serve(async (req) => {
                 push_error: u.confirmed ? null : `Previo currently publishes ${u.actual}; requested ${u.requested}`,
               }).in("id", u.ids)
             ));
+            await Promise.all(Array.from(updates.values()).map((u) =>
+              admin.from("revenue_rate_push_items").update({
+                status: u.confirmed ? "confirmed" : "different",
+                actual_previo_price: u.actual,
+                confirmed_at: u.confirmed ? checkedAt : null,
+                error: u.confirmed ? null : `Previo currently publishes ${u.actual}; requested ${u.requested}`,
+              }).eq("run_id", pushRunId).in("draft_id", u.ids)
+            ));
             if (correctedRows.length > 0) await admin.from("revenue_room_type_rates").upsert(correctedRows, {
               onConflict: "hotel_id,stay_date,obk_id,rate_plan_id,occupancy",
             });
@@ -491,7 +508,7 @@ Deno.serve(async (req) => {
         const verification = verifyAcceptedRates();
         const edgeRuntime = (globalThis as unknown as { EdgeRuntime?: { waitUntil(promise: Promise<unknown>): void } }).EdgeRuntime;
         if (edgeRuntime) edgeRuntime.waitUntil(verification);
-        else await verification;
+        else void verification;
 
         await admin.from("rate_history").insert(b.drafts.map((d: any) => ({
             hotel_id: hotelId,
@@ -512,6 +529,9 @@ Deno.serve(async (req) => {
           status: "failed", push_error: message.slice(0, 500),
           confirmation_status: "failed", push_attempt_count: 1,
         }).in("id", failedIds);
+        await admin.from("revenue_rate_push_items").update({
+          status: "failed", error: message.slice(0, 500), attempt_count: 1,
+        }).eq("run_id", pushRunId).in("draft_id", failedIds);
         console.error("rate push failed", b.from, b.to, b.obkId, message);
         return { pushedIds: [], failedIds, errors: groupErrors };
       }
@@ -535,6 +555,16 @@ Deno.serve(async (req) => {
       errors.push(...result.errors);
     }
     console.log(`push run ${pushRunId}: ${drafts.length} drafts → ${groupList.length} date/room groups → ${batches.length} Previo messages`);
+
+    await admin.from("revenue_rate_push_runs").update({
+      status: failed === 0 ? "completed" : pushed === 0 ? "failed" : "partial",
+      processed_count: pushed + failed,
+      accepted_count: pushed,
+      failed_count: failed,
+      compressed_message_count: batches.length,
+      finished_at: new Date().toISOString(),
+      last_error: failed > 0 ? errors[0]?.error?.slice(0, 500) ?? "Previo rejected one or more prices" : null,
+    }).eq("id", pushRunId);
 
 
     await admin.from("pms_sync_history").insert({
