@@ -146,14 +146,14 @@ export async function pushRateDraftsBatched(
   // Previo accepts a date range per message, and the push function now collapses
   // identical consecutive days into one call, so a large batch is only a handful
   // of Previo messages. Bigger chunks therefore mean far fewer round trips.
-  const size = opts.chunkSize ?? 250;
+  const size = opts.chunkSize ?? 1000;
   const batches = chunk(draftIds, size);
   const outcome: PushOutcome = { pushed: 0, failed: 0, errors: [], failedIds: [] };
   const pushRunId = crypto.randomUUID();
   let done = 0;
 
   let cursor = 0;
-  const workers = Array.from({ length: Math.min(3, batches.length) }, async () => {
+  const workers = Array.from({ length: Math.min(2, batches.length) }, async () => {
     while (cursor < batches.length && !opts.shouldCancel?.()) {
       const batch = batches[cursor++];
       try {

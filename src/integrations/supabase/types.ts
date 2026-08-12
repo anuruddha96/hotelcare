@@ -4822,6 +4822,7 @@ export type Database = {
       }
       revenue_pickup_automation_rules: {
         Row: {
+          application_scope: string
           auto_publish: boolean
           booking_window_tiers: Json
           created_at: string
@@ -4842,6 +4843,7 @@ export type Database = {
           version: number
         }
         Insert: {
+          application_scope?: string
           auto_publish?: boolean
           booking_window_tiers?: Json
           created_at?: string
@@ -4862,6 +4864,7 @@ export type Database = {
           version?: number
         }
         Update: {
+          application_scope?: string
           auto_publish?: boolean
           booking_window_tiers?: Json
           created_at?: string
