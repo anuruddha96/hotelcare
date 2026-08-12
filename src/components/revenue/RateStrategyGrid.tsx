@@ -25,8 +25,9 @@ import { getRevenueCurrency, moneyBase, useRevenueCurrency } from "@/lib/revenue
 import type { RevenueRoomType } from "@/hooks/useRevenueHotelData";
 import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 import { useRateAudit } from "@/hooks/useRateAudit";
-import { usePickupAutomationActions } from "@/hooks/usePickupAutomationActions";
+import { usePickupAutomationActions, type AutomationAction } from "@/hooks/usePickupAutomationActions";
 import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
+import { cellOriginEvents, distinctOrigins, countByOrigin, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
@@ -277,9 +278,14 @@ export default function RateStrategyGrid({
   }, []);
 
   const [days, setDays] = useState(30);
-  // Markers were unreadable when every cell carried two or three dots. One dot
-  // per cell, only for the last 7 days, and the user can switch them off.
-  const [showMarkers, setShowMarkers] = useState(true);
+  // Cell dots are off by default: the date row already says which days moved
+  // and by whom. The user can switch the per-cell dots on and we remember it.
+  const [showMarkers, setShowMarkers] = useState(() => {
+    try { return localStorage.getItem("rate-grid-change-dots") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("rate-grid-change-dots", showMarkers ? "1" : "0"); } catch { /* private mode */ }
+  }, [showMarkers]);
   const [visibleMonth, setVisibleMonth] = useState<string>(formatMonth(today));
   const [edit, setEdit] = useState<DraftEdit | null>(null);
   /** Bulk options in the price editor. */
@@ -339,8 +345,8 @@ export default function RateStrategyGrid({
   const [probe, setProbe] = useState<{ ok: boolean; message: string; support?: string | null } | null>(null);
 
   /** Price-change trail: cell history on hover, and the activity panel below. */
-  const { rows: auditRows, byCell: auditByCell, manualByCell: manualAuditByCell, originByCell: cellOriginByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
-  const { byCell: automationByCell } = usePickupAutomationActions(hotelId);
+  const { rows: auditRows, manualRows: auditManualRows, byCell: auditByCell, originByCell: cellOriginByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
+  const { rows: automationRows, byCell: automationByCell } = usePickupAutomationActions(hotelId);
 
   /** One-line summary of the last Previo-confirmed change on each date. */
   const auditByDate = useMemo(() => {
@@ -357,6 +363,30 @@ export default function RateStrategyGrid({
     }
     return map;
   }, [auditRows]);
+
+  /**
+   * Which kinds of change landed on each stay date in the last week. The date
+   * row shows one tiny dot per kind, so a day's story is readable even with the
+   * per-cell dots switched off.
+   */
+  const originEventsByDate = useMemo(() => {
+    const audit = new Map<string, RateAuditRow[]>();
+    for (const r of auditManualRows) {
+      if (!r.stay_date) continue;
+      const b = audit.get(r.stay_date); if (b) b.push(r); else audit.set(r.stay_date, [r]);
+    }
+    const auto = new Map<string, AutomationAction[]>();
+    for (const a of automationRows) {
+      const b = auto.get(a.stay_date); if (b) b.push(a); else auto.set(a.stay_date, [a]);
+    }
+    const map = new Map<string, OriginEvent[]>();
+    for (const d of new Set([...audit.keys(), ...auto.keys()])) {
+      const events = cellOriginEvents(audit.get(d), auto.get(d));
+      if (events.length) map.set(d, events);
+    }
+    return map;
+  }, [auditManualRows, automationRows]);
+
 
 
 
@@ -1317,6 +1347,9 @@ export default function RateStrategyGrid({
                   {dates.map((d, i) => {
                     const picked = multiMode ? pickedDates.has(d) : selecting && selDates.has(d);
                     const trail = auditByDate.get(d);
+                    const dayEvents = originEventsByDate.get(d) ?? [];
+                    const dayOrigins = distinctOrigins(dayEvents, 3);
+                    const dayBreakdown = countByOrigin(dayEvents);
                     const dayButton = (
                       <button
                         key={d}
@@ -1358,9 +1391,14 @@ export default function RateStrategyGrid({
 
                         <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
                         <span className="font-medium">{formatDay(d)}</span>
-                        {trail && (
-                          <span className="pointer-events-none absolute left-1 top-1 h-1.5 w-1.5 rounded-full bg-primary/70" aria-hidden />
+                        {dayOrigins.length > 0 && (
+                          <span className="pointer-events-none absolute bottom-0.5 left-0 right-0 flex justify-center gap-[3px]" aria-hidden>
+                            {dayOrigins.map((o) => (
+                              <i key={o} className={`h-[3px] w-[3px] rounded-full ${ORIGIN_DOT_CLASS[o]}`} />
+                            ))}
+                          </span>
                         )}
+
 
                         {canEditRates && (
                           <ChevronDown
@@ -1371,14 +1409,25 @@ export default function RateStrategyGrid({
                       </button>
                     );
 
-                    if (!trail) return dayButton;
-                    const who = (trail.last.performed_by && auditNames.get(trail.last.performed_by)) || "Someone";
-                    const up = trail.avgDelta >= 0;
+                    if (!trail && dayBreakdown.length === 0) return dayButton;
+                    const who = trail ? ((trail.last.performed_by && auditNames.get(trail.last.performed_by)) || "Someone") : null;
+                    const up = (trail?.avgDelta ?? 0) >= 0;
                     return (
                       <HoverCard key={d} openDelay={150} closeDelay={60}>
                         <HoverCardTrigger asChild>{dayButton}</HoverCardTrigger>
                         <HoverCardContent align="center" className="w-64 p-3 text-xs space-y-1">
                           <p className="font-medium">{formatWeekday(d)} {formatDay(d)} · last price update</p>
+                          {dayBreakdown.length > 0 && (
+                            <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                              {dayBreakdown.map((b) => (
+                                <span key={b.origin} className="inline-flex items-center gap-1">
+                                  <i className={`h-[5px] w-[5px] rounded-full ${ORIGIN_DOT_CLASS[b.origin]}`} />
+                                  {b.count} {ORIGIN_LABEL[b.origin]}
+                                </span>
+                              ))}
+                            </p>
+                          )}
+                          {trail && (
                           <p className="tabular-nums">
                             {trail.count} price{trail.count === 1 ? "" : "s"} changed
                             {trail.avgDelta !== 0 && (
@@ -1387,12 +1436,18 @@ export default function RateStrategyGrid({
                               </span>
                             )}
                           </p>
+                          )}
+
+                          {trail && (
                           <p className="tabular-nums">
                             {moneyBase(trail.last.old_rate_eur)} → <strong>{moneyBase(trail.last.new_rate_eur)}</strong>
                           </p>
+                          )}
+                          {trail && (
                           <p className="text-muted-foreground">
                             {formatWhen(trail.last.performed_at)} · {who} · {trail.last.source === "previo_confirmed" ? "Confirmed in Previo" : trail.last.source === "previo_different" ? "Different in Previo" : "Changed in Previo"}
                           </p>
+                          )}
                         </HoverCardContent>
                       </HoverCard>
                     );
@@ -1616,46 +1671,27 @@ export default function RateStrategyGrid({
                     const shown = draft ?? published;
                     const tone = rateTone(shown, thresholds);
                     const history = auditByCell.get(cellKey(d, row.roomTypeName, row.occ));
-                    // One dot per cell, and only for a change in the last 7
-                    // days: who last set this price, in plain words.
-                    const confirmedHistory = manualAuditByCell.get(cellKey(d, row.roomTypeName, row.occ));
+                    // The colour follows the most recent change, never a
+                    // ranking: a price you set by hand this morning reads blue
+                    // even if automation moved the same cell last week.
                     const cellAutomation = automationByCell.get(cellKey(d, row.roomTypeName, row.occ));
                     const cellOrigin = cellOriginByCell.get(cellKey(d, row.roomTypeName, row.occ));
-                    const lastChangeAt = (() => {
-                      const times: number[] = [];
-                      if (cellOrigin) times.push(new Date(cellOrigin.at).getTime());
-                      for (const h of confirmedHistory ?? []) times.push(new Date(h.performed_at).getTime());
-                      for (const a of cellAutomation ?? []) times.push(new Date(a.created_at).getTime());
-                      return times.length ? Math.max(...times) : null;
-                    })();
-                    const recent = lastChangeAt !== null && Date.now() - lastChangeAt < 7 * 24 * 60 * 60 * 1000;
-                    // A purple dot is only drawn when the cell really has an
-                    // automation record behind it, so the history can prove it.
-                    const hasAutomationProof = Boolean(cellAutomation?.length) || cellOrigin?.origin === "automation";
-                    const marker: "team" | "automation" | "previo" | "failed" | null =
-                      !showMarkers || !recent ? null
-                        : cellOrigin?.origin === "different" ? "failed"
-                          : hasAutomationProof ? "automation"
-                            : cellOrigin?.origin === "previo" ? "previo"
-                              : (confirmedHistory?.length || cellOrigin) ? "team" : null;
-                    const markerClass = marker === "failed" ? "bg-destructive"
-                      : marker === "automation" ? "bg-purple-500"
-                        : marker === "previo" ? "bg-amber-500"
-                          : "bg-primary";
+                    const cellEvents = cellOriginEvents(history, cellAutomation);
+                    const cellOrigins: ChangeOrigin[] = showMarkers ? distinctOrigins(cellEvents, 2) : [];
+                    
                     const originLabel = (() => {
                       if (draft !== undefined) return "Not sent to Previo yet";
-                      if (marker === "automation" && cellAutomation?.length) {
-                        const a = cellAutomation[0];
-                        return `Changed by the pickup automation tool (${formatWhen(a.created_at)})`;
+                      const latest = cellEvents[0];
+                      if (!latest) return "No price change recorded";
+                      const when = formatWhen(latest.at);
+                      if (latest.origin === "automation") return `Changed by the pickup automation tool, live in Previo (${when})`;
+                      if (latest.origin === "previo") return `Changed directly in Previo (${when})`;
+                      if (latest.origin === "failed") {
+                        return cellOrigin
+                          ? `Did not land: we asked for ${eur(cellOrigin.requested ?? null)}, Previo shows ${eur(cellOrigin.price)} (${when})`
+                          : `Did not land (${when})`;
                       }
-                      if (!cellOrigin) return "No price change recorded";
-                      const who = cellOrigin.by ? auditNames.get(cellOrigin.by) ?? "someone" : null;
-                      const when = formatWhen(cellOrigin.at);
-                      if (cellOrigin.origin === "different") {
-                        return `Did not land: we asked for ${eur(cellOrigin.requested ?? null)}, Previo shows ${eur(cellOrigin.price)} (${when})`;
-                      }
-                      if (cellOrigin.origin === "automation") return `Changed by the pickup automation tool, live in Previo (${when})`;
-                      if (cellOrigin.origin === "previo") return `Changed directly in Previo (${when})`;
+                      const who = cellOrigin?.by ? auditNames.get(cellOrigin.by) ?? "someone" : null;
                       return `Changed by your team${who ? ` (${who})` : ""}, live in Previo (${when})`;
                     })();
 
@@ -1699,11 +1735,12 @@ export default function RateStrategyGrid({
                         style={{ width: CELL_W }}
                       >
                         {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
-                        {marker ? (
-                          <span
-                            aria-hidden
-                            className={`absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full ${markerClass}`}
-                          />
+                        {cellOrigins.length > 0 ? (
+                          <span aria-hidden className="absolute right-0.5 top-0.5 flex gap-[2px]">
+                            {cellOrigins.map((o) => (
+                              <i key={o} className={`h-[3px] w-[3px] rounded-full ${ORIGIN_DOT_CLASS[o]}`} />
+                            ))}
+                          </span>
                         ) : null}
 
 
