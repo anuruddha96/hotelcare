@@ -824,6 +824,7 @@ export default function RateStrategyGrid({
     const nearEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - CELL_W * 3;
     if (nearEnd) {
       setDays((d) => (d < 30 ? 30 : d < 60 ? 60 : d < 120 ? 120 : d < 180 ? 180 : d));
+    }
   }
 
   /**
