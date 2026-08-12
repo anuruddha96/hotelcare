@@ -572,10 +572,11 @@ export default function RateStrategyGrid({
       const d = target?.closest<HTMLElement>("[data-date]")?.dataset.date;
       const anchor = lpAnchor.current;
       if (!d || !anchor) return;
-      const a = allDates.indexOf(anchor);
-      const b = allDates.indexOf(d);
+      const list = visibleDatesRef.current.length ? visibleDatesRef.current : allDates;
+      const a = list.indexOf(anchor);
+      const b = list.indexOf(d);
       if (a < 0 || b < 0) return;
-      setPickedDates(new Set(allDates.slice(Math.min(a, b), Math.max(a, b) + 1)));
+      setPickedDates(new Set(list.slice(Math.min(a, b), Math.max(a, b) + 1)));
     };
     el.addEventListener("touchmove", onMove, { passive: false });
     return () => el.removeEventListener("touchmove", onMove);
