@@ -684,6 +684,10 @@ export default function RateStrategyGrid({
   async function pushDrafts() {
     if (!hotelId || unsentDrafts.length === 0) return;
     setPushing(true);
+    cancelPushRef.current = false;
+    const startedAt = Date.now();
+    setPushSummary(null);
+    setPushProgress({ done: 0, total: unsentDrafts.length, startedAt });
     try {
       const retryable = unsentDrafts;
       if (retryable.length === 0) {
@@ -692,7 +696,12 @@ export default function RateStrategyGrid({
         await onRatesUpdated?.();
         return;
       }
-      const res = await pushRateDrafts(hotelId, retryable.map((d) => d.id));
+      const res = await pushRateDraftsBatched(hotelId, retryable.map((d) => d.id), {
+        onProgress: (done, total) => setPushProgress({ done, total, startedAt }),
+        shouldCancel: () => cancelPushRef.current,
+      });
+      const seconds = Math.max(0.1, (Date.now() - startedAt) / 1000);
+      setPushSummary({ count: res.pushed ?? 0, seconds });
       await reloadAudit();
 
       if (res?.failed) {
@@ -702,12 +711,14 @@ export default function RateStrategyGrid({
         if (res.pushed) await onRatesUpdated?.();
         return;
       }
-      toast.success(`${res?.pushed ?? 0} price change${res?.pushed === 1 ? "" : "s"} sent to Previo`);
+      toast.success(
+        `${res?.pushed ?? 0} price change${res?.pushed === 1 ? "" : "s"} live in Previo in ${seconds.toFixed(1)}s`,
+      );
       setPushOpen(false);
       await refreshDrafts();
       await onRatesUpdated?.();
-      // Accepted prices are mirrored immediately. Short follow-up refreshes
-      // pick up the background authoritative read-back without a full PMS sync.
+      // Accepted prices are mirrored immediately; the background confirmation
+      // watcher above keeps checking until every price is settled.
       for (const delay of [1500, 4000, 8000]) {
         window.setTimeout(() => {
           void Promise.all([refreshDrafts(), reloadAudit(), onRatesUpdated?.()]);
@@ -720,8 +731,11 @@ export default function RateStrategyGrid({
       toast.error(message);
     } finally {
       setPushing(false);
+      setPushProgress(null);
+      window.setTimeout(() => setPushSummary(null), 12000);
     }
   }
+
 
 
 
