@@ -26,6 +26,7 @@ interface Rule {
   minimum_adr: number | null;
   maximum_increase: number | null;
   max_daily_increase_per_date: number;
+  application_scope: "booked_room_type" | "all_room_types";
   version: number;
   last_run_at: string | null;
 }
@@ -86,14 +87,17 @@ Deno.serve(async (req) => {
       //    16:27 but only synced at 18:21 must still be priced.
       const { data: nightRows, error: nightErr } = await admin
         .from("revenue_booking_nights")
-        .select("stay_date, res_id, created_at_pms, captured_at")
+        .select("stay_date, res_id, created_at_pms, captured_at, obk_id, room_type_name, guests")
         .eq("hotel_id", rule.hotel_id)
         .gte("stay_date", today)
         .gte("captured_at", lookbackFrom)
         .limit(5000);
       if (nightErr) throw nightErr;
 
-      const pickups = (nightRows ?? []) as Array<{ stay_date: string; res_id: string; created_at_pms: string }>;
+      const pickups = (nightRows ?? []) as Array<{
+        stay_date: string; res_id: string; created_at_pms: string;
+        obk_id: string | null; room_type_name: string | null; guests: number | null;
+      }>;
       if (pickups.length === 0) {
         await admin.from("revenue_pickup_automation_rules")
           .update({ last_run_at: runStartedAt }).eq("id", rule.id);
@@ -136,14 +140,23 @@ Deno.serve(async (req) => {
         .in("stay_date", stayDates)
         .gte("created_at", dayStart)
         .limit(20000);
-      const raisedToday = new Map<string, number>();
+      const raisedByEvent = new Map<string, number>();
       for (const a of (todaysActions ?? []) as any[]) {
-        raisedToday.set(a.stay_date, (raisedToday.get(a.stay_date) ?? 0) + Number(a.increase_amount || 0));
+        const eventKey = `${a.stay_date}|${a.reservation_id ?? ""}`;
+        raisedByEvent.set(eventKey, Math.max(raisedByEvent.get(eventKey) ?? 0, Number(a.increase_amount || 0)));
+      }
+      const raisedToday = new Map<string, number>();
+      for (const [eventKey, amount] of raisedByEvent) {
+        const stayDate = eventKey.split("|")[0];
+        raisedToday.set(stayDate, (raisedToday.get(stayDate) ?? 0) + amount);
       }
 
       // 5. One decision per (stay_date, reservation).
       const seen = new Set<string>();
-      const events: Array<{ stay_date: string; res_id: string; at: string; sequence: number }> = [];
+      const events: Array<{
+        stay_date: string; res_id: string; at: string; sequence: number;
+        obk_id: string | null; room_type_name: string | null; guests: number | null;
+      }> = [];
       for (const p of pickups) {
         const key = `${p.stay_date}|${p.res_id}`;
         if (seen.has(key)) continue;
@@ -161,7 +174,11 @@ Deno.serve(async (req) => {
             )
             .map((h) => h.res_id),
         );
-        events.push({ stay_date: p.stay_date, res_id: p.res_id, at: p.created_at_pms, sequence: earlier.size + 1 });
+        events.push({
+          stay_date: p.stay_date, res_id: p.res_id, at: p.created_at_pms,
+          sequence: earlier.size + 1, obk_id: p.obk_id,
+          room_type_name: p.room_type_name, guests: p.guests,
+        });
       }
       events.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 
@@ -172,10 +189,10 @@ Deno.serve(async (req) => {
         const daysOut = dayDiff(today, ev.stay_date);
         if (daysOut < 0) continue;
 
-        // The 3rd booking inside the window is the "heat" signal: it takes the
+        // The 2nd booking inside the window is the "heat" signal: it takes the
         // surcharge instead of the ordinary booking-window tier.
         const base = tierIncrease(rule.booking_window_tiers ?? [], daysOut);
-        let increase = ev.sequence >= 3 ? Number(rule.second_pickup_surcharge || 0) : base;
+        let increase = ev.sequence >= 2 ? Number(rule.second_pickup_surcharge || 0) : base;
         if (rule.maximum_increase) increase = Math.min(increase, Number(rule.maximum_increase));
         if (increase <= 0) continue;
 
@@ -187,6 +204,14 @@ Deno.serve(async (req) => {
 
         for (const rate of latestRate.values()) {
           if (rate.stay_date !== ev.stay_date) continue;
+          if (rule.application_scope !== "all_room_types") {
+            const rateObk = String(rate.obk_id ?? "").split(":").pop();
+            const eventObk = String(ev.obk_id ?? "").split(":").pop();
+            const sameRoom = eventObk
+              ? rateObk === eventObk
+              : String(rate.room_type_name ?? "").trim().toLowerCase() === String(ev.room_type_name ?? "").trim().toLowerCase();
+            if (!sameRoom) continue;
+          }
           const oldPrice = Number(rate.price);
           if (!Number.isFinite(oldPrice) || oldPrice <= 0) continue;
           let newPrice = Math.round(oldPrice + increase);

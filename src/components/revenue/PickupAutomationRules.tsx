@@ -19,7 +19,9 @@ interface Rule {
   id?: string; name: string; is_enabled: boolean; auto_publish: boolean;
   booking_window_tiers: Tier[]; same_hour_window_minutes: number;
   second_pickup_surcharge: number; minimum_adr: number | null;
-  max_daily_increase_per_date: number; last_run_at?: string | null; version: number;
+  maximum_increase: number | null; max_daily_increase_per_date: number;
+  application_scope: "booked_room_type" | "all_room_types";
+  last_run_at?: string | null; version: number;
 }
 
 /** Starting suggestions only — a hotel is never automated until it is saved with the switch on. */
@@ -27,7 +29,8 @@ const DEFAULT_RULE: Rule = {
   name: "Pickup pricing", is_enabled: false, auto_publish: true,
   booking_window_tiers: [{ max_days: 31, increase: 8 }, { max_days: 93, increase: 18 }, { max_days: null, increase: 22 }],
   same_hour_window_minutes: 60, second_pickup_surcharge: 25, minimum_adr: 120,
-  max_daily_increase_per_date: 40, version: 1,
+  maximum_increase: 25, max_daily_increase_per_date: 40,
+  application_scope: "booked_room_type", version: 1,
 };
 
 /** Turns the saved numbers into sentences a non-technical owner can check. */
@@ -38,7 +41,9 @@ function explain(rule: Rule, hotelName: string): string[] {
   const tiers = rule.booking_window_tiers ?? [];
   const lines: string[] = [];
   lines.push(
-    `When a new booking arrives for a stay date at ${hotelName}, every room type and guest count on that one date goes up. No other dates and no other hotels are touched.`,
+    rule.application_scope === "all_room_types"
+      ? `When a new booking arrives at ${hotelName}, every room type on that stay date goes up. No other date or hotel is touched.`
+      : `When a new booking arrives at ${hotelName}, only the booked room type on that stay date goes up. No other room type, date or hotel is touched.`,
   );
   tiers.forEach((tier, index) => {
     const window = tier.max_days === null
@@ -49,9 +54,10 @@ function explain(rule: Rule, hotelName: string): string[] {
     lines.push(`If the stay date is ${window}: add €${tier.increase} to that date.`);
   });
   lines.push(
-    `If a third booking lands for the same date inside ${rule.same_hour_window_minutes} minutes, that date gets €${rule.second_pickup_surcharge} instead — demand is spiking.`,
+    `If a second booking lands for the same date inside ${rule.same_hour_window_minutes} minutes, the matched room type gets €${rule.second_pickup_surcharge} instead — demand is spiking.`,
   );
   if (rule.minimum_adr) lines.push(`Prices are never published below €${rule.minimum_adr}.`);
+  if (rule.maximum_increase) lines.push(`One pickup can add at most €${rule.maximum_increase}.`);
   lines.push(`A single date can rise at most €${rule.max_daily_increase_per_date} in one day, no matter how many bookings arrive.`);
   lines.push(
     rule.auto_publish
@@ -71,15 +77,19 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
   const [saving, setSaving] = useState(false);
   const [confirmOn, setConfirmOn] = useState(false);
   const [running, setRunning] = useState(false);
+  const [stats, setStats] = useState({ pushed: 0, failed: 0, lastActionAt: null as string | null });
 
   useEffect(() => {
     if (!hotelId) return;
     setLoading(true);
     void (async () => {
-      const [ruleRes, nameRes, othersRes] = await Promise.all([
+      const [ruleRes, nameRes, othersRes, actionsRes] = await Promise.all([
         supabase.from("revenue_pickup_automation_rules").select("*").eq("hotel_id", hotelId).eq("name", "Pickup pricing").maybeSingle(),
         supabase.from("hotel_configurations").select("hotel_id, hotel_name"),
         supabase.from("revenue_pickup_automation_rules").select("*").neq("hotel_id", hotelId),
+        supabase.from("revenue_pickup_automation_actions")
+          .select("status, created_at").eq("hotel_id", hotelId)
+          .order("created_at", { ascending: false }).limit(500),
       ]);
 
       const names = new Map<string, string>();
@@ -101,6 +111,12 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
         label: names.get(r.hotel_id) ?? r.hotel_id,
         rule: r as unknown as Rule,
       })));
+      const actions = (actionsRes.data ?? []) as Array<{ status: string; created_at: string }>;
+      setStats({
+        pushed: actions.filter((a) => a.status === "pushed").length,
+        failed: actions.filter((a) => a.status === "failed").length,
+        lastActionAt: actions[0]?.created_at ?? null,
+      });
       setLoading(false);
     })();
   }, [hotelId]);
@@ -120,7 +136,9 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       same_hour_window_minutes: source.rule.same_hour_window_minutes,
       second_pickup_surcharge: source.rule.second_pickup_surcharge,
       minimum_adr: source.rule.minimum_adr,
+      maximum_increase: source.rule.maximum_increase,
       max_daily_increase_per_date: source.rule.max_daily_increase_per_date,
+      application_scope: source.rule.application_scope ?? "booked_room_type",
       auto_publish: source.rule.auto_publish,
     }));
     toast.success(`Copied settings from ${source.label} — still off until you turn it on`);
@@ -142,7 +160,9 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       same_hour_window_minutes: rule.same_hour_window_minutes,
       second_pickup_surcharge: rule.second_pickup_surcharge,
       minimum_adr: rule.minimum_adr,
+      maximum_increase: rule.maximum_increase,
       max_daily_increase_per_date: rule.max_daily_increase_per_date,
+      application_scope: rule.application_scope,
       version: rule.version + (rule.id ? 1 : 0),
       created_by: auth.user?.id ?? null, updated_by: auth.user?.id ?? null,
     };
@@ -210,6 +230,19 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
               </div>
               <Switch checked={rule.is_enabled} onCheckedChange={(is_enabled) => setRule({ ...rule, is_enabled })} />
             </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">When a booking arrives, change</Label>
+              <Select
+                value={rule.application_scope}
+                onValueChange={(value: "booked_room_type" | "all_room_types") => setRule({ ...rule, application_scope: value })}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="booked_room_type">Only the booked room type</SelectItem>
+                  <SelectItem value="all_room_types">All room types on that stay date</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-3">
               <p className="text-sm font-medium">First pickup increase</p>
               {rule.booking_window_tiers.map((tier, index) => (
@@ -231,6 +264,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                 <div><Label className="text-xs">Minimum ADR (€)</Label><Input type="number" value={rule.minimum_adr ?? ""} onChange={(e) => setRule({ ...rule, minimum_adr: e.target.value ? Number(e.target.value) : null })} /></div>
                 <div><Label className="text-xs">Max rise per date, per day (€)</Label><Input type="number" value={rule.max_daily_increase_per_date} onChange={(e) => setRule({ ...rule, max_daily_increase_per_date: Number(e.target.value) })} /></div>
               </div>
+              <div><Label className="text-xs">Maximum increase from one pickup (€)</Label><Input type="number" value={rule.maximum_increase ?? ""} onChange={(e) => setRule({ ...rule, maximum_increase: e.target.value ? Number(e.target.value) : null })} /></div>
               <div className="flex items-center justify-between"><Label>Publish matched changes to Previo</Label><Switch checked={rule.auto_publish} onCheckedChange={(auto_publish) => setRule({ ...rule, auto_publish })} /></div>
             </div>
 
@@ -246,6 +280,10 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                   Last checked {new Date(rule.last_run_at).toLocaleString()} · runs every 15 minutes.
                 </p>
               )}
+              <p className="text-[11px] text-muted-foreground">
+                Recent actions: {stats.pushed} pushed · {stats.failed} failed
+                {stats.lastActionAt ? ` · last change ${new Date(stats.lastActionAt).toLocaleString()}` : ""}
+              </p>
             </div>
           </div>
         )}
@@ -260,11 +298,13 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
               setRunning(false);
               if (error) { toast.error("Could not run the automation now"); return; }
               const summary = (data as any)?.summary?.[0];
-              toast.success(
-                summary
-                  ? `Checked ${summary.pickups ?? 0} new booking night(s) · ${summary.actions ?? 0} price change(s)`
-                  : "Automation ran — no new bookings to price",
-              );
+              if (summary?.pushed === 0 && summary?.actions > 0 && rule.auto_publish) {
+                toast.error(`Checked ${summary.pickups ?? 0} pickups · ${summary.actions ?? 0} cells matched · none reached Previo`);
+              } else {
+                toast.success(summary
+                  ? `Checked ${summary.pickups ?? 0} pickups · ${summary.actions ?? 0} cells matched · ${summary.pushed ?? 0} pushed`
+                  : "Automation ran — no new bookings to price");
+              }
             }}
           >
             {running && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Run now

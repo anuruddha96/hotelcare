@@ -190,7 +190,7 @@ function MetricInfo({ title, body }: { title: string; body: string }) {
 
 type Row =
   | { kind: "group"; key: string; label: string; note: string; units: number; typeName: string; rawName: string }
-  | { kind: "rate"; key: string; label: string; obk: string | null; occ: number; roomTypeName: string }
+  | { kind: "rate"; key: string; label: string; obk: string | null; occ: number; roomTypeName: string; rawName: string }
   | { kind: "adr"; key: string; label: string }
   | { kind: "revpar"; key: string; label: string };
 
@@ -567,7 +567,8 @@ export default function RateStrategyGrid({
           label: `${occ} ${occ > 1 ? "guests" : "guest"}`,
           obk: rt.pms_room_id,
           occ,
-          roomTypeName: label,
+          roomTypeName: rt.name,
+          rawName: rt.name,
         });
       }
     }
@@ -686,6 +687,13 @@ export default function RateStrategyGrid({
       setPushOpen(false);
       await refreshDrafts();
       await onRatesUpdated?.();
+      // Accepted prices are mirrored immediately. Short follow-up refreshes
+      // pick up the background authoritative read-back without a full PMS sync.
+      for (const delay of [1500, 4000, 8000]) {
+        window.setTimeout(() => {
+          void Promise.all([refreshDrafts(), reloadAudit(), onRatesUpdated?.()]);
+        }, delay);
+      }
     } catch (e) {
 
       const message = e instanceof Error ? e.message : "Could not push the prices to Previo";

@@ -3,8 +3,8 @@
 // The grid stores every manual price change as a draft; nothing leaves the
 // app until someone with rate-push rights confirms. This function validates
 // the caller, sends each draft to Previo through the confirmed rate-write
-// method, reads the price back to prove it landed, and records the outcome per
-// draft so a partial failure is visible instead of silent.
+// method, mirrors accepted prices immediately, then verifies them against
+// Previo in background so a partial failure is visible instead of silent.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { writePrevioRate, readPrevioRateLevels } from "../_shared/previoRateWrite.ts";
@@ -387,68 +387,108 @@ Deno.serve(async (req) => {
             .eq("hotel_id", hotelId);
         }
 
-        // EQC acceptance is transport acknowledgement, not proof of publication.
-        // Reading the ladder straight back on the same connection turns a push
-        // into a finished change instead of a row that waits for the nightly
-        // sync — that wait is what looked like "stuck in draft".
+        // EQC acceptance is enough to update Hotel Care's visible mirror. The
+        // authoritative read-back runs below in background and corrects this
+        // value if Previo publishes something different.
         const now = new Date().toISOString();
         const successfulIds = b.drafts.map((draft: any) => draft.id);
-        const { error: finalizeError } = await admin.from("revenue_rate_drafts").update({
-          status: "pushed", pushed_at: now, push_error: null,
-          confirmation_status: "sent", push_attempt_count: 1,
-          actual_previo_price: null, confirmed_at: null, last_checked_at: null,
-        }).in("id", successfulIds);
+        const acceptedRateRows = (b.drafts as any[]).map((d) => ({
+          hotel_id: hotelId,
+          organization_slug: hotelOrgSlug,
+          stay_date: d.stay_date,
+          obk_id: String(d.obk_id),
+          room_type_name: d.room_type_name,
+          rate_plan_id: b.prlId,
+          occupancy: Math.max(1, Math.round(Number(d.occupancy) || 2)),
+          price: Number(d.new_price),
+          currency: d.currency ?? b.currency,
+          source: "previo",
+          captured_at: now,
+          updated_at: now,
+        }));
+        const [{ error: finalizeError }, { error: mirrorError }] = await Promise.all([
+          admin.from("revenue_rate_drafts").update({
+            status: "pushed", pushed_at: now, push_error: null,
+            confirmation_status: "sent", push_attempt_count: 1,
+            actual_previo_price: null, confirmed_at: null, last_checked_at: null,
+          }).in("id", successfulIds),
+          admin.from("revenue_room_type_rates").upsert(acceptedRateRows, {
+            onConflict: "hotel_id,stay_date,obk_id,rate_plan_id,occupancy",
+          }),
+        ]);
         if (finalizeError) throw new Error(`Previo accepted the price, but Hotel Care could not finalize it: ${finalizeError.message}`);
+        if (mirrorError) throw new Error(`Previo accepted the price, but Hotel Care could not refresh the calendar: ${mirrorError.message}`);
 
-        let landed = new Map<number, number>();
-        try {
-          landed = await readPrevioRateLevels({
-            creds, pmsHotelId, date: b.from, obkId: b.obkId, prlId: b.prlId,
-          });
-        } catch { /* verification is best effort — the nightly sync stays the backstop */ }
-
-        const auditRows: Record<string, unknown>[] = [];
-        for (const d of b.drafts as any[]) {
-          const actual = landed.get(Math.max(1, Math.round(Number(d.occupancy) || 2)));
-          if (actual === undefined || !Number.isFinite(actual)) continue;
-          const isConfirmed = Math.abs(Number(actual) - Number(d.new_price)) < 0.01;
-          await admin.from("revenue_rate_drafts").update({
-            confirmation_status: isConfirmed ? "confirmed" : "different",
-            actual_previo_price: actual,
-            confirmed_at: isConfirmed ? now : null,
-            last_checked_at: now,
-            push_error: isConfirmed ? null : `Previo currently publishes ${actual}; requested ${d.new_price}`,
-          }).eq("id", d.id);
-          if (isConfirmed) verified += 1;
-          if (hotelOrgSlug) {
-            auditRows.push({
-              hotel_id: hotelId,
-              organization_slug: hotelOrgSlug,
-              action: isConfirmed ? "price_confirmed" : "price_landed_differently",
-              source: isConfirmed
-                ? (isEngine ? "previo_automation_confirmed" : "previo_confirmed")
-                : "previo_different",
-              stay_date: d.stay_date,
-              old_rate_eur: d.old_price,
-              new_rate_eur: actual,
-              delta_eur: d.old_price === null ? null : Math.round((Number(actual) - Number(d.old_price)) * 100) / 100,
-              notes: isConfirmed
-                ? `${d.room_type_name} confirmed by Previo`
-                : `${d.room_type_name}: requested ${d.new_price}, Previo published ${actual}`,
-              performed_by: d.created_by ?? null,
-              payload: {
-                room_type_name: d.room_type_name,
-                occupancy: d.occupancy,
-                requested_price: Number(d.new_price),
-                actual_previo_price: Number(actual),
-                confirmation_status: isConfirmed ? "confirmed" : "different",
-                push_run_id: pushRunId,
-                origin: isEngine ? "pickup-automation" : "hotelcare-push",
-              },
+        const verifyAcceptedRates = async () => {
+          try {
+            const landed = await readPrevioRateLevels({
+              creds, pmsHotelId, date: b.from, obkId: b.obkId, prlId: b.prlId,
             });
+            if (landed.size === 0) return;
+            const checkedAt = new Date().toISOString();
+            const updates = new Map<string, { ids: string[]; actual: number; confirmed: boolean; requested: number }>();
+            const correctedRows: Record<string, unknown>[] = [];
+            const auditRows: Record<string, unknown>[] = [];
+            for (const d of b.drafts as any[]) {
+              const occupancy = Math.max(1, Math.round(Number(d.occupancy) || 2));
+              const actual = landed.get(occupancy);
+              if (actual === undefined || !Number.isFinite(actual)) continue;
+              const confirmed = Math.abs(Number(actual) - Number(d.new_price)) < 0.01;
+              const updateKey = `${occupancy}|${actual}|${confirmed}|${d.new_price}`;
+              const update = updates.get(updateKey) ?? { ids: [], actual, confirmed, requested: Number(d.new_price) };
+              update.ids.push(d.id);
+              updates.set(updateKey, update);
+              correctedRows.push({
+                hotel_id: hotelId, organization_slug: hotelOrgSlug, stay_date: d.stay_date,
+                obk_id: String(d.obk_id), room_type_name: d.room_type_name, rate_plan_id: b.prlId,
+                occupancy, price: actual, currency: d.currency ?? b.currency,
+                source: "previo", captured_at: checkedAt, updated_at: checkedAt,
+              });
+              if (hotelOrgSlug) auditRows.push({
+                hotel_id: hotelId,
+                organization_slug: hotelOrgSlug,
+                action: confirmed ? "price_confirmed" : "price_landed_differently",
+                source: confirmed
+                  ? (isEngine ? "previo_automation_confirmed" : "previo_confirmed")
+                  : "previo_different",
+                stay_date: d.stay_date,
+                old_rate_eur: d.old_price,
+                new_rate_eur: actual,
+                delta_eur: d.old_price === null ? null : Math.round((actual - Number(d.old_price)) * 100) / 100,
+                notes: confirmed
+                  ? `${d.room_type_name} confirmed by Previo`
+                  : `${d.room_type_name}: requested ${d.new_price}, Previo published ${actual}`,
+                performed_by: d.created_by ?? null,
+                payload: {
+                  room_type_name: d.room_type_name, occupancy,
+                  requested_price: Number(d.new_price), actual_previo_price: actual,
+                  confirmation_status: confirmed ? "confirmed" : "different",
+                  push_run_id: pushRunId,
+                  origin: isEngine ? "pickup-automation" : "hotelcare-push",
+                },
+              });
+            }
+            await Promise.all(Array.from(updates.values()).map((u) =>
+              admin.from("revenue_rate_drafts").update({
+                confirmation_status: u.confirmed ? "confirmed" : "different",
+                actual_previo_price: u.actual,
+                confirmed_at: u.confirmed ? checkedAt : null,
+                last_checked_at: checkedAt,
+                push_error: u.confirmed ? null : `Previo currently publishes ${u.actual}; requested ${u.requested}`,
+              }).in("id", u.ids)
+            ));
+            if (correctedRows.length > 0) await admin.from("revenue_room_type_rates").upsert(correctedRows, {
+              onConflict: "hotel_id,stay_date,obk_id,rate_plan_id,occupancy",
+            });
+            if (auditRows.length > 0) await admin.from("rate_change_audit").insert(auditRows);
+          } catch (error) {
+            console.error("background rate verification failed", b.from, b.to, b.obkId, error);
           }
-        }
-        if (auditRows.length > 0) await admin.from("rate_change_audit").insert(auditRows);
+        };
+        const verification = verifyAcceptedRates();
+        const edgeRuntime = (globalThis as unknown as { EdgeRuntime?: { waitUntil(promise: Promise<unknown>): void } }).EdgeRuntime;
+        if (edgeRuntime) edgeRuntime.waitUntil(verification);
+        else await verification;
 
         await admin.from("rate_history").insert(b.drafts.map((d: any) => ({
             hotel_id: hotelId,
@@ -477,7 +517,7 @@ Deno.serve(async (req) => {
     // Batches are independent. A concurrency pool cuts wall time without
     // flooding Previo.
     const results: GroupResult[] = [];
-    const concurrency = 8;
+    const concurrency = 6;
     let nextBatch = 0;
     await Promise.all(Array.from({ length: Math.min(concurrency, batches.length) }, async () => {
       while (nextBatch < batches.length) {
