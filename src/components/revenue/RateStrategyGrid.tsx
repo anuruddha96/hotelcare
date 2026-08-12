@@ -1671,32 +1671,14 @@ export default function RateStrategyGrid({
                     const shown = draft ?? published;
                     const tone = rateTone(shown, thresholds);
                     const history = auditByCell.get(cellKey(d, row.roomTypeName, row.occ));
-                    // One dot per cell, and only for a change in the last 7
-                    // days: who last set this price, in plain words.
-                    const confirmedHistory = manualAuditByCell.get(cellKey(d, row.roomTypeName, row.occ));
+                    // The colour follows the most recent change, never a
+                    // ranking: a price you set by hand this morning reads blue
+                    // even if automation moved the same cell last week.
                     const cellAutomation = automationByCell.get(cellKey(d, row.roomTypeName, row.occ));
                     const cellOrigin = cellOriginByCell.get(cellKey(d, row.roomTypeName, row.occ));
-                    const lastChangeAt = (() => {
-                      const times: number[] = [];
-                      if (cellOrigin) times.push(new Date(cellOrigin.at).getTime());
-                      for (const h of confirmedHistory ?? []) times.push(new Date(h.performed_at).getTime());
-                      for (const a of cellAutomation ?? []) times.push(new Date(a.created_at).getTime());
-                      return times.length ? Math.max(...times) : null;
-                    })();
-                    const recent = lastChangeAt !== null && Date.now() - lastChangeAt < 7 * 24 * 60 * 60 * 1000;
-                    // A purple dot is only drawn when the cell really has an
-                    // automation record behind it, so the history can prove it.
-                    const hasAutomationProof = Boolean(cellAutomation?.length) || cellOrigin?.origin === "automation";
-                    const marker: "team" | "automation" | "previo" | "failed" | null =
-                      !showMarkers || !recent ? null
-                        : cellOrigin?.origin === "different" ? "failed"
-                          : hasAutomationProof ? "automation"
-                            : cellOrigin?.origin === "previo" ? "previo"
-                              : (confirmedHistory?.length || cellOrigin) ? "team" : null;
-                    const markerClass = marker === "failed" ? "bg-destructive"
-                      : marker === "automation" ? "bg-purple-500"
-                        : marker === "previo" ? "bg-amber-500"
-                          : "bg-primary";
+                    const cellEvents = cellOriginEvents(history, cellAutomation);
+                    const cellOrigins: ChangeOrigin[] = showMarkers ? distinctOrigins(cellEvents, 2) : [];
+                    const marker = cellEvents[0]?.origin ?? null;
                     const originLabel = (() => {
                       if (draft !== undefined) return "Not sent to Previo yet";
                       if (marker === "automation" && cellAutomation?.length) {
