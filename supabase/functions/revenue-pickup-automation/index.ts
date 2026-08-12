@@ -86,6 +86,24 @@ Deno.serve(async (req) => {
     const onlyHotel: string | null = typeof body.hotelId === "string" ? body.hotelId : null;
     const dryRun: boolean = body.dryRun === true;
 
+    // Recovery backstop for a browser/tab or Edge Runtime that stopped after
+    // enqueueing. Absolute target prices make this safe to resume.
+    const staleBefore = new Date(Date.now() - 10 * 60_000).toISOString();
+    const { data: recoveryRuns } = await admin.from("revenue_rate_push_runs")
+      .select("id,hotel_id,status,started_at").or(`status.eq.queued,and(status.eq.processing,started_at.lt.${staleBefore})`)
+      .order("created_at", { ascending: true }).limit(5);
+    for (const run of (recoveryRuns ?? []) as any[]) {
+      const { data: recoveryItems } = await admin.from("revenue_rate_push_items")
+        .select("draft_id").eq("run_id", run.id).in("status", ["queued", "processing", "failed"]);
+      const ids = (recoveryItems ?? []).map((item: any) => item.draft_id).filter(Boolean);
+      if (ids.length === 0) continue;
+      const work = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
+        method: "POST", headers: { "Content-Type": "application/json", "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")! },
+        body: JSON.stringify({ hotelId: run.hotel_id, draftIds: ids, pushRunId: run.id }),
+      });
+      (globalThis as any).EdgeRuntime?.waitUntil(work);
+    }
+
     let q = admin.from("revenue_pickup_automation_rules").select("*").eq("is_enabled", true);
     if (onlyHotel) q = q.eq("hotel_id", onlyHotel);
     const { data: ruleRows, error: ruleErr } = await q;

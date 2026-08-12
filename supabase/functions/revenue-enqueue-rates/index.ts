@@ -57,7 +57,14 @@ Deno.serve(async (req) => {
     }
     const changes = [...byCell.values()];
     const runId = crypto.randomUUID();
-    const now = new Date().toISOString();
+
+    const dates = changes.map((change) => change.stay_date).sort();
+    const { data: existingDrafts } = await admin.from("revenue_rate_drafts")
+      .select("id,stay_date,room_type_name,occupancy")
+      .eq("hotel_id", hotelId).gte("stay_date", dates[0]).lte("stay_date", dates[dates.length - 1])
+      .in("status", ["draft", "failed"]);
+    const superseded = (existingDrafts ?? []).filter((row) => byCell.has(`${row.stay_date}|${row.room_type_name}|${row.occupancy}`)).map((row) => row.id);
+    for (const ids of chunks(superseded, 300)) await admin.from("revenue_rate_drafts").delete().in("id", ids);
 
     const { error: runError } = await admin.from("revenue_rate_push_runs").insert({
       id: runId, hotel_id: hotelId, organization_slug: organizationSlug ?? profile.organization_slug,
@@ -88,17 +95,6 @@ Deno.serve(async (req) => {
       const { error: itemError } = await admin.from("revenue_rate_push_items").insert(items);
       if (itemError) throw itemError;
 
-      const mirrorRows = batch.filter((change) => change.obk_id).map((change) => ({
-        hotel_id: hotelId, organization_slug: organizationSlug ?? profile.organization_slug,
-        stay_date: change.stay_date, obk_id: String(change.obk_id), room_type_name: change.room_type_name,
-        rate_plan_id: "pending", occupancy: change.occupancy, price: change.new_price,
-        currency: null, source: "hotelcare", captured_at: now, updated_at: now,
-      }));
-      if (mirrorRows.length > 0) {
-        await admin.from("revenue_room_type_rates").upsert(mirrorRows, {
-          onConflict: "hotel_id,stay_date,obk_id,rate_plan_id,occupancy",
-        });
-      }
     }
 
     const work = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {

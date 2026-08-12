@@ -659,10 +659,6 @@ export default function RateStrategyGrid({
   // a price nobody has sent yet, a price Previo already accepted, and a price
   // that landed on a different value. Keeping them apart is the difference
   // between "the push failed" and "the push is done".
-  const unsentDrafts = useMemo(
-    () => pending.filter((d) => d.status === "draft" || d.status === "failed"),
-    [pending],
-  );
   const awaitingDrafts = useMemo(
     () => pending.filter((d) => d.status === "pushed" && d.confirmation_status !== "different"),
     [pending],
@@ -835,7 +831,7 @@ export default function RateStrategyGrid({
           new_price: r.new_price,
         })),
       });
-      await Promise.all([reloadAudit(), onRatesUpdated?.()]);
+      await Promise.all([refreshDrafts(), reloadAudit(), onRatesUpdated?.()]);
       toast.success(`${result.queued} price${result.queued === 1 ? "" : "s"} sent to Previo`);
       setEdit(null);
 
@@ -934,7 +930,7 @@ export default function RateStrategyGrid({
         })),
       });
 
-      await reloadAudit();
+      await Promise.all([refreshDrafts(), reloadAudit()]);
       await onRatesUpdated?.();
       setDayResult({ pushed: result.queued, failed: 0, errors: [] });
       toast.success(`${result.queued} price${result.queued === 1 ? "" : "s"} sent to Previo`);
