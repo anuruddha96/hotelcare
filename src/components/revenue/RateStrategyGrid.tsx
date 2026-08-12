@@ -1776,9 +1776,11 @@ export default function RateStrategyGrid({
                 </div>
                 <RateCellHistory
                   history={auditByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ)) ?? []}
+                  automation={automationByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ)) ?? []}
                   names={auditNames}
                   draftPrice={cellInfo.draft}
                 />
+
                 {canEditRates && (
                   <Button
                     className="w-full"
