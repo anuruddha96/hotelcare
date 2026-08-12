@@ -63,11 +63,13 @@ interface Props {
 const RANGE_OPTIONS = [
   { value: 14, label: "14d" },
   { value: 30, label: "30d" },
+  { value: 45, label: "1.5m" },
   { value: 60, label: "60d" },
   { value: 90, label: "90d" },
   { value: 120, label: "120d" },
   { value: 180, label: "6m" },
 ];
+
 
 const PICKUP_WINDOWS = [
   { value: 1, label: "Today" },
