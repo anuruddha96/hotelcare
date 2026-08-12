@@ -269,9 +269,21 @@ Deno.serve(async (req) => {
         .in("stay_date", stayDates)
         .gte("cancelled_at", freshFrom)
         .limit(20000);
-      for (const c of (cancelRows ?? []) as Array<{ stay_date: string }>) {
+      for (const c of (cancelRows ?? []) as Array<{ stay_date: string; cancelled_at: string }>) {
         netPickup.set(c.stay_date, (netPickup.get(c.stay_date) ?? 0) - 1);
       }
+
+      // 2c. Same guard, but for today only: a booking taken yesterday must not
+      //     raise a price on a day whose only movement today is cancellations.
+      const dayStartUtc = localDayStartUtc(rule.run_timezone || "Europe/Budapest");
+      const netToday = new Map<string, number>();
+      for (const h of history) {
+        if (h.created_at_pms >= dayStartUtc) netToday.set(h.stay_date, (netToday.get(h.stay_date) ?? 0) + 1);
+      }
+      for (const c of (cancelRows ?? []) as Array<{ stay_date: string; cancelled_at: string }>) {
+        if (c.cancelled_at >= dayStartUtc) netToday.set(c.stay_date, (netToday.get(c.stay_date) ?? 0) - 1);
+      }
+
 
       // 3. Current prices per stay date / room type / occupancy (newest wins).
       const { data: rateRows } = await admin
