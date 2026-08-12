@@ -1169,6 +1169,43 @@ export default function RateStrategyGrid({
             body="Prices come straight from the Previo pricelist — one row per room type and guest count. Pickup and occupancy come from Previo reservations; ADR and RevPAR are calculated in Hotel Care."
           />
         </p>
+        {canEditRates && (pushProgress || pushSummary) && (
+          <div className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 space-y-1.5">
+            {pushProgress ? (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Sent <strong className="tabular-nums">{pushProgress.done.toLocaleString()}</strong> of{" "}
+                    <strong className="tabular-nums">{pushProgress.total.toLocaleString()}</strong> prices ·{" "}
+                    {pushElapsed.toFixed(1)}s elapsed
+                    {pushProgress.done > 0 && pushProgress.done < pushProgress.total && (
+                      <> · ~{Math.max(1, Math.round((pushElapsed / pushProgress.done) * (pushProgress.total - pushProgress.done)))}s left</>
+                    )}
+                  </span>
+                  <Button
+                    size="sm" variant="ghost" className="h-7 text-[11px]"
+                    onClick={() => { cancelPushRef.current = true; toast.message("Stopping after the current batch"); }}
+                  >
+                    Stop
+                  </Button>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${Math.round((pushProgress.done / Math.max(1, pushProgress.total)) * 100)}%` }}
+                  />
+                </div>
+              </>
+            ) : pushSummary ? (
+              <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                {pushSummary.count.toLocaleString()} price{pushSummary.count === 1 ? "" : "s"} sent to Previo in{" "}
+                {pushSummary.seconds.toFixed(1)}s
+                {pushSummary.count > 0 && ` (≈${Math.round(pushSummary.count / pushSummary.seconds)} prices/sec)`}
+              </p>
+            ) : null}
+          </div>
+        )}
         {canEditRates && pending.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
             <span className="text-xs space-x-2">
@@ -1179,8 +1216,9 @@ export default function RateStrategyGrid({
                 <span className="text-destructive">{failedCount} refused by Previo.</span>
               )}
               {awaitingDrafts.length > 0 && (
-                <span className="text-muted-foreground">
-                  {awaitingDrafts.length} sent · awaiting Previo confirmation.
+                <span className="inline-flex items-center gap-1 text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {awaitingDrafts.length} live in Previo · confirming in the background.
                 </span>
               )}
               {divergentDrafts.length > 0 && (
@@ -1191,15 +1229,6 @@ export default function RateStrategyGrid({
             </span>
 
             <span className="flex items-center gap-2">
-              {(awaitingDrafts.length > 0 || divergentDrafts.length > 0) && (
-                <Button
-                  size="sm" variant="outline" className="h-8 text-xs"
-                  disabled={checkingPrevio}
-                  onClick={() => void verifyWithPrevio()}
-                >
-                  {checkingPrevio && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}Check now
-                </Button>
-              )}
               <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
                 <Send className="h-3.5 w-3.5 mr-1" />
                 {unsentDrafts.length > 0 ? `Push ${unsentDrafts.length} to Previo` : "Review changes"}
@@ -1207,6 +1236,7 @@ export default function RateStrategyGrid({
             </span>
           </div>
         )}
+
 
 
       </CardHeader>
