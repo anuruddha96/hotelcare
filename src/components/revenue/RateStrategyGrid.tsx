@@ -1078,6 +1078,8 @@ export default function RateStrategyGrid({
     if (pickupOnly && (metricByDate.get(d)?.netPickup ?? 0) === 0) return false;
     return true;
   });
+  // Selection helpers read this so a drag only ever covers what is on screen.
+  visibleDatesRef.current = dates;
   const rows = reviewOnly && flagged.rowKeys.size
     ? allRows.filter((r) => (r.kind === "rate" ? flagged.rowKeys.has(r.key) : r.kind !== "group"))
     : allRows;
