@@ -1413,11 +1413,9 @@ export default function RateStrategyGrid({
 
                         <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
                         <span className="font-medium">{formatDay(d)}</span>
-                        {dayOrigins.length > 0 && (
-                          <span className="pointer-events-none absolute bottom-0.5 left-0 right-0 flex justify-center gap-[3px]" aria-hidden>
-                            {dayOrigins.map((o) => (
-                              <i key={o} className={`h-[3px] w-[3px] rounded-full ${ORIGIN_DOT_CLASS[o]}`} />
-                            ))}
+                        {dayLatest && (
+                          <span className="pointer-events-none absolute bottom-0.5 left-0 right-0 flex justify-center" aria-hidden>
+                            <i className={`h-1.5 w-1.5 rounded-full ${ORIGIN_DOT_CLASS[dayLatest.origin]}`} />
                           </span>
                         )}
 
@@ -1431,44 +1429,44 @@ export default function RateStrategyGrid({
                       </button>
                     );
 
-                    if (!trail && dayBreakdown.length === 0) return dayButton;
-                    const who = trail ? ((trail.last.performed_by && auditNames.get(trail.last.performed_by)) || "Someone") : null;
+                    if (!trail && dayChanges.length === 0) return dayButton;
                     const up = (trail?.avgDelta ?? 0) >= 0;
                     return (
                       <HoverCard key={d} openDelay={150} closeDelay={60}>
                         <HoverCardTrigger asChild>{dayButton}</HoverCardTrigger>
-                        <HoverCardContent align="center" className="w-64 p-3 text-xs space-y-1">
-                          <p className="font-medium">{formatWeekday(d)} {formatDay(d)} · last price update</p>
-                          {dayBreakdown.length > 0 && (
-                            <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                              {dayBreakdown.map((b) => (
-                                <span key={b.origin} className="inline-flex items-center gap-1">
-                                  <i className={`h-[5px] w-[5px] rounded-full ${ORIGIN_DOT_CLASS[b.origin]}`} />
-                                  {b.count} {ORIGIN_LABEL[b.origin]}
+                        <HoverCardContent align="center" className="w-72 p-3 text-xs space-y-2">
+                          <p className="font-medium">{formatWeekday(d)} {formatDay(d)} · last price changes</p>
+                          {trail && (
+                            <p className="tabular-nums text-muted-foreground">
+                              {trail.count} price{trail.count === 1 ? "" : "s"} changed on this date
+                              {trail.avgDelta !== 0 && (
+                                <span className={up ? " text-emerald-600 dark:text-emerald-400" : " text-sky-600 dark:text-sky-400"}>
+                                  {" "}· avg {up ? "+" : "−"}{moneyBase(Math.abs(trail.avgDelta))}
                                 </span>
-                              ))}
+                              )}
                             </p>
                           )}
-                          {trail && (
-                          <p className="tabular-nums">
-                            {trail.count} price{trail.count === 1 ? "" : "s"} changed
-                            {trail.avgDelta !== 0 && (
-                              <span className={up ? " text-emerald-600 dark:text-emerald-400" : " text-sky-600 dark:text-sky-400"}>
-                                {" "}avg {up ? "+" : "−"}{moneyBase(Math.abs(trail.avgDelta))}
-                              </span>
-                            )}
-                          </p>
-                          )}
-
-                          {trail && (
-                          <p className="tabular-nums">
-                            {moneyBase(trail.last.old_rate_eur)} → <strong>{moneyBase(trail.last.new_rate_eur)}</strong>
-                          </p>
-                          )}
-                          {trail && (
-                          <p className="text-muted-foreground">
-                            {formatWhen(trail.last.performed_at)} · {who} · {trail.last.source === "previo_confirmed" ? "Confirmed in Previo" : trail.last.source === "previo_different" ? "Different in Previo" : "Changed in Previo"}
-                          </p>
+                          {dayChanges.slice(0, 3).map((c, idx) => (
+                            <div key={`${c.at}-${idx}`} className="space-y-0.5">
+                              <p className="tabular-nums">
+                                <i className={`mr-1 inline-block h-1.5 w-1.5 rounded-full align-middle ${ORIGIN_DOT_CLASS[c.origin]}`} />
+                                {moneyBase(c.old)} → <strong>{moneyBase(c.next)}</strong>
+                                {c.old != null && c.next != null && c.next !== c.old && (
+                                  <span className={c.next > c.old ? " text-emerald-600 dark:text-emerald-400" : " text-sky-600 dark:text-sky-400"}>
+                                    {" "}{c.next > c.old ? "+" : "−"}{moneyBase(Math.abs(c.next - c.old))}
+                                  </span>
+                                )}
+                              </p>
+                              <p className="text-[11px] text-muted-foreground">
+                                {c.who} · {formatWhen(c.at)}
+                                {c.room ? ` · ${c.room}${c.occ ? ` · ${c.occ}g` : ""}` : ""}
+                              </p>
+                            </div>
+                          ))}
+                          {dayChanges.length > 3 && (
+                            <p className="text-[11px] text-muted-foreground">
+                              +{dayChanges.length - 3} more change{dayChanges.length - 3 === 1 ? "" : "s"} — open a price cell for its full history
+                            </p>
                           )}
                         </HoverCardContent>
                       </HoverCard>
