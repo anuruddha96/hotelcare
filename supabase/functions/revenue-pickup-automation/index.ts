@@ -64,6 +64,15 @@ const minutesOf = (value: string) => {
   return hour * 60 + minute;
 };
 
+/** UTC instant at which the property's local business day started. */
+function localDayStartUtc(timeZone: string): string {
+  const { date, time } = localParts(timeZone);
+  const elapsedMs = minutesOf(time) * 60_000;
+  void date;
+  return new Date(Date.now() - elapsedMs).toISOString();
+}
+
+
 /** Tiers are ordered by how far out the stay is; the last tier is the catch-all. */
 function tierIncrease(tiers: Tier[], daysOut: number): number {
   for (const tier of tiers) {
@@ -260,9 +269,21 @@ Deno.serve(async (req) => {
         .in("stay_date", stayDates)
         .gte("cancelled_at", freshFrom)
         .limit(20000);
-      for (const c of (cancelRows ?? []) as Array<{ stay_date: string }>) {
+      for (const c of (cancelRows ?? []) as Array<{ stay_date: string; cancelled_at: string }>) {
         netPickup.set(c.stay_date, (netPickup.get(c.stay_date) ?? 0) - 1);
       }
+
+      // 2c. Same guard, but for today only: a booking taken yesterday must not
+      //     raise a price on a day whose only movement today is cancellations.
+      const dayStartUtc = localDayStartUtc(rule.run_timezone || "Europe/Budapest");
+      const netToday = new Map<string, number>();
+      for (const h of history) {
+        if (h.created_at_pms >= dayStartUtc) netToday.set(h.stay_date, (netToday.get(h.stay_date) ?? 0) + 1);
+      }
+      for (const c of (cancelRows ?? []) as Array<{ stay_date: string; cancelled_at: string }>) {
+        if (c.cancelled_at >= dayStartUtc) netToday.set(c.stay_date, (netToday.get(c.stay_date) ?? 0) - 1);
+      }
+
 
       // 3. Current prices per stay date / room type / occupancy (newest wins).
       const { data: rateRows } = await admin
@@ -311,11 +332,15 @@ Deno.serve(async (req) => {
         const key = `${p.stay_date}|${p.res_id}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        // Only a booking Previo itself created in the last 48h is pickup — a
-        // re-synced old booking must not move a price.
+        // Only a booking Previo itself created today (property-local) is
+        // pickup — a re-synced or older booking must not move a price.
         if (!p.created_at_pms || p.created_at_pms < freshFrom) { skippedStale++; continue; }
-        // And the stay date as a whole must be up on the day, not down.
+        if (p.created_at_pms < dayStartUtc) { skippedStale++; continue; }
+        // And the stay date must be up both over the window and today, so a
+        // day whose only movement today is cancellations never goes up.
         if ((netPickup.get(p.stay_date) ?? 0) <= 0) { skippedNegative++; continue; }
+        if ((netToday.get(p.stay_date) ?? 0) <= 0) { skippedNegative++; continue; }
+
         const at = Date.parse(p.created_at_pms);
         if (!Number.isFinite(at)) continue;
         const windowMs = Math.max(1, rule.same_hour_window_minutes) * 60_000;
