@@ -587,18 +587,44 @@ export default function RateStrategyGrid({
 
 
 
+  /**
+   * Prices the user just published, shown before Previo answers. Keyed
+   * `obk|occ|date`. They are dropped as soon as the reloaded rates agree.
+   */
+  const [optimistic, setOptimistic] = useState<Map<string, number>>(new Map());
+
   // obk_id -> occupancy -> stay_date -> price
   const priceMap = useMemo(() => {
     const m = new Map<string, Map<number, Map<string, number>>>();
-    for (const r of rates) {
-      let byOcc = m.get(r.obk_id);
-      if (!byOcc) { byOcc = new Map(); m.set(r.obk_id, byOcc); }
-      let byDate = byOcc.get(r.occupancy);
-      if (!byDate) { byDate = new Map(); byOcc.set(r.occupancy, byDate); }
-      byDate.set(r.stay_date, Number(r.price));
+    const put = (obk: string, occ: number, date: string, price: number) => {
+      let byOcc = m.get(obk);
+      if (!byOcc) { byOcc = new Map(); m.set(obk, byOcc); }
+      let byDate = byOcc.get(occ);
+      if (!byDate) { byDate = new Map(); byOcc.set(occ, byDate); }
+      byDate.set(date, price);
+    };
+    for (const r of rates) put(r.obk_id, r.occupancy, r.stay_date, Number(r.price));
+    for (const [key, price] of optimistic) {
+      const [obk, occ, date] = key.split("|");
+      if (obk && date) put(obk, Number(occ), date, price);
     }
     return m;
+  }, [rates, optimistic]);
+
+  // Once the reloaded Previo rates match what we showed optimistically, the
+  // overlay has nothing left to say.
+  useEffect(() => {
+    if (optimistic.size === 0) return;
+    const byCell = new Map(rates.map((r) => [`${r.obk_id}|${r.occupancy}|${r.stay_date}`, Number(r.price)]));
+    let changed = false;
+    const next = new Map(optimistic);
+    for (const [key, price] of optimistic) {
+      if (byCell.get(key) === price) { next.delete(key); changed = true; }
+    }
+    if (changed) setOptimistic(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rates]);
+
 
   const metricByDate = useMemo(() => {
     const m = new Map<string, DayMetrics>();
