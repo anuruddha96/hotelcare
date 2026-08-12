@@ -135,7 +135,7 @@ Deno.serve(async (req) => {
       const dayStart = `${today}T00:00:00Z`;
       const { data: todaysActions } = await admin
         .from("revenue_pickup_automation_actions")
-        .select("stay_date, increase_amount")
+        .select("stay_date, reservation_id, increase_amount")
         .eq("hotel_id", rule.hotel_id)
         .in("stay_date", stayDates)
         .gte("created_at", dayStart)

@@ -141,7 +141,7 @@ Deno.serve(async (req) => {
     // --- drafts to push --------------------------------------------------
     let q = admin
       .from("revenue_rate_drafts")
-      .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, currency, created_by")
+      .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, currency, created_by, organization_slug")
       .eq("hotel_id", hotelId)
       .in("status", ["draft", "failed"]);
     if (draftIds.length > 0) q = q.in("id", draftIds);
@@ -394,7 +394,7 @@ Deno.serve(async (req) => {
         const successfulIds = b.drafts.map((draft: any) => draft.id);
         const acceptedRateRows = (b.drafts as any[]).map((d) => ({
           hotel_id: hotelId,
-          organization_slug: hotelOrgSlug,
+          organization_slug: hotelOrgSlug ?? d.organization_slug,
           stay_date: d.stay_date,
           obk_id: String(d.obk_id),
           room_type_name: d.room_type_name,
@@ -439,7 +439,7 @@ Deno.serve(async (req) => {
               update.ids.push(d.id);
               updates.set(updateKey, update);
               correctedRows.push({
-                hotel_id: hotelId, organization_slug: hotelOrgSlug, stay_date: d.stay_date,
+                hotel_id: hotelId, organization_slug: hotelOrgSlug ?? d.organization_slug, stay_date: d.stay_date,
                 obk_id: String(d.obk_id), room_type_name: d.room_type_name, rate_plan_id: b.prlId,
                 occupancy, price: actual, currency: d.currency ?? b.currency,
                 source: "previo", captured_at: checkedAt, updated_at: checkedAt,
