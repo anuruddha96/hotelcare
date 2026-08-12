@@ -1806,7 +1806,7 @@ export default function RateStrategyGrid({
             <Button
               size="sm"
               className="h-8 text-xs"
-              onClick={() => openDayTool(allDates.filter((d) => pickedDates.has(d)))}
+              onClick={() => openDayTool(dates.filter((d) => pickedDates.has(d)))}
             >
               Change prices
             </Button>
