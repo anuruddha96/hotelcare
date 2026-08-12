@@ -1705,7 +1705,7 @@ export default function RateStrategyGrid({
 
                       </button>
                     );
-                    if (!history || isMobile) return cellButton;
+                    if ((!history && !cellAutomation?.length) || isMobile) return cellButton;
                     return (
                       <HoverCard key={d} openDelay={120} closeDelay={60}>
                         <HoverCardTrigger asChild>{cellButton}</HoverCardTrigger>
@@ -1718,10 +1718,12 @@ export default function RateStrategyGrid({
                           </p>
 
                           <RateCellHistory
-                            history={history}
+                            history={history ?? []}
+                            automation={cellAutomation ?? []}
                             names={auditNames}
                             draftPrice={draft ?? null}
                           />
+
                         </HoverCardContent>
 
                       </HoverCard>
