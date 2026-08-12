@@ -1438,12 +1438,16 @@ export default function RateStrategyGrid({
                           </p>
                           )}
 
+                          {trail && (
                           <p className="tabular-nums">
                             {moneyBase(trail.last.old_rate_eur)} → <strong>{moneyBase(trail.last.new_rate_eur)}</strong>
                           </p>
+                          )}
+                          {trail && (
                           <p className="text-muted-foreground">
                             {formatWhen(trail.last.performed_at)} · {who} · {trail.last.source === "previo_confirmed" ? "Confirmed in Previo" : trail.last.source === "previo_different" ? "Different in Previo" : "Changed in Previo"}
                           </p>
+                          )}
                         </HoverCardContent>
                       </HoverCard>
                     );
