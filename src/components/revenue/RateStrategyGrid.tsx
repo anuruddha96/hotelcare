@@ -959,14 +959,19 @@ export default function RateStrategyGrid({
     [allRows],
   );
 
-  /** Dates the day tool will touch, given range and weekday filter. */
+  /**
+   * Dates the day tool will touch. Only ever the days the user actually
+   * picked — a filtered selection (e.g. "dates with pickup") never expands
+   * into the whole span between the first and last day.
+   */
   const dayToolDates = useMemo(() => {
     if (!dayTool) return [] as string[];
+    const visible = visibleDatesRef.current.length ? visibleDatesRef.current : allDates;
     const span = selDates.size > 1
-      ? allDates.filter((d) => selDates.has(d))
+      ? visible.filter((d) => selDates.has(d))
       : (() => {
-        const start = allDates.indexOf(dayTool);
-        return start >= 0 ? allDates.slice(start, start + dayRange) : [dayTool];
+        const start = visible.indexOf(dayTool);
+        return start >= 0 ? visible.slice(start, start + dayRange) : [dayTool];
       })();
     return span.filter((d) =>
       dayWeekdays === "all" ? true : dayWeekdays === "weekend" ? isWeekend(d) : !isWeekend(d));
