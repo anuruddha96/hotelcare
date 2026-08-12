@@ -998,54 +998,32 @@ export default function RateStrategyGrid({
   /** Publish every change the day tool previews. */
   async function applyDayTool(_mode: "draft" | "push" = "push") {
     if (!hotelId || dayToolChanges.length === 0) return;
-    setSaving(true);
     setDayResult(null);
-    try {
-      const { data: auth } = await supabase.auth.getUser();
-      const rowsToSave = dayToolChanges.map((c) => ({
-        hotel_id: hotelId,
-        organization_slug: organizationSlug ?? null,
-        stay_date: c.date,
-        obk_id: c.row.obk,
-        room_type_name: c.row.roomTypeName,
-        occupancy: c.row.occ,
-        old_price: c.from,
-        new_price: c.to,
-        status: "draft",
-        push_error: null,
-        created_by: auth.user?.id ?? null,
-      }));
-      const result = await publishRates({ hotelId, organizationSlug, source: "manual", changes: rowsToSave });
+    const { data: auth } = await supabase.auth.getUser();
+    const rowsToSave = dayToolChanges.map((c) => ({
+      hotel_id: hotelId,
+      organization_slug: organizationSlug ?? null,
+      stay_date: c.date,
+      obk_id: c.row.obk,
+      room_type_name: c.row.roomTypeName,
+      occupancy: c.row.occ,
+      old_price: c.from,
+      new_price: c.to,
+      status: "draft",
+      push_error: null,
+      created_by: auth.user?.id ?? null,
+    }));
 
-      // The day tool is hand-made pricing: record it whichever way the user
-      // finishes, so the "priced by hand" marker appears on the cells even when
-      // the change goes straight to Previo.
-      await logRateChanges({
-        hotelId,
-        organizationSlug: organizationSlug ?? null,
-        source: "day-tool",
-        action: "sent_to_previo",
-        notes: dayMode === "percent" ? `${dayValue}%` : dayMode === "amount" ? `${dayValue} ${getRevenueCurrency().code}` : dayMode,
-        changes: dayToolChanges.map((c) => ({
-          stay_date: c.date, room_type_name: c.row.roomTypeName, occupancy: c.row.occ,
-          old_price: c.from, new_price: c.to,
-        })),
-      });
-
-      await Promise.all([refreshDrafts(), reloadAudit()]);
-      await onRatesUpdated?.();
-      setDayResult({ pushed: result.queued, failed: 0, errors: [] });
-      toast.success(`${result.queued} price${result.queued === 1 ? "" : "s"} sent to Previo`);
-      setDayTool(null);
-      setSelDates(new Set());
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "Could not update the prices";
-      setDayResult({ pushed: 0, failed: dayToolChanges.length, errors: [], message });
-      toast.error(message);
-    } finally {
-      setSaving(false);
-    }
+    // The day tool is hand-made pricing, so the audit trail (and the blue
+    // "your team" dot) is written from the same background publisher.
+    setDayTool(null);
+    setSelDates(new Set());
+    publishInBackground(rowsToSave, {
+      source: "day-tool",
+      notes: dayMode === "percent" ? `${dayValue}%` : dayMode === "amount" ? `${dayValue} ${getRevenueCurrency().code}` : dayMode,
+    });
   }
+
 
 
   /** Cells priced below the critical safety-net threshold — likely typos. */
