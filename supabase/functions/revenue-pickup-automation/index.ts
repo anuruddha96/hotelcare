@@ -332,11 +332,15 @@ Deno.serve(async (req) => {
         const key = `${p.stay_date}|${p.res_id}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        // Only a booking Previo itself created in the last 48h is pickup — a
-        // re-synced old booking must not move a price.
+        // Only a booking Previo itself created today (property-local) is
+        // pickup — a re-synced or older booking must not move a price.
         if (!p.created_at_pms || p.created_at_pms < freshFrom) { skippedStale++; continue; }
-        // And the stay date as a whole must be up on the day, not down.
+        if (p.created_at_pms < dayStartUtc) { skippedStale++; continue; }
+        // And the stay date must be up both over the window and today, so a
+        // day whose only movement today is cancellations never goes up.
         if ((netPickup.get(p.stay_date) ?? 0) <= 0) { skippedNegative++; continue; }
+        if ((netToday.get(p.stay_date) ?? 0) <= 0) { skippedNegative++; continue; }
+
         const at = Date.parse(p.created_at_pms);
         if (!Number.isFinite(at)) continue;
         const windowMs = Math.max(1, rule.same_hour_window_minutes) * 60_000;
