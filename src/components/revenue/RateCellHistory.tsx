@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { formatWhen, type RateAuditRow } from "@/lib/rateAudit";
 import { moneyBase } from "@/lib/revenueCurrency";
+import type { AutomationAction } from "@/hooks/usePickupAutomationActions";
 
 /**
  * The story of one price cell in a single readable block:
@@ -8,43 +9,110 @@ import { moneyBase } from "@/lib/revenueCurrency";
  *   €111 → €123   +€12 (+11%)
  *   Yesterday 18:12 · Nuwan · Sent to Previo
  *
+ * Moves made by the pickup automation tool are merged in with the booking that
+ * triggered them, so a purple dot on the grid always has proof behind it.
  * Older changes stay behind a "N more changes" toggle.
  */
+
+interface Entry {
+  id: string;
+  at: string;
+  old: number | null;
+  next: number | null;
+  who: string;
+  status: string;
+  detail?: string | null;
+  extra?: { requested: number | null; actual: number | null; different: boolean } | null;
+  automation?: boolean;
+}
+
+/** An audit row written by the automation engine, not by a person. */
+function isAutomationRow(r: RateAuditRow): boolean {
+  return r.source === "previo_automation_confirmed" || r.payload?.origin === "pickup-automation";
+}
+
+function automationStatus(status: string): string {
+  switch (status) {
+    case "pushed": return "live in Previo";
+    case "queued": return "sending to Previo";
+    case "suggested": return "suggested — waiting for approval";
+    case "failed": return "Previo refused it";
+    default: return status;
+  }
+}
+
 export default function RateCellHistory({
   history,
   names,
   draftPrice,
+  automation = [],
 }: {
   history: RateAuditRow[];
   names: Map<string, string>;
   draftPrice?: number | null;
+  automation?: AutomationAction[];
 }) {
   const [showAll, setShowAll] = useState(false);
-  if (history.length === 0) {
+
+  const auditEntries: Entry[] = history.map((r) => {
+    const auto = isAutomationRow(r);
+    const status = r.payload?.confirmation_status;
+    const statusLabel = status === "confirmed"
+      ? "confirmed in Previo"
+      : status === "different"
+        ? "landed on a different price"
+        : r.source === "previo_external"
+          ? "changed directly in Previo"
+          : r.source === "push" ? "sent — confirming" : "draft";
+    return {
+      id: r.id,
+      at: r.performed_at,
+      old: r.old_rate_eur,
+      next: r.new_rate_eur,
+      who: auto ? "Pickup automation tool" : ((r.performed_by && names.get(r.performed_by)) || "Someone"),
+      status: statusLabel,
+      extra: r.payload?.requested_price != null && r.payload?.actual_previo_price != null
+        ? { requested: r.payload.requested_price, actual: r.payload.actual_previo_price, different: status === "different" }
+        : null,
+      automation: auto,
+    };
+  });
+
+  const automationEntries: Entry[] = automation.map((a) => ({
+    id: `auto-${a.id}`,
+    at: a.created_at,
+    old: a.old_price,
+    next: a.new_price,
+    who: "Pickup automation tool",
+    status: automationStatus(a.status),
+    detail: [
+      a.reservation_id ? `Triggered by booking #${a.reservation_id}` : "Triggered by a new booking",
+      a.pickup_at ? `picked up ${formatWhen(a.pickup_at)}` : null,
+      a.pickup_sequence && a.pickup_sequence > 1 ? `${a.pickup_sequence}${a.pickup_sequence === 2 ? "nd" : a.pickup_sequence === 3 ? "rd" : "th"} booking in the window` : null,
+      a.increase_amount != null ? `rule raised it by ${moneyBase(a.increase_amount)}` : null,
+    ].filter(Boolean).join(" · "),
+    automation: true,
+  }));
+
+  const entries = [...auditEntries, ...automationEntries]
+    .sort((a, b) => b.at.localeCompare(a.at));
+
+  if (entries.length === 0) {
     return draftPrice != null
       ? <p className="text-[11px] text-muted-foreground">Draft {moneyBase(draftPrice)} — not sent yet</p>
       : <p className="text-[11px] text-muted-foreground">No price changes yet.</p>;
   }
 
-  const block = (r: RateAuditRow, key: string) => {
-    const who = (r.performed_by && names.get(r.performed_by)) || "Someone";
-    const delta = r.delta_eur;
-    const pct = r.payload?.percent;
+  const block = (e: Entry) => {
+    const delta = e.old != null && e.next != null ? Math.round((e.next - e.old) * 100) / 100 : null;
+    const pct = e.old && e.next != null && e.old !== 0
+      ? Math.round(((e.next - e.old) / e.old) * 1000) / 10
+      : null;
     const up = (delta ?? 0) >= 0;
-    const requested = r.payload?.requested_price;
-    const actual = r.payload?.actual_previo_price;
-    const status = r.payload?.confirmation_status;
-    const statusLabel = status === "confirmed"
-      ? "Confirmed in Previo"
-      : status === "different"
-        ? "Different in Previo"
-        : r.source === "previo_external"
-          ? "Changed in Previo"
-          : r.source === "push" ? "Sent — awaiting Previo sync" : "Draft";
     return (
-      <div key={key} className="space-y-0.5">
+      <div key={e.id} className="space-y-0.5">
         <div className="flex flex-wrap items-baseline gap-x-1.5 text-xs tabular-nums">
-          <span>{moneyBase(r.old_rate_eur)} → <strong>{moneyBase(r.new_rate_eur)}</strong></span>
+          <span>{moneyBase(e.old)} → <strong>{moneyBase(e.next)}</strong></span>
           {delta != null && delta !== 0 && (
             <span className={up ? "text-emerald-600 dark:text-emerald-400" : "text-sky-600 dark:text-sky-400"}>
               {up ? "+" : "−"}{moneyBase(Math.abs(delta))}
@@ -53,31 +121,33 @@ export default function RateCellHistory({
           )}
         </div>
         <p className="text-[11px] text-muted-foreground">
-          {formatWhen(r.performed_at)} · {who} · {statusLabel}
+          <span className={e.automation ? "text-purple-600 dark:text-purple-400 font-medium" : ""}>{e.who}</span>
+          {" · "}{formatWhen(e.at)} · {e.status}
         </p>
-        {requested != null && actual != null && (
-          <p className={`text-[11px] ${status === "different" ? "text-destructive" : "text-muted-foreground"}`}>
-            Requested {moneyBase(requested)} · landed {moneyBase(actual)}
-            {requested !== actual ? ` · difference ${moneyBase(actual - requested)}` : ""}
+        {e.detail && <p className="text-[11px] text-muted-foreground">{e.detail}</p>}
+        {e.extra && (
+          <p className={`text-[11px] ${e.extra.different ? "text-destructive" : "text-muted-foreground"}`}>
+            Requested {moneyBase(e.extra.requested)} · landed {moneyBase(e.extra.actual)}
+            {e.extra.requested !== e.extra.actual ? ` · difference ${moneyBase((e.extra.actual ?? 0) - (e.extra.requested ?? 0))}` : ""}
           </p>
         )}
       </div>
     );
   };
 
-  const rest = history.length - 1;
+  const rest = entries.length - 1;
   return (
     <div className="space-y-1.5">
       {draftPrice != null && (
         <p className="text-[11px] text-amber-600 dark:text-amber-400">Draft {moneyBase(draftPrice)} — not sent yet</p>
       )}
-      {block(history[0], history[0].id)}
-      {showAll && history.slice(1).map((r) => block(r, r.id))}
+      {block(entries[0])}
+      {showAll && entries.slice(1).map((e) => block(e))}
       {rest > 0 && (
         <button
           type="button"
           className="text-[11px] text-primary underline underline-offset-2"
-          onClick={(e) => { e.stopPropagation(); setShowAll((v) => !v); }}
+          onClick={(ev) => { ev.stopPropagation(); setShowAll((v) => !v); }}
         >
           {showAll ? "Show less" : `${rest} more change${rest === 1 ? "" : "s"}`}
         </button>

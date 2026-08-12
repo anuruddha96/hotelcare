@@ -31,7 +31,7 @@ import RateCellHistory from "@/components/revenue/RateCellHistory";
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
 import PickupAutomationRules from "@/components/revenue/PickupAutomationRules";
-import { pushRateDrafts, saveRateDrafts } from "@/lib/rateDrafts";
+import { pushRateDrafts, pushRateDraftsBatched, saveRateDrafts } from "@/lib/rateDrafts";
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
@@ -316,6 +316,19 @@ export default function RateStrategyGrid({
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
   const [pushing, setPushing] = useState(false);
+  /** Live push telemetry so a long send never looks stuck. */
+  const [pushProgress, setPushProgress] = useState<{ done: number; total: number; startedAt: number } | null>(null);
+  const [pushElapsed, setPushElapsed] = useState(0);
+  const [pushSummary, setPushSummary] = useState<{ count: number; seconds: number } | null>(null);
+  const cancelPushRef = useRef(false);
+  const pushStartedAt = pushProgress?.startedAt ?? null;
+  useEffect(() => {
+    if (pushStartedAt === null) { setPushElapsed(0); return; }
+    const tick = () => setPushElapsed((Date.now() - pushStartedAt) / 1000);
+    tick();
+    const id = window.setInterval(tick, 100);
+    return () => window.clearInterval(id);
+  }, [pushStartedAt]);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [clearAllMode, setClearAllMode] = useState(false);
@@ -620,26 +633,37 @@ export default function RateStrategyGrid({
     [pending],
   );
 
-  const [checkingPrevio, setCheckingPrevio] = useState(false);
-  /** Ask Previo now what it publishes, instead of waiting for the night sync. */
-  async function verifyWithPrevio() {
-    if (!hotelId) return;
-    setCheckingPrevio(true);
-    try {
-      const { error } = await supabase.functions.invoke("previo-revenue-sync", {
-        body: { hotelId, horizonDays: 190 },
-      });
-      if (error) throw error;
-      await refreshDrafts();
-      await reloadAudit();
-      await onRatesUpdated?.();
-      toast.success("Checked against Previo");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not reach Previo");
-    } finally {
-      setCheckingPrevio(false);
-    }
-  }
+  /**
+   * Confirmation is nobody's chore. While prices are still waiting for Previo's
+   * read-back, the app quietly re-checks on its own: a couple of cheap refreshes
+   * first, then an authoritative Previo read if anything is still open.
+   */
+  const awaitingCount = awaitingDrafts.length;
+  const confirmRefs = useRef({ refreshDrafts, reloadAudit, onRatesUpdated });
+  confirmRefs.current = { refreshDrafts, reloadAudit, onRatesUpdated };
+  useEffect(() => {
+    if (!hotelId || awaitingCount === 0) return;
+    let cancelled = false;
+    const timers: number[] = [];
+    const soft = async () => {
+      if (cancelled) return;
+      const r = confirmRefs.current;
+      await Promise.all([r.refreshDrafts(), r.reloadAudit(), r.onRatesUpdated?.()]);
+    };
+    const hard = async () => {
+      if (cancelled) return;
+      try {
+        await supabase.functions.invoke("previo-revenue-sync", { body: { hotelId, horizonDays: 190 } });
+      } catch { /* the nightly sync remains the backstop */ }
+      await soft();
+    };
+    timers.push(window.setTimeout(() => void soft(), 5000));
+    timers.push(window.setTimeout(() => void soft(), 15000));
+    timers.push(window.setTimeout(() => void hard(), 60000));
+    timers.push(window.setTimeout(() => void hard(), 150000));
+    return () => { cancelled = true; timers.forEach((t) => window.clearTimeout(t)); };
+  }, [hotelId, awaitingCount]);
+
 
 
 
@@ -668,6 +692,10 @@ export default function RateStrategyGrid({
   async function pushDrafts() {
     if (!hotelId || unsentDrafts.length === 0) return;
     setPushing(true);
+    cancelPushRef.current = false;
+    const startedAt = Date.now();
+    setPushSummary(null);
+    setPushProgress({ done: 0, total: unsentDrafts.length, startedAt });
     try {
       const retryable = unsentDrafts;
       if (retryable.length === 0) {
@@ -676,7 +704,12 @@ export default function RateStrategyGrid({
         await onRatesUpdated?.();
         return;
       }
-      const res = await pushRateDrafts(hotelId, retryable.map((d) => d.id));
+      const res = await pushRateDraftsBatched(hotelId, retryable.map((d) => d.id), {
+        onProgress: (done, total) => setPushProgress({ done, total, startedAt }),
+        shouldCancel: () => cancelPushRef.current,
+      });
+      const seconds = Math.max(0.1, (Date.now() - startedAt) / 1000);
+      setPushSummary({ count: res.pushed ?? 0, seconds });
       await reloadAudit();
 
       if (res?.failed) {
@@ -686,12 +719,14 @@ export default function RateStrategyGrid({
         if (res.pushed) await onRatesUpdated?.();
         return;
       }
-      toast.success(`${res?.pushed ?? 0} price change${res?.pushed === 1 ? "" : "s"} sent to Previo`);
+      toast.success(
+        `${res?.pushed ?? 0} price change${res?.pushed === 1 ? "" : "s"} live in Previo in ${seconds.toFixed(1)}s`,
+      );
       setPushOpen(false);
       await refreshDrafts();
       await onRatesUpdated?.();
-      // Accepted prices are mirrored immediately. Short follow-up refreshes
-      // pick up the background authoritative read-back without a full PMS sync.
+      // Accepted prices are mirrored immediately; the background confirmation
+      // watcher above keeps checking until every price is settled.
       for (const delay of [1500, 4000, 8000]) {
         window.setTimeout(() => {
           void Promise.all([refreshDrafts(), reloadAudit(), onRatesUpdated?.()]);
@@ -704,8 +739,11 @@ export default function RateStrategyGrid({
       toast.error(message);
     } finally {
       setPushing(false);
+      setPushProgress(null);
+      window.setTimeout(() => setPushSummary(null), 12000);
     }
   }
+
 
 
 
@@ -1117,7 +1155,7 @@ export default function RateStrategyGrid({
           <span className="flex items-center gap-1.5">
             <span className="font-medium text-foreground">Changed in the last 7 days:</span>
             <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary inline-block" />by your team</span>
-            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-purple-500 inline-block" />by automation</span>
+            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-purple-500 inline-block" />by the automation tool</span>
             <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-amber-500 inline-block" />in Previo</span>
             <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-destructive inline-block" />did not land</span>
             <span className="underline decoration-dotted underline-offset-2">not sent yet</span>
@@ -1139,6 +1177,43 @@ export default function RateStrategyGrid({
             body="Prices come straight from the Previo pricelist — one row per room type and guest count. Pickup and occupancy come from Previo reservations; ADR and RevPAR are calculated in Hotel Care."
           />
         </p>
+        {canEditRates && (pushProgress || pushSummary) && (
+          <div className="rounded-md border border-primary/40 bg-primary/5 px-3 py-2 space-y-1.5">
+            {pushProgress ? (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Sent <strong className="tabular-nums">{pushProgress.done.toLocaleString()}</strong> of{" "}
+                    <strong className="tabular-nums">{pushProgress.total.toLocaleString()}</strong> prices ·{" "}
+                    {pushElapsed.toFixed(1)}s elapsed
+                    {pushProgress.done > 0 && pushProgress.done < pushProgress.total && (
+                      <> · ~{Math.max(1, Math.round((pushElapsed / pushProgress.done) * (pushProgress.total - pushProgress.done)))}s left</>
+                    )}
+                  </span>
+                  <Button
+                    size="sm" variant="ghost" className="h-7 text-[11px]"
+                    onClick={() => { cancelPushRef.current = true; toast.message("Stopping after the current batch"); }}
+                  >
+                    Stop
+                  </Button>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${Math.round((pushProgress.done / Math.max(1, pushProgress.total)) * 100)}%` }}
+                  />
+                </div>
+              </>
+            ) : pushSummary ? (
+              <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                {pushSummary.count.toLocaleString()} price{pushSummary.count === 1 ? "" : "s"} sent to Previo in{" "}
+                {pushSummary.seconds.toFixed(1)}s
+                {pushSummary.count > 0 && ` (≈${Math.round(pushSummary.count / pushSummary.seconds)} prices/sec)`}
+              </p>
+            ) : null}
+          </div>
+        )}
         {canEditRates && pending.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
             <span className="text-xs space-x-2">
@@ -1149,8 +1224,9 @@ export default function RateStrategyGrid({
                 <span className="text-destructive">{failedCount} refused by Previo.</span>
               )}
               {awaitingDrafts.length > 0 && (
-                <span className="text-muted-foreground">
-                  {awaitingDrafts.length} sent · awaiting Previo confirmation.
+                <span className="inline-flex items-center gap-1 text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {awaitingDrafts.length} live in Previo · confirming in the background.
                 </span>
               )}
               {divergentDrafts.length > 0 && (
@@ -1161,15 +1237,6 @@ export default function RateStrategyGrid({
             </span>
 
             <span className="flex items-center gap-2">
-              {(awaitingDrafts.length > 0 || divergentDrafts.length > 0) && (
-                <Button
-                  size="sm" variant="outline" className="h-8 text-xs"
-                  disabled={checkingPrevio}
-                  onClick={() => void verifyWithPrevio()}
-                >
-                  {checkingPrevio && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}Check now
-                </Button>
-              )}
               <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
                 <Send className="h-3.5 w-3.5 mr-1" />
                 {unsentDrafts.length > 0 ? `Push ${unsentDrafts.length} to Previo` : "Review changes"}
@@ -1177,6 +1244,7 @@ export default function RateStrategyGrid({
             </span>
           </div>
         )}
+
 
 
       </CardHeader>
@@ -1561,10 +1629,13 @@ export default function RateStrategyGrid({
                       return times.length ? Math.max(...times) : null;
                     })();
                     const recent = lastChangeAt !== null && Date.now() - lastChangeAt < 7 * 24 * 60 * 60 * 1000;
+                    // A purple dot is only drawn when the cell really has an
+                    // automation record behind it, so the history can prove it.
+                    const hasAutomationProof = Boolean(cellAutomation?.length) || cellOrigin?.origin === "automation";
                     const marker: "team" | "automation" | "previo" | "failed" | null =
                       !showMarkers || !recent ? null
                         : cellOrigin?.origin === "different" ? "failed"
-                          : cellOrigin?.origin === "automation" || (cellAutomation?.length && !confirmedHistory?.length) ? "automation"
+                          : hasAutomationProof ? "automation"
                             : cellOrigin?.origin === "previo" ? "previo"
                               : (confirmedHistory?.length || cellOrigin) ? "team" : null;
                     const markerClass = marker === "failed" ? "bg-destructive"
@@ -1573,16 +1644,21 @@ export default function RateStrategyGrid({
                           : "bg-primary";
                     const originLabel = (() => {
                       if (draft !== undefined) return "Not sent to Previo yet";
+                      if (marker === "automation" && cellAutomation?.length) {
+                        const a = cellAutomation[0];
+                        return `Changed by the pickup automation tool (${formatWhen(a.created_at)})`;
+                      }
                       if (!cellOrigin) return "No price change recorded";
                       const who = cellOrigin.by ? auditNames.get(cellOrigin.by) ?? "someone" : null;
                       const when = formatWhen(cellOrigin.at);
                       if (cellOrigin.origin === "different") {
                         return `Did not land: we asked for ${eur(cellOrigin.requested ?? null)}, Previo shows ${eur(cellOrigin.price)} (${when})`;
                       }
-                      if (cellOrigin.origin === "automation") return `Changed by automation, live in Previo (${when})`;
+                      if (cellOrigin.origin === "automation") return `Changed by the pickup automation tool, live in Previo (${when})`;
                       if (cellOrigin.origin === "previo") return `Changed directly in Previo (${when})`;
                       return `Changed by your team${who ? ` (${who})` : ""}, live in Previo (${when})`;
                     })();
+
 
 
 
@@ -1637,7 +1713,7 @@ export default function RateStrategyGrid({
 
                       </button>
                     );
-                    if (!history || isMobile) return cellButton;
+                    if ((!history && !cellAutomation?.length) || isMobile) return cellButton;
                     return (
                       <HoverCard key={d} openDelay={120} closeDelay={60}>
                         <HoverCardTrigger asChild>{cellButton}</HoverCardTrigger>
@@ -1650,10 +1726,12 @@ export default function RateStrategyGrid({
                           </p>
 
                           <RateCellHistory
-                            history={history}
+                            history={history ?? []}
+                            automation={cellAutomation ?? []}
                             names={auditNames}
                             draftPrice={draft ?? null}
                           />
+
                         </HoverCardContent>
 
                       </HoverCard>
@@ -1706,9 +1784,11 @@ export default function RateStrategyGrid({
                 </div>
                 <RateCellHistory
                   history={auditByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ)) ?? []}
+                  automation={automationByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ)) ?? []}
                   names={auditNames}
                   draftPrice={cellInfo.draft}
                 />
+
                 {canEditRates && (
                   <Button
                     className="w-full"
