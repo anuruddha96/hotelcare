@@ -1106,18 +1106,31 @@ export default function RateStrategyGrid({
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
-          <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-destructive/40 border inline-block" />needs attention</span>
-          <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-amber-200 dark:bg-amber-800 border inline-block" />below target</span>
-          <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-emerald-400 border inline-block" />strong</span>
-          <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
-          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary ring-2 ring-primary/25 inline-block" />Hotel Care price · last 4h</span>
-          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-orange-300 border border-orange-500 inline-block" />Hotel Care price · older</span>
-          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-purple-400 border border-purple-600 inline-block" />pickup automation</span>
-          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-amber-400 border border-amber-600 inline-block" />changed in Previo</span>
-          <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-destructive border border-destructive inline-block" />landed differently</span>
-          <span className="underline decoration-dotted underline-offset-2">underlined = draft</span>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className="font-medium text-foreground">Demand:</span>
+            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-emerald-400 border inline-block" />strong</span>
+            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-amber-200 dark:bg-amber-800 border inline-block" />below target</span>
+            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-destructive/40 border inline-block" />needs attention</span>
+            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="font-medium text-foreground">Changed in the last 7 days:</span>
+            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary inline-block" />by your team</span>
+            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-purple-500 inline-block" />by automation</span>
+            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-amber-500 inline-block" />in Previo</span>
+            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-destructive inline-block" />did not land</span>
+            <span className="underline decoration-dotted underline-offset-2">not sent yet</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowMarkers((v) => !v)}
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            {showMarkers ? "Hide change dots" : "Show change dots"}
+          </button>
         </div>
+
         <p className="text-[11px] text-muted-foreground">
           Live Previo prices.
           {canEditRates ? " Tap a price, or a date to change a whole day." : ""}
