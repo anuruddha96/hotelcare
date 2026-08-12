@@ -279,7 +279,17 @@ export default function RateStrategyGrid({
     window.addEventListener("pointerup", onUp);
   }, []);
 
-  const [days, setDays] = useState(30);
+  // Desktop opens on the full 6-month horizon; a phone stays at a readable
+  // month. Whatever the reader picks is remembered per device.
+  const [days, setDaysState] = useState(() => rememberedRange("grid-range", 30, 180));
+  const setDays = useCallback((next: number | ((d: number) => number)) => {
+    setDaysState((current) => {
+      const value = typeof next === "function" ? next(current) : next;
+      writeNumberPref("grid-range", value);
+      return value;
+    });
+  }, []);
+
   // Cell dots are off by default: the date row already says which days moved
   // and by whom. The user can switch the per-cell dots on and we remember it.
   const [showMarkers, setShowMarkers] = useState(() => {
