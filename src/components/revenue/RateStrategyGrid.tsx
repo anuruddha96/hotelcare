@@ -316,6 +316,11 @@ export default function RateStrategyGrid({
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
   const [pushing, setPushing] = useState(false);
+  /** Live push telemetry so a long send never looks stuck. */
+  const [pushProgress, setPushProgress] = useState<{ done: number; total: number; startedAt: number } | null>(null);
+  const [pushElapsed, setPushElapsed] = useState(0);
+  const [pushSummary, setPushSummary] = useState<{ count: number; seconds: number } | null>(null);
+  const cancelPushRef = useRef(false);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
   const [clearAllMode, setClearAllMode] = useState(false);
