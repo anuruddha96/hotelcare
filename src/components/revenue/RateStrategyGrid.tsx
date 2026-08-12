@@ -33,6 +33,8 @@ import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
 import PickupAutomationRules from "@/components/revenue/PickupAutomationRules";
 import { publishRates } from "@/lib/ratePublishing";
+import { rememberedRange, writeNumberPref } from "@/lib/revenuePrefs";
+
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
