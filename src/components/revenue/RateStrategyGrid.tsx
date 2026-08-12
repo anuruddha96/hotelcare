@@ -824,8 +824,76 @@ export default function RateStrategyGrid({
     const nearEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - CELL_W * 3;
     if (nearEnd) {
       setDays((d) => (d < 30 ? 30 : d < 60 ? 60 : d < 120 ? 120 : d < 180 ? 180 : d));
-    }
   }
+
+  /**
+   * Edge auto-scroll: a mouse user without a horizontal wheel can simply move
+   * the pointer near the left/right (or top/bottom) edge of the calendar and
+   * it glides that way. Speed ramps up the closer to the edge you get, and it
+   * stops the moment the pointer leaves the zone, the window loses focus, or
+   * a real wheel/touch scroll takes over.
+   */
+  const edgeVec = useRef({ x: 0, y: 0 });
+  const edgeRaf = useRef<number | null>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (isMobile) return;
+
+    const ZONE = 90;      // px from the edge where the pull starts
+    const MAX = 26;       // px per frame at the very edge
+
+    const stop = () => {
+      edgeVec.current = { x: 0, y: 0 };
+      if (edgeRaf.current !== null) { cancelAnimationFrame(edgeRaf.current); edgeRaf.current = null; }
+    };
+
+    const step = () => {
+      const node = scrollRef.current;
+      const { x, y } = edgeVec.current;
+      if (!node || (x === 0 && y === 0)) { edgeRaf.current = null; return; }
+      node.scrollLeft += x;
+      node.scrollTop += y;
+      edgeRaf.current = requestAnimationFrame(step);
+    };
+
+    const onMove = (e: PointerEvent) => {
+      if (e.pointerType !== "mouse") return;
+      const r = el.getBoundingClientRect();
+      const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      if (!inside) { stop(); return; }
+
+      const ramp = (d: number) => Math.round(MAX * Math.pow(Math.max(0, (ZONE - d) / ZONE), 2));
+      let x = 0;
+      const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+      const canLeft = el.scrollLeft > 0;
+      // The frozen room-type column owns the far left, so only pull left once
+      // the pointer is past it.
+      if (e.clientX > r.right - ZONE && canRight) x = ramp(r.right - e.clientX);
+      else if (e.clientX < r.left + LEFT_W + ZONE && e.clientX > r.left + LEFT_W && canLeft) x = -ramp(e.clientX - (r.left + LEFT_W));
+
+      let y = 0;
+      const canDown = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+      const canUp = el.scrollTop > 0;
+      if (e.clientY > r.bottom - ZONE && canDown) y = ramp(r.bottom - e.clientY);
+      else if (e.clientY < r.top + ZONE && canUp) y = -ramp(e.clientY - r.top);
+
+      edgeVec.current = { x, y };
+      if ((x !== 0 || y !== 0) && edgeRaf.current === null) edgeRaf.current = requestAnimationFrame(step);
+      if (x === 0 && y === 0) stop();
+    };
+
+    window.addEventListener("pointermove", onMove, { passive: true });
+    window.addEventListener("blur", stop);
+    el.addEventListener("pointerleave", stop);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("blur", stop);
+      el.removeEventListener("pointerleave", stop);
+      stop();
+    };
+  }, [isMobile, LEFT_W]);
+
 
   /**
    * Send prices to Previo without making anyone wait. The grid shows the new
