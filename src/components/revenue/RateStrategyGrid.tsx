@@ -277,9 +277,14 @@ export default function RateStrategyGrid({
   }, []);
 
   const [days, setDays] = useState(30);
-  // Markers were unreadable when every cell carried two or three dots. One dot
-  // per cell, only for the last 7 days, and the user can switch them off.
-  const [showMarkers, setShowMarkers] = useState(true);
+  // Cell dots are off by default: the date row already says which days moved
+  // and by whom. The user can switch the per-cell dots on and we remember it.
+  const [showMarkers, setShowMarkers] = useState(() => {
+    try { return localStorage.getItem("rate-grid-change-dots") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("rate-grid-change-dots", showMarkers ? "1" : "0"); } catch { /* private mode */ }
+  }, [showMarkers]);
   const [visibleMonth, setVisibleMonth] = useState<string>(formatMonth(today));
   const [edit, setEdit] = useState<DraftEdit | null>(null);
   /** Bulk options in the price editor. */
