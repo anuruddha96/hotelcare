@@ -824,7 +824,7 @@ export default function RateStrategyGrid({
    * all happen after the dialog has closed. Only a real failure interrupts.
    */
   const publishInBackground = useCallback((
-    rowsToSave: Array<Record<string, any>>,
+    rowsToSave: any[],
     audit: { source: string; notes: string },
   ) => {
     if (!hotelId || rowsToSave.length === 0) return;
