@@ -1971,7 +1971,9 @@ export default function RateStrategyGrid({
           <DialogHeader>
             <DialogTitle className="text-base">
               {selDates.size > 1
-                ? `Change prices for ${selDates.size} dates (${dayToolDates[0]} → ${dayToolDates[dayToolDates.length - 1]})`
+                ? `Change prices for ${dayToolDates.length} selected date${dayToolDates.length === 1 ? "" : "s"}${
+                    dayToolDates.length > 1 ? ` (${dayToolDates[0]} … ${dayToolDates[dayToolDates.length - 1]})` : ""
+                  }`
                 : `Change prices for ${dayTool}`}
             </DialogTitle>
 
