@@ -123,13 +123,28 @@ Deno.serve(async (req) => {
       (globalThis as any).EdgeRuntime?.waitUntil(work);
     }
 
-    let q = admin.from("revenue_pickup_automation_rules").select("*").eq("is_enabled", true);
+    // One property per tick, least-recently-run first. Automation only ever
+    // reads the hotels that actually have it switched on, and a global lock
+    // keeps two properties from pricing at the same time — both keep the
+    // database's disk work small and predictable.
+    let q = admin.from("revenue_pickup_automation_rules").select("*").eq("is_enabled", true)
+      .order("last_run_at", { ascending: true, nullsFirst: true })
+      .limit(1);
     if (onlyHotel) q = q.eq("hotel_id", onlyHotel);
     const { data: ruleRows, error: ruleErr } = await q;
     if (ruleErr) throw ruleErr;
 
     const rules = (ruleRows ?? []) as unknown as Rule[];
+    if (rules.length === 0) return json({ ok: true, rules: 0, summary: [], msg: "No property has price automation enabled" });
+
+    const lockHotel = rules[0].hotel_id;
+    const { data: gotLock } = await admin.rpc("claim_automation_lock", { p_hotel: lockHotel, p_stale_minutes: 10 });
+    if (gotLock !== true) {
+      return json({ ok: true, skipped: true, msg: "Another property is being priced right now" });
+    }
+
     const summary: Array<Record<string, unknown>> = [];
+    try {
 
     for (const rule of rules) {
       const runStartedAt = new Date().toISOString();
