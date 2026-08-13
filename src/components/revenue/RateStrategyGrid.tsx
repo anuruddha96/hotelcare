@@ -1394,6 +1394,10 @@ export default function RateStrategyGrid({
     // "your team" dot) is written from the same background publisher.
     setDayTool(null);
     setSelDates(new Set());
+    // The job is done: drop the day selection so the phone goes back to a
+    // clean calendar instead of a stale "9 days selected" bar.
+    setPickedDates(new Set());
+    setMultiMode(false);
     publishInBackground(rowsToSave, {
       source: "day-tool",
       notes: dayMode === "percent" ? `${dayValue}%` : dayMode === "amount" ? `${dayValue} ${getRevenueCurrency().code}` : dayMode,
