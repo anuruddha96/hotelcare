@@ -4417,6 +4417,75 @@ export type Database = {
           },
         ]
       }
+      revenue_automation_notifications: {
+        Row: {
+          action_ids: string[]
+          actions_count: number
+          actor_name: string
+          actor_user_id: string | null
+          changes: Json
+          created_at: string
+          currency: string | null
+          failed_count: number
+          hotel_id: string
+          id: string
+          notification_type: string
+          organization_slug: string | null
+          pickups_count: number
+          push_run_id: string | null
+          pushed_count: number
+          rule_id: string | null
+          run_source: string
+          severity: string
+          summary: string | null
+          updated_at: string
+        }
+        Insert: {
+          action_ids?: string[]
+          actions_count?: number
+          actor_name?: string
+          actor_user_id?: string | null
+          changes?: Json
+          created_at?: string
+          currency?: string | null
+          failed_count?: number
+          hotel_id: string
+          id?: string
+          notification_type?: string
+          organization_slug?: string | null
+          pickups_count?: number
+          push_run_id?: string | null
+          pushed_count?: number
+          rule_id?: string | null
+          run_source?: string
+          severity?: string
+          summary?: string | null
+          updated_at?: string
+        }
+        Update: {
+          action_ids?: string[]
+          actions_count?: number
+          actor_name?: string
+          actor_user_id?: string | null
+          changes?: Json
+          created_at?: string
+          currency?: string | null
+          failed_count?: number
+          hotel_id?: string
+          id?: string
+          notification_type?: string
+          organization_slug?: string | null
+          pickups_count?: number
+          push_run_id?: string | null
+          pushed_count?: number
+          rule_id?: string | null
+          run_source?: string
+          severity?: string
+          summary?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       revenue_booking_nights: {
         Row: {
           captured_at: string
@@ -4739,6 +4808,44 @@ export type Database = {
             columns: ["source_id"]
             isOneToOne: false
             referencedRelation: "hotel_data_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      revenue_notification_reads: {
+        Row: {
+          created_at: string
+          id: string
+          notification_id: string
+          read_at: string | null
+          seen_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          notification_id: string
+          read_at?: string | null
+          seen_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          notification_id?: string
+          read_at?: string | null
+          seen_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "revenue_notification_reads_notification_id_fkey"
+            columns: ["notification_id"]
+            isOneToOne: false
+            referencedRelation: "revenue_automation_notifications"
             referencedColumns: ["id"]
           },
         ]
