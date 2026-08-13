@@ -977,7 +977,7 @@ export default function RateStrategyGrid({
         toast.error(e instanceof Error ? e.message : "Could not send the prices to Previo");
       }
     })();
-  }, [hotelId, organizationSlug, refreshDrafts, reloadAudit, onRatesUpdated]);
+  }, [hotelId, organizationSlug, refreshDrafts, reloadAudit, onRatesUpdated, writeReadiness]);
 
   /** Publish one or many absolute target prices without blocking on Previo. */
   async function saveDraft() {
