@@ -153,11 +153,13 @@ export default function RevenueHotelDetail() {
   const [syncing, setSyncing] = useState(false);
   const [syncStep, setSyncStep] = useState("Connecting to Previo…");
   const [syncPct, setSyncPct] = useState(0);
-  const autoSyncedRef = useRef(false);
+  const autoSyncedHotelRef = useRef<string | null>(null);
+  const syncingRef = useRef(false);
 
   /** Pull fresh Previo revenue + occupancy data with visible progress. */
   async function runSync() {
-    if (!hotelId || syncing) return;
+    if (!hotelId || syncingRef.current) return;
+    syncingRef.current = true;
     setSyncing(true);
     setSyncPct(8);
     setSyncStep("Connecting to Previo…");
@@ -187,7 +189,11 @@ export default function RevenueHotelDetail() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Sync failed");
     } finally {
-      setTimeout(() => { setSyncing(false); setSyncPct(0); }, 600);
+      setTimeout(() => {
+        syncingRef.current = false;
+        setSyncing(false);
+        setSyncPct(0);
+      }, 600);
     }
   }
 
@@ -204,8 +210,8 @@ export default function RevenueHotelDetail() {
   // authoritative: data pulled by any user in the last 30 minutes is reused.
   useEffect(() => {
     if (loading || !profile || !hotelId) return;
-    if (autoSyncedRef.current) return;
-    autoSyncedRef.current = true;
+    if (autoSyncedHotelRef.current === hotelId) return;
+    autoSyncedHotelRef.current = hotelId;
     if (!isRevenueAdmin(profile.role)) setTab("grid");
     void (async () => {
       const info = await fetchRevenueSyncInfo(hotelId);

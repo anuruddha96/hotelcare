@@ -79,6 +79,7 @@ interface HotelRef { hotel_id: string; hotel_name: string }
 interface SnapshotRow {
   hotel_id: string;
   stay_date: string;
+  rooms_sold: number | null;
   occupancy_pct: number | null;
   adr_eur: number | null;
   revenue_eur: number | null;
@@ -139,7 +140,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
       for (let offset = 0; offset < 16000; offset += 1000) {
         const { data, error } = await supabase
           .from("revenue_daily_snapshots")
-          .select("hotel_id, stay_date, occupancy_pct, adr_eur, revenue_eur, rooms_available")
+          .select("hotel_id, stay_date, rooms_sold, occupancy_pct, adr_eur, revenue_eur, rooms_available")
           .in("hotel_id", hotelIds)
           .gte("stay_date", today)
           .lte("stay_date", end)
@@ -238,10 +239,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
       );
       const sold = isCurrent
         ? selectedRows.reduce((s, r) => s + r.roomsSold, 0)
-        : mine.reduce((s, r) => {
-            const capacity = Number(r.rooms_available) || 0;
-            return s + (capacity * (Number(r.occupancy_pct) || 0)) / 100;
-          }, 0);
+        : mine.reduce((s, r) => s + (Number(r.rooms_sold) || 0), 0);
       const capacity = isCurrent
         ? selectedRows.reduce((s, r) => s + r.roomsAvailable, 0)
         : mine.reduce((s, r) => s + (Number(r.rooms_available) || 0), 0);
