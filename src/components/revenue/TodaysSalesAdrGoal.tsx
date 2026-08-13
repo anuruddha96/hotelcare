@@ -795,7 +795,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
             <GoalInput label="Room-night target" value={goals.targetRoomNights} onChange={(v) => saveGoals({ ...goals, targetRoomNights: v })} />
             <GoalInput label={`Booking value target (${currencySymbol()})`} value={goals.targetValue} onChange={(v) => saveGoals({ ...goals, targetValue: v })} />
             <GoalInput label={`Max promotion budget (${currencySymbol()})`} value={goals.promoBudget} onChange={(v) => saveGoals({ ...goals, promoBudget: v })} />
-            <p className="col-span-2 text-[11px] text-muted-foreground">Saved on this device as your default goals.</p>
+            <p className="col-span-2 text-[11px] text-muted-foreground">Saved for this property in {currencySymbol()} — everyone on the team sees the same targets.</p>
           </CollapsibleContent>
         </Collapsible>
 
