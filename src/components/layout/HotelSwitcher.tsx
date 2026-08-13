@@ -46,6 +46,10 @@ export function HotelSwitcher() {
     // must disappear before anything else happens.
     setSwitchingTo(hotelName);
 
+    // Remember the choice for THIS tab only, so a second window can stay on a
+    // different property.
+    setTabHotel(hotelId);
+
     try {
       const { error } = await supabase
         .from('profiles')
