@@ -749,14 +749,10 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
             Today’s Sales &amp; ADR Goal
             <Badge variant="outline" className="font-normal">Budapest time · Live</Badge>
           </CardTitle>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-muted-foreground">
-              {lastSyncAt ? `Synced ${fmtTime(lastSyncAt)}` : "Not synced yet"}
-            </span>
-            <Button size="sm" variant="outline" className="h-9 w-9 p-0" onClick={() => void load()} aria-label="Refresh sales data">
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-          </div>
+          {/* No manual refresh: the panel follows the page's shared sync. */}
+          <span className="text-[11px] text-muted-foreground">
+            {lastSyncAt ? `As of ${fmtTime(lastSyncAt)} · updates with the page sync` : "Waiting for the first page sync"}
+          </span>
         </div>
 
         {/* One-sentence answer, always first on mobile. */}
