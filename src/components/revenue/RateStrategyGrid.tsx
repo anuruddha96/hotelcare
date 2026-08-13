@@ -351,7 +351,10 @@ export default function RateStrategyGrid({
     state: "sending" | "done" | "error"; message?: string;
   } | null>(null);
 
+  /** Prices that have not left the app yet (real drafts and refused rows). */
   const [drafts, setDrafts] = useState<Map<string, number>>(new Map());
+  /** Prices already sent to Previo and waiting for its read-back. */
+  const [inFlight, setInFlight] = useState<Map<string, number>>(new Map());
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
