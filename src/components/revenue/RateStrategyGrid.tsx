@@ -508,7 +508,7 @@ export default function RateStrategyGrid({
     }
     for (const list of map.values()) list.sort((x, y) => y.at.localeCompare(x.at));
     return map;
-  }, [auditManualRows, automationRows, auditNames]);
+  }, [auditManualRows, auditRows, automationRows, auditNames]);
 
 
 
