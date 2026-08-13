@@ -3579,6 +3579,7 @@ export type Database = {
           preferred_language: string | null
           profile_picture_url: string | null
           role: Database["public"]["Enums"]["user_role"]
+          ui_preferences: Json
           updated_at: string | null
         }
         Insert: {
@@ -3599,6 +3600,7 @@ export type Database = {
           preferred_language?: string | null
           profile_picture_url?: string | null
           role?: Database["public"]["Enums"]["user_role"]
+          ui_preferences?: Json
           updated_at?: string | null
         }
         Update: {
@@ -3619,6 +3621,7 @@ export type Database = {
           preferred_language?: string | null
           profile_picture_url?: string | null
           role?: Database["public"]["Enums"]["user_role"]
+          ui_preferences?: Json
           updated_at?: string | null
         }
         Relationships: []
