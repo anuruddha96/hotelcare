@@ -104,6 +104,7 @@ Deno.serve(async (req) => {
     // are the machine runs and keep working exactly as before.
     const isEngine = (!!engineKey && engineKey === serviceKey) || (!!bearer && bearer === serviceKey);
     let actorName: string | null = null;
+    let actorUserId: string | null = null;
     if (!isEngine) {
       if (!bearer) return json({ ok: false, code: "unauthenticated", msg: "Please sign in again and retry." }, 401);
       const { data: userData } = await admin.auth.getUser(bearer);
