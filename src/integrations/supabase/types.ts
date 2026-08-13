@@ -4660,6 +4660,8 @@ export type Database = {
       revenue_engine_config: {
         Row: {
           automation_enabled: boolean
+          automation_lock_at: string | null
+          automation_lock_hotel: string | null
           dry_run: boolean
           engine_tick_enabled: boolean
           id: string
@@ -4669,6 +4671,8 @@ export type Database = {
         }
         Insert: {
           automation_enabled?: boolean
+          automation_lock_at?: string | null
+          automation_lock_hotel?: string | null
           dry_run?: boolean
           engine_tick_enabled?: boolean
           id?: string
@@ -4678,6 +4682,8 @@ export type Database = {
         }
         Update: {
           automation_enabled?: boolean
+          automation_lock_at?: string | null
+          automation_lock_hotel?: string | null
           dry_run?: boolean
           engine_tick_enabled?: boolean
           id?: string
@@ -6854,6 +6860,10 @@ export type Database = {
         Args: { _user_id: string }
         Returns: boolean
       }
+      claim_automation_lock: {
+        Args: { p_hotel: string; p_stale_minutes?: number }
+        Returns: boolean
+      }
       claim_revenue_sync:
         | {
             Args: {
@@ -7171,6 +7181,7 @@ export type Database = {
       }
       purge_old_daily_overview_snapshots: { Args: never; Returns: number }
       purge_revenue_logs: { Args: never; Returns: Json }
+      release_automation_lock: { Args: { p_hotel: string }; Returns: undefined }
       release_own_revenue_sync: {
         Args: { _error?: string; _hotel_id: string }
         Returns: undefined
