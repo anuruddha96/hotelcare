@@ -356,7 +356,14 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     const roomNights = liveBookings.reduce((s, b) => s + b.roomNights, 0);
     const revenue = liveBookings.reduce((s, b) => s + b.revenue, 0);
     const reservationIds = new Set(liveBookings.map((b) => b.res_id));
-    const cancelledReservationIds = new Set(periodBookings.filter((b) => b.cancelled).map((b) => b.res_id));
+    // Cancellations are counted from the full period feed, so the negative
+    // pickup is visible even while the list hides cancelled rows.
+    const cancelledInPeriod = allBookings.filter(
+      (b) => b.cancelled && b.createdDay >= bookedFrom && b.createdDay <= bookedTo,
+    );
+    const cancelledReservationIds = new Set(cancelledInPeriod.map((b) => b.res_id));
+    const cancelledNights = cancelledInPeriod.reduce((s, b) => s + b.roomNights, 0);
+    const cancelledRevenue = cancelledInPeriod.reduce((s, b) => s + b.revenue, 0);
     const adr = roomNights ? revenue / roomNights : null;
     const variance = adr === null ? null : adr - goals.targetAdr;
     return {
