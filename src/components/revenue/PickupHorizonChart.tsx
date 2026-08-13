@@ -442,10 +442,12 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   reader can isolate pickup when the lines overlap. */}
               <Legend
                 wrapperStyle={{ fontSize: 11, cursor: "pointer" }}
-                onClick={(entry: { value?: string }) => {
+                onClick={(entry: { value?: string; id?: string }) => {
                   if (entry?.value === "Occupancy") setShowOcc((v) => !v);
                   if (entry?.value === "ADR") setShowAdr((v) => !v);
                   if (entry?.value === "City demand") setShowDemand((v) => !v);
+                  const hotel = hotels.find((h) => h.hotel_name === entry?.value);
+                  if (hotel) toggleHotel(hotel.hotel_id);
                 }}
                 payload={[
                   { value: "Pickup", type: "square", color: PICKUP_LEGEND_COLOR, id: "pickup" },
