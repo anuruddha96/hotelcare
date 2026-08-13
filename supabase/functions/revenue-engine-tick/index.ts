@@ -27,7 +27,18 @@ serve(async (req) => {
     const onlyHotel = body.hotel_id as string | undefined;
     const trigger = (body.trigger as string) || "cron";
 
+    // Admin brake: when the engine is switched off the tick returns straight
+    // away, so no Previo pulls or recommendation writes hit the database.
+    const { data: engineConfig } = await supabase
+      .from("revenue_engine_config").select("engine_tick_enabled").eq("id", "global").maybeSingle();
+    if (engineConfig && engineConfig.engine_tick_enabled === false) {
+      return new Response(JSON.stringify({ ok: true, paused: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { data: settings } = await supabase
+
       .from("hotel_revenue_settings")
       .select("*")
       .eq("is_engine_enabled", true);
