@@ -379,6 +379,15 @@ serve(async (req) => {
   const today = budapestToday();
   const from = today;
   const to = addDays(today, horizonDays);
+  // Bookings created today can arrive for stay dates far beyond the pricing
+  // horizon (a March 2027 booking made in August 2026). Those were never
+  // fetched, so "bookings created today" under-counted against Previo.
+  // A second, coarser pass covers the long tail without slowing the main one.
+  const farHorizonDays: number = Math.min(
+    1095,
+    Math.max(horizonDays, Number(body.farHorizonDays) || 730),
+  );
+  const farTo = addDays(today, farHorizonDays);
 
   // Portfolio tenants (SLNT) keep several Previo profiles under ONE hotel row
   // in `pms_accounts`; classic tenants (Ottofiori, RD Hotels) still use the
