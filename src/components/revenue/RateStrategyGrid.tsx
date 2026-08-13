@@ -937,6 +937,28 @@ export default function RateStrategyGrid({
     }
   }, [hotelId, days, refreshDrafts, reloadAudit, onRatesUpdated]);
 
+  /** One cell: accept what Previo holds and stop flagging it. */
+  const acceptPrevioPrice = useCallback(async (draft: PendingDraft) => {
+    try {
+      await supabase.from("revenue_rate_drafts")
+        .update({ confirmation_status: "superseded" })
+        .eq("id", draft.id);
+      const cell = cellKey(draft.stay_date, draft.room_type_name, draft.occupancy);
+      await resolveRateMismatches(
+        auditManualRows.filter((r) => r.source === "previo_different"
+          && r.stay_date === draft.stay_date
+          && r.payload?.room_type_name === draft.room_type_name
+          && r.payload?.occupancy === draft.occupancy
+          && !r.payload?.resolved_at),
+      );
+      void cell;
+      await Promise.all([refreshDrafts(), reloadAudit()]);
+      toast.success("Previo's price kept", { description: `${draft.room_type_name} · ${draft.stay_date}` });
+    } catch {
+      toast.error("Could not update this price");
+    }
+  }, [auditManualRows, refreshDrafts, reloadAudit]);
+
   /** Close the flags: the price in Previo is the one the hotel wants. */
   const clearMismatchFlags = useCallback(async () => {
     setClearingFlags(true);
@@ -2660,7 +2682,16 @@ export default function RateStrategyGrid({
 
                     <td className="py-1.5 text-right tabular-nums text-muted-foreground">{moneyBase(d.old_price)}</td>
                     <td className="py-1.5 text-right tabular-nums font-semibold">{moneyBase(d.new_price)}</td>
-                    <td className="py-1.5 text-right">
+                    <td className="py-1.5 text-right whitespace-nowrap">
+                      {d.confirmation_status === "different" && (
+                        <Button
+                          size="sm" variant="ghost" className="h-7 px-2 text-[11px]"
+                          title="Previo's price is the one we want — stop flagging this cell"
+                          onClick={() => void acceptPrevioPrice(d)}
+                        >
+                          <CheckCheck className="h-3.5 w-3.5 mr-1" />Keep Previo's
+                        </Button>
+                      )}
                       <Button
                         size="icon" variant="ghost" className="h-7 w-7"
                         aria-label="Discard this change"
@@ -2677,6 +2708,19 @@ export default function RateStrategyGrid({
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">Only persistent Previo errors appear here. Successful publishing and verification stay in the background.</p>
 
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm" variant="outline" className="h-7 text-[11px]"
+                disabled={rechecking}
+                onClick={() => void recheckPrevio()}
+              >
+                {rechecking ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                Check Previo now
+              </Button>
+              <span className="text-[11px] text-muted-foreground">
+                Reads the live prices back from Previo and clears anything that already matches.
+              </span>
+            </div>
             {failedCount > 0 && (
               <div className="flex flex-wrap items-center gap-2">
                 <Button
