@@ -6,7 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Camera, Save, X } from 'lucide-react';
+import { Camera, Crop, Save, X } from 'lucide-react';
+import PhotoAdjuster from '@/components/dashboard/PhotoAdjuster';
+
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
 
