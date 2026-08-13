@@ -1818,7 +1818,10 @@ export default function RateStrategyGrid({
                     }
                     const published = row.obk ? priceMap.get(row.obk)?.get(row.occ)?.get(d) : undefined;
                     const draft = drafts.get(`${d}|${row.roomTypeName}|${row.occ}`);
-                    const shown = draft ?? published;
+                    // Already with Previo, waiting for its read-back. This is
+                    // not a draft: the price is live, we are only confirming.
+                    const sending = inFlight.get(`${d}|${row.roomTypeName}|${row.occ}`);
+                    const shown = draft ?? sending ?? published;
                     const tone = rateTone(shown, thresholds);
                     const history = auditByCell.get(cellKey(d, row.roomTypeName, row.occ));
                     // The colour follows the most recent change, never a
@@ -1826,14 +1829,19 @@ export default function RateStrategyGrid({
                     // even if automation moved the same cell last week.
                     const cellAutomation = automationByCell.get(cellKey(d, row.roomTypeName, row.occ));
                     const cellOrigin = cellOriginByCell.get(cellKey(d, row.roomTypeName, row.occ));
-                    const cellEvents = cellOriginEvents(history, cellAutomation);
+                    const justPublishedAt = optimisticOrigin.get(cellKey(d, row.roomTypeName, row.occ));
+                    const cellEvents = [
+                      ...(justPublishedAt ? [{ origin: "team" as ChangeOrigin, at: justPublishedAt }] : []),
+                      ...cellOriginEvents(history, cellAutomation),
+                    ];
                     // One dot only — the most recent change. The full story
                     // lives in the cell's hover card / tap sheet.
                     const latestToday = cellEvents.find((e) => Date.parse(e.at) >= dayStart);
                     const cellOrigin1: ChangeOrigin | null = showMarkers ? (latestToday?.origin ?? null) : null;
                     
                     const originLabel = (() => {
-                      if (draft !== undefined) return "Not sent to Previo yet";
+                      if (draft !== undefined) return "Waiting to be sent to Previo";
+                      if (sending !== undefined) return "Sending to Previo now — this price is already applied here";
                       const latest = cellEvents[0];
                       if (!latest) return "No price change recorded";
                       const when = formatWhen(latest.at);
