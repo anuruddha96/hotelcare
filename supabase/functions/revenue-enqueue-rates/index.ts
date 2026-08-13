@@ -78,7 +78,6 @@ Deno.serve(async (req) => {
         const superseded = (existingDrafts ?? []).filter((row) => byCell.has(`${row.stay_date}|${row.room_type_name}|${row.occupancy}`)).map((row) => row.id);
         for (const ids of chunks(superseded, 300)) await admin.from("revenue_rate_drafts").delete().in("id", ids);
 
-        const draftIds: string[] = [];
         for (const batch of chunks(changes, 500)) {
           const draftRows = batch.map((change) => ({
             hotel_id: hotelId, organization_slug: orgSlug,
@@ -90,7 +89,6 @@ Deno.serve(async (req) => {
           const idsByCell = new Map((drafts ?? []).map((draft) => [
             `${draft.stay_date}|${draft.room_type_name}|${draft.occupancy}`, draft.id,
           ]));
-          draftIds.push(...(drafts ?? []).map((draft) => draft.id));
 
           const items = batch.map((change) => ({
             run_id: runId, hotel_id: hotelId, organization_slug: orgSlug,
@@ -108,7 +106,7 @@ Deno.serve(async (req) => {
             "Content-Type": "application/json",
             "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
           },
-          body: JSON.stringify({ hotelId, draftIds, pushRunId: runId }),
+          body: JSON.stringify({ hotelId, pushRunId: runId }),
         });
       } catch (error) {
         console.error("background rate expansion failed", runId, error);
