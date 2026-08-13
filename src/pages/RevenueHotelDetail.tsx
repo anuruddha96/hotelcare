@@ -191,7 +191,12 @@ export default function RevenueHotelDetail() {
       setSyncPct(100);
       setSyncStep("Up to date");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Sync failed");
+      const message = e instanceof Error ? e.message : "Sync failed";
+      await (supabase as any).rpc("release_own_revenue_sync", {
+        _hotel_id: hotelId,
+        _error: message,
+      }).catch(() => undefined);
+      toast.error(message);
     } finally {
       setTimeout(() => {
         syncingRef.current = false;
