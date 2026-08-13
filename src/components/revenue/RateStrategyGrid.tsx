@@ -1508,20 +1508,41 @@ export default function RateStrategyGrid({
             body="Prices come straight from the Previo pricelist — one row per room type and guest count. Pickup and occupancy come from Previo reservations; ADR and RevPAR are calculated in Hotel Care."
           />
         </p>
-        {canEditRates && (failedCount > 0 || divergentDrafts.length > 0) && (
+        {canEditRates && (failedCount > 0 || divergentDrafts.length > 0 || openMismatches.length > 0) && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
             <span className="text-xs space-x-2">
               {failedCount > 0 && (
                 <span className="text-destructive">{failedCount} refused by Previo.</span>
               )}
-              {divergentDrafts.length > 0 && (
+              {(divergentDrafts.length > 0 || openMismatches.length > 0) && (
                 <span className="text-destructive">
-                  {divergentDrafts.length} landed on a different price.
+                  {Math.max(divergentDrafts.length, openMismatches.length)} landed on a different price.
                 </span>
               )}
+              <span className="text-muted-foreground">
+                If Previo already shows the right price, re-check it or clear the flags.
+              </span>
             </span>
 
             <span className="flex items-center gap-2">
+              <Button
+                size="sm" variant="outline" className="h-8 text-xs"
+                disabled={rechecking}
+                onClick={() => void recheckPrevio()}
+              >
+                {rechecking ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
+                Check Previo now
+              </Button>
+              {openMismatches.length > 0 && (
+                <Button
+                  size="sm" variant="outline" className="h-8 text-xs"
+                  disabled={clearingFlags}
+                  onClick={() => void clearMismatchFlags()}
+                >
+                  {clearingFlags ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5 mr-1" />}
+                  Clear flags ({openMismatches.length})
+                </Button>
+              )}
               <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
                 <Send className="h-3.5 w-3.5 mr-1" />
                 Review errors
@@ -1529,6 +1550,7 @@ export default function RateStrategyGrid({
             </span>
           </div>
         )}
+
 
 
 
