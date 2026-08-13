@@ -210,6 +210,18 @@ Deno.serve(async (req) => {
 
     const pushRunId = requestedRunId ?? crypto.randomUUID();
     const draftIdList = (drafts as any[]).map((draft) => draft.id);
+    // A run started without an id (direct publish) had no row at all, so the
+    // origin of the prices was lost and everything read as an anonymous team
+    // push. Create it up front, tagged with who asked for it.
+    if (!requestedRunId) {
+      await admin.from("revenue_rate_push_runs").insert({
+        id: pushRunId,
+        hotel_id: hotelId,
+        organization_slug: (drafts as any[])[0]?.organization_slug ?? null,
+        source: isEngine ? "automation" : "manual",
+        requested_count: draftIdList.length,
+      });
+    }
     await admin.from("revenue_rate_push_runs").update({
       status: "processing", started_at: new Date().toISOString(), last_error: null,
     }).eq("id", pushRunId);
