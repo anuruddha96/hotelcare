@@ -27,7 +27,11 @@ export interface RateAuditRow {
     confirmation_status?: string;
     push_run_id?: string | null;
     origin?: string | null;
+    /** Set when someone checked Previo and closed a "did not land" flag. */
+    resolved_at?: string | null;
+    resolved_by?: string | null;
   } | null;
+
 }
 
 export interface RateAuditInput {
