@@ -624,6 +624,14 @@ export default function RateStrategyGrid({
    */
   const [optimistic, setOptimistic] = useState<Map<string, number>>(new Map());
 
+  /**
+   * "Your team just changed this" markers, written the moment the user
+   * publishes so the blue dot appears immediately instead of waiting for the
+   * audit trail. Keyed `date|roomTypeName|occ`, value = ISO time.
+   */
+  const [optimisticOrigin, setOptimisticOrigin] = useState<Map<string, string>>(new Map());
+
+
   // obk_id -> occupancy -> stay_date -> price
   const priceMap = useMemo(() => {
     const m = new Map<string, Map<number, Map<string, number>>>();
