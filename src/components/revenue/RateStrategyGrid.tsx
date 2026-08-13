@@ -714,6 +714,21 @@ export default function RateStrategyGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auditByCell]);
 
+  /**
+   * First-time phone coaching. Shown a few seconds after the calendar settles,
+   * so it reads as help rather than an interruption, and only until dismissed.
+   */
+  const [gestureHint, setGestureHint] = useState(false);
+  useEffect(() => {
+    if (!isMobile || !canEditRates) return;
+    let seen = false;
+    try { seen = localStorage.getItem(GESTURE_HINT_KEY) === "1"; } catch { /* private mode */ }
+    if (seen) return;
+    const timer = window.setTimeout(() => setGestureHint(true), 4000);
+    return () => window.clearTimeout(timer);
+  }, [isMobile, canEditRates]);
+
+
   /** Newest just-published change per stay date — drives the blue date dot. */
   const optimisticDayOrigin = useMemo(() => {
     const map = new Map<string, string>();
