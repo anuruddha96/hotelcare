@@ -1089,6 +1089,7 @@ serve(async (req) => {
     orgSlug,
     from,
     to,
+    farTo: farOk ? farTo : to,
     roomTypes: roomTypes.length,
     totalRooms,
     rates: ratePayload.length,
