@@ -9,6 +9,8 @@ import { BreakfastCodeManagement } from './BreakfastCodeManagement';
 import { Building2, Hotel, Languages, HardDrive, Cable, Coffee, GraduationCap, MapPin } from 'lucide-react';
 import { TrainingAdminPanel } from './TrainingAdminPanel';
 import AiProviderStatus from './AiProviderStatus';
+import RevenueEngineControls from './RevenueEngineControls';
+
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import VenueManagement from '@/components/slnt/VenueManagement';
 import StaffVenueAccess from '@/components/slnt/StaffVenueAccess';
