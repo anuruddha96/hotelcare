@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { cellKey, type RateAuditRow } from "@/lib/rateAudit";
+
 
 /** Sources written by a person acting in the app (not the alert engine). */
 export const HUMAN_SOURCES = ["day-tool", "cell-edit", "demand", "push", "autopilot", "bulk-editor", "pickup-board", "previo_confirmed", "previo_automation_confirmed", "previo_bulk_confirmed", "previo_external", "previo_different"];
