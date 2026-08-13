@@ -164,12 +164,39 @@ export function parsePrevioCredentialValue(
 }
 
 
+/**
+ * Previo issued HotelCare ONE api credential; the property is selected by the
+ * Previo hotel id (`hotId`) on each call. So a per-account secret name is
+ * optional: when it is missing we fall back to the shared key.
+ */
+const SHARED_SECRET_CANDIDATES = [
+  "PREVIO_CREDS_SHARED",
+  "PREVIO_CREDS_HOTELCARE",
+  "PREVIO_CREDS_OTTOFIORI",
+];
+
+/** The secret name that should actually be used for a given (possibly empty) config value. */
+export function resolvePrevioSecretName(secretName: string | null | undefined): string | null {
+  const name = clean(secretName);
+  if (name && clean(Deno.env.get(name) ?? "")) return name;
+  for (const candidate of SHARED_SECRET_CANDIDATES) {
+    if (clean(Deno.env.get(candidate) ?? "")) return candidate;
+  }
+  return name || null;
+}
+
+/** True when a Previo call can be authenticated for this config value. */
+export function hasPrevioCredentials(secretName: string | null | undefined): boolean {
+  const name = resolvePrevioSecretName(secretName);
+  return !!name && !!clean(Deno.env.get(name) ?? "");
+}
+
 /** Read the configured secret from env and parse it. Never logs the value. */
 export function loadPrevioCredentials(secretName: string | null | undefined): PrevioCredentials {
-  const name = clean(secretName);
+  const name = resolvePrevioSecretName(secretName);
   if (!name) {
     throw new PrevioCredentialParseError(
-      "No Previo credential secret configured on this hotel (pms_configurations.credentials_secret_name is empty).",
+      "No Previo credential secret is available (no per-account secret and no shared HotelCare key configured).",
     );
   }
   const raw = Deno.env.get(name) ?? "";
@@ -180,6 +207,7 @@ export function loadPrevioCredentials(secretName: string | null | undefined): Pr
   }
   return parsePrevioCredentialValue(raw, name);
 }
+
 
 // -------- XML helpers --------------------------------------------------------
 

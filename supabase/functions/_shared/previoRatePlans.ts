@@ -5,7 +5,7 @@
 // ended up empty, which made every push fail before it reached Previo. Previo
 // already tells us both in getRates, so we read them and store the mapping.
 
-import { callPrevioXml, loadPrevioCredentials } from "./previoCredentials.ts";
+import { callPrevioXml, loadPrevioCredentials, hasPrevioCredentials, resolvePrevioSecretName } from "./previoCredentials.ts";
 
 function blocks(xml: string, tag: string): string[] {
   const out: string[] = [];
@@ -63,18 +63,18 @@ export async function syncPrevioRatePlanMappings(
 
   const accounts: Array<{ label: string; hotId: string; secretName: string }> =
     ((accountRows ?? []) as any[])
-      .filter((a) => a.pms_hotel_id && a.credentials_secret_name)
+      .filter((a) => a.pms_hotel_id && hasPrevioCredentials(a.credentials_secret_name))
       .map((a) => ({
         label: String(a.label ?? a.pms_hotel_id),
         hotId: String(a.pms_hotel_id),
-        secretName: String(a.credentials_secret_name),
+        secretName: String(resolvePrevioSecretName(a.credentials_secret_name) ?? ""),
       }));
 
-  if (accounts.length === 0 && cfg?.is_active && cfg.pms_hotel_id && cfg.credentials_secret_name) {
+  if (accounts.length === 0 && cfg?.is_active && cfg.pms_hotel_id && hasPrevioCredentials(cfg.credentials_secret_name)) {
     accounts.push({
       label: String(cfg.pms_hotel_id),
       hotId: String(cfg.pms_hotel_id),
-      secretName: String(cfg.credentials_secret_name),
+      secretName: String(resolvePrevioSecretName(cfg.credentials_secret_name) ?? ""),
     });
   }
   if (accounts.length === 0) {

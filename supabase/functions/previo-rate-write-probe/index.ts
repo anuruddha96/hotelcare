@@ -8,7 +8,7 @@
 // forward it to Previo support.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { loadPrevioCredentials } from "../_shared/previoCredentials.ts";
+import { loadPrevioCredentials, hasPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { readPrevioRateLevels, writePrevioRate, RATE_WRITE_METHOD } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 
@@ -74,7 +74,7 @@ Deno.serve(async (req) => {
       .eq("hotel_id", hotelId)
       .eq("is_active", true);
     const usableAccounts = ((probeAccounts ?? []) as any[]).filter(
-      (a) => a.pms_hotel_id && a.credentials_secret_name,
+      (a) => a.pms_hotel_id && hasPrevioCredentials(a.credentials_secret_name),
     );
     if (usableAccounts.length === 0 && (!cfg || !cfg.is_active)) {
       return json({ ok: false, code: "pms_inactive", error: "Previo is not configured or is inactive for this hotel" });

@@ -6,7 +6,7 @@
 // method, mirrors accepted prices immediately, then verifies them against
 // Previo in background so a partial failure is visible instead of silent.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { loadPrevioCredentials } from "../_shared/previoCredentials.ts";
+import { loadPrevioCredentials, hasPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { writePrevioRate, readPrevioRateLevels } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 
@@ -89,7 +89,7 @@ Deno.serve(async (req) => {
       .eq("hotel_id", hotelId)
       .eq("is_active", true);
     const hasAccounts = ((activeAccounts ?? []) as any[]).some(
-      (a) => a.pms_hotel_id && a.credentials_secret_name,
+      (a) => a.pms_hotel_id && hasPrevioCredentials(a.credentials_secret_name),
     );
     if (!hasAccounts && (!cfg || !cfg.is_active)) {
       return json({ ok: false, code: "pms_inactive", error: "PMS is not configured or is inactive for this hotel." });
@@ -163,7 +163,7 @@ Deno.serve(async (req) => {
       .eq("hotel_id", hotelId)
       .eq("is_active", true);
     for (const a of (accountRows ?? []) as any[]) {
-      if (!a.pms_hotel_id || !a.credentials_secret_name) continue;
+      if (!a.pms_hotel_id || !hasPrevioCredentials(a.credentials_secret_name)) continue;
       try {
         const acc = { hotId: String(a.pms_hotel_id), creds: loadPrevioCredentials(a.credentials_secret_name) };
         accounts.set(acc.hotId, acc);
@@ -172,7 +172,7 @@ Deno.serve(async (req) => {
     }
     if (!fallback) {
       try {
-        if (!cfg?.credentials_secret_name) {
+        if (!hasPrevioCredentials(cfg?.credentials_secret_name)) {
           throw new Error("No Previo credentials are saved for this hotel (neither a PMS configuration nor an active PMS account).");
         }
         fallback = {

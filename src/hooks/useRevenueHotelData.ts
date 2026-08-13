@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { REVENUE_SYNC_TYPES } from "@/lib/revenueFreshness";
 import {
   addDays,
   budapestToday,
@@ -133,8 +134,12 @@ export function useRevenueHotelData(
           .select("sellable_rooms, rate_warn_below_eur, rate_critical_below_eur, rate_max_sane_eur, occupancy_low_pct, occupancy_high_pct, pickup_strong_threshold, base_currency, eur_conversion_rate")
           .eq("hotel_id", hotelId).maybeSingle(),
 
+        // Both Previo pulls count as a revenue sync — a property refreshed by
+        // the live pull used to read "Not synced yet" forever.
         supabase.from("pms_sync_history")
-          .select("created_at, synced_by_name").eq("hotel_id", hotelId).eq("sync_type", "revenue_sync")
+          .select("created_at, synced_by_name").eq("hotel_id", hotelId)
+          .in("sync_type", REVENUE_SYNC_TYPES as unknown as string[])
+          .in("sync_status", ["success", "partial"])
           .order("created_at", { ascending: false }).limit(1).maybeSingle(),
       ]);
 

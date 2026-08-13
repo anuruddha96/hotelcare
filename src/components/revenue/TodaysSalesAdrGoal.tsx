@@ -179,22 +179,59 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   }, [preset, today, customFrom, customTo]);
 
   /* --------------------------------------------------------------- goals */
+  // Goals live in the database per property, in that property's own currency
+  // (SLNT publishes forints), so every manager sees the same target instead of
+  // a euro default saved on one laptop.
   const storageKey = `hc.revenue.salesGoals.${hotelId ?? "default"}`;
   const [goals, setGoals] = useState<SalesGoals>(DEFAULT_GOALS);
   const [goalsOpen, setGoalsOpen] = useState(false);
+  const [goalsSeeded, setGoalsSeeded] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (raw) setGoals({ ...DEFAULT_GOALS, ...JSON.parse(raw) });
-      else setGoals(DEFAULT_GOALS);
-    } catch { /* ignore unreadable storage */ }
-  }, [storageKey]);
+    if (!hotelId) return;
+    let cancelled = false;
+    setGoalsSeeded(false);
+    void (async () => {
+      const { data } = await (supabase.from("hotel_revenue_settings") as any)
+        .select("target_adr, target_room_nights, target_booking_value, promo_budget")
+        .eq("hotel_id", hotelId)
+        .maybeSingle();
+      if (cancelled) return;
+      const row = (data ?? {}) as Record<string, number | null>;
+      if (row.target_adr != null) {
+        setGoals({
+          targetAdr: Number(row.target_adr) || 0,
+          targetRoomNights: Number(row.target_room_nights ?? DEFAULT_GOALS.targetRoomNights),
+          targetValue: Number(row.target_booking_value ?? 0),
+          promoBudget: Number(row.promo_budget ?? 0),
+        });
+        setGoalsSeeded(true);
+        return;
+      }
+      // No shared goal yet — fall back to this device's old saved goals, if any.
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (raw) { setGoals({ ...DEFAULT_GOALS, ...JSON.parse(raw) }); setGoalsSeeded(true); return; }
+      } catch { /* ignore unreadable storage */ }
+      setGoals(DEFAULT_GOALS);
+    })();
+    return () => { cancelled = true; };
+  }, [hotelId, storageKey]);
 
   const saveGoals = useCallback((next: SalesGoals) => {
     setGoals(next);
+    setGoalsSeeded(true);
     try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* ignore */ }
-  }, [storageKey]);
+    if (!hotelId) return;
+    void (supabase.from("hotel_revenue_settings") as any).upsert({
+      hotel_id: hotelId,
+      target_adr: next.targetAdr,
+      target_room_nights: next.targetRoomNights,
+      target_booking_value: next.targetValue,
+      promo_budget: next.promoBudget,
+    } as any, { onConflict: "hotel_id" });
+  }, [storageKey, hotelId]);
+
 
   /* ---------------------------------------------------------------- data */
   const [rows, setRows] = useState<NightRow[]>([]);
@@ -278,6 +315,26 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
 
   /** Only the live ones drive every KPI. */
   const liveBookings = useMemo(() => periodBookings.filter((b) => !b.cancelled), [periodBookings]);
+
+  // First visit for a property: seed the target from what it actually sells,
+  // in its own currency. A euro default of 120 is meaningless for a forint
+  // property and made the ADR target read as nothing at all.
+  useEffect(() => {
+    if (goalsSeeded || loading || !hotelId) return;
+    const recent = allBookings.filter((b) => !b.cancelled && b.adr !== null);
+    if (recent.length < 3) return;
+    const adrs = recent.map((b) => b.adr as number).sort((a, b) => a - b);
+    const median = adrs[Math.floor(adrs.length / 2)];
+    if (!median || !Number.isFinite(median)) return;
+    const nights = Math.max(1, Math.round(recent.reduce((s, b) => s + b.roomNights, 0) / 30));
+    saveGoals({
+      targetAdr: Math.round(median),
+      targetRoomNights: nights,
+      targetValue: Math.round(median) * nights,
+      promoBudget: 0,
+    });
+  }, [goalsSeeded, loading, hotelId, allBookings, saveGoals]);
+
 
   const kpi = useMemo(() => {
     const roomNights = liveBookings.reduce((s, b) => s + b.roomNights, 0);
@@ -738,7 +795,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
             <GoalInput label="Room-night target" value={goals.targetRoomNights} onChange={(v) => saveGoals({ ...goals, targetRoomNights: v })} />
             <GoalInput label={`Booking value target (${currencySymbol()})`} value={goals.targetValue} onChange={(v) => saveGoals({ ...goals, targetValue: v })} />
             <GoalInput label={`Max promotion budget (${currencySymbol()})`} value={goals.promoBudget} onChange={(v) => saveGoals({ ...goals, promoBudget: v })} />
-            <p className="col-span-2 text-[11px] text-muted-foreground">Saved on this device as your default goals.</p>
+            <p className="col-span-2 text-[11px] text-muted-foreground">Saved for this property in {currencySymbol()} — everyone on the team sees the same targets.</p>
           </CollapsibleContent>
         </Collapsible>
 

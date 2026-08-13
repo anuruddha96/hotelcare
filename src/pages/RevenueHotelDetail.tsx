@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchRevenueSyncInfo } from "@/lib/revenueFreshness";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -70,8 +71,6 @@ interface Row {
 
 const ALLOWED = ["admin", "top_management", "top_management_manager"];
 
-/** Data younger than this is considered fresh — no automatic re-sync. */
-const FRESH_SYNC_MS = 3 * 60 * 1000;
 /** How often the page quietly pulls Previo again while it stays open. */
 const BACKGROUND_SYNC_MS = 5 * 60 * 1000;
 const DOW_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
@@ -208,23 +207,14 @@ export default function RevenueHotelDetail() {
     if (loading || !profile || !hotelId) return;
     if (autoSyncedRef.current) return;
     const forced = searchParams.get("autosync") === "1";
-    const wants = forced || !isRevenueAdmin(profile.role);
-    if (!wants) return;
     autoSyncedRef.current = true;
-    setTab("grid");
+    if (forced || !isRevenueAdmin(profile.role)) setTab("grid");
     void (async () => {
       if (!forced) {
-        const { data } = await supabase
-          .from("pms_sync_history")
-          .select("created_at")
-          .eq("hotel_id", hotelId)
-          .eq("sync_type", "revenue_sync")
-          .in("sync_status", ["success", "partial"])
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        const at = (data as { created_at?: string } | null)?.created_at;
-        if (at && Date.now() - new Date(at).getTime() < FRESH_SYNC_MS) return; // still fresh
+        // Every property refreshes itself when nobody has pulled Previo for
+        // this venue in the last 30 minutes — no matter who opens the page.
+        const info = await fetchRevenueSyncInfo(hotelId);
+        if (!info.stale) return;
       }
       await runSync();
     })();
