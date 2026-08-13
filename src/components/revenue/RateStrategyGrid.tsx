@@ -466,7 +466,9 @@ export default function RateStrategyGrid({
         old: r.old_rate_eur, next: r.new_rate_eur,
         who: origin === "previo"
           ? "Changed directly in Previo"
-          : ((r.performed_by && auditNames.get(r.performed_by)) || "Someone on your team"),
+          : origin === "automation"
+            ? "HotelCare Automation"
+            : ((r.performed_by && auditNames.get(r.performed_by)) || "Someone on your team"),
         room: r.payload?.room_type_name ?? null,
         occ: r.payload?.occupancy ?? null,
       });
