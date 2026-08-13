@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { formatWhen, type RateAuditRow } from "@/lib/rateAudit";
+import { formatWhen } from "@/lib/rateAudit";
+import type { RateAuditRow } from "@/lib/rateAudit";
+import { groupCellChanges, type LogicalChange } from "@/lib/rateChangeGroups";
 import { moneyBase } from "@/lib/revenueCurrency";
 import type { AutomationAction } from "@/hooks/usePickupAutomationActions";
 
@@ -7,38 +9,24 @@ import type { AutomationAction } from "@/hooks/usePickupAutomationActions";
  * The story of one price cell in a single readable block:
  *
  *   €111 → €123   +€12 (+11%)
- *   Yesterday 18:12 · Nuwan · Sent to Previo
+ *   Yesterday 18:12 · Nuwan · confirmed in Previo
  *
- * Moves made by the pickup automation tool are merged in with the booking that
- * triggered them, so a purple dot on the grid always has proof behind it.
- * Older changes stay behind a "N more changes" toggle.
+ * One publish writes a draft row, a push row and a Previo read-back row — they
+ * are stages of the SAME change, so they are folded into one entry showing only
+ * the furthest state it reached. Moves made by the pickup automation tool are
+ * merged in with the booking that triggered them. Older changes stay behind a
+ * "N more changes" toggle, counted as distinct changes rather than raw rows.
  */
 
-interface Entry {
-  id: string;
-  at: string;
-  old: number | null;
-  next: number | null;
-  who: string;
-  status: string;
-  detail?: string | null;
-  extra?: { requested: number | null; actual: number | null; different: boolean } | null;
-  automation?: boolean;
-}
-
-/** An audit row written by the automation engine, not by a person. */
-function isAutomationRow(r: RateAuditRow): boolean {
-  return r.source === "previo_automation_confirmed" || r.payload?.origin === "pickup-automation";
-}
-
-function automationStatus(status: string): string {
-  switch (status) {
-    case "pushed": return "live in Previo";
-    case "queued": return "sending to Previo";
-    case "suggested": return "suggested — waiting for approval";
-    case "failed": return "Previo refused it";
-    default: return status;
-  }
+function automationDetail(a: AutomationAction): string {
+  return [
+    a.reservation_id ? `Triggered by booking #${a.reservation_id}` : "Triggered by a new booking",
+    a.pickup_at ? `picked up ${formatWhen(a.pickup_at)}` : null,
+    a.pickup_sequence && a.pickup_sequence > 1
+      ? `${a.pickup_sequence}${a.pickup_sequence === 2 ? "nd" : a.pickup_sequence === 3 ? "rd" : "th"} booking in the window`
+      : null,
+    a.increase_amount != null ? `rule raised it by ${moneyBase(a.increase_amount)}` : null,
+  ].filter(Boolean).join(" · ");
 }
 
 export default function RateCellHistory({
@@ -50,6 +38,7 @@ export default function RateCellHistory({
 }: {
   history: RateAuditRow[];
   names: Map<string, string>;
+  /** Genuinely unsent, still actionable. Refused/abandoned rows must not land here. */
   draftPrice?: number | null;
   /** Already sent to Previo, waiting only for its read-back. */
   sendingPrice?: number | null;
@@ -57,48 +46,7 @@ export default function RateCellHistory({
 }) {
   const [showAll, setShowAll] = useState(false);
 
-  const auditEntries: Entry[] = history.map((r) => {
-    const auto = isAutomationRow(r);
-    const status = r.payload?.confirmation_status;
-    const statusLabel = status === "confirmed"
-      ? "confirmed in Previo"
-      : status === "different"
-        ? "landed on a different price"
-        : r.source === "previo_external"
-          ? "changed directly in Previo"
-          : r.source === "push" ? "sent to Previo — confirming" : "waiting to be sent";
-    return {
-      id: r.id,
-      at: r.performed_at,
-      old: r.old_rate_eur,
-      next: r.new_rate_eur,
-      who: auto ? "Pickup automation tool" : ((r.performed_by && names.get(r.performed_by)) || "Someone"),
-      status: statusLabel,
-      extra: r.payload?.requested_price != null && r.payload?.actual_previo_price != null
-        ? { requested: r.payload.requested_price, actual: r.payload.actual_previo_price, different: status === "different" }
-        : null,
-      automation: auto,
-    };
-  });
-
-  const automationEntries: Entry[] = automation.map((a) => ({
-    id: `auto-${a.id}`,
-    at: a.created_at,
-    old: a.old_price,
-    next: a.new_price,
-    who: "Pickup automation tool",
-    status: automationStatus(a.status),
-    detail: [
-      a.reservation_id ? `Triggered by booking #${a.reservation_id}` : "Triggered by a new booking",
-      a.pickup_at ? `picked up ${formatWhen(a.pickup_at)}` : null,
-      a.pickup_sequence && a.pickup_sequence > 1 ? `${a.pickup_sequence}${a.pickup_sequence === 2 ? "nd" : a.pickup_sequence === 3 ? "rd" : "th"} booking in the window` : null,
-      a.increase_amount != null ? `rule raised it by ${moneyBase(a.increase_amount)}` : null,
-    ].filter(Boolean).join(" · "),
-    automation: true,
-  }));
-
-  const entries = [...auditEntries, ...automationEntries]
-    .sort((a, b) => b.at.localeCompare(a.at));
+  const entries = groupCellChanges(history, automation, names, { automationDetail });
 
   if (entries.length === 0) {
     if (sendingPrice != null) {
@@ -109,12 +57,13 @@ export default function RateCellHistory({
       : <p className="text-[11px] text-muted-foreground">No price changes yet.</p>;
   }
 
-  const block = (e: Entry) => {
+  const block = (e: LogicalChange) => {
     const delta = e.old != null && e.next != null ? Math.round((e.next - e.old) * 100) / 100 : null;
     const pct = e.old && e.next != null && e.old !== 0
       ? Math.round(((e.next - e.old) / e.old) * 1000) / 10
       : null;
     const up = (delta ?? 0) >= 0;
+    const failed = e.phase === "failed";
     return (
       <div key={e.id} className="space-y-0.5">
         <div className="flex flex-wrap items-baseline gap-x-1.5 text-xs tabular-nums">
@@ -128,7 +77,7 @@ export default function RateCellHistory({
         </div>
         <p className="text-[11px] text-muted-foreground">
           <span className={e.automation ? "text-purple-600 dark:text-purple-400 font-medium" : ""}>{e.who}</span>
-          {" · "}{formatWhen(e.at)} · {e.status}
+          {" · "}{formatWhen(e.at)} · <span className={failed ? "text-destructive" : ""}>{e.statusLabel}</span>
         </p>
         {e.detail && <p className="text-[11px] text-muted-foreground">{e.detail}</p>}
         {e.extra && (
