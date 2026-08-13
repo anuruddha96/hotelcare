@@ -71,6 +71,9 @@ interface Row {
 }
 
 const ALLOWED = ["admin", "top_management", "top_management_manager"];
+// Roles allowed to move the whole app to another property in their organization.
+const SWITCHABLE_ROLES = ["admin", "manager", "housekeeping_manager", "top_management", "top_management_manager"];
+
 
 /** How often the page re-checks the shared property freshness timestamp. */
 const BACKGROUND_SYNC_MS = 5 * 60 * 1000;
