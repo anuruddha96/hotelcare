@@ -1178,10 +1178,35 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
 
 /* ------------------------------------------------------------ small parts */
 
-function Kpi({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: string }) {
+/** Tap-friendly "what is this?" bubble — works on phones, unlike hover tooltips. */
+function InfoDot({ title, text }: { title: string; text: string }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={`What is ${title}?`}
+          className="shrink-0 text-muted-foreground/70 hover:text-foreground transition-colors"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Info className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="top" align="start" className="w-64 text-xs leading-relaxed">
+        <p className="font-semibold mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">{title}</p>
+        {text}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function Kpi({ label, value, sub, tone, info }: { label: string; value: string; sub?: string; tone?: string; info?: string }) {
   return (
     <div className="rounded-md border bg-muted/30 p-2">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="flex items-start justify-between gap-1">
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+        {info && <InfoDot title={label} text={info} />}
+      </div>
       <div className={`text-lg font-bold leading-tight ${tone ?? ""}`}>{value}</div>
       {sub && <div className="text-[10px] text-muted-foreground">{sub}</div>}
     </div>
