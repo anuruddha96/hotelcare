@@ -83,6 +83,7 @@ export function cellOriginEvents(
 ): OriginEvent[] {
   const events: OriginEvent[] = [];
   for (const r of history ?? []) {
+    if (r.source === "previo_different" && r.payload?.resolved_at) continue;
     const origin = fromAuditSource(r.source, r.payload?.confirmation_status);
     if (origin) events.push({ origin, at: r.performed_at });
   }

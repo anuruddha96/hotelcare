@@ -189,6 +189,9 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
       const rt = r.payload?.room_type_name;
       const occ = r.payload?.occupancy;
       if (!r.stay_date || !rt || occ === undefined || !r.source) continue;
+      // A mismatch someone has already checked in Previo is history, not an
+      // open problem: it must not keep a red ring on the cell.
+      if (r.source === "previo_different" && r.payload?.resolved_at) continue;
       const key = cellKey(r.stay_date, rt, occ);
       if (map.has(key)) continue;
       const origin: CellOrigin =
