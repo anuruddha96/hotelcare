@@ -6986,6 +6986,10 @@ export type Database = {
         Args: { _user_id: string; _venue_id: string }
         Returns: boolean
       }
+      hotel_belongs_to_user_organization: {
+        Args: { _hotel_id: string; _uid: string }
+        Returns: boolean
+      }
       hotel_has_active_previo: { Args: { _hotel_id: string }; Returns: boolean }
       is_revenue_user: { Args: { _uid: string }; Returns: boolean }
       is_super_admin: { Args: { user_id: string }; Returns: boolean }
@@ -7015,6 +7019,10 @@ export type Database = {
       }
       purge_old_daily_overview_snapshots: { Args: never; Returns: number }
       purge_revenue_logs: { Args: never; Returns: Json }
+      release_own_revenue_sync: {
+        Args: { _error?: string; _hotel_id: string }
+        Returns: undefined
+      }
       run_auto_signout: { Args: never; Returns: number }
       slnt_venue_visible: {
         Args: { _user_id: string; _venue_id: string }
