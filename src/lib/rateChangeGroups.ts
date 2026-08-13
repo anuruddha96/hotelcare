@@ -104,7 +104,9 @@ function linkIdOf(r: RateAuditRow): string | null {
 }
 
 export function isAutomationRow(r: RateAuditRow): boolean {
-  return r.source === "previo_automation_confirmed" || r.payload?.origin === "pickup-automation";
+  return r.source === "previo_automation_confirmed"
+    || r.source === "push_automation"
+    || r.payload?.origin === "pickup-automation";
 }
 
 function auditPhase(r: RateAuditRow): ChangePhase {
@@ -120,6 +122,7 @@ function auditPhase(r: RateAuditRow): ChangePhase {
     case "previo_different":
       return "failed";
     case "push":
+    case "push_automation":
       return "sending";
     default:
       return "waiting";
