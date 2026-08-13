@@ -27,7 +27,7 @@ import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 import { useRateAudit } from "@/hooks/useRateAudit";
 import { usePickupAutomationActions, type AutomationAction } from "@/hooks/usePickupAutomationActions";
 import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
-import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
+import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, budapestDayStartMs, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
@@ -1432,7 +1432,7 @@ export default function RateStrategyGrid({
                     const picked = multiMode ? pickedDates.has(d) : selecting && selDates.has(d);
                     const trail = auditByDate.get(d);
                     const dayChanges = dayChangesByDate.get(d) ?? [];
-                    const dayLatest = dayChanges[0];
+                    const dayLatest = dayChanges.find((c) => Date.parse(c.at) >= dayStart);
                     const dayButton = (
                       <button
                         key={d}
@@ -1760,7 +1760,8 @@ export default function RateStrategyGrid({
                     const cellEvents = cellOriginEvents(history, cellAutomation);
                     // One dot only — the most recent change. The full story
                     // lives in the cell's hover card / tap sheet.
-                    const cellOrigin1: ChangeOrigin | null = showMarkers ? (cellEvents[0]?.origin ?? null) : null;
+                    const latestToday = cellEvents.find((e) => Date.parse(e.at) >= dayStart);
+                    const cellOrigin1: ChangeOrigin | null = showMarkers ? (latestToday?.origin ?? null) : null;
                     
                     const originLabel = (() => {
                       if (draft !== undefined) return "Not sent to Previo yet";
