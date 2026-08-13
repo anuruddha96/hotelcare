@@ -545,8 +545,11 @@ Deno.serve(async (req) => {
         actions: inserted, pushed, auto_publish: rule.auto_publish,
       });
     }
+    } finally {
+      await admin.rpc("release_automation_lock", { p_hotel: lockHotel });
+    }
 
-    return json({ ok: true, rules: rules.length, summary });
+    return json({ ok: true, rules: rules.length, hotel_id: lockHotel, summary });
   } catch (e) {
     console.error("pickup automation failed", e);
     return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500);
