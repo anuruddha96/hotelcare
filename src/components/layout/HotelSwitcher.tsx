@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { HotelSwitchOverlay } from './HotelSwitchOverlay';
+import { setTabHotel } from '@/lib/tabHotel';
 
 
 export function HotelSwitcher() {
