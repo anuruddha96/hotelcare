@@ -1657,6 +1657,24 @@ export default function RateStrategyGrid({
             body="Prices come straight from the Previo pricelist — one row per room type and guest count. Pickup and occupancy come from Previo reservations; ADR and RevPAR are calculated in Hotel Care."
           />
         </p>
+        {/* Phone gesture coach — appears once the user has settled on the page. */}
+        {gestureHint && (
+          <div className="flex items-start gap-2 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-[11px] animate-fade-in sm:hidden">
+            <CalendarRange className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+            <p className="flex-1">
+              <span className="font-medium text-foreground">Pricing on your phone: </span>
+              tap a date to change that whole day, or press and hold a date and slide to pick several days —
+              then use <span className="font-medium text-foreground">Change prices</span>.
+            </p>
+            <button
+              type="button"
+              className="shrink-0 underline underline-offset-2"
+              onClick={() => { setGestureHint(false); try { localStorage.setItem(GESTURE_HINT_KEY, "1"); } catch { /* private mode */ } }}
+            >
+              Got it
+            </button>
+          </div>
+        )}
         {canEditRates && (failedCount > 0 || divergentDrafts.length > 0 || openMismatches.length > 0) && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
             <span className="text-xs space-x-2">
