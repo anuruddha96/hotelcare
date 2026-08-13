@@ -379,6 +379,15 @@ serve(async (req) => {
   const today = budapestToday();
   const from = today;
   const to = addDays(today, horizonDays);
+  // Bookings created today can arrive for stay dates far beyond the pricing
+  // horizon (a March 2027 booking made in August 2026). Those were never
+  // fetched, so "bookings created today" under-counted against Previo.
+  // A second, coarser pass covers the long tail without slowing the main one.
+  const farHorizonDays: number = Math.min(
+    1095,
+    Math.max(horizonDays, Number(body.farHorizonDays) || 730),
+  );
+  const farTo = addDays(today, farHorizonDays);
 
   // Portfolio tenants (SLNT) keep several Previo profiles under ONE hotel row
   // in `pms_accounts`; classic tenants (Ottofiori, RD Hotels) still use the
@@ -859,6 +868,8 @@ serve(async (req) => {
 
   // ---------- 3. reservations -> booking nights ----------
   const resErrors: string[] = [];
+  /** True only when every account's long-tail pass succeeded. */
+  let farOk = farTo > to;
   const nightMap = new Map<string, Night>();
   for (const acc of liveAccounts) {
     const resCall = await chunkedCall("searchReservations", acc.creds as any, acc.hotId, from, to, 31);
@@ -871,6 +882,25 @@ serve(async (req) => {
         // Keyed per room item, so a two-room booking keeps both rooms.
         const scoped = { ...n, obk_id: n.obk_id ? scopeObk(acc, String(n.obk_id)) : n.obk_id };
         nightMap.set(`${acc.hotId}|${n.res_id}|${n.room_key}|${n.stay_date}`, scoped as Night);
+      }
+    }
+
+    // Long tail: stay dates beyond the pricing horizon, in wider chunks. It
+    // only feeds the "created" counters (the snapshot loop ignores dates past
+    // the horizon), so a failure here must never void the main pass.
+    if (farTo > to) {
+      const farCall = await chunkedCall(
+        "searchReservations", acc.creds as any, acc.hotId, addDays(to, 1), farTo, 92,
+      );
+      if (farCall.errors.length) {
+        farOk = false;
+        softNotes.push(`${acc.label}: long-range booking pass incomplete (${farCall.errors[0]})`);
+      }
+      for (const xml of farCall.xml) {
+        for (const n of parseReservationNights(xml, addDays(to, 1), farTo)) {
+          const scoped = { ...n, obk_id: n.obk_id ? scopeObk(acc, String(n.obk_id)) : n.obk_id };
+          nightMap.set(`${acc.hotId}|${n.res_id}|${n.room_key}|${n.stay_date}`, scoped as Night);
+        }
       }
     }
     // The default search returns only live bookings, so cancellations and
@@ -925,8 +955,13 @@ serve(async (req) => {
 
 
   const allNights = Array.from(nightMap.values()).map(normaliseNight);
-  const nights = allNights.filter((n) => !n.cancelled_at);
-  const cancelledNights = allNights.filter((n) => !!n.cancelled_at);
+  // Only replace what this run actually re-read: if the long-tail pass failed,
+  // leave the far stay dates alone instead of wiping them.
+  const replaceTo = farOk ? farTo : to;
+  const nights = allNights.filter((n) => !n.cancelled_at && n.stay_date <= replaceTo);
+  // Cancellations are only replaced inside the pricing horizon, so never store
+  // far-future cancelled rows that nothing would ever clean up.
+  const cancelledNights = allNights.filter((n) => !!n.cancelled_at && n.stay_date <= to);
 
   if (!resErrors.length) {
     // Full replace for the horizon so cancellations disappear immediately.
@@ -935,7 +970,7 @@ serve(async (req) => {
       .delete()
       .eq("hotel_id", hotelId)
       .gte("stay_date", from)
-      .lte("stay_date", to);
+      .lte("stay_date", replaceTo);
     if (delErr) errors.push(`booking nights delete: ${delErr.message}`);
 
     const nightPayload = nights.map((n) => ({
@@ -1054,6 +1089,7 @@ serve(async (req) => {
     orgSlug,
     from,
     to,
+    farTo: farOk ? farTo : to,
     roomTypes: roomTypes.length,
     totalRooms,
     rates: ratePayload.length,
