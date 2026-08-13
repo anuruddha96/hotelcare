@@ -345,7 +345,7 @@ export function HousekeepingStaffManagement() {
 
       // For managers, resolve hotel name variations before filtering
       let hotelVariations: string[] = [];
-      if (profileData?.assigned_hotel && !['admin', 'top_management'].includes(currentUserRole)) {
+      if (profileData?.assigned_hotel && !['admin', 'top_management', 'top_management_manager'].includes(currentUserRole)) {
         const managerHotel = profileData.assigned_hotel;
         hotelVariations.push(managerHotel);
         
@@ -666,7 +666,7 @@ export function HousekeepingStaffManagement() {
   };
 
   // Allow access for admins, top management, managers, and housekeeping managers
-  if (!['admin', 'top_management', 'manager', 'housekeeping_manager'].includes(currentUserRole)) {
+  if (!['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager'].includes(currentUserRole)) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
         <p className="text-sm">{t('staff.accessRestricted')}</p>
