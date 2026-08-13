@@ -71,7 +71,6 @@ interface Row {
 
 const ALLOWED = ["admin", "top_management", "top_management_manager"];
 
-/** Data younger than this is considered fresh — no automatic re-sync. */
 /** How often the page quietly pulls Previo again while it stays open. */
 const BACKGROUND_SYNC_MS = 5 * 60 * 1000;
 const DOW_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
