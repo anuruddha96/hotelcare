@@ -648,7 +648,13 @@ export default function RevenueHotelDetail() {
     load();
   }
 
+  // Never render another property's price list under the current header.
+  if (contextMismatch) {
+    return <HotelSwitchOverlay hotelName={alignTo || hotelName || "property"} />;
+  }
+
   return (
+
     <div className="min-h-screen bg-background">
       {welcomeBack && (
         <WelcomeBackOverlay name={profile?.full_name} step={syncStep} progress={syncPct} />
