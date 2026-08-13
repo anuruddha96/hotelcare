@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { runPmsRefresh, type PmsSyncStatus } from "@/lib/pmsRefresh";
 import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
+import { fetchRevenueSyncInfo } from "@/lib/revenueFreshness";
 
 export type TaskName = "pms" | "revenue" | "checkouts" | "pms_changes";
 
@@ -164,6 +165,10 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     }
     const now = Date.now();
     if (!force && now - lastRunRef.current.revenue < THROTTLE_MS) return;
+    if (!force) {
+      const info = await fetchRevenueSyncInfo(hotelId);
+      if (!info.stale) return;
+    }
     lastRunRef.current.revenue = now;
     setTasks((p) => ({ ...p, revenue: { ...p.revenue, status: "syncing" } }));
     try {

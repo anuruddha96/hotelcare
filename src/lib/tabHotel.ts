@@ -6,8 +6,9 @@
  * sessionStorage is scoped to one tab, so a manager can keep one window open
  * per property.
  *
- * A tab only gets an override once the user switches property inside that tab;
- * untouched tabs keep the account default.
+ * The first profile load pins the account default into this tab. Later profile
+ * refreshes cannot move an already-open tab when another window changes the
+ * account default.
  */
 
 const KEY = "hotelcare.tabHotel";
@@ -31,7 +32,11 @@ export function setTabHotel(hotelId: string | null): void {
 
 /** Apply this tab's property choice to a freshly loaded profile row. */
 export function withTabHotel<T extends { assigned_hotel?: string | null }>(profile: T): T {
-  const tabHotel = getTabHotel();
-  if (!tabHotel || !profile) return profile;
+  let tabHotel = getTabHotel();
+  if (!tabHotel && profile?.assigned_hotel) {
+    setTabHotel(profile.assigned_hotel);
+    tabHotel = profile.assigned_hotel;
+  }
+  if (!tabHotel) return profile;
   return { ...profile, assigned_hotel: tabHotel };
 }

@@ -75,6 +75,7 @@ function shiftMonth(key: string, delta: number) {
  */
 export default function MonthPerformanceHeader({
   today, metrics, pickupWindowDays, onPickupWindowChange, hotelId, canEdit, roomsAvailable,
+  selectedMonth, onSelectedMonthChange,
 }: {
   today: string;
   metrics: DayMetrics[];
@@ -83,8 +84,15 @@ export default function MonthPerformanceHeader({
   hotelId?: string | null;
   canEdit?: boolean;
   roomsAvailable?: number;
+  selectedMonth?: string;
+  onSelectedMonthChange?: (month: string) => void;
 }) {
-  const [month, setMonth] = useState(() => monthKey(today));
+  const [internalMonth, setInternalMonth] = useState(() => monthKey(today));
+  const month = selectedMonth ?? internalMonth;
+  const setMonth = (value: string) => {
+    setInternalMonth(value);
+    onSelectedMonthChange?.(value);
+  };
   const currency = useRevenueCurrency();
   const [rateInput, setRateInput] = useState(currency.eurRate ? String(currency.eurRate) : "");
 

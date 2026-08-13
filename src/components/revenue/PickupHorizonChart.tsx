@@ -94,6 +94,8 @@ interface Props {
   hotels?: HotelRef[];
   /** The property this chart belongs to (highlighted in comparison mode). */
   hotelId?: string | null;
+  /** Calendar month shared with the headline performance card. */
+  selectedMonth: string;
 }
 
 /**
@@ -102,7 +104,7 @@ interface Props {
  * Bars are net pickup. On top of them the reader can layer occupancy, ADR, an
  * in-house Budapest demand index, and one occupancy line per sister property.
  */
-export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickupWindowChange, hotels = [], hotelId }: Props) {
+export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickupWindowChange, hotels = [], hotelId, selectedMonth }: Props) {
   const isMobile = useIsMobile();
   // Wide bars beat a long horizon on a phone: 30 days is still readable.
   const [days, setDays] = useState(() => (typeof window !== "undefined" && window.innerWidth < 768 ? 30 : 60));
@@ -225,25 +227,35 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
     };
   }), [metrics, days, demandByDate, compare, hotels, latestByHotelDate]);
 
-  /** Next-30-day headline per property, the number owners quote each other. */
+  /** Same calendar-month KPIs and weighted formulas as the headline card. */
   const comparisonSummary = useMemo(() => {
     if (!compare) return [];
-    const cutoff = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+    const selectedRows = metrics.filter((m) => m.stay_date.slice(0, 7) === selectedMonth);
     return hotels.map((h) => {
-      const mine = Array.from(latestByHotelDate.values())
-        .filter((r) => r.hotel_id === h.hotel_id && r.stay_date <= cutoff);
-      const occ = mine.map((r) => Number(r.occupancy_pct ?? 0)).filter((n) => n > 0);
-      const adr = mine.map((r) => Number(r.adr_eur ?? 0)).filter((n) => n > 0);
-      const revenue = mine.reduce((s, r) => s + Number(r.revenue_eur ?? 0), 0);
-      const roomNights = mine.reduce((s, r) => s + (Number(r.rooms_available) || 0), 0);
+      const isCurrent = h.hotel_id === hotelId;
+      const mine = Array.from(latestByHotelDate.values()).filter(
+        (r) => r.hotel_id === h.hotel_id && r.stay_date.slice(0, 7) === selectedMonth,
+      );
+      const sold = isCurrent
+        ? selectedRows.reduce((s, r) => s + r.roomsSold, 0)
+        : mine.reduce((s, r) => {
+            const capacity = Number(r.rooms_available) || 0;
+            return s + (capacity * (Number(r.occupancy_pct) || 0)) / 100;
+          }, 0);
+      const capacity = isCurrent
+        ? selectedRows.reduce((s, r) => s + r.roomsAvailable, 0)
+        : mine.reduce((s, r) => s + (Number(r.rooms_available) || 0), 0);
+      const revenue = isCurrent
+        ? selectedRows.reduce((s, r) => s + r.revenueEur, 0)
+        : mine.reduce((s, r) => s + Number(r.revenue_eur ?? 0), 0);
       return {
         ...h,
-        occ: occ.length ? Math.round(occ.reduce((a, b) => a + b, 0) / occ.length) : 0,
-        adr: adr.length ? Math.round(adr.reduce((a, b) => a + b, 0) / adr.length) : 0,
-        revpar: roomNights > 0 ? Math.round(revenue / roomNights) : 0,
+        occ: capacity > 0 ? Math.round((sold / capacity) * 100) : 0,
+        adr: sold > 0 ? Math.round(revenue / sold) : 0,
+        revpar: capacity > 0 ? Math.round(revenue / capacity) : 0,
       };
     }).sort((a, b) => (a.hotel_id === hotelId ? -1 : b.hotel_id === hotelId ? 1 : 0));
-  }, [compare, hotels, latestByHotelDate, hotelId]);
+  }, [compare, hotels, latestByHotelDate, hotelId, metrics, selectedMonth]);
 
   /** Labels for the month dividers drawn across the plot. */
   const monthMarks = useMemo(() => data.filter((d) => d.monthStart), [data]);
@@ -387,7 +399,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                       <p className="text-base font-semibold leading-tight">{money(s.revpar)}</p>
                     </div>
                   </div>
-                  <p className="mt-1 text-[10px] text-muted-foreground">next 30 days · tap to {on ? "hide" : "show"}</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">{selectedMonth} · tap to {on ? "hide" : "show"}</p>
                 </button>
               );
             })}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchRevenueSyncInfo } from "@/lib/revenueFreshness";
 import { useAuth } from "@/hooks/useAuth";
@@ -71,7 +71,7 @@ interface Row {
 
 const ALLOWED = ["admin", "top_management", "top_management_manager"];
 
-/** How often the page quietly pulls Previo again while it stays open. */
+/** How often the page re-checks the shared property freshness timestamp. */
 const BACKGROUND_SYNC_MS = 5 * 60 * 1000;
 const DOW_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
@@ -85,7 +85,6 @@ export default function RevenueHotelDetail() {
   const { hotels: tenantHotels } = useTenant();
   const { organizationSlug, hotelId } = useParams<{ organizationSlug: string; hotelId: string }>();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   useRevenueCurrency(); // re-render the whole page when the Ft/€ switch flips
 
   const [hotelName, setHotelName] = useState("");
@@ -105,6 +104,7 @@ export default function RevenueHotelDetail() {
   const [view, setView] = useState<"week"|"month"|"quarter"|"year">("month");
   const [tab, setTab] = useState("grid");
   const [pickupWindow, setPickupWindow] = useState(1);
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const live = useRevenueHotelData(hotelId ?? null, 190, pickupWindow);
 
   // Internal demand grade per date (booking pace, pickup, pressure, lead time).
@@ -200,34 +200,32 @@ export default function RevenueHotelDetail() {
     void load();
   }, [loading, profile?.role, hotelId]);
 
-  // Executives (and ?autosync=1) land straight on the Rate Grid. The sync
-  // itself is throttled: if Previo data is younger than 15 minutes we simply
-  // use it. A manual "Sync now" always runs.
+  // Executives land straight on the Rate Grid. The property-wide history is
+  // authoritative: data pulled by any user in the last 30 minutes is reused.
   useEffect(() => {
     if (loading || !profile || !hotelId) return;
     if (autoSyncedRef.current) return;
-    const forced = searchParams.get("autosync") === "1";
     autoSyncedRef.current = true;
-    if (forced || !isRevenueAdmin(profile.role)) setTab("grid");
+    if (!isRevenueAdmin(profile.role)) setTab("grid");
     void (async () => {
-      if (!forced) {
-        // Every property refreshes itself when nobody has pulled Previo for
-        // this venue in the last 30 minutes — no matter who opens the page.
-        const info = await fetchRevenueSyncInfo(hotelId);
-        if (!info.stale) return;
-      }
+      const info = await fetchRevenueSyncInfo(hotelId);
+      if (!info.stale) return;
       await runSync();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, profile?.role, hotelId]);
 
-  // Keep the page honest while it stays open: pull Previo again every few
-  // minutes, but only while the tab is actually visible.
+  // Keep the page honest while it stays open without making every tab pull.
+  // Each tick first consults shared history, so at most one refresh is needed
+  // per property per 30-minute window.
   useEffect(() => {
     if (!hotelId) return;
     const id = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      void runSync();
+      void (async () => {
+        const info = await fetchRevenueSyncInfo(hotelId);
+        if (info.stale) await runSync();
+      })();
     }, BACKGROUND_SYNC_MS);
     return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -659,6 +657,8 @@ export default function RevenueHotelDetail() {
             hotelId={hotelId ?? null}
             canEdit={isTechnicalAdmin}
             roomsAvailable={live.roomsAvailable}
+            selectedMonth={selectedMonth}
+            onSelectedMonthChange={setSelectedMonth}
           />
 
           <RateStrategyGrid
@@ -680,7 +680,8 @@ export default function RevenueHotelDetail() {
           />
 
           <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow}
-            hotels={tenantHotels.map((h) => ({ hotel_id: h.hotel_id, hotel_name: h.hotel_name }))} hotelId={hotelId ?? null} />
+            hotels={tenantHotels.map((h) => ({ hotel_id: h.hotel_id, hotel_name: h.hotel_name }))} hotelId={hotelId ?? null}
+            selectedMonth={selectedMonth} />
           <PickupMovementBoard
             metrics={live.metrics}
             windowDays={pickupWindow}
