@@ -1621,6 +1621,7 @@ export type Database = {
           pickup_step_2_eur: number
           pickup_step_3_eur: number
           pickup_strong_threshold: number
+          promo_budget: number | null
           rate_alert_emails_enabled: boolean
           rate_critical_below_eur: number
           rate_max_sane_eur: number
@@ -1632,6 +1633,9 @@ export type Database = {
           surge_increase_eur: number
           surge_threshold: number
           surge_window_minutes: number
+          target_adr: number | null
+          target_booking_value: number | null
+          target_room_nights: number | null
           updated_at: string
           weekday_decrease_eur: number
           weekend_decrease_eur: number
@@ -1669,6 +1673,7 @@ export type Database = {
           pickup_step_2_eur?: number
           pickup_step_3_eur?: number
           pickup_strong_threshold?: number
+          promo_budget?: number | null
           rate_alert_emails_enabled?: boolean
           rate_critical_below_eur?: number
           rate_max_sane_eur?: number
@@ -1680,6 +1685,9 @@ export type Database = {
           surge_increase_eur?: number
           surge_threshold?: number
           surge_window_minutes?: number
+          target_adr?: number | null
+          target_booking_value?: number | null
+          target_room_nights?: number | null
           updated_at?: string
           weekday_decrease_eur?: number
           weekend_decrease_eur?: number
@@ -1717,6 +1725,7 @@ export type Database = {
           pickup_step_2_eur?: number
           pickup_step_3_eur?: number
           pickup_strong_threshold?: number
+          promo_budget?: number | null
           rate_alert_emails_enabled?: boolean
           rate_critical_below_eur?: number
           rate_max_sane_eur?: number
@@ -1728,6 +1737,9 @@ export type Database = {
           surge_increase_eur?: number
           surge_threshold?: number
           surge_window_minutes?: number
+          target_adr?: number | null
+          target_booking_value?: number | null
+          target_room_nights?: number | null
           updated_at?: string
           weekday_decrease_eur?: number
           weekend_decrease_eur?: number
