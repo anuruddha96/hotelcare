@@ -513,6 +513,27 @@ export default function RateStrategyGrid({
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Ctrl/⌘ + scroll (and trackpad pinch) resizes the calendar, the way a
+  // spreadsheet does. The listener must be non-passive, otherwise the browser
+  // zooms the whole page instead.
+  const zoomGestureRef = useRef<(delta: number) => void>(() => {});
+  zoomGestureRef.current = (delta: number) => {
+    const dy = delta;
+    setZoom(zoom * Math.exp(-dy * 0.0015), true);
+  };
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1);
+      zoomGestureRef.current(dy);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
 
   const allDates = useMemo(() => dateRange(today, addDays(today, days - 1)), [today, days]);
   /** When on, the grid shows only the cells flagged by the safety net. */
