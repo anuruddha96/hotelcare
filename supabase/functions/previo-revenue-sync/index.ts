@@ -745,13 +745,14 @@ serve(async (req) => {
         if (confirmed) reconciledDrafts += 1; else divergentDrafts += 1;
         if (changedState && orgSlug) {
           const origin = originByCell.get(`${draft.stay_date}|${draft.room_type_name}|${draft.occupancy}`) ?? null;
+          const isAutomation = draft.push_run_id ? automationRuns.has(draft.push_run_id) : false;
           const manualOrigin = origin === "day-tool" || origin === "cell-edit" || origin === "pickup-board";
           auditRows.push({
             hotel_id: hotelId,
             organization_slug: orgSlug,
             action: confirmed ? "price_confirmed" : "price_landed_differently",
             source: confirmed
-              ? (manualOrigin ? "previo_confirmed" : "previo_bulk_confirmed")
+              ? (isAutomation ? "previo_automation_confirmed" : (manualOrigin ? "previo_confirmed" : "previo_bulk_confirmed"))
               : "previo_different",
             stay_date: draft.stay_date,
             old_rate_eur: draft.old_price,
@@ -768,7 +769,7 @@ serve(async (req) => {
               actual_previo_price: landed,
               confirmation_status: confirmationStatus,
               push_run_id: draft.push_run_id,
-              origin,
+              origin: isAutomation ? "pickup-automation" : origin,
             },
           });
         }
