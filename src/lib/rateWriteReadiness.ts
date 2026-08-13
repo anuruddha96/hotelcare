@@ -31,20 +31,19 @@ export function useRateWriteReadiness(hotelId: string | null | undefined): RateW
       ]);
       if (cancelled) return;
 
-      const accountReady = (accounts ?? []).some(
-        (a) => a.is_active && a.pms_hotel_id && a.credentials_secret_name,
-      );
-      const configReady = Boolean(cfg?.is_active && cfg?.credentials_secret_name);
+      // Previo issued HotelCare a single API login and the property is picked
+      // by its Previo hotel id, so an active profile with a `pms_hotel_id` can
+      // send prices even when no per-property secret name is stored.
+      const accountReady = (accounts ?? []).some((a) => a.is_active && a.pms_hotel_id);
+      const configReady = Boolean(cfg?.is_active);
 
       if (accountReady || configReady) { setState({ ready: true, reason: "" }); return; }
 
-      const hasAccountsWithoutCreds = (accounts ?? []).some((a) => a.is_active && !a.credentials_secret_name);
       setState({
         ready: false,
-        reason: hasAccountsWithoutCreds
-          ? "Price sending is not set up for this property yet — its PMS profiles have no saved API login, so prices stay in HotelCare."
-          : "Price sending is not set up for this property yet — no active PMS connection was found.",
+        reason: "Price sending is not set up for this property yet — no active PMS connection was found.",
       });
+
     })();
     return () => { cancelled = true; };
   }, [hotelId]);
