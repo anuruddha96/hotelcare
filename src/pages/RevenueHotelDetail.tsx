@@ -46,6 +46,7 @@ import RevenueIntelligencePanel from "@/components/revenue/RevenueIntelligencePa
 
 
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
+import { WelcomeBackOverlay } from "@/components/revenue/WelcomeBackOverlay";
 import { isRevenueAdmin } from "@/lib/roleAccess";
 import { Header } from "@/components/layout/Header";
 import { MainTabsBar } from "@/components/layout/MainTabsBar";
@@ -601,6 +602,9 @@ export default function RevenueHotelDetail() {
 
   return (
     <div className="min-h-screen bg-background">
+      {welcomeBack && (
+        <WelcomeBackOverlay name={profile?.full_name} step={syncStep} progress={syncPct} />
+      )}
       <Header />
       <div className="container mx-auto px-3 sm:px-4 pt-3">
         <MainTabsBar current="revenue" />
