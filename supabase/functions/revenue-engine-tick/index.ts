@@ -184,19 +184,12 @@ serve(async (req) => {
     // Expire stale (errors swallowed; non-critical)
     try { await supabase.rpc("expire_stale_recommendations"); } catch (_) { /* ignore */ }
 
-    // Fan-out: sync every active Previo hotel (revenue + daily overview).
-    // Failures per hotel are logged but never block the tick.
+    // Sync exactly the one property this tick owns (revenue + daily overview).
+    // Failures are logged but never block the tick.
     let previoSynced = 0;
     let previoErrors = 0;
     try {
-      const { data: previoHotels } = await supabase
-        .from("pms_configurations")
-        .select("hotel_id")
-        .eq("pms_type", "previo")
-        .eq("is_active", true);
-      const targets = (previoHotels ?? [])
-        .map((p: any) => p.hotel_id)
-        .filter((h: string) => !onlyHotel || h === onlyHotel);
+      const targets = targetHotel ? [targetHotel] : [];
       const SUPA_URL = Deno.env.get("SUPABASE_URL")!;
       const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
       const invokeFn = async (name: string, body: any) => {
