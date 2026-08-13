@@ -742,10 +742,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const getStaffName = (roomId: string): string | null => {
     const assignment = assignmentMap.get(roomId);
     if (!assignment) return null;
-    const name = staffMap[assignment.assigned_to];
-    if (!name) return null;
-    const parts = name.split(' ');
-    return parts[0].length <= 8 ? parts[0] : parts[0].substring(0, 7) + '.';
+    return assigneeLabel(staffMap, assignment.assigned_to);
   };
 
   const getAssignmentStatus = (roomId: string): string | null => {
@@ -960,7 +957,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             <span className="text-[8px]" title={summarizePmsNote(roomFlags.cleanNotes) || roomFlags.cleanNotes}>📝</span>
           )}
           {staffName && (
-            <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[48px]">
+            <span className="text-[9px] text-muted-foreground font-medium leading-tight text-center max-w-[76px] break-words" title={staffMap[assignment?.assigned_to ?? ''] || staffName || undefined}>
               {staffName}
             </span>
           )}
@@ -1530,12 +1527,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const noShow = isNoShow(room) && !isEarlyCheckout(room);
     const earlyCheckout = isEarlyCheckout(room);
     const sizeLabel = getSizeLabel(room.room_size_sqm);
-    const staffName = (() => {
-      const n = staffMap[prev.assigned_to];
-      if (!n) return null;
-      const p = n.split(' ')[0];
-      return p.length <= 8 ? p : p.substring(0, 7) + '.';
-    })();
+    const staffName = assigneeLabel(staffMap, prev.assigned_to);
     return (
       <div className="flex flex-col items-center gap-0.5 select-none opacity-60 saturate-75 transition-opacity hover:opacity-80" style={{ cursor: 'not-allowed' }}>
         <div
@@ -1588,7 +1580,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             <span className="text-[8px]" title={summarizePmsNote(roomFlags.cleanNotes) || roomFlags.cleanNotes}>📝</span>
           )}
           {staffName && (
-            <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[48px]">{staffName}</span>
+            <span className="text-[9px] text-muted-foreground font-medium leading-tight text-center max-w-[76px] break-words" title={staffMap[prev.assigned_to] || staffName || undefined}>{staffName}</span>
           )}
           {prev.completed_at && (
             <span className="text-[8px] text-muted-foreground/80">
@@ -1902,8 +1894,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         <div className="flex flex-wrap gap-1.5">
           {publicAreaTasks.map(task => {
             const colorClass = TASK_STATUS_COLORS[task.status] || DEFAULT_COLOR;
-            const staffName = staffMap[task.assigned_to];
-            const shortName = staffName ? (staffName.split(' ')[0].length <= 8 ? staffName.split(' ')[0] : staffName.split(' ')[0].substring(0, 7) + '.') : null;
+            const staffName = cleanName(staffMap[task.assigned_to]) || null;
+            const shortName = assigneeLabel(staffMap, task.assigned_to);
 
             return (
               <TooltipProvider key={task.id} delayDuration={200}>
@@ -1914,7 +1906,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                         {task.task_name}
                       </div>
                       {shortName && (
-                        <span className="text-[9px] text-muted-foreground font-medium truncate max-w-[60px]">
+                        <span className="text-[9px] text-muted-foreground font-medium leading-tight text-center max-w-[76px] break-words" title={staffName || undefined}>
                           {shortName}
                         </span>
                       )}
