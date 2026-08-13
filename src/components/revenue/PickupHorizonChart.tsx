@@ -111,6 +111,13 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
   const [showAdr, setShowAdr] = useState(false);
   const [showDemand, setShowDemand] = useState(true);
   const [compare, setCompare] = useState(false);
+  /** Properties the reader has switched off in comparison mode. */
+  const [hiddenHotels, setHiddenHotels] = useState<Set<string>>(new Set());
+  const toggleHotel = (id: string) => setHiddenHotels((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
   const [period, setPeriod] = useState<PeriodKey>("today");
   const [customDays, setCustomDays] = useState(7);
   const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
@@ -235,8 +242,8 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
         adr: adr.length ? Math.round(adr.reduce((a, b) => a + b, 0) / adr.length) : 0,
         revpar: roomNights > 0 ? Math.round(revenue / roomNights) : 0,
       };
-    });
-  }, [compare, hotels, latestByHotelDate]);
+    }).sort((a, b) => (a.hotel_id === hotelId ? -1 : b.hotel_id === hotelId ? 1 : 0));
+  }, [compare, hotels, latestByHotelDate, hotelId]);
 
   /** Labels for the month dividers drawn across the plot. */
   const monthMarks = useMemo(() => data.filter((d) => d.monthStart), [data]);
@@ -345,18 +352,45 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
       <CardContent className="px-1 sm:px-4">
         {compare && comparisonSummary.length > 0 && (
           <div className="mb-3 grid grid-cols-2 gap-2 px-2 lg:grid-cols-4">
-            {comparisonSummary.map((s, i) => (
-              <div key={s.hotel_id} className={`rounded-lg border p-2 ${s.hotel_id === hotelId ? "border-primary" : ""}`}>
-                <div className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: colorFor(s.hotel_id, i) }} />
-                  <p className="truncate text-xs font-medium">{s.hotel_name}</p>
-                </div>
-                <p className="mt-1 text-xl font-semibold tabular-nums">{s.occ}%</p>
-                <p className="text-[11px] text-muted-foreground">
-                  next 30 days · ADR {s.adr} · RevPAR {s.revpar}
-                </p>
-              </div>
-            ))}
+            {comparisonSummary.map((s) => {
+              const on = !hiddenHotels.has(s.hotel_id);
+              const color = colorFor(s.hotel_id, hotels.findIndex((h) => h.hotel_id === s.hotel_id));
+              return (
+                <button
+                  key={s.hotel_id}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => toggleHotel(s.hotel_id)}
+                  className={`rounded-lg border p-2 text-left transition ${s.hotel_id === hotelId ? "border-primary" : ""} ${on ? "" : "opacity-45"}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-3 w-3 shrink-0 rounded-[3px] border"
+                      style={{ background: on ? color : "transparent", borderColor: color }}
+                    />
+                    <p className="truncate text-xs font-medium">{s.hotel_name}</p>
+                    {s.hotel_id === hotelId && (
+                      <Badge variant="secondary" className="ml-auto h-4 px-1 text-[9px] font-normal">This one</Badge>
+                    )}
+                  </div>
+                  <div className="mt-1.5 grid grid-cols-3 gap-1 tabular-nums">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Occupancy</p>
+                      <p className="text-base font-semibold leading-tight">{s.occ}%</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">ADR</p>
+                      <p className="text-base font-semibold leading-tight">{money(s.adr)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">RevPAR</p>
+                      <p className="text-base font-semibold leading-tight">{money(s.revpar)}</p>
+                    </div>
+                  </div>
+                  <p className="mt-1 text-[10px] text-muted-foreground">next 30 days · tap to {on ? "hide" : "show"}</p>
+                </button>
+              );
+            })}
           </div>
         )}
         <div className="h-72">
@@ -408,17 +442,19 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   reader can isolate pickup when the lines overlap. */}
               <Legend
                 wrapperStyle={{ fontSize: 11, cursor: "pointer" }}
-                onClick={(entry: { value?: string }) => {
+                onClick={(entry: { value?: string; id?: string }) => {
                   if (entry?.value === "Occupancy") setShowOcc((v) => !v);
                   if (entry?.value === "ADR") setShowAdr((v) => !v);
                   if (entry?.value === "City demand") setShowDemand((v) => !v);
+                  const hotel = hotels.find((h) => h.hotel_name === entry?.value);
+                  if (hotel) toggleHotel(hotel.hotel_id);
                 }}
                 payload={[
                   { value: "Pickup", type: "square", color: PICKUP_LEGEND_COLOR, id: "pickup" },
                   { value: "Occupancy", type: "line", color: showOcc ? "hsl(var(--primary))" : "hsl(var(--muted-foreground) / 0.4)", id: "occ" },
                   { value: "ADR", type: "line", color: showAdr ? ADR_COLOR : "hsl(var(--muted-foreground) / 0.4)", id: "adr" },
                   ...(hasDemand ? [{ value: "City demand", type: "line" as const, color: showDemand ? DEMAND_COLOR : "hsl(var(--muted-foreground) / 0.4)", id: "demand" }] : []),
-                  ...(compare ? hotels.map((h, i) => ({ value: h.hotel_name, type: "line" as const, color: colorFor(h.hotel_id, i), id: h.hotel_id })) : []),
+                  ...(compare ? hotels.map((h, i) => ({ value: h.hotel_name, type: "line" as const, color: hiddenHotels.has(h.hotel_id) ? "hsl(var(--muted-foreground) / 0.4)" : colorFor(h.hotel_id, i), id: h.hotel_id })) : []),
                 ]}
               />
               <Bar yAxisId="pickup" dataKey="pickup" name="Pickup" radius={[2, 2, 0, 0]} maxBarSize={18} minPointSize={3}
@@ -449,26 +485,15 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
               {showAdr && (
                 <Line yAxisId={usesPercentAxis ? "adr" : "adr"} type="monotone" dataKey="adr" name="ADR" stroke={ADR_COLOR} strokeWidth={2} dot={false} connectNulls={false} opacity={0.9} />
               )}
-              {compare && hotels.map((h, i) => (
+              {compare && hotels.filter((h) => !hiddenHotels.has(h.hotel_id)).map((h) => (
                 <Line key={h.hotel_id} yAxisId="right" type="monotone" dataKey={`h_${h.hotel_id}`} name={h.hotel_name}
-                  stroke={colorFor(h.hotel_id, i)} strokeWidth={h.hotel_id === hotelId ? 2.5 : 1.5}
+                  stroke={colorFor(h.hotel_id, hotels.findIndex((x) => x.hotel_id === h.hotel_id))}
+                  strokeWidth={h.hotel_id === hotelId ? 2.5 : 1.5}
                   dot={false} connectNulls opacity={0.85} />
               ))}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
-        <p className="px-3 pt-2 text-[11px] text-muted-foreground">
-          Bars: net pickup per arrival date (new bookings minus cancellations) inside the measurement
-          window — left axis, in rooms. Orange to red as pickup grows, blue when it turns negative.
-          Lines read on the right axis: occupancy for this property, ADR on its own money scale, and
-          <span className="font-medium"> city demand</span> — the average occupancy of every property you
-          can see, an in-house Budapest estimate rather than a paid market benchmark; dashed sections are
-          predicted from the day-of-week pattern where no property has data yet.
-          {hotels.length > 1 ? " “Compare properties” adds one occupancy line per property." : ""}
-          {isMobile ? " One of occupancy / ADR at a time on mobile." : " Tap a legend entry to hide or show a line."}
-          {" "}Dashed vertical lines mark the start of each month. Source: Previo, refreshed at each sync.
-        </p>
-
       </CardContent>
 
     </Card>
