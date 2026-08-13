@@ -111,6 +111,13 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
   const [showAdr, setShowAdr] = useState(false);
   const [showDemand, setShowDemand] = useState(true);
   const [compare, setCompare] = useState(false);
+  /** Properties the reader has switched off in comparison mode. */
+  const [hiddenHotels, setHiddenHotels] = useState<Set<string>>(new Set());
+  const toggleHotel = (id: string) => setHiddenHotels((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
   const [period, setPeriod] = useState<PeriodKey>("today");
   const [customDays, setCustomDays] = useState(7);
   const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
