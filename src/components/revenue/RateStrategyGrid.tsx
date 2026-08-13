@@ -1276,7 +1276,7 @@ export default function RateStrategyGrid({
             <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="font-medium text-foreground">Changed in the last 7 days:</span>
+            <span className="font-medium text-foreground">Changed today:</span>
             <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary inline-block" />by your team</span>
             <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-purple-500 inline-block" />by the automation tool</span>
             <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-amber-500 inline-block" />in Previo</span>
