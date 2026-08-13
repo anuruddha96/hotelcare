@@ -308,7 +308,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
       return out;
     };
     return [...build(rows, false), ...build(cancelledRows, true)];
-  }, [rows, cancelledRows, stayFrom, stayTo]);
+  }, [rows, cancelledRows, stayFilterOn, stayFrom, stayTo]);
 
   /** Bookings created inside the selected period (cancellations optional). */
   const periodBookings = useMemo(
