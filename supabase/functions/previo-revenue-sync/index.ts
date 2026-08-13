@@ -637,12 +637,14 @@ serve(async (req) => {
     }
     const { data: outstanding, error: draftReadError } = await service
       .from("revenue_rate_drafts")
-      .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, created_by, push_run_id, confirmation_status, actual_previo_price")
+      .select("id, created_at, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, created_by, push_run_id, confirmation_status, actual_previo_price")
       .eq("hotel_id", hotelId)
       .eq("status", "pushed")
       .in("confirmation_status", ["sending", "sent", "checking", "pending", "different"])
       .gte("stay_date", from)
-      .lte("stay_date", to);
+      .lte("stay_date", to)
+      .order("created_at", { ascending: false });
+
     if (draftReadError) {
       errors.push(`draft reconciliation read: ${draftReadError.message}`);
     } else {
@@ -671,15 +673,28 @@ serve(async (req) => {
       }
       const auditRows: Record<string, unknown>[] = [];
       const claimedCells = new Set<string>();
+      // A cell can be re-priced several times a day. Only the newest request
+      // for a cell can be judged against the live Previo price — older ones
+      // were deliberately replaced, so flagging them as "landed differently"
+      // was false alarm noise. They are closed as superseded instead.
+      const settledCells = new Set<string>();
       for (const draft of (outstanding ?? []) as Array<{
-        id: string; stay_date: string; obk_id: string | null; room_type_name: string;
+        id: string; created_at: string; stay_date: string; obk_id: string | null; room_type_name: string;
         occupancy: number; old_price: number | null; new_price: number; created_by: string | null;
         push_run_id: string | null; confirmation_status: string | null; actual_previo_price: number | null;
       }>) {
         if (!draft.obk_id) continue;
         const cell = `${draft.stay_date}|${draft.obk_id}|${draft.occupancy}`;
+        if (settledCells.has(cell)) {
+          await service.from("revenue_rate_drafts")
+            .update({ confirmation_status: "superseded", last_checked_at: checkedAt, push_error: null })
+            .eq("id", draft.id);
+          continue;
+        }
+        settledCells.add(cell);
         const live = livePrice.get(cell);
         if (!live) continue;
+
         claimedCells.add(`${draft.stay_date}|${draft.obk_id}|${live.ratePlanId}|${draft.occupancy}`);
         const landed = live.price;
         const confirmed = Math.abs(landed - Number(draft.new_price)) < 0.01;
