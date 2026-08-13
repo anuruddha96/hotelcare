@@ -767,6 +767,12 @@ export default function RateStrategyGrid({
   useEffect(() => { void refreshDrafts(); }, [refreshDrafts]);
 
   const failedCount = useMemo(() => pending.filter((d) => d.status === "failed").length, [pending]);
+  /** Cells Previo refused, so the grid can say so plainly. */
+  const failedCells = useMemo(
+    () => new Set(pending.filter((d) => d.status === "failed")
+      .map((d) => cellKey(d.stay_date, d.room_type_name, d.occupancy))),
+    [pending],
+  );
 
   // Three very different states used to be counted as one "waiting" number:
   // a price nobody has sent yet, a price Previo already accepted, and a price
