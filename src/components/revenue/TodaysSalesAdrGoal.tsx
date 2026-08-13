@@ -250,7 +250,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     const wideFrom = `${addDays(bookedFrom, -8)}T00:00:00Z`;
     const wideTo = `${addDays(bookedTo, 1)}T23:59:59Z`;
     const cols = "res_id, room_key, stay_date, room_type_name, guests, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, status_id";
-    const [live, cancelled] = await Promise.all([
+    const [live, cancelled, cancelledInPeriod] = await Promise.all([
       supabase.from("revenue_booking_nights").select(cols)
         .eq("hotel_id", hotelId)
         .gte("created_at_pms", wideFrom).lte("created_at_pms", wideTo)
@@ -259,9 +259,19 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
         .eq("hotel_id", hotelId)
         .gte("created_at_pms", wideFrom).lte("created_at_pms", wideTo)
         .order("created_at_pms", { ascending: false }).limit(5000),
+      // A booking made weeks ago but cancelled inside the period is today's
+      // negative pickup, so it has to be pulled by its cancellation time too.
+      supabase.from("revenue_cancelled_nights").select(`${cols}, cancelled_at`)
+        .eq("hotel_id", hotelId)
+        .gte("cancelled_at", wideFrom).lte("cancelled_at", wideTo)
+        .order("cancelled_at", { ascending: false }).limit(5000),
     ]);
     setRows((live.data ?? []) as unknown as NightRow[]);
-    setCancelledRows((cancelled.data ?? []) as unknown as NightRow[]);
+    const merged = new Map<string, NightRow>();
+    for (const r of [...(cancelled.data ?? []), ...(cancelledInPeriod.data ?? [])] as unknown as NightRow[]) {
+      merged.set(`${r.res_id}|${r.room_key ?? ""}|${r.stay_date}`, r);
+    }
+    setCancelledRows(Array.from(merged.values()));
     setLoading(false);
   }, [hotelId, bookedFrom, bookedTo]);
 
