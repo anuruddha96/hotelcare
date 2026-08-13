@@ -174,7 +174,7 @@ export function SimplifiedDirtyLinenManagement() {
     if (dateRange?.from && allLinenItems.length > 0) {
       fetchData();
     }
-  }, [dateRange, allLinenItems]);
+  }, [dateRange, allLinenItems, profile?.assigned_hotel]);
 
   const exportToCSV = () => {
     if (!dateRange?.from) return;
