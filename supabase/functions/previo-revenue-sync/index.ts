@@ -637,12 +637,14 @@ serve(async (req) => {
     }
     const { data: outstanding, error: draftReadError } = await service
       .from("revenue_rate_drafts")
-      .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, created_by, push_run_id, confirmation_status, actual_previo_price")
+      .select("id, created_at, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, created_by, push_run_id, confirmation_status, actual_previo_price")
       .eq("hotel_id", hotelId)
       .eq("status", "pushed")
       .in("confirmation_status", ["sending", "sent", "checking", "pending", "different"])
       .gte("stay_date", from)
-      .lte("stay_date", to);
+      .lte("stay_date", to)
+      .order("created_at", { ascending: false });
+
     if (draftReadError) {
       errors.push(`draft reconciliation read: ${draftReadError.message}`);
     } else {
