@@ -46,6 +46,7 @@ import RevenueIntelligencePanel from "@/components/revenue/RevenueIntelligencePa
 
 
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
+import { WelcomeBackOverlay } from "@/components/revenue/WelcomeBackOverlay";
 import { isRevenueAdmin } from "@/lib/roleAccess";
 import { Header } from "@/components/layout/Header";
 import { MainTabsBar } from "@/components/layout/MainTabsBar";
@@ -73,6 +74,8 @@ const ALLOWED = ["admin", "top_management", "top_management_manager"];
 
 /** How often the page re-checks the shared property freshness timestamp. */
 const BACKGROUND_SYNC_MS = 5 * 60 * 1000;
+/** How long a tab must sit idle before we greet the user on their return. */
+const IDLE_WELCOME_MS = 20 * 60 * 1000;
 const DOW_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 function fmtMonth(d: Date) { return d.toLocaleString("en-US", { month: "long", year: "numeric" }); }
@@ -260,6 +263,31 @@ export default function RevenueHotelDetail() {
       })();
     }, BACKGROUND_SYNC_MS);
     return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotelId]);
+
+  // Coming back to a tab that sat idle for a long time: greet the user and
+  // hold the screen until fresh numbers are in, instead of quietly swapping
+  // stale figures under their eyes.
+  const hiddenSince = useRef<number | null>(null);
+  const [welcomeBack, setWelcomeBack] = useState(false);
+  useEffect(() => {
+    if (!hotelId) return;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenSince.current = Date.now();
+        return;
+      }
+      const away = hiddenSince.current ? Date.now() - hiddenSince.current : 0;
+      hiddenSince.current = null;
+      if (away < IDLE_WELCOME_MS) return;
+      setWelcomeBack(true);
+      void (async () => {
+        try { await runSync(); } finally { setWelcomeBack(false); }
+      })();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hotelId]);
 
@@ -574,6 +602,9 @@ export default function RevenueHotelDetail() {
 
   return (
     <div className="min-h-screen bg-background">
+      {welcomeBack && (
+        <WelcomeBackOverlay name={profile?.full_name} step={syncStep} progress={syncPct} />
+      )}
       <Header />
       <div className="container mx-auto px-3 sm:px-4 pt-3">
         <MainTabsBar current="revenue" />

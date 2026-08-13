@@ -938,7 +938,7 @@ export default function RateStrategyGrid({
         }).then(() => reloadAudit());
 
         // 3. Follow the run quietly and only speak up if something failed.
-        for (let attempt = 0; attempt < 90; attempt++) {
+        for (let attempt = 0; attempt < 400; attempt++) {
           await new Promise((resolve) => setTimeout(resolve, attempt < 5 ? 1200 : 3000));
           const { data } = await supabase.from("revenue_rate_push_runs")
             .select("status, requested_count, processed_count, accepted_count, failed_count, last_error")
@@ -1317,12 +1317,20 @@ export default function RateStrategyGrid({
                   : `Sending ${pushRun.total} price${pushRun.total === 1 ? "" : "s"} to Previo — your prices are already up to date here`}
             </span>
             {pushRun.state === "sending" && pushRun.total > 0 && (
-              <span className="hidden sm:flex h-1 w-24 overflow-hidden rounded-full bg-primary/15">
-                <span
-                  className="h-full rounded-full bg-primary transition-all duration-500"
-                  style={{ width: `${Math.max(6, Math.min(100, Math.round((pushRun.done / pushRun.total) * 100)))}%` }}
-                />
-              </span>
+              <>
+                {/* Plain counts, so it is obvious what is done and what is left. */}
+                <span className="tabular-nums text-muted-foreground">
+                  {Math.max(0, pushRun.done - pushRun.failed)} sent
+                  {" · "}{Math.max(0, pushRun.total - pushRun.done)} waiting
+                  {pushRun.failed > 0 ? <span className="text-destructive"> · {pushRun.failed} failed</span> : null}
+                </span>
+                <span className="hidden sm:flex h-1 w-24 overflow-hidden rounded-full bg-primary/15">
+                  <span
+                    className="h-full rounded-full bg-primary transition-all duration-500"
+                    style={{ width: `${Math.max(6, Math.min(100, Math.round((pushRun.done / pushRun.total) * 100)))}%` }}
+                  />
+                </span>
+              </>
             )}
           </div>
         )}
