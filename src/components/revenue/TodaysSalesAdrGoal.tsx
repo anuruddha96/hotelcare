@@ -316,6 +316,26 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   /** Only the live ones drive every KPI. */
   const liveBookings = useMemo(() => periodBookings.filter((b) => !b.cancelled), [periodBookings]);
 
+  // First visit for a property: seed the target from what it actually sells,
+  // in its own currency. A euro default of 120 is meaningless for a forint
+  // property and made the ADR target read as nothing at all.
+  useEffect(() => {
+    if (goalsSeeded || loading || !hotelId) return;
+    const recent = allBookings.filter((b) => !b.cancelled && b.adr !== null);
+    if (recent.length < 3) return;
+    const adrs = recent.map((b) => b.adr as number).sort((a, b) => a - b);
+    const median = adrs[Math.floor(adrs.length / 2)];
+    if (!median || !Number.isFinite(median)) return;
+    const nights = Math.max(1, Math.round(recent.reduce((s, b) => s + b.roomNights, 0) / 30));
+    saveGoals({
+      targetAdr: Math.round(median),
+      targetRoomNights: nights,
+      targetValue: Math.round(median) * nights,
+      promoBudget: 0,
+    });
+  }, [goalsSeeded, loading, hotelId, allBookings, saveGoals]);
+
+
   const kpi = useMemo(() => {
     const roomNights = liveBookings.reduce((s, b) => s + b.roomNights, 0);
     const revenue = liveBookings.reduce((s, b) => s + b.revenue, 0);
