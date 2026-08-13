@@ -242,8 +242,8 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
         adr: adr.length ? Math.round(adr.reduce((a, b) => a + b, 0) / adr.length) : 0,
         revpar: roomNights > 0 ? Math.round(revenue / roomNights) : 0,
       };
-    });
-  }, [compare, hotels, latestByHotelDate]);
+    }).sort((a, b) => (a.hotel_id === hotelId ? -1 : b.hotel_id === hotelId ? 1 : 0));
+  }, [compare, hotels, latestByHotelDate, hotelId]);
 
   /** Labels for the month dividers drawn across the plot. */
   const monthMarks = useMemo(() => data.filter((d) => d.monthStart), [data]);
