@@ -920,9 +920,10 @@ export default function RateStrategyGrid({
   // that landed on a different value. Keeping them apart is the difference
   // between "the push failed" and "the push is done".
   const awaitingDrafts = useMemo(
-    () => pending.filter((d) => d.status === "pushed" && d.confirmation_status !== "different"),
+    () => pending.filter((d) => classifyDraft(d) === "inflight"),
     [pending],
   );
+
   const divergentDrafts = useMemo(
     () => pending.filter((d) => d.confirmation_status === "different"),
     [pending],
