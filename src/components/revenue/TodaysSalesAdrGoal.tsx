@@ -13,7 +13,7 @@ import {
   Tooltip as RTooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  ChevronDown, Gauge, Lightbulb, Loader2, Target, TrendingUp,
+  ChevronDown, Gauge, Info, Lightbulb, Loader2, Target, TrendingUp,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { addDays, budapestDayOf, eur } from "@/lib/revenueAnalytics";
