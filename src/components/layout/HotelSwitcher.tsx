@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { HotelSwitchOverlay } from './HotelSwitchOverlay';
+import { setTabHotel } from '@/lib/tabHotel';
 
 
 export function HotelSwitcher() {
@@ -45,6 +46,10 @@ export function HotelSwitcher() {
     // Curtain first: the visible numbers belong to the previous property and
     // must disappear before anything else happens.
     setSwitchingTo(hotelName);
+
+    // Remember the choice for THIS tab only, so a second window can stay on a
+    // different property.
+    setTabHotel(hotelId);
 
     try {
       const { error } = await supabase

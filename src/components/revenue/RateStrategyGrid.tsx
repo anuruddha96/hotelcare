@@ -33,6 +33,7 @@ import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
 import PickupAutomationRules from "@/components/revenue/PickupAutomationRules";
 import { publishRates } from "@/lib/ratePublishing";
+import { useRateWriteReadiness } from "@/lib/rateWriteReadiness";
 import { rememberedRange, writeNumberPref } from "@/lib/revenuePrefs";
 
 
@@ -337,6 +338,9 @@ export default function RateStrategyGrid({
     total: number; done: number; failed: number;
     state: "sending" | "done" | "error"; message?: string;
   } | null>(null);
+
+  /** Whether prices can physically reach this property's PMS. */
+  const writeReadiness = useRateWriteReadiness(hotelId);
 
   const [drafts, setDrafts] = useState<Map<string, number>>(new Map());
   const [pending, setPending] = useState<PendingDraft[]>([]);
@@ -906,6 +910,10 @@ export default function RateStrategyGrid({
     audit: { source: string; notes: string },
   ) => {
     if (!hotelId || rowsToSave.length === 0) return;
+    if (writeReadiness.ready === false) {
+      toast.error(writeReadiness.reason);
+      return;
+    }
 
     // 1. Optimistic mirror — the calendar reads the new prices immediately.
     setOptimistic((prev) => {
@@ -969,7 +977,7 @@ export default function RateStrategyGrid({
         toast.error(e instanceof Error ? e.message : "Could not send the prices to Previo");
       }
     })();
-  }, [hotelId, organizationSlug, refreshDrafts, reloadAudit, onRatesUpdated]);
+  }, [hotelId, organizationSlug, refreshDrafts, reloadAudit, onRatesUpdated, writeReadiness]);
 
   /** Publish one or many absolute target prices without blocking on Previo. */
   async function saveDraft() {
@@ -1288,6 +1296,12 @@ export default function RateStrategyGrid({
             {showMarkers ? "Hide change dots" : "Show change dots"}
           </button>
         </div>
+
+        {writeReadiness.ready === false && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-[11px] text-amber-800" role="status">
+            {writeReadiness.reason}
+          </div>
+        )}
 
         {/* Quiet, self-clearing publishing pill — never blocks the calendar. */}
         {pushRun && (

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
+import { withTabHotel } from '@/lib/tabHotel';
 
 interface Profile {
   id: string;
@@ -47,7 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (profileData && !profileError) {
         console.log('Profile fetched:', profileData);
-        setProfile(profileData as any);
+        setProfile(withTabHotel(profileData as any) as any);
         return profileData;
       } else {
         // CRITICAL: Use INSERT instead of UPSERT to prevent overwriting existing profiles
@@ -84,14 +85,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           
           if (retryData) {
             console.log('Profile fetched on retry:', retryData);
-            setProfile(retryData as any);
+            setProfile(withTabHotel(retryData as any) as any);
             return retryData;
           }
         }
 
         if (!insertErr && inserted) {
           console.log('Default profile created for new user:', inserted);
-          setProfile(inserted as any);
+          setProfile(withTabHotel(inserted as any) as any);
           return inserted;
         } else if (insertErr && insertErr.code !== '23505') {
           console.error('Failed to create default profile:', insertErr);
