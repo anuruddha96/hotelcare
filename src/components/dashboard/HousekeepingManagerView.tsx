@@ -31,6 +31,8 @@ import { usePropertyTerms } from '@/lib/propertyTerminology';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { setRoomDragPayload, readRoomDragPayload, assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
 import { venueEdgeStyle } from '@/lib/venueColors';
+import { addDays } from 'date-fns';
+import { todayBudapest } from '@/lib/budapestTime';
 import {
   initStagedScope,
   stageMove,
@@ -142,7 +144,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const canDragAssign = !!profile?.role && ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager', 'supervisor'].includes(profile.role);
   const [housekeepingStaff, setHousekeepingStaff] = useState<HousekeepingStaff[]>([]);
   const [teamAssignments, setTeamAssignments] = useState<TeamAssignment[]>([]);
-  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [selectedDate, setSelectedDate] = useState(todayBudapest());
   const [loading, setLoading] = useState(true);
   const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
   const [autoAssignDialogOpen, setAutoAssignDialogOpen] = useState(false);
@@ -744,14 +746,19 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       <TabsContent value="team" className="space-y-6" data-training="team-view">
       {/* Header with Actions */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-xl font-semibold">{t('team.management')}</h2>
+          {venuesEnabled && <div className="inline-flex rounded-md border p-1 gap-1">
+            <Button size="sm" variant={selectedDate === todayBudapest() ? 'default' : 'ghost'} onClick={() => setSelectedDate(todayBudapest())}>Today</Button>
+            <Button size="sm" variant={selectedDate === format(addDays(new Date(`${todayBudapest()}T12:00:00`), 1), 'yyyy-MM-dd') ? 'default' : 'ghost'} onClick={() => setSelectedDate(format(addDays(new Date(`${todayBudapest()}T12:00:00`), 1), 'yyyy-MM-dd'))}>Tomorrow</Button>
+          </div>}
           <input
             type="date"
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
             className="px-3 py-2 border rounded-md"
           />
+          {venuesEnabled && selectedDate > todayBudapest() && <Badge variant="outline" className="gap-1"><Calendar className="h-3 w-3" />Prepared work · activates on this date</Badge>}
         </div>
         
         <div className="flex flex-wrap gap-2 justify-end w-full sm:w-auto relative z-10">

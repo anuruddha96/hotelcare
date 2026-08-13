@@ -27,9 +27,10 @@ export interface RevenueSyncInfo {
 export type RevenueSyncClaim = "fresh" | "already_running" | "claimed";
 
 /** Atomically decide whether this browser should start the property refresh. */
-export async function claimRevenueSync(hotelId: string): Promise<RevenueSyncClaim> {
+export async function claimRevenueSync(hotelId: string, force = false): Promise<RevenueSyncClaim> {
   const { data, error } = await (supabase as any).rpc("claim_revenue_sync", {
     _hotel_id: hotelId,
+    _force: force,
   });
   if (error) throw error;
   const row = Array.isArray(data) ? data[0] : data;
@@ -40,15 +41,15 @@ export async function claimRevenueSync(hotelId: string): Promise<RevenueSyncClai
 export async function fetchRevenueSyncInfo(hotelId: string): Promise<RevenueSyncInfo> {
   const { data } = await (supabase as any)
     .from("revenue_sync_state")
-    .select("last_success_at, lease_expires_at")
+    .select("last_success_at, last_success_by_name, lease_expires_at")
     .eq("hotel_id", hotelId)
     .maybeSingle();
 
-  const row = data as { last_success_at?: string } | null;
+  const row = data as { last_success_at?: string; last_success_by_name?: string | null } | null;
   const at = row?.last_success_at ?? null;
   return {
     at,
-    by: null,
+    by: row?.last_success_by_name ?? null,
     stale: !at || Date.now() - new Date(at).getTime() > REVENUE_STALE_MS,
   };
 }

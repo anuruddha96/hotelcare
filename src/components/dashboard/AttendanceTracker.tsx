@@ -19,6 +19,7 @@ import { SwipeAction } from '@/components/ui/swipe-action';
 import { PendingRoomsSignoutDialog } from './PendingRoomsSignoutDialog';
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
+import { UpcomingShiftCard } from './UpcomingShiftCard';
 
 interface AttendanceRecord {
   id: string;
@@ -521,6 +522,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
 
   return (
     <div className="space-y-4">
+      <UpcomingShiftCard />
       <Card className="w-full max-w-md mx-auto">
         <CardHeader className="text-center pb-2 pt-4 px-4">
           <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground mb-1">
