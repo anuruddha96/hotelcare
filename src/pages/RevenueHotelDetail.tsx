@@ -37,6 +37,7 @@ import RevenueToolsBar from "@/components/revenue/RevenueToolsBar";
 
 import PickupMovementBoard from "@/components/revenue/PickupMovementBoard";
 import PickupHorizonChart from "@/components/revenue/PickupHorizonChart";
+import { useTenant } from "@/contexts/TenantContext";
 import TodaysSalesAdrGoal from "@/components/revenue/TodaysSalesAdrGoal";
 import MonthPerformanceHeader from "@/components/revenue/MonthPerformanceHeader";
 import { buildDemandBoard } from "@/lib/demandScore";
@@ -82,6 +83,7 @@ function iso(d: Date) { return d.toISOString().slice(0,10); }
 
 export default function RevenueHotelDetail() {
   const { profile, loading } = useAuth();
+  const { hotels: tenantHotels } = useTenant();
   const { organizationSlug, hotelId } = useParams<{ organizationSlug: string; hotelId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
