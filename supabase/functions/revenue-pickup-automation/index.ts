@@ -94,13 +94,42 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({} as any));
     const onlyHotel: string | null = typeof body.hotelId === "string" ? body.hotelId : null;
 
+    // A run asked for by a person carries their session. We keep the same
+    // tenant rules the rest of the app uses: you can only run automation for a
+    // property inside your own organization, and only revenue roles may do it.
+    const engineKey = req.headers.get("x-engine-key");
+    const isEngine = !!engineKey && engineKey === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+    let actorName: string | null = null;
+    if (!isEngine) {
+      if (!bearer) return json({ ok: false, code: "unauthenticated", msg: "Please sign in again and retry." }, 401);
+      const { data: userData } = await admin.auth.getUser(bearer);
+      const user = userData?.user;
+      if (!user) return json({ ok: false, code: "unauthenticated", msg: "Your session has expired. Sign in again and retry." }, 401);
+      const { data: profile } = await admin.from("profiles")
+        .select("full_name, role, is_super_admin, organization_slug, assigned_hotel").eq("id", user.id).maybeSingle();
+      const role = String((profile as any)?.role ?? "");
+      const allowedRoles = ["admin", "manager", "top_management", "top_management_manager"];
+      if (!profile || (!(profile as any).is_super_admin && !allowedRoles.includes(role))) {
+        return json({ ok: false, code: "forbidden", msg: "Your role cannot run price automation." }, 403);
+      }
+      if (!onlyHotel) return json({ ok: false, code: "no_hotel", msg: "Choose a property first." }, 400);
+      if (!(profile as any).is_super_admin) {
+        const { data: allowed } = await admin.rpc("hotel_belongs_to_user_organization", { _user_id: user.id, _hotel: onlyHotel });
+        if (allowed !== true) {
+          return json({ ok: false, code: "forbidden", msg: "This property is not in your organization." }, 403);
+        }
+      }
+      actorName = ((profile as any)?.full_name as string | null) ?? user.email ?? null;
+    }
+
     // Global, admin-controlled brake. When automation is paused the tick does
     // no work at all; in dry-run it still calculates and records suggestions
     // but never publishes a price.
     const { data: config } = await admin
       .from("revenue_engine_config").select("automation_enabled, dry_run").eq("id", "global").maybeSingle();
     if (config && config.automation_enabled === false) {
-      return json({ ok: true, paused: true, msg: "Revenue automation is paused by an administrator" });
+      return json({ ok: true, paused: true, code: "paused", msg: "Revenue automation is paused by an administrator." });
     }
     const dryRun: boolean = body.dryRun === true || config?.dry_run === true;
 
@@ -135,13 +164,26 @@ Deno.serve(async (req) => {
     if (ruleErr) throw ruleErr;
 
     const rules = (ruleRows ?? []) as unknown as Rule[];
-    if (rules.length === 0) return json({ ok: true, rules: 0, summary: [], msg: "No property has price automation enabled" });
+    if (rules.length === 0) {
+      if (onlyHotel) {
+        // Say precisely why nothing happened: no rule saved yet, or saved but off.
+        const { data: anyRule } = await admin.from("revenue_pickup_automation_rules")
+          .select("id, is_enabled").eq("hotel_id", onlyHotel).maybeSingle();
+        if (!anyRule) return json({ ok: true, rules: 0, summary: [], code: "no_rule", msg: "This property has no automation rule saved yet." });
+        return json({ ok: true, rules: 0, summary: [], code: "disabled", msg: "Automation is switched off for this property." });
+      }
+      return json({ ok: true, rules: 0, summary: [], code: "no_rule", msg: "No property has price automation enabled." });
+    }
 
     const lockHotel = rules[0].hotel_id;
     const { data: gotLock, error: lockError } = await admin.rpc("claim_automation_lock", { p_hotel: lockHotel, p_stale_minutes: 10 });
     if (lockError) console.error("automation lock claim failed", lockError);
     if (gotLock !== true) {
-      return json({ ok: true, skipped: true, msg: "Another property is being priced right now", lockError: lockError?.message ?? null });
+      return json({
+        ok: true, skipped: true, code: "busy",
+        msg: "A pricing run is already in progress. Try again in a minute.",
+        lockError: lockError?.message ?? null,
+      });
     }
 
     const summary: Array<Record<string, unknown>> = [];
