@@ -94,13 +94,45 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({} as any));
     const onlyHotel: string | null = typeof body.hotelId === "string" ? body.hotelId : null;
 
+    // A run asked for by a person carries their session. We keep the same
+    // tenant rules the rest of the app uses: you can only run automation for a
+    // property inside your own organization, and only revenue roles may do it.
+    const engineKey = req.headers.get("x-engine-key");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+    // Scheduled ticks call in with the service key (header or bearer); those
+    // are the machine runs and keep working exactly as before.
+    const isEngine = (!!engineKey && engineKey === serviceKey) || (!!bearer && bearer === serviceKey);
+    let actorName: string | null = null;
+    if (!isEngine) {
+      if (!bearer) return json({ ok: false, code: "unauthenticated", msg: "Please sign in again and retry." }, 401);
+      const { data: userData } = await admin.auth.getUser(bearer);
+      const user = userData?.user;
+      if (!user) return json({ ok: false, code: "unauthenticated", msg: "Your session has expired. Sign in again and retry." }, 401);
+      const { data: profile } = await admin.from("profiles")
+        .select("full_name, role, is_super_admin, organization_slug, assigned_hotel").eq("id", user.id).maybeSingle();
+      const role = String((profile as any)?.role ?? "");
+      const allowedRoles = ["admin", "manager", "top_management", "top_management_manager"];
+      if (!profile || (!(profile as any).is_super_admin && !allowedRoles.includes(role))) {
+        return json({ ok: false, code: "forbidden", msg: "Your role cannot run price automation." }, 403);
+      }
+      if (!onlyHotel) return json({ ok: false, code: "no_hotel", msg: "Choose a property first." }, 400);
+      if (!(profile as any).is_super_admin) {
+        const { data: allowed } = await admin.rpc("hotel_belongs_to_user_organization", { _uid: user.id, _hotel_id: onlyHotel });
+        if (allowed !== true) {
+          return json({ ok: false, code: "forbidden", msg: "This property is not in your organization." }, 403);
+        }
+      }
+      actorName = ((profile as any)?.full_name as string | null) ?? user.email ?? null;
+    }
+
     // Global, admin-controlled brake. When automation is paused the tick does
     // no work at all; in dry-run it still calculates and records suggestions
     // but never publishes a price.
     const { data: config } = await admin
       .from("revenue_engine_config").select("automation_enabled, dry_run").eq("id", "global").maybeSingle();
     if (config && config.automation_enabled === false) {
-      return json({ ok: true, paused: true, msg: "Revenue automation is paused by an administrator" });
+      return json({ ok: true, paused: true, code: "paused", msg: "Revenue automation is paused by an administrator." });
     }
     const dryRun: boolean = body.dryRun === true || config?.dry_run === true;
 
@@ -135,13 +167,26 @@ Deno.serve(async (req) => {
     if (ruleErr) throw ruleErr;
 
     const rules = (ruleRows ?? []) as unknown as Rule[];
-    if (rules.length === 0) return json({ ok: true, rules: 0, summary: [], msg: "No property has price automation enabled" });
+    if (rules.length === 0) {
+      if (onlyHotel) {
+        // Say precisely why nothing happened: no rule saved yet, or saved but off.
+        const { data: anyRule } = await admin.from("revenue_pickup_automation_rules")
+          .select("id, is_enabled").eq("hotel_id", onlyHotel).maybeSingle();
+        if (!anyRule) return json({ ok: true, rules: 0, summary: [], code: "no_rule", msg: "This property has no automation rule saved yet." });
+        return json({ ok: true, rules: 0, summary: [], code: "disabled", msg: "Automation is switched off for this property." });
+      }
+      return json({ ok: true, rules: 0, summary: [], code: "no_rule", msg: "No property has price automation enabled." });
+    }
 
     const lockHotel = rules[0].hotel_id;
     const { data: gotLock, error: lockError } = await admin.rpc("claim_automation_lock", { p_hotel: lockHotel, p_stale_minutes: 10 });
     if (lockError) console.error("automation lock claim failed", lockError);
     if (gotLock !== true) {
-      return json({ ok: true, skipped: true, msg: "Another property is being priced right now", lockError: lockError?.message ?? null });
+      return json({
+        ok: true, skipped: true, code: "busy",
+        msg: "A pricing run is already in progress. Try again in a minute.",
+        lockError: lockError?.message ?? null,
+      });
     }
 
     const summary: Array<Record<string, unknown>> = [];
@@ -483,6 +528,8 @@ Deno.serve(async (req) => {
       }
 
       let pushed = 0;
+      let pushError: string | null = null;
+      const changed: Array<Record<string, unknown>> = [];
       // Only publish prices for events that were genuinely new this tick.
       if (rule.auto_publish && inserted > 0 && draftsToInsert.length > 0) {
         const insertedKeys = new Set<string>();
@@ -495,18 +542,32 @@ Deno.serve(async (req) => {
         for (const r of (freshRows ?? []) as any[]) {
           insertedKeys.add(`${r.stay_date}|${r.obk_id}|${r.occupancy}`);
         }
-        const payload = draftsToInsert.filter((d) =>
-          insertedKeys.has(`${d.stay_date}|${d.obk_id}|${d.occupancy}`)
-        );
+        // Two bookings for the same stay date produce two decisions but only
+        // ONE price cell. Collapse them to the highest target price, otherwise
+        // the insert trips the one-active-draft-per-cell index and the whole
+        // run fails with a duplicate key error.
+        const byCell = new Map<string, any>();
+        for (const d of draftsToInsert) {
+          if (!insertedKeys.has(`${d.stay_date}|${d.obk_id}|${d.occupancy}`)) continue;
+          const cell = `${d.stay_date}|${d.room_type_name}|${d.occupancy}`;
+          const existing = byCell.get(cell);
+          if (!existing || Number(d.new_price) > Number(existing.new_price)) {
+            byCell.set(cell, existing ? { ...d, old_price: existing.old_price } : d);
+          }
+        }
+        const payload = Array.from(byCell.values());
         if (payload.length > 0) {
           // A cell can only carry one pending draft, so clear any stale one
           // for the same cell before writing the automated price.
-          for (const d of payload) {
-            await admin.from("revenue_rate_drafts").delete()
-              .eq("hotel_id", d.hotel_id).eq("stay_date", d.stay_date)
-              .eq("room_type_name", d.room_type_name).eq("occupancy", d.occupancy)
-              .in("status", ["draft", "failed"]);
-          }
+          const staleDates = Array.from(new Set(payload.map((d) => d.stay_date)));
+          const { data: staleDrafts } = await admin.from("revenue_rate_drafts")
+            .select("id, stay_date, room_type_name, occupancy")
+            .eq("hotel_id", rule.hotel_id).in("stay_date", staleDates)
+            .in("status", ["draft", "failed"]);
+          const staleIds = ((staleDrafts ?? []) as any[])
+            .filter((row) => byCell.has(`${row.stay_date}|${row.room_type_name}|${row.occupancy}`))
+            .map((row) => row.id);
+          if (staleIds.length > 0) await admin.from("revenue_rate_drafts").delete().in("id", staleIds);
           const { data: drafts, error: draftErr } = await admin
             .from("revenue_rate_drafts")
             .insert(payload)
@@ -524,7 +585,15 @@ Deno.serve(async (req) => {
           });
           const out = await res.json().catch(() => ({}));
           pushed = Number(out?.pushed ?? 0);
+          pushError = pushed > 0 ? null : (out?.error ?? "Previo did not accept the change");
           const status = pushed > 0 ? "pushed" : "failed";
+          for (const d of payload) {
+            changed.push({
+              stay_date: d.stay_date, room_type_name: d.room_type_name, occupancy: d.occupancy,
+              old_price: d.old_price, new_price: d.new_price, currency: d.currency,
+              status,
+            });
+          }
           await admin.from("revenue_pickup_automation_actions")
             .update({
               status,
@@ -537,22 +606,33 @@ Deno.serve(async (req) => {
         }
       }
 
+      if (!rule.auto_publish && inserted > 0) {
+        for (const a of actionsToInsert) {
+          changed.push({
+            stay_date: a.stay_date, room_type_name: a.room_type_name, occupancy: a.occupancy,
+            old_price: a.old_price, new_price: a.new_price, currency: rule.currency ?? "EUR",
+            status: "suggested",
+          });
+        }
+      }
+
       await admin.from("revenue_pickup_automation_rules")
         .update({ last_run_at: runStartedAt }).eq("id", rule.id);
 
       summary.push({
         hotel_id: rule.hotel_id, pickups: events.length,
         skipped_not_new: skippedStale, skipped_negative_pickup: skippedNegative,
-        actions: inserted, pushed, auto_publish: rule.auto_publish,
+        actions: inserted, pushed, failed: Math.max(0, changed.filter((c) => c.status === "failed").length),
+        push_error: pushError, auto_publish: rule.auto_publish, changed,
       });
     }
     } finally {
       await admin.rpc("release_automation_lock", { p_hotel: lockHotel });
     }
 
-    return json({ ok: true, rules: rules.length, hotel_id: lockHotel, summary });
+    return json({ ok: true, code: "ran", rules: rules.length, hotel_id: lockHotel, actor: actorName, summary });
   } catch (e) {
     console.error("pickup automation failed", e);
-    return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500);
+    return json({ ok: false, code: "error", error: e instanceof Error ? e.message : String(e) }, 500);
   }
 });

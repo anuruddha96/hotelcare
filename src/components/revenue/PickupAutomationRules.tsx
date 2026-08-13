@@ -12,6 +12,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface Props { hotelId: string | null; organizationSlug: string | null; }
 interface Tier { max_days: number | null; increase: number; }
@@ -82,6 +83,16 @@ function explain(rule: Rule, hotelName: string): string[] {
   return lines;
 }
 
+interface ChangedRow {
+  stay_date: string; room_type_name: string | null; occupancy: number;
+  old_price: number; new_price: number; currency?: string | null; status: string;
+}
+interface RunResult {
+  hotelName: string; actor: string; pickups: number; actions: number;
+  pushed: number; failed: number; autoPublish: boolean;
+  pushError?: string | null; changed: ChangedRow[];
+}
+
 export default function PickupAutomationRules({ hotelId, organizationSlug }: Props) {
   const [rule, setRule] = useState<Rule>(DEFAULT_RULE);
   const [hasSavedRule, setHasSavedRule] = useState(false);
@@ -93,6 +104,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
   const [confirmOn, setConfirmOn] = useState(false);
   const [running, setRunning] = useState(false);
   const [stats, setStats] = useState({ pushed: 0, failed: 0, lastActionAt: null as string | null });
+  const [runResult, setRunResult] = useState<RunResult | null>(null);
 
   useEffect(() => {
     if (!hotelId) return;
@@ -211,6 +223,60 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
     setHasSavedRule(true);
     setSavedEnabled(Boolean((data as any).is_enabled));
     toast.success(rule.is_enabled ? `Pickup automation is now ON for ${hotelName}` : `Saved — automation stays OFF for ${hotelName}`);
+  }
+
+  /** Manual run. Every outcome gets its own sentence — never a generic error. */
+  async function runNow() {
+    if (!hotelId) { toast.error("Choose a property first"); return; }
+    if (!hasSavedRule) { toast.error(`No automation rule is saved for ${hotelName} yet`, { description: "Set the values below and save first." }); return; }
+    if (!savedEnabled) { toast.error(`Automation is switched off for ${hotelName}`, { description: "Turn the switch on and save to allow runs." }); return; }
+    setRunning(true);
+    try {
+      const { data: auth } = await supabase.auth.getUser();
+      const { data, error } = await supabase.functions.invoke("revenue-pickup-automation", { body: { hotelId } });
+      const payload = (data ?? {}) as any;
+      if (error && !payload?.code) {
+        // The function returns its reason in the body; only a transport-level
+        // failure reaches here without one.
+        const detail = await (error as any)?.context?.text?.().catch(() => "");
+        let parsed: any = {};
+        try { parsed = detail ? JSON.parse(detail) : {}; } catch { /* not JSON */ }
+        if (parsed?.msg || parsed?.error) { toast.error(parsed.msg ?? parsed.error); return; }
+        toast.error("The pricing service did not respond", { description: error.message });
+        return;
+      }
+      const code = payload.code as string | undefined;
+      if (code && code !== "ran") {
+        const message = payload.msg ?? payload.error ?? "The run could not start";
+        if (code === "paused" || code === "busy") toast.warning(message);
+        else toast.error(message);
+        return;
+      }
+      const summary = payload.summary?.[0];
+      if (!summary) { toast.success(`No qualifying pickup for ${hotelName} right now`); return; }
+      const pickups = Number(summary.pickups ?? 0);
+      const actions = Number(summary.actions ?? 0);
+      const pushed = Number(summary.pushed ?? 0);
+      const failed = Number(summary.failed ?? 0);
+      if (actions === 0) {
+        toast.success(
+          pickups === 0
+            ? `No new bookings for ${hotelName} in the lookback window — nothing to price`
+            : `Checked ${pickups} pickups at ${hotelName} — none qualified for a price change`,
+        );
+        return;
+      }
+      setRunResult({
+        hotelName,
+        actor: (auth.user?.user_metadata?.full_name as string) || payload.actor || auth.user?.email || "You",
+        pickups, actions, pushed, failed,
+        autoPublish: Boolean(summary.auto_publish),
+        pushError: summary.push_error ?? null,
+        changed: (summary.changed ?? []) as ChangedRow[],
+      });
+    } finally {
+      setRunning(false);
+    }
   }
 
   return (
@@ -340,7 +406,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
               </ul>
               {rule.last_run_at && (
                 <p className="pt-1 text-[11px] text-muted-foreground">
-                  Last checked {new Date(rule.last_run_at).toLocaleString()} · runs every 15 minutes.
+                  Last checked {new Date(rule.last_run_at).toLocaleString()}.
                 </p>
               )}
               <p className="text-[11px] text-muted-foreground">
@@ -354,25 +420,74 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
           <Button onClick={requestSave} disabled={saving || loading}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save automation rule</Button>
           <Button
             variant="outline"
-            disabled={running || !savedEnabled}
-            onClick={async () => {
-              setRunning(true);
-              const { data, error } = await supabase.functions.invoke("revenue-pickup-automation", { body: { hotelId } });
-              setRunning(false);
-              if (error) { toast.error("Could not run the automation now"); return; }
-              const summary = (data as any)?.summary?.[0];
-              if (summary?.pushed === 0 && summary?.actions > 0 && rule.auto_publish) {
-                toast.error(`Checked ${summary.pickups ?? 0} pickups · ${summary.actions ?? 0} cells matched · none reached Previo`);
-              } else {
-                toast.success(summary
-                  ? `Checked ${summary.pickups ?? 0} pickups · ${summary.actions ?? 0} cells matched · ${summary.pushed ?? 0} pushed`
-                  : "Automation ran — no new bookings to price");
-              }
-            }}
+            disabled={running || loading}
+            onClick={() => void runNow()}
           >
             {running && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Run now
           </Button>
         </div>
+
+        <Dialog open={!!runResult} onOpenChange={(open) => !open && setRunResult(null)}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Automation run finished</DialogTitle>
+              <DialogDescription>
+                {runResult?.hotelName} · started by {runResult?.actor}
+              </DialogDescription>
+            </DialogHeader>
+            {runResult && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  {[
+                    { label: "Pickups checked", value: runResult.pickups },
+                    { label: "Cells matched", value: runResult.actions },
+                    { label: runResult.autoPublish ? "Sent to Previo" : "Suggested", value: runResult.autoPublish ? runResult.pushed : runResult.actions },
+                    { label: "Failed", value: runResult.failed },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-md border p-2">
+                      <p className="text-lg font-semibold tabular-nums">{item.value}</p>
+                      <p className="text-[10px] leading-tight text-muted-foreground">{item.label}</p>
+                    </div>
+                  ))}
+                </div>
+                {runResult.pushError && (
+                  <p className="rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
+                    {runResult.pushError}
+                  </p>
+                )}
+                <div className="max-h-64 overflow-y-auto rounded-md border">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-muted/60 text-left">
+                      <tr>
+                        <th className="p-2 font-medium">Date</th>
+                        <th className="p-2 font-medium">Room type</th>
+                        <th className="p-2 font-medium">Guests</th>
+                        <th className="p-2 font-medium">Price</th>
+                        <th className="p-2 font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {runResult.changed.length === 0 && (
+                        <tr><td colSpan={5} className="p-3 text-center text-muted-foreground">No individual rows returned.</td></tr>
+                      )}
+                      {runResult.changed.map((row, index) => (
+                        <tr key={index} className="border-t">
+                          <td className="p-2 whitespace-nowrap">{row.stay_date}</td>
+                          <td className="p-2">{row.room_type_name ?? "—"}</td>
+                          <td className="p-2 tabular-nums">{row.occupancy}</td>
+                          <td className="p-2 tabular-nums whitespace-nowrap">
+                            {row.old_price} → <span className="font-semibold">{row.new_price}</span> {row.currency ?? ""}
+                          </td>
+                          <td className="p-2 capitalize">{row.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
         <AlertDialog open={confirmOn} onOpenChange={setConfirmOn}>
           <AlertDialogContent>
