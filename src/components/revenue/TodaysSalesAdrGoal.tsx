@@ -159,8 +159,12 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   const [preset, setPreset] = useState<PresetKey>("today");
   const [customFrom, setCustomFrom] = useState(today);
   const [customTo, setCustomTo] = useState(today);
+  // Stay-date narrowing is OFF by default. It used to default to today + 90
+  // days, which silently dropped every booking that arrives further out — the
+  // panel then showed fewer bookings and a different ADR than Previo.
+  const [stayFilterOn, setStayFilterOn] = useState(false);
   const [stayFrom, setStayFrom] = useState(today);
-  const [stayTo, setStayTo] = useState(addDays(today, 90));
+  const [stayTo, setStayTo] = useState(addDays(today, 365));
   const [showCancelled, setShowCancelled] = useState(false);
   const isMobile = useIsMobile();
   const [compare, setCompare] = useState<CompareKey>("goal");
