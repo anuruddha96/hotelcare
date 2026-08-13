@@ -276,7 +276,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
       const byRes = new Map<string, NightRow[]>();
       for (const r of list) {
         if (!r.created_at_pms) continue;
-        if (r.stay_date < stayFrom || r.stay_date > stayTo) continue;
+        if (stayFilterOn && (r.stay_date < stayFrom || r.stay_date > stayTo)) continue;
         const k = `${r.res_id}|${r.room_key ?? ""}`;
         const bucket = byRes.get(k);
         if (bucket) bucket.push(r); else byRes.set(k, [r]);
