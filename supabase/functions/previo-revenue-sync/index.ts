@@ -680,6 +680,23 @@ serve(async (req) => {
         const originKey = `${row.stay_date}|${room}|${occupancy}`;
         if (!originByCell.has(originKey) && row.source) originByCell.set(originKey, row.source);
       }
+      // Which of those pushes came from the pickup automation tool? Without
+      // this the confirmation was written as an anonymous team change, so the
+      // grid showed a blue dot and "Someone" for a fully automated move.
+      const automationRuns = new Set<string>();
+      const runIds = Array.from(new Set(
+        ((outstanding ?? []) as Array<{ push_run_id: string | null }>)
+          .map((d) => d.push_run_id).filter(Boolean) as string[],
+      ));
+      if (runIds.length > 0) {
+        const { data: runRows } = await service
+          .from("revenue_rate_push_runs")
+          .select("id, source")
+          .in("id", runIds);
+        for (const r of (runRows ?? []) as Array<{ id: string; source: string | null }>) {
+          if (r.source === "automation" || r.source === "pickup_automation") automationRuns.add(r.id);
+        }
+      }
       const auditRows: Record<string, unknown>[] = [];
       const claimedCells = new Set<string>();
       // A cell can be re-priced several times a day. Only the newest request
