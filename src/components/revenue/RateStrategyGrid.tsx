@@ -726,11 +726,18 @@ export default function RateStrategyGrid({
     setPending(rows);
 
 
-    const m = new Map<string, number>();
+    // A price that is still with us and a price Previo already took are two
+    // different stories: only the first one is a draft.
+    const unsentMap = new Map<string, number>();
+    const inFlightMap = new Map<string, number>();
     for (const d of rows) {
-      m.set(`${d.stay_date}|${d.room_type_name}|${d.occupancy}`, Number(d.new_price));
+      const key = `${d.stay_date}|${d.room_type_name}|${d.occupancy}`;
+      const price = Number(d.new_price);
+      if (d.status === "pushed" && d.confirmation_status !== "different") inFlightMap.set(key, price);
+      else unsentMap.set(key, price);
     }
-    setDrafts(m);
+    setDrafts(unsentMap);
+    setInFlight(inFlightMap);
   }, [hotelId]);
 
   useEffect(() => { void refreshDrafts(); }, [refreshDrafts]);
