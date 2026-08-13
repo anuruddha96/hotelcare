@@ -194,10 +194,13 @@ serve(async (req) => {
         return r.ok;
       };
       for (const hotelId of targets) {
+        // Shorter horizons: a full 365-day revenue pull per hotel per tick was
+        // a large share of the database's disk reads.
         const [ok1, ok2] = await Promise.all([
-          invokeFn("previo-pull-revenue", { hotelId, days: 365 }).catch(() => false),
-          invokeFn("previo-sync-daily-overview", { hotelId, days: 90 }).catch(() => false),
+          invokeFn("previo-pull-revenue", { hotelId, days: 180 }).catch(() => false),
+          invokeFn("previo-sync-daily-overview", { hotelId, days: 45 }).catch(() => false),
         ]);
+
         if (ok1 && ok2) previoSynced++; else previoErrors++;
       }
     } catch (e) {
