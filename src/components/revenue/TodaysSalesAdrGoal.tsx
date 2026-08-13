@@ -12,7 +12,7 @@ import {
   Tooltip as RTooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  ChevronDown, Gauge, Lightbulb, Loader2, RefreshCw, Target, TrendingUp,
+  ChevronDown, Gauge, Lightbulb, Loader2, Target, TrendingUp,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { addDays, budapestDayOf, eur } from "@/lib/revenueAnalytics";
@@ -159,8 +159,12 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   const [preset, setPreset] = useState<PresetKey>("today");
   const [customFrom, setCustomFrom] = useState(today);
   const [customTo, setCustomTo] = useState(today);
+  // Stay-date narrowing is OFF by default. It used to default to today + 90
+  // days, which silently dropped every booking that arrives further out — the
+  // panel then showed fewer bookings and a different ADR than Previo.
+  const [stayFilterOn, setStayFilterOn] = useState(false);
   const [stayFrom, setStayFrom] = useState(today);
-  const [stayTo, setStayTo] = useState(addDays(today, 90));
+  const [stayTo, setStayTo] = useState(addDays(today, 365));
   const [showCancelled, setShowCancelled] = useState(false);
   const isMobile = useIsMobile();
   const [compare, setCompare] = useState<CompareKey>("goal");
@@ -246,7 +250,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     const wideFrom = `${addDays(bookedFrom, -8)}T00:00:00Z`;
     const wideTo = `${addDays(bookedTo, 1)}T23:59:59Z`;
     const cols = "res_id, room_key, stay_date, room_type_name, guests, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, status_id";
-    const [live, cancelled] = await Promise.all([
+    const [live, cancelled, cancelledInPeriod] = await Promise.all([
       supabase.from("revenue_booking_nights").select(cols)
         .eq("hotel_id", hotelId)
         .gte("created_at_pms", wideFrom).lte("created_at_pms", wideTo)
@@ -255,9 +259,19 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
         .eq("hotel_id", hotelId)
         .gte("created_at_pms", wideFrom).lte("created_at_pms", wideTo)
         .order("created_at_pms", { ascending: false }).limit(5000),
+      // A booking made weeks ago but cancelled inside the period is today's
+      // negative pickup, so it has to be pulled by its cancellation time too.
+      supabase.from("revenue_cancelled_nights").select(`${cols}, cancelled_at`)
+        .eq("hotel_id", hotelId)
+        .gte("cancelled_at", wideFrom).lte("cancelled_at", wideTo)
+        .order("cancelled_at", { ascending: false }).limit(5000),
     ]);
     setRows((live.data ?? []) as unknown as NightRow[]);
-    setCancelledRows((cancelled.data ?? []) as unknown as NightRow[]);
+    const merged = new Map<string, NightRow>();
+    for (const r of [...(cancelled.data ?? []), ...(cancelledInPeriod.data ?? [])] as unknown as NightRow[]) {
+      merged.set(`${r.res_id}|${r.room_key ?? ""}|${r.stay_date}`, r);
+    }
+    setCancelledRows(Array.from(merged.values()));
     setLoading(false);
   }, [hotelId, bookedFrom, bookedTo]);
 
@@ -272,7 +286,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
       const byRes = new Map<string, NightRow[]>();
       for (const r of list) {
         if (!r.created_at_pms) continue;
-        if (r.stay_date < stayFrom || r.stay_date > stayTo) continue;
+        if (stayFilterOn && (r.stay_date < stayFrom || r.stay_date > stayTo)) continue;
         const k = `${r.res_id}|${r.room_key ?? ""}`;
         const bucket = byRes.get(k);
         if (bucket) bucket.push(r); else byRes.set(k, [r]);
@@ -287,8 +301,10 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
           key: cancelledFeed ? `x-${key}` : key,
           res_id: first.res_id,
           created,
-          createdDay: budapestDayOf(created),
-          createdMinutes: budapestMinutes(created),
+          // A cancellation belongs to the day it was cancelled — that is when
+          // it moved the pickup — not to the day the booking was made.
+          createdDay: budapestDayOf(cancelledFeed ? (first.cancelled_at ?? created) : created),
+          createdMinutes: budapestMinutes(cancelledFeed ? (first.cancelled_at ?? created) : created),
           stayFrom: first.stay_from ?? dates[0],
           stayTo: first.stay_to ?? addDays(dates[dates.length - 1], 1),
           roomNights: group.length,
@@ -304,7 +320,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
       return out;
     };
     return [...build(rows, false), ...build(cancelledRows, true)];
-  }, [rows, cancelledRows, stayFrom, stayTo]);
+  }, [rows, cancelledRows, stayFilterOn, stayFrom, stayTo]);
 
   /** Bookings created inside the selected period (cancellations optional). */
   const periodBookings = useMemo(
@@ -340,13 +356,23 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     const roomNights = liveBookings.reduce((s, b) => s + b.roomNights, 0);
     const revenue = liveBookings.reduce((s, b) => s + b.revenue, 0);
     const reservationIds = new Set(liveBookings.map((b) => b.res_id));
-    const cancelledReservationIds = new Set(periodBookings.filter((b) => b.cancelled).map((b) => b.res_id));
+    // Cancellations are counted from the full period feed, so the negative
+    // pickup is visible even while the list hides cancelled rows.
+    const cancelledInPeriod = allBookings.filter(
+      (b) => b.cancelled && b.createdDay >= bookedFrom && b.createdDay <= bookedTo,
+    );
+    const cancelledReservationIds = new Set(cancelledInPeriod.map((b) => b.res_id));
+    const cancelledNights = cancelledInPeriod.reduce((s, b) => s + b.roomNights, 0);
+    const cancelledRevenue = cancelledInPeriod.reduce((s, b) => s + b.revenue, 0);
     const adr = roomNights ? revenue / roomNights : null;
     const variance = adr === null ? null : adr - goals.targetAdr;
     return {
       bookings: reservationIds.size,
       roomGroups: liveBookings.length,
       cancelled: cancelledReservationIds.size,
+      cancelledNights,
+      cancelledRevenue,
+      netNights: roomNights - cancelledNights,
       roomNights,
       revenue,
       adr,
@@ -357,7 +383,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
       nightsGoalPct: goals.targetRoomNights ? (roomNights / goals.targetRoomNights) * 100 : 0,
       los: reservationIds.size ? roomNights / reservationIds.size : 0,
     };
-  }, [liveBookings, periodBookings, goals]);
+  }, [liveBookings, allBookings, bookedFrom, bookedTo, goals]);
 
   /** green / amber / red against the ADR target. */
   const adrTone = useMemo(() => {
@@ -723,14 +749,10 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
             Today’s Sales &amp; ADR Goal
             <Badge variant="outline" className="font-normal">Budapest time · Live</Badge>
           </CardTitle>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-muted-foreground">
-              {lastSyncAt ? `Synced ${fmtTime(lastSyncAt)}` : "Not synced yet"}
-            </span>
-            <Button size="sm" variant="outline" className="h-9 w-9 p-0" onClick={() => void load()} aria-label="Refresh sales data">
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-          </div>
+          {/* No manual refresh: the panel follows the page's shared sync. */}
+          <span className="text-[11px] text-muted-foreground">
+            {lastSyncAt ? `As of ${fmtTime(lastSyncAt)} · updates with the page sync` : "Waiting for the first page sync"}
+          </span>
         </div>
 
         {/* One-sentence answer, always first on mobile. */}
@@ -748,7 +770,11 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
           </div>
           <Button size="sm" variant={showCancelled ? "secondary" : "outline"} className="h-9 px-3 text-xs"
             onClick={() => setShowCancelled((v) => !v)}>
-            {showCancelled ? "Cancelled shown" : "Cancelled hidden"}
+            {showCancelled ? "Cancellations in list" : "List: live bookings only"}
+          </Button>
+          <Button size="sm" variant={stayFilterOn ? "secondary" : "outline"} className="h-9 px-3 text-xs"
+            onClick={() => setStayFilterOn((v) => !v)}>
+            {stayFilterOn ? "Stay-date filter on" : "All stay dates"}
           </Button>
         </div>
 
@@ -765,19 +791,21 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <Label className="text-[11px] text-muted-foreground">Guest stay dates from</Label>
-            <Input type="date" className="h-9" value={stayFrom} onChange={(e) => setStayFrom(e.target.value)} />
+        {stayFilterOn && (
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-[11px] text-muted-foreground">Guest stay dates from</Label>
+              <Input type="date" className="h-9" value={stayFrom} onChange={(e) => setStayFrom(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-[11px] text-muted-foreground">Guest stay dates to</Label>
+              <Input type="date" className="h-9" value={stayTo} onChange={(e) => setStayTo(e.target.value)} />
+            </div>
           </div>
-          <div>
-            <Label className="text-[11px] text-muted-foreground">Guest stay dates to</Label>
-            <Input type="date" className="h-9" value={stayTo} onChange={(e) => setStayTo(e.target.value)} />
-          </div>
-        </div>
+        )}
         <p className="text-[11px] text-muted-foreground">
-          The period above filters when the <strong>booking was created</strong>; the two date fields
-          filter which <strong>guest stay dates</strong> are counted.
+          The period filters when the <strong>booking was created</strong>. Every booking counts
+          whatever its arrival date{stayFilterOn ? ", unless you narrow the guest stay dates above." : "."}
         </p>
       </CardHeader>
 
@@ -824,6 +852,13 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
               />
               <Kpi label="Revenue goal" value={pct(kpi.valueGoalPct)} sub={`of ${eur(goals.targetValue)}`} />
               <Kpi label="Avg length of stay" value={kpi.los ? `${kpi.los.toFixed(1)} n` : "—"} />
+              <Kpi
+                label="Cancellations"
+                tone={kpi.cancelled > 0 ? "text-red-600 dark:text-red-400" : undefined}
+                value={kpi.cancelled ? `−${kpi.cancelledNights} n` : "0"}
+                sub={kpi.cancelled ? `${kpi.cancelled} booking${kpi.cancelled === 1 ? "" : "s"} · ${eur(Math.round(kpi.cancelledRevenue))} lost` : "none in this period"}
+              />
+              <Kpi label="Net room nights" value={String(kpi.netNights)} sub="sold minus cancelled" />
             </div>
 
             {/* --------------------------------------------- ADR status */}
@@ -848,7 +883,9 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
               </div>
               {kpi.cancelled > 0 && (
                 <p className="text-[11px] text-muted-foreground">
-                  {kpi.cancelled} cancelled booking{kpi.cancelled === 1 ? "" : "s"} in this period are excluded from every figure above.
+                  Negative pickup: {kpi.cancelled} cancellation{kpi.cancelled === 1 ? "" : "s"} in this period
+                  ({kpi.cancelledNights} room night{kpi.cancelledNights === 1 ? "" : "s"}, {eur(Math.round(kpi.cancelledRevenue))}).
+                  ADR and revenue above count live bookings only.
                 </p>
               )}
             </div>
