@@ -139,16 +139,34 @@ Deno.serve(async (req) => {
     let writeMethod: string | null = settings?.rate_write_method ?? null;
 
     // --- drafts to push --------------------------------------------------
+    // A six-month edit can be thousands of prices. One invocation handles a
+    // bounded slice and then calls itself for the rest, so a long range never
+    // hits the function time limit and never needs the browser to stay open.
+    const SLICE = 400;
     let q = admin
       .from("revenue_rate_drafts")
       .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, currency, created_by, organization_slug")
       .eq("hotel_id", hotelId)
-      .in("status", ["draft", "failed"]);
-    if (draftIds.length > 0) q = q.in("id", draftIds);
+      .order("stay_date", { ascending: true })
+      .limit(SLICE);
+    if (draftIds.length > 0) {
+      q = q.in("id", draftIds.slice(0, SLICE)).in("status", ["draft", "failed"]);
+    } else if (requestedRunId) {
+      // Resuming a run: only untouched drafts, so a failure is not retried
+      // forever inside the same run.
+      q = q.eq("push_run_id", requestedRunId).eq("status", "draft");
+    } else {
+      q = q.in("status", ["draft", "failed"]);
+    }
 
     const { data: drafts, error: draftErr } = await q;
     if (draftErr) throw draftErr;
     if (!drafts || drafts.length === 0) {
+      if (requestedRunId) {
+        await admin.from("revenue_rate_push_runs").update({
+          status: "completed", finished_at: new Date().toISOString(),
+        }).eq("id", requestedRunId).in("status", ["queued", "processing"]);
+      }
       return json({ ok: true, pushed: 0, failed: 0, message: "Nothing to push." });
     }
 
