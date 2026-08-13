@@ -516,6 +516,7 @@ Deno.serve(async (req) => {
       }
 
       let inserted = 0;
+      let insertedActionIds: string[] = [];
       if (actionsToInsert.length > 0) {
         // The unique index makes a repeated tick a no-op for the same event.
         const { data: ins, error: insErr } = await admin
@@ -527,7 +528,9 @@ Deno.serve(async (req) => {
           .select("id, stay_date, obk_id, occupancy");
         if (insErr) throw insErr;
         inserted = (ins ?? []).length;
+        insertedActionIds = (ins ?? []).map((row: any) => row.id).filter(Boolean);
       }
+
 
       let pushed = 0;
       let pushError: string | null = null;
