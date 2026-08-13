@@ -687,7 +687,8 @@ export default function RevenueHotelDetail() {
             onRatesUpdated={live.reload}
           />
 
-          <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow} />
+          <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow}
+            hotels={tenantHotels.map((h) => ({ hotel_id: h.hotel_id, hotel_name: h.hotel_name }))} hotelId={hotelId ?? null} />
           <PickupMovementBoard
             metrics={live.metrics}
             windowDays={pickupWindow}
