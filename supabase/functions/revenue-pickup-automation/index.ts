@@ -98,8 +98,11 @@ Deno.serve(async (req) => {
     // tenant rules the rest of the app uses: you can only run automation for a
     // property inside your own organization, and only revenue roles may do it.
     const engineKey = req.headers.get("x-engine-key");
-    const isEngine = !!engineKey && engineKey === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+    // Scheduled ticks call in with the service key (header or bearer); those
+    // are the machine runs and keep working exactly as before.
+    const isEngine = (!!engineKey && engineKey === serviceKey) || (!!bearer && bearer === serviceKey);
     let actorName: string | null = null;
     if (!isEngine) {
       if (!bearer) return json({ ok: false, code: "unauthenticated", msg: "Please sign in again and retry." }, 401);
