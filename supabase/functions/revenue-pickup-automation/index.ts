@@ -93,7 +93,17 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({} as any));
     const onlyHotel: string | null = typeof body.hotelId === "string" ? body.hotelId : null;
-    const dryRun: boolean = body.dryRun === true;
+
+    // Global, admin-controlled brake. When automation is paused the tick does
+    // no work at all; in dry-run it still calculates and records suggestions
+    // but never publishes a price.
+    const { data: config } = await admin
+      .from("revenue_engine_config").select("automation_enabled, dry_run").eq("id", "global").maybeSingle();
+    if (config && config.automation_enabled === false) {
+      return json({ ok: true, paused: true, msg: "Revenue automation is paused by an administrator" });
+    }
+    const dryRun: boolean = body.dryRun === true || config?.dry_run === true;
+
 
     // Recovery backstop for a browser/tab or Edge Runtime that stopped after
     // enqueueing. Absolute target prices make this safe to resume.
