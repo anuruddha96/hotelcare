@@ -438,6 +438,20 @@ Deno.serve(async (req) => {
       const draftsToInsert: any[] = [];
       const actionsToInsert: any[] = [];
 
+      /**
+       * Two bookings on the same stay date used to produce two identical action
+       * rows for the same price cell (each computed from the same starting
+       * price), so the history read "raised by 8" twice while the price only
+       * ever moved once. Decisions are now accumulated per price cell: the
+       * increases add up and exactly ONE action (and one draft) is written.
+       */
+      type CellDecision = {
+        stay_date: string; obk_id: string; room_type_name: string; occupancy: number;
+        currency: string; old_price: number; increase: number;
+        res_id: string; at: string; sequence: number; events: number;
+      };
+      const cellDecisions = new Map<string, CellDecision>();
+
       for (const ev of events) {
         const daysOut = dayDiff(today, ev.stay_date);
         if (daysOut < 0) continue;
@@ -467,42 +481,72 @@ Deno.serve(async (req) => {
           }
           const oldPrice = Number(rate.price);
           if (!Number.isFinite(oldPrice) || oldPrice <= 0) continue;
-          let newPrice = Math.round(oldPrice + increase);
-          if (rule.minimum_adr && newPrice < Number(rule.minimum_adr)) newPrice = Math.round(Number(rule.minimum_adr));
-          if (newPrice === oldPrice) continue;
 
-          actionsToInsert.push({
-            rule_id: rule.id,
-            rule_version: rule.version,
-            hotel_id: rule.hotel_id,
-            organization_slug: rule.organization_slug,
-            reservation_id: String(ev.res_id),
-            stay_date: ev.stay_date,
-            pickup_at: ev.at,
-            pickup_sequence: ev.sequence,
-            room_type_name: rate.room_type_name,
-            obk_id: String(rate.obk_id),
-            occupancy: Number(rate.occupancy) || 2,
-            old_price: oldPrice,
-            increase_amount: newPrice - oldPrice,
-            new_price: newPrice,
-            status: rule.auto_publish ? "queued" : "suggested",
-          });
-
-          if (rule.auto_publish) {
-            draftsToInsert.push({
-              hotel_id: rule.hotel_id,
-              organization_slug: rule.organization_slug,
+          const cellKey = `${ev.stay_date}|${String(rate.obk_id)}|${Number(rate.occupancy) || 2}`;
+          const current = cellDecisions.get(cellKey);
+          if (current) {
+            current.increase += increase;
+            current.events += 1;
+            // Attribute the row to the most recent booking that moved it.
+            if (Date.parse(ev.at) >= Date.parse(current.at)) {
+              current.at = ev.at;
+              current.res_id = ev.res_id;
+              current.sequence = ev.sequence;
+            }
+          } else {
+            cellDecisions.set(cellKey, {
               stay_date: ev.stay_date,
               obk_id: String(rate.obk_id),
               room_type_name: rate.room_type_name,
               occupancy: Number(rate.occupancy) || 2,
-              old_price: oldPrice,
-              new_price: newPrice,
               currency: rate.currency ?? "EUR",
-              status: "draft",
+              old_price: oldPrice,
+              increase,
+              res_id: ev.res_id,
+              at: ev.at,
+              sequence: ev.sequence,
+              events: 1,
             });
           }
+        }
+      }
+
+      for (const decision of cellDecisions.values()) {
+        let newPrice = Math.round(decision.old_price + decision.increase);
+        if (rule.minimum_adr && newPrice < Number(rule.minimum_adr)) newPrice = Math.round(Number(rule.minimum_adr));
+        if (newPrice === decision.old_price) continue;
+
+        actionsToInsert.push({
+          rule_id: rule.id,
+          rule_version: rule.version,
+          hotel_id: rule.hotel_id,
+          organization_slug: rule.organization_slug,
+          reservation_id: String(decision.res_id),
+          stay_date: decision.stay_date,
+          pickup_at: decision.at,
+          pickup_sequence: decision.sequence,
+          room_type_name: decision.room_type_name,
+          obk_id: decision.obk_id,
+          occupancy: decision.occupancy,
+          old_price: decision.old_price,
+          increase_amount: newPrice - decision.old_price,
+          new_price: newPrice,
+          status: rule.auto_publish ? "queued" : "suggested",
+        });
+
+        if (rule.auto_publish) {
+          draftsToInsert.push({
+            hotel_id: rule.hotel_id,
+            organization_slug: rule.organization_slug,
+            stay_date: decision.stay_date,
+            obk_id: decision.obk_id,
+            room_type_name: decision.room_type_name,
+            occupancy: decision.occupancy,
+            old_price: decision.old_price,
+            new_price: newPrice,
+            currency: decision.currency,
+            status: "draft",
+          });
         }
       }
 
