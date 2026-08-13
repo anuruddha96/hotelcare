@@ -5400,6 +5400,39 @@ export type Database = {
         }
         Relationships: []
       }
+      revenue_sync_state: {
+        Row: {
+          hotel_id: string
+          last_error: string | null
+          last_success_at: string | null
+          lease_expires_at: string | null
+          lease_owner: string | null
+          lease_started_at: string | null
+          organization_slug: string
+          updated_at: string
+        }
+        Insert: {
+          hotel_id: string
+          last_error?: string | null
+          last_success_at?: string | null
+          lease_expires_at?: string | null
+          lease_owner?: string | null
+          lease_started_at?: string | null
+          organization_slug: string
+          updated_at?: string
+        }
+        Update: {
+          hotel_id?: string
+          last_error?: string | null
+          last_success_at?: string | null
+          lease_expires_at?: string | null
+          lease_owner?: string | null
+          lease_started_at?: string | null
+          organization_slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       rm_analysis_runs: {
         Row: {
           cached: boolean
@@ -6697,7 +6730,18 @@ export type Database = {
         Args: { _user_id: string }
         Returns: boolean
       }
+      claim_revenue_sync: {
+        Args: { _fresh_for?: string; _hotel_id: string; _lease_for?: string }
+        Returns: {
+          last_success_at: string
+          status: string
+        }[]
+      }
       cleanup_old_photos: { Args: never; Returns: undefined }
+      complete_revenue_sync: {
+        Args: { _error?: string; _hotel_id: string; _success: boolean }
+        Returns: undefined
+      }
       create_authenticated_housekeeper: {
         Args: {
           p_assigned_hotel?: string
