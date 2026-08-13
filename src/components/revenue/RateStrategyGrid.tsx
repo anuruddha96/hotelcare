@@ -703,12 +703,23 @@ export default function RateStrategyGrid({
     if (!hotelId) return;
     const { data } = await supabase
       .from("revenue_rate_drafts")
-      .select("id, stay_date, room_type_name, occupancy, old_price, new_price, status, confirmation_status, actual_previo_price, push_error")
+      .select("id, created_at, stay_date, room_type_name, occupancy, old_price, new_price, status, confirmation_status, actual_previo_price, push_error")
       .eq("hotel_id", hotelId)
       .or("status.in.(draft,failed),and(status.eq.pushed,confirmation_status.in.(sending,sent,checking,pending,different))")
       .order("stay_date");
-    const rows = (data ?? []) as PendingDraft[];
+    const all = (data ?? []) as PendingDraft[];
+    // Only the newest request per cell still means anything. An older request
+    // for the same cell was replaced on purpose, so it must not be reported as
+    // "landed on a different price".
+    const newestByCell = new Map<string, PendingDraft>();
+    for (const d of all) {
+      const key = `${d.stay_date}|${d.room_type_name}|${d.occupancy}`;
+      const prev = newestByCell.get(key);
+      if (!prev || String(d.created_at ?? "") > String(prev.created_at ?? "")) newestByCell.set(key, d);
+    }
+    const rows = all.filter((d) => newestByCell.get(`${d.stay_date}|${d.room_type_name}|${d.occupancy}`)?.id === d.id);
     setPending(rows);
+
 
     const m = new Map<string, number>();
     for (const d of rows) {
