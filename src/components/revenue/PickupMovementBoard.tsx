@@ -65,6 +65,9 @@ export default function PickupMovementBoard({
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [adjust, setAdjust] = useState<QuickAdjustTarget | null>(null);
+  const seenSince = usePickupSeenSince(hotelId);
+  const isNew = useIsNewSince(seenSince);
+
 
   const windowFirstDay = useMemo(
     () => addDays(budapestToday(), -Math.max(0, windowDays - 1)),
