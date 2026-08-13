@@ -25,18 +25,27 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
     profile_picture_url: profile?.profile_picture_url || ''
   });
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !profile) return;
+  /** The picture currently being framed in the adjuster, if any. */
+  const [editing, setEditing] = useState<File | string | null>(null);
 
+  const handleFilePick = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    // Framing happens before anything is uploaded, so a badly cropped photo
+    // never reaches the account.
+    setEditing(file);
+    event.target.value = '';
+  };
+
+  const handleUploadFramed = async (blob: Blob) => {
+    if (!profile) return;
     setIsLoading(true);
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${profile.id}/avatar.${fileExt}`;
+      const fileName = `${profile.id}/avatar.jpg`;
 
       const { error: uploadError } = await supabase.storage
         .from('profile-pictures')
-        .upload(fileName, file, { upsert: true });
+        .upload(fileName, blob, { upsert: true, contentType: 'image/jpeg' });
 
       if (uploadError) throw uploadError;
 
@@ -46,10 +55,12 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
 
       setProfileData(prev => ({
         ...prev,
-        profile_picture_url: data.publicUrl
+        // The cache-buster keeps the new crop from being hidden behind the old one.
+        profile_picture_url: `${data.publicUrl}?v=${Date.now()}`
       }));
+      setEditing(null);
 
-      toast.success('Profile picture uploaded successfully!');
+      toast.success('Photo updated — save your profile to keep it.');
     } catch (error) {
       console.error('Error uploading file:', error);
       toast.error('Failed to upload profile picture');
@@ -57,6 +68,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
       setIsLoading(false);
     }
   };
+
 
   const handleSave = async () => {
     if (!profile) return;
