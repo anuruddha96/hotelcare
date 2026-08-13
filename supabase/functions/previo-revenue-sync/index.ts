@@ -350,6 +350,8 @@ serve(async (req) => {
   const token = (req.headers.get("Authorization") || "").replace("Bearer ", "");
   let actorId: string | null = null;
   let actorName: string | null = null;
+  let actorOrganization: string | null = null;
+  let actorIsSuperAdmin = false;
   const probeToken = Deno.env.get("PREVIO_PROBE_TOKEN") || "";
   const probeAuthorized = !!probeToken && (req.headers.get("x-probe-token") || "") === probeToken;
   if (token !== SERVICE && !probeAuthorized) {
@@ -360,11 +362,13 @@ serve(async (req) => {
     actorId = userRes.user.id;
     const { data: profile } = await service
       .from("profiles")
-      .select("role, full_name, assigned_hotel, organization_slug")
+      .select("role, full_name, assigned_hotel, organization_slug, is_super_admin")
       .eq("id", actorId)
       .maybeSingle();
     const role = (profile as { role?: string } | null)?.role ?? "";
     actorName = (profile as { full_name?: string } | null)?.full_name ?? null;
+    actorOrganization = (profile as { organization_slug?: string } | null)?.organization_slug ?? null;
+    actorIsSuperAdmin = (profile as { is_super_admin?: boolean } | null)?.is_super_admin === true;
     const allowedRoles = ["admin", "top_management", "top_management_manager", "manager", "hotel_manager"];
     if (!allowedRoles.includes(role)) return json({ error: "Forbidden" }, 403);
   }
@@ -439,6 +443,9 @@ serve(async (req) => {
     orgSlug = (hc as any)?.organization_slug || "";
   }
   if (!orgSlug) return json({ error: `No organization found for ${hotelId}` }, 404);
+  if (actorId && !actorIsSuperAdmin && actorOrganization !== orgSlug) {
+    return json({ error: "Forbidden: property belongs to another organization" }, 403);
+  }
 
 
   const errors: string[] = [];
@@ -1026,6 +1033,12 @@ serve(async (req) => {
     data: summary,
     synced_by_user_id: actorId,
     synced_by_name: actorName,
+  });
+
+  await service.rpc("complete_revenue_sync", {
+    _hotel_id: hotelId,
+    _success: errors.length === 0,
+    _error: errors.length ? errors.slice(0, 5).join(" | ") : null,
   });
 
   return json({ success: errors.length === 0, ...summary });
