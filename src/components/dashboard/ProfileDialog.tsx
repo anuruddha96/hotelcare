@@ -256,6 +256,8 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
             </Button>
           </div>
         </div>
+        )}
+
       </DialogContent>
     </Dialog>
   );
