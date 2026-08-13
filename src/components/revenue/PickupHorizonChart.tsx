@@ -485,26 +485,15 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
               {showAdr && (
                 <Line yAxisId={usesPercentAxis ? "adr" : "adr"} type="monotone" dataKey="adr" name="ADR" stroke={ADR_COLOR} strokeWidth={2} dot={false} connectNulls={false} opacity={0.9} />
               )}
-              {compare && hotels.map((h, i) => (
+              {compare && hotels.filter((h) => !hiddenHotels.has(h.hotel_id)).map((h) => (
                 <Line key={h.hotel_id} yAxisId="right" type="monotone" dataKey={`h_${h.hotel_id}`} name={h.hotel_name}
-                  stroke={colorFor(h.hotel_id, i)} strokeWidth={h.hotel_id === hotelId ? 2.5 : 1.5}
+                  stroke={colorFor(h.hotel_id, hotels.findIndex((x) => x.hotel_id === h.hotel_id))}
+                  strokeWidth={h.hotel_id === hotelId ? 2.5 : 1.5}
                   dot={false} connectNulls opacity={0.85} />
               ))}
             </ComposedChart>
           </ResponsiveContainer>
         </div>
-        <p className="px-3 pt-2 text-[11px] text-muted-foreground">
-          Bars: net pickup per arrival date (new bookings minus cancellations) inside the measurement
-          window — left axis, in rooms. Orange to red as pickup grows, blue when it turns negative.
-          Lines read on the right axis: occupancy for this property, ADR on its own money scale, and
-          <span className="font-medium"> city demand</span> — the average occupancy of every property you
-          can see, an in-house Budapest estimate rather than a paid market benchmark; dashed sections are
-          predicted from the day-of-week pattern where no property has data yet.
-          {hotels.length > 1 ? " “Compare properties” adds one occupancy line per property." : ""}
-          {isMobile ? " One of occupancy / ADR at a time on mobile." : " Tap a legend entry to hide or show a line."}
-          {" "}Dashed vertical lines mark the start of each month. Source: Previo, refreshed at each sync.
-        </p>
-
       </CardContent>
 
     </Card>
