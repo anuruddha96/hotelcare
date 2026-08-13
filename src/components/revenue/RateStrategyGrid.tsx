@@ -450,6 +450,7 @@ export default function RateStrategyGrid({
     const cutoff = Date.now() - RECENT_WINDOW_MS;
     for (const r of auditManualRows) {
       if (!r.stay_date) continue;
+      if (r.source === "previo_different" && r.payload?.resolved_at) continue;
       const origin = fromAuditSource(r.source, r.payload?.confirmation_status);
       if (!origin) continue;
       if (Date.parse(r.performed_at) < cutoff) continue;
@@ -943,7 +944,6 @@ export default function RateStrategyGrid({
       await supabase.from("revenue_rate_drafts")
         .update({ confirmation_status: "superseded" })
         .eq("id", draft.id);
-      const cell = cellKey(draft.stay_date, draft.room_type_name, draft.occupancy);
       await resolveRateMismatches(
         auditManualRows.filter((r) => r.source === "previo_different"
           && r.stay_date === draft.stay_date
@@ -951,7 +951,6 @@ export default function RateStrategyGrid({
           && r.payload?.occupancy === draft.occupancy
           && !r.payload?.resolved_at),
       );
-      void cell;
       await Promise.all([refreshDrafts(), reloadAudit()]);
       toast.success("Previo's price kept", { description: `${draft.room_type_name} · ${draft.stay_date}` });
     } catch {
