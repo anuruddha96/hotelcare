@@ -574,15 +574,42 @@ Deno.serve(async (req) => {
     }
     console.log(`push run ${pushRunId}: ${drafts.length} drafts → ${groupList.length} date/room groups → ${batches.length} Previo messages`);
 
+    // Is there another slice of this run still waiting? Counters accumulate
+    // across slices so the progress pill keeps climbing instead of restarting.
+    const { count: remaining } = await admin.from("revenue_rate_drafts")
+      .select("id", { count: "exact", head: true })
+      .eq("hotel_id", hotelId).eq("push_run_id", pushRunId).eq("status", "draft");
+    const more = (remaining ?? 0) > 0;
+
+    const { data: runSoFar } = await admin.from("revenue_rate_push_runs")
+      .select("processed_count, accepted_count, failed_count, compressed_message_count")
+      .eq("id", pushRunId).maybeSingle();
+    const totalProcessed = Number(runSoFar?.processed_count ?? 0) + pushed + failed;
+    const totalAccepted = Number(runSoFar?.accepted_count ?? 0) + pushed;
+    const totalFailed = Number(runSoFar?.failed_count ?? 0) + failed;
+
     await admin.from("revenue_rate_push_runs").update({
-      status: failed === 0 ? "completed" : pushed === 0 ? "failed" : "partial",
-      processed_count: pushed + failed,
-      accepted_count: pushed,
-      failed_count: failed,
-      compressed_message_count: batches.length,
-      finished_at: new Date().toISOString(),
-      last_error: failed > 0 ? errors[0]?.error?.slice(0, 500) ?? "Previo rejected one or more prices" : null,
+      status: more ? "processing" : totalFailed === 0 ? "completed" : totalAccepted === 0 ? "failed" : "partial",
+      processed_count: totalProcessed,
+      accepted_count: totalAccepted,
+      failed_count: totalFailed,
+      compressed_message_count: Number(runSoFar?.compressed_message_count ?? 0) + batches.length,
+      finished_at: more ? null : new Date().toISOString(),
+      last_error: totalFailed > 0 ? errors[0]?.error?.slice(0, 500) ?? "Previo rejected one or more prices" : null,
     }).eq("id", pushRunId);
+
+    if (more) {
+      const continueRun = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+        },
+        body: JSON.stringify({ hotelId, pushRunId }),
+      }).catch((error) => console.error("could not continue push run", pushRunId, error));
+      const rt = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
+      if (rt) rt.waitUntil(continueRun); else void continueRun;
+    }
 
 
     await admin.from("pms_sync_history").insert({
