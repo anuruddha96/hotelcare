@@ -2051,6 +2051,7 @@ export default function RateStrategyGrid({
                     // Already with Previo, waiting for its read-back. This is
                     // not a draft: the price is live, we are only confirming.
                     const sending = inFlight.get(`${d}|${row.roomTypeName}|${row.occ}`);
+                    const flashKind = flash.get(`${d}|${row.roomTypeName}|${row.occ}`);
                     const shown = draft ?? sending ?? published;
                     const tone = rateTone(shown, thresholds);
                     const history = auditByCell.get(cellKey(d, row.roomTypeName, row.occ));
@@ -2126,10 +2127,21 @@ export default function RateStrategyGrid({
                         }}
 
                         title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
-                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""}`}
+                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
                         style={{ width: CELL_W }}
                       >
-                        {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
+                        {shown === undefined ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          <span
+                            /* The number itself springs when it changes — the
+                               key restarts the animation on every new value. */
+                            key={String(shown)}
+                            className={flashKind ? "inline-block animate-rate-bump font-semibold" : "inline-block"}
+                          >
+                            {priceLabel(shown)}
+                          </span>
+                        )}
                         {sending !== undefined && draft === undefined ? (
                           <i
                             aria-hidden
