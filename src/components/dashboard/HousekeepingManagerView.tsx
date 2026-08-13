@@ -33,6 +33,7 @@ import { setRoomDragPayload, readRoomDragPayload, assignRoomToStaff, unassignRoo
 import { venueEdgeStyle } from '@/lib/venueColors';
 import { addDays } from 'date-fns';
 import { todayBudapest } from '@/lib/budapestTime';
+import { useVenues } from '@/hooks/useVenues';
 import {
   initStagedScope,
   stageMove,
@@ -130,6 +131,13 @@ interface RoomAssignment {
   venue_id?: string | null;
 }
 
+interface ScheduledShift {
+  status: 'draft' | 'published' | 'off';
+  shift_start: string;
+  shift_end: string;
+  staff_schedule_venues?: { venue_id: string }[];
+}
+
 
 interface HousekeepingManagerViewProps {
   onActiveInnerTabChange?: (tab: string) => void;
@@ -140,6 +148,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const { t } = useTranslation();
   const terms = usePropertyTerms();
   const { venuesEnabled } = useTenantFeatures();
+  const { venueName } = useVenues();
   // Managers/supervisors may move work between housekeepers by drag & drop.
   const canDragAssign = !!profile?.role && ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager', 'supervisor'].includes(profile.role);
   const [housekeepingStaff, setHousekeepingStaff] = useState<HousekeepingStaff[]>([]);
@@ -163,6 +172,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [pendingRoomsDialogOpen, setPendingRoomsDialogOpen] = useState(false);
   const [doneRoomsDialogOpen, setDoneRoomsDialogOpen] = useState(false);
   const [staffAttendance, setStaffAttendance] = useState<Record<string, any>>({});
+  const [staffSchedules, setStaffSchedules] = useState<Record<string, ScheduledShift>>({});
   const [selectedStaff, setSelectedStaff] = useState<{ id: string; name: string } | null>(null);
   const [managerHotelName, setManagerHotelName] = useState<string>('');
   const [overviewRefreshKey, setOverviewRefreshKey] = useState(0);
@@ -178,6 +188,17 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const selectedUnits = useUnitSelection();
   const assignSelectionTo = (staff: { id: string; full_name: string } | null) => {
     if (selectedUnits.length === 0) return;
+    if (staff && venuesEnabled) {
+      const shift = staffSchedules[staff.id];
+      const allowedVenues = new Set(shift?.staff_schedule_venues?.map((row) => row.venue_id) ?? []);
+      const selectedVenueIds = selectedUnits.map((unit) => roomAssignments.find((room) => room.room_id === unit.roomId)?.venue_id).filter(Boolean) as string[];
+      const outsideVenue = allowedVenues.size > 0 && selectedVenueIds.some((venueId) => !allowedVenues.has(venueId));
+      const conflict = shift?.status === 'off' || !shift || outsideVenue;
+      if (conflict) {
+        const reason = shift?.status === 'off' ? 'is scheduled off' : !shift ? 'has no published shift' : 'is not scheduled for one or more selected venues';
+        if (!window.confirm(`${staff.full_name} ${reason} on ${selectedDate}. Assign anyway?`)) return;
+      }
+    }
     let staged = 0;
     selectedUnits.forEach((unit) => {
       if ((unit.assignedTo ?? null) === (staff?.id ?? null)) return;
@@ -326,6 +347,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     fetchTeamAssignments();
     fetchRoomAssignments();
     fetchStaffAttendance();
+    fetchStaffSchedules();
     fetchManagerHotelName();
   }, [selectedDate, profile?.assigned_hotel]);
 
@@ -640,6 +662,16 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     }
   };
 
+  const fetchStaffSchedules = async () => {
+    if (!venuesEnabled || !profile?.assigned_hotel) { setStaffSchedules({}); return; }
+    const { data } = await (supabase as any).from('staff_schedules')
+      .select('user_id,status,shift_start,shift_end,staff_schedule_venues(venue_id)')
+      .eq('hotel_id', profile.assigned_hotel).eq('work_date', selectedDate).in('status', ['published', 'off']);
+    const scheduleMap: Record<string, ScheduledShift> = {};
+    for (const row of data ?? []) scheduleMap[row.user_id] = row as ScheduledShift;
+    setStaffSchedules(scheduleMap);
+  };
+
   const fetchManagerHotelName = async () => {
     // Try the user's assigned hotel first
     if (profile?.assigned_hotel) {
@@ -936,6 +968,13 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                         )}
                       </div>
                     )}
+                    {venuesEnabled && (() => {
+                      const shift = staffSchedules[staff.id];
+                      if (!shift) return <Badge variant="outline" className="mt-2 text-[10px]">Not scheduled</Badge>;
+                      if (shift.status === 'off') return <Badge variant="secondary" className="mt-2 text-[10px]">Scheduled off</Badge>;
+                      const names = shift.staff_schedule_venues?.map((row) => venueName(row.venue_id)).filter(Boolean).join(', ');
+                      return <div className="mt-2 text-[10px] text-muted-foreground"><span className="font-medium text-foreground">{shift.shift_start.slice(0,5)}–{shift.shift_end.slice(0,5)}</span>{names ? ` · ${names}` : ''}</div>;
+                    })()}
                   </div>
                   <Badge variant={assignment?.total_assigned ? "default" : "secondary"}>
                     {assignment?.total_assigned || 0} {terms.unitPlural.toLowerCase()}

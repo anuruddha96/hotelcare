@@ -24,7 +24,7 @@ type Shift = {
 
 export function StaffSchedulePlanner() {
   const { profile } = useAuth();
-  const { visibleVenues } = useVenues();
+  const { visibleVenues, hasScopes, myVenueIds } = useVenues();
   const [days, setDays] = useState<14 | 30>(14);
   const [start, setStart] = useState(() => format(startOfDay(new Date()), 'yyyy-MM-dd'));
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -52,11 +52,22 @@ export function StaffSchedulePlanner() {
         .select('id,user_id,work_date,shift_start,shift_end,status,notes,staff_schedule_venues(venue_id)')
         .eq('hotel_id', profile.assigned_hotel).gte('work_date', start).lte('work_date', end),
     ]);
-    setStaff((staffRows ?? []) as Staff[]);
+    let allowedStaff = (staffRows ?? []) as Staff[];
+    if (hasScopes && allowedStaff.length) {
+      const { data: scopes } = await supabase.from('user_property_scopes').select('user_id, venue_id').in('user_id', allowedStaff.map((s) => s.id));
+      const visible = new Set(myVenueIds);
+      const byUser = new Map<string, string[]>();
+      for (const scope of scopes ?? []) byUser.set(scope.user_id, [...(byUser.get(scope.user_id) ?? []), scope.venue_id]);
+      allowedStaff = allowedStaff.filter((person) => {
+        const personScopes = byUser.get(person.id) ?? [];
+        return personScopes.length === 0 || personScopes.some((id) => visible.has(id));
+      });
+    }
+    setStaff(allowedStaff);
     setShifts((shiftRows ?? []) as Shift[]);
   };
 
-  useEffect(() => { void load(); }, [profile?.assigned_hotel, profile?.organization_slug, start, end]);
+  useEffect(() => { void load(); }, [profile?.assigned_hotel, profile?.organization_slug, start, end, hasScopes, myVenueIds.join('|')]);
 
   const openEditor = (user: Staff, date: string) => {
     const existing = shiftMap.get(`${user.id}|${date}`);
