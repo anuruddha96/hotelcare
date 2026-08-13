@@ -525,6 +525,8 @@ Deno.serve(async (req) => {
       }
 
       let pushed = 0;
+      let pushError: string | null = null;
+      const changed: Array<Record<string, unknown>> = [];
       // Only publish prices for events that were genuinely new this tick.
       if (rule.auto_publish && inserted > 0 && draftsToInsert.length > 0) {
         const insertedKeys = new Set<string>();
@@ -537,18 +539,32 @@ Deno.serve(async (req) => {
         for (const r of (freshRows ?? []) as any[]) {
           insertedKeys.add(`${r.stay_date}|${r.obk_id}|${r.occupancy}`);
         }
-        const payload = draftsToInsert.filter((d) =>
-          insertedKeys.has(`${d.stay_date}|${d.obk_id}|${d.occupancy}`)
-        );
+        // Two bookings for the same stay date produce two decisions but only
+        // ONE price cell. Collapse them to the highest target price, otherwise
+        // the insert trips the one-active-draft-per-cell index and the whole
+        // run fails with a duplicate key error.
+        const byCell = new Map<string, any>();
+        for (const d of draftsToInsert) {
+          if (!insertedKeys.has(`${d.stay_date}|${d.obk_id}|${d.occupancy}`)) continue;
+          const cell = `${d.stay_date}|${d.room_type_name}|${d.occupancy}`;
+          const existing = byCell.get(cell);
+          if (!existing || Number(d.new_price) > Number(existing.new_price)) {
+            byCell.set(cell, existing ? { ...d, old_price: existing.old_price } : d);
+          }
+        }
+        const payload = Array.from(byCell.values());
         if (payload.length > 0) {
           // A cell can only carry one pending draft, so clear any stale one
           // for the same cell before writing the automated price.
-          for (const d of payload) {
-            await admin.from("revenue_rate_drafts").delete()
-              .eq("hotel_id", d.hotel_id).eq("stay_date", d.stay_date)
-              .eq("room_type_name", d.room_type_name).eq("occupancy", d.occupancy)
-              .in("status", ["draft", "failed"]);
-          }
+          const staleDates = Array.from(new Set(payload.map((d) => d.stay_date)));
+          const { data: staleDrafts } = await admin.from("revenue_rate_drafts")
+            .select("id, stay_date, room_type_name, occupancy")
+            .eq("hotel_id", rule.hotel_id).in("stay_date", staleDates)
+            .in("status", ["draft", "failed"]);
+          const staleIds = ((staleDrafts ?? []) as any[])
+            .filter((row) => byCell.has(`${row.stay_date}|${row.room_type_name}|${row.occupancy}`))
+            .map((row) => row.id);
+          if (staleIds.length > 0) await admin.from("revenue_rate_drafts").delete().in("id", staleIds);
           const { data: drafts, error: draftErr } = await admin
             .from("revenue_rate_drafts")
             .insert(payload)
@@ -566,7 +582,15 @@ Deno.serve(async (req) => {
           });
           const out = await res.json().catch(() => ({}));
           pushed = Number(out?.pushed ?? 0);
+          pushError = pushed > 0 ? null : (out?.error ?? "Previo did not accept the change");
           const status = pushed > 0 ? "pushed" : "failed";
+          for (const d of payload) {
+            changed.push({
+              stay_date: d.stay_date, room_type_name: d.room_type_name, occupancy: d.occupancy,
+              old_price: d.old_price, new_price: d.new_price, currency: d.currency,
+              status,
+            });
+          }
           await admin.from("revenue_pickup_automation_actions")
             .update({
               status,
@@ -579,22 +603,33 @@ Deno.serve(async (req) => {
         }
       }
 
+      if (!rule.auto_publish && inserted > 0) {
+        for (const a of actionsToInsert) {
+          changed.push({
+            stay_date: a.stay_date, room_type_name: a.room_type_name, occupancy: a.occupancy,
+            old_price: a.old_price, new_price: a.new_price, currency: rule.currency ?? "EUR",
+            status: "suggested",
+          });
+        }
+      }
+
       await admin.from("revenue_pickup_automation_rules")
         .update({ last_run_at: runStartedAt }).eq("id", rule.id);
 
       summary.push({
         hotel_id: rule.hotel_id, pickups: events.length,
         skipped_not_new: skippedStale, skipped_negative_pickup: skippedNegative,
-        actions: inserted, pushed, auto_publish: rule.auto_publish,
+        actions: inserted, pushed, failed: Math.max(0, changed.filter((c) => c.status === "failed").length),
+        push_error: pushError, auto_publish: rule.auto_publish, changed,
       });
     }
     } finally {
       await admin.rpc("release_automation_lock", { p_hotel: lockHotel });
     }
 
-    return json({ ok: true, rules: rules.length, hotel_id: lockHotel, summary });
+    return json({ ok: true, code: "ran", rules: rules.length, hotel_id: lockHotel, actor: actorName, summary });
   } catch (e) {
     console.error("pickup automation failed", e);
-    return json({ ok: false, error: e instanceof Error ? e.message : String(e) }, 500);
+    return json({ ok: false, code: "error", error: e instanceof Error ? e.message : String(e) }, 500);
   }
 });
