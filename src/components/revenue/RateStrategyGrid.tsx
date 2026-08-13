@@ -875,7 +875,7 @@ export default function RateStrategyGrid({
     setRechecking(true);
     try {
       const { error } = await supabase.functions.invoke("previo-revenue-sync", {
-        body: { hotelId, horizonDays: Math.max(30, days), ratesOnly: true },
+        body: { hotelId, horizonDays: Math.max(30, days) },
       });
       if (error) throw error;
       await Promise.all([refreshDrafts(), reloadAudit(), onRatesUpdated?.()]);
