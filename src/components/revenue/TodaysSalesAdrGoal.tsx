@@ -883,7 +883,9 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
               </div>
               {kpi.cancelled > 0 && (
                 <p className="text-[11px] text-muted-foreground">
-                  {kpi.cancelled} cancelled booking{kpi.cancelled === 1 ? "" : "s"} in this period are excluded from every figure above.
+                  Negative pickup: {kpi.cancelled} cancellation{kpi.cancelled === 1 ? "" : "s"} in this period
+                  ({kpi.cancelledNights} room night{kpi.cancelledNights === 1 ? "" : "s"}, {eur(Math.round(kpi.cancelledRevenue))}).
+                  ADR and revenue above count live bookings only.
                 </p>
               )}
             </div>
