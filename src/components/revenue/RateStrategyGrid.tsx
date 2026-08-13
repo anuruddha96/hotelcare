@@ -508,7 +508,7 @@ export default function RateStrategyGrid({
       push(a.stay_date, {
         at: a.created_at, origin: "automation",
         old: a.old_price, next: a.new_price,
-        who: "Pickup automation tool",
+        who: "HotelCare Automation",
         room: a.room_type_name, occ: a.occupancy,
       });
     }
@@ -2216,7 +2216,7 @@ export default function RateStrategyGrid({
                       const latest = cellEvents[0];
                       if (!latest) return "No price change recorded";
                       const when = formatWhen(latest.at);
-                      if (latest.origin === "automation") return `Changed by the pickup automation tool, live in Previo (${when})`;
+                      if (latest.origin === "automation") return `Changed by HotelCare Automation, live in Previo (${when})`;
                       if (latest.origin === "previo") return `Changed directly in Previo (${when})`;
                       if (latest.origin === "failed") {
                         return cellOrigin

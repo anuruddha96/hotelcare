@@ -200,7 +200,7 @@ export function groupCellChanges(
       next: a.new_price,
       phase,
       statusLabel: label,
-      who: "Pickup automation tool",
+      who: "HotelCare Automation",
       automation: true,
       detail: opts.automationDetail?.(a) ?? null,
       extra: null,
