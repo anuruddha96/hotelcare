@@ -244,8 +244,47 @@ export default function RateStrategyGrid({
   const { language } = useTranslation();
   useRevenueCurrency(); // re-render when the Ft/€ switch flips
   const isMobile = useIsMobile();
-  const DEFAULT_LEFT_W = isMobile ? 124 : 200;
+
+  /**
+   * Reading size of the calendar, saved on the user's profile so it follows
+   * them from the office screen to a phone. Clamped so the grid can never be
+   * zoomed into illegibility or down to a single visible week.
+   */
+  const { value: zoom, setValue: setZoomPref } = useUiPreference<number>("revenueGridZoom", 1);
+  const zoomPct = Math.round(zoom * 100);
+  const setZoom = useCallback((next: number, viaGesture = false) => {
+    const clamped = Math.min(GRID_ZOOM_MAX, Math.max(GRID_ZOOM_MIN, Math.round(next * 100) / 100));
+    if (Math.abs(clamped - zoom) < 0.005) {
+      // Say why nothing moved, in plain words, and only once per attempt.
+      if (!viaGesture || Date.now() - lastZoomToast.current > 2500) {
+        lastZoomToast.current = Date.now();
+        toast.info(
+          clamped >= GRID_ZOOM_MAX
+            ? `Largest size reached (${Math.round(GRID_ZOOM_MAX * 100)}%)`
+            : `Smallest size reached (${Math.round(GRID_ZOOM_MIN * 100)}%)`,
+          {
+            description: clamped >= GRID_ZOOM_MAX
+              ? "Beyond this, too few dates stay on screen to compare a week at a glance."
+              : "Beyond this, prices become too small to read reliably.",
+          },
+        );
+      }
+      return;
+    }
+    setZoomPref(clamped);
+  }, [zoom, setZoomPref]);
+  const lastZoomToast = useRef(0);
+
+  const CELL_W = Math.round(BASE_CELL_W * zoom);
+  const ROW_H = Math.round(BASE_ROW_H * zoom);
+  const GROUP_H = Math.round(BASE_GROUP_H * zoom);
+  const MONTH_H = Math.round(BASE_MONTH_H * zoom);
+  const DAY_H = Math.round(BASE_DAY_H * zoom);
+  const rowH = (kind: string) => (kind === "group" ? GROUP_H : ROW_H);
+
+  const DEFAULT_LEFT_W = Math.round((isMobile ? 124 : 200) * zoom);
   const RAIL_W = 46;
+
   const LEFT_STORAGE_KEY = `revenue-grid-left:${hotelId ?? "default"}`;
   /** Width of the frozen room-type column, and whether it is collapsed to a rail. */
   const [leftW, setLeftW] = useState<number>(DEFAULT_LEFT_W);
