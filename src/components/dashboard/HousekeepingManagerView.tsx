@@ -325,7 +325,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     fetchRoomAssignments();
     fetchStaffAttendance();
     fetchManagerHotelName();
-  }, [selectedDate]);
+  }, [selectedDate, profile?.assigned_hotel]);
 
   // Keep the cards in sync when the unit board unassigns something.
   useEffect(() => {
@@ -424,11 +424,12 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
   const fetchHousekeepingStaff = async () => {
     try {
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('assigned_hotel, organization_slug')
-        .eq('id', user?.id)
-        .single();
+      // Use the tab-scoped profile (honours per-window hotel selection) so a
+      // top manager viewing hotel A never sees hotel B's housekeepers.
+      const profileData = {
+        assigned_hotel: profile?.assigned_hotel ?? null,
+        organization_slug: profile?.organization_slug ?? null,
+      };
 
       if (!profileData?.organization_slug) {
         console.log('No organization assigned to user');
@@ -505,13 +506,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
   const fetchTeamAssignments = async () => {
     try {
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('assigned_hotel, organization_slug')
-        .eq('id', user?.id)
-        .single();
-
-      const hotelKeys = await resolveHotelKeys(profileData?.assigned_hotel);
+      const hotelKeys = await resolveHotelKeys(profile?.assigned_hotel ?? null);
 
       const { data: assignmentsData, error: assignmentsError } = await supabase
         .from('room_assignments')
@@ -588,13 +583,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
   const fetchRoomAssignments = async () => {
     try {
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('assigned_hotel')
-        .eq('id', user?.id)
-        .single();
-
-      const hotelKeys = await resolveHotelKeys(profileData?.assigned_hotel);
+      const hotelKeys = await resolveHotelKeys(profile?.assigned_hotel ?? null);
 
       const { data, error } = await supabase
         .from('room_assignments')
