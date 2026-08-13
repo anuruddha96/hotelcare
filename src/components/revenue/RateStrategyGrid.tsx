@@ -949,6 +949,20 @@ export default function RateStrategyGrid({
       }
       return next;
     });
+    // The change dot is part of the same promise: your colour, right away.
+    const at = new Date().toISOString();
+    setOptimisticOrigin((prev) => {
+      const next = new Map(prev);
+      for (const r of rowsToSave) next.set(cellKey(r.stay_date, r.room_type_name, r.occupancy), at);
+      return next;
+    });
+    // The cells show the new price as "sending" straight away, without
+    // waiting for the drafts table to come back.
+    setInFlight((prev) => {
+      const next = new Map(prev);
+      for (const r of rowsToSave) next.set(`${r.stay_date}|${r.room_type_name}|${r.occupancy}`, Number(r.new_price));
+      return next;
+    });
     setPushRun({ total: rowsToSave.length, done: 0, failed: 0, state: "sending" });
 
     void (async () => {
