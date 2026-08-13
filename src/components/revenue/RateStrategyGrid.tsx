@@ -101,6 +101,9 @@ export const GRID_ZOOM_MIN = 0.7;
 export const GRID_ZOOM_MAX = 1.6;
 export const GRID_ZOOM_STEP = 0.1;
 
+/** Remembers that the phone user has already read the gesture coaching. */
+const GESTURE_HINT_KEY = "revenue-grid-gesture-hint";
+
 
 /** Contiguous month bands for the sticky header above the date row. */
 function monthBands(dates: string[]) {
@@ -713,6 +716,32 @@ export default function RateStrategyGrid({
     if (changed) setOptimisticOrigin(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auditByCell]);
+
+  /**
+   * First-time phone coaching. Shown a few seconds after the calendar settles,
+   * so it reads as help rather than an interruption, and only until dismissed.
+   */
+  const [gestureHint, setGestureHint] = useState(false);
+  useEffect(() => {
+    if (!isMobile || !canEditRates) return;
+    let seen = false;
+    try { seen = localStorage.getItem(GESTURE_HINT_KEY) === "1"; } catch { /* private mode */ }
+    if (seen) return;
+    const timer = window.setTimeout(() => setGestureHint(true), 4000);
+    return () => window.clearTimeout(timer);
+  }, [isMobile, canEditRates]);
+
+
+  /** Newest just-published change per stay date — drives the blue date dot. */
+  const optimisticDayOrigin = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [key, at] of optimisticOrigin) {
+      const date = key.split("|")[0];
+      const current = map.get(date);
+      if (!current || at > current) map.set(date, at);
+    }
+    return map;
+  }, [optimisticOrigin]);
 
 
 
@@ -1365,6 +1394,10 @@ export default function RateStrategyGrid({
     // "your team" dot) is written from the same background publisher.
     setDayTool(null);
     setSelDates(new Set());
+    // The job is done: drop the day selection so the phone goes back to a
+    // clean calendar instead of a stale "9 days selected" bar.
+    setPickedDates(new Set());
+    setMultiMode(false);
     publishInBackground(rowsToSave, {
       source: "day-tool",
       notes: dayMode === "percent" ? `${dayValue}%` : dayMode === "amount" ? `${dayValue} ${getRevenueCurrency().code}` : dayMode,
@@ -1556,31 +1589,42 @@ export default function RateStrategyGrid({
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <span className="font-medium text-foreground">Demand:</span>
-            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-emerald-400 border inline-block" />strong</span>
-            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-amber-200 dark:bg-amber-800 border inline-block" />below target</span>
-            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-destructive/40 border inline-block" />needs attention</span>
-            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="font-medium text-foreground">Changed today:</span>
-            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary inline-block" />by your team</span>
-            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-purple-500 inline-block" />by the automation tool</span>
-            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-amber-500 inline-block" />in Previo</span>
-            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-destructive inline-block" />did not land</span>
-            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full border border-primary inline-block" />sending now</span>
-            <span className="underline decoration-dotted underline-offset-2">not sent yet</span>
-          </span>
-          <button
-            type="button"
-            onClick={() => setShowMarkers((v) => !v)}
-            className="underline underline-offset-2 hover:text-foreground"
-          >
-            {showMarkers ? "Hide change dots" : "Show change dots"}
-          </button>
-        </div>
+        {/* Legend — a tidy two-column key on a phone, one line on a desktop. */}
+        <details className="group text-[11px] text-muted-foreground" open={!isMobile}>
+          <summary className="flex cursor-pointer list-none items-center gap-1 font-medium text-foreground sm:hidden">
+            What the colours mean
+            <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="mt-2 space-y-2 sm:mt-0 sm:flex sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2 sm:space-y-0">
+            <div className="sm:flex sm:items-center sm:gap-1.5">
+              <span className="mb-1 block font-medium text-foreground sm:mb-0">Demand:</span>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:flex sm:items-center sm:gap-3">
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-3 w-3 shrink-0 rounded-sm border bg-emerald-400" />strong</span>
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-3 w-3 shrink-0 rounded-sm border bg-amber-200 dark:bg-amber-800" />below target</span>
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-3 w-3 shrink-0 rounded-sm border bg-destructive/40" />needs attention</span>
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-3 w-3 shrink-0 rounded-sm border bg-sky-200 dark:bg-sky-900" />cancellations</span>
+              </div>
+            </div>
+            <div className="sm:flex sm:items-center sm:gap-1.5">
+              <span className="mb-1 block font-medium text-foreground sm:mb-0">Changed today:</span>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:flex sm:items-center sm:gap-3">
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-2 w-2 shrink-0 rounded-full bg-primary" />by your team</span>
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-2 w-2 shrink-0 rounded-full bg-purple-500" />by the automation tool</span>
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />in Previo</span>
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-2 w-2 shrink-0 rounded-full bg-destructive" />did not land</span>
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-2 w-2 shrink-0 rounded-full border border-primary" />sending now</span>
+                <span className="whitespace-nowrap underline decoration-dotted underline-offset-2">not sent yet</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowMarkers((v) => !v)}
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              {showMarkers ? "Hide change dots" : "Show change dots"}
+            </button>
+          </div>
+        </details>
 
         {/* Quiet, self-clearing publishing pill — never blocks the calendar. */}
         {pushRun && (
@@ -1635,6 +1679,24 @@ export default function RateStrategyGrid({
             body="Prices come straight from the Previo pricelist — one row per room type and guest count. Pickup and occupancy come from Previo reservations; ADR and RevPAR are calculated in Hotel Care."
           />
         </p>
+        {/* Phone gesture coach — appears once the user has settled on the page. */}
+        {gestureHint && (
+          <div className="flex items-start gap-2 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-[11px] animate-fade-in sm:hidden">
+            <CalendarRange className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+            <p className="flex-1">
+              <span className="font-medium text-foreground">Pricing on your phone: </span>
+              tap a date to change that whole day, or press and hold a date and slide to pick several days —
+              then use <span className="font-medium text-foreground">Change prices</span>.
+            </p>
+            <button
+              type="button"
+              className="shrink-0 underline underline-offset-2"
+              onClick={() => { setGestureHint(false); try { localStorage.setItem(GESTURE_HINT_KEY, "1"); } catch { /* private mode */ } }}
+            >
+              Got it
+            </button>
+          </div>
+        )}
         {canEditRates && (failedCount > 0 || divergentDrafts.length > 0 || openMismatches.length > 0) && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
             <span className="text-xs space-x-2">
@@ -1752,7 +1814,13 @@ export default function RateStrategyGrid({
                     const picked = multiMode ? pickedDates.has(d) : selecting && selDates.has(d);
                     const trail = auditByDate.get(d);
                     const dayChanges = dayChangesByDate.get(d) ?? [];
-                    const dayLatest = dayChanges.find((c) => Date.parse(c.at) >= dayStart);
+                    const recorded = dayChanges.find((c) => Date.parse(c.at) >= dayStart);
+                    // A price the user just published shows its blue dot at
+                    // once, before the audit trail has caught up.
+                    const justChangedAt = optimisticDayOrigin.get(d);
+                    const dayLatest = justChangedAt && (!recorded || Date.parse(justChangedAt) > Date.parse(recorded.at))
+                      ? { origin: "team" as ChangeOrigin }
+                      : recorded;
                     const dayButton = (
                       <button
                         key={d}
@@ -1796,7 +1864,7 @@ export default function RateStrategyGrid({
                         <span className="font-medium">{formatDay(d)}</span>
                         {dayLatest && (
                           <span className="pointer-events-none absolute bottom-0.5 left-0 right-0 flex justify-center" aria-hidden>
-                            <i className={`h-1.5 w-1.5 rounded-full ${ORIGIN_DOT_CLASS[dayLatest.origin]}`} />
+                            <i className={`h-2 w-2 rounded-full ring-2 ring-card ${ORIGIN_DOT_CLASS[dayLatest.origin]}`} />
                           </span>
                         )}
 
@@ -2219,21 +2287,31 @@ export default function RateStrategyGrid({
       </CardContent>
 
       {multiMode && pickedDates.size > 0 && (
-        <div className="fixed inset-x-3 bottom-4 z-[60] flex items-center justify-between gap-2 rounded-full border bg-card px-4 py-2 shadow-lg sm:left-auto sm:right-6 sm:w-auto">
-          <span className="text-xs font-medium">
-            {pickedDates.size} day{pickedDates.size === 1 ? "" : "s"} selected
-          </span>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setPickedDates(new Set())}>
-              Clear
-            </Button>
-            <Button
-              size="sm"
-              className="h-8 text-xs"
-              onClick={() => openDayTool(dates.filter((d) => pickedDates.has(d)))}
-            >
-              Change prices
-            </Button>
+        <div
+          className="fixed inset-x-0 bottom-0 z-[60] border-t bg-card/95 px-3 pt-2.5 shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.35)] backdrop-blur animate-fade-in sm:inset-x-auto sm:bottom-6 sm:right-6 sm:rounded-full sm:border sm:px-4 sm:py-2"
+          style={{ paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom))" }}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold">
+              {pickedDates.size} day{pickedDates.size === 1 ? "" : "s"} selected
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-11 px-3 text-sm sm:h-8 sm:text-xs"
+                onClick={() => { setPickedDates(new Set()); setMultiMode(false); }}
+              >
+                Clear
+              </Button>
+              <Button
+                size="sm"
+                className="h-11 px-5 text-sm font-semibold shadow-sm sm:h-8 sm:px-3 sm:text-xs"
+                onClick={() => openDayTool(dates.filter((d) => pickedDates.has(d)))}
+              >
+                Change prices
+              </Button>
+            </div>
           </div>
         </div>
       )}

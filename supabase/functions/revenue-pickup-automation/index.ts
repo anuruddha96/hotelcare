@@ -438,6 +438,20 @@ Deno.serve(async (req) => {
       const draftsToInsert: any[] = [];
       const actionsToInsert: any[] = [];
 
+      /**
+       * Two bookings on the same stay date used to produce two identical action
+       * rows for the same price cell (each computed from the same starting
+       * price), so the history read "raised by 8" twice while the price only
+       * ever moved once. Decisions are now accumulated per price cell: the
+       * increases add up and exactly ONE action (and one draft) is written.
+       */
+      type CellDecision = {
+        stay_date: string; obk_id: string; room_type_name: string; occupancy: number;
+        currency: string; old_price: number; increase: number;
+        res_id: string; at: string; sequence: number; events: number;
+      };
+      const cellDecisions = new Map<string, CellDecision>();
+
       for (const ev of events) {
         const daysOut = dayDiff(today, ev.stay_date);
         if (daysOut < 0) continue;
@@ -467,42 +481,72 @@ Deno.serve(async (req) => {
           }
           const oldPrice = Number(rate.price);
           if (!Number.isFinite(oldPrice) || oldPrice <= 0) continue;
-          let newPrice = Math.round(oldPrice + increase);
-          if (rule.minimum_adr && newPrice < Number(rule.minimum_adr)) newPrice = Math.round(Number(rule.minimum_adr));
-          if (newPrice === oldPrice) continue;
 
-          actionsToInsert.push({
-            rule_id: rule.id,
-            rule_version: rule.version,
-            hotel_id: rule.hotel_id,
-            organization_slug: rule.organization_slug,
-            reservation_id: String(ev.res_id),
-            stay_date: ev.stay_date,
-            pickup_at: ev.at,
-            pickup_sequence: ev.sequence,
-            room_type_name: rate.room_type_name,
-            obk_id: String(rate.obk_id),
-            occupancy: Number(rate.occupancy) || 2,
-            old_price: oldPrice,
-            increase_amount: newPrice - oldPrice,
-            new_price: newPrice,
-            status: rule.auto_publish ? "queued" : "suggested",
-          });
-
-          if (rule.auto_publish) {
-            draftsToInsert.push({
-              hotel_id: rule.hotel_id,
-              organization_slug: rule.organization_slug,
+          const cellKey = `${ev.stay_date}|${String(rate.obk_id)}|${Number(rate.occupancy) || 2}`;
+          const current = cellDecisions.get(cellKey);
+          if (current) {
+            current.increase += increase;
+            current.events += 1;
+            // Attribute the row to the most recent booking that moved it.
+            if (Date.parse(ev.at) >= Date.parse(current.at)) {
+              current.at = ev.at;
+              current.res_id = ev.res_id;
+              current.sequence = ev.sequence;
+            }
+          } else {
+            cellDecisions.set(cellKey, {
               stay_date: ev.stay_date,
               obk_id: String(rate.obk_id),
               room_type_name: rate.room_type_name,
               occupancy: Number(rate.occupancy) || 2,
-              old_price: oldPrice,
-              new_price: newPrice,
               currency: rate.currency ?? "EUR",
-              status: "draft",
+              old_price: oldPrice,
+              increase,
+              res_id: ev.res_id,
+              at: ev.at,
+              sequence: ev.sequence,
+              events: 1,
             });
           }
+        }
+      }
+
+      for (const decision of cellDecisions.values()) {
+        let newPrice = Math.round(decision.old_price + decision.increase);
+        if (rule.minimum_adr && newPrice < Number(rule.minimum_adr)) newPrice = Math.round(Number(rule.minimum_adr));
+        if (newPrice === decision.old_price) continue;
+
+        actionsToInsert.push({
+          rule_id: rule.id,
+          rule_version: rule.version,
+          hotel_id: rule.hotel_id,
+          organization_slug: rule.organization_slug,
+          reservation_id: String(decision.res_id),
+          stay_date: decision.stay_date,
+          pickup_at: decision.at,
+          pickup_sequence: decision.sequence,
+          room_type_name: decision.room_type_name,
+          obk_id: decision.obk_id,
+          occupancy: decision.occupancy,
+          old_price: decision.old_price,
+          increase_amount: newPrice - decision.old_price,
+          new_price: newPrice,
+          status: rule.auto_publish ? "queued" : "suggested",
+        });
+
+        if (rule.auto_publish) {
+          draftsToInsert.push({
+            hotel_id: rule.hotel_id,
+            organization_slug: rule.organization_slug,
+            stay_date: decision.stay_date,
+            obk_id: decision.obk_id,
+            room_type_name: decision.room_type_name,
+            occupancy: decision.occupancy,
+            old_price: decision.old_price,
+            new_price: newPrice,
+            currency: decision.currency,
+            status: "draft",
+          });
         }
       }
 
@@ -547,10 +591,7 @@ Deno.serve(async (req) => {
         for (const r of (freshRows ?? []) as any[]) {
           insertedKeys.add(`${r.stay_date}|${r.obk_id}|${r.occupancy}`);
         }
-        // Two bookings for the same stay date produce two decisions but only
-        // ONE price cell. Collapse them to the highest target price, otherwise
-        // the insert trips the one-active-draft-per-cell index and the whole
-        // run fails with a duplicate key error.
+        // One draft per price cell (decisions are already collapsed above).
         const byCell = new Map<string, any>();
         for (const d of draftsToInsert) {
           if (!insertedKeys.has(`${d.stay_date}|${d.obk_id}|${d.occupancy}`)) continue;
@@ -562,35 +603,44 @@ Deno.serve(async (req) => {
         }
         const payload = Array.from(byCell.values());
         if (payload.length > 0) {
-          // A cell can only carry one pending draft, so clear any stale one
-          // for the same cell before writing the automated price.
-          const staleDates = Array.from(new Set(payload.map((d) => d.stay_date)));
-          const { data: staleDrafts } = await admin.from("revenue_rate_drafts")
-            .select("id, stay_date, room_type_name, occupancy")
-            .eq("hotel_id", rule.hotel_id).in("stay_date", staleDates)
-            .in("status", ["draft", "failed"]);
-          const staleIds = ((staleDrafts ?? []) as any[])
-            .filter((row) => byCell.has(`${row.stay_date}|${row.room_type_name}|${row.occupancy}`))
-            .map((row) => row.id);
-          if (staleIds.length > 0) await admin.from("revenue_rate_drafts").delete().in("id", staleIds);
-          const { data: drafts, error: draftErr } = await admin
-            .from("revenue_rate_drafts")
-            .insert(payload)
-            .select("id");
-          if (draftErr) throw draftErr;
-          const draftIds = ((drafts ?? []) as any[]).map((d) => d.id);
+          try {
+            // A cell can only carry one pending draft, so clear any stale one
+            // for the same cell before writing the automated price.
+            const staleDates = Array.from(new Set(payload.map((d) => d.stay_date)));
+            const { data: staleDrafts } = await admin.from("revenue_rate_drafts")
+              .select("id, stay_date, room_type_name, occupancy")
+              .eq("hotel_id", rule.hotel_id).in("stay_date", staleDates)
+              .in("status", ["draft", "failed"]);
+            const staleIds = ((staleDrafts ?? []) as any[])
+              .filter((row) => byCell.has(`${row.stay_date}|${row.room_type_name}|${row.occupancy}`))
+              .map((row) => row.id);
+            if (staleIds.length > 0) await admin.from("revenue_rate_drafts").delete().in("id", staleIds);
+            const { data: drafts, error: draftErr } = await admin
+              .from("revenue_rate_drafts")
+              .insert(payload)
+              .select("id");
+            if (draftErr) throw draftErr;
+            const draftIds = ((drafts ?? []) as any[]).map((d) => d.id);
 
-          const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-            },
-            body: JSON.stringify({ hotelId: rule.hotel_id, draftIds }),
-          });
-          const out = await res.json().catch(() => ({}));
-          pushed = Number(out?.pushed ?? 0);
-          pushError = pushed > 0 ? null : (out?.error ?? "Previo did not accept the change");
+            const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+              },
+              body: JSON.stringify({ hotelId: rule.hotel_id, draftIds }),
+            });
+            const out = await res.json().catch(() => ({}));
+            pushed = Number(out?.pushed ?? 0);
+            pushError = pushed > 0 ? null : (out?.error ?? "Previo did not accept the change");
+          } catch (err) {
+            // Never leave the decisions sitting in "queued" — that is what made
+            // the tool look like it had raised a price it never sent.
+            pushed = 0;
+            pushError = err instanceof Error ? err.message : String(err);
+            console.error("automation publish failed", pushError);
+          }
+
           const status = pushed > 0 ? "pushed" : "failed";
           for (const d of payload) {
             changed.push({
@@ -603,12 +653,24 @@ Deno.serve(async (req) => {
             .update({
               status,
               pushed_at: pushed > 0 ? new Date().toISOString() : null,
-              push_error: pushed > 0 ? null : (out?.error ?? "Previo did not accept the change"),
+              push_error: pushed > 0 ? null : pushError,
             })
             .eq("hotel_id", rule.hotel_id)
             .eq("status", "queued")
             .gte("created_at", runStartedAt);
         }
+      }
+
+      // Anything left "queued" from an earlier crashed tick is not pending —
+      // it never reached Previo. Surface it as failed so the UI stops showing
+      // a raise that did not happen.
+      {
+        const staleQueuedBefore = new Date(Date.now() - 30 * 60_000).toISOString();
+        await admin.from("revenue_pickup_automation_actions")
+          .update({ status: "failed", push_error: "Publishing never completed — price was not sent to Previo" })
+          .eq("hotel_id", rule.hotel_id)
+          .eq("status", "queued")
+          .lt("created_at", staleQueuedBefore);
       }
 
       if (!rule.auto_publish && inserted > 0) {
