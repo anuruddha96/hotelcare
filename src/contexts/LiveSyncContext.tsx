@@ -155,7 +155,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     }
   }, [enabled, hotelId]);
 
-  const runRevenue = useCallback(async (): Promise<RefreshOutcome> => ({
+  const runRevenue = useCallback(async (_force = false): Promise<RefreshOutcome> => ({
     ran: false,
     status: "skipped",
     message: "Open Revenue Management to run the coordinated property refresh",
