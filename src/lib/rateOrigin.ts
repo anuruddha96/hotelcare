@@ -34,6 +34,30 @@ export const ORIGIN_LABEL: Record<ChangeOrigin, string> = {
 
 export const RECENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * Start of today in Europe/Budapest, as epoch ms.
+ *
+ * Dots answer "what moved today?", so at local midnight they clear on their
+ * own while the history behind them stays intact.
+ */
+export function budapestDayStartMs(now: number = Date.now()): number {
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Budapest" }).format(new Date(now));
+  // Budapest is UTC+1 or UTC+2; probe both and take the one that is the most
+  // recent instant not in the future relative to `now`.
+  const midnightUtc = Date.parse(`${day}T00:00:00Z`);
+  for (const offsetHours of [2, 1]) {
+    const candidate = midnightUtc - offsetHours * 3600_000;
+    if (candidate <= now) return candidate;
+  }
+  return midnightUtc;
+}
+
+/** Did this change happen during today's Budapest calendar day? */
+export function isChangeToday(at: string, now: number = Date.now()): boolean {
+  const t = Date.parse(at);
+  return Number.isFinite(t) && t >= budapestDayStartMs(now);
+}
+
 export function fromAuditSource(source: string | null, confirmation?: string): ChangeOrigin | null {
   if (confirmation === "different") return "failed";
   switch (source) {
