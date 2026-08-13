@@ -2219,21 +2219,31 @@ export default function RateStrategyGrid({
       </CardContent>
 
       {multiMode && pickedDates.size > 0 && (
-        <div className="fixed inset-x-3 bottom-4 z-[60] flex items-center justify-between gap-2 rounded-full border bg-card px-4 py-2 shadow-lg sm:left-auto sm:right-6 sm:w-auto">
-          <span className="text-xs font-medium">
-            {pickedDates.size} day{pickedDates.size === 1 ? "" : "s"} selected
-          </span>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setPickedDates(new Set())}>
-              Clear
-            </Button>
-            <Button
-              size="sm"
-              className="h-8 text-xs"
-              onClick={() => openDayTool(dates.filter((d) => pickedDates.has(d)))}
-            >
-              Change prices
-            </Button>
+        <div
+          className="fixed inset-x-0 bottom-0 z-[60] border-t bg-card/95 px-3 pt-2.5 shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.35)] backdrop-blur animate-fade-in sm:inset-x-auto sm:bottom-6 sm:right-6 sm:rounded-full sm:border sm:px-4 sm:py-2"
+          style={{ paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom))" }}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold">
+              {pickedDates.size} day{pickedDates.size === 1 ? "" : "s"} selected
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-11 px-3 text-sm sm:h-8 sm:text-xs"
+                onClick={() => { setPickedDates(new Set()); setMultiMode(false); }}
+              >
+                Clear
+              </Button>
+              <Button
+                size="sm"
+                className="h-11 px-5 text-sm font-semibold shadow-sm sm:h-8 sm:px-3 sm:text-xs"
+                onClick={() => openDayTool(dates.filter((d) => pickedDates.has(d)))}
+              >
+                Change prices
+              </Button>
+            </div>
           </div>
         </div>
       )}
