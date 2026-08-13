@@ -351,7 +351,10 @@ export default function RateStrategyGrid({
     state: "sending" | "done" | "error"; message?: string;
   } | null>(null);
 
+  /** Prices that have not left the app yet (real drafts and refused rows). */
   const [drafts, setDrafts] = useState<Map<string, number>>(new Map());
+  /** Prices already sent to Previo and waiting for its read-back. */
+  const [inFlight, setInFlight] = useState<Map<string, number>>(new Map());
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
   const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
@@ -621,6 +624,30 @@ export default function RateStrategyGrid({
    */
   const [optimistic, setOptimistic] = useState<Map<string, number>>(new Map());
 
+  /**
+   * "Your team just changed this" markers, written the moment the user
+   * publishes so the blue dot appears immediately instead of waiting for the
+   * audit trail. Keyed `date|roomTypeName|occ`, value = ISO time.
+   */
+  const [optimisticOrigin, setOptimisticOrigin] = useState<Map<string, string>>(new Map());
+
+  // As soon as the real audit row for a cell arrives, the local marker has
+  // nothing left to add — same colour, so nothing visibly flips.
+  useEffect(() => {
+    if (optimisticOrigin.size === 0) return;
+    let changed = false;
+    const next = new Map(optimisticOrigin);
+    for (const [key, at] of optimisticOrigin) {
+      const rows = auditByCell.get(key) ?? [];
+      const covered = rows.some((r) => Date.parse(r.performed_at) >= Date.parse(at) - 120_000);
+      if (covered) { next.delete(key); changed = true; }
+    }
+    if (changed) setOptimisticOrigin(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auditByCell]);
+
+
+
   // obk_id -> occupancy -> stay_date -> price
   const priceMap = useMemo(() => {
     const m = new Map<string, Map<number, Map<string, number>>>();
@@ -723,16 +750,29 @@ export default function RateStrategyGrid({
     setPending(rows);
 
 
-    const m = new Map<string, number>();
+    // A price that is still with us and a price Previo already took are two
+    // different stories: only the first one is a draft.
+    const unsentMap = new Map<string, number>();
+    const inFlightMap = new Map<string, number>();
     for (const d of rows) {
-      m.set(`${d.stay_date}|${d.room_type_name}|${d.occupancy}`, Number(d.new_price));
+      const key = `${d.stay_date}|${d.room_type_name}|${d.occupancy}`;
+      const price = Number(d.new_price);
+      if (d.status === "pushed" && d.confirmation_status !== "different") inFlightMap.set(key, price);
+      else unsentMap.set(key, price);
     }
-    setDrafts(m);
+    setDrafts(unsentMap);
+    setInFlight(inFlightMap);
   }, [hotelId]);
 
   useEffect(() => { void refreshDrafts(); }, [refreshDrafts]);
 
   const failedCount = useMemo(() => pending.filter((d) => d.status === "failed").length, [pending]);
+  /** Cells Previo refused, so the grid can say so plainly. */
+  const failedCells = useMemo(
+    () => new Set(pending.filter((d) => d.status === "failed")
+      .map((d) => cellKey(d.stay_date, d.room_type_name, d.occupancy))),
+    [pending],
+  );
 
   // Three very different states used to be counted as one "waiting" number:
   // a price nobody has sent yet, a price Previo already accepted, and a price
@@ -929,6 +969,20 @@ export default function RateStrategyGrid({
       for (const r of rowsToSave) {
         if (r.obk_id) next.set(`${r.obk_id}|${r.occupancy}|${r.stay_date}`, Number(r.new_price));
       }
+      return next;
+    });
+    // The change dot is part of the same promise: your colour, right away.
+    const at = new Date().toISOString();
+    setOptimisticOrigin((prev) => {
+      const next = new Map(prev);
+      for (const r of rowsToSave) next.set(cellKey(r.stay_date, r.room_type_name, r.occupancy), at);
+      return next;
+    });
+    // The cells show the new price as "sending" straight away, without
+    // waiting for the drafts table to come back.
+    setInFlight((prev) => {
+      const next = new Map(prev);
+      for (const r of rowsToSave) next.set(`${r.stay_date}|${r.room_type_name}|${r.occupancy}`, Number(r.new_price));
       return next;
     });
     setPushRun({ total: rowsToSave.length, done: 0, failed: 0, state: "sending" });
@@ -1294,7 +1348,8 @@ export default function RateStrategyGrid({
             <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-purple-500 inline-block" />by the automation tool</span>
             <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-amber-500 inline-block" />in Previo</span>
             <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-destructive inline-block" />did not land</span>
-            <span className="underline decoration-dotted underline-offset-2">publishing issue</span>
+            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full border border-primary inline-block" />sending now</span>
+            <span className="underline decoration-dotted underline-offset-2">not sent yet</span>
           </span>
           <button
             type="button"
@@ -1770,7 +1825,10 @@ export default function RateStrategyGrid({
                     }
                     const published = row.obk ? priceMap.get(row.obk)?.get(row.occ)?.get(d) : undefined;
                     const draft = drafts.get(`${d}|${row.roomTypeName}|${row.occ}`);
-                    const shown = draft ?? published;
+                    // Already with Previo, waiting for its read-back. This is
+                    // not a draft: the price is live, we are only confirming.
+                    const sending = inFlight.get(`${d}|${row.roomTypeName}|${row.occ}`);
+                    const shown = draft ?? sending ?? published;
                     const tone = rateTone(shown, thresholds);
                     const history = auditByCell.get(cellKey(d, row.roomTypeName, row.occ));
                     // The colour follows the most recent change, never a
@@ -1778,14 +1836,23 @@ export default function RateStrategyGrid({
                     // even if automation moved the same cell last week.
                     const cellAutomation = automationByCell.get(cellKey(d, row.roomTypeName, row.occ));
                     const cellOrigin = cellOriginByCell.get(cellKey(d, row.roomTypeName, row.occ));
-                    const cellEvents = cellOriginEvents(history, cellAutomation);
+                    const justPublishedAt = optimisticOrigin.get(cellKey(d, row.roomTypeName, row.occ));
+                    const cellEvents = [
+                      ...(justPublishedAt ? [{ origin: "team" as ChangeOrigin, at: justPublishedAt }] : []),
+                      ...cellOriginEvents(history, cellAutomation),
+                    ];
                     // One dot only — the most recent change. The full story
                     // lives in the cell's hover card / tap sheet.
                     const latestToday = cellEvents.find((e) => Date.parse(e.at) >= dayStart);
                     const cellOrigin1: ChangeOrigin | null = showMarkers ? (latestToday?.origin ?? null) : null;
                     
                     const originLabel = (() => {
-                      if (draft !== undefined) return "Not sent to Previo yet";
+                      if (draft !== undefined) {
+                        return failedCells.has(cellKey(d, row.roomTypeName, row.occ))
+                          ? "Did not reach Previo — send it again"
+                          : "Waiting to be sent to Previo";
+                      }
+                      if (sending !== undefined) return "Sending to Previo now — this price is already applied here";
                       const latest = cellEvents[0];
                       if (!latest) return "No price change recorded";
                       const when = formatWhen(latest.at);
@@ -1840,7 +1907,13 @@ export default function RateStrategyGrid({
                         style={{ width: CELL_W }}
                       >
                         {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
-                        {cellOrigin1 ? (
+                        {sending !== undefined && draft === undefined ? (
+                          <i
+                            aria-hidden
+                            title="Sending to Previo"
+                            className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full border border-primary bg-transparent animate-pulse"
+                          />
+                        ) : cellOrigin1 ? (
                           <i
                             aria-hidden
                             className={`absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full ${ORIGIN_DOT_CLASS[cellOrigin1]}`}
@@ -1871,6 +1944,7 @@ export default function RateStrategyGrid({
                             automation={cellAutomation ?? []}
                             names={auditNames}
                             draftPrice={draft ?? null}
+                            sendingPrice={sending ?? null}
                           />
 
                         </HoverCardContent>
@@ -1928,6 +2002,7 @@ export default function RateStrategyGrid({
                   automation={automationByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ)) ?? []}
                   names={auditNames}
                   draftPrice={cellInfo.draft}
+                  sendingPrice={inFlight.get(`${cellInfo.date}|${cellInfo.roomTypeName}|${cellInfo.occ}`) ?? null}
                 />
 
                 {canEditRates && (

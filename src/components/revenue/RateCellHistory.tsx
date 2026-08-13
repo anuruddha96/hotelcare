@@ -45,11 +45,14 @@ export default function RateCellHistory({
   history,
   names,
   draftPrice,
+  sendingPrice,
   automation = [],
 }: {
   history: RateAuditRow[];
   names: Map<string, string>;
   draftPrice?: number | null;
+  /** Already sent to Previo, waiting only for its read-back. */
+  sendingPrice?: number | null;
   automation?: AutomationAction[];
 }) {
   const [showAll, setShowAll] = useState(false);
@@ -63,7 +66,7 @@ export default function RateCellHistory({
         ? "landed on a different price"
         : r.source === "previo_external"
           ? "changed directly in Previo"
-          : r.source === "push" ? "sent — confirming" : "draft";
+          : r.source === "push" ? "sent to Previo — confirming" : "waiting to be sent";
     return {
       id: r.id,
       at: r.performed_at,
@@ -98,8 +101,11 @@ export default function RateCellHistory({
     .sort((a, b) => b.at.localeCompare(a.at));
 
   if (entries.length === 0) {
+    if (sendingPrice != null) {
+      return <p className="text-[11px] text-primary">{moneyBase(sendingPrice)} — sending to Previo now</p>;
+    }
     return draftPrice != null
-      ? <p className="text-[11px] text-muted-foreground">Draft {moneyBase(draftPrice)} — not sent yet</p>
+      ? <p className="text-[11px] text-muted-foreground">{moneyBase(draftPrice)} — waiting to be sent</p>
       : <p className="text-[11px] text-muted-foreground">No price changes yet.</p>;
   }
 
@@ -139,8 +145,11 @@ export default function RateCellHistory({
   const rest = entries.length - shown.length;
   return (
     <div className="space-y-1.5">
+      {sendingPrice != null && draftPrice == null && (
+        <p className="text-[11px] text-primary">{moneyBase(sendingPrice)} — sending to Previo now, already applied here</p>
+      )}
       {draftPrice != null && (
-        <p className="text-[11px] text-amber-600 dark:text-amber-400">Draft {moneyBase(draftPrice)} — not sent yet</p>
+        <p className="text-[11px] text-amber-600 dark:text-amber-400">{moneyBase(draftPrice)} — waiting to be sent</p>
       )}
       {shown.map((e) => block(e))}
       {showAll && entries.slice(3).map((e) => block(e))}
