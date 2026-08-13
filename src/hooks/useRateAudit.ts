@@ -56,21 +56,27 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
       // Hand-made changes are fetched on their own: a season-wide bulk edit can
       // write thousands of rows and would otherwise push every manual entry out
       // of the shared window, making the blue dots disappear from the grid.
+      // The window is capped in time as well as in rows — an unbounded scan of
+      // this table was the single heaviest query on the database.
+      const since = new Date(Date.now() - 90 * 86_400_000).toISOString();
       const { data: manualData } = await supabase
         .from("rate_change_audit")
         .select("id, stay_date, action, source, old_rate_eur, new_rate_eur, delta_eur, notes, performed_at, performed_by, payload")
         .eq("hotel_id", hotelId)
+        .gte("performed_at", since)
         .in("source", [...MANUAL_SOURCES, "previo_automation_confirmed", "previo_external", "previo_different"])
         .order("performed_at", { ascending: false })
-        .limit(3000);
+        .limit(1500);
       setManualRows((manualData ?? []) as unknown as RateAuditRow[]);
 
 
 
+      // Only the activity panel shows this number, and only as "N engine
+      // entries hidden" — a planned (estimated) count keeps it off the disk.
       if (!includeSystem) {
         const { count } = await supabase
           .from("rate_change_audit")
-          .select("id", { count: "exact", head: true })
+          .select("id", { count: "planned", head: true })
           .eq("hotel_id", hotelId)
           .not("source", "in", `(${HUMAN_SOURCES.join(",")})`);
         setSystemCount(count ?? 0);
@@ -97,18 +103,43 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
 
   useEffect(() => { void load(); }, [load]);
 
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
   useEffect(() => {
     if (!hotelId) return;
+    // A single publish writes thousands of audit rows. Reloading per row melted
+    // the database, so refreshes are collapsed into one trailing run and are
+    // skipped entirely while the tab is in the background.
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let pending = false;
+    const schedule = () => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        if (document.visibilityState !== "visible") { pending = true; return; }
+        void loadRef.current();
+      }, 12_000);
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && pending) { pending = false; void loadRef.current(); }
+    };
+    document.addEventListener("visibilitychange", onVisible);
     const channel = supabase
       .channel(`rate-audit:${hotelId}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "rate_change_audit", filter: `hotel_id=eq.${hotelId}` },
-        () => { void load(); },
+        () => { schedule(); },
       )
       .subscribe();
-    return () => { void supabase.removeChannel(channel); };
-  }, [hotelId, load]);
+    return () => {
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      void supabase.removeChannel(channel);
+    };
+  }, [hotelId]);
+
 
   const byCell = useMemo(() => {
     const map = new Map<string, RateAuditRow[]>();
