@@ -852,6 +852,13 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
               />
               <Kpi label="Revenue goal" value={pct(kpi.valueGoalPct)} sub={`of ${eur(goals.targetValue)}`} />
               <Kpi label="Avg length of stay" value={kpi.los ? `${kpi.los.toFixed(1)} n` : "—"} />
+              <Kpi
+                label="Cancellations"
+                tone={kpi.cancelled > 0 ? "text-red-600 dark:text-red-400" : undefined}
+                value={kpi.cancelled ? `−${kpi.cancelledNights} n` : "0"}
+                sub={kpi.cancelled ? `${kpi.cancelled} booking${kpi.cancelled === 1 ? "" : "s"} · ${eur(Math.round(kpi.cancelledRevenue))} lost` : "none in this period"}
+              />
+              <Kpi label="Net room nights" value={String(kpi.netNights)} sub="sold minus cancelled" />
             </div>
 
             {/* --------------------------------------------- ADR status */}
