@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
-import { withTabHotel } from '@/lib/tabHotel';
+import { getTabHotel, setTabHotel, withTabHotel } from '@/lib/tabHotel';
 
 interface Profile {
   id: string;
@@ -48,58 +48,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (profileData && !profileError) {
         console.log('Profile fetched:', profileData);
+        const tabHotel = getTabHotel();
+        if (tabHotel) {
+          const { data: allowedHotel } = await supabase
+            .from('hotel_configurations')
+            .select('hotel_id')
+            .or(`hotel_id.eq.${tabHotel},hotel_name.eq.${tabHotel}`)
+            .maybeSingle();
+          if (!allowedHotel) setTabHotel(null);
+        }
         setProfile(withTabHotel(profileData as any) as any);
         return profileData;
       } else {
-        // CRITICAL: Use INSERT instead of UPSERT to prevent overwriting existing profiles
-        // This fixes the bug where manager roles were being reset to housekeeping
-        console.warn('Profile not available, attempting to create default profile...', {
+        // Tenant membership is privileged data. Never invent an organization
+        // from the URL or silently place an unknown account into RD Hotels.
+        console.warn('Profile not available; refusing to create an unscoped profile.', {
           userId,
           profileError,
           timestamp: new Date().toISOString()
         });
-        
-        const { data: inserted, error: insertErr } = await supabase
-          .from('profiles')
-          .insert({
-            id: userId,
-            email: userEmail || '',
-            full_name: userMetadata?.full_name || userEmail?.split('@')[0] || 'New User',
-            nickname: userMetadata?.username || userEmail?.split('@')[0],
-            role: 'housekeeping',
-            assigned_hotel: userMetadata?.assigned_hotel || null,
-            organization_slug: 'rdhotels',
-            last_login: new Date().toISOString(),
-          })
-          .select()
-          .maybeSingle();
-
-        // If insert failed due to conflict (profile already exists), retry fetch
-        if (insertErr && insertErr.code === '23505') {
-          console.log('Profile already exists (conflict), retrying fetch...');
-          const { data: retryData } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', userId)
-            .maybeSingle();
-          
-          if (retryData) {
-            console.log('Profile fetched on retry:', retryData);
-            setProfile(withTabHotel(retryData as any) as any);
-            return retryData;
-          }
-        }
-
-        if (!insertErr && inserted) {
-          console.log('Default profile created for new user:', inserted);
-          setProfile(withTabHotel(inserted as any) as any);
-          return inserted;
-        } else if (insertErr && insertErr.code !== '23505') {
-          console.error('Failed to create default profile:', insertErr);
-          setProfile(null);
-          return null;
-        }
-        
         setProfile(null);
         return null;
       }

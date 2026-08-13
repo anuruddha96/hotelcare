@@ -17,7 +17,7 @@ import { LanguageSwitcher } from '@/components/dashboard/LanguageSwitcher';
 import hotelcareLogoAuth from '@/assets/hotelcare-logo-auth.png';
 
 export default function Auth() {
- const { signIn, signUp, user, loading } = useAuth();
+ const { signIn, signUp, user, profile, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { t } = useTranslation();
   const [isLoading, setIsLoading] = useState(false);
@@ -40,7 +40,8 @@ export default function Auth() {
   }
 
   if (user) {
-    return <Navigate to={`/${organizationSlug || 'rdhotels'}`} replace />;
+    if (!profile?.organization_slug) return null;
+    return <Navigate to={`/${profile.organization_slug}`} replace />;
   }
 
   const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {

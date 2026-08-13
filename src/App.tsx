@@ -33,12 +33,35 @@ import ReceptionHome from "./pages/ReceptionHome";
 
 const queryClient = new QueryClient();
 
+const RootRedirect = () => {
+  const { user, profile, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Navigate to="/auth" replace />;
+  if (!profile?.organization_slug) return <Navigate to="/auth" replace />;
+  return <Navigate to={`/${profile.organization_slug}`} replace />;
+};
+
 // Tenant Router Component - handles organization-specific routing
 const TenantRouter = () => {
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
+  const { user, profile, loading } = useAuth();
   
   if (!organizationSlug) {
-    return <Navigate to="/rdhotels" replace />;
+    return <Navigate to="/auth" replace />;
+  }
+
+  if (loading) return null;
+
+  if (user && !profile?.organization_slug) {
+    return <Navigate to="/auth" replace />;
+  }
+
+  if (
+    user &&
+    profile?.organization_slug !== organizationSlug &&
+    !profile?.is_super_admin
+  ) {
+    return <Navigate to={`/${profile.organization_slug}`} replace />;
   }
 
   return (
@@ -100,9 +123,8 @@ const MainApp = () => (
               <BrowserRouter>
                 <TrainingV2Provider>
                   <Routes>
-                    {/* Legacy routes - redirect to rdhotels organization */}
-                    <Route path="/" element={<Navigate to="/rdhotels" replace />} />
-                    <Route path="/auth" element={<Navigate to="/rdhotels/auth" replace />} />
+                    <Route path="/" element={<RootRedirect />} />
+                    <Route path="/auth" element={<Auth />} />
 
                     {/* Guest minibar - public, no auth needed */}
                     <Route path="/:organizationSlug/:hotelSlug/minibar/:roomToken" element={<GuestMinibar />} />

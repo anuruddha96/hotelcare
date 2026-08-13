@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { fetchRevenueSyncInfo } from "@/lib/revenueFreshness";
+import { claimRevenueSync } from "@/lib/revenueFreshness";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -157,8 +157,12 @@ export default function RevenueHotelDetail() {
   const syncingRef = useRef(false);
 
   /** Pull fresh Previo revenue + occupancy data with visible progress. */
-  async function runSync() {
+  async function runSync(force = false) {
     if (!hotelId || syncingRef.current) return;
+    if (!force) {
+      const claim = await claimRevenueSync(hotelId);
+      if (claim !== "claimed") return;
+    }
     syncingRef.current = true;
     setSyncing(true);
     setSyncPct(8);
@@ -214,8 +218,6 @@ export default function RevenueHotelDetail() {
     autoSyncedHotelRef.current = hotelId;
     if (!isRevenueAdmin(profile.role)) setTab("grid");
     void (async () => {
-      const info = await fetchRevenueSyncInfo(hotelId);
-      if (!info.stale) return;
       await runSync();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -229,8 +231,7 @@ export default function RevenueHotelDetail() {
     const id = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       void (async () => {
-        const info = await fetchRevenueSyncInfo(hotelId);
-        if (info.stale) await runSync();
+        await runSync();
       })();
     }, BACKGROUND_SYNC_MS);
     return () => window.clearInterval(id);
