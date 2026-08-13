@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useUiPreference } from "@/hooks/useUiPreference";
 import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend,
   type BookingNight, type DayMetrics, type RoomTypeRate,
@@ -250,6 +251,7 @@ export default function RateStrategyGrid({
    * them from the office screen to a phone. Clamped so the grid can never be
    * zoomed into illegibility or down to a single visible week.
    */
+  const lastZoomToast = useRef(0);
   const { value: zoom, setValue: setZoomPref } = useUiPreference<number>("revenueGridZoom", 1);
   const zoomPct = Math.round(zoom * 100);
   const setZoom = useCallback((next: number, viaGesture = false) => {
@@ -273,7 +275,6 @@ export default function RateStrategyGrid({
     }
     setZoomPref(clamped);
   }, [zoom, setZoomPref]);
-  const lastZoomToast = useRef(0);
 
   const CELL_W = Math.round(BASE_CELL_W * zoom);
   const ROW_H = Math.round(BASE_ROW_H * zoom);
