@@ -29,7 +29,9 @@ import { useRateAudit } from "@/hooks/useRateAudit";
 import { usePickupAutomationActions, type AutomationAction } from "@/hooks/usePickupAutomationActions";
 import { cellKey, formatWhen, logRateChanges, resolveRateMismatches, type RateAuditRow } from "@/lib/rateAudit";
 import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, budapestDayStartMs, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
+import { classifyDraft } from "@/lib/rateChangeGroups";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
+
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
 import PickupAutomationRules from "@/components/revenue/PickupAutomationRules";
@@ -221,7 +223,9 @@ interface DraftEdit {
 interface PendingDraft {
   id: string;
   created_at?: string | null;
+  updated_at?: string | null;
   stay_date: string;
+
 
   room_type_name: string;
   occupancy: number;
@@ -865,7 +869,7 @@ export default function RateStrategyGrid({
     if (!hotelId) return;
     const { data } = await supabase
       .from("revenue_rate_drafts")
-      .select("id, created_at, stay_date, room_type_name, occupancy, old_price, new_price, status, confirmation_status, actual_previo_price, push_error")
+      .select("id, created_at, updated_at, stay_date, room_type_name, occupancy, old_price, new_price, status, confirmation_status, actual_previo_price, push_error")
       .eq("hotel_id", hotelId)
       .or("status.in.(draft,failed),and(status.eq.pushed,confirmation_status.in.(sending,sent,checking,pending,different))")
       .order("stay_date");
@@ -883,19 +887,23 @@ export default function RateStrategyGrid({
     setPending(rows);
 
 
-    // A price that is still with us and a price Previo already took are two
-    // different stories: only the first one is a draft.
+    // Three different stories: a price nobody has sent yet, a price Previo
+    // already took, and a dead attempt (refused, superseded or a publish that
+    // never reported back). Only the first is an actionable draft — the last
+    // one is history and must never wear the dotted "waiting" underline.
     const unsentMap = new Map<string, number>();
     const inFlightMap = new Map<string, number>();
     for (const d of rows) {
       const key = `${d.stay_date}|${d.room_type_name}|${d.occupancy}`;
       const price = Number(d.new_price);
-      if (d.status === "pushed" && d.confirmation_status !== "different") inFlightMap.set(key, price);
-      else unsentMap.set(key, price);
+      const state = classifyDraft(d);
+      if (state === "inflight") inFlightMap.set(key, price);
+      else if (state === "unsent") unsentMap.set(key, price);
     }
     setDrafts(unsentMap);
     setInFlight(inFlightMap);
   }, [hotelId]);
+
 
   useEffect(() => { void refreshDrafts(); }, [refreshDrafts]);
 
@@ -912,9 +920,10 @@ export default function RateStrategyGrid({
   // that landed on a different value. Keeping them apart is the difference
   // between "the push failed" and "the push is done".
   const awaitingDrafts = useMemo(
-    () => pending.filter((d) => d.status === "pushed" && d.confirmation_status !== "different"),
+    () => pending.filter((d) => classifyDraft(d) === "inflight"),
     [pending],
   );
+
   const divergentDrafts = useMemo(
     () => pending.filter((d) => d.confirmation_status === "different"),
     [pending],
