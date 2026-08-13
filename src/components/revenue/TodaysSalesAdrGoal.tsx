@@ -383,7 +383,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
       nightsGoalPct: goals.targetRoomNights ? (roomNights / goals.targetRoomNights) * 100 : 0,
       los: reservationIds.size ? roomNights / reservationIds.size : 0,
     };
-  }, [liveBookings, periodBookings, goals]);
+  }, [liveBookings, allBookings, bookedFrom, bookedTo, goals]);
 
   /** green / amber / red against the ADR target. */
   const adrTone = useMemo(() => {
