@@ -125,6 +125,7 @@ Deno.serve(async (req) => {
         }
       }
       actorName = ((profile as any)?.full_name as string | null) ?? user.email ?? null;
+      actorUserId = user.id;
     }
 
     // Global, admin-controlled brake. When automation is paused the tick does
