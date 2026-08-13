@@ -136,6 +136,7 @@ export function Header() {
             {profile?.role !== 'manager' && profile?.role !== 'housekeeping_manager' && (
               <LiveSyncIndicator />
             )}
+            <RevenueAutomationNotifications />
             <TrainingHelpButton />
             
             {/* Revenue moved to PMSNavigation main tab bar */}
