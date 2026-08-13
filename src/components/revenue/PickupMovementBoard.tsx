@@ -4,9 +4,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowDownRight, ArrowUpRight, ChevronDown, ChevronRight, Scale, Search, SlidersHorizontal } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ChevronDown, ChevronRight, Scale, Search, SlidersHorizontal, Sparkles } from "lucide-react";
 import { eur, addDays, budapestDayOf, budapestToday, type DayMetrics, type BookingNight, type CancelledNight, type RoomTypeRate } from "@/lib/revenueAnalytics";
 import QuickRateAdjustDialog, { type QuickAdjustTarget } from "./QuickRateAdjustDialog";
+import { usePickupSeenSince, useIsNewSince } from "@/lib/pickupSeen";
 
 type StatusFilter = "all" | "booked" | "cancelled";
 type SortKey = "created" | "arrival" | "value";
@@ -64,6 +65,9 @@ export default function PickupMovementBoard({
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [adjust, setAdjust] = useState<QuickAdjustTarget | null>(null);
+  const seenSince = usePickupSeenSince(hotelId);
+  const isNew = useIsNewSince(seenSince);
+
 
   const windowFirstDay = useMemo(
     () => addDays(budapestToday(), -Math.max(0, windowDays - 1)),
@@ -140,12 +144,20 @@ export default function PickupMovementBoard({
     return { gained, lost, gainedValue, lostValue };
   }, [metrics]);
 
+  // Only movement that landed after the user's previous visit counts as new.
+  const newCount = useMemo(() => visible.filter((row) => isNew(row.at)).length, [visible, isNew]);
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="flex flex-wrap items-center gap-2 text-base">
           <Scale className="h-4 w-4 text-primary" />
           Reservations moved in the last {windowDays} day{windowDays === 1 ? "" : "s"}
+          {newCount > 0 && (
+            <Badge className="gap-1 px-1.5 py-0 text-[10px]">
+              <Sparkles className="h-3 w-3" />{newCount} new since your last visit
+            </Badge>
+          )}
           <Badge variant="outline" className="font-normal">Budapest time</Badge>
         </CardTitle>
       </CardHeader>
@@ -189,14 +201,20 @@ export default function PickupMovementBoard({
             <div className="max-h-[440px] divide-y overflow-y-auto">
               {visible.map((row) => {
                 const expanded = open === row.key;
+                const fresh = isNew(row.at);
                 return (
-                  <div key={row.key}>
+                  <div key={row.key} className={fresh ? "bg-primary/5" : undefined}>
                     <div className="grid grid-cols-[1fr_auto] gap-2 px-3 py-2.5 md:grid-cols-[minmax(150px,1.2fr)_minmax(180px,1.4fr)_70px_70px_90px_100px_38px] md:items-center">
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
                           <Badge variant={row.kind === "booked" ? "default" : "secondary"} className="px-1.5 py-0 text-[10px]">
                             {row.kind === "booked" ? "Booked" : "Cancelled"}
                           </Badge>
+                          {fresh && (
+                            <Badge variant="outline" className="border-primary px-1.5 py-0 text-[10px] font-semibold text-primary">
+                              New
+                            </Badge>
+                          )}
                           <span className="truncate text-xs font-medium">{fmtStamp(row.at)}</span>
                         </div>
                         <p className="mt-0.5 truncate text-[10px] text-muted-foreground">#{row.resId} · {row.channel}</p>

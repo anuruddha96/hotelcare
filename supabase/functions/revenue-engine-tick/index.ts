@@ -54,11 +54,29 @@ serve(async (req) => {
     horizon.setUTCDate(horizon.getUTCDate() + 120);
     const horizonStr = horizon.toISOString().slice(0, 10);
 
+    // One property per tick. The property whose revenue data is the oldest goes
+    // first, so every hotel still comes round, but the database only ever does
+    // one property's worth of reads and writes at a time.
+    let targetHotel: string | null = onlyHotel ?? null;
+    if (!targetHotel) {
+      const { data: previoActive } = await supabase
+        .from("pms_configurations").select("hotel_id").eq("pms_type", "previo").eq("is_active", true);
+      const candidates = (previoActive ?? []).map((r: any) => r.hotel_id as string);
+      if (candidates.length > 0) {
+        const { data: states } = await supabase
+          .from("revenue_sync_state").select("hotel_id, last_success_at").in("hotel_id", candidates);
+        const lastByHotel = new Map<string, number>();
+        for (const s of (states ?? []) as any[]) lastByHotel.set(s.hotel_id, Date.parse(s.last_success_at ?? "") || 0);
+        candidates.sort((a, b) => (lastByHotel.get(a) ?? 0) - (lastByHotel.get(b) ?? 0));
+        targetHotel = candidates[0];
+      }
+    }
+
     let recsCreated = 0;
     let alertsCreated = 0;
 
     for (const s of settings) {
-      if (onlyHotel && s.hotel_id !== onlyHotel) continue;
+      if (targetHotel && s.hotel_id !== targetHotel) continue;
 
       // fetch latest 2 snapshots per stay_date for this hotel within horizon
       const { data: snaps } = await supabase
@@ -166,19 +184,12 @@ serve(async (req) => {
     // Expire stale (errors swallowed; non-critical)
     try { await supabase.rpc("expire_stale_recommendations"); } catch (_) { /* ignore */ }
 
-    // Fan-out: sync every active Previo hotel (revenue + daily overview).
-    // Failures per hotel are logged but never block the tick.
+    // Sync exactly the one property this tick owns (revenue + daily overview).
+    // Failures are logged but never block the tick.
     let previoSynced = 0;
     let previoErrors = 0;
     try {
-      const { data: previoHotels } = await supabase
-        .from("pms_configurations")
-        .select("hotel_id")
-        .eq("pms_type", "previo")
-        .eq("is_active", true);
-      const targets = (previoHotels ?? [])
-        .map((p: any) => p.hotel_id)
-        .filter((h: string) => !onlyHotel || h === onlyHotel);
+      const targets = targetHotel ? [targetHotel] : [];
       const SUPA_URL = Deno.env.get("SUPABASE_URL")!;
       const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
       const invokeFn = async (name: string, body: any) => {
