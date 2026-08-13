@@ -27,7 +27,7 @@ import type { RevenueRoomType } from "@/hooks/useRevenueHotelData";
 import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 import { useRateAudit } from "@/hooks/useRateAudit";
 import { usePickupAutomationActions, type AutomationAction } from "@/hooks/usePickupAutomationActions";
-import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
+import { cellKey, formatWhen, logRateChanges, resolveRateMismatches, type RateAuditRow } from "@/lib/rateAudit";
 import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, budapestDayStartMs, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
@@ -853,6 +853,65 @@ export default function RateStrategyGrid({
     () => pending.filter((d) => d.confirmation_status === "different"),
     [pending],
   );
+
+  /**
+   * "Did not land" flags nobody has checked yet.
+   *
+   * Previo can round or refuse part of a price, and that leaves a red note in
+   * the trail. Once someone has looked at Previo and is happy, the note has to
+   * be closable — otherwise a corrected date stays red forever.
+   */
+  const openMismatches = useMemo(
+    () => auditManualRows.filter((r) =>
+      r.source === "previo_different" && !r.payload?.resolved_at && !!r.stay_date && r.stay_date >= today),
+    [auditManualRows, today],
+  );
+  const [rechecking, setRechecking] = useState(false);
+  const [clearingFlags, setClearingFlags] = useState(false);
+
+  /** Read the live prices back from Previo and re-judge every open flag. */
+  const recheckPrevio = useCallback(async () => {
+    if (!hotelId) return;
+    setRechecking(true);
+    try {
+      const { error } = await supabase.functions.invoke("previo-revenue-sync", {
+        body: { hotelId, horizonDays: Math.max(30, days), ratesOnly: true },
+      });
+      if (error) throw error;
+      await Promise.all([refreshDrafts(), reloadAudit(), onRatesUpdated?.()]);
+      toast.success("Checked against Previo", {
+        description: "The calendar now shows the prices Previo is holding right now.",
+      });
+    } catch (e) {
+      toast.error("Could not reach Previo", {
+        description: e instanceof Error ? e.message : "Please try again in a moment.",
+      });
+    } finally {
+      setRechecking(false);
+    }
+  }, [hotelId, days, refreshDrafts, reloadAudit, onRatesUpdated]);
+
+  /** Close the flags: the price in Previo is the one the hotel wants. */
+  const clearMismatchFlags = useCallback(async () => {
+    setClearingFlags(true);
+    try {
+      const done = await resolveRateMismatches(openMismatches);
+      const ids = divergentDrafts.map((d) => d.id);
+      if (ids.length > 0) {
+        await supabase.from("revenue_rate_drafts")
+          .update({ confirmation_status: "superseded" })
+          .in("id", ids);
+      }
+      await Promise.all([reloadAudit(), refreshDrafts()]);
+      toast.success(`${done} price flag${done === 1 ? "" : "s"} cleared`, {
+        description: "Previo's price is now treated as the agreed one. The history keeps the record.",
+      });
+    } catch {
+      toast.error("Could not clear the flags", { description: "Please try again in a moment." });
+    } finally {
+      setClearingFlags(false);
+    }
+  }, [openMismatches, divergentDrafts, reloadAudit, refreshDrafts]);
 
   /**
    * Confirmation is nobody's chore. While prices are still waiting for Previo's
