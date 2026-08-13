@@ -89,7 +89,7 @@ export default function Revenue() {
           .maybeSingle();
         const hid = data?.hotel_id ?? profile.assigned_hotel;
         if (hid) {
-          navigate(`/${organizationSlug || profile.organization_slug || "rdhotels"}/revenue/${hid}?autosync=1`, { replace: true });
+          navigate(`/${organizationSlug || profile.organization_slug || "rdhotels"}/revenue/${hid}`, { replace: true });
         }
       })();
       return;

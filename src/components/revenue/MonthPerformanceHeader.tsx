@@ -75,6 +75,7 @@ function shiftMonth(key: string, delta: number) {
  */
 export default function MonthPerformanceHeader({
   today, metrics, pickupWindowDays, onPickupWindowChange, hotelId, canEdit, roomsAvailable,
+  selectedMonth, onSelectedMonthChange,
 }: {
   today: string;
   metrics: DayMetrics[];
@@ -83,8 +84,15 @@ export default function MonthPerformanceHeader({
   hotelId?: string | null;
   canEdit?: boolean;
   roomsAvailable?: number;
+  selectedMonth?: string;
+  onSelectedMonthChange?: (month: string) => void;
 }) {
-  const [month, setMonth] = useState(() => monthKey(today));
+  const [internalMonth, setInternalMonth] = useState(() => monthKey(today));
+  const month = selectedMonth ?? internalMonth;
+  const setMonth = (value: string) => {
+    setInternalMonth(value);
+    onSelectedMonthChange?.(value);
+  };
   const currency = useRevenueCurrency();
   const [rateInput, setRateInput] = useState(currency.eurRate ? String(currency.eurRate) : "");
 
@@ -222,7 +230,7 @@ export default function MonthPerformanceHeader({
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1">
             <Button variant="outline" size="icon" className="h-8 w-8" disabled={!canPrev}
-              onClick={() => setMonth((m) => shiftMonth(m, -1))} aria-label="Previous month">
+              onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Previous month">
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <Select value={month} onValueChange={setMonth}>
@@ -234,7 +242,7 @@ export default function MonthPerformanceHeader({
               </SelectContent>
             </Select>
             <Button variant="outline" size="icon" className="h-8 w-8" disabled={!canNext}
-              onClick={() => setMonth((m) => shiftMonth(m, 1))} aria-label="Next month">
+              onClick={() => setMonth(shiftMonth(month, 1))} aria-label="Next month">
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
