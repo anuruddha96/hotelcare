@@ -300,6 +300,17 @@ export default function RateStrategyGrid({
   useEffect(() => {
     try { localStorage.setItem("rate-grid-change-dots", showMarkers ? "1" : "0"); } catch { /* private mode */ }
   }, [showMarkers]);
+  // Dots show only what moved today (Budapest). This tick re-renders the grid
+  // shortly after local midnight, so yesterday's dots clear by themselves
+  // while their history stays readable in the hover card.
+  const [dayStart, setDayStart] = useState(() => budapestDayStartMs());
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const next = budapestDayStartMs();
+      setDayStart((prev) => (prev === next ? prev : next));
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
   const [visibleMonth, setVisibleMonth] = useState<string>(formatMonth(today));
   const [edit, setEdit] = useState<DraftEdit | null>(null);
   /** Bulk options in the price editor. */
