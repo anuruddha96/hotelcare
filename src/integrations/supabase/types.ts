@@ -5405,6 +5405,8 @@ export type Database = {
           hotel_id: string
           last_error: string | null
           last_success_at: string | null
+          last_success_by: string | null
+          last_success_by_name: string | null
           lease_expires_at: string | null
           lease_owner: string | null
           lease_started_at: string | null
@@ -5415,6 +5417,8 @@ export type Database = {
           hotel_id: string
           last_error?: string | null
           last_success_at?: string | null
+          last_success_by?: string | null
+          last_success_by_name?: string | null
           lease_expires_at?: string | null
           lease_owner?: string | null
           lease_started_at?: string | null
@@ -5425,13 +5429,23 @@ export type Database = {
           hotel_id?: string
           last_error?: string | null
           last_success_at?: string | null
+          last_success_by?: string | null
+          last_success_by_name?: string | null
           lease_expires_at?: string | null
           lease_owner?: string | null
           lease_started_at?: string | null
           organization_slug?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "revenue_sync_state_last_success_by_fkey"
+            columns: ["last_success_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       rm_analysis_runs: {
         Row: {
@@ -6058,6 +6072,112 @@ export type Database = {
           work_date?: string
         }
         Relationships: []
+      }
+      staff_schedule_venues: {
+        Row: {
+          created_at: string
+          schedule_id: string
+          venue_id: string
+        }
+        Insert: {
+          created_at?: string
+          schedule_id: string
+          venue_id: string
+        }
+        Update: {
+          created_at?: string
+          schedule_id?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_schedule_venues_schedule_id_fkey"
+            columns: ["schedule_id"]
+            isOneToOne: false
+            referencedRelation: "staff_schedules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_schedule_venues_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      staff_schedules: {
+        Row: {
+          created_at: string
+          created_by: string
+          hotel_id: string
+          id: string
+          notes: string | null
+          organization_slug: string
+          published_at: string | null
+          published_by: string | null
+          shift_end: string
+          shift_start: string
+          status: string
+          updated_at: string
+          user_id: string
+          work_date: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          hotel_id: string
+          id?: string
+          notes?: string | null
+          organization_slug: string
+          published_at?: string | null
+          published_by?: string | null
+          shift_end?: string
+          shift_start?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+          work_date: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          hotel_id?: string
+          id?: string
+          notes?: string | null
+          organization_slug?: string
+          published_at?: string | null
+          published_by?: string | null
+          shift_end?: string
+          shift_start?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_schedules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_schedules_published_by_fkey"
+            columns: ["published_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_schedules_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       surge_events: {
         Row: {
@@ -6726,22 +6846,54 @@ export type Database = {
       }
     }
     Functions: {
+      can_manage_slnt_schedule: {
+        Args: { _hotel_id: string }
+        Returns: boolean
+      }
       can_view_training_analytics: {
         Args: { _user_id: string }
         Returns: boolean
       }
-      claim_revenue_sync: {
-        Args: { _fresh_for?: string; _hotel_id: string; _lease_for?: string }
-        Returns: {
-          last_success_at: string
-          status: string
-        }[]
-      }
+      claim_revenue_sync:
+        | {
+            Args: {
+              _fresh_for?: string
+              _hotel_id: string
+              _lease_for?: string
+            }
+            Returns: {
+              last_success_at: string
+              status: string
+            }[]
+          }
+        | {
+            Args: {
+              _force?: boolean
+              _fresh_for?: string
+              _hotel_id: string
+              _lease_for?: string
+            }
+            Returns: {
+              last_success_at: string
+              status: string
+            }[]
+          }
       cleanup_old_photos: { Args: never; Returns: undefined }
-      complete_revenue_sync: {
-        Args: { _error?: string; _hotel_id: string; _success: boolean }
-        Returns: undefined
-      }
+      complete_revenue_sync:
+        | {
+            Args: {
+              _actor_id: string
+              _actor_name?: string
+              _error?: string
+              _hotel_id: string
+              _success: boolean
+            }
+            Returns: undefined
+          }
+        | {
+            Args: { _error?: string; _hotel_id: string; _success: boolean }
+            Returns: undefined
+          }
       create_authenticated_housekeeper: {
         Args: {
           p_assigned_hotel?: string

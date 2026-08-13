@@ -740,17 +740,10 @@ export default function RateStrategyGrid({
       const r = confirmRefs.current;
       await Promise.all([r.refreshDrafts(), r.reloadAudit(), r.onRatesUpdated?.()]);
     };
-    const hard = async () => {
-      if (cancelled) return;
-      try {
-        await supabase.functions.invoke("previo-revenue-sync", { body: { hotelId, horizonDays: 190 } });
-      } catch { /* the nightly sync remains the backstop */ }
-      await soft();
-    };
     timers.push(window.setTimeout(() => void soft(), 5000));
     timers.push(window.setTimeout(() => void soft(), 15000));
-    timers.push(window.setTimeout(() => void hard(), 60000));
-    timers.push(window.setTimeout(() => void hard(), 150000));
+    timers.push(window.setTimeout(() => void soft(), 60000));
+    timers.push(window.setTimeout(() => void soft(), 150000));
     return () => { cancelled = true; timers.forEach((t) => window.clearTimeout(t)); };
   }, [hotelId, awaitingCount]);
 

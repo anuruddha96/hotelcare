@@ -22,11 +22,12 @@ import { CompletionPhotosManagement } from './CompletionPhotosManagement';
 import { SimplifiedDirtyLinenManagement } from './SimplifiedDirtyLinenManagement';
 import { DirtyLinenItemsManagement } from './DirtyLinenItemsManagement';
 import { MaintenancePhotosManagement } from './MaintenancePhotosManagement';
+import { StaffSchedulePlanner } from './StaffSchedulePlanner';
 
 import { LostAndFoundManagement } from './LostAndFoundManagement';
 import { TabOrderManagement } from './TabOrderManagement';
 import { usePendingApprovals } from '@/hooks/usePendingApprovals';
-import { ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield, Shirt, Camera, AlertTriangle, CheckCircle, Package, Settings } from 'lucide-react';
+import { CalendarDays, ClipboardCheck, Users, Upload, Zap, Trophy, UserPlus, Shield, Shirt, Camera, AlertTriangle, CheckCircle, Package, Settings } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
@@ -52,6 +53,7 @@ const TAB_CONFIGS: { [key: string]: TabConfig } = {
   'dirty-linen': { id: 'dirty-linen', label: 'housekeeping.tabs.dirtyLinen', icon: <Shirt className="h-3 w-3 sm:h-4 sm:w-4" />, colorClass: 'text-purple-500', hintKey: 'hk.dirtyLinen' },
   
   'attendance': { id: 'attendance', label: 'housekeeping.tabs.hrManagement', icon: <Users className="h-3 w-3 sm:h-4 sm:w-4" />, hintKey: 'hk.hrManagement' },
+  'staff-schedule': { id: 'staff-schedule', label: 'Staff schedule', icon: <CalendarDays className="h-3 w-3 sm:h-4 sm:w-4" /> },
   'minibar': { id: 'minibar', label: 'housekeeping.tabs.minibarTracking', icon: <Trophy className="h-3 w-3 sm:h-4 sm:w-4" />, hintKey: 'hk.minibar' },
   'tab-order': { id: 'tab-order', label: 'housekeeping.tabs.tabSettings', icon: <Settings className="h-3 w-3 sm:h-4 sm:w-4 text-orange-500" />, colorClass: 'text-orange-500', hintKey: 'hk.tabSettings' },
 };
@@ -366,7 +368,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     const defaultOrder = [
       'staff-management', 'supervisor', 'manage', 'performance', 'pms-upload',
       'completion-photos', 'dnd-photos', 'maintenance-photos', 'lost-and-found',
-      'dirty-linen', 'attendance', 'minibar'
+      'dirty-linen', ...(profile?.organization_slug === 'slnt' || profile?.organization_slug === 'slnt-group' ? ['staff-schedule'] : []), 'attendance', 'minibar'
     ];
 
     let order = orderedTabs.length > 0 ? orderedTabs : defaultOrder;
@@ -448,8 +450,8 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
         <HelpTooltip hint={UI_HINTS[config.hintKey || '']}>
           <span className="flex items-center gap-1 sm:gap-2">
             {tabIcon}
-            <span className="hidden sm:inline">{t(config.label)}</span>
-            <span className="sm:hidden">{t(config.label).split(' ')[0]}</span>
+             <span className="hidden sm:inline">{config.label === 'Staff schedule' ? config.label : t(config.label)}</span>
+             <span className="sm:hidden">{(config.label === 'Staff schedule' ? config.label : t(config.label)).split(' ')[0]}</span>
           </span>
         </HelpTooltip>
       </TabsTrigger>
@@ -563,6 +565,12 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
             <TabsContent value="attendance" className="space-y-6">
               <AttendanceManagement />
             </TabsContent>
+
+            {(profile?.organization_slug === 'slnt' || profile?.organization_slug === 'slnt-group') && (
+              <TabsContent value="staff-schedule" className="space-y-6">
+                <StaffSchedulePlanner />
+              </TabsContent>
+            )}
 
             <TabsContent value="dirty-linen" className="space-y-6">
               <div className="space-y-6">

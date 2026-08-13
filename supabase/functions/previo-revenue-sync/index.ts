@@ -1038,6 +1038,8 @@ serve(async (req) => {
   await service.rpc("complete_revenue_sync", {
     _hotel_id: hotelId,
     _success: errors.length === 0,
+    _actor_id: actorId,
+    _actor_name: actorName,
     _error: errors.length ? errors.slice(0, 5).join(" | ") : null,
   });
 

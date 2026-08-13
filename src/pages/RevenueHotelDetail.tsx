@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { claimRevenueSync } from "@/lib/revenueFreshness";
+import { claimRevenueSync, fetchRevenueSyncInfo } from "@/lib/revenueFreshness";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -153,15 +153,32 @@ export default function RevenueHotelDetail() {
   const [syncing, setSyncing] = useState(false);
   const [syncStep, setSyncStep] = useState("Connecting to Previo…");
   const [syncPct, setSyncPct] = useState(0);
+  const [syncWaiting, setSyncWaiting] = useState(false);
   const autoSyncedHotelRef = useRef<string | null>(null);
   const syncingRef = useRef(false);
 
   /** Pull fresh Previo revenue + occupancy data with visible progress. */
   async function runSync(force = false) {
     if (!hotelId || syncingRef.current) return;
-    if (!force) {
-      const claim = await claimRevenueSync(hotelId);
-      if (claim !== "claimed") return;
+    const claim = await claimRevenueSync(hotelId, force);
+    if (claim === "fresh") {
+      await live.reload();
+      return;
+    }
+    if (claim === "already_running") {
+      setSyncWaiting(true);
+      setSyncStep("Another user is refreshing this property…");
+      const started = Date.now();
+      while (Date.now() - started < 2 * 60 * 1000) {
+        await new Promise((resolve) => window.setTimeout(resolve, 3000));
+        const info = await fetchRevenueSyncInfo(hotelId);
+        if (!info.stale) {
+          await Promise.all([load(), live.reload()]);
+          break;
+        }
+      }
+      setSyncWaiting(false);
+      return;
     }
     syncingRef.current = true;
     setSyncing(true);
@@ -578,10 +595,10 @@ export default function RevenueHotelDetail() {
               : " · never synced"}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => void runSync()} disabled={syncing}
+        <Button variant="outline" size="sm" onClick={() => void runSync(true)} disabled={syncing || syncWaiting}
           title="Pull fresh prices, reservations and occupancy from Previo now">
-          {syncing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-          Sync now
+          {syncing || syncWaiting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+          {syncWaiting ? "Sync in progress" : "Sync now"}
         </Button>
         {isTechnicalAdmin && (
           <>
