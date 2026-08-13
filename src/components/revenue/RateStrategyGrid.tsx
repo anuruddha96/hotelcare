@@ -339,6 +339,9 @@ export default function RateStrategyGrid({
     state: "sending" | "done" | "error"; message?: string;
   } | null>(null);
 
+  /** Whether prices can physically reach this property's PMS. */
+  const writeReadiness = useRateWriteReadiness(hotelId);
+
   const [drafts, setDrafts] = useState<Map<string, number>>(new Map());
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
