@@ -27,7 +27,18 @@ serve(async (req) => {
     const onlyHotel = body.hotel_id as string | undefined;
     const trigger = (body.trigger as string) || "cron";
 
+    // Admin brake: when the engine is switched off the tick returns straight
+    // away, so no Previo pulls or recommendation writes hit the database.
+    const { data: engineConfig } = await supabase
+      .from("revenue_engine_config").select("engine_tick_enabled").eq("id", "global").maybeSingle();
+    if (engineConfig && engineConfig.engine_tick_enabled === false) {
+      return new Response(JSON.stringify({ ok: true, paused: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { data: settings } = await supabase
+
       .from("hotel_revenue_settings")
       .select("*")
       .eq("is_engine_enabled", true);
@@ -183,10 +194,13 @@ serve(async (req) => {
         return r.ok;
       };
       for (const hotelId of targets) {
+        // Shorter horizons: a full 365-day revenue pull per hotel per tick was
+        // a large share of the database's disk reads.
         const [ok1, ok2] = await Promise.all([
-          invokeFn("previo-pull-revenue", { hotelId, days: 365 }).catch(() => false),
-          invokeFn("previo-sync-daily-overview", { hotelId, days: 90 }).catch(() => false),
+          invokeFn("previo-pull-revenue", { hotelId, days: 180 }).catch(() => false),
+          invokeFn("previo-sync-daily-overview", { hotelId, days: 45 }).catch(() => false),
         ]);
+
         if (ok1 && ok2) previoSynced++; else previoErrors++;
       }
     } catch (e) {

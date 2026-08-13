@@ -4645,6 +4645,36 @@ export type Database = {
         }
         Relationships: []
       }
+      revenue_engine_config: {
+        Row: {
+          automation_enabled: boolean
+          dry_run: boolean
+          engine_tick_enabled: boolean
+          id: string
+          pause_reason: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          automation_enabled?: boolean
+          dry_run?: boolean
+          engine_tick_enabled?: boolean
+          id?: string
+          pause_reason?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          automation_enabled?: boolean
+          dry_run?: boolean
+          engine_tick_enabled?: boolean
+          id?: string
+          pause_reason?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       revenue_ingest_runs: {
         Row: {
           duration_ms: number | null
@@ -6928,6 +6958,7 @@ export type Database = {
         Returns: Json
       }
       purge_old_daily_overview_snapshots: { Args: never; Returns: number }
+      purge_revenue_logs: { Args: never; Returns: Json }
       run_auto_signout: { Args: never; Returns: number }
       slnt_venue_visible: {
         Args: { _user_id: string; _venue_id: string }
