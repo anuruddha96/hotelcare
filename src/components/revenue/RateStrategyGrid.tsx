@@ -27,7 +27,7 @@ import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 import { useRateAudit } from "@/hooks/useRateAudit";
 import { usePickupAutomationActions, type AutomationAction } from "@/hooks/usePickupAutomationActions";
 import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
-import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
+import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, budapestDayStartMs, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
@@ -300,6 +300,17 @@ export default function RateStrategyGrid({
   useEffect(() => {
     try { localStorage.setItem("rate-grid-change-dots", showMarkers ? "1" : "0"); } catch { /* private mode */ }
   }, [showMarkers]);
+  // Dots show only what moved today (Budapest). This tick re-renders the grid
+  // shortly after local midnight, so yesterday's dots clear by themselves
+  // while their history stays readable in the hover card.
+  const [dayStart, setDayStart] = useState(() => budapestDayStartMs());
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const next = budapestDayStartMs();
+      setDayStart((prev) => (prev === next ? prev : next));
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
   const [visibleMonth, setVisibleMonth] = useState<string>(formatMonth(today));
   const [edit, setEdit] = useState<DraftEdit | null>(null);
   /** Bulk options in the price editor. */
@@ -1265,7 +1276,7 @@ export default function RateStrategyGrid({
             <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
           </span>
           <span className="flex items-center gap-1.5">
-            <span className="font-medium text-foreground">Changed in the last 7 days:</span>
+            <span className="font-medium text-foreground">Changed today:</span>
             <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary inline-block" />by your team</span>
             <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-purple-500 inline-block" />by the automation tool</span>
             <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-amber-500 inline-block" />in Previo</span>
@@ -1421,7 +1432,7 @@ export default function RateStrategyGrid({
                     const picked = multiMode ? pickedDates.has(d) : selecting && selDates.has(d);
                     const trail = auditByDate.get(d);
                     const dayChanges = dayChangesByDate.get(d) ?? [];
-                    const dayLatest = dayChanges[0];
+                    const dayLatest = dayChanges.find((c) => Date.parse(c.at) >= dayStart);
                     const dayButton = (
                       <button
                         key={d}
@@ -1749,7 +1760,8 @@ export default function RateStrategyGrid({
                     const cellEvents = cellOriginEvents(history, cellAutomation);
                     // One dot only — the most recent change. The full story
                     // lives in the cell's hover card / tap sheet.
-                    const cellOrigin1: ChangeOrigin | null = showMarkers ? (cellEvents[0]?.origin ?? null) : null;
+                    const latestToday = cellEvents.find((e) => Date.parse(e.at) >= dayStart);
+                    const cellOrigin1: ChangeOrigin | null = showMarkers ? (latestToday?.origin ?? null) : null;
                     
                     const originLabel = (() => {
                       if (draft !== undefined) return "Not sent to Previo yet";

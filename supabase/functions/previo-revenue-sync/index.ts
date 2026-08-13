@@ -362,11 +362,13 @@ serve(async (req) => {
     actorId = userRes.user.id;
     const { data: profile } = await service
       .from("profiles")
-      .select("role, full_name, assigned_hotel, organization_slug, is_super_admin")
+      .select("role, full_name, nickname, email, assigned_hotel, organization_slug, is_super_admin")
       .eq("id", actorId)
       .maybeSingle();
     const role = (profile as { role?: string } | null)?.role ?? "";
-    actorName = (profile as { full_name?: string } | null)?.full_name ?? null;
+    const actorProfile = profile as { full_name?: string; nickname?: string; email?: string } | null;
+    // Never fall back to "automatic sync" for a person-triggered refresh.
+    actorName = (actorProfile?.full_name || actorProfile?.nickname || actorProfile?.email || null);
     actorOrganization = (profile as { organization_slug?: string } | null)?.organization_slug ?? null;
     actorIsSuperAdmin = (profile as { is_super_admin?: boolean } | null)?.is_super_admin === true;
     const allowedRoles = ["admin", "top_management", "top_management_manager", "manager", "hotel_manager"];

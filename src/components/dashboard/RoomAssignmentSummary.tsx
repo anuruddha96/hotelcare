@@ -183,7 +183,7 @@ export function RoomAssignmentSummary() {
   const uniqueHotels = Array.from(new Set(assignments.map(a => a.hotel)));
 
   // Only allow access for managers, admins, and super admins
-  if (!profile || !['admin', 'manager', 'housekeeping_manager', 'top_management'].includes(profile.role)) {
+  if (!profile || !['admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager'].includes(profile.role)) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
         <p className="text-sm">Access restricted to managers and administrators</p>

@@ -7,7 +7,7 @@ import { Dashboard } from '@/components/dashboard/Dashboard';
 import { HotelSelectionScreen } from '@/components/dashboard/HotelSelectionScreen';
 import { isExecutiveRole, isReceptionRole } from '@/lib/roleAccess';
 
-const MANAGER_ROLES = ['admin', 'manager', 'housekeeping_manager'];
+const MANAGER_ROLES = ['admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager'];
 
 // Local (not UTC) date key so the "once per day" gate follows the manager's
 // wall clock and doesn't re-trigger when UTC rolls over hours before local
