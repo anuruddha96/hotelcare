@@ -30,6 +30,7 @@ import { HotelFloorMap } from './HotelFloorMap';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
+import { assigneeLabel, cleanName } from '@/lib/staffNames';
 import { useVenues } from '@/hooks/useVenues';
 import { venueColor, venueEdgeStyle } from '@/lib/venueColors';
 
