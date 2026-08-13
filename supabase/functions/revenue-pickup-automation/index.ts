@@ -115,7 +115,7 @@ Deno.serve(async (req) => {
       }
       if (!onlyHotel) return json({ ok: false, code: "no_hotel", msg: "Choose a property first." }, 400);
       if (!(profile as any).is_super_admin) {
-        const { data: allowed } = await admin.rpc("hotel_belongs_to_user_organization", { _user_id: user.id, _hotel: onlyHotel });
+        const { data: allowed } = await admin.rpc("hotel_belongs_to_user_organization", { _uid: user.id, _hotel_id: onlyHotel });
         if (allowed !== true) {
           return json({ ok: false, code: "forbidden", msg: "This property is not in your organization." }, 403);
         }
