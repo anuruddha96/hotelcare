@@ -579,7 +579,10 @@ Deno.serve(async (req) => {
     const { count: remaining } = await admin.from("revenue_rate_drafts")
       .select("id", { count: "exact", head: true })
       .eq("hotel_id", hotelId).eq("push_run_id", pushRunId).eq("status", "draft");
-    const more = (remaining ?? 0) > 0;
+    // Callers that hand over an explicit list (the automation engine) keep
+    // their leftovers moving too.
+    const restIds = draftIds.length > SLICE ? draftIds.slice(SLICE) : [];
+    const more = (remaining ?? 0) > 0 || restIds.length > 0;
 
     const { data: runSoFar } = await admin.from("revenue_rate_push_runs")
       .select("processed_count, accepted_count, failed_count, compressed_message_count")
@@ -605,7 +608,7 @@ Deno.serve(async (req) => {
           "Content-Type": "application/json",
           "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
         },
-        body: JSON.stringify({ hotelId, pushRunId }),
+        body: JSON.stringify({ hotelId, pushRunId, ...(restIds.length ? { draftIds: restIds } : {}) }),
       }).catch((error) => console.error("could not continue push run", pushRunId, error));
       const rt = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
       if (rt) rt.waitUntil(continueRun); else void continueRun;
