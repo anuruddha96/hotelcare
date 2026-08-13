@@ -96,13 +96,39 @@ export default {
 				'scale-in': {
 					'0%': { transform: 'scale(0.85)', opacity: '0' },
 					'100%': { transform: 'scale(1)', opacity: '1' },
-				}
+				},
+				/* A price the user just changed: lifts, glows, settles. */
+				'rate-bump': {
+					'0%': { transform: 'scale(1)' },
+					'25%': { transform: 'scale(1.22)' },
+					'60%': { transform: 'scale(0.97)' },
+					'100%': { transform: 'scale(1)' },
+				},
+				'rate-flash': {
+					'0%': { backgroundColor: 'hsl(var(--primary) / 0.35)', boxShadow: '0 0 0 0 hsl(var(--primary) / 0.5)' },
+					'70%': { backgroundColor: 'hsl(var(--primary) / 0.12)', boxShadow: '0 0 0 6px hsl(var(--primary) / 0)' },
+					'100%': { backgroundColor: 'transparent', boxShadow: '0 0 0 0 hsl(var(--primary) / 0)' },
+				},
+				/* Previo has confirmed the price — a calm green settle. */
+				'rate-confirm': {
+					'0%': { backgroundColor: 'hsl(142 71% 45% / 0.30)' },
+					'100%': { backgroundColor: 'transparent' },
+				},
+				'rate-rise': {
+					'0%': { transform: 'translateY(6px)', opacity: '0' },
+					'100%': { transform: 'translateY(0)', opacity: '1' },
+				},
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
 				'accordion-up': 'accordion-up 0.2s ease-out',
 				'scale-in': 'scale-in 0.3s ease-out',
+				'rate-bump': 'rate-bump 0.55s cubic-bezier(0.34, 1.56, 0.64, 1)',
+				'rate-flash': 'rate-flash 1.1s ease-out',
+				'rate-confirm': 'rate-confirm 1.2s ease-out',
+				'rate-rise': 'rate-rise 0.35s ease-out',
 			}
+
 		}
 	},
 	plugins: [require("tailwindcss-animate")],
