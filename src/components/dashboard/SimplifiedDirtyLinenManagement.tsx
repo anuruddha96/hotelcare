@@ -114,14 +114,8 @@ export function SimplifiedDirtyLinenManagement() {
         .select('id, full_name, nickname, assigned_hotel')
         .in('id', housekeeperIds);
       
-      if (userHotel) {
-        if (resolvedHotelName && resolvedHotelName !== userHotel) {
-          housekeepersQuery = housekeepersQuery.or(
-            `assigned_hotel.eq.${userHotel},assigned_hotel.eq.${resolvedHotelName}`
-          );
-        } else {
-          housekeepersQuery = housekeepersQuery.eq('assigned_hotel', userHotel);
-        }
+      if (hotelKeys.length > 0) {
+        housekeepersQuery = housekeepersQuery.in('assigned_hotel', hotelKeys);
       }
       
       const { data: housekeepersData } = await housekeepersQuery;
