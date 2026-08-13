@@ -866,6 +866,52 @@ export default function RateStrategyGrid({
       r.source === "previo_different" && !r.payload?.resolved_at && !!r.stay_date && r.stay_date >= today),
     [auditManualRows, today],
   );
+  /**
+   * Short-lived "this price just moved" highlights. A calendar of numbers is
+   * easy to lose your place in, so a change announces itself: blue when it is
+   * yours, green when Previo confirms the new number.
+   */
+  const [flash, setFlash] = useState<Map<string, "team" | "confirm">>(new Map());
+  const flashTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const markFlash = useCallback((keys: string[], kind: "team" | "confirm") => {
+    if (keys.length === 0) return;
+    setFlash((prev) => {
+      const next = new Map(prev);
+      for (const k of keys) next.set(k, kind);
+      return next;
+    });
+    for (const k of keys) {
+      const running = flashTimers.current.get(k);
+      if (running) clearTimeout(running);
+      flashTimers.current.set(k, setTimeout(() => {
+        flashTimers.current.delete(k);
+        setFlash((prev) => { const next = new Map(prev); next.delete(k); return next; });
+      }, 1400));
+    }
+  }, []);
+  useEffect(() => () => { flashTimers.current.forEach((t) => clearTimeout(t)); }, []);
+
+  // Prices that changed since the last load — whoever moved them — get the
+  // confirming green pulse the moment the new number reaches the grid.
+  const prevPublished = useRef<Map<string, number> | null>(null);
+  useEffect(() => {
+    const now = new Map<string, number>();
+    for (const r of rates) {
+      if (!r.room_type_name) continue;
+      now.set(`${r.stay_date}|${r.room_type_name}|${r.occupancy}`, Number(r.price));
+    }
+    const before = prevPublished.current;
+    prevPublished.current = now;
+    if (!before || before.size === 0) return;
+    const moved: string[] = [];
+    now.forEach((price, key) => {
+      const was = before.get(key);
+      if (was !== undefined && was !== price) moved.push(key);
+    });
+    // A whole-season push would strobe the screen; a handful reads as feedback.
+    if (moved.length > 0 && moved.length <= 400) markFlash(moved, "confirm");
+  }, [rates, markFlash]);
+
   const [rechecking, setRechecking] = useState(false);
   const [clearingFlags, setClearingFlags] = useState(false);
 
@@ -1111,6 +1157,7 @@ export default function RateStrategyGrid({
       for (const r of rowsToSave) next.set(`${r.stay_date}|${r.room_type_name}|${r.occupancy}`, Number(r.new_price));
       return next;
     });
+    markFlash(rowsToSave.map((r) => `${r.stay_date}|${r.room_type_name}|${r.occupancy}`), "team");
     setPushRun({ total: rowsToSave.length, done: 0, failed: 0, state: "sending" });
 
     void (async () => {
