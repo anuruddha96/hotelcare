@@ -41,15 +41,16 @@ export const RECENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
  * own while the history behind them stays intact.
  */
 export function budapestDayStartMs(now: number = Date.now()): number {
-  const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Budapest" }).format(new Date(now));
-  // Budapest is UTC+1 or UTC+2; probe both and take the one that is the most
-  // recent instant not in the future relative to `now`.
-  const midnightUtc = Date.parse(`${day}T00:00:00Z`);
-  for (const offsetHours of [2, 1]) {
-    const candidate = midnightUtc - offsetHours * 3600_000;
-    if (candidate <= now) return candidate;
-  }
-  return midnightUtc;
+  // Read the Budapest wall clock for `now` and rewind by how much of that
+  // local day has already passed. DST-safe without hard-coding an offset.
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Budapest", hour12: false,
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(new Date(now));
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  const hour = get("hour") % 24;
+  const elapsed = ((hour * 60 + get("minute")) * 60 + get("second")) * 1000;
+  return Math.floor((now - elapsed) / 1000) * 1000;
 }
 
 /** Did this change happen during today's Budapest calendar day? */
