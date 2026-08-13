@@ -714,6 +714,17 @@ export default function RateStrategyGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auditByCell]);
 
+  /** Newest just-published change per stay date — drives the blue date dot. */
+  const optimisticDayOrigin = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [key, at] of optimisticOrigin) {
+      const date = key.split("|")[0];
+      const current = map.get(date);
+      if (!current || at > current) map.set(date, at);
+    }
+    return map;
+  }, [optimisticOrigin]);
+
 
 
   // obk_id -> occupancy -> stay_date -> price
