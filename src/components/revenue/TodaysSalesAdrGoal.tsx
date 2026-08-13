@@ -770,7 +770,11 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
           </div>
           <Button size="sm" variant={showCancelled ? "secondary" : "outline"} className="h-9 px-3 text-xs"
             onClick={() => setShowCancelled((v) => !v)}>
-            {showCancelled ? "Cancelled shown" : "Cancelled hidden"}
+            {showCancelled ? "Cancellations in list" : "List: live bookings only"}
+          </Button>
+          <Button size="sm" variant={stayFilterOn ? "secondary" : "outline"} className="h-9 px-3 text-xs"
+            onClick={() => setStayFilterOn((v) => !v)}>
+            {stayFilterOn ? "Stay-date filter on" : "All stay dates"}
           </Button>
         </div>
 
