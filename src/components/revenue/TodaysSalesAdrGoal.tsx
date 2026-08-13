@@ -7,12 +7,13 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Area, Bar, CartesianGrid, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer,
   Tooltip as RTooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  ChevronDown, Gauge, Lightbulb, Loader2, Target, TrendingUp,
+  ChevronDown, Gauge, Info, Lightbulb, Loader2, Target, TrendingUp,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { addDays, budapestDayOf, eur } from "@/lib/revenueAnalytics";
@@ -803,10 +804,25 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
             </div>
           </div>
         )}
-        <p className="text-[11px] text-muted-foreground">
-          The period filters when the <strong>booking was created</strong>. Every booking counts
-          whatever its arrival date{stayFilterOn ? ", unless you narrow the guest stay dates above." : "."}
-        </p>
+        <div className="rounded-md border bg-muted/30 p-2.5 space-y-1.5">
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            <strong className="text-foreground">What this panel shows:</strong> everything your team
+            <strong> sold today</strong> — reservations filtered by the date the{" "}
+            <strong>booking was created</strong> (Budapest time), whatever date the guest arrives
+            {stayFilterOn ? ", unless you narrow the guest stay dates above" : ""}. It answers
+            "what did we sell today, at what rate, and how far is that from the target?".
+          </p>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            <strong className="text-foreground">Why it can differ from the pickup chart:</strong> the
+            Demand &amp; pickup horizon counts rooms gained and lost per <strong>stay date</strong>,
+            so a booking made weeks ago and cancelled or shortened today shows as negative pickup there.
+            Cancellations here only count bookings that were both <strong>created and cancelled</strong> in
+            this period — that is why this can read 0 while the chart shows red bars.
+          </p>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            Tap the <Info className="inline h-3 w-3 align-[-1px]" /> on any figure for its exact definition.
+          </p>
+        </div>
       </CardHeader>
 
       <CardContent className="space-y-4">
@@ -839,26 +855,60 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                  label="Bookings created"
                  value={String(kpi.bookings)}
                  sub={kpi.roomGroups > kpi.bookings ? `${kpi.roomGroups} rooms across these reservations` : undefined}
+                 info="Reservations whose booking date falls in the selected period, whatever date the guest arrives. One reservation with several rooms counts once here; the rooms are shown underneath."
                />
-              <Kpi label="Room nights sold" value={String(kpi.roomNights)} />
-              <Kpi label="Booking value" value={eur(Math.round(kpi.revenue))} />
-              <Kpi label="Actual ADR" value={kpi.adr === null ? "—" : eur(Math.round(kpi.adr))} tone={toneClass} />
-              <Kpi label="ADR target" value={eur(goals.targetAdr)} />
+              <Kpi
+                label="Room nights sold"
+                value={String(kpi.roomNights)}
+                info="Every night of every room in those reservations added up. A 2-room, 3-night booking is 6 room nights."
+              />
+              <Kpi
+                label="Booking value"
+                value={eur(Math.round(kpi.revenue))}
+                info="Total room revenue of the bookings created in this period, over the whole length of each stay. Extras and taxes are not included."
+              />
+              <Kpi
+                label="Actual ADR"
+                value={kpi.adr === null ? "—" : eur(Math.round(kpi.adr))}
+                tone={toneClass}
+                info="Booking value divided by room nights sold — the average nightly rate you actually achieved on the bookings taken in this period."
+              />
+              <Kpi
+                label="ADR target"
+                value={eur(goals.targetAdr)}
+                info="The nightly rate you are aiming for. Set it in Goals above; it is saved for this property so the whole team sees the same target."
+              />
               <Kpi
                 label="ADR variance"
                 tone={toneClass}
                 value={kpi.variance === null ? "—" : `${kpi.variance >= 0 ? "+" : "−"}${eur(Math.round(Math.abs(kpi.variance)))}`}
                 sub={kpi.variancePct === null ? undefined : `${kpi.variancePct >= 0 ? "+" : "−"}${pct(Math.abs(kpi.variancePct))}`}
+                info="Actual ADR minus the ADR target. Green means you sold above target, red means below."
               />
-              <Kpi label="Revenue goal" value={pct(kpi.valueGoalPct)} sub={`of ${eur(goals.targetValue)}`} />
-              <Kpi label="Avg length of stay" value={kpi.los ? `${kpi.los.toFixed(1)} n` : "—"} />
+              <Kpi
+                label="Revenue goal"
+                value={pct(kpi.valueGoalPct)}
+                sub={`of ${eur(goals.targetValue)}`}
+                info="Booking value as a share of the booking-value target set in Goals."
+              />
+              <Kpi
+                label="Avg length of stay"
+                value={kpi.los ? `${kpi.los.toFixed(1)} n` : "—"}
+                info="Room nights divided by the number of reservations created in this period."
+              />
               <Kpi
                 label="Cancellations"
                 tone={kpi.cancelled > 0 ? "text-red-600 dark:text-red-400" : undefined}
                 value={kpi.cancelled ? `−${kpi.cancelledNights} n` : "0"}
-                sub={kpi.cancelled ? `${kpi.cancelled} booking${kpi.cancelled === 1 ? "" : "s"} · ${eur(Math.round(kpi.cancelledRevenue))} lost` : "none in this period"}
+                sub={kpi.cancelled ? `${kpi.cancelled} booking${kpi.cancelled === 1 ? "" : "s"} · ${eur(Math.round(kpi.cancelledRevenue))} lost` : "none created in this period"}
+                info="Bookings that were created in this period and are now cancelled or a no-show. A booking made last month but cancelled today is NOT counted here — it still appears as negative pickup in the Demand & pickup horizon, which compares stay-date occupancy day over day. So 0 here with red bars there is normal."
               />
-              <Kpi label="Net room nights" value={String(kpi.netNights)} sub="sold minus cancelled" />
+              <Kpi
+                label="Net room nights"
+                value={String(kpi.netNights)}
+                sub="sold minus cancelled"
+                info="Room nights sold minus the cancelled room nights above — what is left of this period's production."
+              />
             </div>
 
             {/* --------------------------------------------- ADR status */}
@@ -1178,10 +1228,35 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
 
 /* ------------------------------------------------------------ small parts */
 
-function Kpi({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: string }) {
+/** Tap-friendly "what is this?" bubble — works on phones, unlike hover tooltips. */
+function InfoDot({ title, text }: { title: string; text: string }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={`What is ${title}?`}
+          className="shrink-0 text-muted-foreground/70 hover:text-foreground transition-colors"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Info className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="top" align="start" className="w-64 text-xs leading-relaxed">
+        <p className="font-semibold mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">{title}</p>
+        {text}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function Kpi({ label, value, sub, tone, info }: { label: string; value: string; sub?: string; tone?: string; info?: string }) {
   return (
     <div className="rounded-md border bg-muted/30 p-2">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="flex items-start justify-between gap-1">
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+        {info && <InfoDot title={label} text={info} />}
+      </div>
       <div className={`text-lg font-bold leading-tight ${tone ?? ""}`}>{value}</div>
       {sub && <div className="text-[10px] text-muted-foreground">{sub}</div>}
     </div>
