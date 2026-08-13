@@ -1365,7 +1365,35 @@ export default function RateStrategyGrid({
                 ))}
               </SelectContent>
             </Select>
+            {/* Reading size — saved to the user's profile, not just this device. */}
+            <div className="flex items-center rounded-md border overflow-hidden">
+              <Button
+                size="sm" variant="ghost" className="h-8 w-8 rounded-none p-0"
+                aria-label="Make the calendar smaller"
+                title="Smaller (Ctrl + scroll)"
+                onClick={() => setZoom(zoom - GRID_ZOOM_STEP)}
+              >
+                <ZoomOut className="h-3.5 w-3.5" />
+              </Button>
+              <button
+                type="button"
+                onClick={() => setZoom(1)}
+                title="Reset to 100%"
+                className="h-8 min-w-[46px] px-1 text-[11px] tabular-nums text-muted-foreground hover:text-foreground"
+              >
+                {zoomPct}%
+              </button>
+              <Button
+                size="sm" variant="ghost" className="h-8 w-8 rounded-none p-0"
+                aria-label="Make the calendar bigger"
+                title="Bigger (Ctrl + scroll)"
+                onClick={() => setZoom(zoom + GRID_ZOOM_STEP)}
+              >
+                <ZoomIn className="h-3.5 w-3.5" />
+              </Button>
+            </div>
             <div className="flex rounded-md border overflow-hidden">
+
               {RANGE_OPTIONS.map((r) => (
                 <Button
                   key={r.value}
