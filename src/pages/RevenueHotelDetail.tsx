@@ -85,9 +85,16 @@ function iso(d: Date) { return d.toISOString().slice(0,10); }
 
 export default function RevenueHotelDetail() {
   const { profile, loading } = useAuth();
-  const { hotels: tenantHotels } = useTenant();
+  const { hotels: tenantHotels, loading: tenantLoading } = useTenant();
   const { organizationSlug, hotelId } = useParams<{ organizationSlug: string; hotelId: string }>();
   const navigate = useNavigate();
+  // The URL property and the property shown in the header must never disagree:
+  // editing Memories' price list while the app context says Ottofiori is a
+  // cross-property accident waiting to happen.
+  const contextFixRef = useRef(false);
+  const [alignTo, setAlignTo] = useState<string | null>(null);
+  const contextMismatch = !!hotelId && !!profile?.assigned_hotel && profile.assigned_hotel !== hotelId;
+
   useRevenueCurrency(); // re-render the whole page when the Ft/€ switch flips
 
   const [hotelName, setHotelName] = useState("");
