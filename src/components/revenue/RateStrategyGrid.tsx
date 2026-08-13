@@ -84,16 +84,22 @@ const PICKUP_WINDOWS = [
   { value: 90, label: "Last 90 days" },
 ];
 
-/** Row geometry — the two panes must agree pixel for pixel. */
-const ROW_H = 32;
+/** Row geometry at 100% — the two panes must agree pixel for pixel. */
+const BASE_ROW_H = 32;
 /** Room-type group rows wrap onto two lines, so they are taller. */
-const GROUP_H = 40;
-const MONTH_H = 22;
-const DAY_H = 46;
-const HEAD_H = MONTH_H + DAY_H;
-const CELL_W = 60;
+const BASE_GROUP_H = 40;
+const BASE_MONTH_H = 22;
+const BASE_DAY_H = 46;
+const BASE_CELL_W = 60;
 
-const rowH = (kind: string) => (kind === "group" ? GROUP_H : ROW_H);
+/**
+ * How far the calendar may be zoomed. Below 70% the prices stop being legible;
+ * above 160% barely a week fits on screen, which defeats a calendar.
+ */
+export const GRID_ZOOM_MIN = 0.7;
+export const GRID_ZOOM_MAX = 1.6;
+export const GRID_ZOOM_STEP = 0.1;
+
 
 /** Contiguous month bands for the sticky header above the date row. */
 function monthBands(dates: string[]) {
