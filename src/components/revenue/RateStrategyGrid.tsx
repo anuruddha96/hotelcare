@@ -210,7 +210,9 @@ interface DraftEdit {
 
 interface PendingDraft {
   id: string;
+  created_at?: string | null;
   stay_date: string;
+
   room_type_name: string;
   occupancy: number;
   old_price: number | null;
