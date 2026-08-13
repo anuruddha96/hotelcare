@@ -144,12 +144,20 @@ export default function PickupMovementBoard({
     return { gained, lost, gainedValue, lostValue };
   }, [metrics]);
 
+  // Only movement that landed after the user's previous visit counts as new.
+  const newCount = useMemo(() => visible.filter((row) => isNew(row.at)).length, [visible, isNew]);
+
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="flex flex-wrap items-center gap-2 text-base">
           <Scale className="h-4 w-4 text-primary" />
           Reservations moved in the last {windowDays} day{windowDays === 1 ? "" : "s"}
+          {newCount > 0 && (
+            <Badge className="gap-1 px-1.5 py-0 text-[10px]">
+              <Sparkles className="h-3 w-3" />{newCount} new since your last visit
+            </Badge>
+          )}
           <Badge variant="outline" className="font-normal">Budapest time</Badge>
         </CardTitle>
       </CardHeader>
