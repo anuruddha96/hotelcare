@@ -352,18 +352,45 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
       <CardContent className="px-1 sm:px-4">
         {compare && comparisonSummary.length > 0 && (
           <div className="mb-3 grid grid-cols-2 gap-2 px-2 lg:grid-cols-4">
-            {comparisonSummary.map((s, i) => (
-              <div key={s.hotel_id} className={`rounded-lg border p-2 ${s.hotel_id === hotelId ? "border-primary" : ""}`}>
-                <div className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: colorFor(s.hotel_id, i) }} />
-                  <p className="truncate text-xs font-medium">{s.hotel_name}</p>
-                </div>
-                <p className="mt-1 text-xl font-semibold tabular-nums">{s.occ}%</p>
-                <p className="text-[11px] text-muted-foreground">
-                  next 30 days · ADR {s.adr} · RevPAR {s.revpar}
-                </p>
-              </div>
-            ))}
+            {comparisonSummary.map((s) => {
+              const on = !hiddenHotels.has(s.hotel_id);
+              const color = colorFor(s.hotel_id, hotels.findIndex((h) => h.hotel_id === s.hotel_id));
+              return (
+                <button
+                  key={s.hotel_id}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => toggleHotel(s.hotel_id)}
+                  className={`rounded-lg border p-2 text-left transition ${s.hotel_id === hotelId ? "border-primary" : ""} ${on ? "" : "opacity-45"}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-3 w-3 shrink-0 rounded-[3px] border"
+                      style={{ background: on ? color : "transparent", borderColor: color }}
+                    />
+                    <p className="truncate text-xs font-medium">{s.hotel_name}</p>
+                    {s.hotel_id === hotelId && (
+                      <Badge variant="secondary" className="ml-auto h-4 px-1 text-[9px] font-normal">This one</Badge>
+                    )}
+                  </div>
+                  <div className="mt-1.5 grid grid-cols-3 gap-1 tabular-nums">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Occupancy</p>
+                      <p className="text-base font-semibold leading-tight">{s.occ}%</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">ADR</p>
+                      <p className="text-base font-semibold leading-tight">{money(s.adr)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">RevPAR</p>
+                      <p className="text-base font-semibold leading-tight">{money(s.revpar)}</p>
+                    </div>
+                  </div>
+                  <p className="mt-1 text-[10px] text-muted-foreground">next 30 days · tap to {on ? "hide" : "show"}</p>
+                </button>
+              );
+            })}
           </div>
         )}
         <div className="h-72">
