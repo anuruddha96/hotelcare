@@ -106,8 +106,10 @@ export const AdminTabs = () => {
                 Manage system resources and storage
               </p>
             </div>
+            <RevenueEngineControls />
             <AiProviderStatus />
             <PhotoCleanupManager />
+
           </div>
 
         </TabsContent>
