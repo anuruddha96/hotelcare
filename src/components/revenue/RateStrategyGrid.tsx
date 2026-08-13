@@ -467,6 +467,35 @@ export default function RateStrategyGrid({
         occ: r.payload?.occupancy ?? null,
       });
     }
+    // A hand-made change is blue from the moment it is sent, not only once
+    // Previo confirms it: these are the rows written when someone publishes
+    // from Hotel Care. Without them a date the automation touched earlier kept
+    // its purple dot for as long as verification took (or forever, if the
+    // confirmation row never landed).
+    const PENDING_TEAM_SOURCES = ["push", "day-tool", "cell-edit", "bulk-editor", "demand", "pickup-board"];
+    const seenTeam = new Set<string>();
+    for (const c of map.values()) {
+      for (const e of c) {
+        if (e.origin === "team") seenTeam.add(`${e.room ?? ""}|${e.occ ?? ""}|${Math.floor(Date.parse(e.at) / 60_000)}`);
+      }
+    }
+    for (const r of auditRows) {
+      if (!r.stay_date || !r.source) continue;
+      if (!PENDING_TEAM_SOURCES.includes(r.source)) continue;
+      const at = Date.parse(r.performed_at);
+      if (!Number.isFinite(at) || at < cutoff) continue;
+      const room = r.payload?.room_type_name ?? null;
+      const occ = r.payload?.occupancy ?? null;
+      const dedupe = `${room ?? ""}|${occ ?? ""}|${Math.floor(at / 60_000)}`;
+      if (seenTeam.has(dedupe)) continue;
+      seenTeam.add(dedupe);
+      push(r.stay_date, {
+        at: r.performed_at, origin: "team",
+        old: r.old_rate_eur, next: r.new_rate_eur,
+        who: (r.performed_by && auditNames.get(r.performed_by)) || "Someone on your team",
+        room, occ,
+      });
+    }
     for (const a of automationRows) {
       if (a.status === "failed") continue;
       if (Date.parse(a.created_at) < cutoff) continue;
