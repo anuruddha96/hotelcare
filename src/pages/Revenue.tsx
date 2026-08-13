@@ -18,6 +18,7 @@ import { MainTabsBar } from "@/components/layout/MainTabsBar";
 import { Header } from "@/components/layout/Header";
 import { isRevenueAdmin, canSeeRevenuePortfolio } from "@/lib/roleAccess";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
+import { claimRevenueSync } from "@/lib/revenueFreshness";
 
 interface PickupDateRow { stay_date: string; delta: number }
 interface OccByDate { stay_date: string; occupancy_pct: number; rooms_sold: number }
@@ -291,11 +292,16 @@ export default function Revenue() {
 
   async function syncFromPrevio(hotelId: string, hotelName: string) {
     toast.info(`Syncing ${hotelName} from Previo…`);
+    const claim = await claimRevenueSync(hotelId, true);
+    if (claim !== 'claimed') {
+      toast.info(claim === 'already_running' ? 'Another user is already refreshing this property' : 'This property is already up to date');
+      return;
+    }
     const [revRes, overviewRes] = await Promise.all([
-      supabase.functions.invoke("previo-pull-revenue", { body: { hotelId } }),
+      supabase.functions.invoke("previo-revenue-sync", { body: { hotelId } }),
       supabase.functions.invoke("previo-sync-daily-overview", { body: { hotelId, days: 90 } }),
     ]);
-    if (revRes.error || (revRes.data && (revRes.data as any).ok === false)) {
+    if (revRes.error || (revRes.data && (revRes.data as any).success === false)) {
       toast.error((revRes.data as any)?.error || revRes.error?.message || "Revenue sync failed");
       return;
     }

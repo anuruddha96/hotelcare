@@ -155,52 +155,11 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     }
   }, [enabled, hotelId]);
 
-  const runRevenue = useCallback(async (force = false) => {
-    if (!enabled || !hotelId) return;
-    const unsupportedKey = `liveSync.revenue.unsupported.${hotelId}`;
-    if (!force && sessionStorage.getItem(unsupportedKey) === "1") {
-      // Endpoint already known to be unavailable in this session — skip silently.
-      return;
-    }
-    const now = Date.now();
-    if (!force && now - lastRunRef.current.revenue < THROTTLE_MS) return;
-    lastRunRef.current.revenue = now;
-    setTasks((p) => ({ ...p, revenue: { ...p.revenue, status: "syncing" } }));
-    try {
-      const { data, error } = await supabase.functions.invoke("previo-pull-revenue", {
-        body: { hotelId, days: 365 },
-      });
-      if (error) throw new Error(error.message || "Revenue sync failed");
-      const payload = (data || {}) as any;
-      if (payload.ok === false) {
-        throw new Error(payload.error || "Revenue sync failed");
-      }
-      if (payload.supported === false) {
-        sessionStorage.setItem(unsupportedKey, "1");
-        setTasks((p) => ({
-          ...p,
-          revenue: {
-            status: "idle",
-            lastAt: new Date(),
-            message: payload.message,
-            meta: payload,
-          },
-        }));
-        return;
-      }
-      // Clear any prior unsupported flag now that the call succeeded.
-      sessionStorage.removeItem(unsupportedKey);
-      setTasks((p) => ({
-        ...p,
-        revenue: { status: "success", lastAt: new Date(), meta: payload },
-      }));
-    } catch (e: any) {
-      setTasks((p) => ({
-        ...p,
-        revenue: { status: "error", lastAt: new Date(), message: e?.message || "Revenue sync failed" },
-      }));
-    }
-  }, [enabled, hotelId]);
+  const runRevenue = useCallback(async (): Promise<RefreshOutcome> => ({
+    ran: false,
+    status: "skipped",
+    message: "Open Revenue Management to run the coordinated property refresh",
+  }), []);
 
   const runCheckouts = useCallback(async (force = false): Promise<number> => {
     if (!enabled || !hotelId) return 0;

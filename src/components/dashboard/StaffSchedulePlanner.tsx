@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { addDays, format, startOfDay } from 'date-fns';
-import { CalendarDays, Check, Clock, Copy, MapPin, Send } from 'lucide-react';
+import { Check, Clock, Copy, MapPin, Send } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useVenues } from '@/hooks/useVenues';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -46,6 +46,7 @@ export function StaffSchedulePlanner() {
     const [{ data: staffRows }, { data: shiftRows }] = await Promise.all([
       supabase.from('profiles').select('id, full_name, nickname')
         .eq('organization_slug', profile.organization_slug)
+        .eq('assigned_hotel', profile.assigned_hotel)
         .or('role.eq.housekeeping,acts_as_housekeeper.eq.true').order('full_name'),
       (supabase as any).from('staff_schedules')
         .select('id,user_id,work_date,shift_start,shift_end,status,notes,staff_schedule_venues(venue_id)')
