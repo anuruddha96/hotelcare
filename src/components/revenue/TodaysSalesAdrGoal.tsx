@@ -192,8 +192,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     let cancelled = false;
     setGoalsSeeded(false);
     void (async () => {
-      const { data } = await supabase
-        .from("hotel_revenue_settings")
+      const { data } = await (supabase.from("hotel_revenue_settings") as any)
         .select("target_adr, target_room_nights, target_booking_value, promo_budget")
         .eq("hotel_id", hotelId)
         .maybeSingle();
@@ -224,13 +223,13 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     setGoalsSeeded(true);
     try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* ignore */ }
     if (!hotelId) return;
-    void supabase.from("hotel_revenue_settings").upsert({
+    void (supabase.from("hotel_revenue_settings") as any).upsert({
       hotel_id: hotelId,
       target_adr: next.targetAdr,
       target_room_nights: next.targetRoomNights,
       target_booking_value: next.targetValue,
       promo_budget: next.promoBudget,
-    }, { onConflict: "hotel_id" });
+    } as any, { onConflict: "hotel_id" });
   }, [storageKey, hotelId]);
 
 
