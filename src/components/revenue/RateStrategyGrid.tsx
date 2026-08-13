@@ -1813,7 +1813,7 @@ export default function RateStrategyGrid({
                         <span className="font-medium">{formatDay(d)}</span>
                         {dayLatest && (
                           <span className="pointer-events-none absolute bottom-0.5 left-0 right-0 flex justify-center" aria-hidden>
-                            <i className={`h-1.5 w-1.5 rounded-full ${ORIGIN_DOT_CLASS[dayLatest.origin]}`} />
+                            <i className={`h-2 w-2 rounded-full ring-2 ring-card ${ORIGIN_DOT_CLASS[dayLatest.origin]}`} />
                           </span>
                         )}
 
