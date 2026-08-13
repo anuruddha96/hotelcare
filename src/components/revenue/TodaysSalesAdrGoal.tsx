@@ -301,8 +301,10 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
           key: cancelledFeed ? `x-${key}` : key,
           res_id: first.res_id,
           created,
-          createdDay: budapestDayOf(created),
-          createdMinutes: budapestMinutes(created),
+          // A cancellation belongs to the day it was cancelled — that is when
+          // it moved the pickup — not to the day the booking was made.
+          createdDay: budapestDayOf(cancelledFeed ? (first.cancelled_at ?? created) : created),
+          createdMinutes: budapestMinutes(cancelledFeed ? (first.cancelled_at ?? created) : created),
           stayFrom: first.stay_from ?? dates[0],
           stayTo: first.stay_to ?? addDays(dates[dates.length - 1], 1),
           roomNights: group.length,
