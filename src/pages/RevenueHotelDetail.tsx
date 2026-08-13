@@ -73,6 +73,8 @@ const ALLOWED = ["admin", "top_management", "top_management_manager"];
 
 /** How often the page re-checks the shared property freshness timestamp. */
 const BACKGROUND_SYNC_MS = 5 * 60 * 1000;
+/** How long a tab must sit idle before we greet the user on their return. */
+const IDLE_WELCOME_MS = 20 * 60 * 1000;
 const DOW_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 function fmtMonth(d: Date) { return d.toLocaleString("en-US", { month: "long", year: "numeric" }); }
