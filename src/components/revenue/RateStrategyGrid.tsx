@@ -631,6 +631,22 @@ export default function RateStrategyGrid({
    */
   const [optimisticOrigin, setOptimisticOrigin] = useState<Map<string, string>>(new Map());
 
+  // As soon as the real audit row for a cell arrives, the local marker has
+  // nothing left to add — same colour, so nothing visibly flips.
+  useEffect(() => {
+    if (optimisticOrigin.size === 0) return;
+    let changed = false;
+    const next = new Map(optimisticOrigin);
+    for (const [key, at] of optimisticOrigin) {
+      const rows = auditByCell.get(key) ?? [];
+      const covered = rows.some((r) => Date.parse(r.performed_at) >= Date.parse(at) - 120_000);
+      if (covered) { next.delete(key); changed = true; }
+    }
+    if (changed) setOptimisticOrigin(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auditByCell]);
+
+
 
   // obk_id -> occupancy -> stay_date -> price
   const priceMap = useMemo(() => {
