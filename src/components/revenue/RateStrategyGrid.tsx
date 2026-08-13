@@ -101,6 +101,9 @@ export const GRID_ZOOM_MIN = 0.7;
 export const GRID_ZOOM_MAX = 1.6;
 export const GRID_ZOOM_STEP = 0.1;
 
+/** Remembers that the phone user has already read the gesture coaching. */
+const GESTURE_HINT_KEY = "revenue-grid-gesture-hint";
+
 
 /** Contiguous month bands for the sticky header above the date row. */
 function monthBands(dates: string[]) {
