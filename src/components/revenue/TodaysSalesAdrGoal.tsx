@@ -791,19 +791,21 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <Label className="text-[11px] text-muted-foreground">Guest stay dates from</Label>
-            <Input type="date" className="h-9" value={stayFrom} onChange={(e) => setStayFrom(e.target.value)} />
+        {stayFilterOn && (
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-[11px] text-muted-foreground">Guest stay dates from</Label>
+              <Input type="date" className="h-9" value={stayFrom} onChange={(e) => setStayFrom(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-[11px] text-muted-foreground">Guest stay dates to</Label>
+              <Input type="date" className="h-9" value={stayTo} onChange={(e) => setStayTo(e.target.value)} />
+            </div>
           </div>
-          <div>
-            <Label className="text-[11px] text-muted-foreground">Guest stay dates to</Label>
-            <Input type="date" className="h-9" value={stayTo} onChange={(e) => setStayTo(e.target.value)} />
-          </div>
-        </div>
+        )}
         <p className="text-[11px] text-muted-foreground">
-          The period above filters when the <strong>booking was created</strong>; the two date fields
-          filter which <strong>guest stay dates</strong> are counted.
+          The period filters when the <strong>booking was created</strong>. Every booking counts
+          whatever its arrival date{stayFilterOn ? ", unless you narrow the guest stay dates above." : "."}
         </p>
       </CardHeader>
 
