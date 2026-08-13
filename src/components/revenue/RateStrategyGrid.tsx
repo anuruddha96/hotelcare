@@ -938,7 +938,7 @@ export default function RateStrategyGrid({
         }).then(() => reloadAudit());
 
         // 3. Follow the run quietly and only speak up if something failed.
-        for (let attempt = 0; attempt < 90; attempt++) {
+        for (let attempt = 0; attempt < 400; attempt++) {
           await new Promise((resolve) => setTimeout(resolve, attempt < 5 ? 1200 : 3000));
           const { data } = await supabase.from("revenue_rate_push_runs")
             .select("status, requested_count, processed_count, accepted_count, failed_count, last_error")
