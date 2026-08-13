@@ -1905,8 +1905,18 @@ export default function RateStrategyGrid({
                         className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""}`}
                         style={{ width: CELL_W }}
                       >
+                        title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
+                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""}`}
+                        style={{ width: CELL_W }}
+                      >
                         {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
-                        {cellOrigin1 ? (
+                        {sending !== undefined && draft === undefined ? (
+                          <i
+                            aria-hidden
+                            title="Sending to Previo"
+                            className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full border border-primary bg-transparent animate-pulse"
+                          />
+                        ) : cellOrigin1 ? (
                           <i
                             aria-hidden
                             className={`absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full ${ORIGIN_DOT_CLASS[cellOrigin1]}`}
