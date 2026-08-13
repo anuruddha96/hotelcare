@@ -1943,6 +1943,7 @@ export default function RateStrategyGrid({
                             automation={cellAutomation ?? []}
                             names={auditNames}
                             draftPrice={draft ?? null}
+                            sendingPrice={sending ?? null}
                           />
 
                         </HoverCardContent>
@@ -2000,6 +2001,7 @@ export default function RateStrategyGrid({
                   automation={automationByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ)) ?? []}
                   names={auditNames}
                   draftPrice={cellInfo.draft}
+                  sendingPrice={inFlight.get(`${cellInfo.date}|${cellInfo.roomTypeName}|${cellInfo.occ}`) ?? null}
                 />
 
                 {canEditRates && (
