@@ -76,26 +76,12 @@ export function SimplifiedDirtyLinenManagement() {
     const endDate = getLocalDateString(dateRange.to || dateRange.from);
     
     try {
-      const { data: currentProfile } = await supabase
-        .from('profiles')
-        .select('assigned_hotel')
-        .eq('id', profile?.id)
-        .single();
-
-      const userHotel = currentProfile?.assigned_hotel;
-
-      // Resolve the display name via hotel_configurations
-      let resolvedHotelName = userHotel;
-      if (userHotel) {
-        const { data: hotelConfig } = await supabase
-          .from('hotel_configurations')
-          .select('hotel_name')
-          .eq('hotel_id', userHotel)
-          .maybeSingle();
-        if (hotelConfig?.hotel_name) {
-          resolvedHotelName = hotelConfig.hotel_name;
-        }
-      }
+      // Use the hotel this browser tab is looking at (useAuth already applies
+      // the per-tab selection), not whatever hotel the profile row happens to
+      // carry — otherwise a top manager in Memories sees Ottofiori's linen.
+      const userHotel = profile?.assigned_hotel;
+      const hotelKeys = await resolveHotelKeys(userHotel);
+      
       
       const { data: countsData, error: countsError } = await supabase
         .from('dirty_linen_counts')
