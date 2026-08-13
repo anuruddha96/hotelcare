@@ -8,11 +8,12 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, Trash2, History, SlidersHorizontal, Maximize2, Minimize2 } from "lucide-react";
+import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, Trash2, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, RefreshCw, CheckCheck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useUiPreference } from "@/hooks/useUiPreference";
 import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend,
   type BookingNight, type DayMetrics, type RoomTypeRate,
@@ -26,7 +27,7 @@ import type { RevenueRoomType } from "@/hooks/useRevenueHotelData";
 import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 import { useRateAudit } from "@/hooks/useRateAudit";
 import { usePickupAutomationActions, type AutomationAction } from "@/hooks/usePickupAutomationActions";
-import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
+import { cellKey, formatWhen, logRateChanges, resolveRateMismatches, type RateAuditRow } from "@/lib/rateAudit";
 import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, budapestDayStartMs, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
@@ -84,16 +85,22 @@ const PICKUP_WINDOWS = [
   { value: 90, label: "Last 90 days" },
 ];
 
-/** Row geometry — the two panes must agree pixel for pixel. */
-const ROW_H = 32;
+/** Row geometry at 100% — the two panes must agree pixel for pixel. */
+const BASE_ROW_H = 32;
 /** Room-type group rows wrap onto two lines, so they are taller. */
-const GROUP_H = 40;
-const MONTH_H = 22;
-const DAY_H = 46;
-const HEAD_H = MONTH_H + DAY_H;
-const CELL_W = 60;
+const BASE_GROUP_H = 40;
+const BASE_MONTH_H = 22;
+const BASE_DAY_H = 46;
+const BASE_CELL_W = 60;
 
-const rowH = (kind: string) => (kind === "group" ? GROUP_H : ROW_H);
+/**
+ * How far the calendar may be zoomed. Below 70% the prices stop being legible;
+ * above 160% barely a week fits on screen, which defeats a calendar.
+ */
+export const GRID_ZOOM_MIN = 0.7;
+export const GRID_ZOOM_MAX = 1.6;
+export const GRID_ZOOM_STEP = 0.1;
+
 
 /** Contiguous month bands for the sticky header above the date row. */
 function monthBands(dates: string[]) {
@@ -238,8 +245,47 @@ export default function RateStrategyGrid({
   const { language } = useTranslation();
   useRevenueCurrency(); // re-render when the Ft/€ switch flips
   const isMobile = useIsMobile();
-  const DEFAULT_LEFT_W = isMobile ? 124 : 200;
+
+  /**
+   * Reading size of the calendar, saved on the user's profile so it follows
+   * them from the office screen to a phone. Clamped so the grid can never be
+   * zoomed into illegibility or down to a single visible week.
+   */
+  const lastZoomToast = useRef(0);
+  const { value: zoom, setValue: setZoomPref } = useUiPreference<number>("revenueGridZoom", 1);
+  const zoomPct = Math.round(zoom * 100);
+  const setZoom = useCallback((next: number, viaGesture = false) => {
+    const clamped = Math.min(GRID_ZOOM_MAX, Math.max(GRID_ZOOM_MIN, Math.round(next * 100) / 100));
+    if (Math.abs(clamped - zoom) < 0.005) {
+      // Say why nothing moved, in plain words, and only once per attempt.
+      if (!viaGesture || Date.now() - lastZoomToast.current > 2500) {
+        lastZoomToast.current = Date.now();
+        toast.info(
+          clamped >= GRID_ZOOM_MAX
+            ? `Largest size reached (${Math.round(GRID_ZOOM_MAX * 100)}%)`
+            : `Smallest size reached (${Math.round(GRID_ZOOM_MIN * 100)}%)`,
+          {
+            description: clamped >= GRID_ZOOM_MAX
+              ? "Beyond this, too few dates stay on screen to compare a week at a glance."
+              : "Beyond this, prices become too small to read reliably.",
+          },
+        );
+      }
+      return;
+    }
+    setZoomPref(clamped);
+  }, [zoom, setZoomPref]);
+
+  const CELL_W = Math.round(BASE_CELL_W * zoom);
+  const ROW_H = Math.round(BASE_ROW_H * zoom);
+  const GROUP_H = Math.round(BASE_GROUP_H * zoom);
+  const MONTH_H = Math.round(BASE_MONTH_H * zoom);
+  const DAY_H = Math.round(BASE_DAY_H * zoom);
+  const rowH = (kind: string) => (kind === "group" ? GROUP_H : ROW_H);
+
+  const DEFAULT_LEFT_W = Math.round((isMobile ? 124 : 200) * zoom);
   const RAIL_W = 46;
+
   const LEFT_STORAGE_KEY = `revenue-grid-left:${hotelId ?? "default"}`;
   /** Width of the frozen room-type column, and whether it is collapsed to a rail. */
   const [leftW, setLeftW] = useState<number>(DEFAULT_LEFT_W);
@@ -404,6 +450,7 @@ export default function RateStrategyGrid({
     const cutoff = Date.now() - RECENT_WINDOW_MS;
     for (const r of auditManualRows) {
       if (!r.stay_date) continue;
+      if (r.source === "previo_different" && r.payload?.resolved_at) continue;
       const origin = fromAuditSource(r.source, r.payload?.confirmation_status);
       if (!origin) continue;
       if (Date.parse(r.performed_at) < cutoff) continue;
@@ -466,6 +513,27 @@ export default function RateStrategyGrid({
   }
 
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Ctrl/⌘ + scroll (and trackpad pinch) resizes the calendar, the way a
+  // spreadsheet does. The listener must be non-passive, otherwise the browser
+  // zooms the whole page instead.
+  const zoomGestureRef = useRef<(delta: number) => void>(() => {});
+  zoomGestureRef.current = (delta: number) => {
+    const dy = delta;
+    setZoom(zoom * Math.exp(-dy * 0.0015), true);
+  };
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1);
+      zoomGestureRef.current(dy);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
 
 
   const allDates = useMemo(() => dateRange(today, addDays(today, days - 1)), [today, days]);
@@ -788,6 +856,131 @@ export default function RateStrategyGrid({
   );
 
   /**
+   * "Did not land" flags nobody has checked yet.
+   *
+   * Previo can round or refuse part of a price, and that leaves a red note in
+   * the trail. Once someone has looked at Previo and is happy, the note has to
+   * be closable — otherwise a corrected date stays red forever.
+   */
+  const openMismatches = useMemo(
+    () => auditManualRows.filter((r) =>
+      r.source === "previo_different" && !r.payload?.resolved_at && !!r.stay_date && r.stay_date >= today),
+    [auditManualRows, today],
+  );
+  /**
+   * Short-lived "this price just moved" highlights. A calendar of numbers is
+   * easy to lose your place in, so a change announces itself: blue when it is
+   * yours, green when Previo confirms the new number.
+   */
+  const [flash, setFlash] = useState<Map<string, "team" | "confirm">>(new Map());
+  const flashTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const markFlash = useCallback((keys: string[], kind: "team" | "confirm") => {
+    if (keys.length === 0) return;
+    setFlash((prev) => {
+      const next = new Map(prev);
+      for (const k of keys) next.set(k, kind);
+      return next;
+    });
+    for (const k of keys) {
+      const running = flashTimers.current.get(k);
+      if (running) clearTimeout(running);
+      flashTimers.current.set(k, setTimeout(() => {
+        flashTimers.current.delete(k);
+        setFlash((prev) => { const next = new Map(prev); next.delete(k); return next; });
+      }, 1400));
+    }
+  }, []);
+  useEffect(() => () => { flashTimers.current.forEach((t) => clearTimeout(t)); }, []);
+
+  // Prices that changed since the last load — whoever moved them — get the
+  // confirming green pulse the moment the new number reaches the grid.
+  const prevPublished = useRef<Map<string, number> | null>(null);
+  useEffect(() => {
+    const now = new Map<string, number>();
+    for (const r of rates) {
+      if (!r.room_type_name) continue;
+      now.set(`${r.stay_date}|${r.room_type_name}|${r.occupancy}`, Number(r.price));
+    }
+    const before = prevPublished.current;
+    prevPublished.current = now;
+    if (!before || before.size === 0) return;
+    const moved: string[] = [];
+    now.forEach((price, key) => {
+      const was = before.get(key);
+      if (was !== undefined && was !== price) moved.push(key);
+    });
+    // A whole-season push would strobe the screen; a handful reads as feedback.
+    if (moved.length > 0 && moved.length <= 400) markFlash(moved, "confirm");
+  }, [rates, markFlash]);
+
+  const [rechecking, setRechecking] = useState(false);
+  const [clearingFlags, setClearingFlags] = useState(false);
+
+  /** Read the live prices back from Previo and re-judge every open flag. */
+  const recheckPrevio = useCallback(async () => {
+    if (!hotelId) return;
+    setRechecking(true);
+    try {
+      const { error } = await supabase.functions.invoke("previo-revenue-sync", {
+        body: { hotelId, horizonDays: Math.max(30, days) },
+      });
+      if (error) throw error;
+      await Promise.all([refreshDrafts(), reloadAudit(), onRatesUpdated?.()]);
+      toast.success("Checked against Previo", {
+        description: "The calendar now shows the prices Previo is holding right now.",
+      });
+    } catch (e) {
+      toast.error("Could not reach Previo", {
+        description: e instanceof Error ? e.message : "Please try again in a moment.",
+      });
+    } finally {
+      setRechecking(false);
+    }
+  }, [hotelId, days, refreshDrafts, reloadAudit, onRatesUpdated]);
+
+  /** One cell: accept what Previo holds and stop flagging it. */
+  const acceptPrevioPrice = useCallback(async (draft: PendingDraft) => {
+    try {
+      await supabase.from("revenue_rate_drafts")
+        .update({ confirmation_status: "superseded" })
+        .eq("id", draft.id);
+      await resolveRateMismatches(
+        auditManualRows.filter((r) => r.source === "previo_different"
+          && r.stay_date === draft.stay_date
+          && r.payload?.room_type_name === draft.room_type_name
+          && r.payload?.occupancy === draft.occupancy
+          && !r.payload?.resolved_at),
+      );
+      await Promise.all([refreshDrafts(), reloadAudit()]);
+      toast.success("Previo's price kept", { description: `${draft.room_type_name} · ${draft.stay_date}` });
+    } catch {
+      toast.error("Could not update this price");
+    }
+  }, [auditManualRows, refreshDrafts, reloadAudit]);
+
+  /** Close the flags: the price in Previo is the one the hotel wants. */
+  const clearMismatchFlags = useCallback(async () => {
+    setClearingFlags(true);
+    try {
+      const done = await resolveRateMismatches(openMismatches);
+      const ids = divergentDrafts.map((d) => d.id);
+      if (ids.length > 0) {
+        await supabase.from("revenue_rate_drafts")
+          .update({ confirmation_status: "superseded" })
+          .in("id", ids);
+      }
+      await Promise.all([reloadAudit(), refreshDrafts()]);
+      toast.success(`${done} price flag${done === 1 ? "" : "s"} cleared`, {
+        description: "Previo's price is now treated as the agreed one. The history keeps the record.",
+      });
+    } catch {
+      toast.error("Could not clear the flags", { description: "Please try again in a moment." });
+    } finally {
+      setClearingFlags(false);
+    }
+  }, [openMismatches, divergentDrafts, reloadAudit, refreshDrafts]);
+
+  /**
    * Confirmation is nobody's chore. While prices are still waiting for Previo's
    * read-back, the app quietly re-checks on its own: a couple of cheap refreshes
    * first, then an authoritative Previo read if anything is still open.
@@ -985,6 +1178,7 @@ export default function RateStrategyGrid({
       for (const r of rowsToSave) next.set(`${r.stay_date}|${r.room_type_name}|${r.occupancy}`, Number(r.new_price));
       return next;
     });
+    markFlash(rowsToSave.map((r) => `${r.stay_date}|${r.room_type_name}|${r.occupancy}`), "team");
     setPushRun({ total: rowsToSave.length, done: 0, failed: 0, state: "sending" });
 
     void (async () => {
@@ -1319,7 +1513,35 @@ export default function RateStrategyGrid({
                 ))}
               </SelectContent>
             </Select>
+            {/* Reading size — saved to the user's profile, not just this device. */}
+            <div className="flex items-center rounded-md border overflow-hidden">
+              <Button
+                size="sm" variant="ghost" className="h-8 w-8 rounded-none p-0"
+                aria-label="Make the calendar smaller"
+                title="Smaller (Ctrl + scroll)"
+                onClick={() => setZoom(zoom - GRID_ZOOM_STEP)}
+              >
+                <ZoomOut className="h-3.5 w-3.5" />
+              </Button>
+              <button
+                type="button"
+                onClick={() => setZoom(1)}
+                title="Reset to 100%"
+                className="h-8 min-w-[46px] px-1 text-[11px] tabular-nums text-muted-foreground hover:text-foreground"
+              >
+                {zoomPct}%
+              </button>
+              <Button
+                size="sm" variant="ghost" className="h-8 w-8 rounded-none p-0"
+                aria-label="Make the calendar bigger"
+                title="Bigger (Ctrl + scroll)"
+                onClick={() => setZoom(zoom + GRID_ZOOM_STEP)}
+              >
+                <ZoomIn className="h-3.5 w-3.5" />
+              </Button>
+            </div>
             <div className="flex rounded-md border overflow-hidden">
+
               {RANGE_OPTIONS.map((r) => (
                 <Button
                   key={r.value}
@@ -1413,20 +1635,41 @@ export default function RateStrategyGrid({
             body="Prices come straight from the Previo pricelist — one row per room type and guest count. Pickup and occupancy come from Previo reservations; ADR and RevPAR are calculated in Hotel Care."
           />
         </p>
-        {canEditRates && (failedCount > 0 || divergentDrafts.length > 0) && (
+        {canEditRates && (failedCount > 0 || divergentDrafts.length > 0 || openMismatches.length > 0) && (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
             <span className="text-xs space-x-2">
               {failedCount > 0 && (
                 <span className="text-destructive">{failedCount} refused by Previo.</span>
               )}
-              {divergentDrafts.length > 0 && (
+              {(divergentDrafts.length > 0 || openMismatches.length > 0) && (
                 <span className="text-destructive">
-                  {divergentDrafts.length} landed on a different price.
+                  {Math.max(divergentDrafts.length, openMismatches.length)} landed on a different price.
                 </span>
               )}
+              <span className="text-muted-foreground">
+                If Previo already shows the right price, re-check it or clear the flags.
+              </span>
             </span>
 
             <span className="flex items-center gap-2">
+              <Button
+                size="sm" variant="outline" className="h-8 text-xs"
+                disabled={rechecking}
+                onClick={() => void recheckPrevio()}
+              >
+                {rechecking ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
+                Check Previo now
+              </Button>
+              {openMismatches.length > 0 && (
+                <Button
+                  size="sm" variant="outline" className="h-8 text-xs"
+                  disabled={clearingFlags}
+                  onClick={() => void clearMismatchFlags()}
+                >
+                  {clearingFlags ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5 mr-1" />}
+                  Clear flags ({openMismatches.length})
+                </Button>
+              )}
               <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
                 <Send className="h-3.5 w-3.5 mr-1" />
                 Review errors
@@ -1434,6 +1677,7 @@ export default function RateStrategyGrid({
             </span>
           </div>
         )}
+
 
 
 
@@ -1828,6 +2072,7 @@ export default function RateStrategyGrid({
                     // Already with Previo, waiting for its read-back. This is
                     // not a draft: the price is live, we are only confirming.
                     const sending = inFlight.get(`${d}|${row.roomTypeName}|${row.occ}`);
+                    const flashKind = flash.get(`${d}|${row.roomTypeName}|${row.occ}`);
                     const shown = draft ?? sending ?? published;
                     const tone = rateTone(shown, thresholds);
                     const history = auditByCell.get(cellKey(d, row.roomTypeName, row.occ));
@@ -1903,10 +2148,21 @@ export default function RateStrategyGrid({
                         }}
 
                         title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
-                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""}`}
+                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
                         style={{ width: CELL_W }}
                       >
-                        {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
+                        {shown === undefined ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          <span
+                            /* The number itself springs when it changes — the
+                               key restarts the animation on every new value. */
+                            key={String(shown)}
+                            className={flashKind ? "inline-block animate-rate-bump font-semibold" : "inline-block"}
+                          >
+                            {priceLabel(shown)}
+                          </span>
+                        )}
                         {sending !== undefined && draft === undefined ? (
                           <i
                             aria-hidden
@@ -2425,7 +2681,16 @@ export default function RateStrategyGrid({
 
                     <td className="py-1.5 text-right tabular-nums text-muted-foreground">{moneyBase(d.old_price)}</td>
                     <td className="py-1.5 text-right tabular-nums font-semibold">{moneyBase(d.new_price)}</td>
-                    <td className="py-1.5 text-right">
+                    <td className="py-1.5 text-right whitespace-nowrap">
+                      {d.confirmation_status === "different" && (
+                        <Button
+                          size="sm" variant="ghost" className="h-7 px-2 text-[11px]"
+                          title="Previo's price is the one we want — stop flagging this cell"
+                          onClick={() => void acceptPrevioPrice(d)}
+                        >
+                          <CheckCheck className="h-3.5 w-3.5 mr-1" />Keep Previo's
+                        </Button>
+                      )}
                       <Button
                         size="icon" variant="ghost" className="h-7 w-7"
                         aria-label="Discard this change"
@@ -2442,6 +2707,19 @@ export default function RateStrategyGrid({
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">Only persistent Previo errors appear here. Successful publishing and verification stay in the background.</p>
 
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm" variant="outline" className="h-7 text-[11px]"
+                disabled={rechecking}
+                onClick={() => void recheckPrevio()}
+              >
+                {rechecking ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                Check Previo now
+              </Button>
+              <span className="text-[11px] text-muted-foreground">
+                Reads the live prices back from Previo and clears anything that already matches.
+              </span>
+            </div>
             {failedCount > 0 && (
               <div className="flex flex-wrap items-center gap-2">
                 <Button

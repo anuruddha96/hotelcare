@@ -27,7 +27,11 @@ export interface RateAuditRow {
     confirmation_status?: string;
     push_run_id?: string | null;
     origin?: string | null;
+    /** Set when someone checked Previo and closed a "did not land" flag. */
+    resolved_at?: string | null;
+    resolved_by?: string | null;
   } | null;
+
 }
 
 export interface RateAuditInput {
@@ -113,4 +117,28 @@ export function describeChange(row: RateAuditRow, money: (v: number | null) => s
   return from === null
     ? `${dir} to ${money(to)}`
     : `${dir} ${money(from)} → ${money(to)}${pctText}`;
+}
+
+/**
+ * Close out "did not land" flags after someone has checked Previo.
+ *
+ * The flag is a note in the trail, not a live state, so it used to stay red
+ * forever even once Previo held the right price. Marking the rows resolved
+ * keeps the history readable while clearing the red rings from the calendar.
+ */
+export async function resolveRateMismatches(rows: RateAuditRow[]): Promise<number> {
+  const open = rows.filter((r) => r.source === "previo_different" && !r.payload?.resolved_at);
+  if (open.length === 0) return 0;
+  const { data: auth } = await supabase.auth.getUser();
+  const at = new Date().toISOString();
+  let done = 0;
+  for (let i = 0; i < open.length; i += 25) {
+    const slice = open.slice(i, i + 25);
+    const results = await Promise.all(slice.map((r) => supabase
+      .from("rate_change_audit")
+      .update({ payload: { ...(r.payload ?? {}), resolved_at: at, resolved_by: auth.user?.id ?? null } as never })
+      .eq("id", r.id)));
+    done += results.filter((res) => !res.error).length;
+  }
+  return done;
 }
