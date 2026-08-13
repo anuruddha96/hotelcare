@@ -136,6 +136,16 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
           <DialogTitle>{t('profile.title')}</DialogTitle>
         </DialogHeader>
         
+        {editing ? (
+          <div className="py-2">
+            <PhotoAdjuster
+              file={editing}
+              busy={isLoading}
+              onCancel={() => setEditing(null)}
+              onConfirm={handleUploadFramed}
+            />
+          </div>
+        ) : (
         <div className="space-y-6 py-4">
           {/* Profile Picture Section */}
           <div className="flex flex-col items-center space-y-4">
@@ -151,7 +161,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
                 <input
                   type="file"
                   accept="image/*"
-                  onChange={handleFileUpload}
+                  onChange={handleFilePick}
                   className="hidden"
                   disabled={isLoading}
                 />
@@ -159,18 +169,30 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
             </div>
             
             {profileData.profile_picture_url && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRemovePhoto}
-                disabled={isLoading}
-                className="text-destructive hover:text-destructive/90"
-              >
-                <X className="h-4 w-4 mr-2" />
-                {t('profile.removePhoto')}
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditing(profileData.profile_picture_url)}
+                  disabled={isLoading}
+                >
+                  <Crop className="h-4 w-4 mr-2" />
+                  Adjust photo
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRemovePhoto}
+                  disabled={isLoading}
+                  className="text-destructive hover:text-destructive/90"
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  {t('profile.removePhoto')}
+                </Button>
+              </div>
             )}
           </div>
+
 
           {/* Form Fields */}
           <div className="space-y-4">
