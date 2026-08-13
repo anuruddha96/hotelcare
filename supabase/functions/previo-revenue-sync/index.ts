@@ -874,25 +874,50 @@ serve(async (req) => {
       }
     }
     // The default search returns only live bookings, so cancellations and
-    // no-shows never reach us and pickup can never go negative. Ask for those
-    // statuses explicitly. If the endpoint rejects the filter we simply keep the
-    // live-only picture rather than failing the whole sync.
+    // no-shows never reach us and pickup can never go negative.
+    //
+    // A single `<statusId>` filter was silently ignored by Previo — the call
+    // succeeded and returned the live bookings again, so nothing was ever
+    // classified as cancelled and `revenue_cancelled_nights` stayed empty for
+    // every property. Try the filter spellings Previo has used across its
+    // endpoint versions and keep the first one that actually yields cancelled
+    // room-nights; log every attempt so the working variant is visible.
+    const cancelFilterVariants = (statusId: number): string[] => [
+      `<statusId>${statusId}</statusId>`,
+      `<status>${statusId}</status>`,
+      `<statusIds><statusId>${statusId}</statusId></statusIds>`,
+      `<filter><statusId>${statusId}</statusId></filter>`,
+    ];
+
     for (const statusId of [CANCELLED_STATUS, NOSHOW_STATUS]) {
-      const cancCall = await chunkedCall(
-        "searchReservations", acc.creds as any, acc.hotId, from, to, 31,
-        `<statusId>${statusId}</statusId>`,
-      );
-      if (cancCall.errors.length) {
-        softNotes.push(`${acc.label} cancelled pass (status ${statusId}) unavailable: ${cancCall.errors[0]}`);
-        continue;
-      }
-      for (const xml of cancCall.xml) {
-        for (const n of parseReservationNights(xml, from, to)) {
-          const key = `${acc.hotId}|${n.res_id}|${n.room_key}|${n.stay_date}`;
-          const scoped = { ...n, obk_id: n.obk_id ? scopeObk(acc, String(n.obk_id)) : n.obk_id } as Night;
-          // A cancelled row always wins over a live row for the same room-night.
-          if (n.cancelled_at || !nightMap.has(key)) nightMap.set(key, scoped);
+      let landed = 0;
+      for (const filter of cancelFilterVariants(statusId)) {
+        const cancCall = await chunkedCall(
+          "searchReservations", acc.creds as any, acc.hotId, from, to, 31, filter,
+        );
+        if (cancCall.errors.length) {
+          console.log(`[cancelled] ${acc.label} status=${statusId} filter=${filter} error=${cancCall.errors[0]}`);
+          continue;
         }
+        let parsed = 0;
+        for (const xml of cancCall.xml) {
+          for (const n of parseReservationNights(xml, from, to)) {
+            // Only trust rows Previo itself marks cancelled/no-show; a filter
+            // that was ignored just replays the live bookings.
+            if (!n.cancelled_at) continue;
+            parsed += 1;
+            const key = `${acc.hotId}|${n.res_id}|${n.room_key}|${n.stay_date}`;
+            const scoped = { ...n, obk_id: n.obk_id ? scopeObk(acc, String(n.obk_id)) : n.obk_id } as Night;
+            // A cancelled row always wins over a live row for the same room-night.
+            nightMap.set(key, scoped);
+          }
+        }
+        console.log(`[cancelled] ${acc.label} status=${statusId} filter=${filter} rows=${parsed}`);
+        landed += parsed;
+        if (parsed > 0) break;
+      }
+      if (landed === 0) {
+        softNotes.push(`${acc.label}: Previo returned no status-${statusId} reservations for this horizon.`);
       }
     }
   }
