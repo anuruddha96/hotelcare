@@ -6,7 +6,7 @@
 // method, mirrors accepted prices immediately, then verifies them against
 // Previo in background so a partial failure is visible instead of silent.
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { loadPrevioCredentials } from "../_shared/previoCredentials.ts";
+import { loadPrevioCredentials, hasPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { writePrevioRate, readPrevioRateLevels } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 

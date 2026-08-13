@@ -8,7 +8,7 @@
 // forward it to Previo support.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { loadPrevioCredentials } from "../_shared/previoCredentials.ts";
+import { loadPrevioCredentials, hasPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { readPrevioRateLevels, writePrevioRate, RATE_WRITE_METHOD } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 

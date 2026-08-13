@@ -5,7 +5,7 @@
 // ended up empty, which made every push fail before it reached Previo. Previo
 // already tells us both in getRates, so we read them and store the mapping.
 
-import { callPrevioXml, loadPrevioCredentials } from "./previoCredentials.ts";
+import { callPrevioXml, loadPrevioCredentials, hasPrevioCredentials, resolvePrevioSecretName } from "./previoCredentials.ts";
 
 function blocks(xml: string, tag: string): string[] {
   const out: string[] = [];

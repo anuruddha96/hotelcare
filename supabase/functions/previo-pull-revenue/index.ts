@@ -14,7 +14,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
-import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
+import { callPrevioXml, loadPrevioCredentials, hasPrevioCredentials, resolvePrevioSecretName } from "../_shared/previoCredentials.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
