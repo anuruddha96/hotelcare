@@ -955,8 +955,13 @@ serve(async (req) => {
 
 
   const allNights = Array.from(nightMap.values()).map(normaliseNight);
-  const nights = allNights.filter((n) => !n.cancelled_at);
-  const cancelledNights = allNights.filter((n) => !!n.cancelled_at);
+  // Only replace what this run actually re-read: if the long-tail pass failed,
+  // leave the far stay dates alone instead of wiping them.
+  const replaceTo = farOk ? farTo : to;
+  const nights = allNights.filter((n) => !n.cancelled_at && n.stay_date <= replaceTo);
+  // Cancellations are only replaced inside the pricing horizon, so never store
+  // far-future cancelled rows that nothing would ever clean up.
+  const cancelledNights = allNights.filter((n) => !!n.cancelled_at && n.stay_date <= to);
 
   if (!resErrors.length) {
     // Full replace for the horizon so cancellations disappear immediately.
@@ -965,7 +970,7 @@ serve(async (req) => {
       .delete()
       .eq("hotel_id", hotelId)
       .gte("stay_date", from)
-      .lte("stay_date", to);
+      .lte("stay_date", replaceTo);
     if (delErr) errors.push(`booking nights delete: ${delErr.message}`);
 
     const nightPayload = nights.map((n) => ({
