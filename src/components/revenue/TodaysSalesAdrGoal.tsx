@@ -804,10 +804,25 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
             </div>
           </div>
         )}
-        <p className="text-[11px] text-muted-foreground">
-          The period filters when the <strong>booking was created</strong>. Every booking counts
-          whatever its arrival date{stayFilterOn ? ", unless you narrow the guest stay dates above." : "."}
-        </p>
+        <div className="rounded-md border bg-muted/30 p-2.5 space-y-1.5">
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            <strong className="text-foreground">What this panel shows:</strong> everything your team
+            <strong> sold today</strong> — reservations filtered by the date the{" "}
+            <strong>booking was created</strong> (Budapest time), whatever date the guest arrives
+            {stayFilterOn ? ", unless you narrow the guest stay dates above" : ""}. It answers
+            "what did we sell today, at what rate, and how far is that from the target?".
+          </p>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            <strong className="text-foreground">Why it can differ from the pickup chart:</strong> the
+            Demand &amp; pickup horizon counts rooms gained and lost per <strong>stay date</strong>,
+            so a booking made weeks ago and cancelled or shortened today shows as negative pickup there.
+            Cancellations here only count bookings that were both <strong>created and cancelled</strong> in
+            this period — that is why this can read 0 while the chart shows red bars.
+          </p>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            Tap the <Info className="inline h-3 w-3 align-[-1px]" /> on any figure for its exact definition.
+          </p>
+        </div>
       </CardHeader>
 
       <CardContent className="space-y-4">
