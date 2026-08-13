@@ -201,14 +201,20 @@ export default function PickupMovementBoard({
             <div className="max-h-[440px] divide-y overflow-y-auto">
               {visible.map((row) => {
                 const expanded = open === row.key;
+                const fresh = isNew(row.at);
                 return (
-                  <div key={row.key}>
+                  <div key={row.key} className={fresh ? "bg-primary/5" : undefined}>
                     <div className="grid grid-cols-[1fr_auto] gap-2 px-3 py-2.5 md:grid-cols-[minmax(150px,1.2fr)_minmax(180px,1.4fr)_70px_70px_90px_100px_38px] md:items-center">
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
                           <Badge variant={row.kind === "booked" ? "default" : "secondary"} className="px-1.5 py-0 text-[10px]">
                             {row.kind === "booked" ? "Booked" : "Cancelled"}
                           </Badge>
+                          {fresh && (
+                            <Badge variant="outline" className="border-primary px-1.5 py-0 text-[10px] font-semibold text-primary">
+                              New
+                            </Badge>
+                          )}
                           <span className="truncate text-xs font-medium">{fmtStamp(row.at)}</span>
                         </div>
                         <p className="mt-0.5 truncate text-[10px] text-muted-foreground">#{row.resId} · {row.channel}</p>
