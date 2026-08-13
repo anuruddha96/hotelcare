@@ -868,6 +868,8 @@ serve(async (req) => {
 
   // ---------- 3. reservations -> booking nights ----------
   const resErrors: string[] = [];
+  /** True only when every account's long-tail pass succeeded. */
+  let farOk = farTo > to;
   const nightMap = new Map<string, Night>();
   for (const acc of liveAccounts) {
     const resCall = await chunkedCall("searchReservations", acc.creds as any, acc.hotId, from, to, 31);
@@ -880,6 +882,25 @@ serve(async (req) => {
         // Keyed per room item, so a two-room booking keeps both rooms.
         const scoped = { ...n, obk_id: n.obk_id ? scopeObk(acc, String(n.obk_id)) : n.obk_id };
         nightMap.set(`${acc.hotId}|${n.res_id}|${n.room_key}|${n.stay_date}`, scoped as Night);
+      }
+    }
+
+    // Long tail: stay dates beyond the pricing horizon, in wider chunks. It
+    // only feeds the "created" counters (the snapshot loop ignores dates past
+    // the horizon), so a failure here must never void the main pass.
+    if (farTo > to) {
+      const farCall = await chunkedCall(
+        "searchReservations", acc.creds as any, acc.hotId, addDays(to, 1), farTo, 92,
+      );
+      if (farCall.errors.length) {
+        farOk = false;
+        softNotes.push(`${acc.label}: long-range booking pass incomplete (${farCall.errors[0]})`);
+      }
+      for (const xml of farCall.xml) {
+        for (const n of parseReservationNights(xml, addDays(to, 1), farTo)) {
+          const scoped = { ...n, obk_id: n.obk_id ? scopeObk(acc, String(n.obk_id)) : n.obk_id };
+          nightMap.set(`${acc.hotId}|${n.res_id}|${n.room_key}|${n.stay_date}`, scoped as Night);
+        }
       }
     }
     // The default search returns only live bookings, so cancellations and
