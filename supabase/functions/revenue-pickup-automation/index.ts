@@ -138,9 +138,10 @@ Deno.serve(async (req) => {
     if (rules.length === 0) return json({ ok: true, rules: 0, summary: [], msg: "No property has price automation enabled" });
 
     const lockHotel = rules[0].hotel_id;
-    const { data: gotLock } = await admin.rpc("claim_automation_lock", { p_hotel: lockHotel, p_stale_minutes: 10 });
+    const { data: gotLock, error: lockError } = await admin.rpc("claim_automation_lock", { p_hotel: lockHotel, p_stale_minutes: 10 });
+    if (lockError) console.error("automation lock claim failed", lockError);
     if (gotLock !== true) {
-      return json({ ok: true, skipped: true, msg: "Another property is being priced right now" });
+      return json({ ok: true, skipped: true, msg: "Another property is being priced right now", lockError: lockError?.message ?? null });
     }
 
     const summary: Array<Record<string, unknown>> = [];
