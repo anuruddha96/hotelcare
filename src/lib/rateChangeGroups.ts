@@ -178,7 +178,7 @@ export function groupCellChanges(
       next: r.new_rate_eur,
       phase,
       statusLabel: auditLabel(r, phase),
-      who: auto ? "Pickup automation tool" : ((r.performed_by && names.get(r.performed_by)) || "Someone"),
+      who: auto ? "HotelCare Automation" : ((r.performed_by && names.get(r.performed_by)) || "Someone"),
       automation: auto,
       extra: r.payload?.requested_price != null && r.payload?.actual_previo_price != null
         ? {
