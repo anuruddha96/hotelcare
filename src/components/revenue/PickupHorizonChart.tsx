@@ -454,7 +454,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   { value: "Occupancy", type: "line", color: showOcc ? "hsl(var(--primary))" : "hsl(var(--muted-foreground) / 0.4)", id: "occ" },
                   { value: "ADR", type: "line", color: showAdr ? ADR_COLOR : "hsl(var(--muted-foreground) / 0.4)", id: "adr" },
                   ...(hasDemand ? [{ value: "City demand", type: "line" as const, color: showDemand ? DEMAND_COLOR : "hsl(var(--muted-foreground) / 0.4)", id: "demand" }] : []),
-                  ...(compare ? hotels.map((h, i) => ({ value: h.hotel_name, type: "line" as const, color: colorFor(h.hotel_id, i), id: h.hotel_id })) : []),
+                  ...(compare ? hotels.map((h, i) => ({ value: h.hotel_name, type: "line" as const, color: hiddenHotels.has(h.hotel_id) ? "hsl(var(--muted-foreground) / 0.4)" : colorFor(h.hotel_id, i), id: h.hotel_id })) : []),
                 ]}
               />
               <Bar yAxisId="pickup" dataKey="pickup" name="Pickup" radius={[2, 2, 0, 0]} maxBarSize={18} minPointSize={3}
