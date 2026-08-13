@@ -702,15 +702,22 @@ export default function RateStrategyGrid({
    */
   const [optimisticOrigin, setOptimisticOrigin] = useState<Map<string, string>>(new Map());
 
-  // As soon as the real audit row for a cell arrives, the local marker has
-  // nothing left to add — same colour, so nothing visibly flips.
+  // The local marker is dropped only once a row that actually *carries the blue
+  // colour* has landed for that cell. It used to be cleared by any audit row —
+  // including the "push"/"day-tool" bookkeeping rows written the moment the
+  // publish starts — so the blue dot vanished within seconds and the older
+  // purple automation dot came back until Previo confirmation arrived.
   useEffect(() => {
     if (optimisticOrigin.size === 0) return;
     let changed = false;
     const next = new Map(optimisticOrigin);
     for (const [key, at] of optimisticOrigin) {
       const rows = auditByCell.get(key) ?? [];
-      const covered = rows.some((r) => Date.parse(r.performed_at) >= Date.parse(at) - 120_000);
+      const covered = rows.some((r) => {
+        const origin = fromAuditSource(r.source, r.payload?.confirmation_status);
+        if (origin !== "team" && origin !== "failed") return false;
+        return Date.parse(r.performed_at) >= Date.parse(at) - 120_000;
+      });
       if (covered) { next.delete(key); changed = true; }
     }
     if (changed) setOptimisticOrigin(next);
