@@ -164,10 +164,6 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     }
     const now = Date.now();
     if (!force && now - lastRunRef.current.revenue < THROTTLE_MS) return;
-    if (!force) {
-      const info = await fetchRevenueSyncInfo(hotelId);
-      if (!info.stale) return;
-    }
     lastRunRef.current.revenue = now;
     setTasks((p) => ({ ...p, revenue: { ...p.revenue, status: "syncing" } }));
     try {
