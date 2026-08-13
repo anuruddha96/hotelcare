@@ -12,6 +12,7 @@ import { DateRange } from 'react-day-picker';
 import { getLocalDateString } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { translateLinenItem } from '@/lib/linen-item-i18n';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
 
 interface LinenItem {
   id: string;
