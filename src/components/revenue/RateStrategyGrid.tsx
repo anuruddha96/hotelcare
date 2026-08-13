@@ -1567,31 +1567,42 @@ export default function RateStrategyGrid({
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <span className="font-medium text-foreground">Demand:</span>
-            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-emerald-400 border inline-block" />strong</span>
-            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-amber-200 dark:bg-amber-800 border inline-block" />below target</span>
-            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-destructive/40 border inline-block" />needs attention</span>
-            <span className="flex items-center gap-1"><i className="h-3 w-3 rounded-sm bg-sky-200 dark:bg-sky-900 border inline-block" />cancellations</span>
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="font-medium text-foreground">Changed today:</span>
-            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-primary inline-block" />by your team</span>
-            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-purple-500 inline-block" />by the automation tool</span>
-            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-amber-500 inline-block" />in Previo</span>
-            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full bg-destructive inline-block" />did not land</span>
-            <span className="flex items-center gap-1"><i className="h-2 w-2 rounded-full border border-primary inline-block" />sending now</span>
-            <span className="underline decoration-dotted underline-offset-2">not sent yet</span>
-          </span>
-          <button
-            type="button"
-            onClick={() => setShowMarkers((v) => !v)}
-            className="underline underline-offset-2 hover:text-foreground"
-          >
-            {showMarkers ? "Hide change dots" : "Show change dots"}
-          </button>
-        </div>
+        {/* Legend — a tidy two-column key on a phone, one line on a desktop. */}
+        <details className="group text-[11px] text-muted-foreground" open={!isMobile}>
+          <summary className="flex cursor-pointer list-none items-center gap-1 font-medium text-foreground sm:hidden">
+            What the colours mean
+            <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="mt-2 space-y-2 sm:mt-0 sm:flex sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2 sm:space-y-0">
+            <div className="sm:flex sm:items-center sm:gap-1.5">
+              <span className="mb-1 block font-medium text-foreground sm:mb-0">Demand:</span>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:flex sm:items-center sm:gap-3">
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-3 w-3 shrink-0 rounded-sm border bg-emerald-400" />strong</span>
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-3 w-3 shrink-0 rounded-sm border bg-amber-200 dark:bg-amber-800" />below target</span>
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-3 w-3 shrink-0 rounded-sm border bg-destructive/40" />needs attention</span>
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-3 w-3 shrink-0 rounded-sm border bg-sky-200 dark:bg-sky-900" />cancellations</span>
+              </div>
+            </div>
+            <div className="sm:flex sm:items-center sm:gap-1.5">
+              <span className="mb-1 block font-medium text-foreground sm:mb-0">Changed today:</span>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:flex sm:items-center sm:gap-3">
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-2 w-2 shrink-0 rounded-full bg-primary" />by your team</span>
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-2 w-2 shrink-0 rounded-full bg-purple-500" />by the automation tool</span>
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />in Previo</span>
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-2 w-2 shrink-0 rounded-full bg-destructive" />did not land</span>
+                <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-2 w-2 shrink-0 rounded-full border border-primary" />sending now</span>
+                <span className="whitespace-nowrap underline decoration-dotted underline-offset-2">not sent yet</span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowMarkers((v) => !v)}
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              {showMarkers ? "Hide change dots" : "Show change dots"}
+            </button>
+          </div>
+        </details>
 
         {/* Quiet, self-clearing publishing pill — never blocks the calendar. */}
         {pushRun && (
