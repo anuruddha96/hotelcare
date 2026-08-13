@@ -17,6 +17,7 @@ import { DirtyLinenCartBadge } from '@/components/dashboard/DirtyLinenCartBadge'
 import { TrainingHelpButtonV2 as TrainingHelpButton } from '@/components/training/v2/TrainingHelpButtonV2';
 import { InstallAppPrompt } from '@/components/InstallAppPrompt';
 import { LiveSyncIndicator } from '@/components/layout/LiveSyncIndicator';
+import { RevenueAutomationNotifications } from '@/components/revenue/RevenueAutomationNotifications';
 import { Building2, LogOut, Settings, User } from 'lucide-react';
 import hotelcareLogo from '@/assets/hotelcare-logo-mark.png';
 import { Link, useParams } from 'react-router-dom';
@@ -135,6 +136,7 @@ export function Header() {
             {profile?.role !== 'manager' && profile?.role !== 'housekeeping_manager' && (
               <LiveSyncIndicator />
             )}
+            <RevenueAutomationNotifications />
             <TrainingHelpButton />
             
             {/* Revenue moved to PMSNavigation main tab bar */}

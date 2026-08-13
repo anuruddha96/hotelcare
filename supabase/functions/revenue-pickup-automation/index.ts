@@ -104,6 +104,7 @@ Deno.serve(async (req) => {
     // are the machine runs and keep working exactly as before.
     const isEngine = (!!engineKey && engineKey === serviceKey) || (!!bearer && bearer === serviceKey);
     let actorName: string | null = null;
+    let actorUserId: string | null = null;
     if (!isEngine) {
       if (!bearer) return json({ ok: false, code: "unauthenticated", msg: "Please sign in again and retry." }, 401);
       const { data: userData } = await admin.auth.getUser(bearer);
@@ -124,6 +125,7 @@ Deno.serve(async (req) => {
         }
       }
       actorName = ((profile as any)?.full_name as string | null) ?? user.email ?? null;
+      actorUserId = user.id;
     }
 
     // Global, admin-controlled brake. When automation is paused the tick does
@@ -514,6 +516,7 @@ Deno.serve(async (req) => {
       }
 
       let inserted = 0;
+      let insertedActionIds: string[] = [];
       if (actionsToInsert.length > 0) {
         // The unique index makes a repeated tick a no-op for the same event.
         const { data: ins, error: insErr } = await admin
@@ -525,7 +528,9 @@ Deno.serve(async (req) => {
           .select("id, stay_date, obk_id, occupancy");
         if (insErr) throw insErr;
         inserted = (ins ?? []).length;
+        insertedActionIds = (ins ?? []).map((row: any) => row.id).filter(Boolean);
       }
+
 
       let pushed = 0;
       let pushError: string | null = null;
@@ -619,10 +624,36 @@ Deno.serve(async (req) => {
       await admin.from("revenue_pickup_automation_rules")
         .update({ last_run_at: runStartedAt }).eq("id", rule.id);
 
+      const failedCount = Math.max(0, changed.filter((c) => c.status === "failed").length);
+
+      // Durable history so a person who was away still learns what the engine
+      // did. Routine "nothing happened" automatic checks stay silent.
+      if (changed.length > 0 || failedCount > 0) {
+        const { error: notifErr } = await admin.from("revenue_automation_notifications").insert({
+          hotel_id: rule.hotel_id,
+          organization_slug: rule.organization_slug,
+          notification_type: "pickup_automation",
+          run_source: isEngine ? "automatic" : "manual",
+          actor_name: isEngine ? "Automatic pricing" : (actorName ?? "Manual run"),
+          actor_user_id: isEngine ? null : actorUserId,
+          rule_id: rule.id,
+          action_ids: insertedActionIds,
+          pickups_count: events.length,
+          actions_count: inserted,
+          pushed_count: pushed,
+          failed_count: failedCount,
+          currency: rule.currency ?? "EUR",
+          severity: failedCount > 0 ? "warning" : "info",
+          summary: `${changed.length} prices changed · ${pushed} sent · ${failedCount} failed`,
+          changes: changed,
+        });
+        if (notifErr) console.error("notification insert failed", notifErr);
+      }
+
       summary.push({
         hotel_id: rule.hotel_id, pickups: events.length,
         skipped_not_new: skippedStale, skipped_negative_pickup: skippedNegative,
-        actions: inserted, pushed, failed: Math.max(0, changed.filter((c) => c.status === "failed").length),
+        actions: inserted, pushed, failed: failedCount,
         push_error: pushError, auto_publish: rule.auto_publish, changed,
       });
     }
