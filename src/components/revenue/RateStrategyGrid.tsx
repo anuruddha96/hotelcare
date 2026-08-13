@@ -1905,10 +1905,6 @@ export default function RateStrategyGrid({
                         className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""}`}
                         style={{ width: CELL_W }}
                       >
-                        title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
-                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""}`}
-                        style={{ width: CELL_W }}
-                      >
                         {shown === undefined ? <span className="text-muted-foreground">—</span> : priceLabel(shown)}
                         {sending !== undefined && draft === undefined ? (
                           <i
