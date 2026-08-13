@@ -138,11 +138,10 @@ serve(async (req) => {
     const configs: any[] = (portfolioAccounts ?? []).length > 0
       ? (portfolioAccounts ?? []).map((account: any) => ({
           ...account,
-          credentials_secret_name: account.credentials_secret_name
-            || (Deno.env.get("PREVIO_CREDS_SLNT") ? "PREVIO_CREDS_SLNT" : null),
+          credentials_secret_name: resolvePrevioSecretName(account.credentials_secret_name),
         }))
       : (legacyCfg?.is_active ? [legacyCfg] : []);
-    if (configs.length === 0 || configs.some((config) => !config.credentials_secret_name || !config.pms_hotel_id)) {
+    if (configs.length === 0 || configs.some((config) => !hasPrevioCredentials(config.credentials_secret_name) || !config.pms_hotel_id)) {
       return new Response(JSON.stringify({
         ok: true, supported: false,
         message: `Live Previo revenue sync needs active, credentialed Previo accounts for ${hotelId}.`,
