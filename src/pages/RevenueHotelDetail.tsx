@@ -263,6 +263,31 @@ export default function RevenueHotelDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hotelId]);
 
+  // Coming back to a tab that sat idle for a long time: greet the user and
+  // hold the screen until fresh numbers are in, instead of quietly swapping
+  // stale figures under their eyes.
+  const hiddenSince = useRef<number | null>(null);
+  const [welcomeBack, setWelcomeBack] = useState(false);
+  useEffect(() => {
+    if (!hotelId) return;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenSince.current = Date.now();
+        return;
+      }
+      const away = hiddenSince.current ? Date.now() - hiddenSince.current : 0;
+      hiddenSince.current = null;
+      if (away < IDLE_WELCOME_MS) return;
+      setWelcomeBack(true);
+      void (async () => {
+        try { await runSync(); } finally { setWelcomeBack(false); }
+      })();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotelId]);
+
 
 
   async function load() {
