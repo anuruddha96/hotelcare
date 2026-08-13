@@ -840,26 +840,60 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                  label="Bookings created"
                  value={String(kpi.bookings)}
                  sub={kpi.roomGroups > kpi.bookings ? `${kpi.roomGroups} rooms across these reservations` : undefined}
+                 info="Reservations whose booking date falls in the selected period, whatever date the guest arrives. One reservation with several rooms counts once here; the rooms are shown underneath."
                />
-              <Kpi label="Room nights sold" value={String(kpi.roomNights)} />
-              <Kpi label="Booking value" value={eur(Math.round(kpi.revenue))} />
-              <Kpi label="Actual ADR" value={kpi.adr === null ? "—" : eur(Math.round(kpi.adr))} tone={toneClass} />
-              <Kpi label="ADR target" value={eur(goals.targetAdr)} />
+              <Kpi
+                label="Room nights sold"
+                value={String(kpi.roomNights)}
+                info="Every night of every room in those reservations added up. A 2-room, 3-night booking is 6 room nights."
+              />
+              <Kpi
+                label="Booking value"
+                value={eur(Math.round(kpi.revenue))}
+                info="Total room revenue of the bookings created in this period, over the whole length of each stay. Extras and taxes are not included."
+              />
+              <Kpi
+                label="Actual ADR"
+                value={kpi.adr === null ? "—" : eur(Math.round(kpi.adr))}
+                tone={toneClass}
+                info="Booking value divided by room nights sold — the average nightly rate you actually achieved on the bookings taken in this period."
+              />
+              <Kpi
+                label="ADR target"
+                value={eur(goals.targetAdr)}
+                info="The nightly rate you are aiming for. Set it in Goals above; it is saved for this property so the whole team sees the same target."
+              />
               <Kpi
                 label="ADR variance"
                 tone={toneClass}
                 value={kpi.variance === null ? "—" : `${kpi.variance >= 0 ? "+" : "−"}${eur(Math.round(Math.abs(kpi.variance)))}`}
                 sub={kpi.variancePct === null ? undefined : `${kpi.variancePct >= 0 ? "+" : "−"}${pct(Math.abs(kpi.variancePct))}`}
+                info="Actual ADR minus the ADR target. Green means you sold above target, red means below."
               />
-              <Kpi label="Revenue goal" value={pct(kpi.valueGoalPct)} sub={`of ${eur(goals.targetValue)}`} />
-              <Kpi label="Avg length of stay" value={kpi.los ? `${kpi.los.toFixed(1)} n` : "—"} />
+              <Kpi
+                label="Revenue goal"
+                value={pct(kpi.valueGoalPct)}
+                sub={`of ${eur(goals.targetValue)}`}
+                info="Booking value as a share of the booking-value target set in Goals."
+              />
+              <Kpi
+                label="Avg length of stay"
+                value={kpi.los ? `${kpi.los.toFixed(1)} n` : "—"}
+                info="Room nights divided by the number of reservations created in this period."
+              />
               <Kpi
                 label="Cancellations"
                 tone={kpi.cancelled > 0 ? "text-red-600 dark:text-red-400" : undefined}
                 value={kpi.cancelled ? `−${kpi.cancelledNights} n` : "0"}
-                sub={kpi.cancelled ? `${kpi.cancelled} booking${kpi.cancelled === 1 ? "" : "s"} · ${eur(Math.round(kpi.cancelledRevenue))} lost` : "none in this period"}
+                sub={kpi.cancelled ? `${kpi.cancelled} booking${kpi.cancelled === 1 ? "" : "s"} · ${eur(Math.round(kpi.cancelledRevenue))} lost` : "none created in this period"}
+                info="Bookings that were created in this period and are now cancelled or a no-show. A booking made last month but cancelled today is NOT counted here — it still appears as negative pickup in the Demand & pickup horizon, which compares stay-date occupancy day over day. So 0 here with red bars there is normal."
               />
-              <Kpi label="Net room nights" value={String(kpi.netNights)} sub="sold minus cancelled" />
+              <Kpi
+                label="Net room nights"
+                value={String(kpi.netNights)}
+                sub="sold minus cancelled"
+                info="Room nights sold minus the cancelled room nights above — what is left of this period's production."
+              />
             </div>
 
             {/* --------------------------------------------- ADR status */}
