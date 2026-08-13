@@ -179,7 +179,10 @@ export function buildDayMetrics(params: {
 
   const sold = new Map<string, number>();
   const revenue = new Map<string, number>();
-  const created = new Map<string, number>();
+  // Pickup is counted in RESERVATIONS, not room-nights, so it reads exactly
+  // like Previo's pick-up report: one booking that takes two rooms on the same
+  // night is one pickup, not two.
+  const createdRes = new Map<string, Set<string>>();
   const createdRevenue = new Map<string, number>();
   for (const n of nights) {
     sold.set(n.stay_date, (sold.get(n.stay_date) ?? 0) + 1);
@@ -187,21 +190,30 @@ export function buildDayMetrics(params: {
     if (n.created_at_pms) {
       const createdDay = budapestDayOf(n.created_at_pms);
       if (createdDay >= windowStart) {
-        created.set(n.stay_date, (created.get(n.stay_date) ?? 0) + 1);
+        const set = createdRes.get(n.stay_date) ?? new Set<string>();
+        set.add(String(n.res_id));
+        createdRes.set(n.stay_date, set);
         createdRevenue.set(n.stay_date, (createdRevenue.get(n.stay_date) ?? 0) + (n.nightly_price_eur ?? 0));
       }
     }
   }
+  const created = new Map<string, number>();
+  for (const [date, set] of createdRes) created.set(date, set.size);
 
-  // Cancellations that happened inside the same window pull pickup negative.
-  const cancelled = new Map<string, number>();
+  // Cancellations that happened inside the same window pull pickup negative,
+  // again counted per reservation.
+  const cancelledRes = new Map<string, Set<string>>();
   let hasCreationData = false;
   for (const n of nights) if (n.created_at_pms) { hasCreationData = true; break; }
   for (const c of cancellations) {
     if (!c.cancelled_at) continue;
     if (budapestDayOf(c.cancelled_at) < windowStart) continue;
-    cancelled.set(c.stay_date, (cancelled.get(c.stay_date) ?? 0) + 1);
+    const set = cancelledRes.get(c.stay_date) ?? new Set<string>();
+    set.add(String(c.res_id));
+    cancelledRes.set(c.stay_date, set);
   }
+  const cancelled = new Map<string, number>();
+  for (const [date, set] of cancelledRes) cancelled.set(date, set.size);
 
   // Baseline = the NEWEST capture at or before the day the window opened.
   // Picking the first row we happen to meet made the comparison point depend
@@ -229,21 +241,20 @@ export function buildDayMetrics(params: {
     const createdN = created.get(d) ?? 0;
     const cancelledN = cancelled.get(d) ?? 0;
     const bookingDelta = createdN - cancelledN;
-    // Snapshot delta = rooms sold now vs rooms sold when the window opened.
-    // It is the only source that sees cancellations we never received a
-    // cancellation timestamp for, so a date that LOST rooms shows negative
-    // even when `revenue_cancelled_nights` is empty.
+    // Snapshot delta = ROOMS sold now vs rooms sold when the window opened.
+    // It is only used when we have no booking creation timestamps at all:
+    // mixing it with the reservation count would re-introduce the room-night
+    // inflation that made Hotel Care read higher than Previo.
     const snapDelta = base === undefined ? null : rs - base.sold;
     let net: number | null;
     if (!hasBookings) net = null;
     else if (!hasCreationData) net = snapDelta;
-    else if (snapDelta !== null && snapDelta < bookingDelta) net = snapDelta;
     else net = bookingDelta;
 
     const adr = rs ? rev / rs : null;
     // Rooms lost: explicit cancellations, or whatever the snapshot says went
     // missing beyond the bookings we can see.
-    const impliedLost = snapDelta !== null ? Math.max(0, createdN - snapDelta) : 0;
+    const impliedLost = !hasCreationData && snapDelta !== null ? Math.max(0, -snapDelta) : 0;
     const roomsLost = Math.max(cancelledN, impliedLost);
 
     return {

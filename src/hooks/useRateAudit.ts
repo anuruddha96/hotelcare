@@ -4,7 +4,7 @@ import { cellKey, type RateAuditRow } from "@/lib/rateAudit";
 
 
 /** Sources written by a person acting in the app (not the alert engine). */
-export const HUMAN_SOURCES = ["day-tool", "cell-edit", "demand", "push", "autopilot", "bulk-editor", "pickup-board", "previo_confirmed", "previo_automation_confirmed", "previo_bulk_confirmed", "previo_external", "previo_different"];
+export const HUMAN_SOURCES = ["day-tool", "cell-edit", "demand", "push", "push_automation", "autopilot", "bulk-editor", "pickup-board", "previo_confirmed", "previo_automation_confirmed", "previo_bulk_confirmed", "previo_external", "previo_different"];
 
 /** Only rates confirmed by an authoritative Previo pull earn a cell marker. */
 export const MANUAL_SOURCES = ["previo_confirmed"];
@@ -64,7 +64,7 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
         .select("id, stay_date, action, source, old_rate_eur, new_rate_eur, delta_eur, notes, performed_at, performed_by, payload")
         .eq("hotel_id", hotelId)
         .gte("performed_at", since)
-        .in("source", [...MANUAL_SOURCES, "previo_automation_confirmed", "previo_external", "previo_different"])
+        .in("source", [...MANUAL_SOURCES, "previo_automation_confirmed", "push_automation", "previo_external", "previo_different"])
         .order("performed_at", { ascending: false })
         .limit(1500);
       setManualRows((manualData ?? []) as unknown as RateAuditRow[]);

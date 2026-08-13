@@ -64,6 +64,9 @@ export function fromAuditSource(source: string | null, confirmation?: string): C
   switch (source) {
     case "previo_confirmed": return "team";
     case "previo_automation_confirmed": return "automation";
+    // A push the pickup automation tool published: purple straight away, so a
+    // manual run is visible before the next Previo confirmation arrives.
+    case "push_automation": return "automation";
     case "previo_external": return "previo";
     case "previo_different": return "failed";
     default: return null;

@@ -680,6 +680,23 @@ serve(async (req) => {
         const originKey = `${row.stay_date}|${room}|${occupancy}`;
         if (!originByCell.has(originKey) && row.source) originByCell.set(originKey, row.source);
       }
+      // Which of those pushes came from the pickup automation tool? Without
+      // this the confirmation was written as an anonymous team change, so the
+      // grid showed a blue dot and "Someone" for a fully automated move.
+      const automationRuns = new Set<string>();
+      const runIds = Array.from(new Set(
+        ((outstanding ?? []) as Array<{ push_run_id: string | null }>)
+          .map((d) => d.push_run_id).filter(Boolean) as string[],
+      ));
+      if (runIds.length > 0) {
+        const { data: runRows } = await service
+          .from("revenue_rate_push_runs")
+          .select("id, source")
+          .in("id", runIds);
+        for (const r of (runRows ?? []) as Array<{ id: string; source: string | null }>) {
+          if (r.source === "automation" || r.source === "pickup_automation") automationRuns.add(r.id);
+        }
+      }
       const auditRows: Record<string, unknown>[] = [];
       const claimedCells = new Set<string>();
       // A cell can be re-priced several times a day. Only the newest request
@@ -728,13 +745,14 @@ serve(async (req) => {
         if (confirmed) reconciledDrafts += 1; else divergentDrafts += 1;
         if (changedState && orgSlug) {
           const origin = originByCell.get(`${draft.stay_date}|${draft.room_type_name}|${draft.occupancy}`) ?? null;
+          const isAutomation = draft.push_run_id ? automationRuns.has(draft.push_run_id) : false;
           const manualOrigin = origin === "day-tool" || origin === "cell-edit" || origin === "pickup-board";
           auditRows.push({
             hotel_id: hotelId,
             organization_slug: orgSlug,
             action: confirmed ? "price_confirmed" : "price_landed_differently",
             source: confirmed
-              ? (manualOrigin ? "previo_confirmed" : "previo_bulk_confirmed")
+              ? (isAutomation ? "previo_automation_confirmed" : (manualOrigin ? "previo_confirmed" : "previo_bulk_confirmed"))
               : "previo_different",
             stay_date: draft.stay_date,
             old_rate_eur: draft.old_price,
@@ -751,7 +769,7 @@ serve(async (req) => {
               actual_previo_price: landed,
               confirmation_status: confirmationStatus,
               push_run_id: draft.push_run_id,
-              origin,
+              origin: isAutomation ? "pickup-automation" : origin,
             },
           });
         }
