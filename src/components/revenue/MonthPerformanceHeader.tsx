@@ -230,7 +230,7 @@ export default function MonthPerformanceHeader({
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1">
             <Button variant="outline" size="icon" className="h-8 w-8" disabled={!canPrev}
-              onClick={() => setMonth((m) => shiftMonth(m, -1))} aria-label="Previous month">
+              onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Previous month">
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <Select value={month} onValueChange={setMonth}>
@@ -242,7 +242,7 @@ export default function MonthPerformanceHeader({
               </SelectContent>
             </Select>
             <Button variant="outline" size="icon" className="h-8 w-8" disabled={!canNext}
-              onClick={() => setMonth((m) => shiftMonth(m, 1))} aria-label="Next month">
+              onClick={() => setMonth(shiftMonth(month, 1))} aria-label="Next month">
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
