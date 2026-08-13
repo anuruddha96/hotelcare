@@ -236,19 +236,53 @@ export default function RevenueHotelDetail() {
     }
   }
 
+  // Align app context with the property in the URL before anything loads.
+  useEffect(() => {
+    if (loading || tenantLoading || !profile || !hotelId) return;
+    if (!contextMismatch || contextFixRef.current) return;
+
+    const allowed = tenantHotels.some((h) => h.hotel_id === hotelId);
+    if (!allowed) {
+      contextFixRef.current = true;
+      toast.error("That property is not available for your account");
+      navigate(`/${organizationSlug || profile.organization_slug || ""}/revenue`, { replace: true });
+      return;
+    }
+
+    contextFixRef.current = true;
+
+    if (!SWITCHABLE_ROLES.includes(profile.role)) {
+      // Cannot switch property: stay on the one this account is assigned to.
+      navigate(`/${organizationSlug}/revenue/${profile.assigned_hotel}`, { replace: true });
+      return;
+    }
+
+    // Managers may work on any property in their organization, but the whole
+    // app must move with them — otherwise prices are edited under the wrong
+    // header, hotel switcher and downstream queries.
+    const target = tenantHotels.find((h) => h.hotel_id === hotelId);
+    setAlignTo(target?.hotel_name || hotelId);
+    setTabHotel(hotelId);
+    void (async () => {
+      await supabase.from("profiles").update({ assigned_hotel: hotelId }).eq("id", profile.id);
+      window.location.replace(window.location.pathname + window.location.search);
+    })();
+  }, [loading, tenantLoading, profile?.id, profile?.role, profile?.assigned_hotel, hotelId, tenantHotels.length]);
+
   useEffect(() => {
     if (loading) return;
     if (!profile || !ALLOWED.includes(profile.role)) {
       navigate(`/${organizationSlug || "rdhotels"}`);
       return;
     }
+    if (contextMismatch) return;
     void load();
-  }, [loading, profile?.role, hotelId]);
+  }, [loading, profile?.role, hotelId, contextMismatch]);
 
   // Executives land straight on the Rate Grid. The property-wide history is
   // authoritative: data pulled by any user in the last 30 minutes is reused.
   useEffect(() => {
-    if (loading || !profile || !hotelId) return;
+    if (loading || !profile || !hotelId || contextMismatch) return;
     if (autoSyncedHotelRef.current === hotelId) return;
     autoSyncedHotelRef.current = hotelId;
     if (!isRevenueAdmin(profile.role)) setTab("grid");
@@ -256,7 +290,8 @@ export default function RevenueHotelDetail() {
       await runSync();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, profile?.role, hotelId]);
+  }, [loading, profile?.role, hotelId, contextMismatch]);
+
 
   // Keep the page honest while it stays open without making every tab pull.
   // Each tick first consults shared history, so at most one refresh is needed
