@@ -1846,7 +1846,11 @@ export default function RateStrategyGrid({
                     const cellOrigin1: ChangeOrigin | null = showMarkers ? (latestToday?.origin ?? null) : null;
                     
                     const originLabel = (() => {
-                      if (draft !== undefined) return "Waiting to be sent to Previo";
+                      if (draft !== undefined) {
+                        return failedCells.has(cellKey(d, row.roomTypeName, row.occ))
+                          ? "Did not reach Previo — send it again"
+                          : "Waiting to be sent to Previo";
+                      }
                       if (sending !== undefined) return "Sending to Previo now — this price is already applied here";
                       const latest = cellEvents[0];
                       if (!latest) return "No price change recorded";
