@@ -24,23 +24,31 @@ export interface RevenueSyncInfo {
   stale: boolean;
 }
 
+export type RevenueSyncClaim = "fresh" | "already_running" | "claimed";
+
+/** Atomically decide whether this browser should start the property refresh. */
+export async function claimRevenueSync(hotelId: string): Promise<RevenueSyncClaim> {
+  const { data, error } = await (supabase as any).rpc("claim_revenue_sync", {
+    _hotel_id: hotelId,
+  });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  return (row?.status ?? "already_running") as RevenueSyncClaim;
+}
+
 /** Newest successful revenue pull for one property. */
 export async function fetchRevenueSyncInfo(hotelId: string): Promise<RevenueSyncInfo> {
-  const { data } = await supabase
-    .from("pms_sync_history")
-    .select("created_at, synced_by_name")
+  const { data } = await (supabase as any)
+    .from("revenue_sync_state")
+    .select("last_success_at, lease_expires_at")
     .eq("hotel_id", hotelId)
-    .in("sync_type", REVENUE_SYNC_TYPES as unknown as string[])
-    .in("sync_status", ["success", "partial"])
-    .order("created_at", { ascending: false })
-    .limit(1)
     .maybeSingle();
 
-  const row = data as { created_at?: string; synced_by_name?: string | null } | null;
-  const at = row?.created_at ?? null;
+  const row = data as { last_success_at?: string } | null;
+  const at = row?.last_success_at ?? null;
   return {
     at,
-    by: row?.synced_by_name ?? null,
+    by: null,
     stale: !at || Date.now() - new Date(at).getTime() > REVENUE_STALE_MS,
   };
 }

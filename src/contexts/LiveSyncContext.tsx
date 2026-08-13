@@ -11,7 +11,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { runPmsRefresh, type PmsSyncStatus } from "@/lib/pmsRefresh";
 import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
-import { fetchRevenueSyncInfo } from "@/lib/revenueFreshness";
 
 export type TaskName = "pms" | "revenue" | "checkouts" | "pms_changes";
 
@@ -165,10 +164,6 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     }
     const now = Date.now();
     if (!force && now - lastRunRef.current.revenue < THROTTLE_MS) return;
-    if (!force) {
-      const info = await fetchRevenueSyncInfo(hotelId);
-      if (!info.stale) return;
-    }
     lastRunRef.current.revenue = now;
     setTasks((p) => ({ ...p, revenue: { ...p.revenue, status: "syncing" } }));
     try {
@@ -340,11 +335,10 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [enabled, hotelId, user?.id, runPms, runCheckouts]);
 
-  // Revenue + checkout polling remain automatic because they are read-only
-  // pulls that never mutate housekeeping state.
+  // Revenue refresh ownership lives on the revenue route, behind the shared
+  // database lease. The global shell only polls checkout state.
   useEffect(() => {
     if (!enabled) return;
-    void runRevenue();
     let timer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
     const tick = async () => {
@@ -356,7 +350,6 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     };
     void tick();
     const onFocus = () => {
-      void runRevenue();
       void runCheckouts();
     };
     window.addEventListener("focus", onFocus);
@@ -365,7 +358,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener("focus", onFocus);
       if (timer) clearTimeout(timer);
     };
-  }, [enabled, runRevenue, runCheckouts]);
+  }, [enabled, runCheckouts]);
 
 
 

@@ -70,7 +70,7 @@ serve(async (req) => {
       userId = userRes.user.id;
       const { data: p } = await service
         .from("profiles")
-        .select("role, assigned_hotel, organization_slug")
+        .select("role, assigned_hotel, organization_slug, is_super_admin")
         .eq("id", userId)
         .maybeSingle();
       profile = p;
@@ -87,23 +87,29 @@ serve(async (req) => {
       });
     }
 
+    const { data: targetHotel } = await service
+      .from("hotel_configurations")
+      .select("organization_id, organizations!inner(slug)")
+      .eq("hotel_id", hotelId)
+      .maybeSingle();
+    const targetOrg = (targetHotel as any)?.organizations?.slug ?? null;
+    if (!targetOrg) {
+      return new Response(JSON.stringify({ error: "Unknown property" }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (!isServiceCall) {
-      const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
-      if (!isAdmin && profile?.assigned_hotel !== hotelId) {
+      const privileged = profile?.role === "admin" || profile?.role === "top_management" || profile?.role === "top_management_manager";
+      const sameOrganization = profile?.organization_slug === targetOrg;
+      const assignedProperty = profile?.assigned_hotel === hotelId;
+      if (profile?.is_super_admin !== true && (!sameOrganization || (!privileged && !assignedProperty))) {
         return new Response(JSON.stringify({ error: "Forbidden" }), {
           status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
     }
-    let orgSlug = profile?.organization_slug || null;
-    if (!orgSlug) {
-      const { data: hc } = await service
-        .from("hotel_configurations")
-        .select("organization_slug")
-        .eq("hotel_id", hotelId)
-        .maybeSingle();
-      orgSlug = (hc as any)?.organization_slug || "rdhotels";
-    }
+    const orgSlug = targetOrg;
     void userId;
 
     // Hard gate: must have an active Previo config
