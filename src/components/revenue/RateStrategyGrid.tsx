@@ -811,7 +811,13 @@ export default function RateStrategyGrid({
         if (origin !== "team" && origin !== "failed") return false;
         return Date.parse(r.performed_at) >= Date.parse(at) - 120_000;
       });
-      if (covered) { next.delete(key); changed = true; }
+      // Somebody moved this price inside Previo AFTER our own change: Previo is
+      // the truth now, so the local blue marker must give way to the orange one
+      // instead of covering it.
+      const externallyOverridden = rows.some(
+        (r) => r.source === "previo_external" && Date.parse(r.performed_at) > Date.parse(at),
+      );
+      if (covered || externallyOverridden) { next.delete(key); changed = true; }
     }
     if (changed) setOptimisticOrigin(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
