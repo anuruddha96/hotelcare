@@ -196,8 +196,13 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       no_pickup_decrease: source.rule.no_pickup_decrease ?? 2,
       max_daily_decrease_per_date: source.rule.max_daily_decrease_per_date ?? 10,
       no_pickup_scope: source.rule.no_pickup_scope ?? "all_room_types",
+      evaluation_interval_minutes: source.rule.evaluation_interval_minutes ?? 60,
+      protect_high_occupancy: source.rule.protect_high_occupancy ?? true,
+      markdown_max_occupancy_pct: source.rule.markdown_max_occupancy_pct ?? 88,
+      manual_markdown_hold_hours: source.rule.manual_markdown_hold_hours ?? 6,
       currency: source.rule.currency ?? "EUR",
     }));
+
     toast.success(`Copied settings from ${source.label} — still off until you turn it on`);
   }
 
