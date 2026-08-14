@@ -52,11 +52,12 @@ serve(async (req) => {
       .select("*")
       .eq("is_engine_enabled", true);
 
-    if (!settings || settings.length === 0) {
+    if (generateRecommendations && (!settings || settings.length === 0)) {
       return new Response(JSON.stringify({ ok: true, msg: "no settings" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
 
     const today = new Date().toISOString().slice(0, 10);
     const horizon = new Date();
