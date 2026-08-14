@@ -70,36 +70,65 @@ Deno.serve(async (req) => {
     const runId = crypto.randomUUID();
     const orgSlug = organizationSlug ?? profile.organization_slug;
 
+    const { priority, intent } = INTENT_BY_SOURCE[source] ?? { priority: 50, intent: source };
+
     // The only work the caller waits for: record the run. Everything else —
     // expanding drafts, queueing items, sending to Previo — happens after the
     // response so a 6-month bulk edit returns as fast as a single cell.
     const { error: runError } = await admin.from("revenue_rate_push_runs").insert({
       id: runId, hotel_id: hotelId, organization_slug: orgSlug,
-      source, requested_count: changes.length, created_by: user.id,
+      source, requested_count: changes.length, created_by: user.id, priority,
     });
     if (runError) throw runError;
 
     const expandAndPush = async () => {
       try {
         const dates = changes.map((change) => change.stay_date).sort();
+        // Older intents for the same cells are superseded, never deleted: the
+        // audit trail of "what we meant to send" has to survive. Rows already
+        // claimed by the publisher are left alone — this run queues behind them.
         const { data: existingDrafts } = await admin.from("revenue_rate_drafts")
           .select("id,stay_date,room_type_name,occupancy")
           .eq("hotel_id", hotelId).gte("stay_date", dates[0]).lte("stay_date", dates[dates.length - 1])
-          .in("status", ["draft", "failed"]);
-        const superseded = (existingDrafts ?? []).filter((row) => byCell.has(`${row.stay_date}|${row.room_type_name}|${row.occupancy}`)).map((row) => row.id);
-        for (const ids of chunks(superseded, 300)) await admin.from("revenue_rate_drafts").delete().in("id", ids);
+          .in("status", ["draft", "failed"])
+          .is("superseded_at", null)
+          .is("claimed_at", null);
+        const staleByCell = new Map<string, string[]>();
+        for (const row of existingDrafts ?? []) {
+          const key = `${row.stay_date}|${row.room_type_name}|${row.occupancy}`;
+          if (!byCell.has(key)) continue;
+          staleByCell.set(key, [...(staleByCell.get(key) ?? []), row.id]);
+        }
 
         for (const batch of chunks(changes, 500)) {
           const draftRows = batch.map((change) => ({
             hotel_id: hotelId, organization_slug: orgSlug,
             ...change, status: "draft", push_error: null, created_by: user.id, push_run_id: runId,
-            confirmation_status: "sending",
+            confirmation_status: "sending", priority, intent_source: intent,
           }));
           const { data: drafts, error } = await admin.from("revenue_rate_drafts").insert(draftRows).select("id,stay_date,room_type_name,occupancy");
           if (error) throw error;
           const idsByCell = new Map((drafts ?? []).map((draft) => [
             `${draft.stay_date}|${draft.room_type_name}|${draft.occupancy}`, draft.id,
           ]));
+
+          // Successors exist now, so each superseded row can point at the one
+          // that replaced it.
+          const supersededAt = new Date().toISOString();
+          for (const [key, successorId] of idsByCell) {
+            const stale = staleByCell.get(key);
+            if (!stale?.length) continue;
+            for (const ids of chunks(stale, 300)) {
+              await admin.from("revenue_rate_drafts")
+                .update({ status: "superseded", superseded_at: supersededAt, superseded_by: successorId })
+                .in("id", ids)
+                .is("superseded_at", null)
+                .is("claimed_at", null)
+                .in("status", ["draft", "failed"]);
+            }
+            staleByCell.delete(key);
+          }
+
 
           const items = batch.map((change) => ({
             run_id: runId, hotel_id: hotelId, organization_slug: orgSlug,
