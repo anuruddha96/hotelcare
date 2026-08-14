@@ -603,10 +603,11 @@ Deno.serve(async (req) => {
       }
     };
 
-    // Batches are independent. A concurrency pool cuts wall time without
-    // flooding Previo.
+    // Batches are independent. A small pool cuts wall time without flooding
+    // Previo — three in flight suits the hourly six-month cadence.
     const results: GroupResult[] = [];
-    const concurrency = 6;
+    const concurrency = 3;
+
     let nextBatch = 0;
     await Promise.all(Array.from({ length: Math.min(concurrency, batches.length) }, async () => {
       while (nextBatch < batches.length) {
@@ -653,7 +654,8 @@ Deno.serve(async (req) => {
       // Hand the lock over before the next slice starts, otherwise the
       // follow-up call would queue behind this one's own reservation.
       if (publisherLock) {
-        await admin.rpc("release_publisher_lock", { p_hotel: publisherLock });
+        await admin.rpc("release_publisher_lease", { p_token: publisherLock });
+
         publisherLock = null;
       }
       const continueRun = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
@@ -685,7 +687,7 @@ Deno.serve(async (req) => {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   } finally {
     if (publisherLock) {
-      try { await admin.rpc("release_publisher_lock", { p_hotel: publisherLock }); }
+      try { await admin.rpc("release_publisher_lease", { p_token: publisherLock }); }
       catch (releaseError) { console.error("publisher lock release failed", releaseError); }
     }
   }
