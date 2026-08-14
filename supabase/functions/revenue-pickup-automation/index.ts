@@ -936,9 +936,12 @@ Deno.serve(async (req) => {
       summary.push({
         hotel_id: rule.hotel_id, pickups: events.length,
         skipped_not_new: skippedStale, skipped_negative_pickup: skippedNegative,
-        actions: inserted, pushed, failed: failedCount,
+        actions: inserted, markdowns: markdownActions, blocked: markdownBlocks,
+        pushed, failed: failedCount,
         push_error: pushError, auto_publish: rule.auto_publish, changed,
+        next_run_at: nextRunAt(now, intervalMinutes),
       });
+
     }
     } finally {
       await admin.rpc("release_automation_lock", { p_hotel: lockHotel });
