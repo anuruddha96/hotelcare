@@ -83,9 +83,10 @@ export default function RevenueEngineControls() {
           <>
             <div className="flex items-start justify-between gap-4">
               <div>
-                <Label htmlFor="rm-automation">Price automation</Label>
+                <Label htmlFor="rm-automation">Automation scheduler</Label>
                 <p className="text-xs text-muted-foreground">
-                  Runs every 30 minutes. Off means no pickup increases or markdowns anywhere.
+                  Polls every 10 minutes and evaluates one property at a time, each at its own
+                  interval (normally 60 minutes). Off means no pickup increases or markdowns anywhere.
                 </p>
               </div>
               <Switch
@@ -100,7 +101,9 @@ export default function RevenueEngineControls() {
               <div>
                 <Label htmlFor="rm-dry">Calculate only (no publishing)</Label>
                 <p className="text-xs text-muted-foreground">
-                  Decisions are recorded for review, but no price is sent to Previo.
+                  {config.dry_run
+                    ? "On: decisions are recorded for review and nothing is sent to Previo."
+                    : "Off: approved decisions are queued and published to Previo, one property at a time."}
                 </p>
               </div>
               <Switch
@@ -113,9 +116,10 @@ export default function RevenueEngineControls() {
 
             <div className="flex items-start justify-between gap-4">
               <div>
-                <Label htmlFor="rm-engine">Hourly data sync &amp; alert engine</Label>
+                <Label htmlFor="rm-engine">Hourly PMS data sync</Label>
                 <p className="text-xs text-muted-foreground">
-                  Pulls Previo revenue and daily overview data. Off pauses those pulls.
+                  Read-only: pulls Previo revenue and daily overview data and purges old logs.
+                  It never changes or publishes a price.
                 </p>
               </div>
               <Switch
@@ -124,6 +128,22 @@ export default function RevenueEngineControls() {
                 disabled={saving !== null}
                 onCheckedChange={(v) => update("engine_tick_enabled", v)}
               />
+            </div>
+
+            <div className="space-y-1 rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+              <p className="font-medium text-foreground">Health</p>
+              <p>
+                Enabled properties: {health.enabled}
+                {health.lastSuccess ? ` · last successful evaluation ${new Date(health.lastSuccess).toLocaleString()}` : " · no evaluation completed yet"}
+              </p>
+              <p>
+                {health.nextHotel
+                  ? `Next due: ${health.nextHotel} at ${new Date(health.nextDue as string).toLocaleString()}`
+                  : "Next due: nothing scheduled"}
+              </p>
+              <p>
+                Publisher: {health.publisherBusy ? "publishing now" : "idle"} · queued runs: {health.queued}
+              </p>
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t">
