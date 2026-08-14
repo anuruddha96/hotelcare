@@ -666,7 +666,8 @@ Deno.serve(async (req) => {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   } finally {
     if (publisherLock) {
-      await admin.rpc("release_publisher_lock", { p_hotel: publisherLock }).catch?.(() => {});
+      try { await admin.rpc("release_publisher_lock", { p_hotel: publisherLock }); }
+      catch (releaseError) { console.error("publisher lock release failed", releaseError); }
     }
   }
 
