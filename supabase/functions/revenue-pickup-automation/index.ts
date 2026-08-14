@@ -231,15 +231,63 @@ Deno.serve(async (req) => {
 
     for (const rule of rules) {
       const runStartedAt = new Date().toISOString();
+      const now = new Date();
       const today = new Date().toISOString().slice(0, 10);
-      // Look back a little further than the last run so a missed tick still
-      // catches its pickups; the unique index stops double-charging.
+      const intervalMinutes = Math.max(60, Number(rule.evaluation_interval_minutes || 60));
+
+      // Fresh reservations before any decision. The probe mode of the revenue
+      // sync pulls new/changed bookings and cancellations only — it does not
+      // re-read the whole six-month rate universe every hour. It runs for this
+      // one hotel, inside the global automation lock, so two properties never
+      // hit Previo at the same time.
+      let pmsFresh = true;
+      let pmsNote: string | null = null;
+      try {
+        const probe = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/previo-revenue-sync`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
+          },
+          body: JSON.stringify({
+            hotelId: rule.hotel_id,
+            mode: "automation_probe",
+            horizonDays: Math.max(30, Math.min(400, Number(rule.future_booking_window_days || 183))),
+          }),
+        });
+        const probeBody = await probe.json().catch(() => ({} as any));
+        if (!probe.ok || probeBody?.error) {
+          pmsFresh = false;
+          pmsNote = String(probeBody?.error ?? `PMS refresh failed (${probe.status})`);
+        }
+      } catch (e) {
+        pmsFresh = false;
+        pmsNote = e instanceof Error ? e.message : String(e);
+      }
+
+      // Stale pickup data must never become a markdown. Skip the property for
+      // this cycle, record why, and let the next cycle try again.
+      if (!pmsFresh) {
+        await admin.from("revenue_pickup_automation_rules").update({
+          last_evaluated_at: runStartedAt,
+          last_evaluation_status: "pms_unavailable",
+          last_evaluation_error: pmsNote?.slice(0, 500) ?? "PMS data could not be refreshed",
+          next_run_at: nextRunAt(now, intervalMinutes),
+        }).eq("id", rule.id);
+        summary.push({ hotel_id: rule.hotel_id, skipped: true, reason: "pms_unavailable", detail: pmsNote });
+        continue;
+      }
+
+      // Observation window: since the previous SUCCESSFUL evaluation (normally
+      // ~60 minutes), so a slightly late scheduler still sees every booking.
+      const evalWindow = observationWindow(now, rule.last_successful_evaluation_at, intervalMinutes);
       const lookbackFrom = new Date(
-        Math.max(
-          Date.parse(rule.last_run_at ?? "") || 0,
-          Date.now() - 6 * 60 * 60 * 1000,
+        Math.min(
+          Date.parse(evalWindow.from),
+          Math.max(Date.parse(rule.last_run_at ?? "") || 0, Date.now() - 6 * 60 * 60 * 1000),
         ),
       ).toISOString();
+
 
       // 1. New booking nights Hotel Care captured since the cursor. The cursor
       //    follows capture time, not Previo's creation time: a booking made at
