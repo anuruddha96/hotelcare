@@ -200,7 +200,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       future_booking_window_days: source.rule.future_booking_window_days ?? 183,
       no_pickup_run_times: source.rule.no_pickup_run_times ?? ["08:00", "14:00", "20:00"],
       run_timezone: source.rule.run_timezone ?? "Europe/Budapest",
-      no_pickup_decrease: source.rule.no_pickup_decrease ?? 2,
+      no_pickup_decrease: source.rule.no_pickup_decrease ?? 0.5,
       max_daily_decrease_per_date: source.rule.max_daily_decrease_per_date ?? 10,
       no_pickup_scope: source.rule.no_pickup_scope ?? "all_room_types",
       evaluation_interval_minutes: source.rule.evaluation_interval_minutes ?? 60,
@@ -245,8 +245,14 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       protect_high_occupancy: rule.protect_high_occupancy,
       markdown_max_occupancy_pct: rule.markdown_max_occupancy_pct,
       manual_markdown_hold_hours: rule.manual_markdown_hold_hours,
-      // Re-arm the scheduler so a saved change is picked up on the next tick.
-      next_run_at: new Date().toISOString(),
+      // Saving never triggers an immediate evaluation: an enabled rule is
+      // simply scheduled one normal interval from now, so nobody gets a
+      // surprise markdown for pressing Save. "Run now" stays the explicit
+      // way to act immediately. A rule that is off is never made due.
+      next_run_at: rule.is_enabled
+        ? new Date(Date.now() + Math.max(10, rule.evaluation_interval_minutes) * 60_000).toISOString()
+        : null,
+
 
       no_pickup_scope: rule.no_pickup_scope,
       currency: rule.currency,
