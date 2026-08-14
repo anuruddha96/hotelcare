@@ -56,15 +56,17 @@ Deno.serve(async (req) => {
     }
 
     // Only drafts that are still the newest intent for their cell are sent.
+    // Count a small page here, but let the publisher load bounded 400-row
+    // slices by run id. Passing thousands of UUIDs creates an oversized
+    // PostgREST URL and can leave an otherwise healthy run stuck processing.
     const { data: drafts } = await admin
       .from("revenue_rate_drafts")
       .select("id")
       .eq("push_run_id", run.run_id)
       .in("status", ["draft", "failed"])
       .is("superseded_at", null)
-      .limit(2000);
-    const draftIds = ((drafts ?? []) as Array<{ id: string }>).map((d) => d.id);
-    if (draftIds.length === 0) {
+      .limit(1);
+    if ((drafts ?? []).length === 0) {
       await admin.from("revenue_rate_push_runs")
         .update({ status: "completed", finished_at: new Date().toISOString() })
         .eq("id", run.run_id);
@@ -77,7 +79,7 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
         "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
       },
-      body: JSON.stringify({ hotelId: run.hotel_id, pushRunId: run.run_id, draftIds }),
+      body: JSON.stringify({ hotelId: run.hotel_id, pushRunId: run.run_id }),
     }).catch((e) => console.error("queue drainer could not start push", run.run_id, e));
 
     const rt = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
@@ -85,7 +87,7 @@ Deno.serve(async (req) => {
 
     return json({
       ok: true, code: "started", runId: run.run_id, hotelId: run.hotel_id,
-      priority: run.priority, drafts: draftIds.length,
+      priority: run.priority,
     });
   } catch (e) {
     console.error("revenue-publish-queue failed", e);
