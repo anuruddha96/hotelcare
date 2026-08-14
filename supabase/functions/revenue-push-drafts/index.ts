@@ -26,7 +26,10 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
+  // Private owner token for the global publisher lease.
+  const leaseToken = crypto.randomUUID();
   let publisherLock: string | null = null;
+
   try {
     // --- caller must be signed in and allowed to push rates -------------
     // The pickup automation engine runs with no human in the loop, so it
@@ -148,8 +151,12 @@ Deno.serve(async (req) => {
       .from("revenue_rate_drafts")
       .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, currency, created_by, organization_slug")
       .eq("hotel_id", hotelId)
+      // A newer intent for the same cell supersedes this one; never publish an
+      // obsolete price.
+      .is("superseded_at", null)
       .order("stay_date", { ascending: true })
       .limit(SLICE);
+
     if (draftIds.length > 0) {
       q = q.in("id", draftIds.slice(0, SLICE)).in("status", ["draft", "failed"]);
     } else if (requestedRunId) {
