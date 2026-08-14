@@ -86,10 +86,12 @@ function explain(rule: Rule, hotelName: string): string[] {
   if (rule.maximum_increase) lines.push(`One pickup can add at most €${rule.maximum_increase}.`);
   lines.push(`A single date can rise at most €${rule.max_daily_increase_per_date} in one day, no matter how many bookings arrive.`);
   if (rule.no_pickup_enabled) {
-    const perDay = Math.max(1, Math.floor(1440 / Math.max(60, rule.evaluation_interval_minutes))) * rule.no_pickup_decrease;
+    const step = rule.no_pickup_decrease ?? 0.5;
+    const perDay = Math.max(1, Math.floor(1440 / Math.max(60, rule.evaluation_interval_minutes))) * step;
     lines.push(
-      `Every ${rule.evaluation_interval_minutes} minutes, dates in the next ${rule.future_booking_window_days} days that picked up nothing since the previous check go down by ${rule.currency} ${rule.no_pickup_decrease}. That is at most ${rule.currency} ${Math.min(perDay, rule.max_daily_decrease_per_date)} per date per day.`,
+      `Every ${rule.evaluation_interval_minutes} minutes, dates in the next ${rule.future_booking_window_days} days that picked up nothing since the previous check go down by ${rule.currency} ${money(step)}. A date moves one step per check no matter how many room types it has, so at most ${rule.currency} ${money(Math.min(perDay, rule.max_daily_decrease_per_date))} per date per day.`,
     );
+
     if (rule.protect_high_occupancy) lines.push(`Dates already at ${rule.markdown_max_occupancy_pct}% occupancy or higher are never marked down, and a sold-out date never moves.`);
     if (rule.manual_markdown_hold_hours > 0) lines.push(`After someone changes a price by hand, that date is left alone for ${rule.manual_markdown_hold_hours} hours.`);
   }
