@@ -818,20 +818,34 @@ Deno.serve(async (req) => {
         const payload = Array.from(byCell.values());
         if (payload.length > 0) {
           try {
-            // A cell can only carry one pending draft, so clear any stale one
-            // for the same cell before writing the automated price.
+            // Older unsent intents for the same cell are superseded, never
+            // deleted: history stays intact and only the newest target is sent.
             const staleDates = Array.from(new Set(payload.map((d) => d.stay_date)));
             const { data: staleDrafts } = await admin.from("revenue_rate_drafts")
               .select("id, stay_date, room_type_name, occupancy")
               .eq("hotel_id", rule.hotel_id).in("stay_date", staleDates)
-              .in("status", ["draft", "failed"]);
+              .in("status", ["draft", "failed"]).is("superseded_at", null);
             const staleIds = ((staleDrafts ?? []) as any[])
               .filter((row) => byCell.has(`${row.stay_date}|${row.room_type_name}|${row.occupancy}`))
               .map((row) => row.id);
-            if (staleIds.length > 0) await admin.from("revenue_rate_drafts").delete().in("id", staleIds);
+            for (let i = 0; i < staleIds.length; i += 200) {
+              await admin.from("revenue_rate_drafts")
+                .update({ superseded_at: new Date().toISOString(), status: "superseded" })
+                .in("id", staleIds.slice(i, i + 200));
+            }
+            const pushRunId = crypto.randomUUID();
+            await admin.from("revenue_rate_push_runs").insert({
+              id: pushRunId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
+              source: "automation", requested_count: payload.length, priority: priorityOf("pickup"),
+            });
             const { data: drafts, error: draftErr } = await admin
               .from("revenue_rate_drafts")
-              .insert(payload)
+              .insert(payload.map((row: any) => ({
+                ...row,
+                priority: priorityOf("pickup"),
+                intent_source: "automation_pickup",
+                push_run_id: pushRunId,
+              })))
               .select("id");
             if (draftErr) throw draftErr;
             const draftIds = ((drafts ?? []) as any[]).map((d) => d.id);
@@ -842,8 +856,9 @@ Deno.serve(async (req) => {
                 "Content-Type": "application/json",
                 "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
               },
-              body: JSON.stringify({ hotelId: rule.hotel_id, draftIds }),
+              body: JSON.stringify({ hotelId: rule.hotel_id, draftIds, pushRunId }),
             });
+
             const out = await res.json().catch(() => ({}));
             pushed = Number(out?.pushed ?? 0);
             pushError = pushed > 0 ? null : (out?.error ?? "Previo did not accept the change");
