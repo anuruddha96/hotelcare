@@ -290,7 +290,12 @@ export default function RateStrategyGrid({
   const GROUP_H = Math.round(BASE_GROUP_H * zoom);
   const MONTH_H = Math.round(BASE_MONTH_H * zoom);
   const DAY_H = Math.round(BASE_DAY_H * zoom);
+  // Change dots are a quiet annotation, never a badge: they scale with the
+  // calendar so zooming out keeps them from swallowing the day number.
+  const DAY_DOT = Math.max(3, Math.round(4.5 * zoom));
+  const CELL_DOT = Math.max(2, Math.round(3.5 * zoom));
   const rowH = (kind: string) => (kind === "group" ? GROUP_H : ROW_H);
+
 
   const DEFAULT_LEFT_W = Math.round((isMobile ? 124 : 200) * zoom);
   const RAIL_W = 46;
@@ -1798,47 +1803,54 @@ export default function RateStrategyGrid({
           </div>
         )}
         {canEditRates && (failedCount > 0 || divergentDrafts.length > 0 || openMismatches.length > 0) && (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
-            <span className="text-xs space-x-2">
-              {failedCount > 0 && (
-                <span className="text-destructive">{failedCount} refused by Previo.</span>
-              )}
-              {(divergentDrafts.length > 0 || openMismatches.length > 0) && (
-                <span className="text-destructive">
-                  {Math.max(divergentDrafts.length, openMismatches.length)} landed on a different price.
-                </span>
-              )}
-              <span className="text-muted-foreground">
-                If Previo already shows the right price, re-check it or clear the flags.
-              </span>
-            </span>
-
-            <span className="flex items-center gap-2">
-              <Button
-                size="sm" variant="outline" className="h-8 text-xs"
-                disabled={rechecking}
-                onClick={() => void recheckPrevio()}
+          // Quiet, non-blocking status pill: the sync now retries mismatches on
+          // its own, so this is information first and an action only if asked.
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="self-start inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-300"
               >
-                {rechecking ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
-                Check Previo now
-              </Button>
-              {openMismatches.length > 0 && (
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                {failedCount > 0 && <span>{failedCount} refused</span>}
+                {(divergentDrafts.length > 0 || openMismatches.length > 0) && (
+                  <span>{Math.max(divergentDrafts.length, openMismatches.length)} still checking</span>
+                )}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-72 space-y-2 text-xs">
+              <p className="text-muted-foreground leading-relaxed">
+                Hotel Care re-checks these prices with Previo automatically and re-sends
+                them if they did not land. You only need to step in if they keep failing.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
-                  size="sm" variant="outline" className="h-8 text-xs"
-                  disabled={clearingFlags}
-                  onClick={() => void clearMismatchFlags()}
+                  size="sm" variant="outline" className="h-7 text-xs"
+                  disabled={rechecking}
+                  onClick={() => void recheckPrevio()}
                 >
-                  {clearingFlags ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5 mr-1" />}
-                  Clear flags ({openMismatches.length})
+                  {rechecking ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
+                  Check now
                 </Button>
-              )}
-              <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
-                <Send className="h-3.5 w-3.5 mr-1" />
-                Review errors
-              </Button>
-            </span>
-          </div>
+                {openMismatches.length > 0 && (
+                  <Button
+                    size="sm" variant="outline" className="h-7 text-xs"
+                    disabled={clearingFlags}
+                    onClick={() => void clearMismatchFlags()}
+                  >
+                    {clearingFlags ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5 mr-1" />}
+                    Clear ({openMismatches.length})
+                  </Button>
+                )}
+                <Button size="sm" className="h-7 text-xs" onClick={() => setPushOpen(true)}>
+                  <Send className="h-3.5 w-3.5 mr-1" />
+                  Details
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
         )}
+
 
 
 
@@ -1968,10 +1980,17 @@ export default function RateStrategyGrid({
                         <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
                         <span className="font-medium">{formatDay(d)}</span>
                         {dayLatest && (
-                          <span className="pointer-events-none absolute bottom-0.5 left-0 right-0 flex justify-center" aria-hidden>
-                            <i className={`h-2 w-2 rounded-full ring-2 ring-card ${ORIGIN_DOT_CLASS[dayLatest.origin]}`} />
+                          <span className="pointer-events-none absolute bottom-[1px] left-0 right-0 flex justify-center" aria-hidden>
+                            {/* Secondary by design: it sits under the date and
+                                shrinks with the calendar's own zoom instead of
+                                covering the day number on a phone. */}
+                            <i
+                              className={`block rounded-full ${ORIGIN_DOT_CLASS[dayLatest.origin]}`}
+                              style={{ width: DAY_DOT, height: DAY_DOT }}
+                            />
                           </span>
                         )}
+
 
 
                         {canEditRates && (
@@ -2351,13 +2370,16 @@ export default function RateStrategyGrid({
                           <i
                             aria-hidden
                             title="Sending to Previo"
-                            className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full border border-primary bg-transparent animate-pulse"
+                            className="absolute right-0.5 top-0.5 rounded-full border border-primary bg-transparent animate-pulse"
+                            style={{ width: CELL_DOT + 1, height: CELL_DOT + 1 }}
                           />
                         ) : cellOrigin1 ? (
                           <i
                             aria-hidden
-                            className={`absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full ${ORIGIN_DOT_CLASS[cellOrigin1]}`}
+                            className={`absolute right-0.5 top-0.5 rounded-full ${ORIGIN_DOT_CLASS[cellOrigin1]}`}
+                            style={{ width: CELL_DOT, height: CELL_DOT }}
                           />
+
                         ) : null}
 
 

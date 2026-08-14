@@ -636,6 +636,7 @@ serve(async (req) => {
   // final arbiter for every requested cell and records requested vs. landed.
   let reconciledDrafts = 0;
   let divergentDrafts = 0;
+  let requeuedCells = 0;
   if (ratePayload.length > 0) {
     const livePrice = new Map<string, { price: number; ratePlanId: string }>();
     for (const rate of ratePayload) {
@@ -646,7 +647,7 @@ serve(async (req) => {
     }
     const { data: outstanding, error: draftReadError } = await service
       .from("revenue_rate_drafts")
-      .select("id, created_at, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, created_by, push_run_id, confirmation_status, actual_previo_price")
+      .select("id, created_at, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, created_by, push_run_id, confirmation_status, actual_previo_price, reconcile_attempts, reconcile_next_at, reconcile_state")
       .eq("hotel_id", hotelId)
       .eq("status", "pushed")
       .in("confirmation_status", ["sending", "sent", "checking", "pending", "different"])
@@ -699,6 +700,16 @@ serve(async (req) => {
       }
       const auditRows: Record<string, unknown>[] = [];
       const claimedCells = new Set<string>();
+      /**
+       * Prices that still do not match Previo and are due another delivery.
+       * Only these exact cells are re-sent — never the original date range.
+       */
+      const retryCells: Array<{
+        stay_date: string; obk_id: string | null; room_type_name: string; occupancy: number;
+        old_price: number | null; new_price: number; created_by: string | null;
+      }> = [];
+      const MAX_RECONCILE_ATTEMPTS = 3;
+      const RECONCILE_COOLDOWN_MS = 10 * 60 * 1000;
       // A cell can be re-priced several times a day. Only the newest request
       // for a cell can be judged against the live Previo price — older ones
       // were deliberately replaced, so flagging them as "landed differently"
@@ -708,6 +719,7 @@ serve(async (req) => {
         id: string; created_at: string; stay_date: string; obk_id: string | null; room_type_name: string;
         occupancy: number; old_price: number | null; new_price: number; created_by: string | null;
         push_run_id: string | null; confirmation_status: string | null; actual_previo_price: number | null;
+        reconcile_attempts: number | null; reconcile_next_at: string | null; reconcile_state: string | null;
       }>) {
         if (!draft.obk_id) continue;
         const cell = `${draft.stay_date}|${draft.obk_id}|${draft.occupancy}`;
@@ -724,10 +736,51 @@ serve(async (req) => {
         claimedCells.add(`${draft.stay_date}|${draft.obk_id}|${live.ratePlanId}|${draft.occupancy}`);
         const landed = live.price;
         const confirmed = Math.abs(landed - Number(draft.new_price)) < 0.01;
+
+        // Previo moved this price again since we last flagged it, and nobody
+        // in Hotel Care asked for anything newer: Previo is the truth now.
+        const movedInPrevio = !confirmed
+          && draft.confirmation_status === "different"
+          && draft.actual_previo_price !== null
+          && Math.abs(Number(draft.actual_previo_price) - landed) >= 0.01;
+        if (movedInPrevio) {
+          await service.from("revenue_rate_drafts")
+            .update({
+              confirmation_status: "superseded", actual_previo_price: landed,
+              last_checked_at: checkedAt, push_error: null,
+              reconcile_state: "external", reconcile_error: null,
+            })
+            .eq("id", draft.id);
+          if (orgSlug) {
+            auditRows.push({
+              hotel_id: hotelId, organization_slug: orgSlug,
+              action: "external_price_change", source: "previo_external",
+              stay_date: draft.stay_date, old_rate_eur: draft.actual_previo_price, new_rate_eur: landed,
+              delta_eur: Math.round((landed - Number(draft.actual_previo_price)) * 100) / 100,
+              notes: `${draft.room_type_name} changed in Previo after Hotel Care's request`,
+              performed_by: null,
+              payload: {
+                room_type_name: draft.room_type_name, occupancy: draft.occupancy,
+                actual_previo_price: landed, confirmation_status: "external",
+                resolved_at: checkedAt,
+              },
+            });
+          }
+          continue;
+        }
+
         const confirmationStatus = confirmed ? "confirmed" : "different";
         const changedState = draft.confirmation_status !== confirmationStatus
           || draft.actual_previo_price === null
           || Math.abs(Number(draft.actual_previo_price) - landed) >= 0.01;
+
+        // Bounded, cooled-down automatic redelivery. No user action, and no
+        // chance of an endless push loop: three tries, ten minutes apart.
+        const attempts = Number(draft.reconcile_attempts ?? 0);
+        const dueAt = draft.reconcile_next_at ? Date.parse(draft.reconcile_next_at) : 0;
+        const dueNow = !Number.isFinite(dueAt) || Date.now() >= dueAt;
+        const willRetry = !confirmed && attempts < MAX_RECONCILE_ATTEMPTS && dueNow;
+
         const { error: reconcileError } = await service
           .from("revenue_rate_drafts")
           .update({
@@ -736,14 +789,32 @@ serve(async (req) => {
             last_checked_at: checkedAt,
             confirmed_at: confirmed ? checkedAt : null,
             push_error: confirmed ? null : `Previo currently publishes ${landed}; requested ${draft.new_price}`,
+            reconcile_attempts: confirmed ? attempts : (willRetry ? attempts + 1 : attempts),
+            reconcile_next_at: confirmed || !willRetry
+              ? draft.reconcile_next_at
+              : new Date(Date.now() + RECONCILE_COOLDOWN_MS * (attempts + 1)).toISOString(),
+            reconcile_state: confirmed
+              ? null
+              : (willRetry ? "retrying" : (attempts >= MAX_RECONCILE_ATTEMPTS ? "needs_attention" : draft.reconcile_state)),
+            reconcile_error: confirmed
+              ? null
+              : `Previo published ${landed} instead of ${draft.new_price}`,
           })
           .eq("id", draft.id);
         if (reconcileError) {
           errors.push(`draft reconciliation update: ${reconcileError.message}`);
           continue;
         }
+        if (willRetry) {
+          retryCells.push({
+            stay_date: draft.stay_date, obk_id: draft.obk_id, room_type_name: draft.room_type_name,
+            occupancy: draft.occupancy, old_price: landed, new_price: Number(draft.new_price),
+            created_by: draft.created_by,
+          });
+        }
         if (confirmed) reconciledDrafts += 1; else divergentDrafts += 1;
         if (changedState && orgSlug) {
+
           const origin = originByCell.get(`${draft.stay_date}|${draft.room_type_name}|${draft.occupancy}`) ?? null;
           const isAutomation = draft.push_run_id ? automationRuns.has(draft.push_run_id) : false;
           const manualOrigin = origin === "day-tool" || origin === "cell-edit" || origin === "pickup-board";
@@ -778,6 +849,64 @@ serve(async (req) => {
         const { error: auditError } = await service.from("rate_change_audit").insert(auditRows);
         if (auditError) errors.push(`rate reconciliation audit: ${auditError.message}`);
       }
+
+      // Re-deliver only the exact cells Previo still disagrees with, through
+      // the same durable publisher every other push uses — so the per-hotel
+      // serialisation and queue safety stay exactly as they are.
+      if (retryCells.length > 0) {
+        try {
+          // Idempotency: never queue a cell that is already waiting to go out.
+          const { data: inflight } = await service.from("revenue_rate_drafts")
+            .select("stay_date, room_type_name, occupancy")
+            .eq("hotel_id", hotelId)
+            .in("status", ["draft", "queued"])
+            .gte("stay_date", from).lte("stay_date", to);
+          const busy = new Set((inflight ?? []).map((d: { stay_date: string; room_type_name: string; occupancy: number }) =>
+            `${d.stay_date}|${d.room_type_name}|${d.occupancy}`));
+          const todo = retryCells.filter((c) => !busy.has(`${c.stay_date}|${c.room_type_name}|${c.occupancy}`));
+          if (todo.length > 0) {
+            const runId = crypto.randomUUID();
+            const { error: runError } = await service.from("revenue_rate_push_runs").insert({
+              id: runId, hotel_id: hotelId, organization_slug: orgSlug,
+              source: "reconcile", requested_count: todo.length,
+              created_by: todo.find((c) => c.created_by)?.created_by ?? null,
+            });
+            if (runError) throw runError;
+            const { data: newDrafts, error: draftError } = await service.from("revenue_rate_drafts")
+              .insert(todo.map((c) => ({
+                hotel_id: hotelId, organization_slug: orgSlug,
+                stay_date: c.stay_date, obk_id: c.obk_id, room_type_name: c.room_type_name,
+                occupancy: c.occupancy, old_price: c.old_price, new_price: c.new_price,
+                status: "draft", confirmation_status: "sending", push_run_id: runId,
+                created_by: c.created_by,
+              })))
+              .select("id, stay_date, room_type_name, occupancy");
+            if (draftError) throw draftError;
+            const idsByCell = new Map((newDrafts ?? []).map((d: { id: string; stay_date: string; room_type_name: string; occupancy: number }) =>
+              [`${d.stay_date}|${d.room_type_name}|${d.occupancy}`, d.id]));
+            const { error: itemError } = await service.from("revenue_rate_push_items").insert(todo.map((c) => ({
+              run_id: runId, hotel_id: hotelId, organization_slug: orgSlug,
+              stay_date: c.stay_date, obk_id: c.obk_id, room_type_name: c.room_type_name,
+              occupancy: c.occupancy, old_price: c.old_price, target_price: c.new_price,
+              draft_id: idsByCell.get(`${c.stay_date}|${c.room_type_name}|${c.occupancy}`),
+            })));
+            if (itemError) throw itemError;
+            await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+              },
+              body: JSON.stringify({ hotelId, pushRunId: runId }),
+            });
+            requeuedCells = todo.length;
+          }
+        } catch (e) {
+          errors.push(`reconcile requeue: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+
 
       // Any changed authoritative rate not claimed by a pending HotelCare push
       // was changed in Previo (or by another connected channel manager).
@@ -1112,6 +1241,7 @@ serve(async (req) => {
     totalRooms,
     rates: ratePayload.length,
     reconciledDrafts,
+    requeuedCells,
     divergentDrafts,
     bookingNights: nights.length,
     snapshots: snapshots.length,

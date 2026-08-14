@@ -5171,6 +5171,10 @@ export type Database = {
           push_error: string | null
           push_run_id: string | null
           pushed_at: string | null
+          reconcile_attempts: number
+          reconcile_error: string | null
+          reconcile_next_at: string | null
+          reconcile_state: string | null
           room_type_name: string
           status: string
           stay_date: string
@@ -5196,6 +5200,10 @@ export type Database = {
           push_error?: string | null
           push_run_id?: string | null
           pushed_at?: string | null
+          reconcile_attempts?: number
+          reconcile_error?: string | null
+          reconcile_next_at?: string | null
+          reconcile_state?: string | null
           room_type_name: string
           status?: string
           stay_date: string
@@ -5221,6 +5229,10 @@ export type Database = {
           push_error?: string | null
           push_run_id?: string | null
           pushed_at?: string | null
+          reconcile_attempts?: number
+          reconcile_error?: string | null
+          reconcile_next_at?: string | null
+          reconcile_state?: string | null
           room_type_name?: string
           status?: string
           stay_date?: string
@@ -7316,6 +7328,8 @@ export type Database = {
         Args: {
           p_from: string
           p_hotel_id: string
+          p_limit?: number
+          p_offset?: number
           p_since: string
           p_to: string
         }
