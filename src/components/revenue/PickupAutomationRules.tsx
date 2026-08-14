@@ -28,9 +28,19 @@ interface Rule {
   run_timezone: string; no_pickup_decrease: number;
   max_daily_decrease_per_date: number;
   no_pickup_scope: "booked_room_type" | "all_room_types";
+  evaluation_interval_minutes: number;
+  protect_high_occupancy: boolean;
+  markdown_max_occupancy_pct: number;
+  manual_markdown_hold_hours: number;
   currency: string;
-  last_run_at?: string | null; version: number;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  last_evaluated_at?: string | null;
+  last_evaluation_status?: string | null;
+  last_evaluation_error?: string | null;
+  version: number;
 }
+
 
 /** Starting suggestions only — a hotel is never automated until it is saved with the switch on. */
 const DEFAULT_RULE: Rule = {
@@ -44,7 +54,10 @@ const DEFAULT_RULE: Rule = {
   future_booking_window_days: 183, no_pickup_run_times: ["08:00", "14:00", "20:00"],
   run_timezone: "Europe/Budapest", no_pickup_decrease: 2,
   max_daily_decrease_per_date: 10, no_pickup_scope: "all_room_types", currency: "EUR",
+  evaluation_interval_minutes: 60, protect_high_occupancy: true,
+  markdown_max_occupancy_pct: 88, manual_markdown_hold_hours: 6,
 };
+
 
 /** Turns the saved numbers into sentences a non-technical owner can check. */
 function explain(rule: Rule, hotelName: string): string[] {
@@ -72,9 +85,15 @@ function explain(rule: Rule, hotelName: string): string[] {
   if (rule.minimum_adr) lines.push(`Prices are never published below €${rule.minimum_adr}.`);
   if (rule.maximum_increase) lines.push(`One pickup can add at most €${rule.maximum_increase}.`);
   lines.push(`A single date can rise at most €${rule.max_daily_increase_per_date} in one day, no matter how many bookings arrive.`);
-  if (rule.no_pickup_enabled) lines.push(
-    `At ${rule.no_pickup_run_times.join(", ")} ${rule.run_timezone}, dates in the next ${rule.future_booking_window_days} days with no new booking for ${rule.no_pickup_lookback_hours} hours decrease by ${rule.currency} ${rule.no_pickup_decrease}. A date never decreases by more than ${rule.currency} ${rule.max_daily_decrease_per_date} per day.`,
-  );
+  if (rule.no_pickup_enabled) {
+    const perDay = Math.max(1, Math.floor(1440 / Math.max(60, rule.evaluation_interval_minutes))) * rule.no_pickup_decrease;
+    lines.push(
+      `Every ${rule.evaluation_interval_minutes} minutes, dates in the next ${rule.future_booking_window_days} days that picked up nothing since the previous check go down by ${rule.currency} ${rule.no_pickup_decrease}. That is at most ${rule.currency} ${Math.min(perDay, rule.max_daily_decrease_per_date)} per date per day.`,
+    );
+    if (rule.protect_high_occupancy) lines.push(`Dates already at ${rule.markdown_max_occupancy_pct}% occupancy or higher are never marked down, and a sold-out date never moves.`);
+    if (rule.manual_markdown_hold_hours > 0) lines.push(`After someone changes a price by hand, that date is left alone for ${rule.manual_markdown_hold_hours} hours.`);
+  }
+
   lines.push(
     rule.auto_publish
       ? "Matched changes are sent to Previo automatically and appear in the calendar with an automation marker."
@@ -177,8 +196,13 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       no_pickup_decrease: source.rule.no_pickup_decrease ?? 2,
       max_daily_decrease_per_date: source.rule.max_daily_decrease_per_date ?? 10,
       no_pickup_scope: source.rule.no_pickup_scope ?? "all_room_types",
+      evaluation_interval_minutes: source.rule.evaluation_interval_minutes ?? 60,
+      protect_high_occupancy: source.rule.protect_high_occupancy ?? true,
+      markdown_max_occupancy_pct: source.rule.markdown_max_occupancy_pct ?? 88,
+      manual_markdown_hold_hours: source.rule.manual_markdown_hold_hours ?? 6,
       currency: source.rule.currency ?? "EUR",
     }));
+
     toast.success(`Copied settings from ${source.label} — still off until you turn it on`);
   }
 
@@ -210,6 +234,13 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       run_timezone: rule.run_timezone,
       no_pickup_decrease: rule.no_pickup_decrease,
       max_daily_decrease_per_date: rule.max_daily_decrease_per_date,
+      evaluation_interval_minutes: rule.evaluation_interval_minutes,
+      protect_high_occupancy: rule.protect_high_occupancy,
+      markdown_max_occupancy_pct: rule.markdown_max_occupancy_pct,
+      manual_markdown_hold_hours: rule.manual_markdown_hold_hours,
+      // Re-arm the scheduler so a saved change is picked up on the next tick.
+      next_run_at: new Date().toISOString(),
+
       no_pickup_scope: rule.no_pickup_scope,
       currency: rule.currency,
       version: rule.version + (rule.id ? 1 : 0),
@@ -376,26 +407,49 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
             </div>
 
             <div className="space-y-3 border-t pt-4">
+              <div>
+                <Label className="text-xs">How often this property is checked</Label>
+                <Select
+                  value={String(rule.evaluation_interval_minutes)}
+                  onValueChange={(value) => setRule({ ...rule, evaluation_interval_minutes: Number(value) })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="60">Every hour</SelectItem>
+                    <SelectItem value="120">Every 2 hours</SelectItem>
+                    <SelectItem value="180">Every 3 hours</SelectItem>
+                    <SelectItem value="360">Every 6 hours</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Each check refreshes bookings from the PMS first, then either raises dates that picked up or lowers dates that did not.
+                  {rule.next_run_at ? ` Next check ${new Date(rule.next_run_at).toLocaleString()}.` : ""}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3 border-t pt-4">
               <div className="flex items-center justify-between">
-                <div><p className="text-sm font-medium">Reduce prices when there is no pickup</p><p className="text-xs text-muted-foreground">Runs only at the property-local times below.</p></div>
+                <div><p className="text-sm font-medium">Reduce prices when there is no pickup</p><p className="text-xs text-muted-foreground">Applied on every check, never on a date that just picked up.</p></div>
                 <Switch checked={rule.no_pickup_enabled} onCheckedChange={(no_pickup_enabled) => setRule({ ...rule, no_pickup_enabled })} />
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><Label className="text-xs">No-booking lookback (hours)</Label><Input type="number" min={1} max={168} value={rule.no_pickup_lookback_hours} onChange={(e) => setRule({ ...rule, no_pickup_lookback_hours: Number(e.target.value) })} /></div>
                 <div><Label className="text-xs">Future booking window (days)</Label><Input type="number" min={1} max={730} value={rule.future_booking_window_days} onChange={(e) => setRule({ ...rule, future_booking_window_days: Number(e.target.value) })} /></div>
-                <div><Label className="text-xs">Decrease per run ({rule.currency})</Label><Input type="number" min={1} max={3} value={rule.no_pickup_decrease} onChange={(e) => setRule({ ...rule, no_pickup_decrease: Number(e.target.value) })} /></div>
-                <div><Label className="text-xs">Daily decrease cap ({rule.currency})</Label><Input type="number" min={1} value={rule.max_daily_decrease_per_date} onChange={(e) => setRule({ ...rule, max_daily_decrease_per_date: Number(e.target.value) })} /></div>
+                <div><Label className="text-xs">Decrease per check ({rule.currency})</Label><Input type="number" min={1} max={10} value={rule.no_pickup_decrease} onChange={(e) => setRule({ ...rule, no_pickup_decrease: Number(e.target.value) })} /></div>
+                <div><Label className="text-xs">Daily decrease cap per date ({rule.currency})</Label><Input type="number" min={1} value={rule.max_daily_decrease_per_date} onChange={(e) => setRule({ ...rule, max_daily_decrease_per_date: Number(e.target.value) })} /></div>
+                <div><Label className="text-xs">Leave manual changes alone (hours)</Label><Input type="number" min={0} max={72} value={rule.manual_markdown_hold_hours} onChange={(e) => setRule({ ...rule, manual_markdown_hold_hours: Number(e.target.value) })} /></div>
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                {rule.no_pickup_run_times.map((time, index) => (
-                  <div key={index}><Label className="text-xs">{["Morning", "Afternoon", "Evening"][index] ?? `Run ${index + 1}`}</Label><Input type="time" value={time} onChange={(e) => setRule({ ...rule, no_pickup_run_times: rule.no_pickup_run_times.map((v, i) => i === index ? e.target.value : v) })} /></div>
-                ))}
+              <div className="flex items-center justify-between gap-3">
+                <div><Label>Protect nearly full dates</Label><p className="text-xs text-muted-foreground">Never mark down a sold-out date or one above the occupancy below.</p></div>
+                <Switch checked={rule.protect_high_occupancy} onCheckedChange={(protect_high_occupancy) => setRule({ ...rule, protect_high_occupancy })} />
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><Label className="text-xs">Property timezone</Label><Input value={rule.run_timezone} onChange={(e) => setRule({ ...rule, run_timezone: e.target.value })} /></div>
+                <div><Label className="text-xs">Protect above occupancy (%)</Label><Input type="number" min={1} max={100} disabled={!rule.protect_high_occupancy} value={rule.markdown_max_occupancy_pct} onChange={(e) => setRule({ ...rule, markdown_max_occupancy_pct: Number(e.target.value) })} /></div>
                 <div><Label className="text-xs">Currency</Label><Input value={rule.currency} maxLength={3} onChange={(e) => setRule({ ...rule, currency: e.target.value.toUpperCase() })} /></div>
               </div>
+              <div><Label className="text-xs">Property timezone</Label><Input value={rule.run_timezone} onChange={(e) => setRule({ ...rule, run_timezone: e.target.value })} /></div>
             </div>
+
 
             <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
               <p className="text-sm font-medium">What this rule does, in plain words</p>

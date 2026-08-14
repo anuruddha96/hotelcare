@@ -4738,6 +4738,8 @@ export type Database = {
           engine_tick_enabled: boolean
           id: string
           pause_reason: string | null
+          publisher_lock_at: string | null
+          publisher_lock_hotel: string | null
           updated_at: string
           updated_by: string | null
         }
@@ -4749,6 +4751,8 @@ export type Database = {
           engine_tick_enabled?: boolean
           id?: string
           pause_reason?: string | null
+          publisher_lock_at?: string | null
+          publisher_lock_hotel?: string | null
           updated_at?: string
           updated_by?: string | null
         }
@@ -4760,6 +4764,8 @@ export type Database = {
           engine_tick_enabled?: boolean
           id?: string
           pause_reason?: string | null
+          publisher_lock_at?: string | null
+          publisher_lock_hotel?: string | null
           updated_at?: string
           updated_by?: string | null
         }
@@ -5017,17 +5023,25 @@ export type Database = {
           created_at: string
           created_by: string | null
           currency: string
+          evaluation_interval_minutes: number
           future_booking_window_days: number
           hotel_id: string
           id: string
           is_enabled: boolean
+          last_evaluated_at: string | null
+          last_evaluation_error: string | null
+          last_evaluation_status: string | null
           last_no_pickup_slot: string | null
           last_run_at: string | null
+          last_successful_evaluation_at: string | null
+          manual_markdown_hold_hours: number
+          markdown_max_occupancy_pct: number
           max_daily_decrease_per_date: number
           max_daily_increase_per_date: number
           maximum_increase: number | null
           minimum_adr: number | null
           name: string
+          next_run_at: string | null
           no_pickup_decrease: number
           no_pickup_enabled: boolean
           no_pickup_lookback_hours: number
@@ -5036,6 +5050,7 @@ export type Database = {
           organization_slug: string
           pickup_lookback_hours: number
           positive_pickup_enabled: boolean
+          protect_high_occupancy: boolean
           run_timezone: string
           same_hour_window_minutes: number
           second_pickup_surcharge: number
@@ -5050,17 +5065,25 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           currency?: string
+          evaluation_interval_minutes?: number
           future_booking_window_days?: number
           hotel_id: string
           id?: string
           is_enabled?: boolean
+          last_evaluated_at?: string | null
+          last_evaluation_error?: string | null
+          last_evaluation_status?: string | null
           last_no_pickup_slot?: string | null
           last_run_at?: string | null
+          last_successful_evaluation_at?: string | null
+          manual_markdown_hold_hours?: number
+          markdown_max_occupancy_pct?: number
           max_daily_decrease_per_date?: number
           max_daily_increase_per_date?: number
           maximum_increase?: number | null
           minimum_adr?: number | null
           name?: string
+          next_run_at?: string | null
           no_pickup_decrease?: number
           no_pickup_enabled?: boolean
           no_pickup_lookback_hours?: number
@@ -5069,6 +5092,7 @@ export type Database = {
           organization_slug: string
           pickup_lookback_hours?: number
           positive_pickup_enabled?: boolean
+          protect_high_occupancy?: boolean
           run_timezone?: string
           same_hour_window_minutes?: number
           second_pickup_surcharge?: number
@@ -5083,17 +5107,25 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           currency?: string
+          evaluation_interval_minutes?: number
           future_booking_window_days?: number
           hotel_id?: string
           id?: string
           is_enabled?: boolean
+          last_evaluated_at?: string | null
+          last_evaluation_error?: string | null
+          last_evaluation_status?: string | null
           last_no_pickup_slot?: string | null
           last_run_at?: string | null
+          last_successful_evaluation_at?: string | null
+          manual_markdown_hold_hours?: number
+          markdown_max_occupancy_pct?: number
           max_daily_decrease_per_date?: number
           max_daily_increase_per_date?: number
           maximum_increase?: number | null
           minimum_adr?: number | null
           name?: string
+          next_run_at?: string | null
           no_pickup_decrease?: number
           no_pickup_enabled?: boolean
           no_pickup_lookback_hours?: number
@@ -5102,6 +5134,7 @@ export type Database = {
           organization_slug?: string
           pickup_lookback_hours?: number
           positive_pickup_enabled?: boolean
+          protect_high_occupancy?: boolean
           run_timezone?: string
           same_hour_window_minutes?: number
           second_pickup_surcharge?: number
@@ -5161,12 +5194,14 @@ export type Database = {
           currency: string
           hotel_id: string
           id: string
+          intent_source: string | null
           last_checked_at: string | null
           new_price: number
           obk_id: string | null
           occupancy: number
           old_price: number | null
           organization_slug: string | null
+          priority: number
           push_attempt_count: number
           push_error: string | null
           push_run_id: string | null
@@ -5178,6 +5213,8 @@ export type Database = {
           room_type_name: string
           status: string
           stay_date: string
+          superseded_at: string | null
+          superseded_by: string | null
           updated_at: string
         }
         Insert: {
@@ -5190,12 +5227,14 @@ export type Database = {
           currency?: string
           hotel_id: string
           id?: string
+          intent_source?: string | null
           last_checked_at?: string | null
           new_price: number
           obk_id?: string | null
           occupancy?: number
           old_price?: number | null
           organization_slug?: string | null
+          priority?: number
           push_attempt_count?: number
           push_error?: string | null
           push_run_id?: string | null
@@ -5207,6 +5246,8 @@ export type Database = {
           room_type_name: string
           status?: string
           stay_date: string
+          superseded_at?: string | null
+          superseded_by?: string | null
           updated_at?: string
         }
         Update: {
@@ -5219,12 +5260,14 @@ export type Database = {
           currency?: string
           hotel_id?: string
           id?: string
+          intent_source?: string | null
           last_checked_at?: string | null
           new_price?: number
           obk_id?: string | null
           occupancy?: number
           old_price?: number | null
           organization_slug?: string | null
+          priority?: number
           push_attempt_count?: number
           push_error?: string | null
           push_run_id?: string | null
@@ -5236,6 +5279,8 @@ export type Database = {
           room_type_name?: string
           status?: string
           stay_date?: string
+          superseded_at?: string | null
+          superseded_by?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -5339,6 +5384,7 @@ export type Database = {
           id: string
           last_error: string | null
           organization_slug: string | null
+          priority: number
           processed_count: number
           requested_count: number
           source: string
@@ -5357,6 +5403,7 @@ export type Database = {
           id?: string
           last_error?: string | null
           organization_slug?: string | null
+          priority?: number
           processed_count?: number
           requested_count?: number
           source?: string
@@ -5375,6 +5422,7 @@ export type Database = {
           id?: string
           last_error?: string | null
           organization_slug?: string | null
+          priority?: number
           processed_count?: number
           requested_count?: number
           source?: string
@@ -6986,6 +7034,18 @@ export type Database = {
         Args: { p_hotel: string; p_stale_minutes?: number }
         Returns: boolean
       }
+      claim_due_automation_rule: {
+        Args: never
+        Returns: {
+          hotel_id: string
+          interval_minutes: number
+          rule_id: string
+        }[]
+      }
+      claim_publisher_lock: {
+        Args: { p_hotel: string; p_stale_minutes?: number }
+        Returns: boolean
+      }
       claim_revenue_sync:
         | {
             Args: {
@@ -7351,6 +7411,7 @@ export type Database = {
         Args: { _error?: string; _hotel_id: string }
         Returns: undefined
       }
+      release_publisher_lock: { Args: { p_hotel: string }; Returns: undefined }
       run_auto_signout: { Args: never; Returns: number }
       slnt_venue_visible: {
         Args: { _user_id: string; _venue_id: string }

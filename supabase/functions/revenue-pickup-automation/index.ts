@@ -1,10 +1,24 @@
-// Pickup price automation.
+// Hourly demand evaluation for one property at a time.
 //
-// When a new booking lands for a stay date, the rule raises that date's prices
-// by a tier that depends on how far away the stay is, plus a surcharge when
-// several bookings arrive inside the same short window. Only stay dates that
-// actually picked up are touched — nothing else on the calendar moves.
+// Every cycle the scheduler hands this function exactly ONE due hotel. For that
+// hotel it refreshes reservations from the PMS, then for every stay date inside
+// the configured horizon it either raises the price (genuine positive pickup in
+// this hour's observation window) or lowers it by a fixed amount (no pickup),
+// honouring the floor, the per-stay-date daily caps and the safety guards.
+//
+// Delivery to Previo is asynchronous: HotelCare records the intended price and
+// a serialized background publisher sends it, one hotel at a time.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  roundMoney,
+  priorityOf,
+  nextRunAt,
+  observationWindow,
+  markdownBlockReason,
+  computeMarkdown,
+  effectivePrice,
+} from "../_shared/pricingRules.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -38,8 +52,17 @@ interface Rule {
   max_daily_decrease_per_date: number;
   currency: string;
   last_no_pickup_slot: string | null;
+  no_pickup_scope: "booked_room_type" | "all_room_types";
+  evaluation_interval_minutes: number;
+  next_run_at: string | null;
+  last_evaluated_at: string | null;
+  last_successful_evaluation_at: string | null;
+  protect_high_occupancy: boolean;
+  markdown_max_occupancy_pct: number;
+  manual_markdown_hold_hours: number;
   version: number;
   last_run_at: string | null;
+
 }
 
 const json = (body: unknown, status = 200) =>
@@ -70,6 +93,44 @@ function localDayStartUtc(timeZone: string): string {
   const elapsedMs = minutesOf(time) * 60_000;
   void date;
   return new Date(Date.now() - elapsedMs).toISOString();
+}
+
+/**
+ * Record an intended price and hand it to the background publisher. HotelCare
+ * owns the intent; delivery to Previo happens out of band, serialized by the
+ * global publisher lock, so a slow PMS never blocks the pricing cycle.
+ */
+async function queueIntents(
+  admin: any,
+  rule: Rule,
+  payload: Array<Record<string, unknown>>,
+  priority: number,
+): Promise<string | null> {
+  if (payload.length === 0) return null;
+  const runId = crypto.randomUUID();
+  await admin.from("revenue_rate_push_runs").insert({
+    id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
+    source: "automation", requested_count: payload.length, priority,
+  });
+  const { data: drafts, error: draftError } = await admin.from("revenue_rate_drafts")
+    .insert(payload.map((row) => ({ ...row, priority, push_run_id: runId, confirmation_status: "sending" })))
+    .select("id,stay_date,room_type_name,occupancy");
+  if (draftError) throw draftError;
+  const keyOf = (row: any) => `${row.stay_date}|${row.room_type_name}|${row.occupancy}`;
+  const draftMap = new Map((drafts ?? []).map((row: any) => [keyOf(row), row.id]));
+  await admin.from("revenue_rate_push_items").insert(payload.map((row: any) => ({
+    run_id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
+    stay_date: row.stay_date, obk_id: row.obk_id, room_type_name: row.room_type_name,
+    occupancy: row.occupancy, old_price: row.old_price, target_price: row.new_price,
+    currency: row.currency, draft_id: draftMap.get(keyOf(row)),
+  })));
+  const work = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")! },
+    body: JSON.stringify({ hotelId: rule.hotel_id, draftIds: (drafts ?? []).map((row: any) => row.id), pushRunId: runId }),
+  });
+  (globalThis as any).EdgeRuntime?.waitUntil(work);
+  return runId;
 }
 
 
@@ -157,28 +218,40 @@ Deno.serve(async (req) => {
       (globalThis as any).EdgeRuntime?.waitUntil(work);
     }
 
-    // One property per tick, least-recently-run first. Automation only ever
-    // reads the hotels that actually have it switched on, and a global lock
-    // keeps two properties from pricing at the same time — both keep the
-    // database's disk work small and predictable.
-    let q = admin.from("revenue_pickup_automation_rules").select("*").eq("is_enabled", true)
-      .order("last_run_at", { ascending: true, nullsFirst: true })
-      .limit(1);
-    if (onlyHotel) q = q.eq("hotel_id", onlyHotel);
-    const { data: ruleRows, error: ruleErr } = await q;
-    if (ruleErr) throw ruleErr;
-
-    const rules = (ruleRows ?? []) as unknown as Rule[];
-    if (rules.length === 0) {
-      if (onlyHotel) {
+    // Scheduler: the cron wakes every few minutes but only ever evaluates ONE
+    // due property, chosen by `next_run_at`. `claim_due_automation_rule` moves
+    // that property's next slot forward inside the same transaction, so two
+    // overlapping ticks can never take the same hotel and properties naturally
+    // stagger instead of all firing on the hour.
+    let rules: Rule[] = [];
+    if (onlyHotel) {
+      const { data: ruleRows, error: ruleErr } = await admin
+        .from("revenue_pickup_automation_rules").select("*")
+        .eq("hotel_id", onlyHotel).eq("is_enabled", true).limit(1);
+      if (ruleErr) throw ruleErr;
+      rules = (ruleRows ?? []) as unknown as Rule[];
+      if (rules.length === 0) {
         // Say precisely why nothing happened: no rule saved yet, or saved but off.
         const { data: anyRule } = await admin.from("revenue_pickup_automation_rules")
           .select("id, is_enabled").eq("hotel_id", onlyHotel).maybeSingle();
         if (!anyRule) return json({ ok: true, rules: 0, summary: [], code: "no_rule", msg: "This property has no automation rule saved yet." });
         return json({ ok: true, rules: 0, summary: [], code: "disabled", msg: "Automation is switched off for this property." });
       }
-      return json({ ok: true, rules: 0, summary: [], code: "no_rule", msg: "No property has price automation enabled." });
+    } else {
+      const { data: due, error: dueErr } = await admin.rpc("claim_due_automation_rule");
+      if (dueErr) throw dueErr;
+      const claimed = (Array.isArray(due) ? due[0] : due) as { hotel_id?: string } | null;
+      if (!claimed?.hotel_id) {
+        return json({ ok: true, rules: 0, summary: [], code: "idle", msg: "No property is due for evaluation right now." });
+      }
+      const { data: ruleRows } = await admin.from("revenue_pickup_automation_rules")
+        .select("*").eq("hotel_id", claimed.hotel_id).eq("is_enabled", true).limit(1);
+      rules = (ruleRows ?? []) as unknown as Rule[];
+      if (rules.length === 0) {
+        return json({ ok: true, rules: 0, summary: [], code: "idle", msg: "The due property is no longer enabled." });
+      }
     }
+
 
     const lockHotel = rules[0].hotel_id;
     const { data: gotLock, error: lockError } = await admin.rpc("claim_automation_lock", { p_hotel: lockHotel, p_stale_minutes: 10 });
@@ -196,15 +269,63 @@ Deno.serve(async (req) => {
 
     for (const rule of rules) {
       const runStartedAt = new Date().toISOString();
+      const now = new Date();
       const today = new Date().toISOString().slice(0, 10);
-      // Look back a little further than the last run so a missed tick still
-      // catches its pickups; the unique index stops double-charging.
+      const intervalMinutes = Math.max(60, Number(rule.evaluation_interval_minutes || 60));
+
+      // Fresh reservations before any decision. The probe mode of the revenue
+      // sync pulls new/changed bookings and cancellations only — it does not
+      // re-read the whole six-month rate universe every hour. It runs for this
+      // one hotel, inside the global automation lock, so two properties never
+      // hit Previo at the same time.
+      let pmsFresh = true;
+      let pmsNote: string | null = null;
+      try {
+        const probe = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/previo-revenue-sync`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
+          },
+          body: JSON.stringify({
+            hotelId: rule.hotel_id,
+            mode: "automation_probe",
+            horizonDays: Math.max(30, Math.min(400, Number(rule.future_booking_window_days || 183))),
+          }),
+        });
+        const probeBody = await probe.json().catch(() => ({} as any));
+        if (!probe.ok || probeBody?.error) {
+          pmsFresh = false;
+          pmsNote = String(probeBody?.error ?? `PMS refresh failed (${probe.status})`);
+        }
+      } catch (e) {
+        pmsFresh = false;
+        pmsNote = e instanceof Error ? e.message : String(e);
+      }
+
+      // Stale pickup data must never become a markdown. Skip the property for
+      // this cycle, record why, and let the next cycle try again.
+      if (!pmsFresh) {
+        await admin.from("revenue_pickup_automation_rules").update({
+          last_evaluated_at: runStartedAt,
+          last_evaluation_status: "pms_unavailable",
+          last_evaluation_error: pmsNote?.slice(0, 500) ?? "PMS data could not be refreshed",
+          next_run_at: nextRunAt(now, intervalMinutes),
+        }).eq("id", rule.id);
+        summary.push({ hotel_id: rule.hotel_id, skipped: true, reason: "pms_unavailable", detail: pmsNote });
+        continue;
+      }
+
+      // Observation window: since the previous SUCCESSFUL evaluation (normally
+      // ~60 minutes), so a slightly late scheduler still sees every booking.
+      const evalWindow = observationWindow(now, rule.last_successful_evaluation_at, intervalMinutes);
       const lookbackFrom = new Date(
-        Math.max(
-          Date.parse(rule.last_run_at ?? "") || 0,
-          Date.now() - 6 * 60 * 60 * 1000,
+        Math.min(
+          Date.parse(evalWindow.from),
+          Math.max(Date.parse(rule.last_run_at ?? "") || 0, Date.now() - 6 * 60 * 60 * 1000),
         ),
       ).toISOString();
+
 
       // 1. New booking nights Hotel Care captured since the cursor. The cursor
       //    follows capture time, not Previo's creation time: a booking made at
@@ -223,93 +344,186 @@ Deno.serve(async (req) => {
         obk_id: string | null; room_type_name: string | null; guests: number | null;
       }>;
 
-      // No-pickup markdowns run only once per configured local-time slot. They
-      // never share the positive-pickup path, so a negative pickup cannot raise
-      // a price and a stay date cannot move in both directions in one tick.
+      // No-pickup markdown. It runs on the same hourly cadence as the pickup
+      // check — not on fixed clock slots — and never touches a stay date that
+      // picked up in this window, so one date can only move one way per cycle.
       let markdownActions = 0;
+      const markdownBlocks: Record<string, number> = {};
       if (rule.no_pickup_enabled) {
         const local = localParts(rule.run_timezone || "Europe/Budapest");
-        const nowMinutes = minutesOf(local.time);
-        const slot = (rule.no_pickup_run_times ?? []).find((candidate) => {
-          const delta = nowMinutes - minutesOf(candidate);
-          return delta >= 0 && delta < 15 && rule.last_no_pickup_slot !== `${local.date}|${candidate}`;
-        });
-        if (slot) {
-          const horizon = new Date(`${local.date}T00:00:00Z`);
-          horizon.setUTCDate(horizon.getUTCDate() + Math.max(1, Number(rule.future_booking_window_days || 183)));
-          const horizonDate = horizon.toISOString().slice(0, 10);
-          const observationFrom = new Date(Date.now() - Math.max(1, Number(rule.no_pickup_lookback_hours || 8)) * 3_600_000).toISOString();
-          const [{ data: recentBookings }, { data: recentCancellations }, { data: horizonRates }, { data: markdownToday }] = await Promise.all([
-            admin.from("revenue_booking_nights").select("stay_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("created_at_pms", observationFrom).limit(20000),
-            admin.from("revenue_cancelled_nights").select("stay_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("cancelled_at", observationFrom).limit(20000),
-            admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).limit(50000),
-            admin.from("revenue_pickup_automation_actions").select("stay_date, increase_amount").eq("hotel_id", rule.hotel_id).eq("decision_type", "no_pickup_markdown").eq("local_business_date", local.date).limit(50000),
-          ]);
-          const positiveDates = new Set((recentBookings ?? []).map((row: any) => row.stay_date));
-          const negativeDates = new Set((recentCancellations ?? []).map((row: any) => row.stay_date));
-          const decreasedToday = new Map<string, number>();
-          for (const action of (markdownToday ?? []) as any[]) decreasedToday.set(action.stay_date, (decreasedToday.get(action.stay_date) ?? 0) + Math.abs(Number(action.increase_amount || 0)));
-          const latest = new Map<string, any>();
-          for (const rate of (horizonRates ?? []) as any[]) {
-            const key = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
-            if (!latest.has(key)) latest.set(key, rate);
-          }
-          const markdownRows: any[] = [];
-          const markdownDrafts: any[] = [];
-          for (const rate of latest.values()) {
-            if (positiveDates.has(rate.stay_date)) continue;
-            const already = decreasedToday.get(rate.stay_date) ?? 0;
-            const remaining = Math.max(0, Number(rule.max_daily_decrease_per_date || 10) - already);
-            if (remaining <= 0) continue;
-            const decrease = Math.min(Math.max(1, Number(rule.no_pickup_decrease || 2)), 3, remaining);
-            const oldPrice = Number(rate.price);
-            const floor = Number(rule.minimum_adr || 0);
-            const newPrice = Math.max(floor, Math.round(oldPrice - decrease));
-            if (!Number.isFinite(oldPrice) || newPrice >= oldPrice) continue;
-            decreasedToday.set(rate.stay_date, already + (oldPrice - newPrice));
-            markdownRows.push({
-              rule_id: rule.id, rule_version: rule.version, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
-              reservation_id: null, stay_date: rate.stay_date, pickup_at: null, pickup_sequence: 0,
-              room_type_name: rate.room_type_name, obk_id: String(rate.obk_id), occupancy: Number(rate.occupancy) || 2,
-              old_price: oldPrice, increase_amount: newPrice - oldPrice, new_price: newPrice,
-              status: rule.auto_publish ? "queued" : "suggested", decision_type: "no_pickup_markdown",
-              observation_from: observationFrom, observation_to: runStartedAt, net_pickup: negativeDates.has(rate.stay_date) ? -1 : 0,
-              schedule_slot: slot, local_business_date: local.date, cap_applied: oldPrice - newPrice,
-            });
-            if (rule.auto_publish) markdownDrafts.push({
-              hotel_id: rule.hotel_id, organization_slug: rule.organization_slug, stay_date: rate.stay_date,
-              obk_id: String(rate.obk_id), room_type_name: rate.room_type_name, occupancy: Number(rate.occupancy) || 2,
-              old_price: oldPrice, new_price: newPrice, currency: rate.currency ?? rule.currency ?? "EUR", status: "draft",
-            });
-          }
-          if (!dryRun && markdownRows.length > 0) {
-            const { data: insertedMarkdowns, error: markdownError } = await admin.from("revenue_pickup_automation_actions")
-              .upsert(markdownRows, { onConflict: "hotel_id,stay_date,obk_id,occupancy,rule_version,schedule_slot,local_business_date", ignoreDuplicates: true })
-              .select("stay_date,obk_id,occupancy");
-            if (markdownError) throw markdownError;
-            const accepted = new Set((insertedMarkdowns ?? []).map((row: any) => `${row.stay_date}|${row.obk_id}|${row.occupancy}`));
-            const payload = markdownDrafts.filter((row) => accepted.has(`${row.stay_date}|${row.obk_id}|${row.occupancy}`));
-            markdownActions = payload.length;
-            if (payload.length > 0) {
-              const runId = crypto.randomUUID();
-              await admin.from("revenue_rate_push_runs").insert({ id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug, source: "automation", requested_count: payload.length });
-              const { data: drafts, error: draftError } = await admin.from("revenue_rate_drafts").insert(payload.map((row) => ({ ...row, push_run_id: runId, confirmation_status: "sending" }))).select("id,stay_date,room_type_name,occupancy");
-              if (draftError) throw draftError;
-              const draftMap = new Map((drafts ?? []).map((row: any) => [`${row.stay_date}|${row.room_type_name}|${row.occupancy}`, row.id]));
-              await admin.from("revenue_rate_push_items").insert(payload.map((row) => ({ run_id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug, stay_date: row.stay_date, obk_id: row.obk_id, room_type_name: row.room_type_name, occupancy: row.occupancy, old_price: row.old_price, target_price: row.new_price, currency: row.currency, draft_id: draftMap.get(`${row.stay_date}|${row.room_type_name}|${row.occupancy}`) })));
-              const work = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, { method: "POST", headers: { "Content-Type": "application/json", "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")! }, body: JSON.stringify({ hotelId: rule.hotel_id, draftIds: (drafts ?? []).map((row: any) => row.id), pushRunId: runId }) });
-              (globalThis as any).EdgeRuntime?.waitUntil(work);
+        // A stable per-cycle slot label keeps the "one action per cell per
+        // evaluation" index meaningful now that runs are interval based.
+        const slot = `${local.time.slice(0, 2)}:${String(Math.floor(Number(local.time.slice(3, 5)) / 15) * 15).padStart(2, "0")}`;
+        const horizon = new Date(`${local.date}T00:00:00Z`);
+        horizon.setUTCDate(horizon.getUTCDate() + Math.max(1, Number(rule.future_booking_window_days || 183)));
+        const horizonDate = horizon.toISOString().slice(0, 10);
+        const observationFrom = evalWindow.from;
+
+        const [
+          { data: recentBookings },
+          { data: recentCancellations },
+          { data: horizonRates },
+          { data: markdownToday },
+          { data: snapshotRows },
+          { data: pendingDrafts },
+          { data: manualEdits },
+        ] = await Promise.all([
+          admin.from("revenue_booking_nights").select("stay_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("captured_at", observationFrom).limit(20000),
+          admin.from("revenue_cancelled_nights").select("stay_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("cancelled_at", observationFrom).limit(20000),
+          admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).limit(50000),
+          admin.from("revenue_pickup_automation_actions").select("stay_date, obk_id, occupancy, increase_amount").eq("hotel_id", rule.hotel_id).eq("decision_type", "no_pickup_markdown").eq("local_business_date", local.date).limit(50000),
+          admin.from("revenue_daily_snapshots").select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_date", { ascending: false }).limit(20000),
+          admin.from("revenue_rate_drafts").select("id, stay_date, room_type_name, obk_id, occupancy, new_price, old_price, status, created_at, push_run_id").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).in("status", ["draft", "sending", "pushed"]).is("superseded_at", null).limit(50000),
+          admin.from("rate_change_audit").select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).gte("performed_at", new Date(Date.now() - Math.max(0, Number(rule.manual_markdown_hold_hours || 0)) * 3_600_000).toISOString()).limit(20000),
+        ]);
+
+        const positiveDates = new Set((recentBookings ?? []).map((row: any) => row.stay_date));
+        const negativeDates = new Set((recentCancellations ?? []).map((row: any) => row.stay_date));
+
+        // Daily cap is consumed per STAY DATE: take the largest movement any one
+        // cell of that date already made today.
+        const movedTodayByCell = new Map<string, number>();
+        for (const action of (markdownToday ?? []) as any[]) {
+          const key = `${action.stay_date}|${action.obk_id}|${action.occupancy}`;
+          movedTodayByCell.set(key, (movedTodayByCell.get(key) ?? 0) + Math.abs(Number(action.increase_amount || 0)));
+        }
+        const movedTodayByDate = new Map<string, number>();
+        for (const [key, amount] of movedTodayByCell) {
+          const date = key.split("|")[0];
+          movedTodayByDate.set(date, Math.max(movedTodayByDate.get(date) ?? 0, amount));
+        }
+
+        const occupancyByDate = new Map<string, { pct: number | null; left: number | null }>();
+        for (const row of (snapshotRows ?? []) as any[]) {
+          if (occupancyByDate.has(row.stay_date)) continue;
+          const sold = Number(row.rooms_sold);
+          const total = Number(row.rooms_available);
+          occupancyByDate.set(row.stay_date, {
+            pct: row.occupancy_pct === null || row.occupancy_pct === undefined ? null : Number(row.occupancy_pct),
+            left: Number.isFinite(sold) && Number.isFinite(total) ? total - sold : null,
+          });
+        }
+
+        const lastManualByDate = new Map<string, string>();
+        for (const row of (manualEdits ?? []) as any[]) {
+          const src = String(row.source ?? "");
+          if (src.includes("automation")) continue;   // only a human puts a date on hold
+          const seen = lastManualByDate.get(row.stay_date);
+          if (!seen || row.performed_at > seen) lastManualByDate.set(row.stay_date, row.performed_at);
+        }
+
+        // Pending intents win over the PMS mirror so an hourly step never
+        // recomputes from a price we already decided to replace.
+        const pendingByCell = new Map<string, Array<{ id: string; new_price: number; created_at: string; claimed: boolean }>>();
+        for (const row of (pendingDrafts ?? []) as any[]) {
+          const key = `${row.stay_date}|${row.obk_id}|${row.occupancy}`;
+          const list = pendingByCell.get(key) ?? [];
+          list.push({ id: row.id, new_price: Number(row.new_price), created_at: row.created_at, claimed: row.status !== "draft" });
+          pendingByCell.set(key, list);
+        }
+
+        const latest = new Map<string, any>();
+        for (const rate of (horizonRates ?? []) as any[]) {
+          const key = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
+          if (!latest.has(key)) latest.set(key, rate);
+        }
+
+        const markdownRows: any[] = [];
+        const markdownDrafts: any[] = [];
+        const supersede: string[] = [];
+        const blockedDates = new Map<string, string>();
+
+        for (const rate of latest.values()) {
+          const cellKey = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
+          const guardsFor = occupancyByDate.get(rate.stay_date);
+          const block = markdownBlockReason({
+            hadPickup: positiveDates.has(rate.stay_date),
+            roomsAvailable: guardsFor?.left ?? null,
+            occupancyPct: guardsFor?.pct ?? null,
+            protectHighOccupancy: rule.protect_high_occupancy !== false,
+            markdownMaxOccupancyPct: Number(rule.markdown_max_occupancy_pct ?? 88),
+            lastManualEditAt: lastManualByDate.get(rate.stay_date) ?? null,
+            manualHoldHours: Number(rule.manual_markdown_hold_hours ?? 6),
+            now,
+          });
+          if (block) {
+            if (!blockedDates.has(rate.stay_date)) {
+              blockedDates.set(rate.stay_date, block);
+              markdownBlocks[block] = (markdownBlocks[block] ?? 0) + 1;
             }
+            continue;
           }
-          if (!dryRun) await admin.from("revenue_pickup_automation_rules").update({ last_no_pickup_slot: `${local.date}|${slot}` }).eq("id", rule.id);
+
+          const pending = pendingByCell.get(cellKey) ?? [];
+          const current = effectivePrice(Number(rate.price), pending);
+          if (current === null) continue;
+
+          const step = computeMarkdown({
+            effectivePrice: current,
+            decreasePerEvaluation: Number(rule.no_pickup_decrease || 2),
+            floorPrice: rule.minimum_adr === null ? null : Number(rule.minimum_adr),
+            stayDateMovedToday: movedTodayByDate.get(rate.stay_date) ?? 0,
+            maxDailyDecreasePerDate: Number(rule.max_daily_decrease_per_date || 10),
+          });
+          if (!step) continue;
+
+          movedTodayByDate.set(rate.stay_date, (movedTodayByDate.get(rate.stay_date) ?? 0) + step.applied);
+          for (const intent of pending) if (!intent.claimed) supersede.push(intent.id);
+
+          markdownRows.push({
+            rule_id: rule.id, rule_version: rule.version, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
+            reservation_id: null, stay_date: rate.stay_date, pickup_at: null, pickup_sequence: 0,
+            room_type_name: rate.room_type_name, obk_id: String(rate.obk_id), occupancy: Number(rate.occupancy) || 2,
+            old_price: current, increase_amount: step.newPrice - current, new_price: step.newPrice,
+            status: rule.auto_publish ? "queued" : "suggested", decision_type: "no_pickup_markdown",
+            observation_from: observationFrom, observation_to: runStartedAt,
+            net_pickup: negativeDates.has(rate.stay_date) ? -1 : 0,
+            schedule_slot: slot, local_business_date: local.date, cap_applied: step.applied,
+          });
+          if (rule.auto_publish) markdownDrafts.push({
+            hotel_id: rule.hotel_id, organization_slug: rule.organization_slug, stay_date: rate.stay_date,
+            obk_id: String(rate.obk_id), room_type_name: rate.room_type_name, occupancy: Number(rate.occupancy) || 2,
+            old_price: current, new_price: step.newPrice, currency: rate.currency ?? rule.currency ?? "EUR", status: "draft",
+            priority: priorityOf("markdown"), intent_source: "automation_markdown",
+          });
+        }
+
+        if (!dryRun && markdownRows.length > 0) {
+          const { data: insertedMarkdowns, error: markdownError } = await admin.from("revenue_pickup_automation_actions")
+            .upsert(markdownRows, { onConflict: "hotel_id,stay_date,obk_id,occupancy,rule_version,schedule_slot,local_business_date", ignoreDuplicates: true })
+            .select("stay_date,obk_id,occupancy");
+          if (markdownError) throw markdownError;
+          const accepted = new Set((insertedMarkdowns ?? []).map((row: any) => `${row.stay_date}|${row.obk_id}|${row.occupancy}`));
+          const payload = markdownDrafts.filter((row) => accepted.has(`${row.stay_date}|${row.obk_id}|${row.occupancy}`));
+          markdownActions = payload.length;
+          if (payload.length > 0) {
+            for (let i = 0; i < supersede.length; i += 200) {
+              await admin.from("revenue_rate_drafts")
+                .update({ superseded_at: new Date().toISOString(), status: "superseded" })
+                .in("id", supersede.slice(i, i + 200));
+            }
+            await queueIntents(admin, rule, payload, priorityOf("markdown"));
+          }
         }
       }
+
       if (pickups.length === 0) {
-        await admin.from("revenue_pickup_automation_rules")
-          .update({ last_run_at: runStartedAt }).eq("id", rule.id);
-        summary.push({ hotel_id: rule.hotel_id, pickups: 0, actions: markdownActions, markdowns: markdownActions });
+        await admin.from("revenue_pickup_automation_rules").update({
+          last_run_at: runStartedAt,
+          last_evaluated_at: runStartedAt,
+          last_successful_evaluation_at: runStartedAt,
+          last_evaluation_status: "ok",
+          last_evaluation_error: null,
+          next_run_at: nextRunAt(now, intervalMinutes),
+        }).eq("id", rule.id);
+        summary.push({
+          hotel_id: rule.hotel_id, pickups: 0, actions: markdownActions,
+          markdowns: markdownActions, blocked: markdownBlocks,
+          next_run_at: nextRunAt(now, intervalMinutes),
+        });
         continue;
       }
+
 
       const stayDates = Array.from(new Set(pickups.map((p) => p.stay_date))).sort();
 
@@ -604,20 +818,34 @@ Deno.serve(async (req) => {
         const payload = Array.from(byCell.values());
         if (payload.length > 0) {
           try {
-            // A cell can only carry one pending draft, so clear any stale one
-            // for the same cell before writing the automated price.
+            // Older unsent intents for the same cell are superseded, never
+            // deleted: history stays intact and only the newest target is sent.
             const staleDates = Array.from(new Set(payload.map((d) => d.stay_date)));
             const { data: staleDrafts } = await admin.from("revenue_rate_drafts")
               .select("id, stay_date, room_type_name, occupancy")
               .eq("hotel_id", rule.hotel_id).in("stay_date", staleDates)
-              .in("status", ["draft", "failed"]);
+              .in("status", ["draft", "failed"]).is("superseded_at", null);
             const staleIds = ((staleDrafts ?? []) as any[])
               .filter((row) => byCell.has(`${row.stay_date}|${row.room_type_name}|${row.occupancy}`))
               .map((row) => row.id);
-            if (staleIds.length > 0) await admin.from("revenue_rate_drafts").delete().in("id", staleIds);
+            for (let i = 0; i < staleIds.length; i += 200) {
+              await admin.from("revenue_rate_drafts")
+                .update({ superseded_at: new Date().toISOString(), status: "superseded" })
+                .in("id", staleIds.slice(i, i + 200));
+            }
+            const pushRunId = crypto.randomUUID();
+            await admin.from("revenue_rate_push_runs").insert({
+              id: pushRunId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
+              source: "automation", requested_count: payload.length, priority: priorityOf("pickup"),
+            });
             const { data: drafts, error: draftErr } = await admin
               .from("revenue_rate_drafts")
-              .insert(payload)
+              .insert(payload.map((row: any) => ({
+                ...row,
+                priority: priorityOf("pickup"),
+                intent_source: "automation_pickup",
+                push_run_id: pushRunId,
+              })))
               .select("id");
             if (draftErr) throw draftErr;
             const draftIds = ((drafts ?? []) as any[]).map((d) => d.id);
@@ -628,8 +856,9 @@ Deno.serve(async (req) => {
                 "Content-Type": "application/json",
                 "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
               },
-              body: JSON.stringify({ hotelId: rule.hotel_id, draftIds }),
+              body: JSON.stringify({ hotelId: rule.hotel_id, draftIds, pushRunId }),
             });
+
             const out = await res.json().catch(() => ({}));
             pushed = Number(out?.pushed ?? 0);
             pushError = pushed > 0 ? null : (out?.error ?? "Previo did not accept the change");
@@ -683,8 +912,15 @@ Deno.serve(async (req) => {
         }
       }
 
-      await admin.from("revenue_pickup_automation_rules")
-        .update({ last_run_at: runStartedAt }).eq("id", rule.id);
+      await admin.from("revenue_pickup_automation_rules").update({
+        last_run_at: runStartedAt,
+        last_evaluated_at: runStartedAt,
+        last_successful_evaluation_at: runStartedAt,
+        last_evaluation_status: "ok",
+        last_evaluation_error: null,
+        next_run_at: nextRunAt(now, intervalMinutes),
+      }).eq("id", rule.id);
+
 
       const failedCount = Math.max(0, changed.filter((c) => c.status === "failed").length);
 
@@ -715,9 +951,12 @@ Deno.serve(async (req) => {
       summary.push({
         hotel_id: rule.hotel_id, pickups: events.length,
         skipped_not_new: skippedStale, skipped_negative_pickup: skippedNegative,
-        actions: inserted, pushed, failed: failedCount,
+        actions: inserted, markdowns: markdownActions, blocked: markdownBlocks,
+        pushed, failed: failedCount,
         push_error: pushError, auto_publish: rule.auto_publish, changed,
+        next_run_at: nextRunAt(now, intervalMinutes),
       });
+
     }
     } finally {
       await admin.rpc("release_automation_lock", { p_hotel: lockHotel });
