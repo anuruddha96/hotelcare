@@ -1913,7 +1913,9 @@ export default function RateStrategyGrid({
                   {dates.map((d, i) => {
                     const picked = multiMode ? pickedDates.has(d) : selecting && selDates.has(d);
                     const trail = auditByDate.get(d);
-                    const dayChanges = dayChangesByDate.get(d) ?? [];
+                    const windowChanges = dayChangesByDate.get(d) ?? [];
+                    const dayChanges = windowChanges.length > 0 ? windowChanges : (markerChangesByDate.get(d) ?? []);
+
                     // The date dot is reconstructed from persisted markers, so
                     // it looks the same before and after a browser reload.
                     const recorded = markerByDate.get(d);
