@@ -897,8 +897,15 @@ Deno.serve(async (req) => {
         }
       }
 
-      await admin.from("revenue_pickup_automation_rules")
-        .update({ last_run_at: runStartedAt }).eq("id", rule.id);
+      await admin.from("revenue_pickup_automation_rules").update({
+        last_run_at: runStartedAt,
+        last_evaluated_at: runStartedAt,
+        last_successful_evaluation_at: runStartedAt,
+        last_evaluation_status: "ok",
+        last_evaluation_error: null,
+        next_run_at: nextRunAt(now, intervalMinutes),
+      }).eq("id", rule.id);
+
 
       const failedCount = Math.max(0, changed.filter((c) => c.status === "failed").length);
 
