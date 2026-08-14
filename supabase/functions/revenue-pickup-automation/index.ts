@@ -1,10 +1,24 @@
-// Pickup price automation.
+// Hourly demand evaluation for one property at a time.
 //
-// When a new booking lands for a stay date, the rule raises that date's prices
-// by a tier that depends on how far away the stay is, plus a surcharge when
-// several bookings arrive inside the same short window. Only stay dates that
-// actually picked up are touched — nothing else on the calendar moves.
+// Every cycle the scheduler hands this function exactly ONE due hotel. For that
+// hotel it refreshes reservations from the PMS, then for every stay date inside
+// the configured horizon it either raises the price (genuine positive pickup in
+// this hour's observation window) or lowers it by a fixed amount (no pickup),
+// honouring the floor, the per-stay-date daily caps and the safety guards.
+//
+// Delivery to Previo is asynchronous: HotelCare records the intended price and
+// a serialized background publisher sends it, one hotel at a time.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  roundMoney,
+  priorityOf,
+  nextRunAt,
+  observationWindow,
+  markdownBlockReason,
+  computeMarkdown,
+  effectivePrice,
+} from "../_shared/pricingRules.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
