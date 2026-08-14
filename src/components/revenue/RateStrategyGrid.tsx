@@ -1803,47 +1803,54 @@ export default function RateStrategyGrid({
           </div>
         )}
         {canEditRates && (failedCount > 0 || divergentDrafts.length > 0 || openMismatches.length > 0) && (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
-            <span className="text-xs space-x-2">
-              {failedCount > 0 && (
-                <span className="text-destructive">{failedCount} refused by Previo.</span>
-              )}
-              {(divergentDrafts.length > 0 || openMismatches.length > 0) && (
-                <span className="text-destructive">
-                  {Math.max(divergentDrafts.length, openMismatches.length)} landed on a different price.
-                </span>
-              )}
-              <span className="text-muted-foreground">
-                If Previo already shows the right price, re-check it or clear the flags.
-              </span>
-            </span>
-
-            <span className="flex items-center gap-2">
-              <Button
-                size="sm" variant="outline" className="h-8 text-xs"
-                disabled={rechecking}
-                onClick={() => void recheckPrevio()}
+          // Quiet, non-blocking status pill: the sync now retries mismatches on
+          // its own, so this is information first and an action only if asked.
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="self-start inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-300"
               >
-                {rechecking ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
-                Check Previo now
-              </Button>
-              {openMismatches.length > 0 && (
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                {failedCount > 0 && <span>{failedCount} refused</span>}
+                {(divergentDrafts.length > 0 || openMismatches.length > 0) && (
+                  <span>{Math.max(divergentDrafts.length, openMismatches.length)} still checking</span>
+                )}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-72 space-y-2 text-xs">
+              <p className="text-muted-foreground leading-relaxed">
+                Hotel Care re-checks these prices with Previo automatically and re-sends
+                them if they did not land. You only need to step in if they keep failing.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
-                  size="sm" variant="outline" className="h-8 text-xs"
-                  disabled={clearingFlags}
-                  onClick={() => void clearMismatchFlags()}
+                  size="sm" variant="outline" className="h-7 text-xs"
+                  disabled={rechecking}
+                  onClick={() => void recheckPrevio()}
                 >
-                  {clearingFlags ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5 mr-1" />}
-                  Clear flags ({openMismatches.length})
+                  {rechecking ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
+                  Check now
                 </Button>
-              )}
-              <Button size="sm" className="h-8 text-xs" onClick={() => setPushOpen(true)}>
-                <Send className="h-3.5 w-3.5 mr-1" />
-                Review errors
-              </Button>
-            </span>
-          </div>
+                {openMismatches.length > 0 && (
+                  <Button
+                    size="sm" variant="outline" className="h-7 text-xs"
+                    disabled={clearingFlags}
+                    onClick={() => void clearMismatchFlags()}
+                  >
+                    {clearingFlags ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5 mr-1" />}
+                    Clear ({openMismatches.length})
+                  </Button>
+                )}
+                <Button size="sm" className="h-7 text-xs" onClick={() => setPushOpen(true)}>
+                  <Send className="h-3.5 w-3.5 mr-1" />
+                  Details
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
         )}
+
 
 
 
