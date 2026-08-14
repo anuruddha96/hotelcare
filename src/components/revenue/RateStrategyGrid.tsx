@@ -1883,13 +1883,16 @@ export default function RateStrategyGrid({
                     const picked = multiMode ? pickedDates.has(d) : selecting && selDates.has(d);
                     const trail = auditByDate.get(d);
                     const dayChanges = dayChangesByDate.get(d) ?? [];
-                    const recorded = dayChanges.find((c) => Date.parse(c.at) >= dayStart);
+                    // The date dot is reconstructed from persisted markers, so
+                    // it looks the same before and after a browser reload.
+                    const recorded = markerByDate.get(d);
                     // A price the user just published shows its blue dot at
-                    // once, before the audit trail has caught up.
+                    // once, before the marker query has caught up.
                     const justChangedAt = optimisticDayOrigin.get(d);
                     const dayLatest = justChangedAt && (!recorded || Date.parse(justChangedAt) > Date.parse(recorded.at))
                       ? { origin: "team" as ChangeOrigin }
                       : recorded;
+
                     const dayButton = (
                       <button
                         key={d}
