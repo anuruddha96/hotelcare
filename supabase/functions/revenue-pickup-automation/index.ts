@@ -351,7 +351,9 @@ Deno.serve(async (req) => {
       // check — not on fixed clock slots — and never touches a stay date that
       // picked up in this window, so one date can only move one way per cycle.
       let markdownActions = 0;
+      let markdownStayDates = 0;
       const markdownBlocks: Record<string, number> = {};
+
       if (rule.no_pickup_enabled) {
         const local = localParts(rule.run_timezone || "Europe/Budapest");
         // A stable per-cycle slot label keeps the "one action per cell per
