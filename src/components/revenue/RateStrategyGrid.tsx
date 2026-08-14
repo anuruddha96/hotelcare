@@ -2215,21 +2215,29 @@ export default function RateStrategyGrid({
                     const flashKind = flash.get(`${d}|${row.roomTypeName}|${row.occ}`);
                     const shown = draft ?? sending ?? published;
                     const tone = rateTone(shown, thresholds);
-                    const history = auditByCell.get(cellKey(d, row.roomTypeName, row.occ));
+                    const ck = cellKey(d, row.roomTypeName, row.occ);
+                    // The real rows for THIS exact cell, loaded per stay date.
+                    // The shared audit window only ever held the newest rows
+                    // for the whole hotel, which left the lower room types with
+                    // a dot and an empty drawer.
+                    const history = cellHistoryByCell.get(ck) ?? auditByCell.get(ck);
                     // The colour follows the most recent change, never a
                     // ranking: a price you set by hand this morning reads blue
                     // even if automation moved the same cell last week.
-                    const cellAutomation = automationByCell.get(cellKey(d, row.roomTypeName, row.occ));
-                    const cellOrigin = cellOriginByCell.get(cellKey(d, row.roomTypeName, row.occ));
-                    const justPublishedAt = optimisticOrigin.get(cellKey(d, row.roomTypeName, row.occ));
+                    const cellAutomation = automationByCell.get(ck);
+                    const cellOrigin = cellOriginByCell.get(ck);
+                    const marker = markerByCell.get(ck);
+                    const justPublishedAt = optimisticOrigin.get(ck);
                     const cellEvents = [
                       ...(justPublishedAt ? [{ origin: "team" as ChangeOrigin, at: justPublishedAt }] : []),
+                      ...(marker ? [{ origin: marker.origin, at: marker.at }] : []),
                       ...cellOriginEvents(history, cellAutomation),
-                    ];
+                    ].sort((a, b) => b.at.localeCompare(a.at));
                     // One dot only — the most recent change. The full story
                     // lives in the cell's hover card / tap sheet.
                     const latestToday = cellEvents.find((e) => Date.parse(e.at) >= dayStart);
                     const cellOrigin1: ChangeOrigin | null = showMarkers ? (latestToday?.origin ?? null) : null;
+
                     
                     const originLabel = (() => {
                       if (draft !== undefined) {
