@@ -26,6 +26,8 @@ import { getRevenueCurrency, moneyBase, useRevenueCurrency } from "@/lib/revenue
 import type { RevenueRoomType } from "@/hooks/useRevenueHotelData";
 import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 import { useRateAudit } from "@/hooks/useRateAudit";
+import { useRateCellMarkers } from "@/hooks/useRateCellMarkers";
+import { useCellRateHistory } from "@/hooks/useCellRateHistory";
 import { usePickupAutomationActions, type AutomationAction } from "@/hooks/usePickupAutomationActions";
 import { cellKey, formatWhen, logRateChanges, resolveRateMismatches, type RateAuditRow } from "@/lib/rateAudit";
 import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, budapestDayStartMs, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
@@ -420,7 +422,7 @@ export default function RateStrategyGrid({
   const [probe, setProbe] = useState<{ ok: boolean; message: string; support?: string | null } | null>(null);
 
   /** Price-change trail: cell history on hover, and the activity panel below. */
-  const { rows: auditRows, manualRows: auditManualRows, byCell: auditByCell, originByCell: cellOriginByCell, names: auditNames, reload: reloadAudit } = useRateAudit(hotelId);
+  const { rows: auditRows, manualRows: auditManualRows, byCell: auditByCell, originByCell: cellOriginByCell, names: auditNames, reload: reloadAuditRows } = useRateAudit(hotelId);
   const { rows: automationRows, byCell: automationByCell } = usePickupAutomationActions(hotelId);
 
   /** One-line summary of the last Previo-confirmed change on each date. */
@@ -575,6 +577,57 @@ export default function RateStrategyGrid({
 
 
   const allDates = useMemo(() => dateRange(today, addDays(today, days - 1)), [today, days]);
+
+  /**
+   * Durable change markers for everything on screen. Read from the database in
+   * ONE bounded call per range (newest change per exact cell), so the dots
+   * survive a reload instead of living only in optimistic state.
+   */
+  const {
+    byCell: markerByCell,
+    byDate: markerByDate,
+    reload: reloadMarkers,
+  } = useRateCellMarkers(hotelId, allDates[0], allDates[allDates.length - 1]);
+
+  /** Real per-cell history, fetched one stay date at a time when opened. */
+  const { byCell: cellHistoryByCell, loadDate: loadCellHistory, invalidate: invalidateCellHistory } = useCellRateHistory(hotelId);
+
+  const reloadAudit = useCallback(async () => {
+    invalidateCellHistory();
+    await Promise.all([reloadAuditRows(), reloadMarkers()]);
+  }, [reloadAuditRows, reloadMarkers, invalidateCellHistory]);
+
+  /**
+   * Newest persisted changes per stay date, straight from the markers — used
+   * for the date hover card when the (much smaller) shared audit window no
+   * longer reaches back far enough on a busy property.
+   */
+  const markerChangesByDate = useMemo(() => {
+    const map = new Map<string, Array<{
+      at: string; origin: ChangeOrigin; old: number | null; next: number | null;
+      who: string; room: string | null; occ: number | null;
+    }>>();
+    for (const [key, m] of markerByCell) {
+      const [date, room, occ] = key.split("|");
+      const list = map.get(date) ?? [];
+      list.push({
+        at: m.at, origin: m.origin, old: m.old, next: m.price,
+        who: m.origin === "previo"
+          ? "Changed directly in Previo"
+          : m.origin === "automation"
+            ? "HotelCare Automation"
+            : ((m.by && auditNames.get(m.by)) || "Someone on your team"),
+        room: room || null,
+        occ: occ ? Number(occ) : null,
+      });
+      map.set(date, list);
+    }
+    for (const list of map.values()) list.sort((a, b) => b.at.localeCompare(a.at));
+    return map;
+  }, [markerByCell, auditNames]);
+
+
+
   /** When on, the grid shows only the cells flagged by the safety net. */
   const [reviewOnly, setReviewOnly] = useState(false);
   const [pickupOnly, setPickupOnly] = useState(false);
@@ -1860,14 +1913,19 @@ export default function RateStrategyGrid({
                   {dates.map((d, i) => {
                     const picked = multiMode ? pickedDates.has(d) : selecting && selDates.has(d);
                     const trail = auditByDate.get(d);
-                    const dayChanges = dayChangesByDate.get(d) ?? [];
-                    const recorded = dayChanges.find((c) => Date.parse(c.at) >= dayStart);
+                    const windowChanges = dayChangesByDate.get(d) ?? [];
+                    const dayChanges = windowChanges.length > 0 ? windowChanges : (markerChangesByDate.get(d) ?? []);
+
+                    // The date dot is reconstructed from persisted markers, so
+                    // it looks the same before and after a browser reload.
+                    const recorded = markerByDate.get(d);
                     // A price the user just published shows its blue dot at
-                    // once, before the audit trail has caught up.
+                    // once, before the marker query has caught up.
                     const justChangedAt = optimisticDayOrigin.get(d);
                     const dayLatest = justChangedAt && (!recorded || Date.parse(justChangedAt) > Date.parse(recorded.at))
                       ? { origin: "team" as ChangeOrigin }
                       : recorded;
+
                     const dayButton = (
                       <button
                         key={d}
@@ -2190,21 +2248,29 @@ export default function RateStrategyGrid({
                     const flashKind = flash.get(`${d}|${row.roomTypeName}|${row.occ}`);
                     const shown = draft ?? sending ?? published;
                     const tone = rateTone(shown, thresholds);
-                    const history = auditByCell.get(cellKey(d, row.roomTypeName, row.occ));
+                    const ck = cellKey(d, row.roomTypeName, row.occ);
+                    // The real rows for THIS exact cell, loaded per stay date.
+                    // The shared audit window only ever held the newest rows
+                    // for the whole hotel, which left the lower room types with
+                    // a dot and an empty drawer.
+                    const history = cellHistoryByCell.get(ck) ?? auditByCell.get(ck);
                     // The colour follows the most recent change, never a
                     // ranking: a price you set by hand this morning reads blue
                     // even if automation moved the same cell last week.
-                    const cellAutomation = automationByCell.get(cellKey(d, row.roomTypeName, row.occ));
-                    const cellOrigin = cellOriginByCell.get(cellKey(d, row.roomTypeName, row.occ));
-                    const justPublishedAt = optimisticOrigin.get(cellKey(d, row.roomTypeName, row.occ));
+                    const cellAutomation = automationByCell.get(ck);
+                    const cellOrigin = cellOriginByCell.get(ck);
+                    const marker = markerByCell.get(ck);
+                    const justPublishedAt = optimisticOrigin.get(ck);
                     const cellEvents = [
                       ...(justPublishedAt ? [{ origin: "team" as ChangeOrigin, at: justPublishedAt }] : []),
+                      ...(marker ? [{ origin: marker.origin, at: marker.at }] : []),
                       ...cellOriginEvents(history, cellAutomation),
-                    ];
+                    ].sort((a, b) => b.at.localeCompare(a.at));
                     // One dot only — the most recent change. The full story
                     // lives in the cell's hover card / tap sheet.
                     const latestToday = cellEvents.find((e) => Date.parse(e.at) >= dayStart);
                     const cellOrigin1: ChangeOrigin | null = showMarkers ? (latestToday?.origin ?? null) : null;
+
                     
                     const originLabel = (() => {
                       if (draft !== undefined) {
@@ -2236,12 +2302,15 @@ export default function RateStrategyGrid({
                         key={d}
                         type="button"
                         disabled={!canEditRates}
+                        onPointerEnter={() => { void loadCellHistory(d); }}
                         onClick={() => {
                           if (!canEditRates) return;
                           // On a phone there is no hover, so a tap tells the
                           // cell's story first and offers editing from there.
                           if (isMobile) {
+                            void loadCellHistory(d);
                             setCellInfo({
+
                               date: d,
                               roomTypeName: row.roomTypeName,
                               occ: row.occ,
@@ -2298,7 +2367,7 @@ export default function RateStrategyGrid({
 
                       </button>
                     );
-                    if ((!history && !cellAutomation?.length) || isMobile) return cellButton;
+                    if ((!history && !marker && !cellAutomation?.length) || isMobile) return cellButton;
                     return (
                       <HoverCard key={d} openDelay={120} closeDelay={60}>
                         <HoverCardTrigger asChild>{cellButton}</HoverCardTrigger>
@@ -2379,7 +2448,10 @@ export default function RateStrategyGrid({
                   <span className="tabular-nums font-semibold">{moneyBase(cellInfo.published)}</span>
                 </div>
                 <RateCellHistory
-                  history={auditByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ)) ?? []}
+                  history={cellHistoryByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ))
+                    ?? auditByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ))
+                    ?? []}
+
                   automation={automationByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ)) ?? []}
                   names={auditNames}
                   draftPrice={cellInfo.draft}
