@@ -31,16 +31,23 @@ export function useRateCellMarkers(hotelId?: string | null, from?: string, to?: 
       });
       if (error) throw error;
       setRows((data ?? []) as unknown as CellMarkerRow[]);
-    } catch {
-      setRows([]);
+    } catch (err) {
+      // A failed refresh must never erase markers we already have on screen —
+      // that is exactly how a reload used to lose every change dot.
+      if (import.meta.env.DEV) console.warn("[rate_cell_markers] failed", err);
     } finally {
       setLoading(false);
     }
   }, [hotelId, from, to]);
 
+
   useEffect(() => { void load(); }, [load]);
 
+  /** Never show one property's markers on another's calendar. */
+  useEffect(() => { setRows([]); }, [hotelId]);
+
   const loadRef = useRef(load);
+
   loadRef.current = load;
   useEffect(() => {
     const timer = window.setInterval(() => setTick(Date.now()), 60_000);
