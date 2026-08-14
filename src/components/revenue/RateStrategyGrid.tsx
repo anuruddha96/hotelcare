@@ -2415,7 +2415,10 @@ export default function RateStrategyGrid({
                   <span className="tabular-nums font-semibold">{moneyBase(cellInfo.published)}</span>
                 </div>
                 <RateCellHistory
-                  history={auditByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ)) ?? []}
+                  history={cellHistoryByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ))
+                    ?? auditByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ))
+                    ?? []}
+
                   automation={automationByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ)) ?? []}
                   names={auditNames}
                   draftPrice={cellInfo.draft}
