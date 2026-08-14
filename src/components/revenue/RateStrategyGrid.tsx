@@ -2363,13 +2363,16 @@ export default function RateStrategyGrid({
                           <i
                             aria-hidden
                             title="Sending to Previo"
-                            className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full border border-primary bg-transparent animate-pulse"
+                            className="absolute right-0.5 top-0.5 rounded-full border border-primary bg-transparent animate-pulse"
+                            style={{ width: CELL_DOT + 1, height: CELL_DOT + 1 }}
                           />
                         ) : cellOrigin1 ? (
                           <i
                             aria-hidden
-                            className={`absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full ${ORIGIN_DOT_CLASS[cellOrigin1]}`}
+                            className={`absolute right-0.5 top-0.5 rounded-full ${ORIGIN_DOT_CLASS[cellOrigin1]}`}
+                            style={{ width: CELL_DOT, height: CELL_DOT }}
                           />
+
                         ) : null}
 
 
