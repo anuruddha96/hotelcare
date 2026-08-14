@@ -448,8 +448,9 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label className="text-xs">Future booking window (days)</Label><Input type="number" min={1} max={730} value={rule.future_booking_window_days} onChange={(e) => setRule({ ...rule, future_booking_window_days: Number(e.target.value) })} /></div>
-                <div><Label className="text-xs">Decrease per check ({rule.currency})</Label><Input type="number" min={1} max={10} value={rule.no_pickup_decrease} onChange={(e) => setRule({ ...rule, no_pickup_decrease: Number(e.target.value) })} /></div>
-                <div><Label className="text-xs">Daily decrease cap per date ({rule.currency})</Label><Input type="number" min={1} value={rule.max_daily_decrease_per_date} onChange={(e) => setRule({ ...rule, max_daily_decrease_per_date: Number(e.target.value) })} /></div>
+                <div><Label className="text-xs">Decrease per check ({rule.currency})</Label><Input type="number" step={0.01} min={0.01} max={50} value={rule.no_pickup_decrease} onChange={(e) => setRule({ ...rule, no_pickup_decrease: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">One step per date per check, however many room types it has.</p></div>
+                <div><Label className="text-xs">Daily decrease cap per date ({rule.currency})</Label><Input type="number" step={0.01} min={0.01} value={rule.max_daily_decrease_per_date} onChange={(e) => setRule({ ...rule, max_daily_decrease_per_date: Number(e.target.value) })} /></div>
+
                 <div><Label className="text-xs">Leave manual changes alone (hours)</Label><Input type="number" min={0} max={72} value={rule.manual_markdown_hold_hours} onChange={(e) => setRule({ ...rule, manual_markdown_hold_hours: Number(e.target.value) })} /></div>
               </div>
               <div className="flex items-center justify-between gap-3">
