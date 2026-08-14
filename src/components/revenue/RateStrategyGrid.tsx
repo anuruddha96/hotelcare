@@ -26,6 +26,8 @@ import { getRevenueCurrency, moneyBase, useRevenueCurrency } from "@/lib/revenue
 import type { RevenueRoomType } from "@/hooks/useRevenueHotelData";
 import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 import { useRateAudit } from "@/hooks/useRateAudit";
+import { useRateCellMarkers } from "@/hooks/useRateCellMarkers";
+import { useCellRateHistory } from "@/hooks/useCellRateHistory";
 import { usePickupAutomationActions, type AutomationAction } from "@/hooks/usePickupAutomationActions";
 import { cellKey, formatWhen, logRateChanges, resolveRateMismatches, type RateAuditRow } from "@/lib/rateAudit";
 import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, budapestDayStartMs, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
