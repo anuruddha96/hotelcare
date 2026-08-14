@@ -1242,7 +1242,9 @@ serve(async (req) => {
   }
 
   const summary = {
+    mode: probeOnly ? "automation_probe" : "full",
     hotelId,
+
     orgSlug,
     from,
     to,
