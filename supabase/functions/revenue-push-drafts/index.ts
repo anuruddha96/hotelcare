@@ -631,6 +631,12 @@ Deno.serve(async (req) => {
     }).eq("id", pushRunId);
 
     if (more) {
+      // Hand the lock over before the next slice starts, otherwise the
+      // follow-up call would queue behind this one's own reservation.
+      if (publisherLock) {
+        await admin.rpc("release_publisher_lock", { p_hotel: publisherLock });
+        publisherLock = null;
+      }
       const continueRun = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
         method: "POST",
         headers: {
@@ -658,7 +664,12 @@ Deno.serve(async (req) => {
   } catch (e) {
     console.error("revenue-push-drafts error", e);
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+  } finally {
+    if (publisherLock) {
+      await admin.rpc("release_publisher_lock", { p_hotel: publisherLock }).catch?.(() => {});
+    }
   }
+
 });
 
 function json(data: unknown, status = 200) {
