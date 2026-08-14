@@ -171,20 +171,32 @@ Deno.serve(async (req) => {
       return json({ ok: true, pushed: 0, failed: 0, message: "Nothing to push." });
     }
 
-    // Only one property may talk to Previo at a time. The lock is keyed by
-    // hotel, so this run's own follow-up slices re-enter freely while another
-    // property waits its turn instead of interleaving messages.
+    // Exactly one publishing worker may talk to Previo at a time, anywhere in
+    // the system. The lease carries a private token so a slow worker can never
+    // release a newer worker's turn; a dead worker's lease expires after 15
+    // minutes. Continuations release the lease before starting the next slice,
+    // so no re-entry exception is needed.
     for (let attempt = 0; attempt < 4 && !publisherLock; attempt++) {
-      const { data: gotLock } = await admin.rpc("claim_publisher_lock", { p_hotel: hotelId, p_stale_minutes: 15 });
-      if (gotLock === true) { publisherLock = hotelId; break; }
+      const { data: gotLock } = await admin.rpc("claim_publisher_lease", {
+        p_hotel: hotelId, p_token: leaseToken, p_stale_minutes: 15,
+      });
+      if (gotLock === true) { publisherLock = leaseToken; break; }
       if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 1500));
     }
     if (!publisherLock) {
+      // The work stays durable: the run keeps its queued drafts and the
+      // publisher queue drainer picks it up within a few minutes.
+      if (requestedRunId) {
+        await admin.from("revenue_rate_push_runs")
+          .update({ status: "queued", started_at: null })
+          .eq("id", requestedRunId).eq("status", "processing");
+      }
       return json({
         ok: true, pushed: 0, failed: 0, code: "publisher_busy",
         message: "Another property is publishing right now — these prices stay queued and go out next.",
       });
     }
+
 
 
     // Credentials per Previo account — SLNT merges two profiles under one hotel,
