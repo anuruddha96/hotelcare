@@ -1,0 +1,2 @@
+GRANT EXECUTE ON FUNCTION public.rate_cell_markers(text, date, date, timestamptz) TO supabase_read_only_user;
+GRANT EXECUTE ON FUNCTION public.rate_cell_history(text, date, timestamptz, integer) TO supabase_read_only_user;
