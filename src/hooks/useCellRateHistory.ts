@@ -55,8 +55,8 @@ export function useCellRateHistory(hotelId?: string | null, perCell = 8) {
         return next;
       });
       loaded.current.add(date);
-    } catch {
-      /* history is a read-only convenience */
+    } catch (err) {
+      if (import.meta.env.DEV) console.warn("[rate_cell_history] failed", err);
     } finally {
       inflight.current.delete(date);
     }

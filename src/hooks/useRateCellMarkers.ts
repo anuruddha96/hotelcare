@@ -31,12 +31,15 @@ export function useRateCellMarkers(hotelId?: string | null, from?: string, to?: 
       });
       if (error) throw error;
       setRows((data ?? []) as unknown as CellMarkerRow[]);
-    } catch {
-      setRows([]);
+    } catch (err) {
+      // A failed refresh must never erase markers we already have on screen —
+      // that is exactly how a reload used to lose every change dot.
+      if (import.meta.env.DEV) console.warn("[rate_cell_markers] failed", err);
     } finally {
       setLoading(false);
     }
   }, [hotelId, from, to]);
+
 
   useEffect(() => { void load(); }, [load]);
 
