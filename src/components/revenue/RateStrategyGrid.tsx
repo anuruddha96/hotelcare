@@ -290,7 +290,12 @@ export default function RateStrategyGrid({
   const GROUP_H = Math.round(BASE_GROUP_H * zoom);
   const MONTH_H = Math.round(BASE_MONTH_H * zoom);
   const DAY_H = Math.round(BASE_DAY_H * zoom);
+  // Change dots are a quiet annotation, never a badge: they scale with the
+  // calendar so zooming out keeps them from swallowing the day number.
+  const DAY_DOT = Math.max(3, Math.round(4.5 * zoom));
+  const CELL_DOT = Math.max(2, Math.round(3.5 * zoom));
   const rowH = (kind: string) => (kind === "group" ? GROUP_H : ROW_H);
+
 
   const DEFAULT_LEFT_W = Math.round((isMobile ? 124 : 200) * zoom);
   const RAIL_W = 46;
