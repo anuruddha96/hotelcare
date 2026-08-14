@@ -19,6 +19,9 @@ import {
   dateAllowedStep,
   netPickupByDate,
   effectivePrice,
+  smartMarkdownAllowed,
+  strongDemandStep,
+  clampAiFactor,
 
 } from "../_shared/pricingRules.ts";
 
@@ -65,7 +68,14 @@ interface Rule {
   manual_markdown_hold_hours: number;
   version: number;
   last_run_at: string | null;
-
+  // Smart pricing (all optional, neutral defaults)
+  smart_pricing_enabled: boolean;
+  near_term_days: number;
+  low_occupancy_pct: number;
+  long_lead_days: number;
+  high_occupancy_pct: number;
+  strong_demand_increase: number;
+  ai_assist_enabled: boolean;
 }
 
 const json = (body: unknown, status = 200) =>
@@ -73,6 +83,136 @@ const json = (body: unknown, status = 200) =>
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+
+/**
+ * A readable sentence for ANY thrown value. A Postgres/PostgREST error is a
+ * plain object, and `String(object)` is the literal "[object Object]" that
+ * users were seeing in the toast.
+ */
+function describeError(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  if (e && typeof e === "object") {
+    const any = e as Record<string, unknown>;
+    const parts = [any.message, any.error, any.details, any.hint, any.code]
+      .filter((v) => typeof v === "string" && v.trim().length > 0) as string[];
+    if (parts.length > 0) return parts.join(" · ");
+    try { return JSON.stringify(e).slice(0, 500); } catch { /* ignore */ }
+  }
+  return "Unexpected error";
+}
+
+interface AiCandidate {
+  stay_date: string;
+  days_out: number;
+  occupancy_pct: number | null;
+  rooms_left?: number | null;
+  net_pickup?: number;
+  proposed_delta: number;
+  direction: "increase" | "decrease";
+}
+
+/**
+ * Optional advisor using the property owner's own OpenAI key.
+ *
+ * One compact request per hotel evaluation, aggregated non-personal features
+ * only. It returns a factor between 0 and 1 per stay date: the model may
+ * CONFIRM or SOFTEN a deterministic move, never enlarge or invent one, so
+ * every HotelCare guardrail (floor, daily caps, manual hold, sold-out
+ * protection, publisher queue) stays final. Any failure — missing key,
+ * timeout, malformed JSON — silently falls back to the deterministic result.
+ */
+async function aiScaleDeltas(candidates: AiCandidate[], rule: Rule): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const key = Deno.env.get("OPENAI_API_KEY");
+  if (!key || candidates.length === 0) return out;
+  const compact = candidates.slice(0, 120).map((c) => ({
+    d: c.stay_date, lead: c.days_out, occ: c.occupancy_pct,
+    left: c.rooms_left ?? null, pickup: c.net_pickup ?? 0,
+    delta: c.proposed_delta, dir: c.direction,
+  }));
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini",
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a hotel revenue analyst. For each stay date you receive lead time in days, occupancy percent, rooms left, net pickup in the last hour and a proposed price move. Reply with JSON {\"dates\":[{\"d\":\"YYYY-MM-DD\",\"factor\":0..1,\"reason\":\"short\"}]}. factor 1 keeps the proposed move, 0 cancels it, values in between soften it. You may never increase a move.",
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              currency: rule.currency ?? "EUR",
+              floor: rule.minimum_adr,
+              horizon_days: rule.future_booking_window_days,
+              dates: compact,
+            }),
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return out;
+    const body = await res.json();
+    const text = body?.choices?.[0]?.message?.content;
+    if (typeof text !== "string") return out;
+    const parsed = JSON.parse(text);
+    for (const row of (parsed?.dates ?? []) as any[]) {
+      const date = String(row?.d ?? "");
+      const factor = Number(row?.factor);
+      if (!date || !Number.isFinite(factor)) continue;
+      out.set(date, clampAiFactor(factor));
+    }
+  } catch (e) {
+    console.warn("ai assist unavailable", describeError(e));
+    return new Map();
+  }
+  return out;
+}
+
+/**
+ * Scale already-computed decisions by the advisor's factors, in place. Rows the
+ * advisor effectively cancels (below a fifth of the deterministic move) are
+ * dropped entirely.
+ */
+function applyAiFactors(
+  rows: any[],
+  drafts: any[],
+  factors: Map<string, number>,
+  direction: "increase" | "decrease",
+): void {
+  if (factors.size === 0) return;
+  const dropped = new Set<string>();
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    const factor = factors.get(row.stay_date);
+    if (factor === undefined || factor >= 0.999) continue;
+    const cell = `${row.stay_date}|${row.obk_id}|${row.occupancy}`;
+    if (factor < 0.2) { dropped.add(cell); rows.splice(i, 1); continue; }
+    const magnitude = roundMoney(Math.abs(Number(row.increase_amount || 0)) * factor);
+    if (magnitude <= 0) { dropped.add(cell); rows.splice(i, 1); continue; }
+    const old = Number(row.old_price);
+    const next = roundMoney(direction === "increase" ? old + magnitude : old - magnitude);
+    row.increase_amount = direction === "increase" ? magnitude : -magnitude;
+    row.new_price = next;
+    row.cap_applied = magnitude;
+    for (const draft of drafts) {
+      if (`${draft.stay_date}|${draft.obk_id}|${draft.occupancy}` === cell) draft.new_price = next;
+    }
+  }
+  for (let i = drafts.length - 1; i >= 0; i--) {
+    const draft = drafts[i];
+    if (dropped.has(`${draft.stay_date}|${draft.obk_id}|${draft.occupancy}`)) drafts.splice(i, 1);
+  }
+}
+
+
 
 const dayDiff = (from: string, to: string) =>
   Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
@@ -164,9 +304,21 @@ Deno.serve(async (req) => {
     const engineKey = req.headers.get("x-engine-key");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const bearer = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+    const apiKeyHeader = req.headers.get("apikey") ?? "";
     // Scheduled ticks call in with the service key (header or bearer); those
     // are the machine runs and keep working exactly as before.
-    const isEngine = (!!engineKey && engineKey === serviceKey) || (!!bearer && bearer === serviceKey);
+    //
+    // The database scheduler (pg_cron → pg_net) can only send the project
+    // apikey, not a user session. Such a call is accepted ONLY in scheduler
+    // mode: it may not name a hotel, it just asks the database for whichever
+    // property is due. That is idempotent — `claim_due_automation_rule`
+    // returns nothing until a property's own interval has elapsed — so an
+    // extra call can never bring a price change forward.
+    const schedulerCall = body?.scheduled === true && !onlyHotel;
+    const isEngine = (!!engineKey && engineKey === serviceKey)
+      || (!!bearer && bearer === serviceKey)
+      || (apiKeyHeader === serviceKey)
+      || schedulerCall;
     let actorName: string | null = null;
     let actorUserId: string | null = null;
     if (!isEngine) {
@@ -353,6 +505,10 @@ Deno.serve(async (req) => {
       let markdownActions = 0;
       let markdownStayDates = 0;
       const markdownBlocks: Record<string, number> = {};
+      /** Dates already moved DOWN this cycle — they must not also move up. */
+      const markdownDatesThisRun = new Set<string>();
+      let strongActions = 0;
+      const strongDates = new Set<string>();
 
       if (rule.no_pickup_enabled) {
         const local = localParts(rule.run_timezone || "Europe/Budapest");
@@ -472,6 +628,26 @@ Deno.serve(async (req) => {
             continue;
           }
 
+          // Smart pricing: only genuinely weak demand is marked down. A date
+          // whose occupancy is already at or above the "weak" threshold is
+          // left alone even when this single hour brought no booking; near-term
+          // dates below the threshold are the ones worth stimulating.
+          if (rule.smart_pricing_enabled) {
+            const allowed = smartMarkdownAllowed({
+              occupancyPct: guardsFor?.pct ?? null,
+              daysOut: dayDiff(local.date, rate.stay_date),
+              nearTermDays: Math.max(0, Number(rule.near_term_days ?? 30)),
+              lowOccupancyPct: Number(rule.low_occupancy_pct ?? 50),
+            });
+            if (!allowed) {
+              if (!blockedDates.has(rate.stay_date)) {
+                blockedDates.set(rate.stay_date, "demand_healthy");
+                markdownBlocks["demand_healthy"] = (markdownBlocks["demand_healthy"] ?? 0) + 1;
+              }
+              continue;
+            }
+          }
+
           if (!allowedStepByDate.has(rate.stay_date)) {
             allowedStepByDate.set(rate.stay_date, dateAllowedStep({
               decreasePerEvaluation: Number(rule.no_pickup_decrease ?? 0.5),
@@ -524,7 +700,24 @@ Deno.serve(async (req) => {
           });
         }
         markdownStayDates = markdownDates.size;
+        for (const d of markdownDates) markdownDatesThisRun.add(d);
 
+        // Optional AI advisor on the markdown side: it can only confirm or
+        // soften a deterministic decrease, never deepen it.
+        if (rule.ai_assist_enabled && markdownRows.length > 0) {
+          const factors = await aiScaleDeltas(
+            Array.from(markdownDates).map((d) => ({
+              stay_date: d, days_out: dayDiff(local.date, d),
+              occupancy_pct: occupancyByDate.get(d)?.pct ?? null,
+              rooms_left: occupancyByDate.get(d)?.left ?? null,
+              net_pickup: netByDate.get(d) ?? 0,
+              proposed_delta: allowedStepByDate.get(d) ?? 0,
+              direction: "decrease" as const,
+            })),
+            rule,
+          );
+          applyAiFactors(markdownRows, markdownDrafts, factors, "decrease");
+        }
 
         if (!dryRun && markdownRows.length > 0) {
           const { data: insertedMarkdowns, error: markdownError } = await admin.from("revenue_pickup_automation_actions")
@@ -544,6 +737,143 @@ Deno.serve(async (req) => {
           }
         }
       }
+
+      // ------------------------------------------------------------------
+      // Smart pricing — strong early demand.
+      //
+      // A stay date far in the future that is already filling up is worth
+      // more, even during an hour in which no new booking arrived. Every
+      // deterministic guardrail still applies: the daily rise cap for that
+      // date, the per-change maximum, a recent manual edit and the publisher
+      // queue. Dates that were marked down in this same evaluation are left
+      // alone so one date can only move one way per cycle.
+      // ------------------------------------------------------------------
+      if (rule.smart_pricing_enabled && Number(rule.strong_demand_increase || 0) > 0) {
+        const local = localParts(rule.run_timezone || "Europe/Budapest");
+        const slot = `${local.time.slice(0, 2)}:${String(Math.floor(Number(local.time.slice(3, 5)) / 15) * 15).padStart(2, "0")}`;
+        const horizon = new Date(`${local.date}T00:00:00Z`);
+        horizon.setUTCDate(horizon.getUTCDate() + Math.max(1, Number(rule.future_booking_window_days || 183)));
+        const horizonDate = horizon.toISOString().slice(0, 10);
+        const leadDays = Math.max(0, Number(rule.long_lead_days ?? 30));
+        const highPct = Number(rule.high_occupancy_pct ?? 85);
+
+        const [
+          { data: strongRates },
+          { data: strongSnapshots },
+          { data: strongToday },
+          { data: strongManual },
+          { data: strongPending },
+        ] = await Promise.all([
+          admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).limit(50000),
+          admin.from("revenue_daily_snapshots").select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_date", { ascending: false }).limit(20000),
+          admin.from("revenue_pickup_automation_actions").select("stay_date, increase_amount").eq("hotel_id", rule.hotel_id).eq("local_business_date", local.date).gt("increase_amount", 0).limit(50000),
+          admin.from("rate_change_audit").select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).gte("performed_at", new Date(Date.now() - Math.max(0, Number(rule.manual_markdown_hold_hours || 0)) * 3_600_000).toISOString()).limit(20000),
+          admin.from("revenue_rate_drafts").select("id, stay_date, obk_id, occupancy, new_price, status, created_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).in("status", ["draft", "sending", "pushed"]).is("superseded_at", null).limit(50000),
+        ]);
+
+        const occByDate = new Map<string, number | null>();
+        for (const row of (strongSnapshots ?? []) as any[]) {
+          if (occByDate.has(row.stay_date)) continue;
+          occByDate.set(row.stay_date, row.occupancy_pct === null || row.occupancy_pct === undefined ? null : Number(row.occupancy_pct));
+        }
+        const raisedTodayByDate = new Map<string, number>();
+        for (const row of (strongToday ?? []) as any[]) {
+          raisedTodayByDate.set(row.stay_date, (raisedTodayByDate.get(row.stay_date) ?? 0) + Math.abs(Number(row.increase_amount || 0)));
+        }
+        const manualHold = new Map<string, string>();
+        for (const row of (strongManual ?? []) as any[]) {
+          if (String(row.source ?? "").includes("automation")) continue;
+          const seen = manualHold.get(row.stay_date);
+          if (!seen || row.performed_at > seen) manualHold.set(row.stay_date, row.performed_at);
+        }
+        const strongPendingByCell = new Map<string, Array<{ new_price: number; created_at: string }>>();
+        for (const row of (strongPending ?? []) as any[]) {
+          const key = `${row.stay_date}|${row.obk_id}|${row.occupancy}`;
+          const list = strongPendingByCell.get(key) ?? [];
+          list.push({ new_price: Number(row.new_price), created_at: row.created_at });
+          strongPendingByCell.set(key, list);
+        }
+        const newestRate = new Map<string, any>();
+        for (const rate of (strongRates ?? []) as any[]) {
+          const key = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
+          if (!newestRate.has(key)) newestRate.set(key, rate);
+        }
+
+        const strongRows: any[] = [];
+        const strongDrafts: any[] = [];
+        const stepByDate = new Map<string, number>();
+        for (const rate of newestRate.values()) {
+          const holdMs = Math.max(0, Number(rule.manual_markdown_hold_hours ?? 6)) * 3_600_000;
+          const editedAt = manualHold.get(rate.stay_date);
+          if (editedAt && Date.now() - Date.parse(editedAt) < holdMs) continue;
+
+          if (!stepByDate.has(rate.stay_date)) {
+            stepByDate.set(rate.stay_date, strongDemandStep({
+              occupancyPct: occByDate.get(rate.stay_date) ?? null,
+              daysOut: dayDiff(local.date, rate.stay_date),
+              longLeadDays: leadDays,
+              highOccupancyPct: highPct,
+              increase: Number(rule.strong_demand_increase || 0),
+              maximumIncrease: rule.maximum_increase,
+              raisedToday: raisedTodayByDate.get(rate.stay_date) ?? 0,
+              maxDailyIncreasePerDate: Number(rule.max_daily_increase_per_date || 0),
+              markedDownToday: markdownDatesThisRun.has(rate.stay_date),
+            }));
+          }
+          const step = stepByDate.get(rate.stay_date) ?? 0;
+          if (step <= 0) continue;
+
+          const cell = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
+          const current = effectivePrice(Number(rate.price), strongPendingByCell.get(cell) ?? []);
+          if (current === null) continue;
+          const newPrice = roundMoney(current + step);
+
+          strongDates.add(rate.stay_date);
+          strongRows.push({
+            rule_id: rule.id, rule_version: rule.version, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
+            reservation_id: null, stay_date: rate.stay_date, pickup_at: null, pickup_sequence: 0,
+            room_type_name: rate.room_type_name, obk_id: String(rate.obk_id), occupancy: Number(rate.occupancy) || 2,
+            old_price: current, increase_amount: step, new_price: newPrice,
+            status: rule.auto_publish ? "queued" : "suggested", decision_type: "smart_strong_demand",
+            observation_from: evalWindow.from, observation_to: runStartedAt,
+            net_pickup: 0, schedule_slot: slot, local_business_date: local.date, cap_applied: step,
+          });
+          if (rule.auto_publish) strongDrafts.push({
+            hotel_id: rule.hotel_id, organization_slug: rule.organization_slug, stay_date: rate.stay_date,
+            obk_id: String(rate.obk_id), room_type_name: rate.room_type_name, occupancy: Number(rate.occupancy) || 2,
+            old_price: current, new_price: newPrice, currency: rate.currency ?? rule.currency ?? "EUR", status: "draft",
+            priority: priorityOf("pickup"), intent_source: "automation_smart_strong",
+          });
+        }
+
+        // Optional AI advisor: it may only confirm or SHRINK a deterministic
+        // move, never invent or exceed one.
+        if (rule.ai_assist_enabled && strongRows.length > 0) {
+          const factors = await aiScaleDeltas(
+            Array.from(strongDates).map((d) => ({
+              stay_date: d, days_out: dayDiff(local.date, d),
+              occupancy_pct: occByDate.get(d) ?? null,
+              proposed_delta: stepByDate.get(d) ?? 0,
+              direction: "increase" as const,
+            })),
+            rule,
+          );
+          applyAiFactors(strongRows, strongDrafts, factors, "increase");
+        }
+
+        if (!dryRun && strongRows.length > 0) {
+          const { data: insertedStrong, error: strongError } = await admin.from("revenue_pickup_automation_actions")
+            .upsert(strongRows, { onConflict: "hotel_id,stay_date,obk_id,occupancy,rule_version,schedule_slot,local_business_date", ignoreDuplicates: true })
+            .select("stay_date,obk_id,occupancy");
+          if (strongError) throw strongError;
+          const accepted = new Set((insertedStrong ?? []).map((row: any) => `${row.stay_date}|${row.obk_id}|${row.occupancy}`));
+          const payload = strongDrafts.filter((row) => accepted.has(`${row.stay_date}|${row.obk_id}|${row.occupancy}`));
+          strongActions = payload.length;
+          if (payload.length > 0) await queueIntents(admin, rule, payload, priorityOf("pickup"));
+        }
+      }
+
+
 
       if (pickups.length === 0) {
         await admin.from("revenue_pickup_automation_rules").update({
@@ -997,6 +1327,7 @@ Deno.serve(async (req) => {
         pushed, failed: failedCount,
 
         push_error: pushError, auto_publish: rule.auto_publish, changed,
+        smart_strong: strongActions, smart_pricing: rule.smart_pricing_enabled === true,
         next_run_at: nextRunAt(now, intervalMinutes),
       });
 
@@ -1008,6 +1339,9 @@ Deno.serve(async (req) => {
     return json({ ok: true, code: "ran", rules: rules.length, hotel_id: lockHotel, actor: actorName, summary });
   } catch (e) {
     console.error("pickup automation failed", e);
-    return json({ ok: false, code: "error", error: e instanceof Error ? e.message : String(e) }, 500);
+    // Never hand the browser a bare object: a Postgres error stringifies to
+    // "[object Object]", which is exactly what users used to see in the toast.
+    const detail = describeError(e);
+    return json({ ok: false, code: "error", error: detail, msg: detail }, 500);
   }
 });

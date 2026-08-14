@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { errorMessage } from "@/lib/errorMessage";
 
 interface Props { hotelId: string | null; organizationSlug: string | null; }
 interface Tier { max_days: number | null; increase: number; }
@@ -33,6 +34,13 @@ interface Rule {
   markdown_max_occupancy_pct: number;
   manual_markdown_hold_hours: number;
   currency: string;
+  smart_pricing_enabled: boolean;
+  near_term_days: number;
+  low_occupancy_pct: number;
+  long_lead_days: number;
+  high_occupancy_pct: number;
+  strong_demand_increase: number;
+  ai_assist_enabled: boolean;
   last_run_at?: string | null;
   next_run_at?: string | null;
   last_evaluated_at?: string | null;
@@ -61,6 +69,9 @@ const DEFAULT_RULE: Rule = {
 
   evaluation_interval_minutes: 60, protect_high_occupancy: true,
   markdown_max_occupancy_pct: 88, manual_markdown_hold_hours: 6,
+  smart_pricing_enabled: false, near_term_days: 30, low_occupancy_pct: 50,
+  long_lead_days: 30, high_occupancy_pct: 85, strong_demand_increase: 0,
+  ai_assist_enabled: false,
 };
 
 
@@ -97,8 +108,21 @@ function explain(rule: Rule, hotelName: string): string[] {
       `Every ${rule.evaluation_interval_minutes} minutes, dates in the next ${rule.future_booking_window_days} days that picked up nothing since the previous check go down by ${rule.currency} ${money(step)}. A date moves one step per check no matter how many room types it has, so at most ${rule.currency} ${money(Math.min(perDay, rule.max_daily_decrease_per_date))} per date per day.`,
     );
 
+    if (rule.smart_pricing_enabled) {
+      lines.push(
+        `Smart pricing: a date ${rule.near_term_days} days away or closer sitting under ${rule.low_occupancy_pct}% occupancy with no pickup can come down by ${rule.currency} ${money(step)}. A date that is already busier than that is left where it is.`,
+      );
+    }
     if (rule.protect_high_occupancy) lines.push(`Dates already at ${rule.markdown_max_occupancy_pct}% occupancy or higher are never marked down, and a sold-out date never moves.`);
     if (rule.manual_markdown_hold_hours > 0) lines.push(`After someone changes a price by hand, that date is left alone for ${rule.manual_markdown_hold_hours} hours.`);
+  }
+  if (rule.smart_pricing_enabled && Number(rule.strong_demand_increase) > 0) {
+    lines.push(
+      `Strong early demand: a date more than ${rule.long_lead_days} days away that is already above ${rule.high_occupancy_pct}% occupancy may rise by ${rule.currency} ${money(rule.strong_demand_increase)}, still inside the ${rule.currency} ${money(rule.max_daily_increase_per_date)} daily limit for that date.`,
+    );
+  }
+  if (rule.smart_pricing_enabled && rule.ai_assist_enabled) {
+    lines.push("AI assist reviews each check with your own OpenAI account and may soften or cancel a move. It can never make one bigger, and if it is unavailable the ordinary rules simply continue.");
   }
 
   lines.push(
@@ -208,6 +232,13 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       markdown_max_occupancy_pct: source.rule.markdown_max_occupancy_pct ?? 88,
       manual_markdown_hold_hours: source.rule.manual_markdown_hold_hours ?? 6,
       currency: source.rule.currency ?? "EUR",
+      smart_pricing_enabled: source.rule.smart_pricing_enabled ?? false,
+      near_term_days: source.rule.near_term_days ?? 30,
+      low_occupancy_pct: source.rule.low_occupancy_pct ?? 50,
+      long_lead_days: source.rule.long_lead_days ?? 30,
+      high_occupancy_pct: source.rule.high_occupancy_pct ?? 85,
+      strong_demand_increase: source.rule.strong_demand_increase ?? 0,
+      ai_assist_enabled: source.rule.ai_assist_enabled ?? false,
     }));
 
     toast.success(`Copied settings from ${source.label} — still off until you turn it on`);
@@ -245,6 +276,13 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       protect_high_occupancy: rule.protect_high_occupancy,
       markdown_max_occupancy_pct: rule.markdown_max_occupancy_pct,
       manual_markdown_hold_hours: rule.manual_markdown_hold_hours,
+      smart_pricing_enabled: rule.smart_pricing_enabled,
+      near_term_days: rule.near_term_days,
+      low_occupancy_pct: rule.low_occupancy_pct,
+      long_lead_days: rule.long_lead_days,
+      high_occupancy_pct: rule.high_occupancy_pct,
+      strong_demand_increase: rule.strong_demand_increase,
+      ai_assist_enabled: rule.ai_assist_enabled,
       // Saving never triggers an immediate evaluation: an enabled rule is
       // simply scheduled one normal interval from now, so nobody gets a
       // surprise markdown for pressing Save. "Run now" stays the explicit
@@ -262,7 +300,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
     const { data, error } = await supabase.from("revenue_pickup_automation_rules")
       .upsert(payload as any, { onConflict: "hotel_id,name" }).select("*").single();
     setSaving(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(errorMessage(error, "Could not save these settings")); return; }
     setRule(data as unknown as Rule);
     setHasSavedRule(true);
     setSavedEnabled(Boolean((data as any).is_enabled));
@@ -285,21 +323,29 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
         const detail = await (error as any)?.context?.text?.().catch(() => "");
         let parsed: any = {};
         try { parsed = detail ? JSON.parse(detail) : {}; } catch { /* not JSON */ }
-        if (parsed?.msg || parsed?.error) { toast.error(parsed.msg ?? parsed.error); return; }
-        toast.error("The pricing service did not respond", { description: error.message });
+        if (parsed?.msg || parsed?.error) { toast.error(errorMessage(parsed)); return; }
+        toast.error("The pricing service did not respond", { description: errorMessage(error) });
         return;
       }
       const code = payload.code as string | undefined;
       if (code && code !== "ran") {
-        const message = payload.msg ?? payload.error ?? "The run could not start";
+        const message = errorMessage(payload, "The run could not start");
         if (code === "paused" || code === "busy") toast.warning(message);
         else toast.error(message);
         return;
       }
       const summary = payload.summary?.[0];
       if (!summary) { toast.success(`No qualifying pickup for ${hotelName} right now`); return; }
+      if (summary.skipped) {
+        toast.warning(
+          summary.reason === "pms_unavailable"
+            ? `Previo reservation refresh failed for ${hotelName} — no price was changed`
+            : `Skipped ${hotelName}: ${errorMessage(summary.detail, "no reason given")}`,
+        );
+        return;
+      }
       const pickups = Number(summary.pickups ?? 0);
-      const actions = Number(summary.actions ?? 0);
+      const actions = Number(summary.actions ?? 0) + Number(summary.markdowns ?? 0) + Number(summary.smart_strong ?? 0);
       const pushed = Number(summary.pushed ?? 0);
       const failed = Number(summary.failed ?? 0);
       if (actions === 0) {
@@ -318,6 +364,10 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
         pushError: summary.push_error ?? null,
         changed: (summary.changed ?? []) as ChangedRow[],
       });
+    } catch (e) {
+      // Anything unexpected still reaches the user as a sentence, never as
+      // "[object Object]".
+      toast.error(errorMessage(e, "The pricing service could not be reached"));
     } finally {
       setRunning(false);
     }
@@ -443,16 +493,41 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
 
             <div className="space-y-3 border-t pt-4">
               <div className="flex items-center justify-between">
-                <div><p className="text-sm font-medium">Reduce prices when there is no pickup</p><p className="text-xs text-muted-foreground">Applied on every check, never on a date that just picked up.</p></div>
+                <div><p className="text-sm font-medium">When demand is weak</p><p className="text-xs text-muted-foreground">Lower the price on dates that picked up nothing since the last check. Never on a date that just picked up.</p></div>
                 <Switch checked={rule.no_pickup_enabled} onCheckedChange={(no_pickup_enabled) => setRule({ ...rule, no_pickup_enabled })} />
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><Label className="text-xs">Future booking window (days)</Label><Input type="number" min={1} max={730} value={rule.future_booking_window_days} onChange={(e) => setRule({ ...rule, future_booking_window_days: Number(e.target.value) })} /></div>
+                <div><Label className="text-xs">Manage future dates (days)</Label><Input type="number" min={1} max={730} value={rule.future_booking_window_days} onChange={(e) => setRule({ ...rule, future_booking_window_days: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">How far ahead automation is allowed to look.</p></div>
                 <div><Label className="text-xs">Decrease per check ({rule.currency})</Label><Input type="number" step={0.01} min={0.01} max={50} value={rule.no_pickup_decrease} onChange={(e) => setRule({ ...rule, no_pickup_decrease: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">One step per date per check, however many room types it has.</p></div>
-                <div><Label className="text-xs">Daily decrease cap per date ({rule.currency})</Label><Input type="number" step={0.01} min={0.01} value={rule.max_daily_decrease_per_date} onChange={(e) => setRule({ ...rule, max_daily_decrease_per_date: Number(e.target.value) })} /></div>
+                <div><Label className="text-xs">Daily decrease cap per date ({rule.currency})</Label><Input type="number" step={0.01} min={0.01} value={rule.max_daily_decrease_per_date} onChange={(e) => setRule({ ...rule, max_daily_decrease_per_date: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">The most one date can fall in a single day.</p></div>
 
-                <div><Label className="text-xs">Leave manual changes alone (hours)</Label><Input type="number" min={0} max={72} value={rule.manual_markdown_hold_hours} onChange={(e) => setRule({ ...rule, manual_markdown_hold_hours: Number(e.target.value) })} /></div>
+                <div><Label className="text-xs">Leave manual changes alone (hours)</Label><Input type="number" min={0} max={72} value={rule.manual_markdown_hold_hours} onChange={(e) => setRule({ ...rule, manual_markdown_hold_hours: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">After someone edits a price by hand, automation waits.</p></div>
               </div>
+            </div>
+
+            <div className="space-y-3 border-t pt-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Smart pricing</p>
+                  <p className="text-xs text-muted-foreground">Use occupancy and lead time, not only the last hour's bookings.</p>
+                </div>
+                <Switch checked={rule.smart_pricing_enabled} onCheckedChange={(smart_pricing_enabled) => setRule({ ...rule, smart_pricing_enabled })} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label className="text-xs">Near-term window (days)</Label><Input type="number" min={1} max={365} disabled={!rule.smart_pricing_enabled} value={rule.near_term_days} onChange={(e) => setRule({ ...rule, near_term_days: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">Dates this close are the ones worth stimulating.</p></div>
+                <div><Label className="text-xs">Weak occupancy below (%)</Label><Input type="number" min={1} max={100} disabled={!rule.smart_pricing_enabled} value={rule.low_occupancy_pct} onChange={(e) => setRule({ ...rule, low_occupancy_pct: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">Only dates below this are marked down.</p></div>
+                <div><Label className="text-xs">Strong demand starts after (days)</Label><Input type="number" min={1} max={365} disabled={!rule.smart_pricing_enabled} value={rule.long_lead_days} onChange={(e) => setRule({ ...rule, long_lead_days: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">Early demand counts from this lead time onwards.</p></div>
+                <div><Label className="text-xs">Strong occupancy above (%)</Label><Input type="number" min={1} max={100} disabled={!rule.smart_pricing_enabled} value={rule.high_occupancy_pct} onChange={(e) => setRule({ ...rule, high_occupancy_pct: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">A far date this full is treated as strong demand.</p></div>
+                <div><Label className="text-xs">Strong demand increase ({rule.currency})</Label><Input type="number" step={0.01} min={0} disabled={!rule.smart_pricing_enabled} value={rule.strong_demand_increase} onChange={(e) => setRule({ ...rule, strong_demand_increase: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">0 means never raise on strength alone.</p></div>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <div><Label>AI-assisted pricing</Label><p className="text-xs text-muted-foreground">Asks your own OpenAI account to review each check. It can soften or cancel a move, never make one bigger, and everything below still applies.</p></div>
+                <Switch checked={rule.ai_assist_enabled} disabled={!rule.smart_pricing_enabled} onCheckedChange={(ai_assist_enabled) => setRule({ ...rule, ai_assist_enabled })} />
+              </div>
+            </div>
+
+            <div className="space-y-3 border-t pt-4">
+              <p className="text-sm font-medium">Safety limits</p>
               <div className="flex items-center justify-between gap-3">
                 <div><Label>Protect nearly full dates</Label><p className="text-xs text-muted-foreground">Never mark down a sold-out date or one above the occupancy below.</p></div>
                 <Switch checked={rule.protect_high_occupancy} onCheckedChange={(protect_high_occupancy) => setRule({ ...rule, protect_high_occupancy })} />
@@ -463,6 +538,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
               </div>
               <div><Label className="text-xs">Property timezone</Label><Input value={rule.run_timezone} onChange={(e) => setRule({ ...rule, run_timezone: e.target.value })} /></div>
             </div>
+
 
 
             <div className="space-y-2 rounded-lg border bg-muted/40 p-3">
