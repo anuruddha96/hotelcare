@@ -95,6 +95,44 @@ function localDayStartUtc(timeZone: string): string {
   return new Date(Date.now() - elapsedMs).toISOString();
 }
 
+/**
+ * Record an intended price and hand it to the background publisher. HotelCare
+ * owns the intent; delivery to Previo happens out of band, serialized by the
+ * global publisher lock, so a slow PMS never blocks the pricing cycle.
+ */
+async function queueIntents(
+  admin: any,
+  rule: Rule,
+  payload: Array<Record<string, unknown>>,
+  priority: number,
+): Promise<string | null> {
+  if (payload.length === 0) return null;
+  const runId = crypto.randomUUID();
+  await admin.from("revenue_rate_push_runs").insert({
+    id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
+    source: "automation", requested_count: payload.length, priority,
+  });
+  const { data: drafts, error: draftError } = await admin.from("revenue_rate_drafts")
+    .insert(payload.map((row) => ({ ...row, priority, push_run_id: runId, confirmation_status: "sending" })))
+    .select("id,stay_date,room_type_name,occupancy");
+  if (draftError) throw draftError;
+  const keyOf = (row: any) => `${row.stay_date}|${row.room_type_name}|${row.occupancy}`;
+  const draftMap = new Map((drafts ?? []).map((row: any) => [keyOf(row), row.id]));
+  await admin.from("revenue_rate_push_items").insert(payload.map((row: any) => ({
+    run_id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
+    stay_date: row.stay_date, obk_id: row.obk_id, room_type_name: row.room_type_name,
+    occupancy: row.occupancy, old_price: row.old_price, target_price: row.new_price,
+    currency: row.currency, draft_id: draftMap.get(keyOf(row)),
+  })));
+  const work = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")! },
+    body: JSON.stringify({ hotelId: rule.hotel_id, draftIds: (drafts ?? []).map((row: any) => row.id), pushRunId: runId }),
+  });
+  (globalThis as any).EdgeRuntime?.waitUntil(work);
+  return runId;
+}
+
 
 /** Tiers are ordered by how far out the stay is; the last tier is the catch-all. */
 function tierIncrease(tiers: Tier[], daysOut: number): number {
