@@ -1968,10 +1968,17 @@ export default function RateStrategyGrid({
                         <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
                         <span className="font-medium">{formatDay(d)}</span>
                         {dayLatest && (
-                          <span className="pointer-events-none absolute bottom-0.5 left-0 right-0 flex justify-center" aria-hidden>
-                            <i className={`h-2 w-2 rounded-full ring-2 ring-card ${ORIGIN_DOT_CLASS[dayLatest.origin]}`} />
+                          <span className="pointer-events-none absolute bottom-[1px] left-0 right-0 flex justify-center" aria-hidden>
+                            {/* Secondary by design: it sits under the date and
+                                shrinks with the calendar's own zoom instead of
+                                covering the day number on a phone. */}
+                            <i
+                              className={`block rounded-full ${ORIGIN_DOT_CLASS[dayLatest.origin]}`}
+                              style={{ width: DAY_DOT, height: DAY_DOT }}
+                            />
                           </span>
                         )}
+
 
 
                         {canEditRates && (
