@@ -84,8 +84,9 @@ serve(async (req) => {
     let recsCreated = 0;
     let alertsCreated = 0;
 
-    for (const s of settings) {
+    for (const s of generateRecommendations ? settings : []) {
       if (targetHotel && s.hotel_id !== targetHotel) continue;
+
 
       // fetch latest 2 snapshots per stay_date for this hotel within horizon
       const { data: snaps } = await supabase
