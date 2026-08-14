@@ -5020,6 +5020,7 @@ export type Database = {
       }
       revenue_pickup_automation_rules: {
         Row: {
+          ai_assist_enabled: boolean
           application_scope: string
           auto_publish: boolean
           booking_window_tiers: Json
@@ -5028,6 +5029,7 @@ export type Database = {
           currency: string
           evaluation_interval_minutes: number
           future_booking_window_days: number
+          high_occupancy_pct: number
           hotel_id: string
           id: string
           is_enabled: boolean
@@ -5037,6 +5039,8 @@ export type Database = {
           last_no_pickup_slot: string | null
           last_run_at: string | null
           last_successful_evaluation_at: string | null
+          long_lead_days: number
+          low_occupancy_pct: number
           manual_markdown_hold_hours: number
           markdown_max_occupancy_pct: number
           max_daily_decrease_per_date: number
@@ -5044,6 +5048,7 @@ export type Database = {
           maximum_increase: number | null
           minimum_adr: number | null
           name: string
+          near_term_days: number
           next_run_at: string | null
           no_pickup_decrease: number
           no_pickup_enabled: boolean
@@ -5057,11 +5062,14 @@ export type Database = {
           run_timezone: string
           same_hour_window_minutes: number
           second_pickup_surcharge: number
+          smart_pricing_enabled: boolean
+          strong_demand_increase: number
           updated_at: string
           updated_by: string | null
           version: number
         }
         Insert: {
+          ai_assist_enabled?: boolean
           application_scope?: string
           auto_publish?: boolean
           booking_window_tiers?: Json
@@ -5070,6 +5078,7 @@ export type Database = {
           currency?: string
           evaluation_interval_minutes?: number
           future_booking_window_days?: number
+          high_occupancy_pct?: number
           hotel_id: string
           id?: string
           is_enabled?: boolean
@@ -5079,6 +5088,8 @@ export type Database = {
           last_no_pickup_slot?: string | null
           last_run_at?: string | null
           last_successful_evaluation_at?: string | null
+          long_lead_days?: number
+          low_occupancy_pct?: number
           manual_markdown_hold_hours?: number
           markdown_max_occupancy_pct?: number
           max_daily_decrease_per_date?: number
@@ -5086,6 +5097,7 @@ export type Database = {
           maximum_increase?: number | null
           minimum_adr?: number | null
           name?: string
+          near_term_days?: number
           next_run_at?: string | null
           no_pickup_decrease?: number
           no_pickup_enabled?: boolean
@@ -5099,11 +5111,14 @@ export type Database = {
           run_timezone?: string
           same_hour_window_minutes?: number
           second_pickup_surcharge?: number
+          smart_pricing_enabled?: boolean
+          strong_demand_increase?: number
           updated_at?: string
           updated_by?: string | null
           version?: number
         }
         Update: {
+          ai_assist_enabled?: boolean
           application_scope?: string
           auto_publish?: boolean
           booking_window_tiers?: Json
@@ -5112,6 +5127,7 @@ export type Database = {
           currency?: string
           evaluation_interval_minutes?: number
           future_booking_window_days?: number
+          high_occupancy_pct?: number
           hotel_id?: string
           id?: string
           is_enabled?: boolean
@@ -5121,6 +5137,8 @@ export type Database = {
           last_no_pickup_slot?: string | null
           last_run_at?: string | null
           last_successful_evaluation_at?: string | null
+          long_lead_days?: number
+          low_occupancy_pct?: number
           manual_markdown_hold_hours?: number
           markdown_max_occupancy_pct?: number
           max_daily_decrease_per_date?: number
@@ -5128,6 +5146,7 @@ export type Database = {
           maximum_increase?: number | null
           minimum_adr?: number | null
           name?: string
+          near_term_days?: number
           next_run_at?: string | null
           no_pickup_decrease?: number
           no_pickup_enabled?: boolean
@@ -5141,6 +5160,8 @@ export type Database = {
           run_timezone?: string
           same_hour_window_minutes?: number
           second_pickup_surcharge?: number
+          smart_pricing_enabled?: boolean
+          strong_demand_increase?: number
           updated_at?: string
           updated_by?: string | null
           version?: number
