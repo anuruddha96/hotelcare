@@ -42,6 +42,10 @@ interface Rule {
 }
 
 
+/** Money for plain-language copy: cents only when they matter. */
+const money = (n: number) =>
+  Number.isInteger(n) ? String(n) : n.toFixed(2);
+
 /** Starting suggestions only — a hotel is never automated until it is saved with the switch on. */
 const DEFAULT_RULE: Rule = {
   name: "Pickup pricing", is_enabled: false, auto_publish: true,
@@ -52,8 +56,9 @@ const DEFAULT_RULE: Rule = {
   positive_pickup_enabled: true, pickup_lookback_hours: 48,
   no_pickup_enabled: false, no_pickup_lookback_hours: 8,
   future_booking_window_days: 183, no_pickup_run_times: ["08:00", "14:00", "20:00"],
-  run_timezone: "Europe/Budapest", no_pickup_decrease: 2,
+  run_timezone: "Europe/Budapest", no_pickup_decrease: 0.5,
   max_daily_decrease_per_date: 10, no_pickup_scope: "all_room_types", currency: "EUR",
+
   evaluation_interval_minutes: 60, protect_high_occupancy: true,
   markdown_max_occupancy_pct: 88, manual_markdown_hold_hours: 6,
 };
