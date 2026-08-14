@@ -597,6 +597,37 @@ export default function RateStrategyGrid({
     await Promise.all([reloadAuditRows(), reloadMarkers()]);
   }, [reloadAuditRows, reloadMarkers, invalidateCellHistory]);
 
+  /**
+   * Newest persisted changes per stay date, straight from the markers — used
+   * for the date hover card when the (much smaller) shared audit window no
+   * longer reaches back far enough on a busy property.
+   */
+  const markerChangesByDate = useMemo(() => {
+    const map = new Map<string, Array<{
+      at: string; origin: ChangeOrigin; old: number | null; next: number | null;
+      who: string; room: string | null; occ: number | null;
+    }>>();
+    for (const [key, m] of markerByCell) {
+      const [date, room, occ] = key.split("|");
+      const list = map.get(date) ?? [];
+      list.push({
+        at: m.at, origin: m.origin, old: m.old, next: m.price,
+        who: m.origin === "previo"
+          ? "Changed directly in Previo"
+          : m.origin === "automation"
+            ? "HotelCare Automation"
+            : ((m.by && auditNames.get(m.by)) || "Someone on your team"),
+        room: room || null,
+        occ: occ ? Number(occ) : null,
+      });
+      map.set(date, list);
+    }
+    for (const list of map.values()) list.sort((a, b) => b.at.localeCompare(a.at));
+    return map;
+  }, [markerByCell, auditNames]);
+
+
+
   /** When on, the grid shows only the cells flagged by the safety net. */
   const [reviewOnly, setReviewOnly] = useState(false);
   const [pickupOnly, setPickupOnly] = useState(false);
