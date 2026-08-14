@@ -85,9 +85,15 @@ function explain(rule: Rule, hotelName: string): string[] {
   if (rule.minimum_adr) lines.push(`Prices are never published below €${rule.minimum_adr}.`);
   if (rule.maximum_increase) lines.push(`One pickup can add at most €${rule.maximum_increase}.`);
   lines.push(`A single date can rise at most €${rule.max_daily_increase_per_date} in one day, no matter how many bookings arrive.`);
-  if (rule.no_pickup_enabled) lines.push(
-    `At ${rule.no_pickup_run_times.join(", ")} ${rule.run_timezone}, dates in the next ${rule.future_booking_window_days} days with no new booking for ${rule.no_pickup_lookback_hours} hours decrease by ${rule.currency} ${rule.no_pickup_decrease}. A date never decreases by more than ${rule.currency} ${rule.max_daily_decrease_per_date} per day.`,
-  );
+  if (rule.no_pickup_enabled) {
+    const perDay = Math.max(1, Math.floor(1440 / Math.max(60, rule.evaluation_interval_minutes))) * rule.no_pickup_decrease;
+    lines.push(
+      `Every ${rule.evaluation_interval_minutes} minutes, dates in the next ${rule.future_booking_window_days} days that picked up nothing since the previous check go down by ${rule.currency} ${rule.no_pickup_decrease}. That is at most ${rule.currency} ${Math.min(perDay, rule.max_daily_decrease_per_date)} per date per day.`,
+    );
+    if (rule.protect_high_occupancy) lines.push(`Dates already at ${rule.markdown_max_occupancy_pct}% occupancy or higher are never marked down, and a sold-out date never moves.`);
+    if (rule.manual_markdown_hold_hours > 0) lines.push(`After someone changes a price by hand, that date is left alone for ${rule.manual_markdown_hold_hours} hours.`);
+  }
+
   lines.push(
     rule.auto_publish
       ? "Matched changes are sent to Previo automatically and appear in the calendar with an automation marker."
