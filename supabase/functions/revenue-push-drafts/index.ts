@@ -26,6 +26,7 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
+  let publisherLock: string | null = null;
   try {
     // --- caller must be signed in and allowed to push rates -------------
     // The pickup automation engine runs with no human in the loop, so it
