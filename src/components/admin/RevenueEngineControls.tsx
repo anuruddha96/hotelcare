@@ -21,19 +21,64 @@ type Config = {
  * heaviest background writers in the app, so an admin can pause them (or run
  * them in calculate-only mode) without a deploy when the database is under load.
  */
+type Health = {
+  enabled: number;
+  lastSuccess: string | null;
+  nextHotel: string | null;
+  nextDue: string | null;
+  publisherBusy: boolean;
+  queued: number;
+};
+
+const EMPTY_HEALTH: Health = {
+  enabled: 0, lastSuccess: null, nextHotel: null, nextDue: null,
+  publisherBusy: false, queued: 0,
+};
+
 export default function RevenueEngineControls() {
   const [config, setConfig] = useState<Config | null>(null);
+  const [health, setHealth] = useState<Health>(EMPTY_HEALTH);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from("revenue_engine_config")
-      .select("automation_enabled, engine_tick_enabled, dry_run, pause_reason, updated_at")
-      .eq("id", "global")
-      .maybeSingle();
+    // Three cheap reads, no realtime subscription: the state of the brake, the
+    // schedule of the enabled properties and whether the publisher holds the
+    // global lease right now.
+    const [{ data }, { data: rules }, { count }] = await Promise.all([
+      supabase
+        .from("revenue_engine_config")
+        .select("automation_enabled, engine_tick_enabled, dry_run, pause_reason, updated_at, publisher_lock_hotel, publisher_lock_token")
+        .eq("id", "global")
+        .maybeSingle(),
+      supabase
+        .from("revenue_pickup_automation_rules")
+        .select("hotel_id, next_run_at, last_successful_evaluation_at")
+        .eq("is_enabled", true)
+        .order("next_run_at", { ascending: true, nullsFirst: true })
+        .limit(50),
+      supabase
+        .from("revenue_rate_push_runs")
+        .select("id", { count: "exact", head: true })
+        .in("status", ["queued", "processing"]),
+    ]);
     setConfig((data as Config) ?? null);
+    const list = (rules ?? []) as Array<{ hotel_id: string; next_run_at: string | null; last_successful_evaluation_at: string | null }>;
+    const lastSuccess = list
+      .map((r) => r.last_successful_evaluation_at)
+      .filter(Boolean)
+      .sort()
+      .pop() ?? null;
+    const next = list.find((r) => r.next_run_at) ?? null;
+    setHealth({
+      enabled: list.length,
+      lastSuccess,
+      nextHotel: next?.hotel_id ?? null,
+      nextDue: next?.next_run_at ?? null,
+      publisherBusy: Boolean((data as any)?.publisher_lock_token),
+      queued: count ?? 0,
+    });
     setLoading(false);
   }, []);
 
