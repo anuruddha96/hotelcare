@@ -251,28 +251,53 @@ async function queueIntents(
 ): Promise<string | null> {
   if (payload.length === 0) return null;
   const runId = crypto.randomUUID();
-  await admin.from("revenue_rate_push_runs").insert({
+  const { error: runError } = await admin.from("revenue_rate_push_runs").insert({
     id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
     source: "automation", requested_count: payload.length, priority,
   });
-  const { data: drafts, error: draftError } = await admin.from("revenue_rate_drafts")
-    .insert(payload.map((row) => ({ ...row, priority, push_run_id: runId, confirmation_status: "sending" })))
-    .select("id,stay_date,room_type_name,occupancy");
-  if (draftError) throw draftError;
+  if (runError) throw runError;
+
   const keyOf = (row: any) => `${row.stay_date}|${row.room_type_name}|${row.occupancy}`;
-  const draftMap = new Map((drafts ?? []).map((row: any) => [keyOf(row), row.id]));
-  await admin.from("revenue_rate_push_items").insert(payload.map((row: any) => ({
-    run_id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
-    stay_date: row.stay_date, obk_id: row.obk_id, room_type_name: row.room_type_name,
-    occupancy: row.occupancy, old_price: row.old_price, target_price: row.new_price,
-    currency: row.currency, draft_id: draftMap.get(keyOf(row)),
-  })));
-  const work = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")! },
-    body: JSON.stringify({ hotelId: rule.hotel_id, draftIds: (drafts ?? []).map((row: any) => row.id), pushRunId: runId }),
-  });
-  (globalThis as any).EdgeRuntime?.waitUntil(work);
+  const incomingKeys = new Set(payload.map(keyOf));
+  const dates = Array.from(new Set(payload.map((row: any) => row.stay_date)));
+
+  // Coalesce only work that has not been claimed by the publisher. Historical
+  // rows remain in place as superseded intents; claimed/sending rows are never
+  // touched. This also satisfies the one-active-draft-per-cell index.
+  const { data: staleDrafts } = await admin.from("revenue_rate_drafts")
+    .select("id,stay_date,room_type_name,occupancy")
+    .eq("hotel_id", rule.hotel_id)
+    .in("stay_date", dates)
+    .in("status", ["draft", "failed"])
+    .is("superseded_at", null)
+    .is("claimed_at", null);
+  const staleIds = ((staleDrafts ?? []) as any[])
+    .filter((row) => incomingKeys.has(keyOf(row)))
+    .map((row) => row.id);
+  for (let index = 0; index < staleIds.length; index += 200) {
+    await admin.from("revenue_rate_drafts")
+      .update({ superseded_at: new Date().toISOString(), status: "superseded" })
+      .in("id", staleIds.slice(index, index + 200))
+      .is("claimed_at", null);
+  }
+
+  // Persist large horizons in bounded chunks. The 3-minute queue drainer, not
+  // this evaluator, starts Previo delivery after the transaction is durable.
+  for (let index = 0; index < payload.length; index += 500) {
+    const batch = payload.slice(index, index + 500);
+    const { data: drafts, error: draftError } = await admin.from("revenue_rate_drafts")
+      .insert(batch.map((row) => ({ ...row, priority, push_run_id: runId, confirmation_status: "queued" })))
+      .select("id,stay_date,room_type_name,occupancy");
+    if (draftError) throw draftError;
+    const draftMap = new Map((drafts ?? []).map((row: any) => [keyOf(row), row.id]));
+    const { error: itemError } = await admin.from("revenue_rate_push_items").insert(batch.map((row: any) => ({
+      run_id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
+      stay_date: row.stay_date, obk_id: row.obk_id, room_type_name: row.room_type_name,
+      occupancy: row.occupancy, old_price: row.old_price, target_price: row.new_price,
+      currency: row.currency, draft_id: draftMap.get(keyOf(row)),
+    })));
+    if (itemError) throw itemError;
+  }
   return runId;
 }
 
@@ -354,24 +379,6 @@ Deno.serve(async (req) => {
     }
     const dryRun: boolean = body.dryRun === true || config?.dry_run === true;
 
-
-    // Recovery backstop for a browser/tab or Edge Runtime that stopped after
-    // enqueueing. Absolute target prices make this safe to resume.
-    const staleBefore = new Date(Date.now() - 10 * 60_000).toISOString();
-    const { data: recoveryRuns } = await admin.from("revenue_rate_push_runs")
-      .select("id,hotel_id,status,started_at").or(`status.eq.queued,and(status.eq.processing,started_at.lt.${staleBefore})`)
-      .order("created_at", { ascending: true }).limit(5);
-    for (const run of (recoveryRuns ?? []) as any[]) {
-      const { data: recoveryItems } = await admin.from("revenue_rate_push_items")
-        .select("draft_id").eq("run_id", run.id).in("status", ["queued", "processing", "failed"]);
-      const ids = (recoveryItems ?? []).map((item: any) => item.draft_id).filter(Boolean);
-      if (ids.length === 0) continue;
-      const work = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
-        method: "POST", headers: { "Content-Type": "application/json", "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")! },
-        body: JSON.stringify({ hotelId: run.hotel_id, draftIds: ids, pushRunId: run.id }),
-      });
-      (globalThis as any).EdgeRuntime?.waitUntil(work);
-    }
 
     // Scheduler: the cron wakes every few minutes but only ever evaluates ONE
     // due property, chosen by `next_run_at`. `claim_due_automation_rule` moves
@@ -733,7 +740,17 @@ Deno.serve(async (req) => {
                 .update({ superseded_at: new Date().toISOString(), status: "superseded" })
                 .in("id", supersede.slice(i, i + 200));
             }
-            await queueIntents(admin, rule, payload, priorityOf("markdown"));
+            const runId = await queueIntents(admin, rule, payload, priorityOf("markdown"));
+            if (runId) {
+              await admin.from("revenue_pickup_automation_actions")
+                .update({ push_run_id: runId })
+                .eq("hotel_id", rule.hotel_id)
+                .eq("rule_version", rule.version)
+                .eq("schedule_slot", slot)
+                .eq("local_business_date", local.date)
+                .eq("decision_type", "no_pickup_markdown")
+                .is("push_run_id", null);
+            }
           }
         }
       }
@@ -869,7 +886,19 @@ Deno.serve(async (req) => {
           const accepted = new Set((insertedStrong ?? []).map((row: any) => `${row.stay_date}|${row.obk_id}|${row.occupancy}`));
           const payload = strongDrafts.filter((row) => accepted.has(`${row.stay_date}|${row.obk_id}|${row.occupancy}`));
           strongActions = payload.length;
-          if (payload.length > 0) await queueIntents(admin, rule, payload, priorityOf("pickup"));
+          if (payload.length > 0) {
+            const runId = await queueIntents(admin, rule, payload, priorityOf("pickup"));
+            if (runId) {
+              await admin.from("revenue_pickup_automation_actions")
+                .update({ push_run_id: runId })
+                .eq("hotel_id", rule.hotel_id)
+                .eq("rule_version", rule.version)
+                .eq("schedule_slot", slot)
+                .eq("local_business_date", local.date)
+                .eq("decision_type", "smart_strong_demand")
+                .is("push_run_id", null);
+            }
+          }
         }
       }
 
@@ -1160,10 +1189,9 @@ Deno.serve(async (req) => {
       }
 
 
-      let pushed = 0;
-      let pushError: string | null = null;
+      let queued = 0;
       const changed: Array<Record<string, unknown>> = [];
-      // Only publish prices for events that were genuinely new this tick.
+      // Only queue prices for events that were genuinely new this tick.
       if (rule.auto_publish && inserted > 0 && draftsToInsert.length > 0) {
         const insertedKeys = new Set<string>();
         const { data: freshRows } = await admin
@@ -1203,73 +1231,31 @@ Deno.serve(async (req) => {
                 .update({ superseded_at: new Date().toISOString(), status: "superseded" })
                 .in("id", staleIds.slice(i, i + 200));
             }
-            const pushRunId = crypto.randomUUID();
-            await admin.from("revenue_rate_push_runs").insert({
-              id: pushRunId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
-              source: "automation", requested_count: payload.length, priority: priorityOf("pickup"),
-            });
-            const { data: drafts, error: draftErr } = await admin
-              .from("revenue_rate_drafts")
-              .insert(payload.map((row: any) => ({
-                ...row,
-                priority: priorityOf("pickup"),
-                intent_source: "automation_pickup",
-                push_run_id: pushRunId,
-              })))
-              .select("id");
-            if (draftErr) throw draftErr;
-            const draftIds = ((drafts ?? []) as any[]).map((d) => d.id);
-
-            const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-              },
-              body: JSON.stringify({ hotelId: rule.hotel_id, draftIds, pushRunId }),
-            });
-
-            const out = await res.json().catch(() => ({}));
-            pushed = Number(out?.pushed ?? 0);
-            pushError = pushed > 0 ? null : (out?.error ?? "Previo did not accept the change");
+            for (const row of payload) row.intent_source = "automation_pickup";
+            const pushRunId = await queueIntents(admin, rule, payload, priorityOf("pickup"));
+            queued = payload.length;
+            if (pushRunId && insertedActionIds.length > 0) {
+              await admin.from("revenue_pickup_automation_actions")
+                .update({ push_run_id: pushRunId })
+                .in("id", insertedActionIds);
+            }
           } catch (err) {
-            // Never leave the decisions sitting in "queued" — that is what made
-            // the tool look like it had raised a price it never sent.
-            pushed = 0;
-            pushError = err instanceof Error ? err.message : String(err);
-            console.error("automation publish failed", pushError);
+            const queueError = describeError(err);
+            console.error("automation enqueue failed", queueError);
+            await admin.from("revenue_pickup_automation_actions")
+              .update({ status: "failed", push_error: queueError })
+              .in("id", insertedActionIds);
+            throw err;
           }
 
-          const status = pushed > 0 ? "pushed" : "failed";
           for (const d of payload) {
             changed.push({
               stay_date: d.stay_date, room_type_name: d.room_type_name, occupancy: d.occupancy,
               old_price: d.old_price, new_price: d.new_price, currency: d.currency,
-              status,
+              status: "queued",
             });
           }
-          await admin.from("revenue_pickup_automation_actions")
-            .update({
-              status,
-              pushed_at: pushed > 0 ? new Date().toISOString() : null,
-              push_error: pushed > 0 ? null : pushError,
-            })
-            .eq("hotel_id", rule.hotel_id)
-            .eq("status", "queued")
-            .gte("created_at", runStartedAt);
         }
-      }
-
-      // Anything left "queued" from an earlier crashed tick is not pending —
-      // it never reached Previo. Surface it as failed so the UI stops showing
-      // a raise that did not happen.
-      {
-        const staleQueuedBefore = new Date(Date.now() - 30 * 60_000).toISOString();
-        await admin.from("revenue_pickup_automation_actions")
-          .update({ status: "failed", push_error: "Publishing never completed — price was not sent to Previo" })
-          .eq("hotel_id", rule.hotel_id)
-          .eq("status", "queued")
-          .lt("created_at", staleQueuedBefore);
       }
 
       if (!rule.auto_publish && inserted > 0) {
@@ -1308,11 +1294,11 @@ Deno.serve(async (req) => {
           action_ids: insertedActionIds,
           pickups_count: events.length,
           actions_count: inserted,
-          pushed_count: pushed,
+          pushed_count: 0,
           failed_count: failedCount,
           currency: rule.currency ?? "EUR",
           severity: failedCount > 0 ? "warning" : "info",
-          summary: `${changed.length} prices changed · ${pushed} sent · ${failedCount} failed`,
+          summary: `${queued} prices queued safely · ${failedCount} failed`,
           changes: changed,
         });
         if (notifErr) console.error("notification insert failed", notifErr);
@@ -1323,10 +1309,10 @@ Deno.serve(async (req) => {
         skipped_not_new: skippedStale, skipped_negative_pickup: skippedNegative,
         actions: inserted, markdowns: markdownActions,
         markdown_stay_dates: markdownStayDates, blocked: markdownBlocks,
-        queued: inserted + markdownActions,
-        pushed, failed: failedCount,
+        queued: queued + markdownActions + strongActions,
+        pushed: 0, failed: failedCount,
 
-        push_error: pushError, auto_publish: rule.auto_publish, changed,
+        push_error: null, auto_publish: rule.auto_publish, changed,
         smart_strong: strongActions, smart_pricing: rule.smart_pricing_enabled === true,
         next_run_at: nextRunAt(now, intervalMinutes),
       });
