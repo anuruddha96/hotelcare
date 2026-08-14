@@ -646,7 +646,7 @@ serve(async (req) => {
     }
     const { data: outstanding, error: draftReadError } = await service
       .from("revenue_rate_drafts")
-      .select("id, created_at, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, created_by, push_run_id, confirmation_status, actual_previo_price")
+      .select("id, created_at, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, created_by, push_run_id, confirmation_status, actual_previo_price, reconcile_attempts, reconcile_next_at, reconcile_state")
       .eq("hotel_id", hotelId)
       .eq("status", "pushed")
       .in("confirmation_status", ["sending", "sent", "checking", "pending", "different"])
