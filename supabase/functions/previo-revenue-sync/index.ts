@@ -849,6 +849,64 @@ serve(async (req) => {
         if (auditError) errors.push(`rate reconciliation audit: ${auditError.message}`);
       }
 
+      // Re-deliver only the exact cells Previo still disagrees with, through
+      // the same durable publisher every other push uses — so the per-hotel
+      // serialisation and queue safety stay exactly as they are.
+      if (retryCells.length > 0) {
+        try {
+          // Idempotency: never queue a cell that is already waiting to go out.
+          const { data: inflight } = await service.from("revenue_rate_drafts")
+            .select("stay_date, room_type_name, occupancy")
+            .eq("hotel_id", hotelId)
+            .in("status", ["draft", "queued"])
+            .gte("stay_date", from).lte("stay_date", to);
+          const busy = new Set((inflight ?? []).map((d: { stay_date: string; room_type_name: string; occupancy: number }) =>
+            `${d.stay_date}|${d.room_type_name}|${d.occupancy}`));
+          const todo = retryCells.filter((c) => !busy.has(`${c.stay_date}|${c.room_type_name}|${c.occupancy}`));
+          if (todo.length > 0) {
+            const runId = crypto.randomUUID();
+            const { error: runError } = await service.from("revenue_rate_push_runs").insert({
+              id: runId, hotel_id: hotelId, organization_slug: orgSlug,
+              source: "reconcile", requested_count: todo.length,
+              created_by: todo.find((c) => c.created_by)?.created_by ?? null,
+            });
+            if (runError) throw runError;
+            const { data: newDrafts, error: draftError } = await service.from("revenue_rate_drafts")
+              .insert(todo.map((c) => ({
+                hotel_id: hotelId, organization_slug: orgSlug,
+                stay_date: c.stay_date, obk_id: c.obk_id, room_type_name: c.room_type_name,
+                occupancy: c.occupancy, old_price: c.old_price, new_price: c.new_price,
+                status: "draft", confirmation_status: "sending", push_run_id: runId,
+                created_by: c.created_by,
+              })))
+              .select("id, stay_date, room_type_name, occupancy");
+            if (draftError) throw draftError;
+            const idsByCell = new Map((newDrafts ?? []).map((d: { id: string; stay_date: string; room_type_name: string; occupancy: number }) =>
+              [`${d.stay_date}|${d.room_type_name}|${d.occupancy}`, d.id]));
+            const { error: itemError } = await service.from("revenue_rate_push_items").insert(todo.map((c) => ({
+              run_id: runId, hotel_id: hotelId, organization_slug: orgSlug,
+              stay_date: c.stay_date, obk_id: c.obk_id, room_type_name: c.room_type_name,
+              occupancy: c.occupancy, old_price: c.old_price, target_price: c.new_price,
+              draft_id: idsByCell.get(`${c.stay_date}|${c.room_type_name}|${c.occupancy}`),
+            })));
+            if (itemError) throw itemError;
+            await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+              },
+              body: JSON.stringify({ hotelId, pushRunId: runId }),
+            });
+            requeuedCells = todo.length;
+          }
+        } catch (e) {
+          errors.push(`reconcile requeue: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+
+
       // Any changed authoritative rate not claimed by a pending HotelCare push
       // was changed in Previo (or by another connected channel manager).
       const externalRows: Record<string, unknown>[] = [];
