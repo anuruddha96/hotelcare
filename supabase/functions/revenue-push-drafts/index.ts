@@ -262,17 +262,6 @@ Deno.serve(async (req) => {
       status: "processing", started_at: new Date().toISOString(), last_error: null,
     }).eq("id", pushRunId);
 
-    // The decision table is the durable user-facing status for automation.
-    // Linkage is by push_run_id, so retries and background continuations update
-    // exactly the decisions belonging to this publishing job.
-    if (!more) {
-      const actionStatus = totalFailed === 0 ? "pushed" : totalAccepted === 0 ? "failed" : "partial";
-      await admin.from("revenue_pickup_automation_actions").update({
-        status: actionStatus,
-        pushed_at: totalAccepted > 0 ? new Date().toISOString() : null,
-        push_error: totalFailed > 0 ? errors[0]?.error?.slice(0, 500) ?? "Previo rejected one or more prices" : null,
-      }).eq("push_run_id", pushRunId);
-    }
     await admin.from("revenue_rate_push_items").update({
       status: "processing", claimed_at: new Date().toISOString(),
     }).eq("run_id", pushRunId).in("draft_id", draftIdList);
@@ -661,6 +650,18 @@ Deno.serve(async (req) => {
       finished_at: more ? null : new Date().toISOString(),
       last_error: totalFailed > 0 ? errors[0]?.error?.slice(0, 500) ?? "Previo rejected one or more prices" : null,
     }).eq("id", pushRunId);
+
+    // The decision table is the durable user-facing status for automation.
+    // Linkage is by push_run_id, so retries and background continuations update
+    // exactly the decisions belonging to this publishing job.
+    if (!more) {
+      const actionStatus = totalFailed === 0 ? "pushed" : totalAccepted === 0 ? "failed" : "partial";
+      await admin.from("revenue_pickup_automation_actions").update({
+        status: actionStatus,
+        pushed_at: totalAccepted > 0 ? new Date().toISOString() : null,
+        push_error: totalFailed > 0 ? errors[0]?.error?.slice(0, 500) ?? "Previo rejected one or more prices" : null,
+      }).eq("push_run_id", pushRunId);
+    }
 
     if (more) {
       // Hand the lock over before the next slice starts, otherwise the
