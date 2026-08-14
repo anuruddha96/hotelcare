@@ -85,7 +85,7 @@ serve(async (req) => {
     let recsCreated = 0;
     let alertsCreated = 0;
 
-    for (const s of generateRecommendations ? settings : []) {
+    for (const s of (generateRecommendations ? (settings ?? []) : [])) {
       if (targetHotel && s.hotel_id !== targetHotel) continue;
 
 
@@ -242,7 +242,7 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ ok: true, recsCreated, alertsCreated, trigger, previoSynced, previoErrors, purged }),
+      JSON.stringify({ ok: true, mode: generateRecommendations ? "recommendations" : "sync_only", recsCreated, alertsCreated, trigger, previoSynced, previoErrors, purged }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e: any) {
