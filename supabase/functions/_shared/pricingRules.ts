@@ -282,3 +282,64 @@ export function maxDailyMarkdown(intervalMinutes: number, decreasePerEvaluation:
   const evaluationsPerDay = Math.max(1, Math.floor(1440 / Math.max(60, Number(intervalMinutes) || 60)));
   return roundMoney(evaluationsPerDay * Math.max(0, Number(decreasePerEvaluation) || 0));
 }
+
+// --------------------------------------------------------------------------
+// Smart pricing (occupancy + lead time)
+// --------------------------------------------------------------------------
+
+export interface SmartWindow {
+  occupancyPct: number | null | undefined;
+  daysOut: number;
+  nearTermDays: number;
+  lowOccupancyPct: number;
+}
+
+/**
+ * Smart mode only marks down genuinely weak demand: a date whose occupancy is
+ * still below the "weak" threshold. Near-term weak dates are the classic case;
+ * a date with no occupancy reading at all is treated as unknown and may still
+ * move, exactly as before smart mode existed.
+ */
+export function smartMarkdownAllowed(input: SmartWindow): boolean {
+  const occ = input.occupancyPct;
+  if (occ === null || occ === undefined) return true;
+  if (Number(occ) < Number(input.lowOccupancyPct)) return true;
+  return false;
+}
+
+export interface StrongDemandInput {
+  occupancyPct: number | null | undefined;
+  daysOut: number;
+  longLeadDays: number;
+  highOccupancyPct: number;
+  increase: number;
+  maximumIncrease?: number | null;
+  raisedToday: number;
+  maxDailyIncreasePerDate: number;
+  markedDownToday: boolean;
+}
+
+/**
+ * A far-out date that is already filling up may rise even in an hour with no
+ * new booking. Returns the currency amount allowed right now — 0 means "leave
+ * it alone".
+ */
+export function strongDemandStep(input: StrongDemandInput): number {
+  if (input.markedDownToday) return 0;
+  const occ = input.occupancyPct;
+  if (occ === null || occ === undefined) return 0;
+  if (Number(occ) < Number(input.highOccupancyPct)) return 0;
+  if (Number(input.daysOut) <= Number(input.longLeadDays)) return 0;
+  let step = roundMoney(Math.max(0, Number(input.increase) || 0));
+  if (step <= 0) return 0;
+  if (input.maximumIncrease) step = Math.min(step, Number(input.maximumIncrease));
+  const room = roundMoney(Number(input.maxDailyIncreasePerDate || 0) - Math.max(0, Number(input.raisedToday) || 0));
+  return Math.max(0, Math.min(step, room));
+}
+
+/** An advisor may only confirm or soften a move: factor is clamped to 0..1. */
+export function clampAiFactor(value: unknown): number {
+  const factor = Number(value);
+  if (!Number.isFinite(factor)) return 1;
+  return Math.max(0, Math.min(1, factor));
+}
