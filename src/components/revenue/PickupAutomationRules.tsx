@@ -127,7 +127,7 @@ function explain(rule: Rule, hotelName: string): string[] {
 
   lines.push(
     rule.auto_publish
-      ? "Matched changes are sent to Previo automatically and appear in the calendar with an automation marker."
+      ? "Matched changes enter the safe background queue and appear with an automation marker after Previo confirms them."
       : "Matched changes are only suggested — you publish them yourself from the calendar.",
   );
   return lines;
@@ -586,7 +586,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                   {[
                     { label: "Pickups checked", value: runResult.pickups },
                     { label: "Cells matched", value: runResult.actions },
-                    { label: runResult.autoPublish ? "Sent to Previo" : "Suggested", value: runResult.autoPublish ? runResult.pushed : runResult.actions },
+                    { label: runResult.autoPublish ? "Queued safely" : "Suggested", value: runResult.autoPublish ? runResult.queued : runResult.actions },
                     { label: "Failed", value: runResult.failed },
                   ].map((item) => (
                     <div key={item.label} className="rounded-md border p-2">
