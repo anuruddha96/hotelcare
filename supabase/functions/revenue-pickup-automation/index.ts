@@ -180,28 +180,40 @@ Deno.serve(async (req) => {
       (globalThis as any).EdgeRuntime?.waitUntil(work);
     }
 
-    // One property per tick, least-recently-run first. Automation only ever
-    // reads the hotels that actually have it switched on, and a global lock
-    // keeps two properties from pricing at the same time — both keep the
-    // database's disk work small and predictable.
-    let q = admin.from("revenue_pickup_automation_rules").select("*").eq("is_enabled", true)
-      .order("last_run_at", { ascending: true, nullsFirst: true })
-      .limit(1);
-    if (onlyHotel) q = q.eq("hotel_id", onlyHotel);
-    const { data: ruleRows, error: ruleErr } = await q;
-    if (ruleErr) throw ruleErr;
-
-    const rules = (ruleRows ?? []) as unknown as Rule[];
-    if (rules.length === 0) {
-      if (onlyHotel) {
+    // Scheduler: the cron wakes every few minutes but only ever evaluates ONE
+    // due property, chosen by `next_run_at`. `claim_due_automation_rule` moves
+    // that property's next slot forward inside the same transaction, so two
+    // overlapping ticks can never take the same hotel and properties naturally
+    // stagger instead of all firing on the hour.
+    let rules: Rule[] = [];
+    if (onlyHotel) {
+      const { data: ruleRows, error: ruleErr } = await admin
+        .from("revenue_pickup_automation_rules").select("*")
+        .eq("hotel_id", onlyHotel).eq("is_enabled", true).limit(1);
+      if (ruleErr) throw ruleErr;
+      rules = (ruleRows ?? []) as unknown as Rule[];
+      if (rules.length === 0) {
         // Say precisely why nothing happened: no rule saved yet, or saved but off.
         const { data: anyRule } = await admin.from("revenue_pickup_automation_rules")
           .select("id, is_enabled").eq("hotel_id", onlyHotel).maybeSingle();
         if (!anyRule) return json({ ok: true, rules: 0, summary: [], code: "no_rule", msg: "This property has no automation rule saved yet." });
         return json({ ok: true, rules: 0, summary: [], code: "disabled", msg: "Automation is switched off for this property." });
       }
-      return json({ ok: true, rules: 0, summary: [], code: "no_rule", msg: "No property has price automation enabled." });
+    } else {
+      const { data: due, error: dueErr } = await admin.rpc("claim_due_automation_rule");
+      if (dueErr) throw dueErr;
+      const claimed = (Array.isArray(due) ? due[0] : due) as { hotel_id?: string } | null;
+      if (!claimed?.hotel_id) {
+        return json({ ok: true, rules: 0, summary: [], code: "idle", msg: "No property is due for evaluation right now." });
+      }
+      const { data: ruleRows } = await admin.from("revenue_pickup_automation_rules")
+        .select("*").eq("hotel_id", claimed.hotel_id).eq("is_enabled", true).limit(1);
+      rules = (ruleRows ?? []) as unknown as Rule[];
+      if (rules.length === 0) {
+        return json({ ok: true, rules: 0, summary: [], code: "idle", msg: "The due property is no longer enabled." });
+      }
     }
+
 
     const lockHotel = rules[0].hotel_id;
     const { data: gotLock, error: lockError } = await admin.rpc("claim_automation_lock", { p_hotel: lockHotel, p_stale_minutes: 10 });
