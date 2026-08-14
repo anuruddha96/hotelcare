@@ -380,11 +380,18 @@ Deno.serve(async (req) => {
           admin.from("rate_change_audit").select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).gte("performed_at", new Date(Date.now() - Math.max(0, Number(rule.manual_markdown_hold_hours || 0)) * 3_600_000).toISOString()).limit(20000),
         ]);
 
-        const positiveDates = new Set((recentBookings ?? []).map((row: any) => row.stay_date));
-        const negativeDates = new Set((recentCancellations ?? []).map((row: any) => row.stay_date));
+        // NET pickup for the observation window: new booking nights minus
+        // cancellations. Only a genuinely positive net blocks a markdown; a
+        // cancellation can never create an increase.
+        const netByDate = netPickupByDate(
+          (recentBookings ?? []) as Array<{ stay_date: string }>,
+          (recentCancellations ?? []) as Array<{ stay_date: string }>,
+        );
 
-        // Daily cap is consumed per STAY DATE: take the largest movement any one
-        // cell of that date already made today.
+        // Daily cap is consumed per STAY DATE: the largest cumulative movement
+        // any single cell of that date already made today. This is the state
+        // BEFORE this evaluation and is never mutated inside the cell loop —
+        // one evaluation costs the date exactly one step, not one step per cell.
         const movedTodayByCell = new Map<string, number>();
         for (const action of (markdownToday ?? []) as any[]) {
           const key = `${action.stay_date}|${action.obk_id}|${action.occupancy}`;
@@ -395,6 +402,7 @@ Deno.serve(async (req) => {
           const date = key.split("|")[0];
           movedTodayByDate.set(date, Math.max(movedTodayByDate.get(date) ?? 0, amount));
         }
+
 
         const occupancyByDate = new Map<string, { pct: number | null; left: number | null }>();
         for (const row of (snapshotRows ?? []) as any[]) {
