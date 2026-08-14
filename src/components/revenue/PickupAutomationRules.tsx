@@ -28,9 +28,19 @@ interface Rule {
   run_timezone: string; no_pickup_decrease: number;
   max_daily_decrease_per_date: number;
   no_pickup_scope: "booked_room_type" | "all_room_types";
+  evaluation_interval_minutes: number;
+  protect_high_occupancy: boolean;
+  markdown_max_occupancy_pct: number;
+  manual_markdown_hold_hours: number;
   currency: string;
-  last_run_at?: string | null; version: number;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  last_evaluated_at?: string | null;
+  last_evaluation_status?: string | null;
+  last_evaluation_error?: string | null;
+  version: number;
 }
+
 
 /** Starting suggestions only — a hotel is never automated until it is saved with the switch on. */
 const DEFAULT_RULE: Rule = {
