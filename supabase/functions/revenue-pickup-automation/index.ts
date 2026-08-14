@@ -52,8 +52,17 @@ interface Rule {
   max_daily_decrease_per_date: number;
   currency: string;
   last_no_pickup_slot: string | null;
+  no_pickup_scope: "booked_room_type" | "all_room_types";
+  evaluation_interval_minutes: number;
+  next_run_at: string | null;
+  last_evaluated_at: string | null;
+  last_successful_evaluation_at: string | null;
+  protect_high_occupancy: boolean;
+  markdown_max_occupancy_pct: number;
+  manual_markdown_hold_hours: number;
   version: number;
   last_run_at: string | null;
+
 }
 
 const json = (body: unknown, status = 200) =>
