@@ -54,7 +54,10 @@ const DEFAULT_RULE: Rule = {
   future_booking_window_days: 183, no_pickup_run_times: ["08:00", "14:00", "20:00"],
   run_timezone: "Europe/Budapest", no_pickup_decrease: 2,
   max_daily_decrease_per_date: 10, no_pickup_scope: "all_room_types", currency: "EUR",
+  evaluation_interval_minutes: 60, protect_high_occupancy: true,
+  markdown_max_occupancy_pct: 88, manual_markdown_hold_hours: 6,
 };
+
 
 /** Turns the saved numbers into sentences a non-technical owner can check. */
 function explain(rule: Rule, hotelName: string): string[] {
