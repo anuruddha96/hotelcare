@@ -575,6 +575,26 @@ export default function RateStrategyGrid({
 
 
   const allDates = useMemo(() => dateRange(today, addDays(today, days - 1)), [today, days]);
+
+  /**
+   * Durable change markers for everything on screen. Read from the database in
+   * ONE bounded call per range (newest change per exact cell), so the dots
+   * survive a reload instead of living only in optimistic state.
+   */
+  const {
+    byCell: markerByCell,
+    byDate: markerByDate,
+    reload: reloadMarkers,
+  } = useRateCellMarkers(hotelId, allDates[0], allDates[allDates.length - 1]);
+
+  /** Real per-cell history, fetched one stay date at a time when opened. */
+  const { byCell: cellHistoryByCell, loadDate: loadCellHistory, invalidate: invalidateCellHistory } = useCellRateHistory(hotelId);
+
+  const reloadAudit = useCallback(async () => {
+    invalidateCellHistory();
+    await Promise.all([reloadAuditRows(), reloadMarkers()]);
+  }, [reloadAuditRows, reloadMarkers, invalidateCellHistory]);
+
   /** When on, the grid shows only the cells flagged by the safety net. */
   const [reviewOnly, setReviewOnly] = useState(false);
   const [pickupOnly, setPickupOnly] = useState(false);
