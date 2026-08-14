@@ -170,6 +170,22 @@ Deno.serve(async (req) => {
       return json({ ok: true, pushed: 0, failed: 0, message: "Nothing to push." });
     }
 
+    // Only one property may talk to Previo at a time. The lock is keyed by
+    // hotel, so this run's own follow-up slices re-enter freely while another
+    // property waits its turn instead of interleaving messages.
+    for (let attempt = 0; attempt < 4 && !publisherLock; attempt++) {
+      const { data: gotLock } = await admin.rpc("claim_publisher_lock", { p_hotel: hotelId, p_stale_minutes: 15 });
+      if (gotLock === true) { publisherLock = hotelId; break; }
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    if (!publisherLock) {
+      return json({
+        ok: true, pushed: 0, failed: 0, code: "publisher_busy",
+        message: "Another property is publishing right now — these prices stay queued and go out next.",
+      });
+    }
+
+
     // Credentials per Previo account — SLNT merges two profiles under one hotel,
     // so the account is chosen from the obk id prefix ("<hotId>:<obkId>").
     type Account = { hotId: string; creds: any };
