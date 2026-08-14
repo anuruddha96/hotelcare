@@ -192,7 +192,10 @@ serve(async (req) => {
     }
 
     // Expire stale (errors swallowed; non-critical)
-    try { await supabase.rpc("expire_stale_recommendations"); } catch (_) { /* ignore */ }
+    if (generateRecommendations) {
+      try { await supabase.rpc("expire_stale_recommendations"); } catch (_) { /* ignore */ }
+    }
+
 
     // Sync exactly the one property this tick owns (revenue + daily overview).
     // Failures are logged but never block the tick.
