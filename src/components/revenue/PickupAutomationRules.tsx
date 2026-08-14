@@ -234,6 +234,13 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       run_timezone: rule.run_timezone,
       no_pickup_decrease: rule.no_pickup_decrease,
       max_daily_decrease_per_date: rule.max_daily_decrease_per_date,
+      evaluation_interval_minutes: rule.evaluation_interval_minutes,
+      protect_high_occupancy: rule.protect_high_occupancy,
+      markdown_max_occupancy_pct: rule.markdown_max_occupancy_pct,
+      manual_markdown_hold_hours: rule.manual_markdown_hold_hours,
+      // Re-arm the scheduler so a saved change is picked up on the next tick.
+      next_run_at: new Date().toISOString(),
+
       no_pickup_scope: rule.no_pickup_scope,
       currency: rule.currency,
       version: rule.version + (rule.id ? 1 : 0),
