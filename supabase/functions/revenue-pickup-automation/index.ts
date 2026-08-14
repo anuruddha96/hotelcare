@@ -19,6 +19,9 @@ import {
   dateAllowedStep,
   netPickupByDate,
   effectivePrice,
+  smartMarkdownAllowed,
+  strongDemandStep,
+  clampAiFactor,
 
 } from "../_shared/pricingRules.ts";
 
@@ -164,7 +167,7 @@ async function aiScaleDeltas(candidates: AiCandidate[], rule: Rule): Promise<Map
       const date = String(row?.d ?? "");
       const factor = Number(row?.factor);
       if (!date || !Number.isFinite(factor)) continue;
-      out.set(date, Math.max(0, Math.min(1, factor)));
+      out.set(date, clampAiFactor(factor));
     }
   } catch (e) {
     console.warn("ai assist unavailable", describeError(e));
@@ -630,13 +633,13 @@ Deno.serve(async (req) => {
           // left alone even when this single hour brought no booking; near-term
           // dates below the threshold are the ones worth stimulating.
           if (rule.smart_pricing_enabled) {
-            const occNow = guardsFor?.pct ?? null;
-            const lowPct = Number(rule.low_occupancy_pct ?? 50);
-            const nearDays = Math.max(0, Number(rule.near_term_days ?? 30));
-            const daysOut = dayDiff(local.date, rate.stay_date);
-            const weak = occNow === null || occNow < lowPct;
-            const nearTerm = daysOut <= nearDays;
-            if (!weak || (!nearTerm && occNow !== null && occNow >= lowPct)) {
+            const allowed = smartMarkdownAllowed({
+              occupancyPct: guardsFor?.pct ?? null,
+              daysOut: dayDiff(local.date, rate.stay_date),
+              nearTermDays: Math.max(0, Number(rule.near_term_days ?? 30)),
+              lowOccupancyPct: Number(rule.low_occupancy_pct ?? 50),
+            });
+            if (!allowed) {
               if (!blockedDates.has(rate.stay_date)) {
                 blockedDates.set(rate.stay_date, "demand_healthy");
                 markdownBlocks["demand_healthy"] = (markdownBlocks["demand_healthy"] ?? 0) + 1;
@@ -800,21 +803,22 @@ Deno.serve(async (req) => {
         const strongDrafts: any[] = [];
         const stepByDate = new Map<string, number>();
         for (const rate of newestRate.values()) {
-          const daysOut = dayDiff(local.date, rate.stay_date);
-          if (daysOut <= leadDays) continue;
-          if (markdownDatesThisRun.has(rate.stay_date)) continue;
-          const occ = occByDate.get(rate.stay_date);
-          if (occ === null || occ === undefined || occ < highPct) continue;
           const holdMs = Math.max(0, Number(rule.manual_markdown_hold_hours ?? 6)) * 3_600_000;
           const editedAt = manualHold.get(rate.stay_date);
           if (editedAt && Date.now() - Date.parse(editedAt) < holdMs) continue;
 
           if (!stepByDate.has(rate.stay_date)) {
-            let step = roundMoney(Number(rule.strong_demand_increase || 0));
-            if (rule.maximum_increase) step = Math.min(step, Number(rule.maximum_increase));
-            const room = Number(rule.max_daily_increase_per_date || 0) - (raisedTodayByDate.get(rate.stay_date) ?? 0);
-            step = Math.min(step, Math.max(0, roundMoney(room)));
-            stepByDate.set(rate.stay_date, step);
+            stepByDate.set(rate.stay_date, strongDemandStep({
+              occupancyPct: occByDate.get(rate.stay_date) ?? null,
+              daysOut: dayDiff(local.date, rate.stay_date),
+              longLeadDays: leadDays,
+              highOccupancyPct: highPct,
+              increase: Number(rule.strong_demand_increase || 0),
+              maximumIncrease: rule.maximum_increase,
+              raisedToday: raisedTodayByDate.get(rate.stay_date) ?? 0,
+              maxDailyIncreasePerDate: Number(rule.max_daily_increase_per_date || 0),
+              markedDownToday: markdownDatesThisRun.has(rate.stay_date),
+            }));
           }
           const step = stepByDate.get(rate.stay_date) ?? 0;
           if (step <= 0) continue;
