@@ -344,7 +344,12 @@ serve(async (req) => {
   const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
   const hotelId: string = body.hotelId || "";
   const horizonDays: number = Math.min(400, Math.max(30, Number(body.horizonDays) || 190));
+  // The hourly pricing engine only needs fresh reservations. In probe mode the
+  // whole rate universe and the draft reconciliation pass are skipped, which
+  // turns a multi-minute full sync into a short reservation refresh.
+  const probeOnly: boolean = body.mode === "automation_probe";
   if (!hotelId) return json({ error: "hotelId is required" }, 400);
+
 
   // ---- auth: signed-in user with access to this hotel, or service role ----
   const token = (req.headers.get("Authorization") || "").replace("Bearer ", "");
