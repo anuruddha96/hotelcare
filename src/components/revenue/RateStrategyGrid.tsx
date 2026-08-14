@@ -2269,12 +2269,15 @@ export default function RateStrategyGrid({
                         key={d}
                         type="button"
                         disabled={!canEditRates}
+                        onPointerEnter={() => { void loadCellHistory(d); }}
                         onClick={() => {
                           if (!canEditRates) return;
                           // On a phone there is no hover, so a tap tells the
                           // cell's story first and offers editing from there.
                           if (isMobile) {
+                            void loadCellHistory(d);
                             setCellInfo({
+
                               date: d,
                               roomTypeName: row.roomTypeName,
                               occ: row.occ,
