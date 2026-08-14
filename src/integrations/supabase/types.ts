@@ -7324,49 +7324,28 @@ export type Database = {
           stay_date: string
         }[]
       }
-      rate_cell_markers:
-        | {
-            Args: {
-              p_from: string
-              p_hotel_id: string
-              p_since: string
-              p_to: string
-            }
-            Returns: {
-              confirmation_status: string
-              new_rate_eur: number
-              occupancy: number
-              old_rate_eur: number
-              performed_at: string
-              performed_by: string
-              requested_price: number
-              room_type_name: string
-              source: string
-              stay_date: string
-            }[]
-          }
-        | {
-            Args: {
-              p_from: string
-              p_hotel_id: string
-              p_limit?: number
-              p_offset?: number
-              p_since: string
-              p_to: string
-            }
-            Returns: {
-              confirmation_status: string
-              new_rate_eur: number
-              occupancy: number
-              old_rate_eur: number
-              performed_at: string
-              performed_by: string
-              requested_price: number
-              room_type_name: string
-              source: string
-              stay_date: string
-            }[]
-          }
+      rate_cell_markers: {
+        Args: {
+          p_from: string
+          p_hotel_id: string
+          p_limit?: number
+          p_offset?: number
+          p_since: string
+          p_to: string
+        }
+        Returns: {
+          confirmation_status: string
+          new_rate_eur: number
+          occupancy: number
+          old_rate_eur: number
+          performed_at: string
+          performed_by: string
+          requested_price: number
+          room_type_name: string
+          source: string
+          stay_date: string
+        }[]
+      }
       release_automation_lock: { Args: { p_hotel: string }; Returns: undefined }
       release_own_revenue_sync: {
         Args: { _error?: string; _hotel_id: string }

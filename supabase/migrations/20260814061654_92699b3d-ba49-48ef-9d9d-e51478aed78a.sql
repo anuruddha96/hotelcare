@@ -1,0 +1,1 @@
+DROP FUNCTION IF EXISTS public.rate_cell_markers(text, date, date, timestamptz);
