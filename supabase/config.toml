@@ -168,3 +168,6 @@ verify_jwt = true
 
 [functions.rm-measure-outcomes]
 verify_jwt = true
+
+[functions.revenue-publish-queue]
+verify_jwt = false

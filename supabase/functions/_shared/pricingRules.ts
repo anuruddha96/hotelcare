@@ -154,24 +154,42 @@ export interface MarkdownResult {
 }
 
 /**
- * One markdown step for one price cell. The daily cap is consumed by the STAY
- * DATE, not by each room type × occupancy row, so a property with 40 rate cells
- * does not exhaust its cap on the first cell of the first evaluation.
+ * How much this STAY DATE may move down in the current evaluation. Computed
+ * once per date from the movement recorded BEFORE this evaluation, then applied
+ * to every eligible cell of that date. One evaluation therefore consumes one
+ * step of the daily cap no matter how many room-type × occupancy cells move.
+ */
+export function dateAllowedStep(input: {
+  decreasePerEvaluation: number;
+  stayDateMovedToday: number;
+  maxDailyDecreasePerDate: number;
+}): number {
+  const step = roundMoney(Math.max(0, Number(input.decreasePerEvaluation) || 0));
+  if (step <= 0) return 0;
+  const cap = Number(input.maxDailyDecreasePerDate);
+  if (!Number.isFinite(cap) || cap <= 0) return step;
+  const remaining = roundMoney(cap - Math.max(0, Number(input.stayDateMovedToday) || 0));
+  if (remaining <= 0) return 0;
+  return Math.min(step, remaining);
+}
+
+/**
+ * One markdown step for one price cell. `stayDateMovedToday` must reflect the
+ * state at the START of the evaluation — the caller must NOT add this cell's
+ * movement back into it, otherwise a date with 20 cells would burn its whole
+ * daily cap in a single evaluation.
  */
 export function computeMarkdown(input: MarkdownInput): MarkdownResult | null {
   const current = Number(input.effectivePrice);
   if (!Number.isFinite(current) || current <= 0) return null;
 
-  const step = roundMoney(Math.max(0, Number(input.decreasePerEvaluation) || 0));
-  if (step <= 0) return null;
+  const wanted = dateAllowedStep({
+    decreasePerEvaluation: input.decreasePerEvaluation,
+    stayDateMovedToday: input.stayDateMovedToday,
+    maxDailyDecreasePerDate: input.maxDailyDecreasePerDate,
+  });
+  if (wanted <= 0) return null;
 
-  const cap = Number(input.maxDailyDecreasePerDate);
-  const remaining = Number.isFinite(cap) && cap > 0
-    ? roundMoney(cap - Math.max(0, Number(input.stayDateMovedToday) || 0))
-    : step;
-  if (remaining <= 0) return null;
-
-  const wanted = Math.min(step, remaining);
   const floor = input.floorPrice === null || input.floorPrice === undefined ? null : Number(input.floorPrice);
   let target = roundMoney(current - wanted);
   if (floor !== null && Number.isFinite(floor)) {
@@ -181,6 +199,22 @@ export function computeMarkdown(input: MarkdownInput): MarkdownResult | null {
   if (target >= current) return null;
   return { newPrice: target, applied: roundMoney(current - target) };
 }
+
+/**
+ * Net pickup per stay date for one observation window: brand-new booking nights
+ * minus cancellations. A cancellation can only push a date to zero or below —
+ * it can never create an increase.
+ */
+export function netPickupByDate(
+  bookings: Array<{ stay_date: string }>,
+  cancellations: Array<{ stay_date: string }>,
+): Map<string, number> {
+  const net = new Map<string, number>();
+  for (const row of bookings) net.set(row.stay_date, (net.get(row.stay_date) ?? 0) + 1);
+  for (const row of cancellations) net.set(row.stay_date, (net.get(row.stay_date) ?? 0) - 1);
+  return net;
+}
+
 
 // --------------------------------------------------------------------------
 // Durable intent / coalescing

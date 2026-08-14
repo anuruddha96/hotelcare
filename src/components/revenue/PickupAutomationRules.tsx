@@ -42,6 +42,10 @@ interface Rule {
 }
 
 
+/** Money for plain-language copy: cents only when they matter. */
+const money = (n: number) =>
+  Number.isInteger(n) ? String(n) : n.toFixed(2);
+
 /** Starting suggestions only — a hotel is never automated until it is saved with the switch on. */
 const DEFAULT_RULE: Rule = {
   name: "Pickup pricing", is_enabled: false, auto_publish: true,
@@ -52,8 +56,9 @@ const DEFAULT_RULE: Rule = {
   positive_pickup_enabled: true, pickup_lookback_hours: 48,
   no_pickup_enabled: false, no_pickup_lookback_hours: 8,
   future_booking_window_days: 183, no_pickup_run_times: ["08:00", "14:00", "20:00"],
-  run_timezone: "Europe/Budapest", no_pickup_decrease: 2,
+  run_timezone: "Europe/Budapest", no_pickup_decrease: 0.5,
   max_daily_decrease_per_date: 10, no_pickup_scope: "all_room_types", currency: "EUR",
+
   evaluation_interval_minutes: 60, protect_high_occupancy: true,
   markdown_max_occupancy_pct: 88, manual_markdown_hold_hours: 6,
 };
@@ -86,10 +91,12 @@ function explain(rule: Rule, hotelName: string): string[] {
   if (rule.maximum_increase) lines.push(`One pickup can add at most €${rule.maximum_increase}.`);
   lines.push(`A single date can rise at most €${rule.max_daily_increase_per_date} in one day, no matter how many bookings arrive.`);
   if (rule.no_pickup_enabled) {
-    const perDay = Math.max(1, Math.floor(1440 / Math.max(60, rule.evaluation_interval_minutes))) * rule.no_pickup_decrease;
+    const step = rule.no_pickup_decrease ?? 0.5;
+    const perDay = Math.max(1, Math.floor(1440 / Math.max(60, rule.evaluation_interval_minutes))) * step;
     lines.push(
-      `Every ${rule.evaluation_interval_minutes} minutes, dates in the next ${rule.future_booking_window_days} days that picked up nothing since the previous check go down by ${rule.currency} ${rule.no_pickup_decrease}. That is at most ${rule.currency} ${Math.min(perDay, rule.max_daily_decrease_per_date)} per date per day.`,
+      `Every ${rule.evaluation_interval_minutes} minutes, dates in the next ${rule.future_booking_window_days} days that picked up nothing since the previous check go down by ${rule.currency} ${money(step)}. A date moves one step per check no matter how many room types it has, so at most ${rule.currency} ${money(Math.min(perDay, rule.max_daily_decrease_per_date))} per date per day.`,
     );
+
     if (rule.protect_high_occupancy) lines.push(`Dates already at ${rule.markdown_max_occupancy_pct}% occupancy or higher are never marked down, and a sold-out date never moves.`);
     if (rule.manual_markdown_hold_hours > 0) lines.push(`After someone changes a price by hand, that date is left alone for ${rule.manual_markdown_hold_hours} hours.`);
   }
@@ -193,7 +200,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       future_booking_window_days: source.rule.future_booking_window_days ?? 183,
       no_pickup_run_times: source.rule.no_pickup_run_times ?? ["08:00", "14:00", "20:00"],
       run_timezone: source.rule.run_timezone ?? "Europe/Budapest",
-      no_pickup_decrease: source.rule.no_pickup_decrease ?? 2,
+      no_pickup_decrease: source.rule.no_pickup_decrease ?? 0.5,
       max_daily_decrease_per_date: source.rule.max_daily_decrease_per_date ?? 10,
       no_pickup_scope: source.rule.no_pickup_scope ?? "all_room_types",
       evaluation_interval_minutes: source.rule.evaluation_interval_minutes ?? 60,
@@ -238,8 +245,14 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       protect_high_occupancy: rule.protect_high_occupancy,
       markdown_max_occupancy_pct: rule.markdown_max_occupancy_pct,
       manual_markdown_hold_hours: rule.manual_markdown_hold_hours,
-      // Re-arm the scheduler so a saved change is picked up on the next tick.
-      next_run_at: new Date().toISOString(),
+      // Saving never triggers an immediate evaluation: an enabled rule is
+      // simply scheduled one normal interval from now, so nobody gets a
+      // surprise markdown for pressing Save. "Run now" stays the explicit
+      // way to act immediately. A rule that is off is never made due.
+      next_run_at: rule.is_enabled
+        ? new Date(Date.now() + Math.max(10, rule.evaluation_interval_minutes) * 60_000).toISOString()
+        : null,
+
 
       no_pickup_scope: rule.no_pickup_scope,
       currency: rule.currency,
@@ -435,8 +448,9 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label className="text-xs">Future booking window (days)</Label><Input type="number" min={1} max={730} value={rule.future_booking_window_days} onChange={(e) => setRule({ ...rule, future_booking_window_days: Number(e.target.value) })} /></div>
-                <div><Label className="text-xs">Decrease per check ({rule.currency})</Label><Input type="number" min={1} max={10} value={rule.no_pickup_decrease} onChange={(e) => setRule({ ...rule, no_pickup_decrease: Number(e.target.value) })} /></div>
-                <div><Label className="text-xs">Daily decrease cap per date ({rule.currency})</Label><Input type="number" min={1} value={rule.max_daily_decrease_per_date} onChange={(e) => setRule({ ...rule, max_daily_decrease_per_date: Number(e.target.value) })} /></div>
+                <div><Label className="text-xs">Decrease per check ({rule.currency})</Label><Input type="number" step={0.01} min={0.01} max={50} value={rule.no_pickup_decrease} onChange={(e) => setRule({ ...rule, no_pickup_decrease: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">One step per date per check, however many room types it has.</p></div>
+                <div><Label className="text-xs">Daily decrease cap per date ({rule.currency})</Label><Input type="number" step={0.01} min={0.01} value={rule.max_daily_decrease_per_date} onChange={(e) => setRule({ ...rule, max_daily_decrease_per_date: Number(e.target.value) })} /></div>
+
                 <div><Label className="text-xs">Leave manual changes alone (hours)</Label><Input type="number" min={0} max={72} value={rule.manual_markdown_hold_hours} onChange={(e) => setRule({ ...rule, manual_markdown_hold_hours: Number(e.target.value) })} /></div>
               </div>
               <div className="flex items-center justify-between gap-3">

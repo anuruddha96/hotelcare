@@ -16,7 +16,10 @@ import {
   observationWindow,
   markdownBlockReason,
   computeMarkdown,
+  dateAllowedStep,
+  netPickupByDate,
   effectivePrice,
+
 } from "../_shared/pricingRules.ts";
 
 
@@ -348,7 +351,9 @@ Deno.serve(async (req) => {
       // check — not on fixed clock slots — and never touches a stay date that
       // picked up in this window, so one date can only move one way per cycle.
       let markdownActions = 0;
+      let markdownStayDates = 0;
       const markdownBlocks: Record<string, number> = {};
+
       if (rule.no_pickup_enabled) {
         const local = localParts(rule.run_timezone || "Europe/Budapest");
         // A stable per-cycle slot label keeps the "one action per cell per
@@ -377,11 +382,18 @@ Deno.serve(async (req) => {
           admin.from("rate_change_audit").select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).gte("performed_at", new Date(Date.now() - Math.max(0, Number(rule.manual_markdown_hold_hours || 0)) * 3_600_000).toISOString()).limit(20000),
         ]);
 
-        const positiveDates = new Set((recentBookings ?? []).map((row: any) => row.stay_date));
-        const negativeDates = new Set((recentCancellations ?? []).map((row: any) => row.stay_date));
+        // NET pickup for the observation window: new booking nights minus
+        // cancellations. Only a genuinely positive net blocks a markdown; a
+        // cancellation can never create an increase.
+        const netByDate = netPickupByDate(
+          (recentBookings ?? []) as Array<{ stay_date: string }>,
+          (recentCancellations ?? []) as Array<{ stay_date: string }>,
+        );
 
-        // Daily cap is consumed per STAY DATE: take the largest movement any one
-        // cell of that date already made today.
+        // Daily cap is consumed per STAY DATE: the largest cumulative movement
+        // any single cell of that date already made today. This is the state
+        // BEFORE this evaluation and is never mutated inside the cell loop —
+        // one evaluation costs the date exactly one step, not one step per cell.
         const movedTodayByCell = new Map<string, number>();
         for (const action of (markdownToday ?? []) as any[]) {
           const key = `${action.stay_date}|${action.obk_id}|${action.occupancy}`;
@@ -392,6 +404,7 @@ Deno.serve(async (req) => {
           const date = key.split("|")[0];
           movedTodayByDate.set(date, Math.max(movedTodayByDate.get(date) ?? 0, amount));
         }
+
 
         const occupancyByDate = new Map<string, { pct: number | null; left: number | null }>();
         for (const row of (snapshotRows ?? []) as any[]) {
@@ -432,12 +445,17 @@ Deno.serve(async (req) => {
         const markdownDrafts: any[] = [];
         const supersede: string[] = [];
         const blockedDates = new Map<string, string>();
+        // One allowed step per stay date, derived from movement recorded before
+        // this evaluation. Every eligible cell of that date uses the SAME step.
+        const allowedStepByDate = new Map<string, number>();
+        const markdownDates = new Set<string>();
 
         for (const rate of latest.values()) {
           const cellKey = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
+          const net = netByDate.get(rate.stay_date) ?? 0;
           const guardsFor = occupancyByDate.get(rate.stay_date);
           const block = markdownBlockReason({
-            hadPickup: positiveDates.has(rate.stay_date),
+            hadPickup: net > 0,
             roomsAvailable: guardsFor?.left ?? null,
             occupancyPct: guardsFor?.pct ?? null,
             protectHighOccupancy: rule.protect_high_occupancy !== false,
@@ -454,20 +472,38 @@ Deno.serve(async (req) => {
             continue;
           }
 
+          if (!allowedStepByDate.has(rate.stay_date)) {
+            allowedStepByDate.set(rate.stay_date, dateAllowedStep({
+              decreasePerEvaluation: Number(rule.no_pickup_decrease ?? 0.5),
+              stayDateMovedToday: movedTodayByDate.get(rate.stay_date) ?? 0,
+              maxDailyDecreasePerDate: Number(rule.max_daily_decrease_per_date || 10),
+            }));
+          }
+          const allowed = allowedStepByDate.get(rate.stay_date) ?? 0;
+          if (allowed <= 0) {
+            if (!blockedDates.has(rate.stay_date)) {
+              blockedDates.set(rate.stay_date, "daily_cap");
+              markdownBlocks["daily_cap"] = (markdownBlocks["daily_cap"] ?? 0) + 1;
+            }
+            continue;
+          }
+
           const pending = pendingByCell.get(cellKey) ?? [];
           const current = effectivePrice(Number(rate.price), pending);
           if (current === null) continue;
 
+          // The cap is already honoured by `allowed`; per cell only the ADR
+          // floor can shrink the step further.
           const step = computeMarkdown({
             effectivePrice: current,
-            decreasePerEvaluation: Number(rule.no_pickup_decrease || 2),
+            decreasePerEvaluation: allowed,
             floorPrice: rule.minimum_adr === null ? null : Number(rule.minimum_adr),
-            stayDateMovedToday: movedTodayByDate.get(rate.stay_date) ?? 0,
-            maxDailyDecreasePerDate: Number(rule.max_daily_decrease_per_date || 10),
+            stayDateMovedToday: 0,
+            maxDailyDecreasePerDate: 0,
           });
           if (!step) continue;
 
-          movedTodayByDate.set(rate.stay_date, (movedTodayByDate.get(rate.stay_date) ?? 0) + step.applied);
+          markdownDates.add(rate.stay_date);
           for (const intent of pending) if (!intent.claimed) supersede.push(intent.id);
 
           markdownRows.push({
@@ -477,7 +513,7 @@ Deno.serve(async (req) => {
             old_price: current, increase_amount: step.newPrice - current, new_price: step.newPrice,
             status: rule.auto_publish ? "queued" : "suggested", decision_type: "no_pickup_markdown",
             observation_from: observationFrom, observation_to: runStartedAt,
-            net_pickup: negativeDates.has(rate.stay_date) ? -1 : 0,
+            net_pickup: net,
             schedule_slot: slot, local_business_date: local.date, cap_applied: step.applied,
           });
           if (rule.auto_publish) markdownDrafts.push({
@@ -487,6 +523,8 @@ Deno.serve(async (req) => {
             priority: priorityOf("markdown"), intent_source: "automation_markdown",
           });
         }
+        markdownStayDates = markdownDates.size;
+
 
         if (!dryRun && markdownRows.length > 0) {
           const { data: insertedMarkdowns, error: markdownError } = await admin.from("revenue_pickup_automation_actions")
@@ -518,7 +556,9 @@ Deno.serve(async (req) => {
         }).eq("id", rule.id);
         summary.push({
           hotel_id: rule.hotel_id, pickups: 0, actions: markdownActions,
-          markdowns: markdownActions, blocked: markdownBlocks,
+          markdowns: markdownActions, markdown_stay_dates: markdownStayDates,
+          queued: markdownActions, blocked: markdownBlocks,
+
           next_run_at: nextRunAt(now, intervalMinutes),
         });
         continue;
@@ -951,8 +991,11 @@ Deno.serve(async (req) => {
       summary.push({
         hotel_id: rule.hotel_id, pickups: events.length,
         skipped_not_new: skippedStale, skipped_negative_pickup: skippedNegative,
-        actions: inserted, markdowns: markdownActions, blocked: markdownBlocks,
+        actions: inserted, markdowns: markdownActions,
+        markdown_stay_dates: markdownStayDates, blocked: markdownBlocks,
+        queued: inserted + markdownActions,
         pushed, failed: failedCount,
+
         push_error: pushError, auto_publish: rule.auto_publish, changed,
         next_run_at: nextRunAt(now, intervalMinutes),
       });

@@ -4740,6 +4740,7 @@ export type Database = {
           pause_reason: string | null
           publisher_lock_at: string | null
           publisher_lock_hotel: string | null
+          publisher_lock_token: string | null
           updated_at: string
           updated_by: string | null
         }
@@ -4753,6 +4754,7 @@ export type Database = {
           pause_reason?: string | null
           publisher_lock_at?: string | null
           publisher_lock_hotel?: string | null
+          publisher_lock_token?: string | null
           updated_at?: string
           updated_by?: string | null
         }
@@ -4766,6 +4768,7 @@ export type Database = {
           pause_reason?: string | null
           publisher_lock_at?: string | null
           publisher_lock_hotel?: string | null
+          publisher_lock_token?: string | null
           updated_at?: string
           updated_by?: string | null
         }
@@ -7042,6 +7045,19 @@ export type Database = {
           rule_id: string
         }[]
       }
+      claim_next_push_run: {
+        Args: { p_stale_minutes?: number }
+        Returns: {
+          hotel_id: string
+          priority: number
+          run_id: string
+          run_status: string
+        }[]
+      }
+      claim_publisher_lease: {
+        Args: { p_hotel: string; p_stale_minutes?: number; p_token: string }
+        Returns: boolean
+      }
       claim_publisher_lock: {
         Args: { p_hotel: string; p_stale_minutes?: number }
         Returns: boolean
@@ -7411,6 +7427,7 @@ export type Database = {
         Args: { _error?: string; _hotel_id: string }
         Returns: undefined
       }
+      release_publisher_lease: { Args: { p_token: string }; Returns: undefined }
       release_publisher_lock: { Args: { p_hotel: string }; Returns: undefined }
       run_auto_signout: { Args: never; Returns: number }
       slnt_venue_visible: {

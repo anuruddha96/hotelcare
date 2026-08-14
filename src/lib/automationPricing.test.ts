@@ -12,6 +12,8 @@ import {
   coalesceIntents,
   effectivePrice,
   maxDailyMarkdown,
+  dateAllowedStep,
+  netPickupByDate,
 } from "../../supabase/functions/_shared/pricingRules";
 
 const rule = (hotel_id: string, next_run_at: string | null, last?: string | null) => ({
@@ -215,5 +217,64 @@ describe("durable intent / coalescing", () => {
     const slices = Math.ceil(deliver.length / SLICE);
     expect(slices).toBeGreaterThan(1);
     expect(deliver.slice(0, SLICE)).toHaveLength(SLICE);
+  });
+});
+
+describe("daily cap is spent per stay date, not per price cell", () => {
+  // The bug this guards: a date with 20 room-type × occupancy cells used to
+  // burn 20 × €0.50 of its €6 daily allowance in a single evaluation.
+  const CELLS = 20;
+  const STEP = 0.5;
+  const CAP = 6;
+
+  /** One evaluation over every cell of one stay date. Returns date movement. */
+  function evaluate(movedBefore: number) {
+    const allowed = dateAllowedStep({
+      decreasePerEvaluation: STEP,
+      stayDateMovedToday: movedBefore,
+      maxDailyDecreasePerDate: CAP,
+    });
+    let applied = 0;
+    for (let i = 0; i < CELLS; i++) {
+      if (allowed <= 0) break;
+      const step = computeMarkdown({
+        effectivePrice: 200 + i,
+        decreasePerEvaluation: allowed,
+        floorPrice: null,
+        stayDateMovedToday: 0,
+        maxDailyDecreasePerDate: 0,
+      });
+      applied = Math.max(applied, step?.applied ?? 0);
+    }
+    return roundMoney(movedBefore + applied);
+  }
+
+  it("charges one step for the whole date however many cells move", () => {
+    expect(evaluate(0)).toBe(0.5);
+  });
+
+  it("accumulates one step per evaluation", () => {
+    expect(evaluate(0.5)).toBe(1);
+  });
+
+  it("stops the date once the daily cap is reached", () => {
+    let moved = 0;
+    for (let i = 0; i < 40; i++) moved = evaluate(moved);
+    expect(moved).toBe(CAP);
+  });
+
+  it("a cancellation can never turn into an increase", () => {
+    const net = netPickupByDate([{ stay_date: "2026-08-16" }], [
+      { stay_date: "2026-08-16" }, { stay_date: "2026-08-16" },
+    ]);
+    expect(net.get("2026-08-16")).toBe(-1);
+  });
+
+  it("genuine net pickup blocks the markdown", () => {
+    const net = netPickupByDate(
+      [{ stay_date: "2026-08-17" }, { stay_date: "2026-08-17" }],
+      [{ stay_date: "2026-08-17" }],
+    );
+    expect((net.get("2026-08-17") ?? 0) > 0).toBe(true);
   });
 });
