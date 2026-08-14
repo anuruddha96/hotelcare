@@ -26,6 +26,15 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const onlyHotel = body.hotel_id as string | undefined;
     const trigger = (body.trigger as string) || "cron";
+    // LEGACY PRICE PATH — OFF BY DEFAULT.
+    // All automatic price decisions must flow through
+    // revenue-pickup-automation → revenue-enqueue-rates → revenue-publish-queue
+    // → revenue-push-drafts (global token lease). This tick is kept only for its
+    // read-only responsibilities (Previo revenue pull, daily-overview sync,
+    // retention purge). Recommendation generation runs only when a caller opts
+    // in explicitly.
+    const generateRecommendations = body.generate_recommendations === true;
+
 
     // Admin brake: when the engine is switched off the tick returns straight
     // away, so no Previo pulls or recommendation writes hit the database.
@@ -43,11 +52,12 @@ serve(async (req) => {
       .select("*")
       .eq("is_engine_enabled", true);
 
-    if (!settings || settings.length === 0) {
+    if (generateRecommendations && (!settings || settings.length === 0)) {
       return new Response(JSON.stringify({ ok: true, msg: "no settings" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
 
     const today = new Date().toISOString().slice(0, 10);
     const horizon = new Date();
@@ -75,8 +85,9 @@ serve(async (req) => {
     let recsCreated = 0;
     let alertsCreated = 0;
 
-    for (const s of settings) {
+    for (const s of (generateRecommendations ? (settings ?? []) : [])) {
       if (targetHotel && s.hotel_id !== targetHotel) continue;
+
 
       // fetch latest 2 snapshots per stay_date for this hotel within horizon
       const { data: snaps } = await supabase
@@ -182,7 +193,10 @@ serve(async (req) => {
     }
 
     // Expire stale (errors swallowed; non-critical)
-    try { await supabase.rpc("expire_stale_recommendations"); } catch (_) { /* ignore */ }
+    if (generateRecommendations) {
+      try { await supabase.rpc("expire_stale_recommendations"); } catch (_) { /* ignore */ }
+    }
+
 
     // Sync exactly the one property this tick owns (revenue + daily overview).
     // Failures are logged but never block the tick.
@@ -228,7 +242,7 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ ok: true, recsCreated, alertsCreated, trigger, previoSynced, previoErrors, purged }),
+      JSON.stringify({ ok: true, mode: generateRecommendations ? "recommendations" : "sync_only", recsCreated, alertsCreated, trigger, previoSynced, previoErrors, purged }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e: any) {
