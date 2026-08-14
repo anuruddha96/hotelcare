@@ -43,7 +43,11 @@ export function useRateCellMarkers(hotelId?: string | null, from?: string, to?: 
 
   useEffect(() => { void load(); }, [load]);
 
+  /** Never show one property's markers on another's calendar. */
+  useEffect(() => { setRows([]); }, [hotelId]);
+
   const loadRef = useRef(load);
+
   loadRef.current = load;
   useEffect(() => {
     const timer = window.setInterval(() => setTick(Date.now()), 60_000);
