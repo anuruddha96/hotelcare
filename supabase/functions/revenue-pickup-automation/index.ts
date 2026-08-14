@@ -556,7 +556,9 @@ Deno.serve(async (req) => {
         }).eq("id", rule.id);
         summary.push({
           hotel_id: rule.hotel_id, pickups: 0, actions: markdownActions,
-          markdowns: markdownActions, blocked: markdownBlocks,
+          markdowns: markdownActions, markdown_stay_dates: markdownStayDates,
+          queued: markdownActions, blocked: markdownBlocks,
+
           next_run_at: nextRunAt(now, intervalMinutes),
         });
         continue;
