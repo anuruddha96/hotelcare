@@ -26,6 +26,15 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const onlyHotel = body.hotel_id as string | undefined;
     const trigger = (body.trigger as string) || "cron";
+    // LEGACY PRICE PATH — OFF BY DEFAULT.
+    // All automatic price decisions must flow through
+    // revenue-pickup-automation → revenue-enqueue-rates → revenue-publish-queue
+    // → revenue-push-drafts (global token lease). This tick is kept only for its
+    // read-only responsibilities (Previo revenue pull, daily-overview sync,
+    // retention purge). Recommendation generation runs only when a caller opts
+    // in explicitly.
+    const generateRecommendations = body.generate_recommendations === true;
+
 
     // Admin brake: when the engine is switched off the tick returns straight
     // away, so no Previo pulls or recommendation writes hit the database.
