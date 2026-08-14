@@ -636,6 +636,7 @@ serve(async (req) => {
   // final arbiter for every requested cell and records requested vs. landed.
   let reconciledDrafts = 0;
   let divergentDrafts = 0;
+  let requeuedCells = 0;
   if (ratePayload.length > 0) {
     const livePrice = new Map<string, { price: number; ratePlanId: string }>();
     for (const rate of ratePayload) {
@@ -1240,6 +1241,7 @@ serve(async (req) => {
     totalRooms,
     rates: ratePayload.length,
     reconciledDrafts,
+    requeuedCells,
     divergentDrafts,
     bookingNights: nights.length,
     snapshots: snapshots.length,
