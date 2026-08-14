@@ -18,10 +18,21 @@ const BodySchema = z.object({
   changes: z.array(ChangeSchema).min(1).max(20000),
 });
 
+// Queue priority + intent labelling. Lower number = published first.
+// Manager work (single cell, bulk edit, pickup board) always outranks the
+// automation engine's own pickup (20) / reconcile (30) / markdown (40) runs.
+const INTENT_BY_SOURCE: Record<string, { priority: number; intent: string }> = {
+  manual: { priority: 10, intent: "manual" },
+  bulk: { priority: 10, intent: "manual_bulk" },
+  "pickup-board": { priority: 10, intent: "manual_pickup_board" },
+  automation: { priority: 40, intent: "automation_legacy" },
+};
+
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
   headers: { ...corsHeaders, "Content-Type": "application/json" },
 });
+
 
 const chunks = <T>(values: T[], size: number) => {
   const result: T[][] = [];
