@@ -577,13 +577,15 @@ serve(async (req) => {
     }
   }
 
-  // ---------- 2. rates ----------
+  // ---------- 2. rates (skipped in probe mode) ----------
   const rateRows: RateRow[] = [];
-  for (const acc of liveAccounts) {
-    const ratesCall = await chunkedCall("getRates", acc.creds as any, acc.hotId, from, to, 45);
-    errors.push(...ratesCall.errors.map((e) => `${acc.label} ${e}`));
-    for (const r of ratesCall.xml.flatMap((x) => parseRates(x, null))) {
-      rateRows.push({ ...r, obk_id: scopeObk(acc, String(r.obk_id)) } as RateRow);
+  if (!probeOnly) {
+    for (const acc of liveAccounts) {
+      const ratesCall = await chunkedCall("getRates", acc.creds as any, acc.hotId, from, to, 45);
+      errors.push(...ratesCall.errors.map((e) => `${acc.label} ${e}`));
+      for (const r of ratesCall.xml.flatMap((x) => parseRates(x, null))) {
+        rateRows.push({ ...r, obk_id: scopeObk(acc, String(r.obk_id)) } as RateRow);
+      }
     }
   }
   const dedupedRates = new Map<string, RateRow>();
@@ -594,14 +596,17 @@ serve(async (req) => {
   // Capture the previous authoritative mirror before overwriting it. This is
   // what lets the activity trail distinguish a Previo-side edit from a value
   // that merely appeared for the first time in Hotel Care.
-  const { data: previousRateRows, error: previousRateError } = await service
-    .from("revenue_room_type_rates")
-    .select("stay_date, obk_id, rate_plan_id, room_type_name, occupancy, price")
-    .eq("hotel_id", hotelId)
-    .eq("source", "previo")
-    .gte("stay_date", from)
-    .lte("stay_date", to);
+  const { data: previousRateRows, error: previousRateError } = probeOnly
+    ? { data: [] as Array<Record<string, unknown>>, error: null }
+    : await service
+      .from("revenue_room_type_rates")
+      .select("stay_date, obk_id, rate_plan_id, room_type_name, occupancy, price")
+      .eq("hotel_id", hotelId)
+      .eq("source", "previo")
+      .gte("stay_date", from)
+      .lte("stay_date", to);
   if (previousRateError) errors.push(`previous rates read: ${previousRateError.message}`);
+
   const previousPrice = new Map<string, { price: number; roomTypeName: string }>();
   for (const row of (previousRateRows ?? []) as Array<{
     stay_date: string; obk_id: string; rate_plan_id: string; room_type_name: string | null;
