@@ -508,11 +508,22 @@ Deno.serve(async (req) => {
       }
 
       if (pickups.length === 0) {
-        await admin.from("revenue_pickup_automation_rules")
-          .update({ last_run_at: runStartedAt }).eq("id", rule.id);
-        summary.push({ hotel_id: rule.hotel_id, pickups: 0, actions: markdownActions, markdowns: markdownActions });
+        await admin.from("revenue_pickup_automation_rules").update({
+          last_run_at: runStartedAt,
+          last_evaluated_at: runStartedAt,
+          last_successful_evaluation_at: runStartedAt,
+          last_evaluation_status: "ok",
+          last_evaluation_error: null,
+          next_run_at: nextRunAt(now, intervalMinutes),
+        }).eq("id", rule.id);
+        summary.push({
+          hotel_id: rule.hotel_id, pickups: 0, actions: markdownActions,
+          markdowns: markdownActions, blocked: markdownBlocks,
+          next_run_at: nextRunAt(now, intervalMinutes),
+        });
         continue;
       }
+
 
       const stayDates = Array.from(new Set(pickups.map((p) => p.stay_date))).sort();
 
