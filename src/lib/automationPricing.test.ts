@@ -66,6 +66,18 @@ describe("publisher queue", () => {
     expect(sortPushQueue(queue).map((r) => r.id)).toEqual(["manual", "pickup", "markdown"]);
   });
 
+  it("claims a late manager bulk edit ahead of earlier automation runs", () => {
+    // Mirrors claim_next_push_run's ORDER BY priority ASC, created_at ASC.
+    const queue = [
+      { id: "markdown-0900", priority: 40, created_at: "2026-08-14T09:00:00Z" },
+      { id: "pickup-0905", priority: 20, created_at: "2026-08-14T09:05:00Z" },
+      { id: "manual-bulk-0910", priority: 10, created_at: "2026-08-14T09:10:00Z" },
+    ];
+    expect(sortPushQueue(queue)[0].id).toBe("manual-bulk-0910");
+  });
+
+
+
   it("maps sources to a stable priority", () => {
     expect(priorityOf("manual")).toBeLessThan(priorityOf("pickup"));
     expect(priorityOf("pickup")).toBeLessThan(priorityOf("markdown"));
