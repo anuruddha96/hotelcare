@@ -991,8 +991,11 @@ Deno.serve(async (req) => {
       summary.push({
         hotel_id: rule.hotel_id, pickups: events.length,
         skipped_not_new: skippedStale, skipped_negative_pickup: skippedNegative,
-        actions: inserted, markdowns: markdownActions, blocked: markdownBlocks,
+        actions: inserted, markdowns: markdownActions,
+        markdown_stay_dates: markdownStayDates, blocked: markdownBlocks,
+        queued: inserted + markdownActions,
         pushed, failed: failedCount,
+
         push_error: pushError, auto_publish: rule.auto_publish, changed,
         next_run_at: nextRunAt(now, intervalMinutes),
       });
