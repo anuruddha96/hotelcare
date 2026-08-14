@@ -139,7 +139,7 @@ interface ChangedRow {
 }
 interface RunResult {
   hotelName: string; actor: string; pickups: number; actions: number;
-  pushed: number; failed: number; autoPublish: boolean;
+  queued: number; pushed: number; failed: number; autoPublish: boolean;
   pushError?: string | null; changed: ChangedRow[];
 }
 
@@ -347,6 +347,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       const pickups = Number(summary.pickups ?? 0);
       const actions = Number(summary.actions ?? 0) + Number(summary.markdowns ?? 0) + Number(summary.smart_strong ?? 0);
       const pushed = Number(summary.pushed ?? 0);
+      const queued = Number(summary.queued ?? 0);
       const failed = Number(summary.failed ?? 0);
       if (actions === 0) {
         toast.success(
@@ -359,7 +360,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       setRunResult({
         hotelName,
         actor: (auth.user?.user_metadata?.full_name as string) || payload.actor || auth.user?.email || "You",
-        pickups, actions, pushed, failed,
+        pickups, actions, queued, pushed, failed,
         autoPublish: Boolean(summary.auto_publish),
         pushError: summary.push_error ?? null,
         changed: (summary.changed ?? []) as ChangedRow[],
