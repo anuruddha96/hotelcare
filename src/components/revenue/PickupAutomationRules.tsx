@@ -143,6 +143,15 @@ function explain(rule: Rule, hotelName: string): string[] {
     lines.push("AI assist reviews each check with your own OpenAI account and may soften or cancel a move. It can never make one bigger, and if it is unavailable the ordinary rules simply continue.");
   }
 
+  if (rule.short_window_guard_enabled) {
+    lines.push(
+      `Short booking window: a stay date within ${rule.short_window_days} days is only allowed to rise if it is already above ${rule.short_window_min_occupancy_pct}% occupancy. A quiet last-minute date keeps its price (and can still come down) even when a booking arrives.`,
+    );
+  }
+  if (rule.whole_number_prices) {
+    lines.push(`Prices are always sent as whole ${rule.currency} — never with cents.`);
+  }
+
   lines.push(
     rule.auto_publish
       ? "Matched changes enter the safe background queue and appear with an automation marker after Previo confirms them."
