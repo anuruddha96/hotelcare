@@ -76,6 +76,8 @@ const DEFAULT_RULE: Rule = {
   smart_pricing_enabled: false, near_term_days: 30, low_occupancy_pct: 50,
   long_lead_days: 30, high_occupancy_pct: 85, strong_demand_increase: 0,
   ai_assist_enabled: false,
+  short_window_guard_enabled: true, short_window_days: 7,
+  short_window_min_occupancy_pct: 70, whole_number_prices: true,
 };
 
 
