@@ -15,6 +15,8 @@ import {
   dateAllowedStep,
   netPickupByDate,
   soldOutBlocksIncrease,
+  cancellationHold,
+  decisionReasonText,
 } from "../../supabase/functions/_shared/pricingRules";
 
 const rule = (hotel_id: string, next_run_at: string | null, last?: string | null) => ({
@@ -314,5 +316,29 @@ describe("soldOutBlocksIncrease", () => {
 
   it("does nothing when occupancy is unknown", () => {
     expect(soldOutBlocksIncrease({ ...base })).toBe(false);
+  });
+});
+
+describe("cancellation cooldown & stated reasons", () => {
+  it("holds a price drop for the configured wait after a cancellation", () => {
+    const now = new Date("2026-08-14T10:00:00Z");
+    const held = cancellationHold({ enabled: true, lastCancelledAt: "2026-08-14T09:30:00Z", waitMinutes: 60, now });
+    expect(held).toEqual({ holding: true, releaseAt: "2026-08-14T10:30:00.000Z" });
+  });
+
+  it("releases the hold once the wait has passed, and never holds when disabled", () => {
+    const now = new Date("2026-08-14T11:00:00Z");
+    expect(cancellationHold({ enabled: true, lastCancelledAt: "2026-08-14T09:30:00Z", waitMinutes: 60, now }).holding).toBe(false);
+    expect(cancellationHold({ enabled: false, lastCancelledAt: "2026-08-14T10:59:00Z", waitMinutes: 60, now }).holding).toBe(false);
+    expect(cancellationHold({ enabled: true, lastCancelledAt: null, waitMinutes: 60, now }).holding).toBe(false);
+  });
+
+  it("states why a price moved, in plain words", () => {
+    expect(decisionReasonText({ kind: "cancellation", netPickup: -1, amount: -2, currency: "EUR", occupancyPct: 40, daysOut: 5 }))
+      .toBe("Lowered by 2 EUR after 1 cancellation and no new booking in this check (occupancy 40%, 5 days before arrival).");
+    expect(decisionReasonText({ kind: "no_pickup", amount: -1, currency: "EUR" }))
+      .toBe("Lowered by 1 EUR because no new booking arrived for this date in this check.");
+    expect(decisionReasonText({ kind: "positive_pickup", netPickup: 2, amount: 8, currency: "EUR", daysOut: 1 }))
+      .toBe("Raised by 8 EUR because 2 new booking nights arrived for this date (1 day before arrival).");
   });
 });
