@@ -1178,9 +1178,12 @@ Deno.serve(async (req) => {
       }
 
       for (const decision of cellDecisions.values()) {
-        let newPrice = Math.round(decision.old_price + decision.increase);
-        if (rule.minimum_adr && newPrice < Number(rule.minimum_adr)) newPrice = Math.round(Number(rule.minimum_adr));
-        if (newPrice === decision.old_price) continue;
+        const newPrice = applyRounding(
+          decision.old_price + decision.increase, "increase",
+          rule.whole_number_prices !== false,
+          rule.minimum_adr === null ? null : Number(rule.minimum_adr),
+        );
+        if (newPrice <= decision.old_price) continue;
 
         actionsToInsert.push({
           rule_id: rule.id,
