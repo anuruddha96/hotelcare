@@ -14,6 +14,11 @@ import { RECENT_WINDOW_MS } from "@/lib/rateOrigin";
  */
 export function useCellRateHistory(hotelId?: string | null, perCell = 8) {
   const [byCell, setByCell] = useState<Map<string, RateAuditRow[]>>(new Map());
+  // Names for the people behind these rows. The shared audit window only covers
+  // the newest hotel-wide rows, so older cell rows had no name and read as
+  // "Someone"; they are resolved here, for the ids actually on screen.
+  const [names, setNames] = useState<Map<string, string>>(new Map());
+  const knownIds = useRef(new Set<string>());
   const loaded = useRef(new Set<string>());
   const inflight = useRef(new Set<string>());
 
@@ -21,6 +26,8 @@ export function useCellRateHistory(hotelId?: string | null, perCell = 8) {
     loaded.current = new Set();
     inflight.current = new Set();
     setByCell(new Map());
+    knownIds.current = new Set();
+    setNames(new Map());
   }, [hotelId]);
 
   const loadDate = useCallback(async (date: string, force = false) => {
@@ -55,6 +62,25 @@ export function useCellRateHistory(hotelId?: string | null, perCell = 8) {
         return next;
       });
       loaded.current.add(date);
+
+      const ids = Array.from(new Set(
+        rows.map((r) => r.performed_by).filter((id): id is string => !!id && !knownIds.current.has(id)),
+      ));
+      if (ids.length > 0) {
+        ids.forEach((id) => knownIds.current.add(id));
+        const { data: profs } = await supabase
+          .from("profiles").select("id, full_name, nickname").in("id", ids);
+        if (profs && profs.length > 0) {
+          setNames((prev) => {
+            const next = new Map(prev);
+            for (const p of profs as any[]) {
+              const label = p.nickname || p.full_name;
+              if (label) next.set(p.id, label);
+            }
+            return next;
+          });
+        }
+      }
     } catch (err) {
       if (import.meta.env.DEV) console.warn("[rate_cell_history] failed", err);
     } finally {
@@ -68,5 +94,5 @@ export function useCellRateHistory(hotelId?: string | null, perCell = 8) {
     setByCell(new Map());
   }, []);
 
-  return { byCell, loadDate, invalidate };
+  return { byCell, names, loadDate, invalidate };
 }
