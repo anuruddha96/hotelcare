@@ -245,6 +245,10 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       high_occupancy_pct: source.rule.high_occupancy_pct ?? 85,
       strong_demand_increase: source.rule.strong_demand_increase ?? 0,
       ai_assist_enabled: source.rule.ai_assist_enabled ?? false,
+      short_window_guard_enabled: source.rule.short_window_guard_enabled ?? true,
+      short_window_days: source.rule.short_window_days ?? 7,
+      short_window_min_occupancy_pct: source.rule.short_window_min_occupancy_pct ?? 70,
+      whole_number_prices: source.rule.whole_number_prices ?? true,
     }));
 
     toast.success(`Copied settings from ${source.label} — still off until you turn it on`);
