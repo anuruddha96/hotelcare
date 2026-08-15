@@ -241,8 +241,9 @@ export default function Auth() {
             {t('auth.hotelManagement')}
           </h1>
           <p className="text-base xl:text-lg text-primary-foreground/80 leading-relaxed animate-fade-in">
-            {t('auth.manageOperations')}
+            {t('auth.tagline')}
           </p>
+
         </div>
         <p className="relative text-xs text-primary-foreground/60">
           © {new Date().getFullYear()} Hotel Care
