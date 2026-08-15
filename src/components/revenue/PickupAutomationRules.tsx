@@ -318,6 +318,22 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
     setRule(data as unknown as Rule);
     setHasSavedRule(true);
     setSavedEnabled(Boolean((data as any).is_enabled));
+
+    // Switching the property OFF must actually stop it. Anything the engine
+    // decided but has not delivered yet is cancelled (kept as history) so a
+    // disabled property can never keep pushing prices minutes later.
+    if (!rule.is_enabled && wasEnabled) {
+      const { data: stop } = await supabase.functions.invoke("revenue-pickup-automation", {
+        body: { hotelId, mode: "stop" },
+      });
+      const cancelled = Number((stop as any)?.cancelled ?? 0);
+      toast.success(`Automation stopped for ${hotelName}`, {
+        description: cancelled > 0
+          ? `${cancelled} not-yet-sent automatic price${cancelled === 1 ? "" : "s"} cancelled.`
+          : "No automatic prices were waiting to be sent.",
+      });
+      return;
+    }
     toast.success(rule.is_enabled ? `Pickup automation is now ON for ${hotelName}` : `Saved — automation stays OFF for ${hotelName}`);
   }
 
