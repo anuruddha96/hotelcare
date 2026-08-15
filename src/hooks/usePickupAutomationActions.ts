@@ -16,12 +16,12 @@ export interface AutomationAction {
   status: string;
   created_at: string;
   /** Machine code: no_pickup | cancellation | positive_pickup | strong_demand | cancellation_cooldown */
-  decision_reason: string | null;
+  decision_reason?: string | null;
   /** One plain sentence explaining why the automation moved (or held) the price. */
-  reason_detail: string | null;
+  reason_detail?: string | null;
   /** Set while a price drop is waiting out the cancellation cooldown. */
-  hold_until: string | null;
-  decision_type: string | null;
+  hold_until?: string | null;
+  decision_type?: string | null;
 }
 
 /** A price drop the automation is deliberately delaying, with its release time. */
