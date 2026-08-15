@@ -479,6 +479,8 @@ Deno.serve(async (req) => {
     for (const rule of rules) {
       const runStartedAt = new Date().toISOString();
       const now = new Date();
+      /** Increases skipped because the date had nothing left to sell. */
+      let heldSoldOut = 0;
       const today = new Date().toISOString().slice(0, 10);
       const intervalMinutes = Math.max(60, Number(rule.evaluation_interval_minutes || 60));
 
