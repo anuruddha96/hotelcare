@@ -409,3 +409,37 @@ export function shortWindowIncreaseAllowed(input: ShortWindowInput): boolean {
   if (occ === null || occ === undefined) return false; // unknown demand close in: stay safe
   return Number(occ) >= Number(input.minOccupancyPct);
 }
+
+// --------------------------------------------------------------------------
+// Sold-out guard
+// --------------------------------------------------------------------------
+
+export interface SoldOutInput {
+  /** Guard switched on for this property. */
+  enabled: boolean;
+  /** Rooms still available for that stay date, when known. */
+  roomsLeft: number | null | undefined;
+  occupancyPct: number | null | undefined;
+  /** Occupancy at which the date counts as sold out (default 100). */
+  soldOutOccupancyPct: number;
+}
+
+/**
+ * A date with nothing left to sell gains nothing from a higher price: the only
+ * thing a rise can do is make the rate look wrong if a cancellation arrives.
+ * So automation stops RAISING a sold-out date. Markdowns are untouched, and the
+ * moment a cancellation puts the date back below the threshold it becomes
+ * eligible again on the next check — no state is remembered.
+ */
+export function soldOutBlocksIncrease(input: SoldOutInput): boolean {
+  if (!input.enabled) return false;
+  const left = input.roomsLeft;
+  if (left !== null && left !== undefined && Number.isFinite(Number(left))) {
+    if (Number(left) <= 0) return true;
+  }
+  const occ = input.occupancyPct;
+  const threshold = Number(input.soldOutOccupancyPct);
+  if (occ === null || occ === undefined || !Number.isFinite(Number(occ))) return false;
+  if (!Number.isFinite(threshold) || threshold <= 0) return false;
+  return Number(occ) >= threshold;
+}
