@@ -111,27 +111,35 @@ All colors MUST be HSL.
 /* Auth wordmark animation */
 .auth-wordmark {
   display: inline-flex;
-  background-image: linear-gradient(
-    100deg,
-    hsl(var(--primary)) 0%,
-    hsl(var(--primary)) 40%,
-    hsl(var(--rd-gray)) 70%,
-    hsl(var(--primary)) 100%
-  );
-  background-size: 220% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: authShine 6s ease-in-out infinite;
+  color: hsl(var(--primary));
 }
 
 .auth-wordmark-light .auth-wordmark {
+  color: hsl(0 0% 100%);
+}
+
+.auth-wordmark .auth-wordmark-letter {
   background-image: linear-gradient(
     100deg,
-    hsl(0 0% 100%) 0%,
-    hsl(0 0% 100%) 40%,
-    hsl(0 0% 100% / 0.6) 70%,
-    hsl(0 0% 100%) 100%
+    currentColor 0%,
+    currentColor 45%,
+    hsl(var(--rd-gray)) 60%,
+    currentColor 78%
+  );
+  background-size: 900% 100%;
+  background-attachment: fixed;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.auth-wordmark-light .auth-wordmark-letter {
+  background-image: linear-gradient(
+    100deg,
+    currentColor 0%,
+    currentColor 45%,
+    hsl(0 0% 100% / 0.55) 60%,
+    currentColor 78%
   );
 }
 
