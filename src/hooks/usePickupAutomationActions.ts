@@ -51,16 +51,18 @@ export function usePickupAutomationActions(hotelId?: string | null, limit = 1000
 
   useEffect(() => { void load(); }, [load]);
 
-  /** Live holds only: a cooldown that has already elapsed is not news. */
-  const holdsByCell = useMemo(() => {
+  /**
+   * Live cancellation holds, per STAY DATE — the cooldown applies to the whole
+   * date, not to one room type. A cooldown that has already elapsed is dropped.
+   */
+  const holdsByDate = useMemo(() => {
     const map = new Map<string, AutomationAction>();
     const now = Date.now();
     for (const r of rows) {
       if (!isHoldAction(r) || !r.hold_until) continue;
       if (Date.parse(r.hold_until) <= now) continue;
-      const key = cellKey(r.stay_date, r.room_type_name ?? "", r.occupancy);
-      const seen = map.get(key);
-      if (!seen || r.created_at > seen.created_at) map.set(key, r);
+      const seen = map.get(r.stay_date);
+      if (!seen || r.created_at > seen.created_at) map.set(r.stay_date, r);
     }
     return map;
   }, [rows]);
@@ -77,5 +79,5 @@ export function usePickupAutomationActions(hotelId?: string | null, limit = 1000
     return map;
   }, [rows]);
 
-  return { rows, byCell, holdsByCell, reload: load };
+  return { rows, byCell, holdsByDate, reload: load };
 }
