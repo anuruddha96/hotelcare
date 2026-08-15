@@ -507,6 +507,13 @@ export default function Auth() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Mobile footer keeps the screen balanced instead of ending in blank white */}
+      <div className="flex flex-1 flex-col justify-end lg:hidden">
+        <p className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-6 text-center text-xs text-muted-foreground">
+          {t('auth.tagline')}
+        </p>
+      </div>
       </main>
     </div>
   );
