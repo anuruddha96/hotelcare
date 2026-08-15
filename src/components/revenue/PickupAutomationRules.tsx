@@ -54,6 +54,18 @@ interface Rule {
 }
 
 
+/** "in 47 minutes" / "due now" — the schedule in words, not a timestamp alone. */
+function untilLabel(iso: string): string {
+  const ms = Date.parse(iso) - Date.now();
+  if (!Number.isFinite(ms)) return "";
+  if (ms <= 0) return "Due now — it runs on the next cycle.";
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 60) return `in about ${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `in about ${hours} hour${hours === 1 ? "" : "s"}${rest ? ` ${rest} min` : ""}`;
+}
+
 /** Money for plain-language copy: cents only when they matter. */
 const money = (n: number) =>
   Number.isInteger(n) ? String(n) : n.toFixed(2);
