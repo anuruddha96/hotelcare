@@ -3,7 +3,7 @@
 export const screenTranslations: { [lang: string]: { [key: string]: string } } = {
   en: {
     // Auth
-    'auth.tagline': 'One secure workspace for rooms, teams, maintenance and revenue.',
+    'auth.tagline': 'One secure workspace for reception, back office, housekeeping and revenue management teams.',
 
     // Dashboard
     'dashboard.workStatusAttendance': 'Work Status & Attendance',
@@ -95,7 +95,7 @@ export const screenTranslations: { [lang: string]: { [key: string]: string } } =
     'minibar.addedAfterCompletion': 'Added after completion',
   },
   hu: {
-    'auth.tagline': 'Egyetlen biztonságos felület a szobákhoz, csapatokhoz, karbantartáshoz és bevételhez.',
+    'auth.tagline': 'Egyetlen biztonságos felület a recepció, a háttériroda, a housekeeping és a bevételkezelő csapatok számára.',
     'dashboard.workStatusAttendance': 'Munkastátusz és jelenlét',
     'dashboard.manageUsersShort': 'Felhasználók',
     'settings.title': 'Fiókbeállítások',
@@ -173,7 +173,7 @@ export const screenTranslations: { [lang: string]: { [key: string]: string } } =
     'minibar.addedAfterCompletion': 'Befejezés után hozzáadva',
   },
   es: {
-    'auth.tagline': 'Un espacio seguro para habitaciones, equipos, mantenimiento e ingresos.',
+    'auth.tagline': 'Un espacio de trabajo seguro para recepción, back office, limpieza y equipos de revenue management.',
     'dashboard.workStatusAttendance': 'Estado del trabajo y asistencia',
     'dashboard.manageUsersShort': 'Usuarios',
     'settings.title': 'Configuración de la cuenta',
@@ -251,7 +251,7 @@ export const screenTranslations: { [lang: string]: { [key: string]: string } } =
     'minibar.addedAfterCompletion': 'Añadido después de la finalización',
   },
   vi: {
-    'auth.tagline': 'Một không gian làm việc an toàn cho phòng, nhân sự, bảo trì và doanh thu.',
+    'auth.tagline': 'Một không gian làm việc an toàn cho lễ tân, hậu cần, buồng phòng và đội quản lý doanh thu.',
     'dashboard.workStatusAttendance': 'Trạng thái công việc & Chấm công',
     'dashboard.manageUsersShort': 'Người dùng',
     'settings.title': 'Cài đặt tài khoản',
@@ -329,7 +329,7 @@ export const screenTranslations: { [lang: string]: { [key: string]: string } } =
     'minibar.addedAfterCompletion': 'Đã thêm sau khi hoàn thành',
   },
   mn: {
-    'auth.tagline': 'Өрөө, баг, засвар үйлчилгээ, орлогыг нэг аюулгүй орчинд удирдана.',
+    'auth.tagline': 'Хүлээн авалт, ар талын алба, өрөө цэвэрлэгээ, орлогын удирдлагын багуудад зориулсан нэг аюулгүй орчин.',
     'dashboard.workStatusAttendance': 'Ажлын байдал ба ирц',
     'dashboard.manageUsersShort': 'Хэрэглэгчид',
     'settings.title': 'Дансны тохиргоо',
