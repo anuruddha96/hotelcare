@@ -5069,6 +5069,8 @@ export type Database = {
           short_window_guard_enabled: boolean
           short_window_min_occupancy_pct: number
           smart_pricing_enabled: boolean
+          sold_out_guard_enabled: boolean
+          sold_out_occupancy_pct: number
           strong_demand_increase: number
           updated_at: string
           updated_by: string | null
@@ -5122,6 +5124,8 @@ export type Database = {
           short_window_guard_enabled?: boolean
           short_window_min_occupancy_pct?: number
           smart_pricing_enabled?: boolean
+          sold_out_guard_enabled?: boolean
+          sold_out_occupancy_pct?: number
           strong_demand_increase?: number
           updated_at?: string
           updated_by?: string | null
@@ -5175,6 +5179,8 @@ export type Database = {
           short_window_guard_enabled?: boolean
           short_window_min_occupancy_pct?: number
           smart_pricing_enabled?: boolean
+          sold_out_guard_enabled?: boolean
+          sold_out_occupancy_pct?: number
           strong_demand_increase?: number
           updated_at?: string
           updated_by?: string | null

@@ -2462,15 +2462,15 @@ export default function RateStrategyGrid({
 
       {/* Tap a price on a phone: who changed it, when, and by how much. */}
       <Sheet open={!!cellInfo} onOpenChange={(o) => !o && setCellInfo(null)}>
-        <SheetContent side="bottom" className="max-h-[75vh] overflow-y-auto">
+        <SheetContent side="bottom" className="flex h-[85dvh] max-h-[85dvh] flex-col gap-0 p-4">
           {cellInfo && (
             <>
-              <SheetHeader className="text-left">
+              <SheetHeader className="flex-none text-left pb-2">
                 <SheetTitle className="text-sm">
                   {cellInfo.roomTypeName} · {cellInfo.occ} guest{cellInfo.occ === 1 ? "" : "s"} · {cellInfo.date}
                 </SheetTitle>
               </SheetHeader>
-              <div className="mt-3 space-y-3">
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
                 <div className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
                   <span className="text-muted-foreground">Current price</span>
                   <span className="tabular-nums font-semibold">{moneyBase(cellInfo.published)}</span>
@@ -2484,8 +2484,12 @@ export default function RateStrategyGrid({
                   names={auditNames}
                   draftPrice={cellInfo.draft}
                   sendingPrice={inFlight.get(`${cellInfo.date}|${cellInfo.roomTypeName}|${cellInfo.occ}`) ?? null}
+                  expanded
                 />
 
+              </div>
+
+              <div className="flex-none pt-3">
                 {canEditRates && (
                   <Button
                     className="w-full"
@@ -2617,7 +2621,7 @@ export default function RateStrategyGrid({
 
       <Dialog open={!!dayTool} onOpenChange={(o) => !o && setDayTool(null)}>
 
-        <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl p-4 sm:w-full sm:max-w-lg sm:p-6">
+        <DialogContent className="flex h-[90dvh] max-h-[90dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl p-4 sm:h-auto sm:max-h-[85dvh] sm:w-full sm:max-w-lg sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-base">
               {selDates.size > 1
@@ -2832,7 +2836,7 @@ export default function RateStrategyGrid({
             )}
           </div>
 
-          <DialogFooter className="sticky bottom-0 -mx-4 -mb-4 gap-2 border-t bg-background p-4 sm:static sm:m-0 sm:border-0 sm:p-0">
+          <DialogFooter className="mt-3 flex-none gap-2 border-t bg-background pt-3 sm:border-0 sm:pt-0">
             <Button variant="ghost" onClick={() => setDayTool(null)}>Cancel</Button>
             <Button onClick={() => void applyDayTool("push")} disabled={saving || dayToolChanges.length === 0}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
