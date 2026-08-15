@@ -45,6 +45,8 @@ interface Rule {
   short_window_days: number;
   short_window_min_occupancy_pct: number;
   whole_number_prices: boolean;
+  sold_out_guard_enabled: boolean;
+  sold_out_occupancy_pct: number;
   last_run_at?: string | null;
   next_run_at?: string | null;
   last_evaluated_at?: string | null;
@@ -90,6 +92,7 @@ const DEFAULT_RULE: Rule = {
   ai_assist_enabled: false,
   short_window_guard_enabled: true, short_window_days: 7,
   short_window_min_occupancy_pct: 70, whole_number_prices: true,
+  sold_out_guard_enabled: true, sold_out_occupancy_pct: 100,
 };
 
 
@@ -146,6 +149,11 @@ function explain(rule: Rule, hotelName: string): string[] {
   if (rule.short_window_guard_enabled) {
     lines.push(
       `Short booking window: a stay date within ${rule.short_window_days} days is only allowed to rise if it is already above ${rule.short_window_min_occupancy_pct}% occupancy. A quiet last-minute date keeps its price (and can still come down) even when a booking arrives.`,
+    );
+  }
+  if (rule.sold_out_guard_enabled) {
+    lines.push(
+      `Sold out: once a date reaches ${rule.sold_out_occupancy_pct}% occupancy (or has no rooms left) the price stops rising — there is nothing left to sell. A cancellation puts the date back in play on the next check.`,
     );
   }
   if (rule.whole_number_prices) {
@@ -270,6 +278,8 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       short_window_days: source.rule.short_window_days ?? 7,
       short_window_min_occupancy_pct: source.rule.short_window_min_occupancy_pct ?? 70,
       whole_number_prices: source.rule.whole_number_prices ?? true,
+      sold_out_guard_enabled: source.rule.sold_out_guard_enabled ?? true,
+      sold_out_occupancy_pct: source.rule.sold_out_occupancy_pct ?? 100,
     }));
 
     toast.success(`Copied settings from ${source.label} — still off until you turn it on`);
@@ -319,6 +329,8 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       short_window_days: rule.short_window_days,
       short_window_min_occupancy_pct: rule.short_window_min_occupancy_pct,
       whole_number_prices: rule.whole_number_prices,
+      sold_out_guard_enabled: rule.sold_out_guard_enabled,
+      sold_out_occupancy_pct: rule.sold_out_occupancy_pct,
       // Saving never triggers an immediate evaluation: an enabled rule is
       // simply scheduled one normal interval from now, so nobody gets a
       // surprise markdown for pressing Save. "Run now" stays the explicit
@@ -626,6 +638,28 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                     value={rule.short_window_min_occupancy_pct}
                     onChange={(e) => setRule({ ...rule, short_window_min_occupancy_pct: Number(e.target.value) })} />
                   <p className="text-[11px] text-muted-foreground mt-1">Below this, the price is held — markdowns still work.</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label>Stop raising a sold-out date</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Nothing left to sell means a higher price wins nothing — it only looks wrong if a cancellation arrives.
+                    Markdowns are unaffected, and the date becomes eligible again the moment occupancy drops.
+                  </p>
+                </div>
+                <Switch
+                  checked={rule.sold_out_guard_enabled}
+                  onCheckedChange={(sold_out_guard_enabled) => setRule({ ...rule, sold_out_guard_enabled })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Counts as sold out above (%)</Label>
+                  <Input type="number" min={50} max={100} disabled={!rule.sold_out_guard_enabled}
+                    value={rule.sold_out_occupancy_pct}
+                    onChange={(e) => setRule({ ...rule, sold_out_occupancy_pct: Number(e.target.value) })} />
+                  <p className="text-[11px] text-muted-foreground mt-1">100% means only a truly full date is protected.</p>
                 </div>
               </div>
               <div className="flex items-center justify-between gap-3">
