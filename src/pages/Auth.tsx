@@ -207,33 +207,78 @@ export default function Auth() {
     setResetLoading(false);
   };
 
+  const wordmark = (size: 'sm' | 'lg') => (
+    <span
+      className={`auth-wordmark font-bold tracking-tight leading-none ${
+        size === 'lg' ? 'text-4xl xl:text-5xl' : 'text-3xl'
+      }`}
+      aria-label="Hotel Care"
+    >
+      {'Hotel Care'.split('').map((ch, i) => (
+        <span
+          key={i}
+          className="auth-wordmark-letter"
+          style={{ animationDelay: `${i * 55}ms` }}
+        >
+          {ch === ' ' ? '\u00A0' : ch}
+        </span>
+      ))}
+    </span>
+  );
+
   return (
-    <div className="relative min-h-screen flex items-center justify-center bg-gradient-to-br from-[#359FDB]/10 to-[#6B6B6B]/5 p-3 sm:p-4">
-      <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-10">
-        <LanguageSwitcher />
-      </div>
-      <Card className="w-full max-w-sm sm:max-w-lg shadow-2xl border-0">
-        <CardHeader className="text-center space-y-1 pb-3 sm:pb-4">
-          <div className="mx-auto flex flex-col items-center justify-center">
-            <img
-              src={hotelcareLogoAuth}
-              alt="Hotel Care Logo"
-              className="h-12 sm:h-14 md:h-16 w-auto object-contain -mb-1"
-            />
-            <span className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-[#359FDB] to-[#6B6B6B] bg-clip-text text-transparent leading-tight">
-              Hotel Care
-            </span>
-          </div>
-          <CardTitle className="text-base sm:text-lg lg:text-xl font-semibold text-foreground/80">
+    <div className="relative min-h-screen bg-background lg:grid lg:grid-cols-[1.05fr_1fr]">
+      {/* Brand panel — desktop only */}
+      <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden bg-gradient-to-br from-primary/90 via-primary to-[hsl(var(--rd-gray))] p-12 text-primary-foreground">
+        <div className="auth-orb auth-orb-1" aria-hidden />
+        <div className="auth-orb auth-orb-2" aria-hidden />
+        <div className="relative flex items-center gap-3">
+          <img src={hotelcareLogoAuth} alt="" className="h-9 w-auto object-contain brightness-0 invert" />
+          <span className="text-lg font-semibold tracking-tight">Hotel Care</span>
+        </div>
+        <div className="relative max-w-md space-y-5">
+          <h1 className="text-4xl xl:text-5xl font-bold leading-[1.1] tracking-tight animate-fade-in">
             {t('auth.hotelManagement')}
-          </CardTitle>
-          <CardDescription className="text-sm sm:text-base px-2 sm:px-0">
+          </h1>
+          <p className="text-base xl:text-lg text-primary-foreground/80 leading-relaxed animate-fade-in">
             {t('auth.manageOperations')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="px-4 sm:px-6">
+          </p>
+        </div>
+        <p className="relative text-xs text-primary-foreground/60">
+          © {new Date().getFullYear()} Hotel Care
+        </p>
+      </aside>
+
+      {/* Form side */}
+      <main className="relative flex min-h-screen flex-col lg:min-h-0 lg:items-center lg:justify-center">
+        <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-10">
+          <LanguageSwitcher />
+        </div>
+
+        {/* Mobile app-style hero */}
+        <div className="lg:hidden bg-gradient-to-br from-primary/90 via-primary to-[hsl(var(--rd-gray))] px-6 pb-14 pt-14 text-center text-primary-foreground rounded-b-[2rem] shadow-lg relative overflow-hidden">
+          <div className="auth-orb auth-orb-1" aria-hidden />
+          <img
+            src={hotelcareLogoAuth}
+            alt="Hotel Care"
+            className="mx-auto h-14 w-auto object-contain brightness-0 invert animate-scale-in"
+          />
+          <div className="mt-2 auth-wordmark-light">{wordmark('sm')}</div>
+          <p className="mt-2 text-sm text-primary-foreground/80">{t('auth.hotelManagement')}</p>
+        </div>
+
+        <Card className="relative z-[1] -mt-8 mx-4 mb-8 rounded-2xl border-0 shadow-xl lg:mt-0 lg:mx-0 lg:mb-0 lg:w-full lg:max-w-md lg:shadow-none lg:bg-transparent">
+          <CardHeader className="hidden lg:block space-y-2 pb-4">
+            {wordmark('lg')}
+            <CardDescription className="text-base">
+              {t('auth.manageOperations')}
+            </CardDescription>
+          </CardHeader>
+        <CardContent className="px-5 py-6 sm:px-6 lg:px-0">
           <div className="w-full">
-            <h3 className="text-lg font-semibold text-center mb-4">{t('auth.signIn')}</h3>
+            <h3 className="text-lg font-semibold mb-4 text-center lg:text-left">{t('auth.signIn')}</h3>
+            
+
             
             <form onSubmit={handleSignIn} className="space-y-3 sm:space-y-4">
               <div className="space-y-2">
