@@ -518,8 +518,27 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                 </Select>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Each check refreshes bookings from the PMS first, then either raises dates that picked up or lowers dates that did not.
-                  {rule.next_run_at ? ` Next check ${new Date(rule.next_run_at).toLocaleString()}.` : ""}
                 </p>
+              </div>
+              <div className="rounded-md border bg-muted/40 p-3">
+                <p className="text-xs font-medium">Next automatic check</p>
+                {savedEnabled && rule.next_run_at ? (
+                  <>
+                    <p className="text-sm font-semibold tabular-nums">
+                      {new Date(rule.next_run_at).toLocaleString()}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">{untilLabel(rule.next_run_at)}</p>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {savedEnabled ? "Scheduling on the next cycle." : "Nothing is scheduled — automation is off."}
+                  </p>
+                )}
+                {rule.last_run_at && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Last check {new Date(rule.last_run_at).toLocaleString()}.
+                  </p>
+                )}
               </div>
             </div>
 
