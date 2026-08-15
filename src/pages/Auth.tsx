@@ -251,13 +251,13 @@ export default function Auth() {
       </aside>
 
       {/* Form side */}
-      <main className="relative flex min-h-screen flex-col lg:min-h-0 lg:items-center lg:justify-center">
-        <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-10">
+      <main className="relative flex min-h-[100dvh] flex-col bg-gradient-to-b from-primary/5 via-background to-background lg:min-h-0 lg:bg-none lg:items-center lg:justify-center">
+        <div className="absolute right-3 top-[calc(0.75rem+env(safe-area-inset-top))] sm:right-4 lg:top-4 z-10">
           <LanguageSwitcher />
         </div>
 
         {/* Mobile app-style hero */}
-        <div className="lg:hidden bg-gradient-to-br from-primary/90 via-primary to-[hsl(var(--rd-gray))] px-6 pb-14 pt-14 text-center text-primary-foreground rounded-b-[2rem] shadow-lg relative overflow-hidden">
+        <div className="lg:hidden bg-gradient-to-br from-primary/90 via-primary to-[hsl(var(--rd-gray))] px-6 pb-14 pt-[calc(3.5rem+env(safe-area-inset-top))] text-center text-primary-foreground rounded-b-[2rem] shadow-lg relative overflow-hidden">
           <div className="auth-orb auth-orb-1" aria-hidden />
           <img
             src={hotelcareLogoAuth}
@@ -268,7 +268,7 @@ export default function Auth() {
           <p className="mt-2 text-sm text-primary-foreground/80">{t('auth.hotelManagement')}</p>
         </div>
 
-        <Card className="relative z-[1] -mt-8 mx-4 mb-8 rounded-2xl border-0 shadow-xl lg:mt-0 lg:mx-0 lg:mb-0 lg:w-full lg:max-w-md lg:shadow-none lg:bg-transparent">
+        <Card className="relative z-[1] -mt-8 mx-4 mb-6 rounded-2xl border-0 shadow-xl lg:mt-0 lg:mx-0 lg:mb-0 lg:w-full lg:max-w-md lg:shadow-none lg:bg-transparent">
           <CardHeader className="hidden lg:block space-y-2 pb-4 lg:px-0">
             {wordmark('lg')}
             <CardDescription className="text-base">
@@ -507,6 +507,13 @@ export default function Auth() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Mobile footer keeps the screen balanced instead of ending in blank white */}
+      <div className="flex flex-1 flex-col justify-end lg:hidden">
+        <p className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-6 text-center text-xs text-muted-foreground">
+          {t('auth.tagline')}
+        </p>
+      </div>
       </main>
     </div>
   );
