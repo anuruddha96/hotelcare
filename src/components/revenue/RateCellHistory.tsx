@@ -21,6 +21,16 @@ import type { AutomationAction } from "@/hooks/usePickupAutomationActions";
  */
 
 function automationDetail(a: AutomationAction): string {
+  // The stored reason always wins: it is what the engine actually decided on,
+  // including the markdown cases ("no new booking", "after a cancellation")
+  // that have no booking to point at.
+  if (a.reason_detail) {
+    return [
+      a.reason_detail,
+      a.reservation_id ? `booking #${a.reservation_id}` : null,
+      a.pickup_at ? `picked up ${formatWhen(a.pickup_at)}` : null,
+    ].filter(Boolean).join(" · ");
+  }
   return [
     a.reservation_id ? `Triggered by booking #${a.reservation_id}` : "Triggered by a new booking",
     a.pickup_at ? `picked up ${formatWhen(a.pickup_at)}` : null,
@@ -79,6 +89,7 @@ export default function RateCellHistory({
   draftPrice,
   sendingPrice,
   automation = [],
+  hold = null,
   /** Show the whole list without the "N more changes" toggle (mobile sheet). */
   expanded = false,
 }: {
@@ -89,17 +100,30 @@ export default function RateCellHistory({
   /** Already sent to Previo, waiting only for its read-back. */
   sendingPrice?: number | null;
   automation?: AutomationAction[];
+  /** A price drop the automation is deliberately holding back for this date. */
+  hold?: AutomationAction | null;
   expanded?: boolean;
 }) {
   const [showAll, setShowAll] = useState(expanded);
 
   const entries = groupCellChanges(history, automation, names, { automationDetail });
   const status = statusLine(entries, draftPrice, sendingPrice);
+  const holdNote = hold && hold.hold_until && Date.parse(hold.hold_until) > Date.now()
+    ? (
+      <div className="rounded-md border border-amber-300/60 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
+        <span className="font-medium">Waiting after a cancellation.</span>{" "}
+        {hold.reason_detail ?? "The rule waits before lowering the price in case the room sells again."}{" "}
+        Automation can lower this price from{" "}
+        <span className="tabular-nums font-medium">{formatWhen(hold.hold_until)}</span>.
+      </div>
+    )
+    : null;
 
   if (entries.length === 0) {
     return (
       <div className="space-y-1">
         <p className={`text-[11px] ${status.tone}`}>{status.text}</p>
+        {holdNote}
         <p className="text-[11px] text-muted-foreground">No price changes recorded for this room type and date yet.</p>
       </div>
     );
