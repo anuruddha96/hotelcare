@@ -595,7 +595,14 @@ export default function RateStrategyGrid({
   } = useRateCellMarkers(hotelId, allDates[0], allDates[allDates.length - 1]);
 
   /** Real per-cell history, fetched one stay date at a time when opened. */
-  const { byCell: cellHistoryByCell, loadDate: loadCellHistory, invalidate: invalidateCellHistory } = useCellRateHistory(hotelId);
+  const { byCell: cellHistoryByCell, names: cellHistoryNames, loadDate: loadCellHistory, invalidate: invalidateCellHistory } = useCellRateHistory(hotelId);
+
+  /** Every name we know for the people behind price changes on this hotel. */
+  const actorNames = useMemo(() => {
+    const merged = new Map(auditNames);
+    cellHistoryNames.forEach((value, key) => merged.set(key, value));
+    return merged;
+  }, [auditNames, cellHistoryNames]);
 
   const reloadAudit = useCallback(async () => {
     invalidateCellHistory();
@@ -2410,7 +2417,7 @@ export default function RateStrategyGrid({
                           <RateCellHistory
                             history={history ?? []}
                             automation={cellAutomation ?? []}
-                            names={auditNames}
+                            names={actorNames}
                             draftPrice={draft ?? null}
                             sendingPrice={sending ?? null}
                           />
@@ -2481,7 +2488,7 @@ export default function RateStrategyGrid({
                     ?? []}
 
                   automation={automationByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ)) ?? []}
-                  names={auditNames}
+                  names={actorNames}
                   draftPrice={cellInfo.draft}
                   sendingPrice={inFlight.get(`${cellInfo.date}|${cellInfo.roomTypeName}|${cellInfo.occ}`) ?? null}
                   expanded
