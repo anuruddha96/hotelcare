@@ -136,6 +136,28 @@ function auditLabel(r: RateAuditRow, phase: ChangePhase): string {
   return "waiting to be sent";
 }
 
+/** Label for a change made outside HotelCare, straight in the PMS. */
+export const PREVIO_ACTOR = "Changed in Previo";
+/** Only used when no person, automation or Previo origin can be identified. */
+export const UNKNOWN_ACTOR = "Unknown user";
+
+/**
+ * Who made this change, in the user's words. A row written by the Previo
+ * read-back has no HotelCare user behind it — calling that "Someone" read as a
+ * missing name, when in fact the change came from the PMS itself.
+ */
+function actorOf(r: RateAuditRow, automation: boolean, names: Map<string, string>): string {
+  if (automation) return "HotelCare Automation";
+  const named = r.performed_by ? names.get(r.performed_by) : null;
+  if (named) return named;
+  if (r.source === "previo_external" || r.source === "previo_different") return PREVIO_ACTOR;
+  const payloadName = (r.payload as any)?.actor_name ?? (r.payload as any)?.performed_by_name;
+  if (typeof payloadName === "string" && payloadName.trim()) return payloadName.trim();
+  if (!r.performed_by) return PREVIO_ACTOR;
+  return UNKNOWN_ACTOR;
+}
+
+
 function automationLabel(status: string): { phase: ChangePhase; label: string } {
   switch (status) {
     case "pushed": return { phase: "confirmed", label: "live in Previo" };
