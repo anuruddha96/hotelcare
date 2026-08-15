@@ -1108,6 +1108,20 @@ Deno.serve(async (req) => {
         const daysOut = dayDiff(today, ev.stay_date);
         if (daysOut < 0) continue;
 
+        // Short booking window guard. Close to arrival a single new booking
+        // must not push an empty date higher — that is exactly how last-minute
+        // rooms go unsold. Inside the protected window a rise needs the date to
+        // be selling well already; otherwise the pickup is recorded and the
+        // price is held (the markdown side may still lower it).
+        if (!shortWindowIncreaseAllowed({
+          daysOut,
+          occupancyPct: occByStayDate.get(ev.stay_date) ?? null,
+          enabled: rule.short_window_guard_enabled !== false,
+          shortWindowDays: Math.max(0, Number(rule.short_window_days ?? 7)),
+          minOccupancyPct: Number(rule.short_window_min_occupancy_pct ?? 70),
+        })) { heldShortWindow++; continue; }
+
+
         // The 2nd booking inside the window is the "heat" signal: it takes the
         // surcharge instead of the ordinary booking-window tier.
         const base = tierIncrease(rule.booking_window_tiers ?? [], daysOut);
