@@ -261,6 +261,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
 
   async function save() {
     if (!hotelId || !organizationSlug) return;
+    const wasEnabled = savedEnabled;
     setSaving(true);
     const { data: auth } = await supabase.auth.getUser();
     const payload = {
