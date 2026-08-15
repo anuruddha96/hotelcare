@@ -546,5 +546,6 @@ export function cancellationHoldText(
   waitMinutes: number,
 ): string {
   const count = Math.max(1, Math.abs(cancellations));
-  return `Price drop on hold: ${count} cancellation${count === 1 ? "" : "s"} just came in and the rule waits ${waitMinutes} minute${waitMinutes === 1 ? "" : "s"} before lowering the price. Next check after ${new Date(releaseAt).toISOString()}.`;
+  void releaseAt;
+  return `Price drop on hold: ${count} cancellation${count === 1 ? "" : "s"} just came in and the rule waits ${waitMinutes} minute${waitMinutes === 1 ? "" : "s"} before lowering the price, in case the room sells again.`;
 }
