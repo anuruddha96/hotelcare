@@ -991,6 +991,24 @@ Deno.serve(async (req) => {
         if (c.cancelled_at >= dayStartUtc) netToday.set(c.stay_date, (netToday.get(c.stay_date) ?? 0) - 1);
       }
 
+      // 2d. Occupancy per stay date, so the short-booking-window guard can tell
+      //     a genuinely busy near date from a near date that is still empty.
+      const { data: pickupSnapshots } = await admin
+        .from("revenue_daily_snapshots")
+        .select("stay_date, occupancy_pct, captured_date")
+        .eq("hotel_id", rule.hotel_id)
+        .in("stay_date", stayDates)
+        .order("captured_date", { ascending: false })
+        .limit(20000);
+      const occByStayDate = new Map<string, number | null>();
+      for (const row of (pickupSnapshots ?? []) as any[]) {
+        if (occByStayDate.has(row.stay_date)) continue;
+        occByStayDate.set(
+          row.stay_date,
+          row.occupancy_pct === null || row.occupancy_pct === undefined ? null : Number(row.occupancy_pct),
+        );
+      }
+      let heldShortWindow = 0;
 
       // 3. Current prices per stay date / room type / occupancy (newest wins).
       const { data: rateRows } = await admin
