@@ -292,20 +292,42 @@ export interface SmartWindow {
   daysOut: number;
   nearTermDays: number;
   lowOccupancyPct: number;
+  /** Occupancy a NEAR date must already have to be left alone. */
+  healthyOccupancyPct?: number | null;
+  /** Beyond this lead time the softer "low occupancy" threshold applies. */
+  longLeadDays?: number | null;
 }
 
 /**
- * Smart mode only marks down genuinely weak demand: a date whose occupancy is
- * still below the "weak" threshold. Near-term weak dates are the classic case;
- * a date with no occupancy reading at all is treated as unknown and may still
+ * How full a stay date must already be, at this lead time, to be considered
+ * healthy. Close to arrival the bar is high (an empty date next week is a
+ * problem); far out the bar is the low threshold (an empty date in December is
+ * normal and must not be discounted hour after hour).
+ */
+export function healthyOccupancyForLead(input: SmartWindow): number {
+  const low = Number(input.lowOccupancyPct) || 0;
+  const high = Number(input.healthyOccupancyPct ?? low) || low;
+  if (high <= low) return low;
+  const near = Math.max(0, Number(input.nearTermDays) || 0);
+  const far = Math.max(near, Number(input.longLeadDays ?? near) || near);
+  const days = Math.max(0, Number(input.daysOut) || 0);
+  if (days <= near) return high;
+  if (days >= far) return low;
+  const ratio = (days - near) / (far - near);
+  return high - (high - low) * ratio;
+}
+
+/**
+ * Smart mode only marks down genuinely weak demand — weak *for the lead time*.
+ * A date with no occupancy reading at all is treated as unknown and may still
  * move, exactly as before smart mode existed.
  */
 export function smartMarkdownAllowed(input: SmartWindow): boolean {
   const occ = input.occupancyPct;
   if (occ === null || occ === undefined) return true;
-  if (Number(occ) < Number(input.lowOccupancyPct)) return true;
-  return false;
+  return Number(occ) < healthyOccupancyForLead(input);
 }
+
 
 export interface StrongDemandInput {
   occupancyPct: number | null | undefined;
