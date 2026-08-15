@@ -375,6 +375,43 @@ Deno.serve(async (req) => {
       actorUserId = user.id;
     }
 
+    // Switching a property off must actually STOP it. Decisions already made
+    // but not yet delivered are marked superseded (kept as history, never
+    // deleted), their empty jobs are closed, and the next slot is cleared so
+    // the scheduler cannot pick the property up again. Manual work — priority
+    // 10, a different intent source — is deliberately left untouched.
+    if (body?.mode === "stop" && onlyHotel) {
+      const stoppedAt = new Date().toISOString();
+      const { data: stoppedDrafts, error: stopErr } = await admin
+        .from("revenue_rate_drafts")
+        .update({ superseded_at: stoppedAt, status: "superseded" })
+        .eq("hotel_id", onlyHotel)
+        .eq("status", "draft")
+        .is("superseded_at", null)
+        .like("intent_source", "automation%")
+        .select("id, push_run_id");
+      if (stopErr) throw stopErr;
+      const runIds = Array.from(new Set((stoppedDrafts ?? []).map((d: any) => d.push_run_id).filter(Boolean)));
+      for (const runId of runIds) {
+        const { count } = await admin.from("revenue_rate_drafts")
+          .select("id", { count: "exact", head: true })
+          .eq("push_run_id", runId).in("status", ["draft", "failed"]).is("superseded_at", null);
+        if ((count ?? 0) === 0) {
+          await admin.from("revenue_rate_push_runs")
+            .update({ status: "completed", finished_at: stoppedAt })
+            .eq("id", runId).eq("status", "queued");
+        }
+      }
+      await admin.from("revenue_pickup_automation_rules")
+        .update({ next_run_at: null, is_enabled: false })
+        .eq("hotel_id", onlyHotel);
+      return json({
+        ok: true, code: "stopped", hotel_id: onlyHotel,
+        cancelled: (stoppedDrafts ?? []).length, jobs_closed: runIds.length,
+        msg: `Automation stopped. ${(stoppedDrafts ?? []).length} not-yet-sent automatic price${(stoppedDrafts ?? []).length === 1 ? "" : "s"} cancelled.`,
+      });
+    }
+
     // Global, admin-controlled brake. When automation is paused the tick does
     // no work at all; in dry-run it still calculates and records suggestions
     // but never publishes a price.
