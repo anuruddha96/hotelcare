@@ -41,6 +41,10 @@ interface Rule {
   high_occupancy_pct: number;
   strong_demand_increase: number;
   ai_assist_enabled: boolean;
+  short_window_guard_enabled: boolean;
+  short_window_days: number;
+  short_window_min_occupancy_pct: number;
+  whole_number_prices: boolean;
   last_run_at?: string | null;
   next_run_at?: string | null;
   last_evaluated_at?: string | null;
