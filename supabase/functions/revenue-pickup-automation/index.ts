@@ -860,7 +860,11 @@ Deno.serve(async (req) => {
           const cell = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
           const current = effectivePrice(Number(rate.price), strongPendingByCell.get(cell) ?? []);
           if (current === null) continue;
-          const newPrice = roundMoney(current + step);
+          const newPrice = applyRounding(
+            current + step, "increase", rule.whole_number_prices !== false,
+            rule.minimum_adr === null ? null : Number(rule.minimum_adr),
+          );
+          if (!(newPrice > current)) continue;
 
           strongDates.add(rate.stay_date);
           strongRows.push({
