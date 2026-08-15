@@ -293,6 +293,10 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       high_occupancy_pct: rule.high_occupancy_pct,
       strong_demand_increase: rule.strong_demand_increase,
       ai_assist_enabled: rule.ai_assist_enabled,
+      short_window_guard_enabled: rule.short_window_guard_enabled,
+      short_window_days: rule.short_window_days,
+      short_window_min_occupancy_pct: rule.short_window_min_occupancy_pct,
+      whole_number_prices: rule.whole_number_prices,
       // Saving never triggers an immediate evaluation: an enabled rule is
       // simply scheduled one normal interval from now, so nobody gets a
       // surprise markdown for pressing Save. "Run now" stays the explicit
