@@ -262,20 +262,21 @@ export default function Auth() {
           <img
             src={hotelcareLogoAuth}
             alt="Hotel Care"
-            className="mx-auto h-14 w-auto object-contain brightness-0 invert animate-scale-in"
+            className="mx-auto h-20 w-auto object-contain brightness-0 invert animate-scale-in"
           />
-          <div className="mt-2 auth-wordmark-light">{wordmark('sm')}</div>
+          <div className="-mt-1 auth-wordmark-light">{wordmark('sm')}</div>
           <p className="mt-2 text-sm text-primary-foreground/80">{t('auth.hotelManagement')}</p>
         </div>
 
         <Card className="relative z-[1] -mt-8 mx-4 mb-8 rounded-2xl border-0 shadow-xl lg:mt-0 lg:mx-0 lg:mb-0 lg:w-full lg:max-w-md lg:shadow-none lg:bg-transparent">
-          <CardHeader className="hidden lg:block space-y-2 pb-4">
+          <CardHeader className="hidden lg:block space-y-2 pb-4 lg:px-0">
             {wordmark('lg')}
             <CardDescription className="text-base">
-              {t('auth.manageOperations')}
+              {t('auth.tagline')}
             </CardDescription>
           </CardHeader>
         <CardContent className="px-5 py-6 sm:px-6 lg:px-0">
+
           <div className="w-full">
             <h3 className="text-lg font-semibold mb-4 text-center lg:text-left">{t('auth.signIn')}</h3>
             
