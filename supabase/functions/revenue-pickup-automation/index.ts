@@ -755,7 +755,10 @@ Deno.serve(async (req) => {
               daysOut: dayDiff(local.date, rate.stay_date),
               nearTermDays: Math.max(0, Number(rule.near_term_days ?? 30)),
               lowOccupancyPct: Number(rule.low_occupancy_pct ?? 50),
+              healthyOccupancyPct: Number(rule.high_occupancy_pct ?? 75),
+              longLeadDays: Math.max(0, Number(rule.long_lead_days ?? 30)),
             });
+
             if (!allowed) {
               if (!blockedDates.has(rate.stay_date)) {
                 blockedDates.set(rate.stay_date, "demand_healthy");

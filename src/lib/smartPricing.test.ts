@@ -10,13 +10,24 @@ import {
 } from "../../supabase/functions/_shared/pricingRules";
 
 describe("smart pricing — weak demand", () => {
+  const win = { nearTermDays: 30, lowOccupancyPct: 50, healthyOccupancyPct: 75, longLeadDays: 60 };
+
   it("marks down a near-term date under the weak threshold", () => {
-    expect(smartMarkdownAllowed({ occupancyPct: 42, daysOut: 12, nearTermDays: 30, lowOccupancyPct: 50 })).toBe(true);
+    expect(smartMarkdownAllowed({ ...win, occupancyPct: 42, daysOut: 12 })).toBe(true);
   });
 
-  it("leaves a healthy date alone even without pickup", () => {
-    expect(smartMarkdownAllowed({ occupancyPct: 72, daysOut: 12, nearTermDays: 30, lowOccupancyPct: 50 })).toBe(false);
+  it("marks down a near-term date that is behind pace for its lead time", () => {
+    expect(smartMarkdownAllowed({ ...win, occupancyPct: 66.7, daysOut: 30 })).toBe(true);
   });
+
+  it("leaves a near-term date alone once it is genuinely healthy", () => {
+    expect(smartMarkdownAllowed({ ...win, occupancyPct: 82, daysOut: 12 })).toBe(false);
+  });
+
+  it("uses the softer threshold far out so a quiet December is not discounted", () => {
+    expect(smartMarkdownAllowed({ ...win, occupancyPct: 55, daysOut: 120 })).toBe(false);
+  });
+
 
   it("positive pickup always beats a markdown in the same evaluation", () => {
     expect(markdownBlockReason({
