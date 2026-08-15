@@ -1042,13 +1042,14 @@ serve(async (req) => {
   let farOk = farTo > to;
   const nightMap = new Map<string, Night>();
 
-  // Big properties (thousands of room-nights) were running out of wall clock
-  // before they ever wrote anything, so their revenue data simply stopped
-  // updating. Everything below the essential reservation pull is optional: past
-  // this budget the run stops adding extra Previo round-trips and commits what
-  // it already has.
-  const SOFT_BUDGET_MS = 60_000;
+  // Big properties (thousands of room-nights) were being killed by the edge
+  // runtime ("CPU Time exceeded") before they wrote anything, so their revenue
+  // data simply stopped updating. Everything below the essential reservation
+  // pull is optional: past this budget the run stops adding extra Previo
+  // round-trips and commits what it already has.
+  const SOFT_BUDGET_MS = 22_000;
   const overBudget = () => Date.now() - started > SOFT_BUDGET_MS;
+
 
   // The cancelled/no-show filter spelling never changes for a given property,
   // but probing all four variants for two statuses costs dozens of Previo calls
