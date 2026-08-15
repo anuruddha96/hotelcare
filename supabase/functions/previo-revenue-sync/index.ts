@@ -1073,40 +1073,56 @@ serve(async (req) => {
   const learnedVariants: Record<string, string | null> = { ...(cancelProbe.variantByStatus ?? {}) };
   let learnedSomething = false;
 
+  // The long-tail pass more than doubles the parsing work and only feeds the
+  // "booked today" counters for stay dates beyond the pricing horizon. Running
+  // it on every refresh is what pushed big properties over the CPU limit, so it
+  // now runs at most once every six hours (and never when we're near budget).
+  const FAR_PASS_TTL_MS = 6 * 60 * 60 * 1000;
+  const farPassState = (cfgSettings.farPass ?? {}) as { checkedAt?: string };
+  const farPassDue = !farPassState.checkedAt ||
+    Date.now() - Date.parse(farPassState.checkedAt) > FAR_PASS_TTL_MS;
+  let farPassRan = false;
+
   for (const acc of liveAccounts) {
-    const resCall = await chunkedCall("searchReservations", acc.creds as any, acc.hotId, from, to, 31);
-    if (resCall.errors.length) {
-      resErrors.push(...resCall.errors.map((e) => `${acc.label} ${e}`));
-      continue;
-    }
-    for (const xml of resCall.xml) {
-      for (const n of parseReservationNights(xml, from, to)) {
+    const ingest = (xml: string, lo: string, hi: string) => {
+      for (const n of parseReservationNights(xml, lo, hi)) {
         // Keyed per room item, so a two-room booking keeps both rooms.
         const scoped = { ...n, obk_id: n.obk_id ? scopeObk(acc, String(n.obk_id)) : n.obk_id };
         nightMap.set(`${acc.hotId}|${n.res_id}|${n.room_key}|${n.stay_date}`, scoped as Night);
       }
+    };
+
+    const resCall = await chunkedCall(
+      "searchReservations", acc.creds as any, acc.hotId, from, to, 31, "",
+      { onChunk: (xml) => ingest(xml, from, to) },
+    );
+    if (resCall.errors.length) {
+      resErrors.push(...resCall.errors.map((e) => `${acc.label} ${e}`));
+      continue;
     }
 
-    // Long tail: stay dates beyond the pricing horizon, in wider chunks. It
-    // only feeds the "created" counters (the snapshot loop ignores dates past
-    // the horizon), so a failure here must never void the main pass.
-    if (farTo > to && !overBudget()) {
+    // Long tail: stay dates beyond the pricing horizon, in wider chunks. A
+    // failure or skip here must never void the main pass.
+    if (farTo > to && farPassDue && !overBudget()) {
       const farCall = await chunkedCall(
-        "searchReservations", acc.creds as any, acc.hotId, addDays(to, 1), farTo, 92,
+        "searchReservations", acc.creds as any, acc.hotId, addDays(to, 1), farTo, 92, "",
+        { onChunk: (xml) => ingest(xml, addDays(to, 1), farTo), shouldStop: overBudget },
       );
-      if (farCall.errors.length) {
+      if (farCall.errors.length || farCall.stopped) {
         farOk = false;
-        softNotes.push(`${acc.label}: long-range booking pass incomplete (${farCall.errors[0]})`);
-      }
-      for (const xml of farCall.xml) {
-        for (const n of parseReservationNights(xml, addDays(to, 1), farTo)) {
-          const scoped = { ...n, obk_id: n.obk_id ? scopeObk(acc, String(n.obk_id)) : n.obk_id };
-          nightMap.set(`${acc.hotId}|${n.res_id}|${n.room_key}|${n.stay_date}`, scoped as Night);
-        }
+        softNotes.push(
+          `${acc.label}: long-range booking pass incomplete (${farCall.errors[0] ?? "time budget reached"})`,
+        );
+      } else {
+        farPassRan = true;
       }
     } else if (farTo > to) {
       farOk = false;
-      softNotes.push(`${acc.label}: long-range booking pass skipped to keep this refresh inside its time budget.`);
+      softNotes.push(
+        farPassDue
+          ? `${acc.label}: long-range booking pass skipped to keep this refresh inside its time budget.`
+          : `${acc.label}: long-range booking pass runs a few times a day; existing far-future data kept.`,
+      );
     }
     // The default search returns only live bookings, so cancellations and
     // no-shows never reach us and pickup can never go negative.
@@ -1134,25 +1150,31 @@ serve(async (req) => {
       let working: string | null = null;
       for (const filter of candidates) {
         if (overBudget()) break;
+        // While probing we only need to know which spelling Previo accepts, so
+        // a short window is enough; the known filter still sweeps the horizon.
+        const probeTo = remembered ? to : (addDays(from, 30) > to ? to : addDays(from, 30));
+        let parsed = 0;
         const cancCall = await chunkedCall(
-          "searchReservations", acc.creds as any, acc.hotId, from, to, 31, filter,
+          "searchReservations", acc.creds as any, acc.hotId, from, probeTo, 31, filter,
+          {
+            shouldStop: overBudget,
+            onChunk: (xml) => {
+              for (const n of parseReservationNights(xml, from, probeTo)) {
+                // Only trust rows Previo itself marks cancelled/no-show; a
+                // filter that was ignored just replays the live bookings.
+                if (!n.cancelled_at) continue;
+                parsed += 1;
+                const key = `${acc.hotId}|${n.res_id}|${n.room_key}|${n.stay_date}`;
+                const scoped = { ...n, obk_id: n.obk_id ? scopeObk(acc, String(n.obk_id)) : n.obk_id } as Night;
+                // A cancelled row always wins over a live row for the same room-night.
+                nightMap.set(key, scoped);
+              }
+            },
+          },
         );
         if (cancCall.errors.length) {
           console.log(`[cancelled] ${acc.label} status=${statusId} filter=${filter} error=${cancCall.errors[0]}`);
           continue;
-        }
-        let parsed = 0;
-        for (const xml of cancCall.xml) {
-          for (const n of parseReservationNights(xml, from, to)) {
-            // Only trust rows Previo itself marks cancelled/no-show; a filter
-            // that was ignored just replays the live bookings.
-            if (!n.cancelled_at) continue;
-            parsed += 1;
-            const key = `${acc.hotId}|${n.res_id}|${n.room_key}|${n.stay_date}`;
-            const scoped = { ...n, obk_id: n.obk_id ? scopeObk(acc, String(n.obk_id)) : n.obk_id } as Night;
-            // A cancelled row always wins over a live row for the same room-night.
-            nightMap.set(key, scoped);
-          }
         }
         landed += parsed;
         if (parsed > 0) { working = filter; break; }
@@ -1166,6 +1188,7 @@ serve(async (req) => {
       }
     }
   }
+
 
   if ((learnedSomething || probeDue) && !probeOnly && cfgSettingsRow) {
     await service
