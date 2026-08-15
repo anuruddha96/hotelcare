@@ -428,7 +428,7 @@ export default function RateStrategyGrid({
 
   /** Price-change trail: cell history on hover, and the activity panel below. */
   const { rows: auditRows, manualRows: auditManualRows, byCell: auditByCell, originByCell: cellOriginByCell, names: auditNames, reload: reloadAuditRows } = useRateAudit(hotelId);
-  const { rows: automationRows, byCell: automationByCell } = usePickupAutomationActions(hotelId);
+  const { rows: automationRows, byCell: automationByCell, holdsByDate: automationHolds } = usePickupAutomationActions(hotelId);
 
   /** One-line summary of the last Previo-confirmed change on each date. */
   const auditByDate = useMemo(() => {
@@ -2417,6 +2417,7 @@ export default function RateStrategyGrid({
                           <RateCellHistory
                             history={history ?? []}
                             automation={cellAutomation ?? []}
+                            hold={automationHolds.get(d) ?? null}
                             names={actorNames}
                             draftPrice={draft ?? null}
                             sendingPrice={sending ?? null}
@@ -2488,6 +2489,7 @@ export default function RateStrategyGrid({
                     ?? []}
 
                   automation={automationByCell.get(cellKey(cellInfo.date, cellInfo.roomTypeName, cellInfo.occ)) ?? []}
+                  hold={automationHolds.get(cellInfo.date) ?? null}
                   names={actorNames}
                   draftPrice={cellInfo.draft}
                   sendingPrice={inFlight.get(`${cellInfo.date}|${cellInfo.roomTypeName}|${cellInfo.occ}`) ?? null}

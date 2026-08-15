@@ -174,6 +174,7 @@ export default function RateCellHistory({
   return (
     <div className="space-y-2">
       <p className={`text-xs font-medium ${status.tone}`}>{status.text}</p>
+      {holdNote}
       <div className="space-y-2">
         {shown.map((e) => {
           const bucket = dayBucket(e.at);
