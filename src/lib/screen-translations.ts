@@ -95,6 +95,7 @@ export const screenTranslations: { [lang: string]: { [key: string]: string } } =
     'minibar.addedAfterCompletion': 'Added after completion',
   },
   hu: {
+    'auth.tagline': 'Egyetlen biztonságos felület a szobákhoz, csapatokhoz, karbantartáshoz és bevételhez.',
     'dashboard.workStatusAttendance': 'Munkastátusz és jelenlét',
     'dashboard.manageUsersShort': 'Felhasználók',
     'settings.title': 'Fiókbeállítások',
@@ -172,6 +173,7 @@ export const screenTranslations: { [lang: string]: { [key: string]: string } } =
     'minibar.addedAfterCompletion': 'Befejezés után hozzáadva',
   },
   es: {
+    'auth.tagline': 'Un espacio seguro para habitaciones, equipos, mantenimiento e ingresos.',
     'dashboard.workStatusAttendance': 'Estado del trabajo y asistencia',
     'dashboard.manageUsersShort': 'Usuarios',
     'settings.title': 'Configuración de la cuenta',
@@ -249,6 +251,7 @@ export const screenTranslations: { [lang: string]: { [key: string]: string } } =
     'minibar.addedAfterCompletion': 'Añadido después de la finalización',
   },
   vi: {
+    'auth.tagline': 'Một không gian làm việc an toàn cho phòng, nhân sự, bảo trì và doanh thu.',
     'dashboard.workStatusAttendance': 'Trạng thái công việc & Chấm công',
     'dashboard.manageUsersShort': 'Người dùng',
     'settings.title': 'Cài đặt tài khoản',
@@ -326,6 +329,7 @@ export const screenTranslations: { [lang: string]: { [key: string]: string } } =
     'minibar.addedAfterCompletion': 'Đã thêm sau khi hoàn thành',
   },
   mn: {
+    'auth.tagline': 'Өрөө, баг, засвар үйлчилгээ, орлогыг нэг аюулгүй орчинд удирдана.',
     'dashboard.workStatusAttendance': 'Ажлын байдал ба ирц',
     'dashboard.manageUsersShort': 'Хэрэглэгчид',
     'settings.title': 'Дансны тохиргоо',
