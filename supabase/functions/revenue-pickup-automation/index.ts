@@ -1416,6 +1416,20 @@ Deno.serve(async (req) => {
       await admin.rpc("release_automation_lock", { p_hotel: lockHotel });
     }
 
+    // Nudge the durable publisher so queued work starts within seconds instead
+    // of waiting for the next 3-minute drain. Fire and forget: the drainer owns
+    // the global lease, so this can never publish twice or jump the queue.
+    const queuedAnything = summary.some((s: any) => Number(s?.queued ?? 0) > 0);
+    if (!dryRun && queuedAnything) {
+      const kick = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-publish-queue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")! },
+        body: JSON.stringify({ reason: "automation-run" }),
+      }).catch((e) => console.warn("queue kick failed", describeError(e)));
+      // @ts-ignore EdgeRuntime is available in Supabase Edge Functions
+      if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(kick);
+    }
+
     return json({ ok: true, code: "ran", rules: rules.length, hotel_id: lockHotel, actor: actorName, summary });
   } catch (e) {
     console.error("pickup automation failed", e);
