@@ -76,6 +76,11 @@ interface Rule {
   high_occupancy_pct: number;
   strong_demand_increase: number;
   ai_assist_enabled: boolean;
+  // Short booking window guard + rounding
+  short_window_guard_enabled: boolean;
+  short_window_days: number;
+  short_window_min_occupancy_pct: number;
+  whole_number_prices: boolean;
 }
 
 const json = (body: unknown, status = 200) =>
