@@ -1028,6 +1028,37 @@ serve(async (req) => {
   /** True only when every account's long-tail pass succeeded. */
   let farOk = farTo > to;
   const nightMap = new Map<string, Night>();
+
+  // Big properties (thousands of room-nights) were running out of wall clock
+  // before they ever wrote anything, so their revenue data simply stopped
+  // updating. Everything below the essential reservation pull is optional: past
+  // this budget the run stops adding extra Previo round-trips and commits what
+  // it already has.
+  const SOFT_BUDGET_MS = 60_000;
+  const overBudget = () => Date.now() - started > SOFT_BUDGET_MS;
+
+  // The cancelled/no-show filter spelling never changes for a given property,
+  // but probing all four variants for two statuses costs dozens of Previo calls
+  // on every single sync. Remember the answer and only re-probe once a day.
+  const CANCEL_PROBE_TTL_MS = 24 * 60 * 60 * 1000;
+  const { data: cfgSettingsRow } = await service
+    .from("pms_configurations")
+    .select("settings")
+    .eq("hotel_id", hotelId)
+    .eq("pms_type", "previo")
+    .maybeSingle();
+  const cfgSettings = ((cfgSettingsRow as { settings?: Record<string, unknown> } | null)?.settings ?? {}) as Record<string, unknown>;
+  const cancelProbe = (cfgSettings.cancelProbe ?? {}) as {
+    variantByStatus?: Record<string, string | null>;
+    checkedAt?: string;
+  };
+  const knownVariant = (statusId: number): string | null | undefined =>
+    cancelProbe.variantByStatus?.[String(statusId)];
+  const probeDue = !cancelProbe.checkedAt ||
+    Date.now() - Date.parse(cancelProbe.checkedAt) > CANCEL_PROBE_TTL_MS;
+  const learnedVariants: Record<string, string | null> = { ...(cancelProbe.variantByStatus ?? {}) };
+  let learnedSomething = false;
+
   for (const acc of liveAccounts) {
     const resCall = await chunkedCall("searchReservations", acc.creds as any, acc.hotId, from, to, 31);
     if (resCall.errors.length) {
@@ -1045,7 +1076,7 @@ serve(async (req) => {
     // Long tail: stay dates beyond the pricing horizon, in wider chunks. It
     // only feeds the "created" counters (the snapshot loop ignores dates past
     // the horizon), so a failure here must never void the main pass.
-    if (farTo > to) {
+    if (farTo > to && !overBudget()) {
       const farCall = await chunkedCall(
         "searchReservations", acc.creds as any, acc.hotId, addDays(to, 1), farTo, 92,
       );
@@ -1059,16 +1090,17 @@ serve(async (req) => {
           nightMap.set(`${acc.hotId}|${n.res_id}|${n.room_key}|${n.stay_date}`, scoped as Night);
         }
       }
+    } else if (farTo > to) {
+      farOk = false;
+      softNotes.push(`${acc.label}: long-range booking pass skipped to keep this refresh inside its time budget.`);
     }
     // The default search returns only live bookings, so cancellations and
     // no-shows never reach us and pickup can never go negative.
     //
     // A single `<statusId>` filter was silently ignored by Previo — the call
     // succeeded and returned the live bookings again, so nothing was ever
-    // classified as cancelled and `revenue_cancelled_nights` stayed empty for
-    // every property. Try the filter spellings Previo has used across its
-    // endpoint versions and keep the first one that actually yields cancelled
-    // room-nights; log every attempt so the working variant is visible.
+    // classified as cancelled. These are the spellings Previo has used across
+    // its endpoint versions; the working one is remembered per property.
     const cancelFilterVariants = (statusId: number): string[] => [
       `<statusId>${statusId}</statusId>`,
       `<status>${statusId}</status>`,
@@ -1077,8 +1109,17 @@ serve(async (req) => {
     ];
 
     for (const statusId of [CANCELLED_STATUS, NOSHOW_STATUS]) {
+      if (probeOnly || overBudget()) break;
+      const remembered = knownVariant(statusId);
+      // Remembered "nothing works" (null) — skip until the daily re-probe.
+      if (remembered === null && !probeDue) continue;
+      const candidates = remembered ? [remembered] : (probeDue || remembered === undefined ? cancelFilterVariants(statusId) : []);
+      if (candidates.length === 0) continue;
+
       let landed = 0;
-      for (const filter of cancelFilterVariants(statusId)) {
+      let working: string | null = null;
+      for (const filter of candidates) {
+        if (overBudget()) break;
         const cancCall = await chunkedCall(
           "searchReservations", acc.creds as any, acc.hotId, from, to, 31, filter,
         );
@@ -1099,16 +1140,33 @@ serve(async (req) => {
             nightMap.set(key, scoped);
           }
         }
-        console.log(`[cancelled] ${acc.label} status=${statusId} filter=${filter} rows=${parsed}`);
         landed += parsed;
-        if (parsed > 0) break;
+        if (parsed > 0) { working = filter; break; }
+      }
+      if (learnedVariants[String(statusId)] !== working) {
+        learnedVariants[String(statusId)] = working;
+        learnedSomething = true;
       }
       if (landed === 0) {
         softNotes.push(`${acc.label}: Previo returned no status-${statusId} reservations for this horizon.`);
       }
     }
   }
+
+  if ((learnedSomething || probeDue) && !probeOnly && cfgSettingsRow) {
+    await service
+      .from("pms_configurations")
+      .update({
+        settings: {
+          ...cfgSettings,
+          cancelProbe: { variantByStatus: learnedVariants, checkedAt: new Date().toISOString() },
+        },
+      })
+      .eq("hotel_id", hotelId)
+      .eq("pms_type", "previo");
+  }
   errors.push(...resErrors);
+
 
 
   const allNights = Array.from(nightMap.values()).map(normaliseNight);
