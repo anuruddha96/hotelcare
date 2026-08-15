@@ -443,3 +443,109 @@ export function soldOutBlocksIncrease(input: SoldOutInput): boolean {
   if (!Number.isFinite(threshold) || threshold <= 0) return false;
   return Number(occ) >= threshold;
 }
+
+// --------------------------------------------------------------------------
+// Cancellation cooldown
+// --------------------------------------------------------------------------
+
+export interface CancellationHoldInput {
+  /** Property asked for a waiting period after a cancellation. */
+  enabled: boolean;
+  /** Newest cancellation for this stay date, if any. */
+  lastCancelledAt: string | null | undefined;
+  /** How long to wait after that cancellation before lowering the price. */
+  waitMinutes: number;
+  now: Date;
+}
+
+export interface CancellationHoldResult {
+  /** True while the price must be left alone. */
+  holding: boolean;
+  /** When the date becomes eligible again (ISO), null when nothing is holding. */
+  releaseAt: string | null;
+}
+
+/**
+ * A cancellation is not automatically a demand signal: the room often sells
+ * again within the hour, and dropping the price the second a guest cancels
+ * gives away money. So a cancelled date waits `waitMinutes` before the markdown
+ * side may touch it — and the UI can tell the user exactly when that ends.
+ */
+export function cancellationHold(input: CancellationHoldInput): CancellationHoldResult {
+  if (!input.enabled) return { holding: false, releaseAt: null };
+  const wait = Math.max(0, Number(input.waitMinutes) || 0);
+  if (wait <= 0 || !input.lastCancelledAt) return { holding: false, releaseAt: null };
+  const at = Date.parse(input.lastCancelledAt);
+  if (!Number.isFinite(at)) return { holding: false, releaseAt: null };
+  const release = at + wait * 60_000;
+  if (release <= input.now.getTime()) return { holding: false, releaseAt: null };
+  return { holding: true, releaseAt: new Date(release).toISOString() };
+}
+
+// --------------------------------------------------------------------------
+// Why a price moved
+// --------------------------------------------------------------------------
+
+export type DecisionKind =
+  | "no_pickup"
+  | "cancellation"
+  | "positive_pickup"
+  | "strong_demand";
+
+export interface DecisionReasonInput {
+  kind: DecisionKind;
+  /** Net booking nights gained (or lost) in the observation window. */
+  netPickup?: number | null;
+  occupancyPct?: number | null;
+  daysOut?: number | null;
+  /** Signed move in currency units. */
+  amount: number;
+  currency?: string | null;
+}
+
+function money(amount: number, currency?: string | null): string {
+  const abs = Math.abs(roundMoney(amount));
+  const value = Number.isInteger(abs) ? String(abs) : abs.toFixed(2);
+  return `${value} ${currency ?? "EUR"}`;
+}
+
+/**
+ * One plain sentence a revenue manager can act on: what the automation saw and
+ * what it did about it. Stored with the action so the cell history can answer
+ * "why did this price move?" months later.
+ */
+export function decisionReasonText(input: DecisionReasonInput): string {
+  const net = input.netPickup ?? 0;
+  const dir = input.amount < 0 ? "Lowered" : "Raised";
+  const move = `${dir} by ${money(input.amount, input.currency)}`;
+  const context: string[] = [];
+  if (input.occupancyPct !== null && input.occupancyPct !== undefined) {
+    context.push(`occupancy ${Math.round(Number(input.occupancyPct))}%`);
+  }
+  if (input.daysOut !== null && input.daysOut !== undefined) {
+    context.push(`${input.daysOut} day${Number(input.daysOut) === 1 ? "" : "s"} before arrival`);
+  }
+  const tail = context.length > 0 ? ` (${context.join(", ")})` : "";
+
+  switch (input.kind) {
+    case "cancellation":
+      return `${move} after ${Math.abs(net)} cancellation${Math.abs(net) === 1 ? "" : "s"} and no new booking in this check${tail}.`;
+    case "no_pickup":
+      return `${move} because no new booking arrived for this date in this check${tail}.`;
+    case "positive_pickup":
+      return `${move} because ${net} new booking night${net === 1 ? "" : "s"} arrived for this date${tail}.`;
+    case "strong_demand":
+      return `${move} because the date is already selling well this far out${tail}.`;
+  }
+}
+
+/** The sentence shown while a cancelled date is waiting out its cooldown. */
+export function cancellationHoldText(
+  releaseAt: string,
+  cancellations: number,
+  waitMinutes: number,
+): string {
+  const count = Math.max(1, Math.abs(cancellations));
+  void releaseAt;
+  return `Price drop on hold: ${count} cancellation${count === 1 ? "" : "s"} just came in and the rule waits ${waitMinutes} minute${waitMinutes === 1 ? "" : "s"} before lowering the price, in case the room sells again.`;
+}

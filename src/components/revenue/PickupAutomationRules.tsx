@@ -47,6 +47,8 @@ interface Rule {
   whole_number_prices: boolean;
   sold_out_guard_enabled: boolean;
   sold_out_occupancy_pct: number;
+  cancellation_markdown_enabled: boolean;
+  cancellation_wait_minutes: number;
   last_run_at?: string | null;
   next_run_at?: string | null;
   last_evaluated_at?: string | null;
@@ -93,6 +95,7 @@ const DEFAULT_RULE: Rule = {
   short_window_guard_enabled: true, short_window_days: 7,
   short_window_min_occupancy_pct: 70, whole_number_prices: true,
   sold_out_guard_enabled: true, sold_out_occupancy_pct: 100,
+  cancellation_markdown_enabled: true, cancellation_wait_minutes: 60,
 };
 
 
@@ -154,6 +157,13 @@ function explain(rule: Rule, hotelName: string): string[] {
   if (rule.sold_out_guard_enabled) {
     lines.push(
       `Sold out: once a date reaches ${rule.sold_out_occupancy_pct}% occupancy (or has no rooms left) the price stops rising — there is nothing left to sell. A cancellation puts the date back in play on the next check.`,
+    );
+  }
+  if (rule.no_pickup_enabled) {
+    lines.push(
+      rule.cancellation_markdown_enabled
+        ? `Cancellations: a date that loses a booking is lowered like a quiet date, but only after a ${rule.cancellation_wait_minutes}-minute wait — the room often sells again first. The cell history says the price drop is waiting and when it can happen.`
+        : "Cancellations: a lost booking does not itself trigger a price drop; the date is only marked down when the usual quiet-date rules apply.",
     );
   }
   if (rule.whole_number_prices) {
@@ -280,6 +290,8 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       whole_number_prices: source.rule.whole_number_prices ?? true,
       sold_out_guard_enabled: source.rule.sold_out_guard_enabled ?? true,
       sold_out_occupancy_pct: source.rule.sold_out_occupancy_pct ?? 100,
+      cancellation_markdown_enabled: source.rule.cancellation_markdown_enabled ?? true,
+      cancellation_wait_minutes: source.rule.cancellation_wait_minutes ?? 60,
     }));
 
     toast.success(`Copied settings from ${source.label} — still off until you turn it on`);
@@ -331,6 +343,8 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       whole_number_prices: rule.whole_number_prices,
       sold_out_guard_enabled: rule.sold_out_guard_enabled,
       sold_out_occupancy_pct: rule.sold_out_occupancy_pct,
+      cancellation_markdown_enabled: rule.cancellation_markdown_enabled,
+      cancellation_wait_minutes: rule.cancellation_wait_minutes,
       // Saving never triggers an immediate evaluation: an enabled rule is
       // simply scheduled one normal interval from now, so nobody gets a
       // surprise markdown for pressing Save. "Run now" stays the explicit
@@ -660,6 +674,28 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                     value={rule.sold_out_occupancy_pct}
                     onChange={(e) => setRule({ ...rule, sold_out_occupancy_pct: Number(e.target.value) })} />
                   <p className="text-[11px] text-muted-foreground mt-1">100% means only a truly full date is protected.</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label>Wait after a cancellation</Label>
+                  <p className="text-xs text-muted-foreground">
+                    A cancelled booking makes a date look quiet immediately. Give the room a chance to sell again
+                    before lowering the price — the cell history explains the wait and when it ends.
+                  </p>
+                </div>
+                <Switch
+                  checked={rule.cancellation_markdown_enabled}
+                  onCheckedChange={(cancellation_markdown_enabled) => setRule({ ...rule, cancellation_markdown_enabled })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Wait before lowering (minutes)</Label>
+                  <Input type="number" min={0} max={1440} step={15} disabled={!rule.cancellation_markdown_enabled}
+                    value={rule.cancellation_wait_minutes}
+                    onChange={(e) => setRule({ ...rule, cancellation_wait_minutes: Number(e.target.value) })} />
+                  <p className="text-[11px] text-muted-foreground mt-1">0 lowers straight away on the next check.</p>
                 </div>
               </div>
               <div className="flex items-center justify-between gap-3">

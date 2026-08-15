@@ -15,6 +15,18 @@ export interface AutomationAction {
   pickup_at: string | null;
   status: string;
   created_at: string;
+  /** Machine code: no_pickup | cancellation | positive_pickup | strong_demand | cancellation_cooldown */
+  decision_reason?: string | null;
+  /** One plain sentence explaining why the automation moved (or held) the price. */
+  reason_detail?: string | null;
+  /** Set while a price drop is waiting out the cancellation cooldown. */
+  hold_until?: string | null;
+  decision_type?: string | null;
+}
+
+/** A price drop the automation is deliberately delaying, with its release time. */
+export function isHoldAction(a: AutomationAction): boolean {
+  return a.decision_reason === "cancellation_cooldown" || a.decision_type === "cancellation_cooldown";
 }
 
 /**
@@ -29,7 +41,7 @@ export function usePickupAutomationActions(hotelId?: string | null, limit = 1000
     const from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const { data } = await supabase
       .from("revenue_pickup_automation_actions")
-      .select("id, stay_date, room_type_name, occupancy, old_price, new_price, increase_amount, pickup_sequence, reservation_id, pickup_at, status, created_at")
+      .select("id, stay_date, room_type_name, occupancy, old_price, new_price, increase_amount, pickup_sequence, reservation_id, pickup_at, status, created_at, decision_reason, reason_detail, hold_until, decision_type")
       .eq("hotel_id", hotelId)
       .gte("created_at", from)
       .order("created_at", { ascending: false })
@@ -39,9 +51,26 @@ export function usePickupAutomationActions(hotelId?: string | null, limit = 1000
 
   useEffect(() => { void load(); }, [load]);
 
+  /**
+   * Live cancellation holds, per STAY DATE — the cooldown applies to the whole
+   * date, not to one room type. A cooldown that has already elapsed is dropped.
+   */
+  const holdsByDate = useMemo(() => {
+    const map = new Map<string, AutomationAction>();
+    const now = Date.now();
+    for (const r of rows) {
+      if (!isHoldAction(r) || !r.hold_until) continue;
+      if (Date.parse(r.hold_until) <= now) continue;
+      const seen = map.get(r.stay_date);
+      if (!seen || r.created_at > seen.created_at) map.set(r.stay_date, r);
+    }
+    return map;
+  }, [rows]);
+
   const byCell = useMemo(() => {
     const map = new Map<string, AutomationAction[]>();
     for (const r of rows) {
+      if (isHoldAction(r)) continue;   // a hold is not a price change
       const key = cellKey(r.stay_date, r.room_type_name ?? "", r.occupancy);
       const list = map.get(key) ?? [];
       list.push(r);
@@ -50,5 +79,5 @@ export function usePickupAutomationActions(hotelId?: string | null, limit = 1000
     return map;
   }, [rows]);
 
-  return { rows, byCell, reload: load };
+  return { rows, byCell, holdsByDate, reload: load };
 }
