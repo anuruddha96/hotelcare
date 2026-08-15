@@ -118,45 +118,33 @@ All colors MUST be HSL.
   color: hsl(0 0% 100%);
 }
 
-.auth-wordmark .auth-wordmark-letter {
-  background-image: linear-gradient(
-    100deg,
-    currentColor 0%,
-    currentColor 45%,
-    hsl(var(--rd-gray)) 60%,
-    currentColor 78%
-  );
-  background-size: 900% 100%;
-  background-attachment: fixed;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.auth-wordmark-light .auth-wordmark-letter {
-  background-image: linear-gradient(
-    100deg,
-    currentColor 0%,
-    currentColor 45%,
-    hsl(0 0% 100% / 0.55) 60%,
-    currentColor 78%
-  );
-}
-
 .auth-wordmark-letter {
   display: inline-block;
   opacity: 0;
-  transform: translateY(0.35em);
-  animation: authLetterIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transform: translateY(0.4em) scale(0.94);
+  animation:
+    authLetterIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards,
+    authGlow 5s ease-in-out 1.2s infinite;
 }
 
 @keyframes authLetterIn {
-  to { opacity: 1; transform: translateY(0); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-@keyframes authShine {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
+@keyframes authGlow {
+  0%, 100% { filter: none; }
+  50% { filter: drop-shadow(0 0 10px hsl(var(--primary) / 0.45)); }
+}
+
+.auth-wordmark-light .auth-wordmark-letter {
+  animation:
+    authLetterIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards,
+    authGlowLight 5s ease-in-out 1.2s infinite;
+}
+
+@keyframes authGlowLight {
+  0%, 100% { filter: none; }
+  50% { filter: drop-shadow(0 0 12px hsl(0 0% 100% / 0.7)); }
 }
 
 .auth-orb {
