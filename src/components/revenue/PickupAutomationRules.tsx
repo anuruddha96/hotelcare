@@ -41,6 +41,10 @@ interface Rule {
   high_occupancy_pct: number;
   strong_demand_increase: number;
   ai_assist_enabled: boolean;
+  short_window_guard_enabled: boolean;
+  short_window_days: number;
+  short_window_min_occupancy_pct: number;
+  whole_number_prices: boolean;
   last_run_at?: string | null;
   next_run_at?: string | null;
   last_evaluated_at?: string | null;
@@ -49,6 +53,18 @@ interface Rule {
   version: number;
 }
 
+
+/** "in 47 minutes" / "due now" — the schedule in words, not a timestamp alone. */
+function untilLabel(iso: string): string {
+  const ms = Date.parse(iso) - Date.now();
+  if (!Number.isFinite(ms)) return "";
+  if (ms <= 0) return "Due now — it runs on the next cycle.";
+  const minutes = Math.round(ms / 60_000);
+  if (minutes < 60) return `in about ${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `in about ${hours} hour${hours === 1 ? "" : "s"}${rest ? ` ${rest} min` : ""}`;
+}
 
 /** Money for plain-language copy: cents only when they matter. */
 const money = (n: number) =>
@@ -72,6 +88,8 @@ const DEFAULT_RULE: Rule = {
   smart_pricing_enabled: false, near_term_days: 30, low_occupancy_pct: 50,
   long_lead_days: 30, high_occupancy_pct: 85, strong_demand_increase: 0,
   ai_assist_enabled: false,
+  short_window_guard_enabled: true, short_window_days: 7,
+  short_window_min_occupancy_pct: 70, whole_number_prices: true,
 };
 
 
@@ -123,6 +141,15 @@ function explain(rule: Rule, hotelName: string): string[] {
   }
   if (rule.smart_pricing_enabled && rule.ai_assist_enabled) {
     lines.push("AI assist reviews each check with your own OpenAI account and may soften or cancel a move. It can never make one bigger, and if it is unavailable the ordinary rules simply continue.");
+  }
+
+  if (rule.short_window_guard_enabled) {
+    lines.push(
+      `Short booking window: a stay date within ${rule.short_window_days} days is only allowed to rise if it is already above ${rule.short_window_min_occupancy_pct}% occupancy. A quiet last-minute date keeps its price (and can still come down) even when a booking arrives.`,
+    );
+  }
+  if (rule.whole_number_prices) {
+    lines.push(`Prices are always sent as whole ${rule.currency} — never with cents.`);
   }
 
   lines.push(
@@ -239,6 +266,10 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       high_occupancy_pct: source.rule.high_occupancy_pct ?? 85,
       strong_demand_increase: source.rule.strong_demand_increase ?? 0,
       ai_assist_enabled: source.rule.ai_assist_enabled ?? false,
+      short_window_guard_enabled: source.rule.short_window_guard_enabled ?? true,
+      short_window_days: source.rule.short_window_days ?? 7,
+      short_window_min_occupancy_pct: source.rule.short_window_min_occupancy_pct ?? 70,
+      whole_number_prices: source.rule.whole_number_prices ?? true,
     }));
 
     toast.success(`Copied settings from ${source.label} — still off until you turn it on`);
@@ -251,6 +282,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
 
   async function save() {
     if (!hotelId || !organizationSlug) return;
+    const wasEnabled = savedEnabled;
     setSaving(true);
     const { data: auth } = await supabase.auth.getUser();
     const payload = {
@@ -283,6 +315,10 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       high_occupancy_pct: rule.high_occupancy_pct,
       strong_demand_increase: rule.strong_demand_increase,
       ai_assist_enabled: rule.ai_assist_enabled,
+      short_window_guard_enabled: rule.short_window_guard_enabled,
+      short_window_days: rule.short_window_days,
+      short_window_min_occupancy_pct: rule.short_window_min_occupancy_pct,
+      whole_number_prices: rule.whole_number_prices,
       // Saving never triggers an immediate evaluation: an enabled rule is
       // simply scheduled one normal interval from now, so nobody gets a
       // surprise markdown for pressing Save. "Run now" stays the explicit
@@ -304,6 +340,22 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
     setRule(data as unknown as Rule);
     setHasSavedRule(true);
     setSavedEnabled(Boolean((data as any).is_enabled));
+
+    // Switching the property OFF must actually stop it. Anything the engine
+    // decided but has not delivered yet is cancelled (kept as history) so a
+    // disabled property can never keep pushing prices minutes later.
+    if (!rule.is_enabled && wasEnabled) {
+      const { data: stop } = await supabase.functions.invoke("revenue-pickup-automation", {
+        body: { hotelId, mode: "stop" },
+      });
+      const cancelled = Number((stop as any)?.cancelled ?? 0);
+      toast.success(`Automation stopped for ${hotelName}`, {
+        description: cancelled > 0
+          ? `${cancelled} not-yet-sent automatic price${cancelled === 1 ? "" : "s"} cancelled.`
+          : "No automatic prices were waiting to be sent.",
+      });
+      return;
+    }
     toast.success(rule.is_enabled ? `Pickup automation is now ON for ${hotelName}` : `Saved — automation stays OFF for ${hotelName}`);
   }
 
@@ -487,8 +539,27 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                 </Select>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Each check refreshes bookings from the PMS first, then either raises dates that picked up or lowers dates that did not.
-                  {rule.next_run_at ? ` Next check ${new Date(rule.next_run_at).toLocaleString()}.` : ""}
                 </p>
+              </div>
+              <div className="rounded-md border bg-muted/40 p-3">
+                <p className="text-xs font-medium">Next automatic check</p>
+                {savedEnabled && rule.next_run_at ? (
+                  <>
+                    <p className="text-sm font-semibold tabular-nums">
+                      {new Date(rule.next_run_at).toLocaleString()}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">{untilLabel(rule.next_run_at)}</p>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {savedEnabled ? "Scheduling on the next cycle." : "Nothing is scheduled — automation is off."}
+                  </p>
+                )}
+                {rule.last_run_at && (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Last check {new Date(rule.last_run_at).toLocaleString()}.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -524,6 +595,48 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
               <div className="flex items-center justify-between gap-3">
                 <div><Label>AI-assisted pricing</Label><p className="text-xs text-muted-foreground">Asks your own OpenAI account to review each check. It can soften or cancel a move, never make one bigger, and everything below still applies.</p></div>
                 <Switch checked={rule.ai_assist_enabled} disabled={!rule.smart_pricing_enabled} onCheckedChange={(ai_assist_enabled) => setRule({ ...rule, ai_assist_enabled })} />
+              </div>
+            </div>
+
+            <div className="space-y-3 border-t pt-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">Short booking window</p>
+                  <p className="text-xs text-muted-foreground">
+                    Close to arrival an empty date must not price itself out of the market just because one booking arrived.
+                    Inside this window a rise needs the date to be selling well already.
+                  </p>
+                </div>
+                <Switch
+                  checked={rule.short_window_guard_enabled}
+                  onCheckedChange={(short_window_guard_enabled) => setRule({ ...rule, short_window_guard_enabled })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Protected window (days before arrival)</Label>
+                  <Input type="number" min={0} max={90} disabled={!rule.short_window_guard_enabled}
+                    value={rule.short_window_days}
+                    onChange={(e) => setRule({ ...rule, short_window_days: Number(e.target.value) })} />
+                  <p className="text-[11px] text-muted-foreground mt-1">Dates this close are treated as last-minute.</p>
+                </div>
+                <div>
+                  <Label className="text-xs">Only raise above occupancy (%)</Label>
+                  <Input type="number" min={0} max={100} disabled={!rule.short_window_guard_enabled}
+                    value={rule.short_window_min_occupancy_pct}
+                    onChange={(e) => setRule({ ...rule, short_window_min_occupancy_pct: Number(e.target.value) })} />
+                  <p className="text-[11px] text-muted-foreground mt-1">Below this, the price is held — markdowns still work.</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label>Whole prices only</Label>
+                  <p className="text-xs text-muted-foreground">Never send cents to Previo — markdowns round down, rises round up.</p>
+                </div>
+                <Switch
+                  checked={rule.whole_number_prices}
+                  onCheckedChange={(whole_number_prices) => setRule({ ...rule, whole_number_prices })}
+                />
               </div>
             </div>
 

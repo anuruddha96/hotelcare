@@ -375,6 +375,43 @@ Deno.serve(async (req) => {
       actorUserId = user.id;
     }
 
+    // Switching a property off must actually STOP it. Decisions already made
+    // but not yet delivered are marked superseded (kept as history, never
+    // deleted), their empty jobs are closed, and the next slot is cleared so
+    // the scheduler cannot pick the property up again. Manual work — priority
+    // 10, a different intent source — is deliberately left untouched.
+    if (body?.mode === "stop" && onlyHotel) {
+      const stoppedAt = new Date().toISOString();
+      const { data: stoppedDrafts, error: stopErr } = await admin
+        .from("revenue_rate_drafts")
+        .update({ superseded_at: stoppedAt, status: "superseded" })
+        .eq("hotel_id", onlyHotel)
+        .eq("status", "draft")
+        .is("superseded_at", null)
+        .like("intent_source", "automation%")
+        .select("id, push_run_id");
+      if (stopErr) throw stopErr;
+      const runIds = Array.from(new Set((stoppedDrafts ?? []).map((d: any) => d.push_run_id).filter(Boolean)));
+      for (const runId of runIds) {
+        const { count } = await admin.from("revenue_rate_drafts")
+          .select("id", { count: "exact", head: true })
+          .eq("push_run_id", runId).in("status", ["draft", "failed"]).is("superseded_at", null);
+        if ((count ?? 0) === 0) {
+          await admin.from("revenue_rate_push_runs")
+            .update({ status: "completed", finished_at: stoppedAt })
+            .eq("id", runId).eq("status", "queued");
+        }
+      }
+      await admin.from("revenue_pickup_automation_rules")
+        .update({ next_run_at: null, is_enabled: false })
+        .eq("hotel_id", onlyHotel);
+      return json({
+        ok: true, code: "stopped", hotel_id: onlyHotel,
+        cancelled: (stoppedDrafts ?? []).length, jobs_closed: runIds.length,
+        msg: `Automation stopped. ${(stoppedDrafts ?? []).length} not-yet-sent automatic price${(stoppedDrafts ?? []).length === 1 ? "" : "s"} cancelled.`,
+      });
+    }
+
     // Global, admin-controlled brake. When automation is paused the tick does
     // no work at all; in dry-run it still calculates and records suggestions
     // but never publishes a price.
@@ -1178,9 +1215,12 @@ Deno.serve(async (req) => {
       }
 
       for (const decision of cellDecisions.values()) {
-        let newPrice = Math.round(decision.old_price + decision.increase);
-        if (rule.minimum_adr && newPrice < Number(rule.minimum_adr)) newPrice = Math.round(Number(rule.minimum_adr));
-        if (newPrice === decision.old_price) continue;
+        const newPrice = applyRounding(
+          decision.old_price + decision.increase, "increase",
+          rule.whole_number_prices !== false,
+          rule.minimum_adr === null ? null : Number(rule.minimum_adr),
+        );
+        if (newPrice <= decision.old_price) continue;
 
         actionsToInsert.push({
           rule_id: rule.id,
@@ -1360,6 +1400,7 @@ Deno.serve(async (req) => {
       summary.push({
         hotel_id: rule.hotel_id, pickups: events.length,
         skipped_not_new: skippedStale, skipped_negative_pickup: skippedNegative,
+        held_short_window: heldShortWindow,
         actions: inserted, markdowns: markdownActions,
         markdown_stay_dates: markdownStayDates, blocked: markdownBlocks,
         queued: queued + markdownActions + strongActions,
@@ -1373,6 +1414,20 @@ Deno.serve(async (req) => {
     }
     } finally {
       await admin.rpc("release_automation_lock", { p_hotel: lockHotel });
+    }
+
+    // Nudge the durable publisher so queued work starts within seconds instead
+    // of waiting for the next 3-minute drain. Fire and forget: the drainer owns
+    // the global lease, so this can never publish twice or jump the queue.
+    const queuedAnything = summary.some((s: any) => Number(s?.queued ?? 0) > 0);
+    if (!dryRun && queuedAnything) {
+      const kick = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-publish-queue`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")! },
+        body: JSON.stringify({ reason: "automation-run" }),
+      }).catch((e) => console.warn("queue kick failed", describeError(e)));
+      // @ts-ignore EdgeRuntime is available in Supabase Edge Functions
+      if (typeof EdgeRuntime !== "undefined") EdgeRuntime.waitUntil(kick);
     }
 
     return json({ ok: true, code: "ran", rules: rules.length, hotel_id: lockHotel, actor: actorName, summary });
