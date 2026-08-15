@@ -1190,18 +1190,22 @@ serve(async (req) => {
   }
 
 
-  if ((learnedSomething || probeDue) && !probeOnly && cfgSettingsRow) {
+  if ((learnedSomething || probeDue || farPassRan) && !probeOnly && cfgSettingsRow) {
     await service
       .from("pms_configurations")
       .update({
         settings: {
           ...cfgSettings,
-          cancelProbe: { variantByStatus: learnedVariants, checkedAt: new Date().toISOString() },
+          cancelProbe: (learnedSomething || probeDue)
+            ? { variantByStatus: learnedVariants, checkedAt: new Date().toISOString() }
+            : cfgSettings.cancelProbe,
+          farPass: farPassRan ? { checkedAt: new Date().toISOString() } : cfgSettings.farPass,
         },
       })
       .eq("hotel_id", hotelId)
       .eq("pms_type", "previo");
   }
+
   errors.push(...resErrors);
 
 
