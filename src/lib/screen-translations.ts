@@ -2,6 +2,9 @@
 // English source bundle; other languages filled by the translation script.
 export const screenTranslations: { [lang: string]: { [key: string]: string } } = {
   en: {
+    // Auth
+    'auth.tagline': 'One secure workspace for rooms, teams, maintenance and revenue.',
+
     // Dashboard
     'dashboard.workStatusAttendance': 'Work Status & Attendance',
     'dashboard.manageUsersShort': 'Users',
