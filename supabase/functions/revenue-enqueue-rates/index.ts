@@ -8,7 +8,10 @@ const ChangeSchema = z.object({
   room_type_name: z.string().min(1).max(255),
   occupancy: z.number().int().min(1).max(30),
   old_price: z.number().positive().nullable(),
-  new_price: z.number().positive().max(10000000),
+  // Whole prices only. Cents make the PMS pricelist unreadable and every OTA
+  // shows them, so a fractional target is rounded to the nearest whole unit
+  // before anything is queued or mirrored.
+  new_price: z.number().positive().max(10000000).transform((v) => Math.round(v)),
 });
 
 const BodySchema = z.object({
