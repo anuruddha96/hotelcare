@@ -4913,7 +4913,9 @@ export type Database = {
           cap_applied: number | null
           confirmed_at: string | null
           created_at: string
+          decision_reason: string | null
           decision_type: string
+          hold_until: string | null
           hotel_id: string
           id: string
           increase_amount: number
@@ -4931,6 +4933,7 @@ export type Database = {
           push_error: string | null
           push_run_id: string | null
           pushed_at: string | null
+          reason_detail: string | null
           reservation_id: string | null
           room_type_name: string
           rule_id: string
@@ -4945,7 +4948,9 @@ export type Database = {
           cap_applied?: number | null
           confirmed_at?: string | null
           created_at?: string
+          decision_reason?: string | null
           decision_type?: string
+          hold_until?: string | null
           hotel_id: string
           id?: string
           increase_amount: number
@@ -4963,6 +4968,7 @@ export type Database = {
           push_error?: string | null
           push_run_id?: string | null
           pushed_at?: string | null
+          reason_detail?: string | null
           reservation_id?: string | null
           room_type_name: string
           rule_id: string
@@ -4977,7 +4983,9 @@ export type Database = {
           cap_applied?: number | null
           confirmed_at?: string | null
           created_at?: string
+          decision_reason?: string | null
           decision_type?: string
+          hold_until?: string | null
           hotel_id?: string
           id?: string
           increase_amount?: number
@@ -4995,6 +5003,7 @@ export type Database = {
           push_error?: string | null
           push_run_id?: string | null
           pushed_at?: string | null
+          reason_detail?: string | null
           reservation_id?: string | null
           room_type_name?: string
           rule_id?: string
@@ -5027,6 +5036,8 @@ export type Database = {
           application_scope: string
           auto_publish: boolean
           booking_window_tiers: Json
+          cancellation_markdown_enabled: boolean
+          cancellation_wait_minutes: number
           created_at: string
           created_by: string | null
           currency: string
@@ -5082,6 +5093,8 @@ export type Database = {
           application_scope?: string
           auto_publish?: boolean
           booking_window_tiers?: Json
+          cancellation_markdown_enabled?: boolean
+          cancellation_wait_minutes?: number
           created_at?: string
           created_by?: string | null
           currency?: string
@@ -5137,6 +5150,8 @@ export type Database = {
           application_scope?: string
           auto_publish?: boolean
           booking_window_tiers?: Json
+          cancellation_markdown_enabled?: boolean
+          cancellation_wait_minutes?: number
           created_at?: string
           created_by?: string | null
           currency?: string
