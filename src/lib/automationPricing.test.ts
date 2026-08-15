@@ -14,6 +14,7 @@ import {
   maxDailyMarkdown,
   dateAllowedStep,
   netPickupByDate,
+  soldOutBlocksIncrease,
 } from "../../supabase/functions/_shared/pricingRules";
 
 const rule = (hotel_id: string, next_run_at: string | null, last?: string | null) => ({
@@ -288,5 +289,30 @@ describe("daily cap is spent per stay date, not per price cell", () => {
       [{ stay_date: "2026-08-17" }],
     );
     expect((net.get("2026-08-17") ?? 0) > 0).toBe(true);
+  });
+});
+
+describe("soldOutBlocksIncrease", () => {
+  const base = { enabled: true, roomsLeft: null, occupancyPct: null, soldOutOccupancyPct: 100 };
+
+  it("is off when the guard is disabled", () => {
+    expect(soldOutBlocksIncrease({ ...base, enabled: false, roomsLeft: 0 })).toBe(false);
+  });
+
+  it("blocks a rise when no rooms are left", () => {
+    expect(soldOutBlocksIncrease({ ...base, roomsLeft: 0, occupancyPct: 92 })).toBe(true);
+  });
+
+  it("blocks a rise at or above the sold-out occupancy", () => {
+    expect(soldOutBlocksIncrease({ ...base, occupancyPct: 100 })).toBe(true);
+    expect(soldOutBlocksIncrease({ ...base, occupancyPct: 96, soldOutOccupancyPct: 95 })).toBe(true);
+  });
+
+  it("allows a rise once a cancellation frees a room", () => {
+    expect(soldOutBlocksIncrease({ ...base, roomsLeft: 1, occupancyPct: 97 })).toBe(false);
+  });
+
+  it("does nothing when occupancy is unknown", () => {
+    expect(soldOutBlocksIncrease({ ...base })).toBe(false);
   });
 });
