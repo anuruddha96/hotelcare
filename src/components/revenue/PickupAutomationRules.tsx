@@ -528,6 +528,48 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
             </div>
 
             <div className="space-y-3 border-t pt-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">Short booking window</p>
+                  <p className="text-xs text-muted-foreground">
+                    Close to arrival an empty date must not price itself out of the market just because one booking arrived.
+                    Inside this window a rise needs the date to be selling well already.
+                  </p>
+                </div>
+                <Switch
+                  checked={rule.short_window_guard_enabled}
+                  onCheckedChange={(short_window_guard_enabled) => setRule({ ...rule, short_window_guard_enabled })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Protected window (days before arrival)</Label>
+                  <Input type="number" min={0} max={90} disabled={!rule.short_window_guard_enabled}
+                    value={rule.short_window_days}
+                    onChange={(e) => setRule({ ...rule, short_window_days: Number(e.target.value) })} />
+                  <p className="text-[11px] text-muted-foreground mt-1">Dates this close are treated as last-minute.</p>
+                </div>
+                <div>
+                  <Label className="text-xs">Only raise above occupancy (%)</Label>
+                  <Input type="number" min={0} max={100} disabled={!rule.short_window_guard_enabled}
+                    value={rule.short_window_min_occupancy_pct}
+                    onChange={(e) => setRule({ ...rule, short_window_min_occupancy_pct: Number(e.target.value) })} />
+                  <p className="text-[11px] text-muted-foreground mt-1">Below this, the price is held — markdowns still work.</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label>Whole prices only</Label>
+                  <p className="text-xs text-muted-foreground">Never send cents to Previo — markdowns round down, rises round up.</p>
+                </div>
+                <Switch
+                  checked={rule.whole_number_prices}
+                  onCheckedChange={(whole_number_prices) => setRule({ ...rule, whole_number_prices })}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-3 border-t pt-4">
               <p className="text-sm font-medium">Safety limits</p>
               <div className="flex items-center justify-between gap-3">
                 <div><Label>Protect nearly full dates</Label><p className="text-xs text-muted-foreground">Never mark down a sold-out date or one above the occupancy below.</p></div>
