@@ -25,6 +25,9 @@ import {
   applyRounding,
   shortWindowIncreaseAllowed,
   soldOutBlocksIncrease,
+  cancellationHold,
+  decisionReasonText,
+  cancellationHoldText,
 } from "../_shared/pricingRules.ts";
 
 
@@ -86,6 +89,9 @@ interface Rule {
   // Sold-out guard: nothing left to sell, nothing to gain from a rise.
   sold_out_guard_enabled: boolean;
   sold_out_occupancy_pct: number;
+  // Cancellation cooldown: a cancelled date waits before it may be marked down.
+  cancellation_markdown_enabled: boolean;
+  cancellation_wait_minutes: number;
 }
 
 const json = (body: unknown, status = 200) =>
@@ -575,6 +581,12 @@ Deno.serve(async (req) => {
         horizon.setUTCDate(horizon.getUTCDate() + Math.max(1, Number(rule.future_booking_window_days || 183)));
         const horizonDate = horizon.toISOString().slice(0, 10);
         const observationFrom = evalWindow.from;
+        // Cancellations are read over a wider window than the pickup window so
+        // the cooldown can still see a cancellation that landed minutes ago.
+        const cooldownMinutes = Math.max(0, Number(rule.cancellation_wait_minutes ?? 60));
+        const cancellationsFrom = new Date(
+          Math.min(Date.parse(observationFrom), now.getTime() - (cooldownMinutes + 5) * 60_000),
+        ).toISOString();
 
         const [
           { data: recentBookings },
@@ -586,7 +598,7 @@ Deno.serve(async (req) => {
           { data: manualEdits },
         ] = await Promise.all([
           admin.from("revenue_booking_nights").select("stay_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("captured_at", observationFrom).limit(20000),
-          admin.from("revenue_cancelled_nights").select("stay_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("cancelled_at", observationFrom).limit(20000),
+          admin.from("revenue_cancelled_nights").select("stay_date, cancelled_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("cancelled_at", cancellationsFrom).limit(20000),
           admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).limit(50000),
           admin.from("revenue_pickup_automation_actions").select("stay_date, obk_id, occupancy, increase_amount").eq("hotel_id", rule.hotel_id).eq("decision_type", "no_pickup_markdown").eq("local_business_date", local.date).limit(50000),
           admin.from("revenue_daily_snapshots").select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_date", { ascending: false }).limit(20000),
@@ -597,10 +609,19 @@ Deno.serve(async (req) => {
         // NET pickup for the observation window: new booking nights minus
         // cancellations. Only a genuinely positive net blocks a markdown; a
         // cancellation can never create an increase.
+        const cancellationRows = ((recentCancellations ?? []) as Array<{ stay_date: string; cancelled_at: string }>);
         const netByDate = netPickupByDate(
           (recentBookings ?? []) as Array<{ stay_date: string }>,
-          (recentCancellations ?? []) as Array<{ stay_date: string }>,
+          cancellationRows.filter((c) => c.cancelled_at >= observationFrom),
         );
+        // Newest cancellation per stay date drives the cooldown.
+        const lastCancelByDate = new Map<string, string>();
+        const cancelCountByDate = new Map<string, number>();
+        for (const c of cancellationRows) {
+          const seen = lastCancelByDate.get(c.stay_date);
+          if (!seen || c.cancelled_at > seen) lastCancelByDate.set(c.stay_date, c.cancelled_at);
+          cancelCountByDate.set(c.stay_date, (cancelCountByDate.get(c.stay_date) ?? 0) + 1);
+        }
 
         // Daily cap is consumed per STAY DATE: the largest cumulative movement
         // any single cell of that date already made today. This is the state
@@ -655,6 +676,8 @@ Deno.serve(async (req) => {
 
         const markdownRows: any[] = [];
         const markdownDrafts: any[] = [];
+        /** One "waiting out the cancellation cooldown" note per stay date. */
+        const holdRows = new Map<string, any>();
         const supersede: string[] = [];
         const blockedDates = new Map<string, string>();
         // One allowed step per stay date, derived from movement recorded before
@@ -680,6 +703,44 @@ Deno.serve(async (req) => {
             if (!blockedDates.has(rate.stay_date)) {
               blockedDates.set(rate.stay_date, block);
               markdownBlocks[block] = (markdownBlocks[block] ?? 0) + 1;
+            }
+            continue;
+          }
+
+          // A cancellation is not an instant reason to discount: the room often
+          // sells again within the hour. The date waits out its cooldown, and
+          // the wait itself is recorded so the cell history can explain it.
+          const cooldown = cancellationHold({
+            enabled: rule.cancellation_markdown_enabled !== false,
+            lastCancelledAt: lastCancelByDate.get(rate.stay_date) ?? null,
+            waitMinutes: cooldownMinutes,
+            now,
+          });
+          if (cooldown.holding && cooldown.releaseAt) {
+            if (!blockedDates.has(rate.stay_date)) {
+              blockedDates.set(rate.stay_date, "cancellation_cooldown");
+              markdownBlocks["cancellation_cooldown"] = (markdownBlocks["cancellation_cooldown"] ?? 0) + 1;
+            }
+            if (!holdRows.has(rate.stay_date)) {
+              holdRows.set(rate.stay_date, {
+                rule_id: rule.id, rule_version: rule.version, hotel_id: rule.hotel_id,
+                organization_slug: rule.organization_slug, reservation_id: null,
+                stay_date: rate.stay_date, pickup_at: null, pickup_sequence: 0,
+                room_type_name: rate.room_type_name, obk_id: String(rate.obk_id),
+                occupancy: Number(rate.occupancy) || 2,
+                old_price: Number(rate.price) || null, increase_amount: 0, new_price: Number(rate.price) || null,
+                status: "held", decision_type: "cancellation_cooldown",
+                observation_from: observationFrom, observation_to: runStartedAt,
+                net_pickup: netByDate.get(rate.stay_date) ?? 0,
+                schedule_slot: slot, local_business_date: local.date, cap_applied: 0,
+                decision_reason: "cancellation_cooldown",
+                hold_until: cooldown.releaseAt,
+                reason_detail: cancellationHoldText(
+                  cooldown.releaseAt,
+                  cancelCountByDate.get(rate.stay_date) ?? 1,
+                  cooldownMinutes,
+                ),
+              });
             }
             continue;
           }
@@ -758,6 +819,15 @@ Deno.serve(async (req) => {
             observation_from: observationFrom, observation_to: runStartedAt,
             net_pickup: net,
             schedule_slot: slot, local_business_date: local.date, cap_applied: step.applied,
+            decision_reason: net < 0 ? "cancellation" : "no_pickup",
+            reason_detail: decisionReasonText({
+              kind: net < 0 ? "cancellation" : "no_pickup",
+              netPickup: net,
+              occupancyPct: guardsFor?.pct ?? null,
+              daysOut: dayDiff(local.date, rate.stay_date),
+              amount: step.newPrice - current,
+              currency: rate.currency ?? rule.currency ?? "EUR",
+            }),
           });
           if (rule.auto_publish) markdownDrafts.push({
             hotel_id: rule.hotel_id, organization_slug: rule.organization_slug, stay_date: rate.stay_date,
@@ -784,6 +854,14 @@ Deno.serve(async (req) => {
             rule,
           );
           applyAiFactors(markdownRows, markdownDrafts, factors, "decrease");
+        }
+
+        if (!dryRun && holdRows.size > 0) {
+          await admin.from("revenue_pickup_automation_actions")
+            .upsert(Array.from(holdRows.values()), {
+              onConflict: "hotel_id,stay_date,obk_id,occupancy,rule_version,schedule_slot,local_business_date",
+              ignoreDuplicates: true,
+            });
         }
 
         if (!dryRun && markdownRows.length > 0) {
@@ -931,6 +1009,14 @@ Deno.serve(async (req) => {
             status: rule.auto_publish ? "queued" : "suggested", decision_type: "smart_strong_demand",
             observation_from: evalWindow.from, observation_to: runStartedAt,
             net_pickup: 0, schedule_slot: slot, local_business_date: local.date, cap_applied: step,
+            decision_reason: "strong_demand",
+            reason_detail: decisionReasonText({
+              kind: "strong_demand",
+              occupancyPct: occByDate.get(rate.stay_date) ?? null,
+              daysOut: dayDiff(local.date, rate.stay_date),
+              amount: newPrice - current,
+              currency: rate.currency ?? rule.currency ?? "EUR",
+            }),
           });
           if (rule.auto_publish) strongDrafts.push({
             hotel_id: rule.hotel_id, organization_slug: rule.organization_slug, stay_date: rate.stay_date,
@@ -1269,6 +1355,15 @@ Deno.serve(async (req) => {
           increase_amount: newPrice - decision.old_price,
           new_price: newPrice,
           status: rule.auto_publish ? "queued" : "suggested",
+          decision_reason: "positive_pickup",
+          reason_detail: decisionReasonText({
+            kind: "positive_pickup",
+            netPickup: netPickup.get(decision.stay_date) ?? decision.events,
+            occupancyPct: occByStayDate.get(decision.stay_date) ?? null,
+            daysOut: dayDiff(today, decision.stay_date),
+            amount: newPrice - decision.old_price,
+            currency: decision.currency,
+          }),
         });
 
         if (rule.auto_publish) {
