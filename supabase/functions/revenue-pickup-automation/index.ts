@@ -692,6 +692,17 @@ Deno.serve(async (req) => {
           });
           if (!step) continue;
 
+          // Whole prices only (when the property asked for it): a markdown
+          // rounds DOWN so it can never round itself back up over the floor.
+          const wholeNumbers = rule.whole_number_prices !== false;
+          const targetPrice = applyRounding(
+            step.newPrice, "decrease", wholeNumbers,
+            rule.minimum_adr === null ? null : Number(rule.minimum_adr),
+          );
+          if (!(targetPrice > 0) || targetPrice >= current) continue;
+          step.newPrice = targetPrice;
+          step.applied = roundMoney(current - targetPrice);
+
           markdownDates.add(rate.stay_date);
           for (const intent of pending) if (!intent.claimed) supersede.push(intent.id);
 
