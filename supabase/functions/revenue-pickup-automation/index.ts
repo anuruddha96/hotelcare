@@ -24,6 +24,7 @@ import {
   clampAiFactor,
   applyRounding,
   shortWindowIncreaseAllowed,
+  soldOutBlocksIncrease,
 } from "../_shared/pricingRules.ts";
 
 
@@ -82,6 +83,9 @@ interface Rule {
   short_window_days: number;
   short_window_min_occupancy_pct: number;
   whole_number_prices: boolean;
+  // Sold-out guard: nothing left to sell, nothing to gain from a rise.
+  sold_out_guard_enabled: boolean;
+  sold_out_occupancy_pct: number;
 }
 
 const json = (body: unknown, status = 200) =>
@@ -843,9 +847,13 @@ Deno.serve(async (req) => {
         ]);
 
         const occByDate = new Map<string, number | null>();
+        const leftByDate = new Map<string, number | null>();
         for (const row of (strongSnapshots ?? []) as any[]) {
           if (occByDate.has(row.stay_date)) continue;
           occByDate.set(row.stay_date, row.occupancy_pct === null || row.occupancy_pct === undefined ? null : Number(row.occupancy_pct));
+          const sold = Number(row.rooms_sold);
+          const total = Number(row.rooms_available);
+          leftByDate.set(row.stay_date, Number.isFinite(sold) && Number.isFinite(total) ? total - sold : null);
         }
         const raisedTodayByDate = new Map<string, number>();
         for (const row of (strongToday ?? []) as any[]) {
@@ -893,6 +901,15 @@ Deno.serve(async (req) => {
           }
           const step = stepByDate.get(rate.stay_date) ?? 0;
           if (step <= 0) continue;
+
+          // Nothing left to sell on that date: a higher price cannot win a
+          // booking, it can only look wrong after a cancellation.
+          if (soldOutBlocksIncrease({
+            enabled: rule.sold_out_guard_enabled !== false,
+            roomsLeft: leftByDate.get(rate.stay_date) ?? null,
+            occupancyPct: occByDate.get(rate.stay_date) ?? null,
+            soldOutOccupancyPct: Number(rule.sold_out_occupancy_pct ?? 100),
+          })) { heldSoldOut++; continue; }
 
           const cell = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
           const current = effectivePrice(Number(rate.price), strongPendingByCell.get(cell) ?? []);
@@ -1032,18 +1049,22 @@ Deno.serve(async (req) => {
       //     a genuinely busy near date from a near date that is still empty.
       const { data: pickupSnapshots } = await admin
         .from("revenue_daily_snapshots")
-        .select("stay_date, occupancy_pct, captured_date")
+        .select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date")
         .eq("hotel_id", rule.hotel_id)
         .in("stay_date", stayDates)
         .order("captured_date", { ascending: false })
         .limit(20000);
       const occByStayDate = new Map<string, number | null>();
+      const leftByStayDate = new Map<string, number | null>();
       for (const row of (pickupSnapshots ?? []) as any[]) {
         if (occByStayDate.has(row.stay_date)) continue;
         occByStayDate.set(
           row.stay_date,
           row.occupancy_pct === null || row.occupancy_pct === undefined ? null : Number(row.occupancy_pct),
         );
+        const sold = Number(row.rooms_sold);
+        const total = Number(row.rooms_available);
+        leftByStayDate.set(row.stay_date, Number.isFinite(sold) && Number.isFinite(total) ? total - sold : null);
       }
       let heldShortWindow = 0;
 
@@ -1157,6 +1178,14 @@ Deno.serve(async (req) => {
           shortWindowDays: Math.max(0, Number(rule.short_window_days ?? 7)),
           minOccupancyPct: Number(rule.short_window_min_occupancy_pct ?? 70),
         })) { heldShortWindow++; continue; }
+
+        // Last room gone: record the booking, leave the price where it is.
+        if (soldOutBlocksIncrease({
+          enabled: rule.sold_out_guard_enabled !== false,
+          roomsLeft: leftByStayDate.get(ev.stay_date) ?? null,
+          occupancyPct: occByStayDate.get(ev.stay_date) ?? null,
+          soldOutOccupancyPct: Number(rule.sold_out_occupancy_pct ?? 100),
+        })) { heldSoldOut++; continue; }
 
 
         // The 2nd booking inside the window is the "heat" signal: it takes the
@@ -1401,6 +1430,7 @@ Deno.serve(async (req) => {
         hotel_id: rule.hotel_id, pickups: events.length,
         skipped_not_new: skippedStale, skipped_negative_pickup: skippedNegative,
         held_short_window: heldShortWindow,
+        held_sold_out: heldSoldOut,
         actions: inserted, markdowns: markdownActions,
         markdown_stay_dates: markdownStayDates, blocked: markdownBlocks,
         queued: queued + markdownActions + strongActions,
