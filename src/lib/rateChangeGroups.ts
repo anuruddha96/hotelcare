@@ -259,7 +259,11 @@ export function groupCellChanges(
       return d !== 0 ? d : b.at.localeCompare(a.at);
     })[0];
     const first = g.stages[0];
-    const named = g.stages.find((s) => s.automation || (s.who && s.who !== "Someone"));
+    // A real person's name beats a generic origin label when both appear in
+    // the same change.
+    const named = g.stages.find((s) => s.automation
+      || (s.who && s.who !== PREVIO_ACTOR && s.who !== UNKNOWN_ACTOR));
+
     return {
       id: best.id,
       at: best.at,
