@@ -22,7 +22,8 @@ import {
   smartMarkdownAllowed,
   strongDemandStep,
   clampAiFactor,
-
+  applyRounding,
+  shortWindowIncreaseAllowed,
 } from "../_shared/pricingRules.ts";
 
 
@@ -76,6 +77,11 @@ interface Rule {
   high_occupancy_pct: number;
   strong_demand_increase: number;
   ai_assist_enabled: boolean;
+  // Short booking window guard + rounding
+  short_window_guard_enabled: boolean;
+  short_window_days: number;
+  short_window_min_occupancy_pct: number;
+  whole_number_prices: boolean;
 }
 
 const json = (body: unknown, status = 200) =>
@@ -686,6 +692,17 @@ Deno.serve(async (req) => {
           });
           if (!step) continue;
 
+          // Whole prices only (when the property asked for it): a markdown
+          // rounds DOWN so it can never round itself back up over the floor.
+          const wholeNumbers = rule.whole_number_prices !== false;
+          const targetPrice = applyRounding(
+            step.newPrice, "decrease", wholeNumbers,
+            rule.minimum_adr === null ? null : Number(rule.minimum_adr),
+          );
+          if (!(targetPrice > 0) || targetPrice >= current) continue;
+          step.newPrice = targetPrice;
+          step.applied = roundMoney(current - targetPrice);
+
           markdownDates.add(rate.stay_date);
           for (const intent of pending) if (!intent.claimed) supersede.push(intent.id);
 
@@ -843,7 +860,11 @@ Deno.serve(async (req) => {
           const cell = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
           const current = effectivePrice(Number(rate.price), strongPendingByCell.get(cell) ?? []);
           if (current === null) continue;
-          const newPrice = roundMoney(current + step);
+          const newPrice = applyRounding(
+            current + step, "increase", rule.whole_number_prices !== false,
+            rule.minimum_adr === null ? null : Number(rule.minimum_adr),
+          );
+          if (!(newPrice > current)) continue;
 
           strongDates.add(rate.stay_date);
           strongRows.push({
@@ -970,6 +991,24 @@ Deno.serve(async (req) => {
         if (c.cancelled_at >= dayStartUtc) netToday.set(c.stay_date, (netToday.get(c.stay_date) ?? 0) - 1);
       }
 
+      // 2d. Occupancy per stay date, so the short-booking-window guard can tell
+      //     a genuinely busy near date from a near date that is still empty.
+      const { data: pickupSnapshots } = await admin
+        .from("revenue_daily_snapshots")
+        .select("stay_date, occupancy_pct, captured_date")
+        .eq("hotel_id", rule.hotel_id)
+        .in("stay_date", stayDates)
+        .order("captured_date", { ascending: false })
+        .limit(20000);
+      const occByStayDate = new Map<string, number | null>();
+      for (const row of (pickupSnapshots ?? []) as any[]) {
+        if (occByStayDate.has(row.stay_date)) continue;
+        occByStayDate.set(
+          row.stay_date,
+          row.occupancy_pct === null || row.occupancy_pct === undefined ? null : Number(row.occupancy_pct),
+        );
+      }
+      let heldShortWindow = 0;
 
       // 3. Current prices per stay date / room type / occupancy (newest wins).
       const { data: rateRows } = await admin
@@ -1068,6 +1107,20 @@ Deno.serve(async (req) => {
       for (const ev of events) {
         const daysOut = dayDiff(today, ev.stay_date);
         if (daysOut < 0) continue;
+
+        // Short booking window guard. Close to arrival a single new booking
+        // must not push an empty date higher — that is exactly how last-minute
+        // rooms go unsold. Inside the protected window a rise needs the date to
+        // be selling well already; otherwise the pickup is recorded and the
+        // price is held (the markdown side may still lower it).
+        if (!shortWindowIncreaseAllowed({
+          daysOut,
+          occupancyPct: occByStayDate.get(ev.stay_date) ?? null,
+          enabled: rule.short_window_guard_enabled !== false,
+          shortWindowDays: Math.max(0, Number(rule.short_window_days ?? 7)),
+          minOccupancyPct: Number(rule.short_window_min_occupancy_pct ?? 70),
+        })) { heldShortWindow++; continue; }
+
 
         // The 2nd booking inside the window is the "heat" signal: it takes the
         // surcharge instead of the ordinary booking-window tier.

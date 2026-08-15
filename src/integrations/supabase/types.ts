@@ -4909,6 +4909,7 @@ export type Database = {
       }
       revenue_pickup_automation_actions: {
         Row: {
+          ai_reason: string | null
           cap_applied: number | null
           confirmed_at: string | null
           created_at: string
@@ -4940,6 +4941,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          ai_reason?: string | null
           cap_applied?: number | null
           confirmed_at?: string | null
           created_at?: string
@@ -4971,6 +4973,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          ai_reason?: string | null
           cap_applied?: number | null
           confirmed_at?: string | null
           created_at?: string
@@ -5062,11 +5065,15 @@ export type Database = {
           run_timezone: string
           same_hour_window_minutes: number
           second_pickup_surcharge: number
+          short_window_days: number
+          short_window_guard_enabled: boolean
+          short_window_min_occupancy_pct: number
           smart_pricing_enabled: boolean
           strong_demand_increase: number
           updated_at: string
           updated_by: string | null
           version: number
+          whole_number_prices: boolean
         }
         Insert: {
           ai_assist_enabled?: boolean
@@ -5111,11 +5118,15 @@ export type Database = {
           run_timezone?: string
           same_hour_window_minutes?: number
           second_pickup_surcharge?: number
+          short_window_days?: number
+          short_window_guard_enabled?: boolean
+          short_window_min_occupancy_pct?: number
           smart_pricing_enabled?: boolean
           strong_demand_increase?: number
           updated_at?: string
           updated_by?: string | null
           version?: number
+          whole_number_prices?: boolean
         }
         Update: {
           ai_assist_enabled?: boolean
@@ -5160,11 +5171,15 @@ export type Database = {
           run_timezone?: string
           same_hour_window_minutes?: number
           second_pickup_surcharge?: number
+          short_window_days?: number
+          short_window_guard_enabled?: boolean
+          short_window_min_occupancy_pct?: number
           smart_pricing_enabled?: boolean
           strong_demand_increase?: number
           updated_at?: string
           updated_by?: string | null
           version?: number
+          whole_number_prices?: boolean
         }
         Relationships: []
       }

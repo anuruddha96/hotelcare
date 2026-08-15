@@ -343,3 +343,69 @@ export function clampAiFactor(value: unknown): number {
   if (!Number.isFinite(factor)) return 1;
   return Math.max(0, Math.min(1, factor));
 }
+
+// --------------------------------------------------------------------------
+// Whole-number prices
+// --------------------------------------------------------------------------
+
+/**
+ * Previo (and every OTA behind it) is far easier to read with whole prices, so
+ * automation never sends cents. Direction matters: a markdown rounds DOWN so it
+ * can never round itself back up, an increase rounds UP so it never lands under
+ * the intended step, and the ADR floor is still respected afterwards.
+ */
+export function roundWholePrice(
+  value: number,
+  direction: "increase" | "decrease",
+  floorPrice?: number | null,
+): number {
+  const raw = Number(value);
+  if (!Number.isFinite(raw)) return raw;
+  let out = direction === "increase" ? Math.ceil(raw - 1e-9) : Math.floor(raw + 1e-9);
+  const floor = floorPrice === null || floorPrice === undefined ? null : Number(floorPrice);
+  if (floor !== null && Number.isFinite(floor) && out < floor) out = Math.ceil(floor - 1e-9);
+  return out;
+}
+
+/** Whole units when the property asked for it, cents otherwise. */
+export function applyRounding(
+  value: number,
+  direction: "increase" | "decrease",
+  wholeNumbers: boolean,
+  floorPrice?: number | null,
+): number {
+  return wholeNumbers ? roundWholePrice(value, direction, floorPrice) : roundMoney(value);
+}
+
+// --------------------------------------------------------------------------
+// Short booking window guard
+// --------------------------------------------------------------------------
+
+export interface ShortWindowInput {
+  daysOut: number;
+  occupancyPct: number | null | undefined;
+  /** Guard switched on for this property. */
+  enabled: boolean;
+  /** How many days before arrival count as "short window". */
+  shortWindowDays: number;
+  /** Occupancy needed before a near-arrival price may rise at all. */
+  minOccupancyPct: number;
+}
+
+/**
+ * Close to arrival, an empty hotel must not price itself out of the market just
+ * because one booking arrived. Inside the protected window a rise is only
+ * allowed when the date is already selling well; below that the pickup is still
+ * recorded but the price is held (and the markdown side may still lower it).
+ *
+ * Dates outside the window, and dates with no occupancy reading at all, behave
+ * exactly as before the guard existed.
+ */
+export function shortWindowIncreaseAllowed(input: ShortWindowInput): boolean {
+  if (!input.enabled) return true;
+  const days = Number(input.daysOut);
+  if (!Number.isFinite(days) || days > Math.max(0, Number(input.shortWindowDays) || 0)) return true;
+  const occ = input.occupancyPct;
+  if (occ === null || occ === undefined) return false; // unknown demand close in: stay safe
+  return Number(occ) >= Number(input.minOccupancyPct);
+}
