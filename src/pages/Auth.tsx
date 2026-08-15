@@ -505,6 +505,7 @@ export default function Auth() {
           </div>
         </CardContent>
       </Card>
+      </main>
     </div>
   );
 }

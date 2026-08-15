@@ -108,6 +108,88 @@ All colors MUST be HSL.
   }
 }
 
+/* Auth wordmark animation */
+.auth-wordmark {
+  display: inline-flex;
+  background-image: linear-gradient(
+    100deg,
+    hsl(var(--primary)) 0%,
+    hsl(var(--primary)) 40%,
+    hsl(var(--rd-gray)) 70%,
+    hsl(var(--primary)) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: authShine 6s ease-in-out infinite;
+}
+
+.auth-wordmark-light .auth-wordmark {
+  background-image: linear-gradient(
+    100deg,
+    hsl(0 0% 100%) 0%,
+    hsl(0 0% 100%) 40%,
+    hsl(0 0% 100% / 0.6) 70%,
+    hsl(0 0% 100%) 100%
+  );
+}
+
+.auth-wordmark-letter {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(0.35em);
+  animation: authLetterIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes authLetterIn {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes authShine {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.auth-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(60px);
+  background: hsl(0 0% 100% / 0.25);
+  pointer-events: none;
+}
+
+.auth-orb-1 {
+  width: 22rem;
+  height: 22rem;
+  top: -6rem;
+  right: -4rem;
+  animation: authFloat 14s ease-in-out infinite;
+}
+
+.auth-orb-2 {
+  width: 18rem;
+  height: 18rem;
+  bottom: -5rem;
+  left: -3rem;
+  background: hsl(0 0% 100% / 0.15);
+  animation: authFloat 18s ease-in-out infinite reverse;
+}
+
+@keyframes authFloat {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-1.5rem, 2rem, 0) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-wordmark,
+  .auth-wordmark-letter,
+  .auth-orb {
+    animation: none;
+  }
+  .auth-wordmark-letter { opacity: 1; transform: none; }
+}
+
 /* Mobile Responsive Improvements */
 .animate-fade-in {
   animation: fadeIn 0.3s ease-out;
