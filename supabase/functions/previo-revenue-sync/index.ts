@@ -313,11 +313,20 @@ async function chunkedCall(
   chunkDays: number,
   /** Extra filter XML appended after the term, e.g. a status restriction. */
   extraFilter = "",
-): Promise<{ xml: string[]; errors: string[] }> {
+  /**
+   * Streaming options. Large properties (thousands of room-nights) blew the
+   * edge CPU limit because every chunk's XML was kept and parsed in one burst.
+   * With `onChunk` the caller parses and discards each document as it lands,
+   * and `shouldStop` lets the run bail out before it is killed.
+   */
+  opts: { onChunk?: (xml: string) => void; shouldStop?: () => boolean } = {},
+): Promise<{ xml: string[]; errors: string[]; stopped: boolean }> {
   const xml: string[] = [];
   const errors: string[] = [];
   let cursor = from;
+  let stopped = false;
   while (cursor <= to) {
+    if (opts.shouldStop?.()) { stopped = true; break; }
     const end = addDays(cursor, chunkDays - 1) > to ? to : addDays(cursor, chunkDays - 1);
     const res = await callPrevioXml({
       method,
@@ -325,12 +334,16 @@ async function chunkedCall(
       pmsHotelId: hotId,
       extraXml: `<term><from>${cursor}</from><to>${end}</to></term>${extraFilter}`,
     });
-    if (res.ok) xml.push(res.text);
+    if (res.ok) {
+      if (opts.onChunk) opts.onChunk(res.text);
+      else xml.push(res.text);
+    }
     else errors.push(`${method} ${cursor}..${end}: [${res.status}] ${res.errorMessage ?? "failed"}`);
     cursor = addDays(end, 1);
   }
-  return { xml, errors };
+  return { xml, errors, stopped };
 }
+
 
 
 serve(async (req) => {
