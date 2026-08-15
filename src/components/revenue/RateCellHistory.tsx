@@ -6,16 +6,18 @@ import { moneyBase } from "@/lib/revenueCurrency";
 import type { AutomationAction } from "@/hooks/usePickupAutomationActions";
 
 /**
- * The story of one price cell in a single readable block:
+ * The story of one price cell, in two parts:
  *
- *   €111 → €123   +€12 (+11%)
- *   Yesterday 18:12 · Nuwan · confirmed in Previo
+ *   1. ONE status line that answers "what is happening with this price now?"
+ *        €211 now · automation sent €209 — confirming
+ *   2. The full change list underneath, grouped by day, newest first:
+ *        €111 → €123   +€12 (+11%)
+ *        Yesterday 18:12 · Nuwan · confirmed in Previo
  *
  * One publish writes a draft row, a push row and a Previo read-back row — they
  * are stages of the SAME change, so they are folded into one entry showing only
  * the furthest state it reached. Moves made by the pickup automation tool are
- * merged in with the booking that triggered them. Older changes stay behind a
- * "N more changes" toggle, counted as distinct changes rather than raw rows.
+ * merged in with the booking that triggered them.
  */
 
 function automationDetail(a: AutomationAction): string {
@@ -29,12 +31,56 @@ function automationDetail(a: AutomationAction): string {
   ].filter(Boolean).join(" · ");
 }
 
+/** Today / Yesterday / a plain date, so a long list stays readable. */
+function dayBucket(at: string): string {
+  const d = new Date(at);
+  const today = new Date();
+  const same = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  if (same(d, today)) return "Today";
+  const yesterday = new Date(today.getTime() - 86_400_000);
+  if (same(d, yesterday)) return "Yesterday";
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+/** The single line at the top: where the price stands right now. */
+function statusLine(
+  entries: LogicalChange[],
+  draftPrice?: number | null,
+  sendingPrice?: number | null,
+): { text: string; tone: string } {
+  const latest = entries[0];
+  const live = latest?.next ?? null;
+  const now = live != null ? `${moneyBase(live)} now` : "No price recorded yet";
+
+  if (draftPrice != null) {
+    return { text: `${now} · ${moneyBase(draftPrice)} waiting to be sent`, tone: "text-amber-600 dark:text-amber-400" };
+  }
+  if (sendingPrice != null) {
+    return { text: `${now} · ${moneyBase(sendingPrice)} sent to Previo — confirming`, tone: "text-primary" };
+  }
+  if (!latest) return { text: now, tone: "text-muted-foreground" };
+
+  const who = latest.automation ? "automation" : latest.who;
+  switch (latest.phase) {
+    case "failed":
+      return { text: `${now} · last change ${latest.statusLabel}`, tone: "text-destructive" };
+    case "sending":
+      return { text: `${now} · ${who} sent it — confirming in Previo`, tone: "text-primary" };
+    case "confirmed":
+      return { text: `${now} · confirmed in Previo · ${who}, ${formatWhen(latest.at)}`, tone: "text-muted-foreground" };
+    default:
+      return { text: `${now} · ${who} · ${latest.statusLabel}`, tone: "text-muted-foreground" };
+  }
+}
+
 export default function RateCellHistory({
   history,
   names,
   draftPrice,
   sendingPrice,
   automation = [],
+  /** Show the whole list without the "N more changes" toggle (mobile sheet). */
+  expanded = false,
 }: {
   history: RateAuditRow[];
   names: Map<string, string>;
@@ -43,18 +89,20 @@ export default function RateCellHistory({
   /** Already sent to Previo, waiting only for its read-back. */
   sendingPrice?: number | null;
   automation?: AutomationAction[];
+  expanded?: boolean;
 }) {
-  const [showAll, setShowAll] = useState(false);
+  const [showAll, setShowAll] = useState(expanded);
 
   const entries = groupCellChanges(history, automation, names, { automationDetail });
+  const status = statusLine(entries, draftPrice, sendingPrice);
 
   if (entries.length === 0) {
-    if (sendingPrice != null) {
-      return <p className="text-[11px] text-primary">{moneyBase(sendingPrice)} — sending to Previo now</p>;
-    }
-    return draftPrice != null
-      ? <p className="text-[11px] text-muted-foreground">{moneyBase(draftPrice)} — waiting to be sent</p>
-      : <p className="text-[11px] text-muted-foreground">No price changes yet.</p>;
+    return (
+      <div className="space-y-1">
+        <p className={`text-[11px] ${status.tone}`}>{status.text}</p>
+        <p className="text-[11px] text-muted-foreground">No price changes recorded for this room type and date yet.</p>
+      </div>
+    );
   }
 
   const block = (e: LogicalChange) => {
@@ -65,7 +113,7 @@ export default function RateCellHistory({
     const up = (delta ?? 0) >= 0;
     const failed = e.phase === "failed";
     return (
-      <div key={e.id} className="space-y-0.5">
+      <div key={e.id} className="space-y-0.5 border-l-2 pl-2 border-border">
         <div className="flex flex-wrap items-baseline gap-x-1.5 text-xs tabular-nums">
           <span>{moneyBase(e.old)} → <strong>{moneyBase(e.next)}</strong></span>
           {delta != null && delta !== 0 && (
@@ -76,7 +124,9 @@ export default function RateCellHistory({
           )}
         </div>
         <p className="text-[11px] text-muted-foreground">
-          <span className={e.automation ? "text-purple-600 dark:text-purple-400 font-medium" : ""}>{e.who}</span>
+          <span className={e.automation ? "text-purple-600 dark:text-purple-400 font-medium" : "text-sky-600 dark:text-sky-400 font-medium"}>
+            {e.who}
+          </span>
           {" · "}{formatWhen(e.at)} · <span className={failed ? "text-destructive" : ""}>{e.statusLabel}</span>
         </p>
         {e.detail && <p className="text-[11px] text-muted-foreground">{e.detail}</p>}
@@ -90,19 +140,32 @@ export default function RateCellHistory({
     );
   };
 
-  const shown = entries.slice(0, 3);
+  const limit = expanded ? entries.length : (showAll ? entries.length : 3);
+  const shown = entries.slice(0, limit);
   const rest = entries.length - shown.length;
+
+  // Day headings, emitted as the list is walked so grouping needs no extra pass.
+  let lastBucket: string | null = null;
+
   return (
-    <div className="space-y-1.5">
-      {sendingPrice != null && draftPrice == null && (
-        <p className="text-[11px] text-primary">{moneyBase(sendingPrice)} — sending to Previo now, already applied here</p>
-      )}
-      {draftPrice != null && (
-        <p className="text-[11px] text-amber-600 dark:text-amber-400">{moneyBase(draftPrice)} — waiting to be sent</p>
-      )}
-      {shown.map((e) => block(e))}
-      {showAll && entries.slice(3).map((e) => block(e))}
-      {rest > 0 && (
+    <div className="space-y-2">
+      <p className={`text-xs font-medium ${status.tone}`}>{status.text}</p>
+      <div className="space-y-2">
+        {shown.map((e) => {
+          const bucket = dayBucket(e.at);
+          const heading = bucket !== lastBucket ? bucket : null;
+          lastBucket = bucket;
+          return (
+            <div key={e.id} className="space-y-1">
+              {heading && (
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70">{heading}</p>
+              )}
+              {block(e)}
+            </div>
+          );
+        })}
+      </div>
+      {!expanded && rest > 0 && (
         <button
           type="button"
           className="text-[11px] text-primary underline underline-offset-2"
