@@ -379,6 +379,21 @@ export default function MonthPerformanceHeader({
           />
         </div>
 
+        {/* Dots: which KPI card you are on (phones only) */}
+        <div className="flex justify-center gap-1.5 sm:hidden">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              aria-label={`Show card ${i + 1}`}
+              onClick={() => { stopAuto(); scrollToTile(i); }}
+              className={`h-1.5 rounded-full transition-all ${i === activeTile ? "w-4 bg-primary" : "w-1.5 bg-muted-foreground/30"}`}
+            />
+          ))}
+        </div>
+
+
+
 
         {/* Six-month outlook, current month highlighted */}
         <div className="-mx-1 overflow-x-auto">
