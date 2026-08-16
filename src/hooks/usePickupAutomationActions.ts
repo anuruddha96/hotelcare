@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { cellKey } from "@/lib/rateAudit";
 
@@ -52,6 +52,34 @@ export function usePickupAutomationActions(hotelId?: string | null, limit = 1000
   useEffect(() => { void load(); }, [load]);
 
   /**
+   * The hotel-wide read above is capped, and the engine writes hundreds of rows
+   * an hour, so a date a few weeks out falls outside it and its cells lose the
+   * "why did this move?" line. Load one stay date on demand and merge it in.
+   */
+  const loadedDates = useRef(new Set<string>());
+  useEffect(() => { loadedDates.current = new Set(); }, [hotelId]);
+
+  const loadDate = useCallback(async (date: string, force = false) => {
+    if (!hotelId || !date) return;
+    if (!force && loadedDates.current.has(date)) return;
+    loadedDates.current.add(date);
+    const { data } = await supabase
+      .from("revenue_pickup_automation_actions")
+      .select("id, stay_date, room_type_name, occupancy, old_price, new_price, increase_amount, pickup_sequence, reservation_id, pickup_at, status, created_at, decision_reason, reason_detail, hold_until, decision_type")
+      .eq("hotel_id", hotelId)
+      .eq("stay_date", date)
+      .order("created_at", { ascending: false })
+      .limit(400);
+    const fresh = (data ?? []) as unknown as AutomationAction[];
+    if (fresh.length === 0) return;
+    setRows((prev) => {
+      const seen = new Set(prev.map((r) => r.id));
+      const added = fresh.filter((r) => !seen.has(r.id));
+      return added.length > 0 ? [...prev, ...added] : prev;
+    });
+  }, [hotelId]);
+
+  /**
    * Live cancellation holds, per STAY DATE — the cooldown applies to the whole
    * date, not to one room type. A cooldown that has already elapsed is dropped.
    */
@@ -79,5 +107,5 @@ export function usePickupAutomationActions(hotelId?: string | null, limit = 1000
     return map;
   }, [rows]);
 
-  return { rows, byCell, holdsByDate, reload: load };
+  return { rows, byCell, holdsByDate, reload: load, loadDate };
 }
