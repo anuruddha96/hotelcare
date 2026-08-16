@@ -47,7 +47,7 @@ function Tile({ label, value, sub, icon, tone, surface, explain }: {
   explain?: { title: string; body: string };
 }) {
   return (
-    <div className={`flex-1 min-w-[128px] rounded-lg border border-l-4 p-3 min-w-0 ${surface ?? "border-l-border"}`}>
+    <div className={`snap-start shrink-0 w-[76%] xs:w-[60%] sm:w-auto sm:flex-1 rounded-lg border border-l-4 p-3 min-w-0 sm:min-w-[128px] ${surface ?? "border-l-border"}`}>
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         {icon}<span className="truncate">{label}</span>
         {explain && <Explain {...explain} />}
@@ -142,56 +142,28 @@ export default function MonthPerformanceHeader({
   const monthLabel = formatMonth(`${month}-01`);
 
   /**
-   * The KPI strip drifts gently to the left so every card gets seen on a phone.
-   * It stops at the last card, pauses while the user is touching it (resuming a
-   * few seconds later), and also follows the page: scrolling down nudges the
-   * tiles left, scrolling back up brings them back.
+   * The KPI strip is a plain, finger-friendly carousel: native momentum
+   * scrolling with snap points, plus a dot row so it is obvious there is more
+   * to the right. A gentle auto-advance moves one card at a time and stops for
+   * good the moment the person touches the strip — no per-frame scroll writing,
+   * which is what used to make the page feel heavy on a phone.
    */
   const tileScrollRef = useRef<HTMLDivElement | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
-  const resumeTimer = useRef<number | null>(null);
-  const pauseAuto = () => {
-    setAutoScroll(false);
-    if (resumeTimer.current) window.clearTimeout(resumeTimer.current);
-    resumeTimer.current = window.setTimeout(() => setAutoScroll(true), 4000);
-  };
+  const [activeTile, setActiveTile] = useState(0);
+  const stopAuto = () => setAutoScroll(false);
 
   useEffect(() => {
     const el = tileScrollRef.current;
     if (!el) return;
-    el.scrollLeft = 0;
+    el.scrollTo({ left: 0, behavior: "auto" });
+    setActiveTile(0);
   }, [month]);
 
-  useEffect(() => {
-    const el = tileScrollRef.current;
-    if (!el || !autoScroll) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    let raf = 0;
-    let last = performance.now();
-    let visible = true;
-    const io = new IntersectionObserver(([e]) => { visible = e.isIntersecting; }, { threshold: 0.2 });
-    io.observe(el);
-
-    const step = (now: number) => {
-      const dt = Math.min(64, now - last);
-      last = now;
-      const max = el.scrollWidth - el.clientWidth;
-      if (visible && max > 4 && el.scrollLeft < max - 1) {
-        // ~18 px per second: readable, never jumpy on high-refresh screens.
-        el.scrollLeft = Math.min(max, el.scrollLeft + (dt / 1000) * 18);
-      }
-      raf = window.requestAnimationFrame(step);
-    };
-    raf = window.requestAnimationFrame(step);
-    return () => { window.cancelAnimationFrame(raf); io.disconnect(); };
-  }, [autoScroll, month]);
-
-  // Page scroll drives the strip too — down moves left, up moves right.
+  // Which card is in view — read on scroll end, never written back.
   useEffect(() => {
     const el = tileScrollRef.current;
     if (!el) return;
-    let lastY = window.scrollY;
     let raf = 0;
     const onScroll = () => {
       if (raf) return;
@@ -199,16 +171,46 @@ export default function MonthPerformanceHeader({
         raf = 0;
         const node = tileScrollRef.current;
         if (!node) return;
-        const dy = window.scrollY - lastY;
-        lastY = window.scrollY;
-        const max = node.scrollWidth - node.clientWidth;
-        if (max <= 4) return;
-        node.scrollLeft = Math.max(0, Math.min(max, node.scrollLeft + dy * 0.35));
+        const card = node.firstElementChild as HTMLElement | null;
+        const step = card ? card.offsetWidth + 8 : node.clientWidth;
+        setActiveTile(step > 0 ? Math.round(node.scrollLeft / step) : 0);
       });
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => { window.removeEventListener("scroll", onScroll); if (raf) window.cancelAnimationFrame(raf); };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => { el.removeEventListener("scroll", onScroll); if (raf) window.cancelAnimationFrame(raf); };
   }, []);
+
+  useEffect(() => {
+    if (!autoScroll) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    let visible = true;
+    const el = tileScrollRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(([e]) => { visible = e.isIntersecting; }, { threshold: 0.4 });
+    io.observe(el);
+
+    const id = window.setInterval(() => {
+      const node = tileScrollRef.current;
+      if (!node || !visible || document.hidden) return;
+      const max = node.scrollWidth - node.clientWidth;
+      if (max <= 4 || node.scrollLeft >= max - 2) return;
+      const card = node.firstElementChild as HTMLElement | null;
+      const step = card ? card.offsetWidth + 8 : node.clientWidth;
+      node.scrollTo({ left: Math.min(max, node.scrollLeft + step), behavior: "smooth" });
+    }, 4500);
+
+    return () => { window.clearInterval(id); io.disconnect(); };
+  }, [autoScroll, month]);
+
+  const scrollToTile = (i: number) => {
+    const node = tileScrollRef.current;
+    if (!node) return;
+    const card = node.firstElementChild as HTMLElement | null;
+    const step = card ? card.offsetWidth + 8 : node.clientWidth;
+    node.scrollTo({ left: i * step, behavior: "smooth" });
+  };
+
 
 
 
@@ -314,13 +316,12 @@ export default function MonthPerformanceHeader({
 
         <div
           ref={tileScrollRef}
-          onMouseEnter={() => setAutoScroll(false)}
-          onMouseLeave={() => setAutoScroll(true)}
-          onPointerDown={pauseAuto}
-          onTouchStart={pauseAuto}
-          className="-mx-1 flex gap-2 px-1 overflow-x-auto snap-x scrollbar-hide [scroll-behavior:auto] [-webkit-overflow-scrolling:touch]"
-
+          onMouseEnter={stopAuto}
+          onPointerDown={stopAuto}
+          onTouchStart={stopAuto}
+          className="-mx-1 flex gap-2 px-1 overflow-x-auto snap-x snap-mandatory scrollbar-hide [-webkit-overflow-scrolling:touch] overscroll-x-contain"
         >
+
           <Tile
             label="Occupancy"
             value={agg.capacity ? `${Math.round(agg.occupancyPct)}%` : "—"}
@@ -377,6 +378,21 @@ export default function MonthPerformanceHeader({
             }}
           />
         </div>
+
+        {/* Dots: which KPI card you are on (phones only) */}
+        <div className="flex justify-center gap-1.5 sm:hidden">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              aria-label={`Show card ${i + 1}`}
+              onClick={() => { stopAuto(); scrollToTile(i); }}
+              className={`h-1.5 rounded-full transition-all ${i === activeTile ? "w-4 bg-primary" : "w-1.5 bg-muted-foreground/30"}`}
+            />
+          ))}
+        </div>
+
+
 
 
         {/* Six-month outlook, current month highlighted */}

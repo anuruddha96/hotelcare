@@ -54,6 +54,8 @@ import { MainTabsBar } from "@/components/layout/MainTabsBar";
 import { formatDistance } from "date-fns";
 import { setTabHotel } from "@/lib/tabHotel";
 import { HotelSwitchOverlay } from "@/components/layout/HotelSwitchOverlay";
+import { RevenueSkeleton } from "@/components/revenue/RevenueSkeleton";
+
 
 
 interface Snap { stay_date: string; bookings_current: number; bookings_last_year: number; delta: number; captured_at: string; }
@@ -91,14 +93,14 @@ function addDays(d: Date, n: number) { const x = new Date(d); x.setUTCDate(x.get
 function iso(d: Date) { return d.toISOString().slice(0,10); }
 
 export default function RevenueHotelDetail() {
-  const { profile, loading } = useAuth();
+  const { profile, loading, applyAssignedHotel } = useAuth();
   const { hotels: tenantHotels, loading: tenantLoading } = useTenant();
   const { organizationSlug, hotelId } = useParams<{ organizationSlug: string; hotelId: string }>();
   const navigate = useNavigate();
   // The URL property and the property shown in the header must never disagree:
   // editing Memories' price list while the app context says Ottofiori is a
   // cross-property accident waiting to happen.
-  const contextFixRef = useRef(false);
+  const contextFixRef = useRef<string | null>(null);
   const [alignTo, setAlignTo] = useState<string | null>(null);
   const contextMismatch = !!hotelId && !!profile?.assigned_hotel && profile.assigned_hotel !== hotelId;
 
@@ -291,17 +293,17 @@ export default function RevenueHotelDetail() {
   // Align app context with the property in the URL before anything loads.
   useEffect(() => {
     if (loading || tenantLoading || !profile || !hotelId) return;
-    if (!contextMismatch || contextFixRef.current) return;
+    if (!contextMismatch || contextFixRef.current === hotelId) return;
 
     const allowed = tenantHotels.some((h) => h.hotel_id === hotelId);
     if (!allowed) {
-      contextFixRef.current = true;
+      contextFixRef.current = hotelId;
       toast.error("That property is not available for your account");
       navigate(`/${organizationSlug || profile.organization_slug || ""}/revenue`, { replace: true });
       return;
     }
 
-    contextFixRef.current = true;
+    contextFixRef.current = hotelId;
 
     if (!SWITCHABLE_ROLES.includes(profile.role)) {
       // Cannot switch property: stay on the one this account is assigned to.
@@ -311,14 +313,15 @@ export default function RevenueHotelDetail() {
 
     // Managers may work on any property in their organization, but the whole
     // app must move with them — otherwise prices are edited under the wrong
-    // header, hotel switcher and downstream queries.
+    // header, hotel switcher and downstream queries. Moving the in-memory
+    // profile is enough: every hook refetches, and no page reload is needed
+    // (a reload on mobile is what used to end on a white screen).
     const target = tenantHotels.find((h) => h.hotel_id === hotelId);
     setAlignTo(target?.hotel_name || hotelId);
     setTabHotel(hotelId);
-    void (async () => {
-      await supabase.from("profiles").update({ assigned_hotel: hotelId }).eq("id", profile.id);
-      window.location.replace(window.location.pathname + window.location.search);
-    })();
+    applyAssignedHotel(hotelId);
+    void supabase.from("profiles").update({ assigned_hotel: hotelId }).eq("id", profile.id);
+
   }, [loading, tenantLoading, profile?.id, profile?.role, profile?.assigned_hotel, hotelId, tenantHotels.length]);
 
   useEffect(() => {
@@ -699,13 +702,36 @@ export default function RevenueHotelDetail() {
     return <HotelSwitchOverlay hotelName={alignTo || hotelName || "property"} />;
   }
 
+  // First load for this property: show the shape of the page, never blanks.
+  if (live.loading && live.roomTypes.length === 0) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <div className="container mx-auto px-3 sm:px-4 pt-3">
+          <MainTabsBar current="revenue" />
+        </div>
+        <div className="container mx-auto p-3 sm:p-4">
+          <RevenueSkeleton />
+        </div>
+      </div>
+    );
+  }
+
   return (
+
 
     <div className="min-h-screen bg-background">
       {welcomeBack && (
         <WelcomeBackOverlay name={profile?.full_name} step={syncStep} progress={syncPct} />
       )}
       <Header />
+      {/* Cached numbers stay on screen while a refresh lands — a thin bar says so. */}
+      {live.loading && (
+        <div className="h-0.5 w-full overflow-hidden bg-primary/10" role="status" aria-label="Refreshing data">
+          <div className="h-full w-1/3 bg-primary animate-[fade-in_1.2s_ease-in-out_infinite_alternate]" />
+        </div>
+      )}
+
       <div className="container mx-auto px-3 sm:px-4 pt-3">
         <MainTabsBar current="revenue" />
       </div>
