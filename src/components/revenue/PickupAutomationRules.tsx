@@ -105,6 +105,9 @@ const DEFAULT_RULE: Rule = {
   short_window_min_occupancy_pct: 70, whole_number_prices: true,
   sold_out_guard_enabled: true, sold_out_occupancy_pct: 100,
   cancellation_markdown_enabled: true, cancellation_wait_minutes: 60,
+  immediate_sell_mode_enabled: true, immediate_window_days: 14, immediate_markdown_step: 2,
+  spike_detection_enabled: true, spike_threshold_pct: 5, spike_lookback_days: 7,
+  event_surcharge_eur: 10, event_surcharge_auto: false,
 };
 
 
