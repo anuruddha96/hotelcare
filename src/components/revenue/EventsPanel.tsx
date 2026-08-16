@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +10,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  CalendarDays, ChevronLeft, ChevronRight, Loader2, Plus, Repeat, Sparkles, Trash2,
+  CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Loader2, Plus, Repeat, Settings2, Sparkles, Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -246,25 +247,38 @@ export default function EventsPanel({ hotelId }: { hotelId: string | null }) {
         </CardTitle>
       </CardHeader>
 
-      <CardContent className="space-y-5">
+      <CardContent className="space-y-3">
         {/* location + AI search */}
-        <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
-          <div>
-            <Label className="text-xs text-muted-foreground">City</Label>
-            <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Budapest" />
+        <Collapsible>
+          <div className="flex items-center justify-between mb-2">
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
+                <Settings2 className="h-3.5 w-3.5 mr-1.5" />
+                AI Search & Location Settings
+                <ChevronDown className="ml-1.5 h-3.5 w-3.5" />
+              </Button>
+            </CollapsibleTrigger>
           </div>
-          <div>
-            <Label className="text-xs text-muted-foreground">Country</Label>
-            <Input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Hungary" />
-          </div>
-          <Button variant="outline" className="self-end" onClick={saveLocation} disabled={!hotelId}>
-            Save location
-          </Button>
-          <Button className="self-end" onClick={runSearch} disabled={searching}>
-            {searching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-            Find events with AI
-          </Button>
-        </div>
+          <CollapsibleContent>
+            <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto] border rounded-lg p-3 bg-muted/20 mb-4">
+              <div>
+                <Label className="text-xs text-muted-foreground">City</Label>
+                <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Budapest" className="h-8" />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Country</Label>
+                <Input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Hungary" className="h-8" />
+              </div>
+              <Button variant="outline" size="sm" className="self-end h-8" onClick={saveLocation} disabled={!hotelId}>
+                Save location
+              </Button>
+              <Button size="sm" className="self-end h-8" onClick={runSearch} disabled={searching}>
+                {searching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                Find events with AI
+              </Button>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
 
         {/* AI candidates awaiting approval */}
         {candidates && candidates.length > 0 && (
@@ -339,36 +353,48 @@ export default function EventsPanel({ hotelId }: { hotelId: string | null }) {
         </div>
 
         {/* manual entry */}
-        <div className="rounded-lg border p-3 space-y-2">
-          <p className="text-sm font-medium">Add an event</p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
-            <Input placeholder="Venue (optional)" value={venue} onChange={(e) => setVenue(e.target.value)} />
-            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-            <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} placeholder="End date" />
-            <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={impact} onValueChange={setImpact}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {IMPACTS.map((i) => <SelectItem key={i.value} value={i.value}>{i.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
+        <Collapsible>
+          <div className="flex items-center justify-between mb-2">
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs">
+                <Plus className="h-3.5 w-3.5 mr-1.5" />
+                Add event manually
+                <ChevronDown className="ml-1.5 h-3.5 w-3.5" />
+              </Button>
+            </CollapsibleTrigger>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <label className="inline-flex items-center gap-2 text-sm">
-              <Checkbox checked={recurring} onCheckedChange={(v) => setRecurring(!!v)} />
-              Repeats every year on the same dates
-            </label>
-            <Button onClick={addManual} disabled={!orgSlug}>
-              <Plus className="mr-2 h-4 w-4" /> Add event
-            </Button>
-          </div>
-        </div>
+          <CollapsibleContent>
+            <div className="rounded-lg border p-3 space-y-2 bg-muted/10">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} className="h-8" />
+                <Input placeholder="Venue (optional)" value={venue} onChange={(e) => setVenue(e.target.value)} className="h-8" />
+                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-8" />
+                <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} placeholder="End date" className="h-8" />
+                <Select value={category} onValueChange={setCategory}>
+                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={impact} onValueChange={setImpact}>
+                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {IMPACTS.map((i) => <SelectItem key={i.value} value={i.value}>{i.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="inline-flex items-center gap-2 text-xs">
+                  <Checkbox checked={recurring} onCheckedChange={(v) => setRecurring(!!v)} />
+                  Repeats every year
+                </label>
+                <Button size="sm" onClick={addManual} disabled={!orgSlug}>
+                  Add event
+                </Button>
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       </CardContent>
     </Card>
   );

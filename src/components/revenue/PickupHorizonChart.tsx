@@ -97,6 +97,7 @@ interface Props {
   hotelId?: string | null;
   /** Calendar month shared with the headline performance card. */
   selectedMonth: string;
+  eventsByDate?: Map<string, { title: string; impact: string }[]>;
 }
 
 /**
@@ -105,7 +106,7 @@ interface Props {
  * Bars are net pickup. On top of them the reader can layer occupancy, ADR, an
  * in-house Budapest demand index, and one occupancy line per sister property.
  */
-export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickupWindowChange, hotels = [], hotelId, selectedMonth }: Props) {
+export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickupWindowChange, hotels = [], hotelId, selectedMonth, eventsByDate }: Props) {
   const isMobile = useIsMobile();
   // Wide bars beat a long horizon on a phone: 30 days is still readable.
   const [days, setDays] = useState(() => (typeof window !== "undefined" && window.innerWidth < 768 ? 30 : 60));
@@ -428,6 +429,15 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                 hide={!showAdr || usesPercentAxis}
                 tickFormatter={(v: number) => `${currencySymbol()}${Math.round(v)}`}
                 domain={adrDomain} />
+                            {data.filter(d => eventsByDate?.has(d.date)).map((d) => (
+                <ReferenceLine
+                  key={d.date}
+                  yAxisId="pickup"
+                  x={d.label}
+                  stroke="hsl(271 76% 53% / 0.15)"
+                  strokeWidth={8}
+                />
+              ))}
               {monthMarks.map((m) => (
                 <ReferenceLine
                   key={m.date} yAxisId="pickup" x={m.label} stroke="hsl(var(--foreground) / 0.35)"
@@ -439,6 +449,26 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
               <RTooltip
                 cursor={{ fill: "hsl(var(--muted) / 0.4)" }}
                 contentStyle={{ fontSize: 11, padding: "4px 8px" }}
+                labelFormatter={(label, payload) => {
+                  const date = payload[0]?.payload?.date;
+                  const dayEvents = eventsByDate?.get(date);
+                  return (
+                    <div className="font-medium mb-1">
+                      {label}
+                      {dayEvents && dayEvents.length > 0 && (
+                        <div className="mt-1 space-y-0.5 border-t pt-1">
+                          {dayEvents.map((e, i) => (
+                            <div key={i} className="text-[10px] text-purple-600 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+                              {e.title} ({e.impact})
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }}
+
                 formatter={(value: unknown, name: string) => {
                   if (name === "ADR") return [money(Number(value)), name];
                   if (name === "Pickup") {
