@@ -47,11 +47,26 @@ export function HotelSwitcher() {
     // must disappear before anything else happens.
     setSwitchingTo(hotelName);
 
+    // Never let the curtain outlive the switch. A slow phone connection used
+    // to leave people staring at "Loading this property's data…" forever.
+    const safety = window.setTimeout(() => {
+      setSwitchingTo(null);
+      toast.error('Switching is taking longer than usual — please try again');
+    }, 8000);
+
     // Remember the choice for THIS tab only, so a second window can stay on a
     // different property.
     setTabHotel(hotelId);
 
     try {
+      // A tab that was backgrounded may be holding an expired token; refresh
+      // it first so the write fails loudly as re-auth instead of silently.
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        const { error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError) throw new Error('Your session expired — please sign in again');
+      }
+
       const { error } = await supabase
         .from('profiles')
         .update({ assigned_hotel: hotelId })
@@ -60,24 +75,29 @@ export function HotelSwitcher() {
       if (error) throw error;
 
       setCurrentHotel(hotelId);
+      applyAssignedHotel(hotelId);
       toast.success(`Switched to ${hotelName}`);
 
-      // A hotel-scoped revenue detail route belongs to the old property, so
-      // fall back to the organization-level page instead of reloading it.
-      const path = window.location.pathname;
-      const revenueDetail = path.match(/^\/([^/]+)\/revenue\/[^/]+/);
-      const target = revenueDetail ? `/${revenueDetail[1]}/revenue` : path + window.location.search;
+      // A hotel-scoped revenue detail route still points at the OLD property,
+      // so move the URL to the same route for the new one. Everything else
+      // re-reads from the profile in place — no page reload.
+      const revenueDetail = location.pathname.match(/^\/([^/]+)\/revenue\/[^/]+/);
+      if (revenueDetail) {
+        navigate(`/${revenueDetail[1]}/revenue/${hotelId}${location.search}`, { replace: true });
+      }
 
-      // Deliberate, unhurried hand-off so the reload never flashes stale data.
-      window.setTimeout(() => {
-        window.location.replace(target);
-      }, 900);
+      window.clearTimeout(safety);
+      // Short, fixed curtain: long enough to hide the swap, never open-ended.
+      window.setTimeout(() => setSwitchingTo(null), 600);
     } catch (error: any) {
+      window.clearTimeout(safety);
       setSwitchingTo(null);
-      toast.error('Failed to switch hotel');
+      setTabHotel(currentHotel);
+      toast.error(error?.message || 'Failed to switch hotel');
       console.error(error);
     }
   };
+
 
 
   const currentHotelData = hotels.find(h => h.hotel_id === currentHotel);
