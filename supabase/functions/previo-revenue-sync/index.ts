@@ -1226,10 +1226,23 @@ serve(async (req) => {
   const lostNights: any[] = [];
 
   if (!resErrors.length) {
-    const keyOf = (r: { res_id: unknown; room_key: unknown; stay_date: unknown }) =>
-      `${r.res_id ?? ""}|${r.room_key ?? ""}|${r.stay_date}`;
-    const presentKeys = new Set(nights.map(keyOf));
-    const cancelledKeys = new Set(cancelledNights.map(keyOf));
+    // `room_key` is not stable in Previo: a reservation can first use its room
+    // type id and later its physical room id. Compare counts per reservation
+    // and stay date so that key changes do not invent cancellations, while a
+    // genuinely removed room from a multi-room booking is still detected.
+    const stayKeyOf = (r: { res_id: unknown; stay_date: unknown }) =>
+      `${r.res_id ?? ""}|${r.stay_date}`;
+    const countByStayKey = (rows: Array<{ res_id: unknown; stay_date: unknown }>) => {
+      const counts = new Map<string, number>();
+      for (const row of rows) {
+        const key = stayKeyOf(row);
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      return counts;
+    };
+    const presentCounts = countByStayKey(nights);
+    const cancelledCounts = countByStayKey(cancelledNights);
+    const previousByStayKey = new Map<string, any[]>();
 
     try {
       const pageSize = 1000;
@@ -1247,11 +1260,17 @@ serve(async (req) => {
         if (prevErr) { errors.push(`loss diff read: ${prevErr.message}`); break; }
         if (!prevRows?.length) break;
         for (const row of prevRows) {
-          const k = keyOf(row as any);
-          if (presentKeys.has(k) || cancelledKeys.has(k)) continue;
-          lostNights.push(row);
+          const key = stayKeyOf(row as any);
+          const rows = previousByStayKey.get(key) ?? [];
+          rows.push(row);
+          previousByStayKey.set(key, rows);
         }
         if (prevRows.length < pageSize) break;
+      }
+      for (const [key, previousRows] of previousByStayKey) {
+        const accountedFor = (presentCounts.get(key) ?? 0) + (cancelledCounts.get(key) ?? 0);
+        const missingCount = Math.max(0, previousRows.length - accountedFor);
+        if (missingCount > 0) lostNights.push(...previousRows.slice(0, missingCount));
       }
     } catch (e) {
       errors.push(`loss diff: ${(e as Error).message}`);

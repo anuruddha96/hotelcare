@@ -845,12 +845,17 @@ export default function RevenueHotelDetail() {
 
           {/* The demand events calendar sits right under the rate & pickup
               calendar: the events it holds are what the Demand row explains. */}
-          <EventsPanel hotelId={hotelId ?? null} />
+          <PickupHorizonChart 
+            metrics={live.metrics} 
+            pickupWindowDays={pickupWindow} 
+            onPickupWindowChange={setPickupWindow}
+            hotels={tenantHotels.map((h) => ({ hotel_id: h.hotel_id, hotel_name: h.hotel_name }))} 
+            hotelId={hotelId ?? null}
+            selectedMonth={selectedMonth} 
+            eventsByDate={eventsByDate}
+          />
 
-
-          <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow}
-            hotels={tenantHotels.map((h) => ({ hotel_id: h.hotel_id, hotel_name: h.hotel_name }))} hotelId={hotelId ?? null}
-            selectedMonth={selectedMonth} />
+          <EventsPanel hotelId={hotelId ?? null} selectedMonth={selectedMonth} />
           <PickupMovementBoard
             metrics={live.metrics}
             windowDays={pickupWindow}
