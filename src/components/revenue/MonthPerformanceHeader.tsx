@@ -316,13 +316,12 @@ export default function MonthPerformanceHeader({
 
         <div
           ref={tileScrollRef}
-          onMouseEnter={() => setAutoScroll(false)}
-          onMouseLeave={() => setAutoScroll(true)}
-          onPointerDown={pauseAuto}
-          onTouchStart={pauseAuto}
-          className="-mx-1 flex gap-2 px-1 overflow-x-auto snap-x scrollbar-hide [scroll-behavior:auto] [-webkit-overflow-scrolling:touch]"
-
+          onMouseEnter={stopAuto}
+          onPointerDown={stopAuto}
+          onTouchStart={stopAuto}
+          className="-mx-1 flex gap-2 px-1 overflow-x-auto snap-x snap-mandatory scrollbar-hide [-webkit-overflow-scrolling:touch] overscroll-x-contain"
         >
+
           <Tile
             label="Occupancy"
             value={agg.capacity ? `${Math.round(agg.occupancyPct)}%` : "—"}
