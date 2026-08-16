@@ -8,6 +8,7 @@ import {
   type CancelledNight,
   type DailySnapshot,
   type DayMetrics,
+  type PickupMovement,
   type RoomTypeRate,
 } from "@/lib/revenueAnalytics";
 import { DEFAULT_THRESHOLDS, type RevenueThresholds } from "@/lib/revenueThresholds";
@@ -81,6 +82,7 @@ export function useRevenueHotelData(
   const [snapshots, setSnapshots] = useState<DailySnapshot[]>([]);
   const [rates, setRates] = useState<RoomTypeRate[]>([]);
   const [cancellations, setCancellations] = useState<CancelledNight[]>([]);
+  const [movements, setMovements] = useState<PickupMovement[]>([]);
   const [sellableOverride, setSellableOverride] = useState<number | null>(null);
   const [thresholds, setThresholds] = useState<RevenueThresholds>(DEFAULT_THRESHOLDS);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
@@ -96,7 +98,7 @@ export function useRevenueHotelData(
     if (roomTypes.length === 0 && rates.length === 0) setLoading(true);
     setError(null);
     try {
-      const [rt, nightRows, snapRows, rateRows, cancelRows, settings, sync] = await Promise.all([
+      const [rt, nightRows, snapRows, rateRows, cancelRows, movementRows, settings, sync] = await Promise.all([
         supabase.from("room_types")
           .select("id, name, pms_room_id, num_rooms, is_reference, derivation_mode, derivation_value, sort_order, is_sellable, counts_toward_inventory, name_translations")
           .eq("hotel_id", hotelId).order("sort_order"),
@@ -111,9 +113,9 @@ export function useRevenueHotelData(
           // Paging needs a total order: thousands of rows share the same
           // captured_date, and ties make Postgres return them in an arbitrary
           // order per page, so rows get skipped or repeated between pages.
-          (q) => q.select("stay_date, captured_date, rooms_sold, rooms_available, occupancy_pct, revenue_eur, adr_eur, new_bookings")
+          (q) => q.select("stay_date, captured_date, captured_at, rooms_sold, rooms_available, occupancy_pct, revenue_eur, adr_eur, new_bookings")
             .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
-            .order("stay_date").order("captured_date", { ascending: false }),
+            .order("stay_date").order("captured_at", { ascending: false }),
         ),
         fetchAll<RoomTypeRate>(
           () => supabase.from("revenue_room_type_rates") as any,
@@ -128,6 +130,15 @@ export function useRevenueHotelData(
           (q) => q.select("stay_date, res_id, room_key, obk_id, room_type_name, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, guests, cancelled_at")
             .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
             .order("stay_date").order("res_id").order("room_key", { nullsFirst: true }),
+        ),
+        fetchAll<PickupMovement>(
+          () => supabase.from("pickup_snapshots") as any,
+          (q) => q.select("stay_date, delta, captured_at")
+            .eq("hotel_id", hotelId)
+            .eq("source", "previo_sync_diff")
+            .gte("captured_at", `${addDays(today, -90)}T00:00:00Z`)
+            .order("captured_at", { ascending: true })
+            .order("stay_date"),
         ),
         supabase.from("hotel_revenue_settings")
           .select("sellable_rooms, rate_warn_below_eur, rate_critical_below_eur, rate_max_sane_eur, occupancy_low_pct, occupancy_high_pct, pickup_strong_threshold, base_currency, eur_conversion_rate")
@@ -160,6 +171,7 @@ export function useRevenueHotelData(
       }
       setRates(Array.from(newestRates.values()));
       setCancellations(cancelRows);
+      setMovements(movementRows);
       const s = (settings as any)?.data ?? null;
       setSellableOverride((s?.sellable_rooms as number | null) ?? null);
       // The safety-net limits are stored as euro amounts. A property that
@@ -214,6 +226,7 @@ export function useRevenueHotelData(
     nights,
     snapshots,
     cancellations,
+    movements,
     roomsAvailable,
     windowDays: pickupWindowDays,
   });

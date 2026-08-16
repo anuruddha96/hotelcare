@@ -30,14 +30,18 @@ import BreakfastAuth from "./pages/BreakfastAuth";
 import PurchaseInvoices from "./pages/PurchaseInvoices";
 import TrainingCenterPage from "./pages/TrainingCenter";
 import ReceptionHome from "./pages/ReceptionHome";
+import { WelcomeBackOverlay } from "@/components/revenue/WelcomeBackOverlay";
 
 const queryClient = new QueryClient();
 
 const RootRedirect = () => {
   const { user, profile, loading } = useAuth();
-  if (loading) return null;
+  if (loading) return <WelcomeBackOverlay step="Checking your secure session…" progress={18} />;
   if (!user) return <Navigate to="/auth" replace />;
   if (!profile?.organization_slug) return <Navigate to="/auth" replace />;
+  if ((profile.role === "top_management" || profile.role === "top_management_manager") && profile.assigned_hotel) {
+    return <Navigate to={`/${profile.organization_slug}/revenue/${profile.assigned_hotel}`} replace />;
+  }
   return <Navigate to={`/${profile.organization_slug}`} replace />;
 };
 
@@ -50,7 +54,7 @@ const TenantRouter = () => {
     return <Navigate to="/auth" replace />;
   }
 
-  if (loading) return null;
+  if (loading) return <WelcomeBackOverlay step="Opening your workspace…" progress={28} />;
 
   if (user && !profile?.organization_slug) {
     return <Navigate to="/auth" replace />;

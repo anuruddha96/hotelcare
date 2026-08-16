@@ -15,6 +15,7 @@ import { SwipeAction } from '@/components/ui/swipe-action';
 import { useTranslation } from '@/hooks/useTranslation';
 import { LanguageSwitcher } from '@/components/dashboard/LanguageSwitcher';
 import hotelcareLogoAuth from '@/assets/hotelcare-logo-auth.png';
+import { WelcomeBackOverlay } from '@/components/revenue/WelcomeBackOverlay';
 
 export default function Auth() {
  const { signIn, signUp, user, profile, loading } = useAuth();
@@ -32,15 +33,14 @@ export default function Auth() {
   const [showNewPassword, setShowNewPassword] = useState(false);
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
+    return <WelcomeBackOverlay step="Checking your secure session…" progress={18} />;
   }
 
   if (user) {
-    if (!profile?.organization_slug) return null;
+    if (!profile?.organization_slug) return <WelcomeBackOverlay step="Loading your account and property access…" progress={36} />;
+    if ((profile.role === 'top_management' || profile.role === 'top_management_manager') && profile.assigned_hotel) {
+      return <Navigate to={`/${profile.organization_slug}/revenue/${profile.assigned_hotel}`} replace />;
+    }
     return <Navigate to={`/${profile.organization_slug}`} replace />;
   }
 

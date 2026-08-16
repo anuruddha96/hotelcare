@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 const LINES: Array<{ quote: string; by: string }> = [
   { quote: "Revenue is vanity, margin is sanity — but a good rate is both.", by: "Every revenue manager, eventually" },
@@ -29,6 +30,8 @@ export function WelcomeBackOverlay({
   name,
   step,
   progress,
+  error,
+  onRetry,
 }: {
   /** First name of the person returning, when we know it. */
   name?: string | null;
@@ -36,11 +39,16 @@ export function WelcomeBackOverlay({
   step?: string;
   /** 0-100. */
   progress?: number;
+  error?: string | null;
+  onRetry?: () => void;
 }) {
-  const pick = useMemo(() => ({
-    line: LINES[Math.floor(Math.random() * LINES.length)],
-    greeting: GREETINGS[Math.floor(Math.random() * GREETINGS.length)],
-  }), []);
+  const pick = useMemo(() => {
+    const day = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Budapest", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+    const seed = Array.from(day).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+    return { line: LINES[seed % LINES.length], greeting: GREETINGS[seed % GREETINGS.length] };
+  }, []);
   const [dots, setDots] = useState(1);
   useEffect(() => {
     const id = window.setInterval(() => setDots((d) => (d % 3) + 1), 600);
@@ -55,15 +63,15 @@ export function WelcomeBackOverlay({
       role="status"
       aria-live="polite"
     >
-      <div className="mx-4 w-full max-w-md rounded-2xl border bg-card p-6 shadow-lg">
+      <div className="mx-4 w-full max-w-md rounded-lg border bg-card p-6 shadow-lg">
         <div className="flex items-center gap-3">
-          <Loader2 className="h-5 w-5 animate-spin text-primary" />
+          <Loader2 className={`h-5 w-5 text-primary ${error ? "" : "animate-spin"}`} />
           <h2 className="text-lg font-semibold">
             {pick.greeting}{first ? `, ${first}` : ""}
           </h2>
         </div>
         <p className="mt-2 text-sm text-muted-foreground">
-          Fetching the latest prices, pickup and occupancy for you{".".repeat(dots)}
+          {error ? "The latest refresh did not finish." : `Fetching the latest prices, pickup and occupancy for you${".".repeat(dots)}`}
         </p>
         <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-primary/15">
           <div
@@ -72,6 +80,9 @@ export function WelcomeBackOverlay({
           />
         </div>
         {step && <p className="mt-2 text-xs text-muted-foreground">{step}</p>}
+        {error && onRetry && (
+          <Button className="mt-4 w-full" onClick={onRetry}>Try again</Button>
+        )}
         <figure className="mt-5 border-t pt-4">
           <blockquote className="text-sm italic">“{pick.line.quote}”</blockquote>
           <figcaption className="mt-1 text-xs text-muted-foreground">— {pick.line.by}</figcaption>
