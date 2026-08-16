@@ -102,3 +102,81 @@ describe("scheduler", () => {
     expect(window.from).toBe("2026-08-14T06:00:00.000Z"); // bounded to 6 hours
   });
 });
+
+import {
+  immediateWindowDecision,
+  detectDemandSpike,
+  eventSurcharge,
+} from "../../supabase/functions/_shared/pricingRules";
+
+describe("immediate selling window", () => {
+  const base = {
+    enabled: true, immediateWindowDays: 14, baseStep: 1, immediateStep: 3,
+    tightOccupancyPct: 85,
+  };
+
+  it("marks a soft near date down every cycle with the bigger step", () => {
+    const d = immediateWindowDecision({ ...base, daysOut: 5, occupancyPct: 55 });
+    expect(d.inWindow).toBe(true);
+    expect(d.forceMarkdown).toBe(true);
+    expect(d.allowIncrease).toBe(false);
+    expect(d.step).toBe(3);
+  });
+
+  it("lets a tight near date hold and rise", () => {
+    const d = immediateWindowDecision({ ...base, daysOut: 3, occupancyPct: 92 });
+    expect(d.forceMarkdown).toBe(false);
+    expect(d.allowIncrease).toBe(true);
+    expect(d.step).toBe(1);
+  });
+
+  it("leaves long-lead dates to the normal rules", () => {
+    const d = immediateWindowDecision({ ...base, daysOut: 40, occupancyPct: 20 });
+    expect(d.inWindow).toBe(false);
+    expect(d.forceMarkdown).toBe(false);
+    expect(d.step).toBe(1);
+  });
+
+  it("is inert when the property switched it off", () => {
+    const d = immediateWindowDecision({ ...base, enabled: false, daysOut: 2, occupancyPct: 10 });
+    expect(d.inWindow).toBe(false);
+  });
+});
+
+describe("demand spike detection", () => {
+  const base = { enabled: true, thresholdPct: 5, daysOut: 60, immediateWindowDays: 14 };
+
+  it("flags a date filling faster than the month around it", () => {
+    const r = detectDemandSpike({ ...base, occupancyNowPct: 48, occupancyThenPct: 40, baselineDeltaPct: 1 });
+    expect(r.spike).toBe(true);
+    expect(r.deltaPct).toBe(8);
+  });
+
+  it("ignores a lift the whole month shares", () => {
+    const r = detectDemandSpike({ ...base, occupancyNowPct: 48, occupancyThenPct: 40, baselineDeltaPct: 7 });
+    expect(r.spike).toBe(false);
+  });
+
+  it("never fires inside the immediate selling window", () => {
+    const r = detectDemandSpike({ ...base, daysOut: 6, occupancyNowPct: 60, occupancyThenPct: 40 });
+    expect(r.spike).toBe(false);
+  });
+
+  it("stays silent without history", () => {
+    expect(detectDemandSpike({ ...base, occupancyNowPct: 60, occupancyThenPct: null }).spike).toBe(false);
+  });
+});
+
+describe("event surcharge", () => {
+  it("charges full value for a high-impact event", () => {
+    expect(eventSurcharge({ impact: "high", surcharge: 10 })).toBe(10);
+  });
+  it("halves a medium event and ignores a low one", () => {
+    expect(eventSurcharge({ impact: "medium", surcharge: 10 })).toBe(5);
+    expect(eventSurcharge({ impact: "low", surcharge: 10 })).toBe(0);
+  });
+  it("respects the per-change and daily caps", () => {
+    expect(eventSurcharge({ impact: "high", surcharge: 30, maximumIncrease: 12 })).toBe(12);
+    expect(eventSurcharge({ impact: "high", surcharge: 30, remainingDailyRoom: 4 })).toBe(4);
+  });
+});

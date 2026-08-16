@@ -1219,7 +1219,43 @@ serve(async (req) => {
   // far-future cancelled rows that nothing would ever clean up.
   const cancelledNights = allNights.filter((n) => !!n.cancelled_at && n.stay_date <= to);
 
+  // Room-nights that vanished since the previous sync. Previo's cancelled-status
+  // filter is unreliable per property, so a disappearance is our primary signal
+  // that a night was lost (cancellation, shortened stay, moved dates).
+  const lostNights: any[] = [];
+
   if (!resErrors.length) {
+    const keyOf = (r: { res_id: unknown; room_key: unknown; stay_date: unknown }) =>
+      `${r.res_id ?? ""}|${r.room_key ?? ""}|${r.stay_date}`;
+    const presentKeys = new Set(nights.map(keyOf));
+    const cancelledKeys = new Set(cancelledNights.map(keyOf));
+
+    try {
+      const pageSize = 1000;
+      for (let offset = 0; ; offset += pageSize) {
+        const { data: prevRows, error: prevErr } = await service
+          .from("revenue_booking_nights")
+          .select(
+            "stay_date,res_id,room_key,obk_id,obj_id,room_type_name,nightly_price_eur,total_price_eur,source_currency,original_nightly_price,original_total_price,created_at_pms,guests,source_name,status_id,stay_from,stay_to",
+          )
+          .eq("hotel_id", hotelId)
+          .gte("stay_date", from)
+          .lte("stay_date", replaceTo)
+          .order("stay_date", { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        if (prevErr) { errors.push(`loss diff read: ${prevErr.message}`); break; }
+        if (!prevRows?.length) break;
+        for (const row of prevRows) {
+          const k = keyOf(row as any);
+          if (presentKeys.has(k) || cancelledKeys.has(k)) continue;
+          lostNights.push(row);
+        }
+        if (prevRows.length < pageSize) break;
+      }
+    } catch (e) {
+      errors.push(`loss diff: ${(e as Error).message}`);
+    }
+
     // Full replace for the horizon so cancellations disappear immediately.
     const { error: delErr } = await service
       .from("revenue_booking_nights")
@@ -1228,6 +1264,7 @@ serve(async (req) => {
       .gte("stay_date", from)
       .lte("stay_date", replaceTo);
     if (delErr) errors.push(`booking nights delete: ${delErr.message}`);
+
 
     const nightPayload = nights.map((n) => ({
       hotel_id: hotelId,
@@ -1265,10 +1302,13 @@ serve(async (req) => {
 
   // ---------- 3b. cancelled nights (make pickup able to go negative) ----------
   if (!resErrors.length) {
+    // Only the Previo-status rows are replaced: the disappearance-derived rows
+    // are historical facts that can never be re-derived on a later run.
     const { error: delCancelErr } = await service
       .from("revenue_cancelled_nights")
       .delete()
       .eq("hotel_id", hotelId)
+      .eq("detection_source", "previo_status")
       .gte("stay_date", from)
       .lte("stay_date", to);
     if (delCancelErr) errors.push(`cancelled nights delete: ${delCancelErr.message}`);
@@ -1294,7 +1334,7 @@ serve(async (req) => {
       stay_from: n.stay_from,
       stay_to: n.stay_to,
       source_name: n.source_name,
-
+      detection_source: "previo_status",
     }));
     for (let i = 0; i < cancelPayload.length; i += 500) {
       const { error } = await service
@@ -1302,7 +1342,52 @@ serve(async (req) => {
         .insert(cancelPayload.slice(i, i + 500));
       if (error) errors.push(`cancelled nights insert: ${error.message}`);
     }
+
+    // Losses detected by disappearance. Previo reports the cancellation with a
+    // timestamp; here the best we know is "it was gone by this sync".
+    if (lostNights.length) {
+      const now = new Date().toISOString();
+      const lostPayload = lostNights.map((n: any) => ({
+        hotel_id: hotelId,
+        organization_slug: orgSlug,
+        stay_date: n.stay_date,
+        res_id: n.res_id,
+        room_key: n.room_key,
+        obk_id: n.obk_id,
+        obj_id: n.obj_id,
+        room_type_name: n.room_type_name ?? (n.obk_id ? nameByObk.get(n.obk_id) ?? null : null),
+        nightly_price_eur: n.nightly_price_eur,
+        cancelled_at: now,
+        status_id: n.status_id,
+        created_at_pms: n.created_at_pms,
+        guests: n.guests,
+        total_price_eur: n.total_price_eur,
+        source_currency: n.source_currency ?? baseCurrency,
+        original_nightly_price: n.original_nightly_price,
+        original_total_price: n.original_total_price,
+        stay_from: n.stay_from,
+        stay_to: n.stay_to,
+        source_name: n.source_name,
+        detection_source: "disappeared",
+      }));
+      for (let i = 0; i < lostPayload.length; i += 500) {
+        const { error } = await service
+          .from("revenue_cancelled_nights")
+          .insert(lostPayload.slice(i, i + 500));
+        if (error) errors.push(`lost nights insert: ${error.message}`);
+      }
+    }
+
+    // Keep the loss table bounded: pickup only ever looks back a few weeks.
+    const pruneBefore = new Date(Date.now() - 45 * 86400000).toISOString();
+    await service
+      .from("revenue_cancelled_nights")
+      .delete()
+      .eq("hotel_id", hotelId)
+      .eq("detection_source", "disappeared")
+      .lt("cancelled_at", pruneBefore);
   }
+
 
   // ---------- 4. daily snapshot ----------
   const perDate = new Map<string, { sold: number; revenue: number; created: number }>();
