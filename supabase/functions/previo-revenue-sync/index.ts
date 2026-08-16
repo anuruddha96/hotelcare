@@ -759,7 +759,7 @@ serve(async (req) => {
 
         claimedCells.add(`${draft.stay_date}|${draft.obk_id}|${live.ratePlanId}|${draft.occupancy}`);
         const landed = live.price;
-        const confirmed = Math.abs(landed - Number(draft.new_price)) < 0.01;
+        const confirmed = pricesMatch(Number(draft.new_price), landed);
 
         // Previo moved this price again since we last flagged it, and nobody
         // in Hotel Care asked for anything newer: Previo is the truth now.

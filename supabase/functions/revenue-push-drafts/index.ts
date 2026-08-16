@@ -513,7 +513,7 @@ Deno.serve(async (req) => {
               const occupancy = Math.max(1, Math.round(Number(d.occupancy) || 2));
               const actual = landed.get(occupancy);
               if (actual === undefined || !Number.isFinite(actual)) continue;
-              const confirmed = Math.abs(Number(actual) - Number(d.new_price)) < 0.01;
+              const confirmed = pricesMatch(Number(d.new_price), Number(actual));
               const updateKey = `${occupancy}|${actual}|${confirmed}|${d.new_price}`;
               const update = updates.get(updateKey) ?? { ids: [], actual, confirmed, requested: Number(d.new_price) };
               update.ids.push(d.id);
