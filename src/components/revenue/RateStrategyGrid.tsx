@@ -2184,16 +2184,27 @@ export default function RateStrategyGrid({
                   </div>
                   {dates.map((d, i) => {
                     const dem = demandByDate?.get(d);
+                    const evs = eventsByDate?.get(d) ?? [];
+                    const demandLine = dem
+                      ? `${d} · demand ${BAND_LABEL[dem.band]} (${dem.score}/100)\n${dem.drivers.slice(0, 4).join("\n")}`
+                      : `${d} · demand not available yet`;
                     return (
                       <div
                         key={d}
-                        title={dem
-                          ? `${d} · demand ${BAND_LABEL[dem.band]} (${dem.score}/100)\n${dem.drivers.slice(0, 4).join("\n")}`
-                          : `${d} · demand not available yet`}
-                        className={`flex items-center justify-center shrink-0 text-[10px] font-semibold ${dem ? demandTone(dem.band) : `text-muted-foreground ${dayBg(d, i)}`} ${dayEdge(d)}`}
+                        title={evs.length
+                          ? `${demandLine}\n\nEvents:\n${evs.map(e => `• ${e.title} (${e.impact} impact)`).join("\n")}`
+                          : demandLine}
+                        className={`relative flex items-center justify-center shrink-0 text-[10px] font-semibold ${dem ? demandTone(dem.band) : `text-muted-foreground ${dayBg(d, i)}`} ${dayEdge(d)}`}
                         style={{ width: CELL_W }}
                       >
                         {dem ? DEMAND_SHORT[dem.band] : "·"}
+                        {evs.length > 0 && (
+                          <Star
+                            className={`absolute right-0.5 top-0.5 h-2.5 w-2.5 ${
+                              evs.some(e => e.impact === "high") ? "text-red-500 fill-red-500" : "text-amber-500 fill-amber-500"
+                            }`}
+                          />
+                        )}
                       </div>
                     );
                   })}
