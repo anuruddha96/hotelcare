@@ -42,8 +42,20 @@ const b64 = (buf: ArrayBuffer | Uint8Array): string => {
   return btoa(s);
 };
 
-const unb64 = (value: string): Uint8Array =>
-  Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
+const unb64 = (value: string): Uint8Array<ArrayBuffer> => {
+  const bin = atob(value);
+  const out = new Uint8Array(new ArrayBuffer(bin.length));
+  for (let i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+  return out;
+};
+
+/** Copy into a plain ArrayBuffer so WebCrypto's BufferSource typing is happy. */
+const bytes = (input: Uint8Array | ArrayBuffer): Uint8Array<ArrayBuffer> => {
+  const src = input instanceof Uint8Array ? input : new Uint8Array(input);
+  const out = new Uint8Array(new ArrayBuffer(src.byteLength));
+  out.set(src);
+  return out;
+};
 
 const read = (): StoredRecord | null => {
   try {
@@ -54,10 +66,10 @@ const read = (): StoredRecord | null => {
   }
 };
 
-async function keyFromSecret(secret: Uint8Array): Promise<CryptoKey> {
-  const material = await crypto.subtle.importKey("raw", secret, "HKDF", false, ["deriveKey"]);
+async function keyFromSecret(secret: Uint8Array | ArrayBuffer): Promise<CryptoKey> {
+  const material = await crypto.subtle.importKey("raw", bytes(secret), "HKDF", false, ["deriveKey"]);
   return crypto.subtle.deriveKey(
-    { name: "HKDF", hash: "SHA-256", salt: PRF_SALT, info: new TextEncoder().encode("session") },
+    { name: "HKDF", hash: "SHA-256", salt: bytes(PRF_SALT), info: new TextEncoder().encode("session") },
     material,
     { name: "AES-GCM", length: 256 },
     false,
@@ -101,7 +113,7 @@ export async function enableBiometric(
 
   const credential = (await navigator.credentials.create({
     publicKey: {
-      challenge,
+      challenge: bytes(challenge),
       rp: { name: "Hotel Care", id: window.location.hostname },
       user: { id: userId, name: identity.label, displayName: identity.label },
       pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
@@ -112,7 +124,7 @@ export async function enableBiometric(
       },
       timeout: 60_000,
       attestation: "none",
-      extensions: { prf: { eval: { first: PRF_SALT } } } as AuthenticationExtensionsClientInputs,
+      extensions: { prf: { eval: { first: bytes(PRF_SALT) } } } as AuthenticationExtensionsClientInputs,
     },
   })) as PublicKeyCredential | null;
 
@@ -121,14 +133,14 @@ export async function enableBiometric(
   const ext = credential.getClientExtensionResults() as {
     prf?: { enabled?: boolean; results?: { first?: ArrayBuffer } };
   };
-  const prfSecret = ext?.prf?.results?.first ? new Uint8Array(ext.prf.results.first) : null;
+  const prfSecret = ext?.prf?.results?.first ? bytes(ext.prf.results.first) : null;
 
-  const fallbackSecret = prfSecret ? null : crypto.getRandomValues(new Uint8Array(32));
-  const key = await keyFromSecret(prfSecret ?? (fallbackSecret as Uint8Array));
+  const fallbackSecret = prfSecret ? null : bytes(crypto.getRandomValues(new Uint8Array(32)));
+  const key = await keyFromSecret(prfSecret ?? (fallbackSecret as Uint8Array<ArrayBuffer>));
 
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const cipher = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
+    { name: "AES-GCM", iv: bytes(iv) },
     key,
     new TextEncoder().encode(JSON.stringify({
       access_token: session.access_token,
@@ -159,13 +171,13 @@ export async function unlockWithBiometric(): Promise<StoredSession> {
   const challenge = crypto.getRandomValues(new Uint8Array(32));
   const assertion = (await navigator.credentials.get({
     publicKey: {
-      challenge,
+      challenge: bytes(challenge),
       rpId: window.location.hostname,
-      allowCredentials: [{ type: "public-key", id: unb64(rec.credentialId) }],
+      allowCredentials: [{ type: "public-key", id: bytes(unb64(rec.credentialId)) }],
       userVerification: "required",
       timeout: 60_000,
       extensions: rec.prf
-        ? ({ prf: { eval: { first: PRF_SALT } } } as AuthenticationExtensionsClientInputs)
+        ? ({ prf: { eval: { first: bytes(PRF_SALT) } } } as AuthenticationExtensionsClientInputs)
         : undefined,
     },
   })) as PublicKeyCredential | null;
@@ -176,15 +188,15 @@ export async function unlockWithBiometric(): Promise<StoredSession> {
     prf?: { results?: { first?: ArrayBuffer } };
   };
   const secret = rec.prf
-    ? (ext?.prf?.results?.first ? new Uint8Array(ext.prf.results.first) : null)
+    ? (ext?.prf?.results?.first ? bytes(ext.prf.results.first) : null)
     : (rec.wrapKey ? unb64(rec.wrapKey) : null);
   if (!secret) throw new Error("This device could not unlock the saved sign-in.");
 
   const key = await keyFromSecret(secret);
   const plain = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: unb64(rec.iv) },
+    { name: "AES-GCM", iv: bytes(unb64(rec.iv)) },
     key,
-    unb64(rec.data),
+    bytes(unb64(rec.data)),
   );
   return JSON.parse(new TextDecoder().decode(plain)) as StoredSession;
 }
@@ -207,7 +219,7 @@ export async function refreshStoredSession(session: StoredSession): Promise<void
     const key = await keyFromSecret(secret);
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const cipher = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
+      { name: "AES-GCM", iv: bytes(iv) },
       key,
       new TextEncoder().encode(JSON.stringify(session)),
     );
