@@ -256,6 +256,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Switching property is a client-state change: move the in-memory profile so
+  // every hook refetches for the new hotel without rebooting the whole app.
+  const applyAssignedHotel = (hotelId: string) => {
+    setProfile((p) => (p ? ({ ...p, assigned_hotel: hotelId } as any) : p));
+  };
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -265,7 +271,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signIn,
       signUp,
       signOut,
+      applyAssignedHotel,
     }}>
+
       {children}
     </AuthContext.Provider>
   );
