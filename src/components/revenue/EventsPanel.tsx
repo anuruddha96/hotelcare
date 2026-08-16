@@ -90,6 +90,10 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
   const [venue, setVenue] = useState("");
   const [recurring, setRecurring] = useState(false);
 
+  useEffect(() => {
+    if (selectedMonth) setMonth(selectedMonth);
+  }, [selectedMonth]);
+
   const range = useMemo(() => {
     const start = `${month}-01`;
     const end = new Date(`${start}T00:00:00Z`);
