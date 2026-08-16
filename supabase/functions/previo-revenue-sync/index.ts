@@ -1441,6 +1441,11 @@ serve(async (req) => {
     requeuedCells,
     divergentDrafts,
     bookingNights: nights.length,
+    // Loss instrumentation: how many room-nights Previo reported as cancelled
+    // and how many simply vanished between two syncs. Without these counters a
+    // property that never shows negative pickup is impossible to diagnose.
+    cancelledFromPrevio: cancelledNights.length,
+    lostByDisappearance: lostNights.length,
     snapshots: snapshots.length,
     durationMs: Date.now() - started,
     errors,
