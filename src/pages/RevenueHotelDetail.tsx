@@ -725,6 +725,13 @@ export default function RevenueHotelDetail() {
         <WelcomeBackOverlay name={profile?.full_name} step={syncStep} progress={syncPct} />
       )}
       <Header />
+      {/* Cached numbers stay on screen while a refresh lands — a thin bar says so. */}
+      {live.loading && (
+        <div className="h-0.5 w-full overflow-hidden bg-primary/10" role="status" aria-label="Refreshing data">
+          <div className="h-full w-1/3 bg-primary animate-[fade-in_1.2s_ease-in-out_infinite_alternate]" />
+        </div>
+      )}
+
       <div className="container mx-auto px-3 sm:px-4 pt-3">
         <MainTabsBar current="revenue" />
       </div>
