@@ -793,6 +793,89 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                 </AccordionContent>
               </AccordionItem>
 
+              <AccordionItem value="demand">
+                <AccordionTrigger className="py-3 text-left">
+                  <div>
+                    <p className="text-sm font-medium">Immediate window, demand spikes &amp; events</p>
+                    <p className="text-xs font-normal text-muted-foreground">
+                      {rule.immediate_sell_mode_enabled
+                        ? `Sell-now inside ${rule.immediate_window_days}d, step ${rule.currency} ${rule.immediate_markdown_step}`
+                        : "Sell-now window off"}
+                      {rule.spike_detection_enabled ? ` · spike at +${rule.spike_threshold_pct}% in ${rule.spike_lookback_days}d` : ""}
+                      {rule.event_surcharge_auto ? ` · events +${rule.currency} ${rule.event_surcharge_eur}` : ""}
+                    </p>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="space-y-3 pb-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <Label>Sell the next days fast</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Inside this window a quiet date is lowered even when occupancy still looks acceptable — an empty room tonight earns nothing.
+                      </p>
+                    </div>
+                    <Switch checked={rule.immediate_sell_mode_enabled} onCheckedChange={(immediate_sell_mode_enabled) => setRule({ ...rule, immediate_sell_mode_enabled })} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Immediate window (days)</Label>
+                      <Input type="number" min={1} max={60} disabled={!rule.immediate_sell_mode_enabled}
+                        value={rule.immediate_window_days}
+                        onChange={(e) => setRule({ ...rule, immediate_window_days: Number(e.target.value) })} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Markdown step inside the window ({rule.currency})</Label>
+                      <Input type="number" step={0.5} min={0} disabled={!rule.immediate_sell_mode_enabled}
+                        value={rule.immediate_markdown_step}
+                        onChange={(e) => setRule({ ...rule, immediate_markdown_step: Number(e.target.value) })} />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <Label>Detect demand spikes</Label>
+                      <p className="text-xs text-muted-foreground">
+                        A far date filling faster than usual is raised before it sells out too cheaply.
+                      </p>
+                    </div>
+                    <Switch checked={rule.spike_detection_enabled} onCheckedChange={(spike_detection_enabled) => setRule({ ...rule, spike_detection_enabled })} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Spike threshold (% occupancy gain)</Label>
+                      <Input type="number" min={1} max={50} disabled={!rule.spike_detection_enabled}
+                        value={rule.spike_threshold_pct}
+                        onChange={(e) => setRule({ ...rule, spike_threshold_pct: Number(e.target.value) })} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Compared with (days ago)</Label>
+                      <Input type="number" min={1} max={30} disabled={!rule.spike_detection_enabled}
+                        value={rule.spike_lookback_days}
+                        onChange={(e) => setRule({ ...rule, spike_lookback_days: Number(e.target.value) })} />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <Label>Charge more on event dates</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Uses the approved events calendar. High-impact dates get the full surcharge, medium half of it.
+                      </p>
+                    </div>
+                    <Switch checked={rule.event_surcharge_auto} onCheckedChange={(event_surcharge_auto) => setRule({ ...rule, event_surcharge_auto })} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Event surcharge ({rule.currency})</Label>
+                    <Input type="number" step={0.5} min={0} disabled={!rule.event_surcharge_auto}
+                      value={rule.event_surcharge_eur}
+                      onChange={(e) => setRule({ ...rule, event_surcharge_eur: Number(e.target.value) })} />
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Always kept inside the daily rise limit for that date.
+                    </p>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
               <AccordionItem value="safety">
                 <AccordionTrigger className="py-3 text-left">
                   <div>
