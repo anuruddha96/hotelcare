@@ -365,6 +365,14 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       sold_out_occupancy_pct: rule.sold_out_occupancy_pct,
       cancellation_markdown_enabled: rule.cancellation_markdown_enabled,
       cancellation_wait_minutes: rule.cancellation_wait_minutes,
+      immediate_sell_mode_enabled: rule.immediate_sell_mode_enabled,
+      immediate_window_days: rule.immediate_window_days,
+      immediate_markdown_step: rule.immediate_markdown_step,
+      spike_detection_enabled: rule.spike_detection_enabled,
+      spike_threshold_pct: rule.spike_threshold_pct,
+      spike_lookback_days: rule.spike_lookback_days,
+      event_surcharge_eur: rule.event_surcharge_eur,
+      event_surcharge_auto: rule.event_surcharge_auto,
       // Saving never triggers an immediate evaluation: an enabled rule is
       // simply scheduled one normal interval from now, so nobody gets a
       // surprise markdown for pressing Save. "Run now" stays the explicit
