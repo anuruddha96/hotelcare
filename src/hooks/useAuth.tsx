@@ -28,7 +28,10 @@ interface AuthContextType {
   signIn: (emailOrUsername: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
+  /** Apply a newly picked property to the in-memory profile (no page reload). */
+  applyAssignedHotel: (hotelId: string) => void;
 }
+
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
