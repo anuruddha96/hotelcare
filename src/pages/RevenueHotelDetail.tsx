@@ -699,7 +699,23 @@ export default function RevenueHotelDetail() {
     return <HotelSwitchOverlay hotelName={alignTo || hotelName || "property"} />;
   }
 
+  // First load for this property: show the shape of the page, never blanks.
+  if (live.loading && live.roomTypes.length === 0) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <div className="container mx-auto px-3 sm:px-4 pt-3">
+          <MainTabsBar current="revenue" />
+        </div>
+        <div className="container mx-auto p-3 sm:p-4">
+          <RevenueSkeleton />
+        </div>
+      </div>
+    );
+  }
+
   return (
+
 
     <div className="min-h-screen bg-background">
       {welcomeBack && (
