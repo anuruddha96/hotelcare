@@ -453,19 +453,19 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   const date = payload && payload[0]?.payload?.date;
                   const dayEvents = eventsByDate?.get(date);
                   return (
-                    <div className="font-medium mb-1">
+                    <span className="block font-medium mb-1">
                       {label}
                       {dayEvents && dayEvents.length > 0 && (
-                        <div className="mt-1 space-y-0.5 border-t pt-1">
+                        <span className="mt-1 block space-y-0.5 border-t pt-1">
                           {dayEvents.map((e, i) => (
-                            <div key={i} className="text-[10px] text-purple-600 flex items-center gap-1">
+                            <span key={i} className="text-[10px] text-purple-600 flex items-center gap-1">
                               <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
                               {e.title} ({e.impact})
-                            </div>
+                            </span>
                           ))}
-                        </div>
+                        </span>
                       )}
-                    </div>
+                    </span>
                   );
                 }}
 

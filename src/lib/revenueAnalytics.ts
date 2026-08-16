@@ -93,6 +93,7 @@ export interface DailySnapshot {
   revenue_eur: number;
   adr_eur: number | null;
   new_bookings: number;
+  captured_at?: string | null;
 }
 
 export interface CancelledNight {
@@ -109,6 +110,12 @@ export interface CancelledNight {
   created_at_pms?: string | null;
   guests?: number | null;
   cancelled_at: string | null;
+}
+
+export interface PickupMovement {
+  stay_date: string;
+  delta: number;
+  captured_at: string;
 }
 
 export interface RoomTypeRate {
@@ -169,11 +176,13 @@ export function buildDayMetrics(params: {
   nights: BookingNight[];
   snapshots: DailySnapshot[];
   cancellations?: CancelledNight[];
+  movements?: PickupMovement[];
   roomsAvailable: number;
   windowDays: number;
 }): DayMetrics[] {
   const { from, to, nights, snapshots, roomsAvailable, windowDays } = params;
   const cancellations = params.cancellations ?? [];
+  const movements = params.movements ?? [];
   const today = budapestToday();
   const windowStart = addDays(today, -Math.max(0, windowDays - 1));
 
@@ -203,8 +212,6 @@ export function buildDayMetrics(params: {
   // Cancellations that happened inside the same window pull pickup negative,
   // again counted per reservation.
   const cancelledRes = new Map<string, Set<string>>();
-  let hasCreationData = false;
-  for (const n of nights) if (n.created_at_pms) { hasCreationData = true; break; }
   for (const c of cancellations) {
     if (!c.cancelled_at) continue;
     if (budapestDayOf(c.cancelled_at) < windowStart) continue;
@@ -215,16 +222,30 @@ export function buildDayMetrics(params: {
   const cancelled = new Map<string, number>();
   for (const [date, set] of cancelledRes) cancelled.set(date, set.size);
 
-  // Baseline = the NEWEST capture at or before the day the window opened.
+  // Every Previo sync stores its reservation-level gain/loss. Summing captures
+  // within the selected Budapest window matches the PMS pickup report and does
+  // not depend on unsupported cancellation-status filters.
+  const syncedMovement = new Map<string, number>();
+  for (const movement of movements) {
+    if (budapestDayOf(movement.captured_at) < windowStart) continue;
+    syncedMovement.set(
+      movement.stay_date,
+      (syncedMovement.get(movement.stay_date) ?? 0) + Number(movement.delta || 0),
+    );
+  }
+
+  // Baseline = the NEWEST capture before the day the window opened.
   // Picking the first row we happen to meet made the comparison point depend
   // on query order, which is how real losses went missing.
   const compareDate = addDays(windowStart, -1);
-  const baseline = new Map<string, { captured: string; sold: number }>();
+  const baseline = new Map<string, { captured: string; capturedMs: number; sold: number }>();
   for (const s of snapshots) {
-    if (s.captured_date > compareDate) continue;
+    const captured = s.captured_at ?? `${s.captured_date}T23:59:59Z`;
+    const capturedMs = Date.parse(captured);
+    if (Number.isFinite(capturedMs) ? budapestDayOf(captured) >= windowStart : s.captured_date > compareDate) continue;
     const prev = baseline.get(s.stay_date);
-    if (!prev || s.captured_date > prev.captured) {
-      baseline.set(s.stay_date, { captured: s.captured_date, sold: s.rooms_sold });
+    if (!prev || capturedMs > prev.capturedMs) {
+      baseline.set(s.stay_date, { captured, capturedMs, sold: s.rooms_sold });
     }
   }
 
@@ -242,19 +263,20 @@ export function buildDayMetrics(params: {
     const cancelledN = cancelled.get(d) ?? 0;
     const bookingDelta = createdN - cancelledN;
     // Snapshot delta = ROOMS sold now vs rooms sold when the window opened.
-    // It is only used when we have no booking creation timestamps at all:
-    // mixing it with the reservation count would re-introduce the room-night
-    // inflation that made Hotel Care read higher than Previo.
+    // This remains a fallback for historical periods captured before the
+    // reservation-level sync movement feed was introduced.
     const snapDelta = base === undefined ? null : rs - base.sold;
     let net: number | null;
-    if (!hasBookings) net = null;
-    else if (!hasCreationData) net = snapDelta;
+    const durableMovement = syncedMovement.get(d);
+    if (durableMovement !== undefined) net = durableMovement;
+    else if (!hasBookings) net = null;
+    else if (snapDelta !== null) net = snapDelta;
     else net = bookingDelta;
 
     const adr = rs ? rev / rs : null;
     // Rooms lost: explicit cancellations, or whatever the snapshot says went
     // missing beyond the bookings we can see.
-    const impliedLost = !hasCreationData && snapDelta !== null ? Math.max(0, -snapDelta) : 0;
+    const impliedLost = snapDelta !== null ? Math.max(0, -snapDelta) : 0;
     const roomsLost = Math.max(cancelledN, impliedLost);
 
     return {

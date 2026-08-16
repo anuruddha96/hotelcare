@@ -1224,6 +1224,7 @@ serve(async (req) => {
   // filter is unreliable per property, so a disappearance is our primary signal
   // that a night was lost (cancellation, shortened stay, moved dates).
   const lostNights: any[] = [];
+  const movementByDate = new Map<string, { gained: number; lost: number }>();
 
   if (!resErrors.length) {
     // `room_key` is not stable in Previo: a reservation can first use its room
@@ -1271,6 +1272,28 @@ serve(async (req) => {
         const accountedFor = (presentCounts.get(key) ?? 0) + (cancelledCounts.get(key) ?? 0);
         const missingCount = Math.max(0, previousRows.length - accountedFor);
         if (missingCount > 0) lostNights.push(...previousRows.slice(0, missingCount));
+      }
+      // Report-equivalent movement: one gain/loss per reservation + stay date.
+      // Physical room-key changes therefore remain neutral.
+      // An empty previous set means this is the first capture, not that every
+      // booking was made moments ago.
+      if (previousByStayKey.size > 0) {
+        const previousKeys = new Set(previousByStayKey.keys());
+        const currentKeys = new Set(nights.map((row) => stayKeyOf(row)));
+        for (const key of currentKeys) {
+          if (previousKeys.has(key)) continue;
+          const stayDate = key.slice(key.lastIndexOf("|") + 1);
+          const slot = movementByDate.get(stayDate) ?? { gained: 0, lost: 0 };
+          slot.gained += 1;
+          movementByDate.set(stayDate, slot);
+        }
+        for (const key of previousKeys) {
+          if (currentKeys.has(key)) continue;
+          const stayDate = key.slice(key.lastIndexOf("|") + 1);
+          const slot = movementByDate.get(stayDate) ?? { gained: 0, lost: 0 };
+          slot.lost += 1;
+          movementByDate.set(stayDate, slot);
+        }
       }
     } catch (e) {
       errors.push(`loss diff: ${(e as Error).message}`);
@@ -1423,6 +1446,7 @@ serve(async (req) => {
     // UTC, so compare Budapest calendar days or early-morning pickup is lost.
     if (n.created_at_pms && budapestDayOf(n.created_at_pms) === today) slot.created += 1;
   }
+  const capturedAt = new Date().toISOString();
   const snapshots = Array.from(perDate.entries()).map(([stayDate, v]) => ({
     hotel_id: hotelId,
     organization_slug: orgSlug,
@@ -1434,14 +1458,32 @@ serve(async (req) => {
     revenue_eur: Math.round(v.revenue * 100) / 100,
     adr_eur: v.sold ? Math.round((v.revenue / v.sold) * 100) / 100 : null,
     new_bookings: v.created,
-    captured_at: new Date().toISOString(),
+    captured_at: capturedAt,
   }));
   if (!resErrors.length) {
     for (let i = 0; i < snapshots.length; i += 500) {
       const { error } = await service
         .from("revenue_daily_snapshots")
-        .upsert(snapshots.slice(i, i + 500), { onConflict: "hotel_id,stay_date,captured_date" });
-      if (error) errors.push(`snapshot upsert: ${error.message}`);
+        .insert(snapshots.slice(i, i + 500));
+      if (error) errors.push(`snapshot insert: ${error.message}`);
+    }
+    const pickupRows = snapshots.map((snapshot) => {
+      const movement = movementByDate.get(snapshot.stay_date) ?? { gained: 0, lost: 0 };
+      return {
+        hotel_id: hotelId,
+        organization_slug: orgSlug,
+        stay_date: snapshot.stay_date,
+        bookings_current: movement.gained,
+        bookings_last_year: movement.lost,
+        delta: movement.gained - movement.lost,
+        captured_at: capturedAt,
+        source: "previo_sync_diff",
+        snapshot_label: `previo-sync-${capturedAt}`,
+      };
+    });
+    for (let i = 0; i < pickupRows.length; i += 500) {
+      const { error } = await service.from("pickup_snapshots").insert(pickupRows.slice(i, i + 500));
+      if (error) errors.push(`pickup movement insert: ${error.message}`);
     }
   }
 
@@ -1465,6 +1507,9 @@ serve(async (req) => {
     // property that never shows negative pickup is impossible to diagnose.
     cancelledFromPrevio: cancelledNights.length,
     lostByDisappearance: lostNights.length,
+    pickupGained: Array.from(movementByDate.values()).reduce((sum, row) => sum + row.gained, 0),
+    pickupLost: Array.from(movementByDate.values()).reduce((sum, row) => sum + row.lost, 0),
+    pickupNet: Array.from(movementByDate.values()).reduce((sum, row) => sum + row.gained - row.lost, 0),
     snapshots: snapshots.length,
     durationMs: Date.now() - started,
     errors,

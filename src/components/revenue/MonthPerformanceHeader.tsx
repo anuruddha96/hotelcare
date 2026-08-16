@@ -144,14 +144,11 @@ export default function MonthPerformanceHeader({
   /**
    * The KPI strip is a plain, finger-friendly carousel: native momentum
    * scrolling with snap points, plus a dot row so it is obvious there is more
-   * to the right. A gentle auto-advance moves one card at a time and stops for
-   * good the moment the person touches the strip — no per-frame scroll writing,
-   * which is what used to make the page feel heavy on a phone.
+   * to the right. Nothing writes to scrollLeft automatically, so a vertical
+   * gesture beginning over this first-screen strip remains browser-native.
    */
   const tileScrollRef = useRef<HTMLDivElement | null>(null);
-  const [autoScroll, setAutoScroll] = useState(true);
   const [activeTile, setActiveTile] = useState(0);
-  const stopAuto = () => setAutoScroll(false);
 
   useEffect(() => {
     const el = tileScrollRef.current;
@@ -179,29 +176,6 @@ export default function MonthPerformanceHeader({
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => { el.removeEventListener("scroll", onScroll); if (raf) window.cancelAnimationFrame(raf); };
   }, []);
-
-  useEffect(() => {
-    if (!autoScroll) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    let visible = true;
-    const el = tileScrollRef.current;
-    if (!el) return;
-    const io = new IntersectionObserver(([e]) => { visible = e.isIntersecting; }, { threshold: 0.4 });
-    io.observe(el);
-
-    const id = window.setInterval(() => {
-      const node = tileScrollRef.current;
-      if (!node || !visible || document.hidden) return;
-      const max = node.scrollWidth - node.clientWidth;
-      if (max <= 4 || node.scrollLeft >= max - 2) return;
-      const card = node.firstElementChild as HTMLElement | null;
-      const step = card ? card.offsetWidth + 8 : node.clientWidth;
-      node.scrollTo({ left: Math.min(max, node.scrollLeft + step), behavior: "smooth" });
-    }, 4500);
-
-    return () => { window.clearInterval(id); io.disconnect(); };
-  }, [autoScroll, month]);
 
   const scrollToTile = (i: number) => {
     const node = tileScrollRef.current;
@@ -316,10 +290,7 @@ export default function MonthPerformanceHeader({
 
         <div
           ref={tileScrollRef}
-          onMouseEnter={stopAuto}
-          onPointerDown={stopAuto}
-          onTouchStart={stopAuto}
-          className="-mx-1 flex gap-2 px-1 overflow-x-auto snap-x snap-mandatory scrollbar-hide [-webkit-overflow-scrolling:touch] overscroll-x-contain"
+          className="-mx-1 flex touch-pan-x gap-2 overflow-x-auto overscroll-x-contain px-1 snap-x snap-mandatory scrollbar-hide [-webkit-overflow-scrolling:touch]"
         >
 
           <Tile
@@ -386,7 +357,7 @@ export default function MonthPerformanceHeader({
               key={i}
               type="button"
               aria-label={`Show card ${i + 1}`}
-              onClick={() => { stopAuto(); scrollToTile(i); }}
+              onClick={() => scrollToTile(i)}
               className={`h-1.5 rounded-full transition-all ${i === activeTile ? "w-4 bg-primary" : "w-1.5 bg-muted-foreground/30"}`}
             />
           ))}

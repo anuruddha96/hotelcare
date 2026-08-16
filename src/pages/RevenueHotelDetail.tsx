@@ -218,6 +218,7 @@ export default function RevenueHotelDetail() {
   const [syncStep, setSyncStep] = useState("Connecting to Previo…");
   const [syncPct, setSyncPct] = useState(0);
   const [syncWaiting, setSyncWaiting] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const autoSyncedHotelRef = useRef<string | null>(null);
   const syncingRef = useRef(false);
 
@@ -245,6 +246,7 @@ export default function RevenueHotelDetail() {
       return;
     }
     syncingRef.current = true;
+    setSyncError(null);
     setSyncing(true);
     setSyncPct(8);
     setSyncStep("Connecting to Previo…");
@@ -276,10 +278,11 @@ export default function RevenueHotelDetail() {
       setSyncStep("Up to date");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Sync failed";
-      await (supabase as any).rpc("release_own_revenue_sync", {
+      try { await (supabase as any).rpc("release_own_revenue_sync", {
         _hotel_id: hotelId,
         _error: message,
-      }).catch(() => undefined);
+      }); } catch { /* lease expiry remains the safety net */ }
+      setSyncError(message);
       toast.error(message);
     } finally {
       setTimeout(() => {
@@ -503,9 +506,12 @@ export default function RevenueHotelDetail() {
       const date = iso(d);
       const dow = (d.getUTCDay() + 6) % 7; // mon=0
       const snaps = byDateSnaps.get(date) ?? [];
-      const latest = snaps[0] ?? null;
-      const prev = snaps[1] ?? null;
-      const pickupDelta = latest && prev ? (latest.bookings_current - prev.bookings_current) : 0;
+      // Each sync-diff row is already the net movement for that capture.
+      const pickupDelta = snaps
+        .filter((snap) => snap.captured_at.slice(0, 10) === live.today)
+        .reduce((sum, snap) => sum + Number(snap.delta || 0), 0);
+      const bookingsNow = snaps.reduce((sum, snap) => sum + Number(snap.bookings_current || 0), 0);
+      const bookingsLost = snaps.reduce((sum, snap) => sum + Number(snap.bookings_last_year || 0), 0);
       const rate = byDateRate.get(date)?.rate_eur ?? null;
       const rateSource = (byDateRate.get(date) as any)?.source ?? null;
       const occSnap = occByDate.get(date);
@@ -529,7 +535,7 @@ export default function RevenueHotelDetail() {
           date, daysOut: i, dow,
           isWeekend: dow === 5 || dow === 6,
           currentRate: rate, occupancyPct: occ,
-          pickupDelta, bookingsNow: latest?.bookings_current ?? null,
+          pickupDelta, bookingsNow,
         }, engineSettings, multipliers);
         if (pricingResult.finalRate && pricingResult.finalRate !== rate) {
           suggestedRate = pricingResult.finalRate;
@@ -540,7 +546,7 @@ export default function RevenueHotelDetail() {
       map.set(date, {
         date, dayNum: d.getUTCDate(), dow, isWeekend: dow === 5 || dow === 6, daysOut: i,
         rate, rateSource, occupancy: occ, roomsSold, pickupDelta,
-        bookingsNow: latest?.bookings_current ?? null, bookingsLY: latest?.bookings_last_year ?? null,
+        bookingsNow, bookingsLY: bookingsLost,
         rec, suggestedRate, suggestedDelta,
         abnormal: abnormalDates.has(date),
         minNights: minByDate.get(date) ?? null,
@@ -564,7 +570,7 @@ export default function RevenueHotelDetail() {
       (row as any).momOcc = mom?.occupancy ?? null;
     }
     return map;
-  }, [snapshots, recs, rates, events, minStays, abnormalDates, settings, multipliers, occByDate]);
+  }, [snapshots, recs, rates, events, minStays, abnormalDates, settings, multipliers, occByDate, live.today]);
 
   // Calendar grid for month view
   const gridDays = useMemo(() => {
@@ -703,9 +709,16 @@ export default function RevenueHotelDetail() {
   }
 
   // First load for this property: show the shape of the page, never blanks.
-  if (live.loading && live.roomTypes.length === 0) {
+  if ((live.loading || syncing || syncWaiting || syncError) && live.roomTypes.length === 0) {
     return (
       <div className="min-h-screen bg-background">
+        <WelcomeBackOverlay
+          name={profile?.full_name}
+          step={syncError ? `Refresh paused: ${syncError}` : syncStep || `Opening ${hotelName || "your property"}…`}
+          progress={syncPct || (live.loading ? 42 : 18)}
+          error={syncError}
+          onRetry={() => void runSync(true)}
+        />
         <Header />
         <div className="container mx-auto px-3 sm:px-4 pt-3">
           <MainTabsBar current="revenue" />
