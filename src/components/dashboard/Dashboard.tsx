@@ -755,10 +755,24 @@ export function Dashboard() {
             </div>
 
             {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3" aria-busy="true">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="rounded-lg border p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="h-4 w-32 rounded bg-muted animate-pulse" />
+                      <div className="h-5 w-16 rounded-full bg-muted animate-pulse" />
+                    </div>
+                    <div className="h-3 w-full rounded bg-muted animate-pulse" />
+                    <div className="h-3 w-2/3 rounded bg-muted animate-pulse" />
+                    <div className="flex gap-2 pt-1">
+                      <div className="h-6 w-20 rounded bg-muted animate-pulse" />
+                      <div className="h-6 w-14 rounded bg-muted animate-pulse" />
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : filteredTickets.length === 0 ? (
+
               <div className="text-center py-8 text-muted-foreground">
                 {searchQuery || statusFilter !== 'all' || priorityFilter !== 'all' || departmentFilter !== 'all'
                   ? (t('tickets.noMatchFilters') || 'No tickets match your filters')
