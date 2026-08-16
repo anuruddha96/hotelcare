@@ -20,8 +20,11 @@ import { setTabHotel } from '@/lib/tabHotel';
 
 
 export function HotelSwitcher() {
-  const { profile } = useAuth();
+  const { profile, applyAssignedHotel } = useAuth();
   const { hotels } = useTenant();
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const [currentHotel, setCurrentHotel] = useState<string | null>(profile?.assigned_hotel || null);
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
 
