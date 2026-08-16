@@ -7,6 +7,7 @@ import {
   pickDueRule,
   nextRunAt,
   observationWindow,
+  pricesMatch,
 } from "../../supabase/functions/_shared/pricingRules";
 
 describe("smart pricing — weak demand", () => {
@@ -178,5 +179,24 @@ describe("event surcharge", () => {
   it("respects the per-change and daily caps", () => {
     expect(eventSurcharge({ impact: "high", surcharge: 30, maximumIncrease: 12 })).toBe(12);
     expect(eventSurcharge({ impact: "high", surcharge: 30, remainingDailyRoom: 4 })).toBe(4);
+  });
+});
+
+describe("Previo price matching tolerance", () => {
+  it("confirms a price Previo rounded slightly down", () => {
+    expect(pricesMatch(286.76, 285.88)).toBe(true);
+  });
+
+  it("confirms an exact match", () => {
+    expect(pricesMatch(120, 120)).toBe(true);
+  });
+
+  it("still flags a real difference", () => {
+    expect(pricesMatch(286.76, 275)).toBe(false);
+  });
+
+  it("allows one whole unit on small prices", () => {
+    expect(pricesMatch(40, 39.2)).toBe(true);
+    expect(pricesMatch(40, 37)).toBe(false);
   });
 });
