@@ -293,17 +293,17 @@ export default function RevenueHotelDetail() {
   // Align app context with the property in the URL before anything loads.
   useEffect(() => {
     if (loading || tenantLoading || !profile || !hotelId) return;
-    if (!contextMismatch || contextFixRef.current) return;
+    if (!contextMismatch || contextFixRef.current === hotelId) return;
 
     const allowed = tenantHotels.some((h) => h.hotel_id === hotelId);
     if (!allowed) {
-      contextFixRef.current = true;
+      contextFixRef.current = hotelId;
       toast.error("That property is not available for your account");
       navigate(`/${organizationSlug || profile.organization_slug || ""}/revenue`, { replace: true });
       return;
     }
 
-    contextFixRef.current = true;
+    contextFixRef.current = hotelId;
 
     if (!SWITCHABLE_ROLES.includes(profile.role)) {
       // Cannot switch property: stay on the one this account is assigned to.
@@ -313,14 +313,15 @@ export default function RevenueHotelDetail() {
 
     // Managers may work on any property in their organization, but the whole
     // app must move with them — otherwise prices are edited under the wrong
-    // header, hotel switcher and downstream queries.
+    // header, hotel switcher and downstream queries. Moving the in-memory
+    // profile is enough: every hook refetches, and no page reload is needed
+    // (a reload on mobile is what used to end on a white screen).
     const target = tenantHotels.find((h) => h.hotel_id === hotelId);
     setAlignTo(target?.hotel_name || hotelId);
     setTabHotel(hotelId);
-    void (async () => {
-      await supabase.from("profiles").update({ assigned_hotel: hotelId }).eq("id", profile.id);
-      window.location.replace(window.location.pathname + window.location.search);
-    })();
+    applyAssignedHotel(hotelId);
+    void supabase.from("profiles").update({ assigned_hotel: hotelId }).eq("id", profile.id);
+
   }, [loading, tenantLoading, profile?.id, profile?.role, profile?.assigned_hotel, hotelId, tenantHotels.length]);
 
   useEffect(() => {
