@@ -54,6 +54,8 @@ import { MainTabsBar } from "@/components/layout/MainTabsBar";
 import { formatDistance } from "date-fns";
 import { setTabHotel } from "@/lib/tabHotel";
 import { HotelSwitchOverlay } from "@/components/layout/HotelSwitchOverlay";
+import { RevenueSkeleton } from "@/components/revenue/RevenueSkeleton";
+
 
 
 interface Snap { stay_date: string; bookings_current: number; bookings_last_year: number; delta: number; captured_at: string; }
