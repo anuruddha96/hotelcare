@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, Trash2, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, RefreshCw, CheckCheck } from "lucide-react";
+import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, Trash2, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, RefreshCw, CheckCheck, Star } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -60,6 +60,8 @@ interface Props {
   canEditRates?: boolean;
   /** Internal demand grade per stay date (old-school demand book). */
   demandByDate?: Map<string, { score: number; band: DemandBand; drivers: string[] }>;
+  /** Approved events per stay date, shown as a marker on the demand row. */
+  eventsByDate?: Map<string, { title: string; impact: string }[]>;
   /** Rooms still sellable per `${roomTypeLabel}|${date}`. */
   leftByTypeDate?: Map<string, number>;
   /** Reload the hotel's rates after Previo confirms a price push. */
@@ -249,7 +251,7 @@ interface PendingDraft {
 export default function RateStrategyGrid({
   loading, today, hotelId, organizationSlug, roomTypes, rates, metrics, nights = [],
   pickupWindowDays, onPickupWindowChange, thresholds = DEFAULT_THRESHOLDS, canEditRates = false,
-  demandByDate, leftByTypeDate, onRatesUpdated,
+  demandByDate, eventsByDate, leftByTypeDate, onRatesUpdated,
 }: Props) {
   const { language } = useTranslation();
   useRevenueCurrency(); // re-render when the Ft/€ switch flips
