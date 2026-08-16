@@ -107,5 +107,5 @@ export function usePickupAutomationActions(hotelId?: string | null, limit = 1000
     return map;
   }, [rows]);
 
-  return { rows, byCell, holdsByDate, reload: load };
+  return { rows, byCell, holdsByDate, reload: load, loadDate };
 }
