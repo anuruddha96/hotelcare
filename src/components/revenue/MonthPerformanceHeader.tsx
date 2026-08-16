@@ -47,7 +47,7 @@ function Tile({ label, value, sub, icon, tone, surface, explain }: {
   explain?: { title: string; body: string };
 }) {
   return (
-    <div className={`flex-1 min-w-[128px] rounded-lg border border-l-4 p-3 min-w-0 ${surface ?? "border-l-border"}`}>
+    <div className={`snap-start shrink-0 w-[76%] xs:w-[60%] sm:w-auto sm:flex-1 rounded-lg border border-l-4 p-3 min-w-0 sm:min-w-[128px] ${surface ?? "border-l-border"}`}>
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         {icon}<span className="truncate">{label}</span>
         {explain && <Explain {...explain} />}
