@@ -206,7 +206,9 @@ export default function EventsPanel({ hotelId }: { hotelId: string | null }) {
     if (!orgSlug || !candidates) return;
     const chosen = candidates.filter((_, i) => picked[i]);
     if (!chosen.length) { toast.error("Nothing selected."); return; }
-    const { error } = await (supabase as any).from("demand_events").upsert(
+    // The unique index is on lower(title), so PostgREST cannot resolve it as a
+    // conflict target — duplicates are filtered out client-side before insert.
+    const { error } = await (supabase as any).from("demand_events").insert(
       chosen.map((c) => ({
         organization_slug: orgSlug,
         hotel_id: hotelId,
@@ -218,7 +220,6 @@ export default function EventsPanel({ hotelId }: { hotelId: string | null }) {
         url: c.url, confidence: c.confidence,
         source: "ai", approved: true,
       })),
-      { onConflict: "organization_slug,city,event_date,title", ignoreDuplicates: true },
     );
     if (error) { toast.error(error.message); return; }
     toast.success(`${chosen.length} event${chosen.length === 1 ? "" : "s"} added to the calendar`);
