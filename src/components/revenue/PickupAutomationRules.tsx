@@ -304,6 +304,14 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       sold_out_occupancy_pct: source.rule.sold_out_occupancy_pct ?? 100,
       cancellation_markdown_enabled: source.rule.cancellation_markdown_enabled ?? true,
       cancellation_wait_minutes: source.rule.cancellation_wait_minutes ?? 60,
+      immediate_sell_mode_enabled: source.rule.immediate_sell_mode_enabled ?? true,
+      immediate_window_days: source.rule.immediate_window_days ?? 14,
+      immediate_markdown_step: source.rule.immediate_markdown_step ?? 2,
+      spike_detection_enabled: source.rule.spike_detection_enabled ?? true,
+      spike_threshold_pct: source.rule.spike_threshold_pct ?? 5,
+      spike_lookback_days: source.rule.spike_lookback_days ?? 7,
+      event_surcharge_eur: source.rule.event_surcharge_eur ?? 10,
+      event_surcharge_auto: source.rule.event_surcharge_auto ?? false,
     }));
 
     toast.success(`Copied settings from ${source.label} — still off until you turn it on`);
