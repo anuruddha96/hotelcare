@@ -50,6 +50,14 @@ interface Rule {
   sold_out_occupancy_pct: number;
   cancellation_markdown_enabled: boolean;
   cancellation_wait_minutes: number;
+  immediate_sell_mode_enabled: boolean;
+  immediate_window_days: number;
+  immediate_markdown_step: number;
+  spike_detection_enabled: boolean;
+  spike_threshold_pct: number;
+  spike_lookback_days: number;
+  event_surcharge_eur: number;
+  event_surcharge_auto: boolean;
   last_run_at?: string | null;
   next_run_at?: string | null;
   last_evaluated_at?: string | null;
