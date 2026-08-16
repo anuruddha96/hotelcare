@@ -2087,17 +2087,25 @@ export default function RateStrategyGrid({
                     const latestLabel = latestPickup ? new Intl.DateTimeFormat("en-GB", {
                       timeZone: "Europe/Budapest", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit",
                     }).format(new Date(latestPickup)) : null;
+                    // Rooms lost matter even on a day that nets out to zero:
+                    // "3 new, 3 lost" is a very different day from "no movement".
+                    const lost = m?.roomsLost ?? 0;
                     return (
                       <div
                         key={d}
                         title={pickup === null
                           ? `${d} · pickup not available yet`
-                          : `${d} · ${pickup > 0 ? "+" : ""}${pickup} (${tone.label}) — ${m?.newBookings ?? 0} new, ${m?.cancelledBookings ?? 0} cancelled${latestLabel ? ` · last pickup ${latestLabel}` : ""}`}
+                          : `${d} · ${pickup > 0 ? "+" : ""}${pickup} (${tone.label}) — ${m?.newBookings ?? 0} new, ${lost} lost${latestLabel ? ` · last pickup ${latestLabel}` : ""}`}
                         className={`flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)}`}
                         style={{ width: CELL_W }}
                       >
                         <span>{pickup === null || pickup === 0 ? "·" : `${pickup > 0 ? "+" : ""}${pickup}`}</span>
-                        {latestLabel && pickup !== 0 && <span className="max-w-[56px] truncate text-[8px] font-normal opacity-80">{latestLabel}</span>}
+                        {lost > 0 && (
+                          <span className="text-[8px] font-medium text-destructive">-{lost} lost</span>
+                        )}
+                        {lost === 0 && latestLabel && pickup !== 0 && (
+                          <span className="max-w-[56px] truncate text-[8px] font-normal opacity-80">{latestLabel}</span>
+                        )}
                       </div>
                     );
                   })}

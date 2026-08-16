@@ -9,6 +9,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadPrevioCredentials, hasPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { writePrevioRate, readPrevioRateLevels } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
+import { pricesMatch } from "../_shared/pricingRules.ts";
 
 
 const corsHeaders = {
@@ -512,7 +513,7 @@ Deno.serve(async (req) => {
               const occupancy = Math.max(1, Math.round(Number(d.occupancy) || 2));
               const actual = landed.get(occupancy);
               if (actual === undefined || !Number.isFinite(actual)) continue;
-              const confirmed = Math.abs(Number(actual) - Number(d.new_price)) < 0.01;
+              const confirmed = pricesMatch(Number(d.new_price), Number(actual));
               const updateKey = `${occupancy}|${actual}|${confirmed}|${d.new_price}`;
               const update = updates.get(updateKey) ?? { ids: [], actual, confirmed, requested: Number(d.new_price) };
               update.ids.push(d.id);

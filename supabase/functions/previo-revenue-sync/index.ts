@@ -13,6 +13,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
+import { pricesMatch } from "../_shared/pricingRules.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -758,7 +759,7 @@ serve(async (req) => {
 
         claimedCells.add(`${draft.stay_date}|${draft.obk_id}|${live.ratePlanId}|${draft.occupancy}`);
         const landed = live.price;
-        const confirmed = Math.abs(landed - Number(draft.new_price)) < 0.01;
+        const confirmed = pricesMatch(Number(draft.new_price), landed);
 
         // Previo moved this price again since we last flagged it, and nobody
         // in Hotel Care asked for anything newer: Previo is the truth now.
@@ -1440,6 +1441,11 @@ serve(async (req) => {
     requeuedCells,
     divergentDrafts,
     bookingNights: nights.length,
+    // Loss instrumentation: how many room-nights Previo reported as cancelled
+    // and how many simply vanished between two syncs. Without these counters a
+    // property that never shows negative pickup is impossible to diagnose.
+    cancelledFromPrevio: cancelledNights.length,
+    lostByDisappearance: lostNights.length,
     snapshots: snapshots.length,
     durationMs: Date.now() - started,
     errors,

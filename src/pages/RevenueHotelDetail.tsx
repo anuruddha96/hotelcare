@@ -30,6 +30,7 @@ import StrategyCalendar from "@/components/revenue/StrategyCalendar";
 import StrategyRecommendationsPanel from "@/components/revenue/StrategyRecommendationsPanel";
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
 import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
+import EventsPanel from "@/components/revenue/EventsPanel";
 
 import DemandPricingPanel from "@/components/revenue/DemandPricingPanel";
 
@@ -841,6 +842,11 @@ export default function RevenueHotelDetail() {
             leftByTypeDate={leftByTypeDate}
             onRatesUpdated={live.reload}
           />
+
+          {/* The demand events calendar sits right under the rate & pickup
+              calendar: the events it holds are what the Demand row explains. */}
+          <EventsPanel hotelId={hotelId ?? null} />
+
 
           <PickupHorizonChart metrics={live.metrics} pickupWindowDays={pickupWindow} onPickupWindowChange={setPickupWindow}
             hotels={tenantHotels.map((h) => ({ hotel_id: h.hotel_id, hotel_name: h.hotel_name }))} hotelId={hotelId ?? null}

@@ -9,6 +9,21 @@ export function roundMoney(value: number): number {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
 
+/**
+ * Previo re-derives every price through its own rate-plan maths (occupancy
+ * ladders, currency conversion, rounding), so a requested 286.76 can land as
+ * 285.88. Those sub-percent differences are the same price in practice, and
+ * treating them as failures left hundreds of cells stuck on "still checking".
+ * A price counts as published when it is within 1 unit or 0.5%.
+ */
+export function pricesMatch(requested: number, landed: number): boolean {
+  const req = Number(requested);
+  const got = Number(landed);
+  if (!Number.isFinite(req) || !Number.isFinite(got)) return false;
+  const tolerance = Math.max(1, Math.abs(req) * 0.005);
+  return Math.abs(got - req) <= tolerance + 1e-9;
+}
+
 /** Queue priority. Lower number = published first. */
 export const PUSH_PRIORITY = {
   manual: 10,
