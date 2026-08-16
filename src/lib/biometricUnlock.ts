@@ -164,7 +164,13 @@ export async function enableBiometric(
  * Ask for Face ID / fingerprint and hand back the saved session.
  * Throws when the person cancels or the device refuses.
  */
-export async function unlockWithBiometric(): Promise<StoredSession> {
+export interface UnlockResult {
+  session: StoredSession;
+  /** Re-wrap the rotated tokens Supabase hands back, using this ceremony's key. */
+  rewrap: (next: StoredSession) => Promise<void>;
+}
+
+export async function unlockWithBiometric(): Promise<UnlockResult> {
   const rec = read();
   if (!rec) throw new Error("No quick unlock is saved on this device.");
 
@@ -198,35 +204,26 @@ export async function unlockWithBiometric(): Promise<StoredSession> {
     key,
     bytes(unb64(rec.data)),
   );
-  return JSON.parse(new TextDecoder().decode(plain)) as StoredSession;
-}
+  const session = JSON.parse(new TextDecoder().decode(plain)) as StoredSession;
 
-/**
- * Supabase rotates the refresh token on every sign-in, so the stored copy must
- * be replaced after each successful unlock — otherwise the second unlock fails.
- */
-export async function refreshStoredSession(session: StoredSession): Promise<void> {
-  const rec = read();
-  if (!rec) return;
-  try {
-    const secret = rec.prf ? null : (rec.wrapKey ? unb64(rec.wrapKey) : null);
-    if (rec.prf) {
-      // PRF keys only exist during a biometric ceremony; keep the old blob and
-      // let the next unlock re-save. Handled by callers passing through enable.
-      return;
+  const rewrap = async (next: StoredSession) => {
+    try {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const cipher = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv: bytes(iv) },
+        key,
+        new TextEncoder().encode(JSON.stringify({
+          access_token: next.access_token,
+          refresh_token: next.refresh_token,
+        })),
+      );
+      localStorage.setItem(STORE_KEY, JSON.stringify({
+        ...rec, iv: b64(iv), data: b64(cipher), savedAt: new Date().toISOString(),
+      } satisfies StoredRecord));
+    } catch {
+      // A failed re-wrap only means the next unlock falls back to the password.
     }
-    if (!secret) return;
-    const key = await keyFromSecret(secret);
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const cipher = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv: bytes(iv) },
-      key,
-      new TextEncoder().encode(JSON.stringify(session)),
-    );
-    localStorage.setItem(STORE_KEY, JSON.stringify({
-      ...rec, iv: b64(iv), data: b64(cipher), savedAt: new Date().toISOString(),
-    } satisfies StoredRecord));
-  } catch {
-    // A failed re-wrap simply means the next unlock asks for the password.
-  }
+  };
+
+  return { session, rewrap };
 }
