@@ -70,9 +70,9 @@ const impactTone = (impact: string) =>
  * The demand events calendar: manual entries plus an on-demand AI search for a
  * chosen city and month. Nothing found by AI is used until it is approved here.
  */
-export default function EventsPanel({ hotelId }: { hotelId: string | null }) {
+export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: string | null; selectedMonth?: string }) {
   const [orgSlug, setOrgSlug] = useState<string | null>(null);
-  const [month, setMonth] = useState(() => monthKey(new Date()));
+  const [month, setMonth] = useState(() => selectedMonth ?? monthKey(new Date()));
   const [city, setCity] = useState("Budapest");
   const [country, setCountry] = useState("Hungary");
   const [events, setEvents] = useState<DemandEventRow[]>([]);
@@ -97,6 +97,10 @@ export default function EventsPanel({ hotelId }: { hotelId: string | null }) {
     end.setUTCDate(0);
     return { start, end: end.toISOString().slice(0, 10) };
   }, [month]);
+
+  useEffect(() => {
+    if (selectedMonth) setMonth(selectedMonth);
+  }, [selectedMonth]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -235,13 +239,17 @@ export default function EventsPanel({ hotelId }: { hotelId: string | null }) {
           <span className="inline-flex items-center gap-2">
             <CalendarDays className="h-4 w-4" /> Events &amp; demand calendar
           </span>
-          <span className="flex items-center gap-1">
+          <span className="flex flex-wrap items-center justify-end gap-1">
             <Button variant="outline" size="icon" onClick={() => shiftMonth(-1)} aria-label="Previous month">
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <span className="min-w-[9rem] text-center text-sm font-medium">{fmtMonth(month)}</span>
             <Button variant="outline" size="icon" onClick={() => shiftMonth(1)} aria-label="Next month">
               <ChevronRight className="h-4 w-4" />
+            </Button>
+            <Button size="sm" onClick={runSearch} disabled={searching}>
+              {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              <span className="ml-1.5 hidden sm:inline">Find events</span>
             </Button>
           </span>
         </CardTitle>
@@ -260,7 +268,7 @@ export default function EventsPanel({ hotelId }: { hotelId: string | null }) {
             </CollapsibleTrigger>
           </div>
           <CollapsibleContent>
-            <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto] border rounded-lg p-3 bg-muted/20 mb-4">
+            <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] border rounded-lg p-3 bg-muted/20 mb-4">
               <div>
                 <Label className="text-xs text-muted-foreground">City</Label>
                 <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Budapest" className="h-8" />
@@ -271,10 +279,6 @@ export default function EventsPanel({ hotelId }: { hotelId: string | null }) {
               </div>
               <Button variant="outline" size="sm" className="self-end h-8" onClick={saveLocation} disabled={!hotelId}>
                 Save location
-              </Button>
-              <Button size="sm" className="self-end h-8" onClick={runSearch} disabled={searching}>
-                {searching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-                Find events with AI
               </Button>
             </div>
           </CollapsibleContent>

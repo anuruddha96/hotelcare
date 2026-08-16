@@ -855,7 +855,7 @@ export default function RevenueHotelDetail() {
             eventsByDate={eventsByDate}
           />
 
-          <EventsPanel hotelId={hotelId ?? null} />
+          <EventsPanel hotelId={hotelId ?? null} selectedMonth={selectedMonth} />
           <PickupMovementBoard
             metrics={live.metrics}
             windowDays={pickupWindow}

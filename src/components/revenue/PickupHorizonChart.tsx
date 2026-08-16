@@ -450,7 +450,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                 cursor={{ fill: "hsl(var(--muted) / 0.4)" }}
                 contentStyle={{ fontSize: 11, padding: "4px 8px" }}
                 labelFormatter={(label, payload) => {
-                  const date = payload[0]?.payload?.date;
+                  const date = payload && payload[0]?.payload?.date;
                   const dayEvents = eventsByDate?.get(date);
                   return (
                     <div className="font-medium mb-1">
