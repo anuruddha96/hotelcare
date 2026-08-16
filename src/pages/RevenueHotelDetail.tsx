@@ -93,14 +93,14 @@ function addDays(d: Date, n: number) { const x = new Date(d); x.setUTCDate(x.get
 function iso(d: Date) { return d.toISOString().slice(0,10); }
 
 export default function RevenueHotelDetail() {
-  const { profile, loading } = useAuth();
+  const { profile, loading, applyAssignedHotel } = useAuth();
   const { hotels: tenantHotels, loading: tenantLoading } = useTenant();
   const { organizationSlug, hotelId } = useParams<{ organizationSlug: string; hotelId: string }>();
   const navigate = useNavigate();
   // The URL property and the property shown in the header must never disagree:
   // editing Memories' price list while the app context says Ottofiori is a
   // cross-property accident waiting to happen.
-  const contextFixRef = useRef(false);
+  const contextFixRef = useRef<string | null>(null);
   const [alignTo, setAlignTo] = useState<string | null>(null);
   const contextMismatch = !!hotelId && !!profile?.assigned_hotel && profile.assigned_hotel !== hotelId;
 
