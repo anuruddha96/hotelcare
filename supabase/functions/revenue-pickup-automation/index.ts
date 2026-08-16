@@ -28,6 +28,10 @@ import {
   cancellationHold,
   decisionReasonText,
   cancellationHoldText,
+  immediateWindowDecision,
+  detectDemandSpike,
+  eventSurcharge,
+  demandSignalText,
 } from "../_shared/pricingRules.ts";
 
 
@@ -92,6 +96,16 @@ interface Rule {
   // Cancellation cooldown: a cancelled date waits before it may be marked down.
   cancellation_markdown_enabled: boolean;
   cancellation_wait_minutes: number;
+  // Immediate selling window (0..N days): sell now, protect later.
+  immediate_sell_mode_enabled: boolean;
+  immediate_window_days: number;
+  immediate_markdown_step: number;
+  // Demand spikes and events
+  spike_detection_enabled: boolean;
+  spike_threshold_pct: number;
+  spike_lookback_days: number;
+  event_surcharge_eur: number;
+  event_surcharge_auto: boolean;
 }
 
 const json = (body: unknown, status = 200) =>
@@ -745,11 +759,25 @@ Deno.serve(async (req) => {
             continue;
           }
 
+          // Inside the immediate selling window the goal is to sell the room,
+          // not to protect rate: a date that is not tight is stimulated every
+          // cycle with a bigger step, and the "demand is healthy" block is
+          // bypassed. Sold-out / cap / floor guards above still apply.
+          const immediate = immediateWindowDecision({
+            enabled: rule.immediate_sell_mode_enabled !== false,
+            daysOut: dayDiff(local.date, rate.stay_date),
+            immediateWindowDays: Math.max(0, Number(rule.immediate_window_days ?? 14)),
+            occupancyPct: guardsFor?.pct ?? null,
+            tightOccupancyPct: Number(rule.sold_out_occupancy_pct ?? 100) - 10,
+            baseStep: Number(rule.no_pickup_decrease ?? 0.5),
+            immediateStep: Number(rule.immediate_markdown_step ?? 0),
+          });
+
           // Smart pricing: only genuinely weak demand is marked down. A date
           // whose occupancy is already at or above the "weak" threshold is
           // left alone even when this single hour brought no booking; near-term
           // dates below the threshold are the ones worth stimulating.
-          if (rule.smart_pricing_enabled) {
+          if (rule.smart_pricing_enabled && !immediate.forceMarkdown) {
             const allowed = smartMarkdownAllowed({
               occupancyPct: guardsFor?.pct ?? null,
               daysOut: dayDiff(local.date, rate.stay_date),
@@ -770,7 +798,7 @@ Deno.serve(async (req) => {
 
           if (!allowedStepByDate.has(rate.stay_date)) {
             allowedStepByDate.set(rate.stay_date, dateAllowedStep({
-              decreasePerEvaluation: Number(rule.no_pickup_decrease ?? 0.5),
+              decreasePerEvaluation: immediate.step,
               stayDateMovedToday: movedTodayByDate.get(rate.stay_date) ?? 0,
               maxDailyDecreasePerDate: Number(rule.max_daily_decrease_per_date || 10),
             }));
@@ -906,7 +934,11 @@ Deno.serve(async (req) => {
       // queue. Dates that were marked down in this same evaluation are left
       // alone so one date can only move one way per cycle.
       // ------------------------------------------------------------------
-      if (rule.smart_pricing_enabled && Number(rule.strong_demand_increase || 0) > 0) {
+      if (
+        rule.smart_pricing_enabled &&
+        (Number(rule.strong_demand_increase || 0) > 0 ||
+          (rule.spike_detection_enabled !== false && Number(rule.event_surcharge_eur || 0) >= 0))
+      ) {
         const local = localParts(rule.run_timezone || "Europe/Budapest");
         const slot = `${local.time.slice(0, 2)}:${String(Math.floor(Number(local.time.slice(3, 5)) / 15) * 15).padStart(2, "0")}`;
         const horizon = new Date(`${local.date}T00:00:00Z`);
@@ -937,6 +969,94 @@ Deno.serve(async (req) => {
           const sold = Number(row.rooms_sold);
           const total = Number(row.rooms_available);
           leftByDate.set(row.stay_date, Number.isFinite(sold) && Number.isFinite(total) ? total - sold : null);
+        }
+
+        // ---- demand spikes: occupancy now vs. occupancy N days ago --------
+        const spikeEnabled = rule.spike_detection_enabled !== false;
+        const lookbackDays = Math.max(1, Number(rule.spike_lookback_days ?? 7));
+        const immediateDays = Math.max(0, Number(rule.immediate_window_days ?? 14));
+        const spikeByDate = new Map<string, { deltaPct: number }>();
+        const eventByDate = new Map<string, { title: string; impact: string }>();
+
+        if (spikeEnabled) {
+          const thenDate = new Date(`${local.date}T00:00:00Z`);
+          thenDate.setUTCDate(thenDate.getUTCDate() - lookbackDays);
+          const thenIso = thenDate.toISOString().slice(0, 10);
+          const { data: pastSnapshots } = await admin
+            .from("revenue_daily_snapshots")
+            .select("stay_date, occupancy_pct, captured_date")
+            .eq("hotel_id", rule.hotel_id)
+            .gte("stay_date", local.date)
+            .lte("stay_date", horizonDate)
+            .lte("captured_date", thenIso)
+            .order("captured_date", { ascending: false })
+            .limit(20000);
+          const thenOcc = new Map<string, number>();
+          for (const row of (pastSnapshots ?? []) as any[]) {
+            if (thenOcc.has(row.stay_date)) continue;
+            if (row.occupancy_pct === null || row.occupancy_pct === undefined) continue;
+            thenOcc.set(row.stay_date, Number(row.occupancy_pct));
+          }
+          // Portfolio-wide lifts are not spikes: measure each date against the
+          // average movement of the whole horizon.
+          const deltas: number[] = [];
+          for (const [date, before] of thenOcc) {
+            const now = occByDate.get(date);
+            if (now === null || now === undefined) continue;
+            deltas.push(Number(now) - before);
+          }
+          const baseline = deltas.length
+            ? deltas.reduce((a, b) => a + b, 0) / deltas.length
+            : 0;
+          for (const [date, before] of thenOcc) {
+            const result = detectDemandSpike({
+              enabled: true,
+              occupancyNowPct: occByDate.get(date) ?? null,
+              occupancyThenPct: before,
+              thresholdPct: Number(rule.spike_threshold_pct ?? 5),
+              daysOut: dayDiff(local.date, date),
+              immediateWindowDays: immediateDays,
+              baselineDeltaPct: baseline,
+            });
+            if (result.spike) spikeByDate.set(date, { deltaPct: result.deltaPct });
+          }
+        }
+
+        // ---- approved events on the stay dates ----------------------------
+        if (Number(rule.event_surcharge_eur || 0) > 0) {
+          const { data: eventRows } = await admin
+            .from("demand_events")
+            .select("event_date, end_date, title, expected_impact, recurs_annually, approved")
+            .eq("organization_slug", rule.organization_slug)
+            .eq("approved", true)
+            .limit(2000);
+          const years = [Number(local.date.slice(0, 4)), Number(local.date.slice(0, 4)) + 1];
+          for (const ev of (eventRows ?? []) as any[]) {
+            const spans: Array<[string, string]> = [];
+            const startMd = String(ev.event_date).slice(5);
+            const endMd = ev.end_date ? String(ev.end_date).slice(5) : startMd;
+            if (ev.recurs_annually) {
+              for (const y of years) spans.push([`${y}-${startMd}`, `${y}-${endMd}`]);
+            } else {
+              spans.push([String(ev.event_date), String(ev.end_date ?? ev.event_date)]);
+            }
+            for (const [start, end] of spans) {
+              const cursor = new Date(`${start}T00:00:00Z`);
+              const last = new Date(`${end}T00:00:00Z`);
+              if (Number.isNaN(cursor.getTime()) || Number.isNaN(last.getTime())) continue;
+              for (let guard = 0; cursor <= last && guard < 60; guard++) {
+                const iso = cursor.toISOString().slice(0, 10);
+                if (iso >= local.date && iso <= horizonDate) {
+                  const existing = eventByDate.get(iso);
+                  const impact = String(ev.expected_impact ?? "medium");
+                  if (!existing || impact === "high") {
+                    eventByDate.set(iso, { title: String(ev.title), impact });
+                  }
+                }
+                cursor.setUTCDate(cursor.getUTCDate() + 1);
+              }
+            }
+          }
         }
         const raisedTodayByDate = new Map<string, number>();
         for (const row of (strongToday ?? []) as any[]) {
@@ -969,8 +1089,11 @@ Deno.serve(async (req) => {
           const editedAt = manualHold.get(rate.stay_date);
           if (editedAt && Date.now() - Date.parse(editedAt) < holdMs) continue;
 
+          const spike = spikeByDate.get(rate.stay_date) ?? null;
+          const event = rule.event_surcharge_auto ? eventByDate.get(rate.stay_date) ?? null : null;
+
           if (!stepByDate.has(rate.stay_date)) {
-            stepByDate.set(rate.stay_date, strongDemandStep({
+            let base = strongDemandStep({
               occupancyPct: occByDate.get(rate.stay_date) ?? null,
               daysOut: dayDiff(local.date, rate.stay_date),
               longLeadDays: leadDays,
@@ -980,7 +1103,38 @@ Deno.serve(async (req) => {
               raisedToday: raisedTodayByDate.get(rate.stay_date) ?? 0,
               maxDailyIncreasePerDate: Number(rule.max_daily_increase_per_date || 0),
               markedDownToday: markdownDatesThisRun.has(rate.stay_date),
-            }));
+            });
+
+            const blockedForRise = markdownDatesThisRun.has(rate.stay_date);
+            const room = Math.max(
+              0,
+              Number(rule.max_daily_increase_per_date || 0) -
+                Math.max(0, Number(raisedTodayByDate.get(rate.stay_date) ?? 0)) - base,
+            );
+
+            // A date filling ahead of pace is worth a step even when it has
+            // not yet crossed the "already full" threshold.
+            if (base <= 0 && spike && !blockedForRise) {
+              let spikeStep = Math.max(0, Number(rule.strong_demand_increase || 0));
+              if (rule.maximum_increase) spikeStep = Math.min(spikeStep, Number(rule.maximum_increase));
+              base = Math.max(0, Math.min(spikeStep, room + base));
+            }
+
+            // A confirmed event on the date adds a bounded surcharge on top.
+            if (event && !blockedForRise) {
+              base += eventSurcharge({
+                impact: event.impact,
+                surcharge: Number(rule.event_surcharge_eur || 0),
+                maximumIncrease: rule.maximum_increase,
+                remainingDailyRoom: Math.max(
+                  0,
+                  Number(rule.max_daily_increase_per_date || 0) -
+                    Math.max(0, Number(raisedTodayByDate.get(rate.stay_date) ?? 0)) - base,
+                ),
+              });
+            }
+
+            stepByDate.set(rate.stay_date, base);
           }
           const step = stepByDate.get(rate.stay_date) ?? 0;
           if (step <= 0) continue;
@@ -1012,14 +1166,24 @@ Deno.serve(async (req) => {
             status: rule.auto_publish ? "queued" : "suggested", decision_type: "smart_strong_demand",
             observation_from: evalWindow.from, observation_to: runStartedAt,
             net_pickup: 0, schedule_slot: slot, local_business_date: local.date, cap_applied: step,
-            decision_reason: "strong_demand",
-            reason_detail: decisionReasonText({
-              kind: "strong_demand",
-              occupancyPct: occByDate.get(rate.stay_date) ?? null,
-              daysOut: dayDiff(local.date, rate.stay_date),
-              amount: newPrice - current,
-              currency: rate.currency ?? rule.currency ?? "EUR",
-            }),
+            decision_reason: event ? "event_demand" : spike ? "demand_spike" : "strong_demand",
+            reason_detail: (spike || event)
+              ? demandSignalText({
+                amount: newPrice - current,
+                currency: rate.currency ?? rule.currency ?? "EUR",
+                spikeDeltaPct: spike?.deltaPct ?? null,
+                lookbackDays: Number(rule.spike_lookback_days ?? 7),
+                eventTitle: event?.title ?? null,
+                eventImpact: event?.impact ?? null,
+                daysOut: dayDiff(local.date, rate.stay_date),
+              })
+              : decisionReasonText({
+                kind: "strong_demand",
+                occupancyPct: occByDate.get(rate.stay_date) ?? null,
+                daysOut: dayDiff(local.date, rate.stay_date),
+                amount: newPrice - current,
+                currency: rate.currency ?? rule.currency ?? "EUR",
+              }),
           });
           if (rule.auto_publish) strongDrafts.push({
             hotel_id: rule.hotel_id, organization_slug: rule.organization_slug, stay_date: rate.stay_date,

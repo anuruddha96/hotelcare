@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { eur } from "@/lib/revenueAnalytics";
 import DemandRateOutlookChart, { type OutlookDay } from "./DemandRateOutlookChart";
 import MarketSignalsPanel from "./MarketSignalsPanel";
+import EventsPanel from "./EventsPanel";
 import RecommendationOutcomesPanel from "./RecommendationOutcomesPanel";
 
 
@@ -500,6 +501,9 @@ export default function RevenueIntelligencePanel({ hotelId }: Props) {
 
       {/* Phase 3 — external demand signals feeding the analysis */}
       <MarketSignalsPanel hotelId={hotelId} />
+
+      {/* Events calendar — manual entries plus AI-found events feeding the surcharge */}
+      <EventsPanel hotelId={hotelId} />
 
       {/* Phase 4 — measured outcomes of applied recommendations */}
       <RecommendationOutcomesPanel hotelId={hotelId} />

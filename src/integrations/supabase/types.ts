@@ -783,6 +783,78 @@ export type Database = {
         }
         Relationships: []
       }
+      demand_events: {
+        Row: {
+          approved: boolean
+          category: string
+          city: string
+          confidence: number | null
+          country: string
+          created_at: string
+          created_by: string | null
+          end_date: string | null
+          event_date: string
+          expected_impact: string
+          hotel_id: string | null
+          id: string
+          notes: string | null
+          organization_slug: string
+          recurs_annually: boolean
+          source: string
+          surcharge_eur: number | null
+          title: string
+          updated_at: string
+          url: string | null
+          venue: string | null
+        }
+        Insert: {
+          approved?: boolean
+          category?: string
+          city?: string
+          confidence?: number | null
+          country?: string
+          created_at?: string
+          created_by?: string | null
+          end_date?: string | null
+          event_date: string
+          expected_impact?: string
+          hotel_id?: string | null
+          id?: string
+          notes?: string | null
+          organization_slug: string
+          recurs_annually?: boolean
+          source?: string
+          surcharge_eur?: number | null
+          title: string
+          updated_at?: string
+          url?: string | null
+          venue?: string | null
+        }
+        Update: {
+          approved?: boolean
+          category?: string
+          city?: string
+          confidence?: number | null
+          country?: string
+          created_at?: string
+          created_by?: string | null
+          end_date?: string | null
+          event_date?: string
+          expected_impact?: string
+          hotel_id?: string | null
+          id?: string
+          notes?: string | null
+          organization_slug?: string
+          recurs_annually?: boolean
+          source?: string
+          surcharge_eur?: number | null
+          title?: string
+          updated_at?: string
+          url?: string | null
+          venue?: string | null
+        }
+        Relationships: []
+      }
       demand_overrides: {
         Row: {
           created_at: string
@@ -1607,6 +1679,8 @@ export type Database = {
           idle_decay_hours: number
           is_engine_enabled: boolean
           low_demand_decrease_eur: number
+          market_city: string | null
+          market_country: string | null
           max_daily_change_eur: number
           min_adr: number | null
           notify_email: string[]
@@ -1659,6 +1733,8 @@ export type Database = {
           idle_decay_hours?: number
           is_engine_enabled?: boolean
           low_demand_decrease_eur?: number
+          market_city?: string | null
+          market_country?: string | null
           max_daily_change_eur?: number
           min_adr?: number | null
           notify_email?: string[]
@@ -1711,6 +1787,8 @@ export type Database = {
           idle_decay_hours?: number
           is_engine_enabled?: boolean
           low_demand_decrease_eur?: number
+          market_city?: string | null
+          market_country?: string | null
           max_daily_change_eur?: number
           min_adr?: number | null
           notify_email?: string[]
@@ -4566,6 +4644,7 @@ export type Database = {
           cancelled_at: string | null
           created_at: string
           created_at_pms: string | null
+          detection_source: string
           guests: number | null
           hotel_id: string
           id: string
@@ -4591,6 +4670,7 @@ export type Database = {
           cancelled_at?: string | null
           created_at?: string
           created_at_pms?: string | null
+          detection_source?: string
           guests?: number | null
           hotel_id: string
           id?: string
@@ -4616,6 +4696,7 @@ export type Database = {
           cancelled_at?: string | null
           created_at?: string
           created_at_pms?: string | null
+          detection_source?: string
           guests?: number | null
           hotel_id?: string
           id?: string
@@ -5042,10 +5123,15 @@ export type Database = {
           created_by: string | null
           currency: string
           evaluation_interval_minutes: number
+          event_surcharge_auto: boolean
+          event_surcharge_eur: number
           future_booking_window_days: number
           high_occupancy_pct: number
           hotel_id: string
           id: string
+          immediate_markdown_step: number
+          immediate_sell_mode_enabled: boolean
+          immediate_window_days: number
           is_enabled: boolean
           last_evaluated_at: string | null
           last_evaluation_error: string | null
@@ -5082,6 +5168,9 @@ export type Database = {
           smart_pricing_enabled: boolean
           sold_out_guard_enabled: boolean
           sold_out_occupancy_pct: number
+          spike_detection_enabled: boolean
+          spike_lookback_days: number
+          spike_threshold_pct: number
           strong_demand_increase: number
           updated_at: string
           updated_by: string | null
@@ -5099,10 +5188,15 @@ export type Database = {
           created_by?: string | null
           currency?: string
           evaluation_interval_minutes?: number
+          event_surcharge_auto?: boolean
+          event_surcharge_eur?: number
           future_booking_window_days?: number
           high_occupancy_pct?: number
           hotel_id: string
           id?: string
+          immediate_markdown_step?: number
+          immediate_sell_mode_enabled?: boolean
+          immediate_window_days?: number
           is_enabled?: boolean
           last_evaluated_at?: string | null
           last_evaluation_error?: string | null
@@ -5139,6 +5233,9 @@ export type Database = {
           smart_pricing_enabled?: boolean
           sold_out_guard_enabled?: boolean
           sold_out_occupancy_pct?: number
+          spike_detection_enabled?: boolean
+          spike_lookback_days?: number
+          spike_threshold_pct?: number
           strong_demand_increase?: number
           updated_at?: string
           updated_by?: string | null
@@ -5156,10 +5253,15 @@ export type Database = {
           created_by?: string | null
           currency?: string
           evaluation_interval_minutes?: number
+          event_surcharge_auto?: boolean
+          event_surcharge_eur?: number
           future_booking_window_days?: number
           high_occupancy_pct?: number
           hotel_id?: string
           id?: string
+          immediate_markdown_step?: number
+          immediate_sell_mode_enabled?: boolean
+          immediate_window_days?: number
           is_enabled?: boolean
           last_evaluated_at?: string | null
           last_evaluation_error?: string | null
@@ -5196,6 +5298,9 @@ export type Database = {
           smart_pricing_enabled?: boolean
           sold_out_guard_enabled?: boolean
           sold_out_occupancy_pct?: number
+          spike_detection_enabled?: boolean
+          spike_lookback_days?: number
+          spike_threshold_pct?: number
           strong_demand_increase?: number
           updated_at?: string
           updated_by?: string | null

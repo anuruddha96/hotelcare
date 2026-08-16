@@ -571,3 +571,154 @@ export function cancellationHoldText(
   void releaseAt;
   return `Price drop on hold: ${count} cancellation${count === 1 ? "" : "s"} just came in and the rule waits ${waitMinutes} minute${waitMinutes === 1 ? "" : "s"} before lowering the price, in case the room sells again.`;
 }
+
+// --------------------------------------------------------------------------
+// Immediate selling window (0..N days out)
+// --------------------------------------------------------------------------
+
+export interface ImmediateWindowInput {
+  enabled: boolean;
+  daysOut: number;
+  immediateWindowDays: number;
+  occupancyPct: number | null | undefined;
+  /** At or above this occupancy a near date is tight enough to hold/raise. */
+  tightOccupancyPct?: number | null;
+  /** Normal per-evaluation decrease. */
+  baseStep: number;
+  /** Larger decrease used inside the window so a stale date actually moves. */
+  immediateStep?: number | null;
+}
+
+export interface ImmediateWindowDecision {
+  inWindow: boolean;
+  /** Skip the smart "demand is healthy" block: inside the window we sell. */
+  forceMarkdown: boolean;
+  allowIncrease: boolean;
+  step: number;
+}
+
+/**
+ * Inside the immediate window the goal is conversion, not rate: a date that is
+ * not filling is marked down every cycle (down to the floor, which the caller
+ * still enforces), and prices only rise when the date is genuinely tight.
+ */
+export function immediateWindowDecision(input: ImmediateWindowInput): ImmediateWindowDecision {
+  const window = Math.max(0, Number(input.immediateWindowDays) || 0);
+  const days = Math.max(0, Number(input.daysOut) || 0);
+  const inWindow = !!input.enabled && window > 0 && days <= window;
+  const base = Math.max(0, Number(input.baseStep) || 0);
+  if (!inWindow) {
+    return { inWindow: false, forceMarkdown: false, allowIncrease: true, step: base };
+  }
+  const tight = Number(input.tightOccupancyPct ?? 85);
+  const occ = input.occupancyPct === null || input.occupancyPct === undefined
+    ? null
+    : Number(input.occupancyPct);
+  const isTight = occ !== null && occ >= tight;
+  const step = roundMoney(Math.max(base, Number(input.immediateStep ?? 0) || 0));
+  return {
+    inWindow: true,
+    forceMarkdown: !isTight,
+    allowIncrease: isTight,
+    step: isTight ? base : step,
+  };
+}
+
+// --------------------------------------------------------------------------
+// Demand spikes (occupancy running ahead of pace)
+// --------------------------------------------------------------------------
+
+export interface DemandSpikeInput {
+  enabled: boolean;
+  occupancyNowPct: number | null | undefined;
+  occupancyThenPct: number | null | undefined;
+  thresholdPct: number;
+  daysOut: number;
+  /** Spikes are a long-lead signal; inside the selling window we just sell. */
+  immediateWindowDays?: number | null;
+  /** Average move across the surrounding month, to ignore portfolio-wide lifts. */
+  baselineDeltaPct?: number | null;
+}
+
+export interface DemandSpikeResult {
+  spike: boolean;
+  deltaPct: number;
+  excessPct: number;
+}
+
+/**
+ * A stay date whose occupancy jumped noticeably faster than the rest of the
+ * month is filling ahead of pace — the classic signal of an event or a demand
+ * surge worth pricing for.
+ */
+export function detectDemandSpike(input: DemandSpikeInput): DemandSpikeResult {
+  const now = input.occupancyNowPct;
+  const then = input.occupancyThenPct;
+  if (
+    !input.enabled ||
+    now === null || now === undefined ||
+    then === null || then === undefined
+  ) return { spike: false, deltaPct: 0, excessPct: 0 };
+
+  const delta = Math.round((Number(now) - Number(then)) * 10) / 10;
+  const baseline = Number(input.baselineDeltaPct ?? 0) || 0;
+  const excess = Math.round((delta - baseline) * 10) / 10;
+  const threshold = Math.max(0.1, Number(input.thresholdPct) || 5);
+  const window = Math.max(0, Number(input.immediateWindowDays ?? 0) || 0);
+  const spike = Number(input.daysOut) > window && delta >= threshold && excess >= threshold;
+  return { spike, deltaPct: delta, excessPct: excess };
+}
+
+// --------------------------------------------------------------------------
+// Event surcharge
+// --------------------------------------------------------------------------
+
+export interface EventSurchargeInput {
+  impact: string | null | undefined;
+  surcharge: number;
+  maximumIncrease?: number | null;
+  /** Currency still available under the per-date daily rise cap. */
+  remainingDailyRoom?: number | null;
+}
+
+/**
+ * A confirmed event on a stay date is worth more than a normal step. Scaled by
+ * how strong the event is and clamped by the same caps as every other rise.
+ */
+export function eventSurcharge(input: EventSurchargeInput): number {
+  const base = Math.max(0, Number(input.surcharge) || 0);
+  if (base <= 0) return 0;
+  const impact = String(input.impact ?? "medium").toLowerCase();
+  const factor = impact === "high" ? 1 : impact === "medium" ? 0.5 : 0;
+  let amount = roundMoney(base * factor);
+  if (amount <= 0) return 0;
+  if (input.maximumIncrease) amount = Math.min(amount, Number(input.maximumIncrease));
+  if (input.remainingDailyRoom !== null && input.remainingDailyRoom !== undefined) {
+    amount = Math.min(amount, Math.max(0, Number(input.remainingDailyRoom)));
+  }
+  return Math.max(0, roundMoney(amount));
+}
+
+/** Plain-language sentence for a spike/event driven increase. */
+export function demandSignalText(input: {
+  amount: number;
+  currency?: string | null;
+  spikeDeltaPct?: number | null;
+  lookbackDays?: number | null;
+  eventTitle?: string | null;
+  eventImpact?: string | null;
+  daysOut?: number | null;
+}): string {
+  const parts: string[] = [];
+  if (input.spikeDeltaPct) {
+    parts.push(`occupancy rose ${Math.round(Number(input.spikeDeltaPct))}% in the last ${Math.max(1, Number(input.lookbackDays ?? 7))} days`);
+  }
+  if (input.eventTitle) {
+    parts.push(`${input.eventTitle}${input.eventImpact ? ` (${input.eventImpact} impact)` : ""} falls on this date`);
+  }
+  const why = parts.length ? parts.join(" and ") : "demand is building for this date";
+  const tail = input.daysOut !== null && input.daysOut !== undefined
+    ? ` (${input.daysOut} day${Number(input.daysOut) === 1 ? "" : "s"} before arrival)`
+    : "";
+  return `Raised by ${money(input.amount, input.currency)} because ${why}${tail}.`;
+}
