@@ -2002,18 +2002,8 @@ export default function RateStrategyGrid({
                 {multiMode ? "Done selecting" : "Select days"}
               </Button>
             )}
-            {canEditRates && (
-              <Button
-                size="sm"
-                variant={rangeMode ? "default" : "outline"}
-                className="h-8 gap-1.5 text-xs"
-                title="Drag a block across any room types and any dates, then price it"
-                onClick={() => { setRangeMode((v) => !v); clearRange(); }}
-              >
-                <MousePointerSquareDashed className="h-3.5 w-3.5" />
-                {rangeMode ? "Done selecting cells" : "Select cells"}
-              </Button>
-            )}
+
+
 
             <Button
               size="sm"
