@@ -738,6 +738,24 @@ Deno.serve(async (req) => {
             continue;
           }
 
+          // Sold out means untouched in BOTH directions: a discount on a date
+          // with nothing left to sell cannot win a booking, it only devalues
+          // the rate if a cancellation arrives later.
+          if (soldOutBlocksAnyChange({
+            enabled: rule.sold_out_guard_enabled !== false,
+            roomsLeft: guardsFor?.left ?? null,
+            occupancyPct: guardsFor?.pct ?? null,
+            soldOutOccupancyPct: Number(rule.sold_out_occupancy_pct ?? 100),
+          })) {
+            heldSoldOut++;
+            if (!blockedDates.has(rate.stay_date)) {
+              blockedDates.set(rate.stay_date, "sold_out");
+              markdownBlocks["sold_out"] = (markdownBlocks["sold_out"] ?? 0) + 1;
+            }
+            continue;
+          }
+
+
           // A cancellation is not an instant reason to discount: the room often
           // sells again within the hour. The date waits out its cooldown, and
           // the wait itself is recorded so the cell history can explain it.
