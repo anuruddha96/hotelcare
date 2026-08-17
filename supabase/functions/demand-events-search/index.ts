@@ -36,7 +36,18 @@ function normTitle(t: string): string {
     .trim();
 }
 
+/** The model occasionally emits control characters inside names — strip them. */
+function clean(v: unknown, max: number): string {
+  return String(v ?? "")
+    // deno-lint-ignore no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
 const isDate = (v: unknown) => /^\d{4}-\d{2}-\d{2}$/.test(String(v ?? ""));
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
