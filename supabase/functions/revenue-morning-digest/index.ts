@@ -50,7 +50,7 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
       .select("stay_date, res_id, nightly_price_eur, created_at_pms")
       .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon).limit(20000),
     admin.from("revenue_pickup_automation_actions")
-      .select("stay_date, old_price, new_price, reason, created_at")
+      .select("stay_date, old_price, new_price, decision_reason, created_at")
       .eq("hotel_id", hotelId)
       .gte("created_at", `${addDays(today, -1)}T00:00:00Z`)
       .limit(200),
@@ -83,7 +83,7 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
     .filter((s) => s.occ != null && s.occ < 60)
     .slice(0, 14);
 
-  const changes = (actions ?? []) as { stay_date: string; old_price: number | null; new_price: number | null; reason: string | null }[];
+  const changes = (actions ?? []) as { stay_date: string; old_price: number | null; new_price: number | null; decision_reason: string | null }[];
 
   return { pickupNights, pickupRevenue, pickupRes: pickupRes.size, soldToday, attention, changes };
 }
@@ -93,7 +93,7 @@ function renderHtml(hotelId: string, today: string, d: Awaited<ReturnType<typeof
     ? d.attention.map((a) => `<li>${a.date} — ${a.occ}% sold</li>`).join("")
     : "<li>Nothing under 60% in the next 14 days.</li>";
   const changes = d.changes.length
-    ? d.changes.slice(0, 15).map((c) => `<li>${c.stay_date}: ${c.old_price ?? "—"} → ${c.new_price ?? "—"} <span style="color:#666">${c.reason ?? ""}</span></li>`).join("")
+    ? d.changes.slice(0, 15).map((c) => `<li>${c.stay_date}: ${c.old_price ?? "—"} → ${c.new_price ?? "—"} <span style="color:#666">${c.decision_reason ?? ""}</span></li>`).join("")
     : "<li>The automation made no change overnight.</li>";
 
   return `
