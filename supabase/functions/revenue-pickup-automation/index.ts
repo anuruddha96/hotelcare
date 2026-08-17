@@ -111,7 +111,7 @@ interface Rule {
   spike_threshold_pct: number;
   spike_lookback_days: number;
   event_surcharge_eur: number;
-  event_surcharge_eur: number;
+
   event_surcharge_auto: boolean;
   // Lead-time bands + far-out booking surcharge
   lead_bands_enabled: boolean;
