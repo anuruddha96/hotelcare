@@ -43,8 +43,20 @@ import { rememberedRange, writeNumberPref } from "@/lib/revenuePrefs";
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
+/** An approved demand event as shown on the calendar's demand row. */
+export interface DemandEventDetail {
+  title: string;
+  impact: string;
+  category?: string | null;
+  venue?: string | null;
+  url?: string | null;
+  notes?: string | null;
+  start?: string;
+  end?: string;
+}
 
 interface Props {
+
   loading: boolean;
   today: string;
   hotelId?: string | null;
@@ -61,7 +73,8 @@ interface Props {
   /** Internal demand grade per stay date (old-school demand book). */
   demandByDate?: Map<string, { score: number; band: DemandBand; drivers: string[] }>;
   /** Approved events per stay date, shown as a marker on the demand row. */
-  eventsByDate?: Map<string, { title: string; impact: string }[]>;
+  eventsByDate?: Map<string, DemandEventDetail[]>;
+
   /** Rooms still sellable per `${roomTypeLabel}|${date}`. */
   leftByTypeDate?: Map<string, number>;
   /** Reload the hotel's rates after Previo confirms a price push. */
@@ -256,6 +269,10 @@ export default function RateStrategyGrid({
   const { language } = useTranslation();
   useRevenueCurrency(); // re-render when the Ft/€ switch flips
   const isMobile = useIsMobile();
+
+  /** Date whose demand breakdown and events are open in the detail dialog. */
+  const [demandDay, setDemandDay] = useState<string | null>(null);
+
 
   /**
    * Reading size of the calendar, saved on the user's profile so it follows
@@ -2409,13 +2426,15 @@ export default function RateStrategyGrid({
                       ? `${d} · demand ${BAND_LABEL[dem.band]} (${dem.score}/100)\n${dem.drivers.slice(0, 4).join("\n")}`
                       : `${d} · demand not available yet`;
                     return (
-                      <div
+                      <button
                         key={d}
+                        type="button"
+                        onClick={() => setDemandDay(d)}
                         title={evs.length
-                          ? `${demandLine}\n\nEvents:\n${evs.map(e => `• ${e.title} (${e.impact} impact)`).join("\n")}`
-                          : demandLine}
-                        className={`relative flex items-center justify-center shrink-0 text-[10px] font-semibold ${dem ? demandTone(dem.band) : `text-muted-foreground ${dayBg(d, i)}`} ${dayEdge(d)}`}
-                        style={{ width: CELL_W }}
+                          ? `${demandLine}\n\nEvents:\n${evs.map(e => `• ${e.title} (${e.impact} impact)`).join("\n")}\n\nClick for details`
+                          : `${demandLine}\n\nClick for details`}
+                        className={`relative flex items-center justify-center shrink-0 text-[10px] font-semibold hover:ring-1 hover:ring-inset hover:ring-primary/50 ${dem ? demandTone(dem.band) : `text-muted-foreground ${dayBg(d, i)}`} ${dayEdge(d)}`}
+                        style={{ width: CELL_W, height: "100%" }}
                       >
                         {dem ? DEMAND_SHORT[dem.band] : "·"}
                         {evs.length > 0 && (
@@ -2425,8 +2444,9 @@ export default function RateStrategyGrid({
                             }`}
                           />
                         )}
-                      </div>
+                      </button>
                     );
+
                   })}
                 </div>
               </div>
@@ -3317,6 +3337,95 @@ export default function RateStrategyGrid({
 
         </DialogContent>
       </Dialog>
+
+      {/* Demand day detail: the grade, why it moved, and what is on in town. */}
+      <Dialog open={!!demandDay} onOpenChange={(o) => !o && setDemandDay(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {demandDay
+                ? new Date(`${demandDay}T00:00:00Z`).toLocaleDateString(undefined, {
+                    timeZone: "UTC", weekday: "long", day: "numeric", month: "long", year: "numeric",
+                  })
+                : ""}
+            </DialogTitle>
+          </DialogHeader>
+
+          {(() => {
+            if (!demandDay) return null;
+            const dem = demandByDate?.get(demandDay);
+            const evs = eventsByDate?.get(demandDay) ?? [];
+            return (
+              <div className="max-h-[70vh] space-y-4 overflow-y-auto">
+                <div className="rounded-lg border p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Demand grade</span>
+                    {dem ? (
+                      <Badge className={demandTone(dem.band)} variant="secondary">
+                        {BAND_LABEL[dem.band]} · {dem.score}/100
+                      </Badge>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">Not available yet</span>
+                    )}
+                  </div>
+                  {dem && dem.drivers.length > 0 && (
+                    <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                      {dem.drivers.map((dr, i) => <li key={i}>• {dr}</li>)}
+                    </ul>
+                  )}
+                </div>
+
+                <div>
+                  <p className="mb-2 text-sm font-medium">
+                    Events in town {evs.length ? `(${evs.length})` : ""}
+                  </p>
+                  {evs.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No events recorded for this date. Add one in the events &amp; demand calendar below the grid.
+                    </p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {evs.map((e, i) => (
+                        <li key={`${e.title}-${i}`} className="rounded-lg border p-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-medium">{e.title}</span>
+                            <Badge variant="secondary" className={
+                              e.impact === "high" ? "bg-red-100 text-red-700"
+                                : e.impact === "medium" ? "bg-amber-100 text-amber-700"
+                                : "bg-muted text-muted-foreground"
+                            }>
+                              {e.impact} impact
+                            </Badge>
+                            {e.category && <Badge variant="outline">{e.category}</Badge>}
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {e.start === e.end || !e.end
+                              ? e.start
+                              : `${e.start} → ${e.end}`}
+                            {e.venue ? ` · ${e.venue}` : ""}
+                          </p>
+                          {e.notes && <p className="mt-1 text-xs text-muted-foreground">{e.notes}</p>}
+                          {e.url && (
+                            <a
+                              href={e.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-1 inline-block text-[11px] underline underline-offset-2 text-muted-foreground hover:text-foreground"
+                            >
+                              Open the source
+                            </a>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </Card>
+
   );
 }

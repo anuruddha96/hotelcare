@@ -139,7 +139,10 @@ export default function RevenueHotelDetail() {
 
   // Approved demand events (manual + AI) shown on the calendar's demand row.
   const [demandEvents, setDemandEvents] = useState<
-    { title: string; event_date: string; end_date: string | null; expected_impact: string; recurs_annually: boolean }[]
+    {
+      title: string; event_date: string; end_date: string | null; expected_impact: string;
+      recurs_annually: boolean; category: string | null; venue: string | null; url: string | null; notes: string | null;
+    }[]
   >([]);
   useEffect(() => {
     let cancelled = false;
@@ -149,7 +152,7 @@ export default function RevenueHotelDetail() {
         .select("organization_slug").eq("id", session.user?.id ?? "").maybeSingle();
       if (!profile?.organization_slug) return;
       const { data } = await (supabase as any).from("demand_events")
-        .select("title,event_date,end_date,expected_impact,recurs_annually")
+        .select("title,event_date,end_date,expected_impact,recurs_annually,category,venue,url,notes")
         .eq("organization_slug", profile.organization_slug)
         .eq("approved", true)
         .limit(1000);
@@ -159,13 +162,11 @@ export default function RevenueHotelDetail() {
   }, [hotelId]);
 
   const eventsByDate = useMemo(() => {
-    const out = new Map<string, { title: string; impact: string }[]>();
+    const out = new Map<string, {
+      title: string; impact: string; category: string | null; venue: string | null;
+      url: string | null; notes: string | null; start: string; end: string;
+    }[]>();
     const years = [new Date().getUTCFullYear(), new Date().getUTCFullYear() + 1];
-    const push = (iso: string, title: string, impact: string) => {
-      const list = out.get(iso) ?? [];
-      list.push({ title, impact });
-      out.set(iso, list);
-    };
     for (const e of demandEvents) {
       // A yearly event is stored once and projected onto this and next year.
       const startYears = e.recurs_annually ? years : [Number(e.event_date.slice(0, 4))];
@@ -174,13 +175,28 @@ export default function RevenueHotelDetail() {
         const endSrc = e.end_date ?? e.event_date;
         const end = new Date(`${y}-${endSrc.slice(5)}T00:00:00Z`);
         if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) continue;
+        const startIso = start.toISOString().slice(0, 10);
+        const endIso = end.toISOString().slice(0, 10);
         for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
-          push(d.toISOString().slice(0, 10), e.title, e.expected_impact);
+          const iso = d.toISOString().slice(0, 10);
+          const list = out.get(iso) ?? [];
+          list.push({
+            title: e.title,
+            impact: e.expected_impact,
+            category: e.category,
+            venue: e.venue,
+            url: e.url,
+            notes: e.notes,
+            start: startIso,
+            end: endIso,
+          });
+          out.set(iso, list);
         }
       }
     }
     return out;
   }, [demandEvents]);
+
 
   // Rooms still sellable per room type and date.
   const leftByTypeDate = useMemo(() => {
