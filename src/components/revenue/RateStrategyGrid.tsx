@@ -2981,7 +2981,7 @@ export default function RateStrategyGrid({
 
 
       {/* Price the selected block */}
-      <Dialog open={rangeToolOpen} onOpenChange={(o) => setRangeToolOpen(o)}>
+      <Dialog open={rangeToolOpen} onOpenChange={(o) => { setRangeToolOpen(o); if (!o) clearRange(); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-base">
