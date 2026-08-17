@@ -509,9 +509,14 @@ serve(async (req) => {
           refused: !!needsScope,
         },
       ]);
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (history.length === 0) {
+        title = await makeTitle(OPENAI_API_KEY, question);
+        patch.title = title;
+      }
       await supabase
         .from("assistant_threads")
-        .update({ updated_at: new Date().toISOString() })
+        .update(patch)
         .eq("id", threadId)
         .eq("user_id", ctx.userId);
     }
