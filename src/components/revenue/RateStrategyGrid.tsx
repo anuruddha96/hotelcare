@@ -2813,25 +2813,27 @@ export default function RateStrategyGrid({
 
 
 
-                    const picked = rangeMode && inRange(rowIdx, i);
+                    const picked = inRange(rowIdx, i);
                     const cellButton = (
                       <button
                         key={d}
                         type="button"
+                        data-cell-row={rowIdx}
+                        data-cell-date={i}
                         disabled={!canEditRates}
                         onPointerEnter={() => {
-                          if (rangeMode && rangeDragging.current) { setRangeFocus({ row: rowIdx, date: i }); return; }
+                          if (cellPointerEnter(rowIdx, i)) return;
                           void loadCellHistory(d); void loadAutomationDate(d);
                         }}
                         onPointerDown={(e) => {
-                          if (!rangeMode || !canEditRates) return;
-                          e.preventDefault();
-                          rangePointerDown(rowIdx, i, e.shiftKey || (isMobile && !!rangeAnchor));
+                          if (!canEditRates) return;
+                          cellPointerDown(rowIdx, i, e);
                         }}
                         onClick={() => {
                           if (!canEditRates) return;
-                          // While picking a block, a tap only draws the selection.
-                          if (rangeMode) return;
+                          // A drag just finished — the pricing tool is opening.
+                          if (suppressClick.current || cellDragging) return;
+
                           // On a phone there is no hover, so a tap tells the
                           // cell's story first and offers editing from there.
                           if (isMobile) {
