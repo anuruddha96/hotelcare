@@ -59,6 +59,7 @@ Deno.serve(async (req) => {
       error: j.error,
       outputTypes: (j.output ?? []).map((o: any) => o.type),
       outputText: (j.output_text ?? "").slice(0, 1200),
+      message: JSON.stringify((j.output ?? []).filter((o: any) => o.type === "message")).slice(0, 2000),
     };
   } catch { /* raw below */ }
   return new Response(JSON.stringify({ httpStatus: r.status, parsed, raw: parsed ? undefined : text.slice(0, 1500) }, null, 2), {
