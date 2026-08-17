@@ -3841,6 +3841,7 @@ export default function RateStrategyGrid({
         hotelId={hotelId}
         date={dayChangesDate}
         onOpenChange={(o) => { if (!o) setDayChangesDate(null); }}
+        onEditPrices={canEditRates ? (d) => { setDayChangesDate(null); openDayTool([d]); } : undefined}
       />
     </Card>
 
