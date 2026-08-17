@@ -56,6 +56,7 @@ interface EventEdit {
   recurs_annually: boolean;
 }
 
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const CATEGORIES = ["concert", "festival", "sports", "conference", "fair", "holiday", "other"];
 const IMPACTS = [
   { value: "high", label: "High impact" },
@@ -93,6 +94,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
   const [skipped, setSkipped] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [edit, setEdit] = useState<EventEdit | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
 
   // manual form
