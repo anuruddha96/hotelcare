@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -21,6 +21,8 @@ export interface AssistantMessage {
 /** Threads + messages for the signed-in user, persisted in the database. */
 export function useAssistant(threadId: string | null) {
   const { user, profile } = useAuth();
+  /** Threads created in this session already hold their messages in state. */
+  const localThreadsRef = useRef<Set<string>>(new Set());
   const [threads, setThreads] = useState<AssistantThread[]>([]);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -48,6 +50,8 @@ export function useAssistant(threadId: string | null) {
         setMessages([]);
         return;
       }
+      // Never wipe an in-flight conversation we just started locally.
+      if (localThreadsRef.current.has(threadId)) return;
       setLoadingMessages(true);
       const { data } = await supabase
         .from("assistant_messages")
@@ -79,6 +83,7 @@ export function useAssistant(threadId: string | null) {
       .select("id,title,updated_at")
       .single();
     if (error || !data) return null;
+    localThreadsRef.current.add(data.id);
     setThreads((t) => [data as AssistantThread, ...t]);
     return data.id;
   }, [user, profile]);
@@ -120,11 +125,9 @@ export function useAssistant(threadId: string | null) {
             created_at: new Date().toISOString(),
           },
         ]);
-        // First question becomes the thread title.
-        const thread = threads.find((t) => t.id === activeThreadId);
-        if (!thread || thread.title === "New chat") {
-          const title = question.slice(0, 60);
-          await supabase.from("assistant_threads").update({ title }).eq("id", activeThreadId);
+        // The backend names the conversation from the first question.
+        const title = (data as any)?.title as string | null | undefined;
+        if (title) {
           setThreads((t) => t.map((x) => (x.id === activeThreadId ? { ...x, title } : x)));
         }
       } catch (e) {

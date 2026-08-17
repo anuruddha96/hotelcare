@@ -64,7 +64,12 @@ export default function AssistantLauncher() {
       </Button>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-md p-3 flex flex-col gap-2">
+        <SheetContent
+          side="right"
+          className="w-full sm:max-w-md p-3 flex flex-col gap-2 h-[100dvh] max-h-[100dvh] overflow-hidden
+                     pt-[calc(0.75rem+env(safe-area-inset-top))] pb-[env(safe-area-inset-bottom)]
+                     duration-300 data-[state=open]:duration-300"
+        >
           <div className="flex items-center justify-between gap-2 pt-1">
             <div className="flex items-center gap-2">
               <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">

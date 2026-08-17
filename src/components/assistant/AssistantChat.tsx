@@ -157,12 +157,16 @@ export default function AssistantChat({
         <div ref={bottomRef} />
       </div>
 
-      <div className="pt-2 border-t mt-2">
+      <div className="pt-2 border-t mt-2 pb-[env(safe-area-inset-bottom)] bg-background">
         <div className="flex items-end gap-2">
           <Textarea
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onFocus={() => {
+              // iOS keyboard: keep the composer and the last reply in view.
+              setTimeout(() => bottomRef.current?.scrollIntoView({ block: "end" }), 250);
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -170,8 +174,12 @@ export default function AssistantChat({
               }
             }}
             rows={1}
+            enterKeyHint="send"
+            autoCapitalize="sentences"
+            autoCorrect="on"
             placeholder="Ask anything…"
-            className="min-h-[42px] max-h-32 resize-none"
+            /* text-base keeps iOS from zooming the page on focus */
+            className="min-h-[44px] max-h-32 resize-none text-base leading-snug"
           />
           <Button
             type="button"

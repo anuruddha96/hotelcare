@@ -308,7 +308,32 @@ HARD RULES
 - You are read-only: never claim to have changed a price, an assignment or a ticket. Explain how the person can do it instead.
 
 STYLE
-- Answer in ${language}. Be short and practical: a couple of sentences or a small markdown list. Give concrete numbers with their date range when you used data.`;
+- ALWAYS reply in the same language the person wrote their latest message in. If that is unclear, use ${language}.
+- Be short and practical: a couple of sentences or a small markdown list. Give concrete numbers with their date range when you used data.`;
+}
+
+/** Short conversation title in the user's own language. */
+async function makeTitle(apiKey: string, question: string): Promise<string> {
+  try {
+    const res = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: CHEAP_MODEL,
+        instructions:
+          "Write a 3-5 word title for this chat, in the same language as the message. Plain text, no quotes, no punctuation at the end.",
+        input: question.slice(0, 500),
+        store: false,
+        max_output_tokens: 40,
+      }),
+    });
+    if (!res.ok) return question.slice(0, 60);
+    const data = await res.json();
+    const t = String(data.output_text ?? "").replace(/["\n]/g, " ").trim();
+    return t ? t.slice(0, 60) : question.slice(0, 60);
+  } catch {
+    return question.slice(0, 60);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -405,6 +430,7 @@ serve(async (req) => {
     ];
 
     const scopesUsed = new Set<string>();
+    let title: string | null = null;
     let answer = "";
 
     // Tool loop (max 4 rounds), non-streaming per round but each round is short.
@@ -484,9 +510,14 @@ serve(async (req) => {
           refused: !!needsScope,
         },
       ]);
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (history.length === 0) {
+        title = await makeTitle(OPENAI_API_KEY, question);
+        patch.title = title;
+      }
       await supabase
         .from("assistant_threads")
-        .update({ updated_at: new Date().toISOString() })
+        .update(patch)
         .eq("id", threadId)
         .eq("user_id", ctx.userId);
     }
@@ -501,7 +532,7 @@ serve(async (req) => {
       model,
     });
 
-    return json({ answer, model, scopes_used: [...scopesUsed], needs_scope: needsScope });
+    return json({ answer, model, scopes_used: [...scopesUsed], needs_scope: needsScope, title });
   } catch (e) {
     console.error("assistant-chat failed", e);
     return json({ error: e instanceof Error ? e.message : "Unexpected error" }, 500);
