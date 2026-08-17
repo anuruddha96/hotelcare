@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
   if (!cfg) return new Response("no config", { status: 404, headers: corsHeaders });
 
   const creds = loadPrevioCredentials((cfg as any).credentials_secret_name);
-  if (url.searchParams.get("setmin")) {
+  if (url.searchParams.get("setmin") || url.searchParams.get("setinv")) {
     const { data: maps } = await service
       .from("previo_rate_plan_mapping")
       .select("previo_rate_plan_id, previo_room_type_id").eq("hotel_id", hotelId);
@@ -55,8 +55,8 @@ Deno.serve(async (req) => {
           obkId: String(m.previo_room_type_id).split(":").pop()!,
           prlId: String(m.previo_rate_plan_id),
           from, to,
-          minStay: Number(url.searchParams.get("setmin")),
-          roomsToSell: null,
+          minStay: url.searchParams.get("setmin") ? Number(url.searchParams.get("setmin")) : null,
+          roomsToSell: url.searchParams.get("setinv") ? Number(url.searchParams.get("setinv")) : null,
         },
       });
       out.push({ obk: m.previo_room_type_id, ...res.attempts[0] });
