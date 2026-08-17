@@ -1776,6 +1776,9 @@ Deno.serve(async (req) => {
               : String(rate.room_type_name ?? "").trim().toLowerCase() === String(ev.room_type_name ?? "").trim().toLowerCase();
             if (!sameRoom) continue;
           }
+          // This room type has nothing left for that date — raising it can only
+          // look wrong later. The pickup is still recorded, the cell is not moved.
+          if (typeSoldOut(rate.room_type_name, rate.obk_id, rate.stay_date)) { heldSoldOut++; continue; }
           const oldPrice = Number(rate.price);
           if (!Number.isFinite(oldPrice) || oldPrice <= 0) continue;
 
