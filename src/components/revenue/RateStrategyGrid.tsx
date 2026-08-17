@@ -2968,48 +2968,17 @@ export default function RateStrategyGrid({
         )}
       </CardContent>
 
-      {/* Cell-block selection bar: what is picked, and what to do with it. */}
-      {rangeMode && (
-        <div className="fixed inset-x-0 bottom-0 z-[60] border-t bg-card/95 px-3 py-2.5 shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.35)] backdrop-blur animate-fade-in sm:inset-x-auto sm:bottom-6 sm:right-6 sm:rounded-full sm:border sm:px-4 sm:py-2">
-          <div className="mx-auto flex max-w-2xl items-center gap-2">
-            <MousePointerSquareDashed className="h-4 w-4 shrink-0 text-primary" />
-            <div className="min-w-0 flex-1 text-xs">
-              {rangeCells.length === 0 ? (
-                <span className="text-muted-foreground">
-                  {isMobile
-                    ? "Tap a price to start, then tap another to close the block."
-                    : "Drag across any prices — room types down, dates across. Shift-click extends."}
-                </span>
-              ) : (
-                <span>
-                  <span className="font-medium">{rangeCells.length} price{rangeCells.length === 1 ? "" : "s"} selected</span>
-                  <span className="text-muted-foreground">
-                    {" · "}{(rangeRect ? rangeRect.r1 - rangeRect.r0 + 1 : 0)} row{rangeRect && rangeRect.r1 - rangeRect.r0 === 0 ? "" : "s"}
-                    {" × "}{(rangeRect ? rangeRect.d1 - rangeRect.d0 + 1 : 0)} date{rangeRect && rangeRect.d1 - rangeRect.d0 === 0 ? "" : "s"}
-                  </span>
-                </span>
-              )}
-            </div>
-            {rangeCells.length > 0 && (
-              <>
-                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={clearRange}>
-                  Clear
-                </Button>
-                <Button size="sm" className="h-8 text-xs" onClick={() => setRangeToolOpen(true)}>
-                  Change prices
-                </Button>
-              </>
-            )}
-            <Button
-              size="icon" variant="ghost" className="h-8 w-8"
-              aria-label="Leave cell selection"
-              onClick={() => { setRangeMode(false); clearRange(); }}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+      {/* Live counter while a block is being dragged out. */}
+      {cellDragging && rangeRect && (
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full border bg-card/95 px-4 py-2 text-xs shadow-lg backdrop-blur animate-fade-in">
+          <span className="font-medium">{rangeCells.length} price{rangeCells.length === 1 ? "" : "s"}</span>
+          <span className="text-muted-foreground">
+            {" · "}{rangeRect.r1 - rangeRect.r0 + 1} row{rangeRect.r1 === rangeRect.r0 ? "" : "s"}
+            {" × "}{rangeRect.d1 - rangeRect.d0 + 1} date{rangeRect.d1 === rangeRect.d0 ? "" : "s"}
+          </span>
         </div>
       )}
+
 
       {/* Price the selected block */}
       <Dialog open={rangeToolOpen} onOpenChange={(o) => setRangeToolOpen(o)}>
