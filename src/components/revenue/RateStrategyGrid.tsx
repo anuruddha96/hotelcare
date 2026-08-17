@@ -262,6 +262,18 @@ interface PendingDraft {
   push_error?: string | null;
 }
 
+/** How long a price has been waiting for Previo's read-back, in plain words. */
+function waitLabel(stamp?: string | null): string | null {
+  const t = Date.parse(String(stamp ?? ""));
+  if (!Number.isFinite(t)) return null;
+  const mins = Math.floor((Date.now() - t) / 60000);
+  if (mins < 2) return null;
+  if (mins < 60) return `${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) return `${hours} h`;
+  return `${Math.floor(hours / 24)} days`;
+}
+
 
 /**
  * Previo-style pricelist: room types down a FROZEN left column with one
