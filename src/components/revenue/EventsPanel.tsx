@@ -344,56 +344,106 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
           </CollapsibleContent>
         </Collapsible>
 
-        {/* AI candidates awaiting approval */}
-        {candidates && candidates.length > 0 && (
-          <div className="rounded-lg border p-3 space-y-2">
-            <div className="flex items-center justify-between">
+        {/* AI search result: what is new, and what we already have */}
+        {searchedMonth === month && candidates && (
+          <div className="rounded-lg border p-3 space-y-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
-                <p className="text-sm font-medium">Suggested for {fmtMonth(month)} — tick the ones to keep</p>
+                <p className="text-sm font-medium">
+                  Search result for {fmtMonth(month)} — {candidates.length} new, {alreadyAdded.length} already in your calendar
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  Dates were read from the linked sources.
-                  {skipped > 0 && ` ${skipped} duplicate${skipped === 1 ? "" : "s"} already in your calendar were skipped.`}
+                  Dates were read from the linked sources. Tick the ones you want to keep.
                 </p>
               </div>
-              <Button size="sm" onClick={saveSelected}>Add selected</Button>
+              <div className="flex items-center gap-1">
+                {candidates.length > 0 && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setPicked(Object.fromEntries(candidates.map((_, i) => [i, true])))}
+                    >
+                      All
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setPicked({})}>None</Button>
+                    <Button size="sm" onClick={saveSelected}>Add selected</Button>
+                  </>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Dismiss search result"
+                  onClick={() => { setCandidates(null); setAlreadyAdded([]); setSearchedMonth(null); }}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
-            <ul className="space-y-1">
-              {candidates.map((c, i) => (
-                <li key={`${c.event_date}-${c.title}`} className="flex items-start gap-2 text-sm">
-                  <Checkbox
-                    checked={!!picked[i]}
-                    onCheckedChange={(v) => setPicked((p) => ({ ...p, [i]: !!v }))}
-                    className="mt-0.5"
-                  />
-                  <div className="flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">{c.title}</span>
-                      <Badge variant="secondary" className={impactTone(c.expected_impact)}>{c.expected_impact}</Badge>
-                      {c.recurs_annually && (
-                        <Badge variant="outline" className="gap-1"><Repeat className="h-3 w-3" /> yearly</Badge>
+
+            {candidates.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Nothing new was found for this month{alreadyAdded.length ? " — everything found is already saved below." : "."}
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {candidates.map((c, i) => (
+                  <li key={`${c.event_date}-${c.title}`} className="flex items-start gap-2 text-sm">
+                    <Checkbox
+                      checked={!!picked[i]}
+                      onCheckedChange={(v) => setPicked((p) => ({ ...p, [i]: !!v }))}
+                      className="mt-0.5"
+                    />
+                    <div className="flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">{c.title}</span>
+                        <Badge variant="secondary" className={impactTone(c.expected_impact)}>{c.expected_impact}</Badge>
+                        <Badge variant="outline" className="border-emerald-300 text-emerald-700">new</Badge>
+                        {c.recurs_annually && (
+                          <Badge variant="outline" className="gap-1"><Repeat className="h-3 w-3" /> yearly</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {fmtDay(c.event_date)}{c.end_date ? ` – ${fmtDay(c.end_date)}` : ""}
+                        {c.venue ? ` · ${c.venue}` : ""}
+                        {c.confidence != null ? ` · confidence ${Math.round(c.confidence * 100)}%` : ""}
+                      </p>
+                      {c.url && (
+                        <a
+                          href={c.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                        >
+                          <ExternalLink className="h-3 w-3" /> Check the dates on the source
+                        </a>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {fmtDay(c.event_date)}{c.end_date ? ` – ${fmtDay(c.end_date)}` : ""}
-                      {c.venue ? ` · ${c.venue}` : ""}
-                      {c.confidence != null ? ` · confidence ${Math.round(c.confidence * 100)}%` : ""}
-                    </p>
-                    {c.url && (
-                      <a
-                        href={c.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                      >
-                        <ExternalLink className="h-3 w-3" /> Check the dates on the source
-                      </a>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {alreadyAdded.length > 0 && (
+              <div className="rounded-md bg-muted/30 p-2">
+                <p className="mb-1 text-xs font-medium text-muted-foreground">
+                  Already in your calendar ({alreadyAdded.length})
+                </p>
+                <ul className="space-y-0.5">
+                  {alreadyAdded.map((c) => (
+                    <li key={`dup-${c.event_date}-${c.title}`} className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Check className="h-3 w-3 shrink-0 text-emerald-600" />
+                      <span className="truncate">
+                        {fmtDay(c.event_date)}{c.end_date ? ` – ${fmtDay(c.end_date)}` : ""} · {c.title}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
+
 
         {/* the month's events */}
         <div className="space-y-2">
