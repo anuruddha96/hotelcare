@@ -168,15 +168,92 @@ Deno.serve(async (req) => {
       q = q.in("status", ["draft", "failed"]);
     }
 
-    const { data: drafts, error: draftErr } = await q;
+    const { data: loadedDrafts, error: draftErr } = await q;
     if (draftErr) throw draftErr;
-    if (!drafts || drafts.length === 0) {
+    let drafts = loadedDrafts ?? [];
+    if (drafts.length === 0) {
       if (requestedRunId) {
         await admin.from("revenue_rate_push_runs").update({
           status: "completed", finished_at: new Date().toISOString(),
         }).eq("id", requestedRunId).in("status", ["queued", "processing"]);
       }
       return json({ ok: true, pushed: 0, failed: 0, message: "Nothing to push." });
+    }
+
+    // Final safety gate at the PMS boundary. Most edits arrive through
+    // revenue-enqueue-rates, but older tools and direct staged drafts can skip
+    // that entry point. Re-check physical inventory here so no sold-out room
+    // type/date can ever reach Previo, regardless of how the draft was made.
+    let skippedSoldOut = 0;
+    try {
+      const dates = drafts.map((draft: any) => String(draft.stay_date)).sort();
+      const [{ data: capacityRows }, { data: nightRows }] = await Promise.all([
+        admin.from("room_types").select("name,pms_room_id,num_rooms,counts_toward_inventory")
+          .eq("hotel_id", hotelId).eq("organization_slug", hotelOrgSlug),
+        admin.from("revenue_booking_nights").select("stay_date,obk_id,room_type_name")
+          .eq("hotel_id", hotelId).eq("organization_slug", hotelOrgSlug)
+          .gte("stay_date", dates[0]).lte("stay_date", dates[dates.length - 1]).limit(50000),
+      ]);
+      const capacity = new Map<string, number>();
+      for (const row of capacityRows ?? []) {
+        const rooms = Number((row as any).num_rooms);
+        if ((row as any).counts_toward_inventory === false || !Number.isFinite(rooms) || rooms <= 0) continue;
+        const name = String((row as any).name ?? "").trim().toLowerCase();
+        const obk = String((row as any).pms_room_id ?? "").trim();
+        if (name) capacity.set(`name:${name}`, rooms);
+        if (obk) capacity.set(`obk:${obk}`, rooms);
+      }
+      const sold = new Map<string, number>();
+      for (const row of nightRows ?? []) {
+        const date = String((row as any).stay_date);
+        const name = String((row as any).room_type_name ?? "").trim().toLowerCase();
+        const obk = String((row as any).obk_id ?? "").trim();
+        if (name) sold.set(`${date}|name:${name}`, (sold.get(`${date}|name:${name}`) ?? 0) + 1);
+        if (obk) sold.set(`${date}|obk:${obk}`, (sold.get(`${date}|obk:${obk}`) ?? 0) + 1);
+      }
+      const blocked: any[] = [];
+      const allowed: any[] = [];
+      for (const draft of drafts as any[]) {
+        const obk = String(draft.obk_id ?? "").trim();
+        const name = String(draft.room_type_name ?? "").trim().toLowerCase();
+        const identity = obk && capacity.has(`obk:${obk}`) ? `obk:${obk}` : `name:${name}`;
+        const rooms = capacity.get(identity);
+        if (rooms && (sold.get(`${draft.stay_date}|${identity}`) ?? 0) >= rooms) blocked.push(draft);
+        else allowed.push(draft);
+      }
+      skippedSoldOut = blocked.length;
+      if (blocked.length > 0) {
+        const blockedIds = blocked.map((draft) => draft.id);
+        const now = new Date().toISOString();
+        await Promise.all([
+          admin.from("revenue_rate_drafts").update({
+            status: "superseded", superseded_at: now,
+            push_error: "Skipped because this room type is sold out on this date",
+            confirmation_status: "skipped",
+          }).in("id", blockedIds),
+          requestedRunId
+            ? admin.from("revenue_rate_push_items").update({
+                status: "skipped", error: "Room type sold out",
+              }).eq("run_id", requestedRunId).in("draft_id", blockedIds)
+            : Promise.resolve(),
+        ]);
+      }
+      drafts = allowed;
+    } catch (soldOutError) {
+      // Fail closed: an unavailable inventory check must never become a route
+      // for accidentally publishing prices on rooms that may be sold out.
+      console.error("final sold-out check failed", soldOutError);
+      return json({ error: "Could not verify room availability before publishing. Please refresh and try again." }, 503);
+    }
+
+    if (drafts.length === 0) {
+      if (requestedRunId) {
+        await admin.from("revenue_rate_push_runs").update({
+          status: "completed", processed_count: skippedSoldOut,
+          finished_at: new Date().toISOString(), last_error: null,
+        }).eq("id", requestedRunId);
+      }
+      return json({ ok: true, pushed: 0, failed: 0, skippedSoldOut, message: "Sold-out room types were skipped." });
     }
 
     // Exactly one publishing worker may talk to Previo at a time, anywhere in
