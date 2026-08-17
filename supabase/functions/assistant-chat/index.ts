@@ -430,6 +430,7 @@ serve(async (req) => {
     ];
 
     const scopesUsed = new Set<string>();
+    let title: string | null = null;
     let answer = "";
 
     // Tool loop (max 4 rounds), non-streaming per round but each round is short.
@@ -531,7 +532,7 @@ serve(async (req) => {
       model,
     });
 
-    return json({ answer, model, scopes_used: [...scopesUsed], needs_scope: needsScope });
+    return json({ answer, model, scopes_used: [...scopesUsed], needs_scope: needsScope, title });
   } catch (e) {
     console.error("assistant-chat failed", e);
     return json({ error: e instanceof Error ? e.message : "Unexpected error" }, 500);
