@@ -336,11 +336,17 @@ Deno.serve(async (req) => {
       storedLevels.set(key, levels);
     }
 
-    /** Gap-free occupancy ladder for one date + room type (EQC error 3092). */
+    /** Gap-free occupancy ladder for one date + room type (EQC error 3092).
+     *  Every level is a whole currency unit — the mirror can hold cents from
+     *  Previo's own maths, and re-sending those was the source of decimal
+     *  prices appearing in the pricelist. */
     const ladderFor = (g: Group): Array<{ occupancy: number; price: number }> => {
-      const wanted = new Map<number, number>(storedLevels.get(`${g.stay_date}|${g.obkId}`) ?? []);
+      const wanted = new Map<number, number>();
+      for (const [occupancy, price] of storedLevels.get(`${g.stay_date}|${g.obkId}`) ?? []) {
+        wanted.set(occupancy, Math.round(Number(price)));
+      }
       for (const d of g.drafts) {
-        wanted.set(Math.max(1, Math.round(Number(d.occupancy) || 2)), Number(d.new_price));
+        wanted.set(Math.max(1, Math.round(Number(d.occupancy) || 2)), Math.round(Number(d.new_price)));
       }
       const maxOccupancy = Math.max(...wanted.keys());
       const firstKnown = Array.from(wanted.entries()).sort((a, b) => a[0] - b[0])[0]?.[1];
@@ -349,10 +355,11 @@ Deno.serve(async (req) => {
       let previous = firstKnown;
       for (let occupancy = 1; occupancy <= maxOccupancy; occupancy += 1) {
         previous = wanted.get(occupancy) ?? previous;
-        levels.push({ occupancy, price: previous });
+        levels.push({ occupancy, price: Math.round(previous) });
       }
       return levels;
     };
+
 
     // A season-wide change is normally the same ladder repeated over many days.
     // EQC accepts a DateRange, so identical consecutive days collapse into one

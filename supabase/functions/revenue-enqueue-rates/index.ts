@@ -69,9 +69,53 @@ Deno.serve(async (req) => {
     for (const change of parsed.data.changes) {
       byCell.set(`${change.stay_date}|${change.room_type_name}|${change.occupancy}`, change);
     }
-    const changes = [...byCell.values()];
+    let changes = [...byCell.values()];
+
+    // A sold-out room type has nothing left to sell on that date, so changing
+    // its price is noise (and can even hurt future rate integrity). Those cells
+    // are dropped here; every other date/room type in the same selection is
+    // still published.
+    let skippedSoldOut = 0;
+    try {
+      const dateList = changes.map((c) => c.stay_date).sort();
+      const [{ data: capacityRows }, { data: nightRows }] = await Promise.all([
+        admin.from("room_types").select("name, num_rooms, counts_toward_inventory").eq("hotel_id", hotelId),
+        admin.from("revenue_booking_nights").select("stay_date, room_type_name")
+          .eq("hotel_id", hotelId)
+          .gte("stay_date", dateList[0]).lte("stay_date", dateList[dateList.length - 1])
+          .limit(50000),
+      ]);
+      const capacity = new Map<string, number>();
+      for (const row of capacityRows ?? []) {
+        const rooms = Number((row as any).num_rooms);
+        if ((row as any).counts_toward_inventory === false || !Number.isFinite(rooms) || rooms <= 0) continue;
+        capacity.set(String((row as any).name).trim().toLowerCase(), rooms);
+      }
+      const sold = new Map<string, number>();
+      for (const row of nightRows ?? []) {
+        const key = `${(row as any).stay_date}|${String((row as any).room_type_name ?? "").trim().toLowerCase()}`;
+        sold.set(key, (sold.get(key) ?? 0) + 1);
+      }
+      if (capacity.size > 0) {
+        const kept = changes.filter((change) => {
+          const name = change.room_type_name.trim().toLowerCase();
+          const rooms = capacity.get(name);
+          if (!rooms) return true;
+          return (sold.get(`${change.stay_date}|${name}`) ?? 0) < rooms;
+        });
+        skippedSoldOut = changes.length - kept.length;
+        if (kept.length > 0) changes = kept;
+      }
+    } catch (soldOutError) {
+      console.error("sold-out filter skipped", soldOutError);
+    }
+    if (changes.length === 0) {
+      return json({ error: "Every selected room type is sold out on those dates — nothing to publish." }, 400);
+    }
+
     const runId = crypto.randomUUID();
     const orgSlug = organizationSlug ?? profile.organization_slug;
+
 
     const { priority, intent } = INTENT_BY_SOURCE[source] ?? { priority: 50, intent: source };
 
@@ -164,7 +208,7 @@ Deno.serve(async (req) => {
     if (edgeRuntime.EdgeRuntime?.waitUntil) edgeRuntime.EdgeRuntime.waitUntil(expandAndPush());
     else void expandAndPush();
 
-    return json({ ok: true, runId, queued: changes.length });
+    return json({ ok: true, runId, queued: changes.length, skippedSoldOut });
 
   } catch (error) {
     console.error("rate enqueue failed", error);

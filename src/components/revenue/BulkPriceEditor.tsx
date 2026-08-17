@@ -186,7 +186,7 @@ export default function BulkPriceEditor({
         })),
       });
 
-      toast.success(`${result.queued} price${result.queued === 1 ? "" : "s"} sent to Previo`);
+      toast.success(`${result.queued} price${result.queued === 1 ? "" : "s"} sent to Previo${result.skippedSoldOut ? ` · ${result.skippedSoldOut} sold-out cell${result.skippedSoldOut === 1 ? "" : "s"} skipped` : ""}`);
       await onSaved?.();
       onOpenChange(false);
     } catch (e) {

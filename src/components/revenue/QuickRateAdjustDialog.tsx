@@ -103,7 +103,7 @@ export default function QuickRateAdjustDialog({
       });
 
       const verb = direction > 0 ? "Raised" : "Lowered";
-      toast.success(`${result.queued} price${result.queued === 1 ? "" : "s"} sent to Previo`);
+      toast.success(`${result.queued} price${result.queued === 1 ? "" : "s"} sent to Previo${result.skippedSoldOut ? ` · ${result.skippedSoldOut} sold-out skipped` : ""}`);
       onApplied?.(`${verb} ${result.queued} price${result.queued === 1 ? "" : "s"}`);
       onClose();
     } catch (e) {
