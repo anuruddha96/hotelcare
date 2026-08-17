@@ -36,6 +36,7 @@ export default function MorningDigestPanel({ hotelId, organizationSlug, canEdit 
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [recipientText, setRecipientText] = useState("");
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!hotelId) return;
