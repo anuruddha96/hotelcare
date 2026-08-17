@@ -1482,7 +1482,9 @@ export default function RateStrategyGrid({
       if (e.pointerType !== "mouse") return;
       const r = el.getBoundingClientRect();
       const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-      if (!inside) { stop(); kick(); return; }
+      // Resting on an arrow means the user wants to steer by hand: the
+      // automatic edge glide stands down until the pointer leaves it.
+      if (!inside || manualNav.current) { stop(); kick(); return; }
 
       // Smooth ramp (ease-in-out) so entering the zone does not jolt.
       const ramp = (d: number) => {
