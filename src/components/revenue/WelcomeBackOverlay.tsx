@@ -7,14 +7,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
 
-const LINES: Array<{ quote: string; by: string }> = [
-  { quote: "Revenue is vanity, margin is sanity — but a good rate is both.", by: "Every revenue manager, eventually" },
-  { quote: "The best time to price tomorrow was yesterday. The second best is now.", by: "An old proverb, lightly edited" },
+type Line = { quote: string; by: string };
+
+/** Offline safety net — the live pool lives in `motivational_quotes`. */
+const FALLBACK_LINES: Line[] = [
+  { quote: "Quality is not an act, it is a habit.", by: "Aristotle" },
   { quote: "Plans are nothing; planning is everything.", by: "Dwight D. Eisenhower" },
   { quote: "It always seems impossible until it's done.", by: "Nelson Mandela" },
-  { quote: "Quality is not an act, it is a habit.", by: "Aristotle" },
-  { quote: "Small daily improvements are the key to staggering long-term results.", by: "Robin Sharma" },
   { quote: "You can't manage what you don't measure — so let's go measure.", by: "Peter Drucker" },
   { quote: "Slow is smooth, smooth is fast.", by: "A patient operator" },
 ];
@@ -25,6 +26,14 @@ const GREETINGS = [
   "There you are",
   "Back in the chair",
 ];
+
+/** Today in Budapest, as a stable seed so everyone sees the same quote. */
+function daySeed(): number {
+  const day = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Budapest", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+  return Array.from(day).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+}
 
 export function WelcomeBackOverlay({
   name,
@@ -42,13 +51,28 @@ export function WelcomeBackOverlay({
   error?: string | null;
   onRetry?: () => void;
 }) {
-  const pick = useMemo(() => {
-    const day = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Europe/Budapest", year: "numeric", month: "2-digit", day: "2-digit",
-    }).format(new Date());
-    const seed = Array.from(day).reduce((sum, char) => sum + char.charCodeAt(0), 0);
-    return { line: LINES[seed % LINES.length], greeting: GREETINGS[seed % GREETINGS.length] };
+  const [pool, setPool] = useState<Line[]>(FALLBACK_LINES);
+
+  // Pull the shared pool once; the monthly AI refresh keeps it fresh.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const { data } = await supabase
+        .from("motivational_quotes")
+        .select("quote, author")
+        .eq("is_active", true)
+        .order("created_at", { ascending: true })
+        .limit(300);
+      if (cancelled || !data?.length) return;
+      setPool(data.map((r) => ({ quote: r.quote, by: r.author })));
+    })();
+    return () => { cancelled = true; };
   }, []);
+
+  const pick = useMemo(() => {
+    const seed = daySeed();
+    return { line: pool[seed % pool.length], greeting: GREETINGS[seed % GREETINGS.length] };
+  }, [pool]);
   const [dots, setDots] = useState(1);
   useEffect(() => {
     const id = window.setInterval(() => setDots((d) => (d % 3) + 1), 600);
