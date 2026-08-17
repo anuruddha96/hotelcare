@@ -21,6 +21,13 @@ export default function AssistantPage() {
     document.title = "Hotel Care Assistant";
   }, []);
 
+  // Not launched yet: admins only.
+  const isAdmin = profile?.role === "admin";
+  useEffect(() => {
+    if (profile && !isAdmin) navigate(`/${profile.organization_slug ?? ""}`, { replace: true });
+  }, [profile, isAdmin, navigate]);
+  if (!isAdmin) return null;
+
   const newThread = async () => {
     const id = await createThread();
     if (id) navigate(`${base}/${id}`);

@@ -66,6 +66,8 @@ export default function AssistantLauncher() {
 
   // Hidden on public/unauthenticated screens.
   if (!user || !profile?.organization_slug) return null;
+  // Not launched yet: admins only.
+  if (profile.role !== "admin") return null;
   if (location.pathname.startsWith("/bb") || location.pathname.startsWith("/auth")) return null;
 
   const isApprover = canApproveAssistantAccess(profile.role);
