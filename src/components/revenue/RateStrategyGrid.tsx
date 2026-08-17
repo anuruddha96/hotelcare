@@ -899,6 +899,103 @@ export default function RateStrategyGrid({
     return m;
   }, [metrics]);
 
+  // ---- Minimum stay + rooms to sell -----------------------------------
+  // Both are restrictions rather than prices, so they travel to Previo on
+  // their own channel and are saved here first so the calendar never lies.
+  const [minStayByDate, setMinStayByDate] = useState<Map<string, number>>(new Map());
+  const [invOverride, setInvOverride] = useState<Map<string, number>>(new Map());
+  /** The cell currently being typed into: "min|<date>" or "inv|<rawName>|<date>". */
+  const [restrictionEdit, setRestrictionEdit] = useState<{ key: string; value: string } | null>(null);
+  const [restrictionBusy, setRestrictionBusy] = useState<string | null>(null);
+
+  const loadMinStay = useCallback(async () => {
+    if (!hotelId) { setMinStayByDate(new Map()); return; }
+    const { data } = await supabase
+      .from("min_stay_rules")
+      .select("stay_date, min_nights")
+      .eq("hotel_id", hotelId)
+      .limit(1000);
+    const map = new Map<string, number>();
+    for (const r of (data ?? []) as Array<{ stay_date: string; min_nights: number }>) {
+      map.set(r.stay_date, Number(r.min_nights) || 1);
+    }
+    setMinStayByDate(map);
+  }, [hotelId]);
+
+  useEffect(() => { void loadMinStay(); }, [loadMinStay]);
+
+  /** Send one restriction change to Previo and keep the cell honest. */
+  const sendRestriction = useCallback(async (opts: {
+    key: string;
+    date: string;
+    minStay?: number;
+    roomsToSell?: number;
+    obkId?: string | null;
+    roomTypeName?: string | null;
+  }) => {
+    if (!hotelId) return;
+    setRestrictionBusy(opts.key);
+    try {
+      const { data, error } = await supabase.functions.invoke("previo-push-restrictions", {
+        body: {
+          hotelId,
+          items: [{
+            date: opts.date,
+            minStay: opts.minStay ?? null,
+            roomsToSell: opts.roomsToSell ?? null,
+            obkId: opts.obkId ?? null,
+            roomTypeName: opts.roomTypeName ?? null,
+          }],
+        },
+      });
+      if (error) throw error;
+      if (!data?.ok) {
+        const detail = data?.results?.[0]?.message ?? data?.error ?? "Previo did not accept the change.";
+        throw new Error(detail);
+      }
+      toast.success(
+        opts.minStay !== undefined
+          ? `Minimum stay for ${opts.date} set to ${opts.minStay} night${opts.minStay === 1 ? "" : "s"} in Previo`
+          : `${opts.roomTypeName ?? "Room type"} on ${opts.date}: ${opts.roomsToSell} to sell in Previo`,
+      );
+    } catch (e) {
+      toast.error((e as Error).message);
+      // Roll the optimistic value back so nobody trusts a change that failed.
+      if (opts.minStay !== undefined) void loadMinStay();
+      else setInvOverride((prev) => {
+        const next = new Map(prev);
+        next.delete(opts.key.replace(/^inv\|/, ""));
+        return next;
+      });
+    } finally {
+      setRestrictionBusy(null);
+    }
+  }, [hotelId, loadMinStay]);
+
+  const commitMinStay = (date: string, raw: string) => {
+    setRestrictionEdit(null);
+    const nights = Math.round(Number(raw));
+    if (!Number.isFinite(nights) || nights < 1 || nights > 30) {
+      if (raw.trim()) toast.error("Minimum stay must be between 1 and 30 nights.");
+      return;
+    }
+    if ((minStayByDate.get(date) ?? 1) === nights) return;
+    setMinStayByDate((prev) => new Map(prev).set(date, nights));
+    void sendRestriction({ key: `min|${date}`, date, minStay: nights });
+  };
+
+  const commitInventory = (date: string, rawName: string, obkId: string | null, label: string, raw: string) => {
+    setRestrictionEdit(null);
+    const rooms = Math.round(Number(raw));
+    if (!Number.isFinite(rooms) || rooms < 0 || rooms > 999) {
+      if (raw.trim()) toast.error("Rooms to sell must be a whole number.");
+      return;
+    }
+    const cellKey = `${rawName}|${date}`;
+    setInvOverride((prev) => new Map(prev).set(cellKey, rooms));
+    void sendRestriction({ key: `inv|${cellKey}`, date, roomsToSell: rooms, obkId, roomTypeName: label });
+  };
+
   /**
    * Room types must never blink out of the grid while a reload is in flight —
    * an empty prop for a moment used to leave only ADR and RevPAR on screen.
