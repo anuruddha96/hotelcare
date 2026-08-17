@@ -3735,6 +3735,12 @@ export default function RateStrategyGrid({
           </div>
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">Only persistent Previo errors appear here. Successful publishing and verification stay in the background.</p>
+            {oldestAwaitingLabel && (
+              <p className="text-[11px] text-muted-foreground">
+                Oldest price still confirming: {oldestAwaitingLabel}. Use “Check Previo now” to settle these against the live prices.
+              </p>
+            )}
+
 
             <div className="flex flex-wrap items-center gap-2">
               <Button
