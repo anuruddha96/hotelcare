@@ -17,7 +17,13 @@ import {
   ArrowLeft, ChevronLeft, ChevronRight, Upload, TrendingUp, TrendingDown,
   AlertTriangle, Loader2, Check, Edit3, X, Calendar as CalIcon, BarChart3,
   Settings2, Sparkles, Plus, RefreshCw, Bot, History as HistoryIcon, Gauge, Activity,
+  PieChart, Binoculars, Mail,
 } from "lucide-react";
+import SegmentPerformancePanel from "@/components/revenue/SegmentPerformancePanel";
+import YearOverYearPanel from "@/components/revenue/YearOverYearPanel";
+import CompetitorRatePanel from "@/components/revenue/CompetitorRatePanel";
+import MorningDigestPanel from "@/components/revenue/MorningDigestPanel";
+
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 import { computeSuggestedRate, type PricingMultipliers, type EngineSettings, leadTimeBucket, DOW_NAMES, MONTH_NAMES, LEAD_LABELS } from "@/lib/revenuePricing";
 import { setRevenueCurrency, useRevenueCurrency, money, getRevenueCurrency } from "@/lib/revenueCurrency";
