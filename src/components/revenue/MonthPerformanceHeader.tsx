@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ChevronLeft, ChevronRight, BedDouble, Coins, Gauge, DoorOpen, TrendingUp, TrendingDown, Info } from "lucide-react";
-import { formatMonth, type DayMetrics } from "@/lib/revenueAnalytics";
+import { ChevronLeft, ChevronRight, BedDouble, Coins, Gauge, DoorOpen, TrendingUp, TrendingDown, Info, CalendarPlus } from "lucide-react";
+import { budapestDayOf, formatMonth, type BookingNight, type CancelledNight, type DayMetrics } from "@/lib/revenueAnalytics";
 import { money, eurEquivalent, setRevenueCurrency, setDisplayCurrency, currencySymbol, useRevenueCurrency, isForeignCurrency } from "@/lib/revenueCurrency";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -75,10 +75,14 @@ function shiftMonth(key: string, delta: number) {
  */
 export default function MonthPerformanceHeader({
   today, metrics, pickupWindowDays, onPickupWindowChange, hotelId, canEdit, roomsAvailable,
-  selectedMonth, onSelectedMonthChange,
+  selectedMonth, onSelectedMonthChange, nights = [], cancellations = [],
 }: {
   today: string;
   metrics: DayMetrics[];
+  /** Room-nights on the books — used for "booked today". */
+  nights?: BookingNight[];
+  /** Cancelled room-nights — used for what today gave back. */
+  cancellations?: CancelledNight[];
   pickupWindowDays: number;
   onPickupWindowChange: (days: number) => void;
   hotelId?: string | null;
@@ -137,6 +141,36 @@ export default function MonthPerformanceHeader({
   };
 
   const agg = useMemo(() => aggregate(month), [metrics, month]);
+
+  /**
+   * What today actually produced: reservations created today (Budapest),
+   * how many room-nights they carry, and what was cancelled the same day.
+   */
+  const bookedToday = useMemo(() => {
+    const reservations = new Set<string>();
+    let roomNights = 0;
+    let revenue = 0;
+    for (const n of nights) {
+      if (!n.created_at_pms || budapestDayOf(n.created_at_pms) !== today) continue;
+      reservations.add(n.res_id);
+      roomNights += 1;
+      revenue += n.nightly_price_eur ?? 0;
+    }
+    const cancelledRes = new Set<string>();
+    let cancelledNights = 0;
+    for (const c of cancellations) {
+      if (!c.cancelled_at || budapestDayOf(c.cancelled_at) !== today) continue;
+      cancelledRes.add(c.res_id);
+      cancelledNights += 1;
+    }
+    return {
+      reservations: reservations.size,
+      roomNights,
+      revenue,
+      cancelledRes: cancelledRes.size,
+      cancelledNights,
+    };
+  }, [nights, cancellations, today]);
 
   /** Six-month outlook strip: occupancy, ADR and RevPAR month by month. */
   const outlook = useMemo(() => {
@@ -305,6 +339,20 @@ export default function MonthPerformanceHeader({
         >
 
           <Tile
+            label="Bookings created today"
+            value={`${bookedToday.roomNights} room-night${bookedToday.roomNights === 1 ? "" : "s"}`}
+            sub={`across ${bookedToday.reservations} reservation${bookedToday.reservations === 1 ? "" : "s"}${
+              bookedToday.cancelledNights ? ` · ${bookedToday.cancelledNights} cancelled` : ""
+            }`}
+            icon={<CalendarPlus className="h-3.5 w-3.5" />}
+            surface={bookedToday.roomNights > 0 ? "border-l-primary bg-primary/5" : "border-l-border"}
+            tone={bookedToday.roomNights > 0 ? "text-primary" : ""}
+            explain={{
+              title: "Bookings created today",
+              body: `Reservations entered in Previo today (Budapest time), whatever their stay date:\n\n• ${bookedToday.reservations} reservation${bookedToday.reservations === 1 ? "" : "s"} created\n• ${bookedToday.roomNights} room-night${bookedToday.roomNights === 1 ? "" : "s"} booked\n• ${money(bookedToday.revenue)} of room revenue\n• ${bookedToday.cancelledNights} room-night${bookedToday.cancelledNights === 1 ? "" : "s"} cancelled today (${bookedToday.cancelledRes} reservation${bookedToday.cancelledRes === 1 ? "" : "s"})\n\nThis tile always shows today, not the month or the pickup window.`,
+            }}
+          />
+          <Tile
             label="Occupancy"
             value={agg.capacity ? `${Math.round(agg.occupancyPct)}%` : "—"}
             sub={`${agg.sold} of ${agg.capacity} room-nights · ${monthLabel}`}
@@ -364,7 +412,7 @@ export default function MonthPerformanceHeader({
 
         {/* Dots: which KPI card you are on (phones only) */}
         <div className="flex justify-center gap-1.5 sm:hidden">
-          {Array.from({ length: 6 }).map((_, i) => (
+          {Array.from({ length: 7 }).map((_, i) => (
             <button
               key={i}
               type="button"

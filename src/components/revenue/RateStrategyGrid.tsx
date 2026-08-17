@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, Trash2, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, RefreshCw, CheckCheck, Star, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, Trash2, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, RefreshCw, CheckCheck, Star, ChevronLeft, ChevronRight, MousePointerSquareDashed, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -422,6 +422,20 @@ export default function RateStrategyGrid({
   /** Drag a range of dates in the header to price several days at once. */
   const [selDates, setSelDates] = useState<Set<string>>(new Set());
   const [selecting, setSelecting] = useState(false);
+
+  /**
+   * Free cell selection: drag a rectangle across any room-type rows and any
+   * dates, then price exactly that block. Vertical (several room types on one
+   * date), horizontal (one room type across dates) and everything in between.
+   */
+  const [rangeMode, setRangeMode] = useState(false);
+  const [rangeAnchor, setRangeAnchor] = useState<{ row: number; date: number } | null>(null);
+  const [rangeFocus, setRangeFocus] = useState<{ row: number; date: number } | null>(null);
+  const rangeDragging = useRef(false);
+  const [rangeToolOpen, setRangeToolOpen] = useState(false);
+  const [rangeCalc, setRangeCalc] = useState<"amount" | "percent" | "set">("amount");
+  const [rangeValue, setRangeValue] = useState("2");
+
 
   const [saving, setSaving] = useState(false);
   /** Live progress of the prices currently on their way to Previo. */
@@ -1736,6 +1750,111 @@ export default function RateStrategyGrid({
     ? allRows.filter((r) => (r.kind === "rate" ? flagged.rowKeys.has(r.key) : r.kind !== "group"))
     : allRows;
 
+  /* ---- Free cell-range selection (any room types × any dates) ---- */
+
+
+  /** Normalised rectangle of the current selection, in row/date indexes. */
+  const rangeRect = useMemo(() => {
+    if (!rangeAnchor || !rangeFocus) return null;
+    return {
+      r0: Math.min(rangeAnchor.row, rangeFocus.row),
+      r1: Math.max(rangeAnchor.row, rangeFocus.row),
+      d0: Math.min(rangeAnchor.date, rangeFocus.date),
+      d1: Math.max(rangeAnchor.date, rangeFocus.date),
+    };
+  }, [rangeAnchor, rangeFocus]);
+
+  const inRange = useCallback((rowIdx: number, dateIdx: number) => {
+    if (!rangeRect) return false;
+    return rowIdx >= rangeRect.r0 && rowIdx <= rangeRect.r1 && dateIdx >= rangeRect.d0 && dateIdx <= rangeRect.d1;
+  }, [rangeRect]);
+
+  /** Every priceable cell inside the rectangle, with its current price. */
+  const rangeCells = useMemo(() => {
+    const out: Array<{ date: string; row: Extract<Row, { kind: "rate" }>; current: number | null }> = [];
+    if (!rangeRect) return out;
+    for (let ri = rangeRect.r0; ri <= rangeRect.r1; ri += 1) {
+      const row = rows[ri];
+      if (!row || row.kind !== "rate" || !row.obk) continue;
+      for (let di = rangeRect.d0; di <= rangeRect.d1; di += 1) {
+        const d = dates[di];
+        if (!d) continue;
+        out.push({ date: d, row, current: priceMap.get(row.obk)?.get(row.occ)?.get(d) ?? null });
+      }
+    }
+    return out;
+  }, [rangeRect, rows, dates, priceMap]);
+
+  /** What the selection tool would change, always in whole money. */
+  const rangeChanges = useMemo(() => {
+    const input = Number(rangeValue);
+    const out: Array<{ date: string; row: Extract<Row, { kind: "rate" }>; from: number | null; to: number }> = [];
+    if (!Number.isFinite(input)) return out;
+    for (const cell of rangeCells) {
+      let next: number | null = null;
+      if (rangeCalc === "set") next = input;
+      else if (cell.current === null) continue;
+      else if (rangeCalc === "percent") next = cell.current * (1 + input / 100);
+      else next = cell.current + input;
+      if (next === null || !Number.isFinite(next) || next <= 0) continue;
+      const whole = Math.max(1, Math.round(next));
+      if (cell.current !== null && Math.round(cell.current) === whole) continue;
+      out.push({ date: cell.date, row: cell.row, from: cell.current, to: whole });
+    }
+    return out;
+  }, [rangeCells, rangeCalc, rangeValue]);
+
+  const clearRange = useCallback(() => {
+    setRangeAnchor(null);
+    setRangeFocus(null);
+  }, []);
+
+  /** Start (or extend) a selection from a cell. */
+  const rangePointerDown = useCallback((rowIdx: number, dateIdx: number, extend: boolean) => {
+    if (extend && rangeAnchor) {
+      setRangeFocus({ row: rowIdx, date: dateIdx });
+      return;
+    }
+    setRangeAnchor({ row: rowIdx, date: dateIdx });
+    setRangeFocus({ row: rowIdx, date: dateIdx });
+    rangeDragging.current = true;
+    const stop = () => {
+      rangeDragging.current = false;
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointerup", stop);
+  }, [rangeAnchor]);
+
+  /** Send everything the selection tool previews straight to Previo. */
+  async function applyRangeTool() {
+    if (!hotelId || rangeChanges.length === 0) return;
+    const { data: auth } = await supabase.auth.getUser();
+    const rowsToSave = rangeChanges.map((c) => ({
+      hotel_id: hotelId,
+      organization_slug: organizationSlug ?? null,
+      stay_date: c.date,
+      obk_id: c.row.obk,
+      room_type_name: c.row.roomTypeName,
+      occupancy: c.row.occ,
+      old_price: c.from,
+      new_price: c.to,
+      status: "draft",
+      push_error: null,
+      created_by: auth.user?.id ?? null,
+    }));
+    setRangeToolOpen(false);
+    clearRange();
+    publishInBackground(rowsToSave, {
+      source: "cell-selection",
+      notes: rangeCalc === "percent"
+        ? `${rangeValue}%`
+        : rangeCalc === "amount"
+          ? `${rangeValue} ${getRevenueCurrency().code}`
+          : `set ${rangeValue}`,
+    });
+  }
+
+
   function cellFor(row: Row, d: string) {
     if (row.kind === "group") return null;
     if (row.kind === "adr") return eur(metricByDate.get(d)?.adrEur ?? null);
@@ -1804,6 +1923,19 @@ export default function RateStrategyGrid({
                 {multiMode ? "Done selecting" : "Select days"}
               </Button>
             )}
+            {canEditRates && (
+              <Button
+                size="sm"
+                variant={rangeMode ? "default" : "outline"}
+                className="h-8 gap-1.5 text-xs"
+                title="Drag a block across any room types and any dates, then price it"
+                onClick={() => { setRangeMode((v) => !v); clearRange(); }}
+              >
+                <MousePointerSquareDashed className="h-3.5 w-3.5" />
+                {rangeMode ? "Done selecting cells" : "Select cells"}
+              </Button>
+            )}
+
             <Button
               size="sm"
               variant="default"
@@ -2051,7 +2183,7 @@ export default function RateStrategyGrid({
           <div
             ref={scrollRef}
             onScroll={onScroll}
-            className={`relative overflow-auto overscroll-x-contain text-[11px] sm:text-xs ${dragging ? "select-none" : ""}`}
+            className={`relative overflow-auto overscroll-x-contain text-[11px] sm:text-xs ${dragging || rangeMode ? "select-none" : ""}`}
             style={{ maxHeight: expanded ? "calc(100vh - 190px)" : isMobile ? "68vh" : "72vh", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
           >
 
@@ -2452,7 +2584,7 @@ export default function RateStrategyGrid({
               </div>
 
               {/* ---- Room-type / metric rows ---- */}
-              {rows.map((row) => (
+              {rows.map((row, rowIdx) => (
                 <div
                   key={row.key}
                   className={`flex ${row.kind === "group" ? "border-b border-b-foreground/25 bg-muted/50" : row.kind === "rate" ? "border-b" : "border-b border-t-2 border-t-foreground/20 bg-primary/10 font-semibold"}`}
@@ -2611,14 +2743,25 @@ export default function RateStrategyGrid({
 
 
 
+                    const picked = rangeMode && inRange(rowIdx, i);
                     const cellButton = (
                       <button
                         key={d}
                         type="button"
                         disabled={!canEditRates}
-                        onPointerEnter={() => { void loadCellHistory(d); void loadAutomationDate(d); }}
+                        onPointerEnter={() => {
+                          if (rangeMode && rangeDragging.current) { setRangeFocus({ row: rowIdx, date: i }); return; }
+                          void loadCellHistory(d); void loadAutomationDate(d);
+                        }}
+                        onPointerDown={(e) => {
+                          if (!rangeMode || !canEditRates) return;
+                          e.preventDefault();
+                          rangePointerDown(rowIdx, i, e.shiftKey || (isMobile && !!rangeAnchor));
+                        }}
                         onClick={() => {
                           if (!canEditRates) return;
+                          // While picking a block, a tap only draws the selection.
+                          if (rangeMode) return;
                           // On a phone there is no hover, so a tap tells the
                           // cell's story first and offers editing from there.
                           if (isMobile) {
@@ -2647,8 +2790,9 @@ export default function RateStrategyGrid({
                         }}
 
                         title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
-                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
+                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
                         style={{ width: CELL_W }}
+
                       >
                         {shown === undefined ? (
                           <span className="text-muted-foreground">—</span>
@@ -2685,7 +2829,7 @@ export default function RateStrategyGrid({
 
                       </button>
                     );
-                    if ((!history && !marker && !cellAutomation?.length) || isMobile) return cellButton;
+                    if ((!history && !marker && !cellAutomation?.length) || isMobile || rangeMode) return cellButton;
                     return (
                       <HoverCard key={d} openDelay={120} closeDelay={60}>
                         <HoverCardTrigger asChild>{cellButton}</HoverCardTrigger>
@@ -2752,7 +2896,120 @@ export default function RateStrategyGrid({
         )}
       </CardContent>
 
+      {/* Cell-block selection bar: what is picked, and what to do with it. */}
+      {rangeMode && (
+        <div className="fixed inset-x-0 bottom-0 z-[60] border-t bg-card/95 px-3 py-2.5 shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.35)] backdrop-blur animate-fade-in sm:inset-x-auto sm:bottom-6 sm:right-6 sm:rounded-full sm:border sm:px-4 sm:py-2">
+          <div className="mx-auto flex max-w-2xl items-center gap-2">
+            <MousePointerSquareDashed className="h-4 w-4 shrink-0 text-primary" />
+            <div className="min-w-0 flex-1 text-xs">
+              {rangeCells.length === 0 ? (
+                <span className="text-muted-foreground">
+                  {isMobile
+                    ? "Tap a price to start, then tap another to close the block."
+                    : "Drag across any prices — room types down, dates across. Shift-click extends."}
+                </span>
+              ) : (
+                <span>
+                  <span className="font-medium">{rangeCells.length} price{rangeCells.length === 1 ? "" : "s"} selected</span>
+                  <span className="text-muted-foreground">
+                    {" · "}{(rangeRect ? rangeRect.r1 - rangeRect.r0 + 1 : 0)} row{rangeRect && rangeRect.r1 - rangeRect.r0 === 0 ? "" : "s"}
+                    {" × "}{(rangeRect ? rangeRect.d1 - rangeRect.d0 + 1 : 0)} date{rangeRect && rangeRect.d1 - rangeRect.d0 === 0 ? "" : "s"}
+                  </span>
+                </span>
+              )}
+            </div>
+            {rangeCells.length > 0 && (
+              <>
+                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={clearRange}>
+                  Clear
+                </Button>
+                <Button size="sm" className="h-8 text-xs" onClick={() => setRangeToolOpen(true)}>
+                  Change prices
+                </Button>
+              </>
+            )}
+            <Button
+              size="icon" variant="ghost" className="h-8 w-8"
+              aria-label="Leave cell selection"
+              onClick={() => { setRangeMode(false); clearRange(); }}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Price the selected block */}
+      <Dialog open={rangeToolOpen} onOpenChange={(o) => setRangeToolOpen(o)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base">
+              Change {rangeCells.length} selected price{rangeCells.length === 1 ? "" : "s"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-md border bg-muted/30 p-2 text-[11px] text-muted-foreground">
+              {rangeRect && dates[rangeRect.d0] ? (
+                <>
+                  {dates[rangeRect.d0]}
+                  {rangeRect.d1 > rangeRect.d0 ? ` … ${dates[rangeRect.d1]}` : ""}
+                  {" · "}
+                  {Array.from(new Set(rangeCells.map((c) => c.row.roomTypeName))).join(", ")}
+                </>
+              ) : null}
+            </div>
+            <div className="flex gap-2">
+              <Select value={rangeCalc} onValueChange={(v) => setRangeCalc(v as typeof rangeCalc)}>
+                <SelectTrigger className="h-9 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="amount">Change by amount</SelectItem>
+                  <SelectItem value="percent">Change by %</SelectItem>
+                  <SelectItem value="set">Set price to</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                value={rangeValue}
+                onChange={(e) => setRangeValue(e.target.value)}
+                inputMode="decimal"
+                className="h-9 flex-1 text-sm"
+                aria-label="Amount"
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Prices are always sent to Previo as whole {getRevenueCurrency().code}.
+            </p>
+            <div className="max-h-52 overflow-y-auto rounded-md border">
+              {rangeChanges.length === 0 ? (
+                <p className="p-3 text-xs text-muted-foreground">Nothing would change with these settings.</p>
+              ) : (
+                rangeChanges.slice(0, 60).map((c) => (
+                  <div key={`${c.date}|${c.row.key}`} className="flex items-center justify-between border-b px-2 py-1 text-[11px] last:border-b-0">
+                    <span className="truncate">{c.date} · {c.row.roomTypeName} · {c.row.occ}g</span>
+                    <span className="tabular-nums">
+                      <span className="text-muted-foreground">{moneyBase(c.from)}</span>
+                      {" → "}
+                      <span className="font-semibold">{moneyBase(c.to)}</span>
+                    </span>
+                  </div>
+                ))
+              )}
+              {rangeChanges.length > 60 && (
+                <p className="px-2 py-1 text-[11px] text-muted-foreground">+{rangeChanges.length - 60} more</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRangeToolOpen(false)}>Cancel</Button>
+            <Button disabled={rangeChanges.length === 0} onClick={() => void applyRangeTool()}>
+              <Send className="mr-1 h-4 w-4" />
+              Update {rangeChanges.length} price{rangeChanges.length === 1 ? "" : "s"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {multiMode && pickedDates.size > 0 && (
+
         <div
           className="fixed inset-x-0 bottom-0 z-[60] border-t bg-card/95 px-3 pt-2.5 shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.35)] backdrop-blur animate-fade-in sm:inset-x-auto sm:bottom-6 sm:right-6 sm:rounded-full sm:border sm:px-4 sm:py-2"
           style={{ paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom))" }}
