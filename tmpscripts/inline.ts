@@ -1,5 +1,4 @@
 export const inlineTranslations: any = {
-const translations = {
   en: {
     'dnd.secondAttemptTitle': '2nd attempt',
     'dnd.retryNowHint': 'You can try this room again now. If the guest is still DND, tap below and take one photo — no room cleaning photos needed.',
