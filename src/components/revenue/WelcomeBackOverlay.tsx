@@ -140,7 +140,7 @@ export function WelcomeBackOverlay({
         <div className="flex items-center gap-3">
           <Loader2 className={`h-5 w-5 text-primary ${error ? "" : "animate-spin"}`} />
           <h2 className="text-lg font-semibold">
-            {pick.greeting}{first ? `, ${first}` : ""}
+            {greeting}{first ? `, ${first}` : ""}
           </h2>
         </div>
         <p className="mt-2 text-sm text-muted-foreground">
@@ -157,8 +157,8 @@ export function WelcomeBackOverlay({
           <Button className="mt-4 w-full" onClick={onRetry}>Try again</Button>
         )}
         <figure className="mt-5 border-t pt-4">
-          <blockquote className="text-sm italic">“{pick.line.quote}”</blockquote>
-          <figcaption className="mt-1 text-xs text-muted-foreground">— {pick.line.by}</figcaption>
+          <blockquote className="text-sm italic">“{line.quote}”</blockquote>
+          <figcaption className="mt-1 text-xs text-muted-foreground">— {line.by}</figcaption>
         </figure>
       </div>
     </div>
