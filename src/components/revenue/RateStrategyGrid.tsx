@@ -43,8 +43,20 @@ import { rememberedRange, writeNumberPref } from "@/lib/revenuePrefs";
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
+/** An approved demand event as shown on the calendar's demand row. */
+export interface DemandEventDetail {
+  title: string;
+  impact: string;
+  category?: string | null;
+  venue?: string | null;
+  url?: string | null;
+  notes?: string | null;
+  start?: string;
+  end?: string;
+}
 
 interface Props {
+
   loading: boolean;
   today: string;
   hotelId?: string | null;
