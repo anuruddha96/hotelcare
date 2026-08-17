@@ -114,6 +114,9 @@ const DEFAULT_RULE: Rule = {
   immediate_sell_mode_enabled: true, immediate_window_days: 14, immediate_markdown_step: 2,
   spike_detection_enabled: true, spike_threshold_pct: 5, spike_lookback_days: 7,
   event_surcharge_eur: 10, event_surcharge_auto: false,
+  lead_bands_enabled: true, far_out_days: 90, far_out_enabled: true,
+  far_out_surcharge: 35, far_out_notify: true,
+
 };
 
 
