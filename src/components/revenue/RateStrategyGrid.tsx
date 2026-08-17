@@ -3836,6 +3836,12 @@ export default function RateStrategyGrid({
           })()}
         </DialogContent>
       </Dialog>
+
+      <DayChangesSheet
+        hotelId={hotelId}
+        date={dayChangesDate}
+        onOpenChange={(o) => { if (!o) setDayChangesDate(null); }}
+      />
     </Card>
 
   );
