@@ -171,3 +171,6 @@ verify_jwt = true
 
 [functions.revenue-publish-queue]
 verify_jwt = false
+
+[functions.assistant-chat]
+verify_jwt = false
