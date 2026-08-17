@@ -717,7 +717,10 @@ serve(async (req) => {
       .in("confirmation_status", ["sending", "sent", "checking", "pending", "different"])
       .gte("stay_date", from)
       .lte("stay_date", to)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      // Bounded work per run: newest first (the newest request for a cell is
+      // the one that can be judged), so a backlog can never stall the sync.
+      .limit(8000);
 
     if (draftReadError) {
       errors.push(`draft reconciliation read: ${draftReadError.message}`);
@@ -779,6 +782,18 @@ serve(async (req) => {
       // were deliberately replaced, so flagging them as "landed differently"
       // was false alarm noise. They are closed as superseded instead.
       const settledCells = new Set<string>();
+      const todayIso = new Date().toISOString().slice(0, 10);
+      // One update per distinct outcome instead of one per row: a backlog of
+      // thousands of rows used to time the function out before it finished,
+      // which is why prices stayed on "awaiting confirmation" for days.
+      const supersededIds: string[] = [];
+      const expiredIds: string[] = [];
+      const patches = new Map<string, { ids: string[]; patch: Record<string, unknown> }>();
+      const pushPatch = (key: string, id: string, patch: Record<string, unknown>) => {
+        const entry = patches.get(key) ?? { ids: [], patch };
+        entry.ids.push(id);
+        patches.set(key, entry);
+      };
       for (const draft of (outstanding ?? []) as Array<{
         id: string; created_at: string; stay_date: string; obk_id: string | null; room_type_name: string;
         occupancy: number; old_price: number | null; new_price: number; created_by: string | null;
@@ -788,14 +803,18 @@ serve(async (req) => {
         if (!draft.obk_id) continue;
         const cell = `${draft.stay_date}|${draft.obk_id}|${draft.occupancy}`;
         if (settledCells.has(cell)) {
-          await service.from("revenue_rate_drafts")
-            .update({ confirmation_status: "superseded", last_checked_at: checkedAt, push_error: null })
-            .eq("id", draft.id);
+          supersededIds.push(draft.id);
           continue;
         }
         settledCells.add(cell);
         const live = livePrice.get(cell);
-        if (!live) continue;
+        if (!live) {
+          // Nothing to compare against. A stay date that has already passed
+          // can never be confirmed, so close it out instead of leaving it
+          // "still checking" forever.
+          if (draft.stay_date < todayIso) expiredIds.push(draft.id);
+          continue;
+        }
 
         claimedCells.add(`${draft.stay_date}|${draft.obk_id}|${live.ratePlanId}|${draft.occupancy}`);
         const landed = live.price;
@@ -808,13 +827,11 @@ serve(async (req) => {
           && draft.actual_previo_price !== null
           && Math.abs(Number(draft.actual_previo_price) - landed) >= 0.01;
         if (movedInPrevio) {
-          await service.from("revenue_rate_drafts")
-            .update({
-              confirmation_status: "superseded", actual_previo_price: landed,
-              last_checked_at: checkedAt, push_error: null,
-              reconcile_state: "external", reconcile_error: null,
-            })
-            .eq("id", draft.id);
+          pushPatch(`external|${landed}`, draft.id, {
+            confirmation_status: "superseded", actual_previo_price: landed,
+            last_checked_at: checkedAt, push_error: null,
+            reconcile_state: "external", reconcile_error: null,
+          });
           if (orgSlug) {
             auditRows.push({
               hotel_id: hotelId, organization_slug: orgSlug,
@@ -845,9 +862,10 @@ serve(async (req) => {
         const dueNow = !Number.isFinite(dueAt) || Date.now() >= dueAt;
         const willRetry = !confirmed && attempts < MAX_RECONCILE_ATTEMPTS && dueNow;
 
-        const { error: reconcileError } = await service
-          .from("revenue_rate_drafts")
-          .update({
+        pushPatch(
+          `settle|${confirmationStatus}|${landed}|${draft.new_price}|${attempts}|${willRetry}|${draft.reconcile_next_at ?? ""}|${draft.reconcile_state ?? ""}`,
+          draft.id,
+          {
             confirmation_status: confirmationStatus,
             actual_previo_price: landed,
             last_checked_at: checkedAt,
@@ -863,12 +881,8 @@ serve(async (req) => {
             reconcile_error: confirmed
               ? null
               : `Previo published ${landed} instead of ${draft.new_price}`,
-          })
-          .eq("id", draft.id);
-        if (reconcileError) {
-          errors.push(`draft reconciliation update: ${reconcileError.message}`);
-          continue;
-        }
+          },
+        );
         if (willRetry) {
           retryCells.push({
             stay_date: draft.stay_date, obk_id: draft.obk_id, room_type_name: draft.room_type_name,
@@ -909,6 +923,27 @@ serve(async (req) => {
           });
         }
       }
+      const applyIds = async (ids: string[], patch: Record<string, unknown>) => {
+        for (let i = 0; i < ids.length; i += 500) {
+          const { error } = await service.from("revenue_rate_drafts")
+            .update(patch).in("id", ids.slice(i, i + 500));
+          if (error) errors.push(`draft reconciliation update: ${error.message}`);
+        }
+      };
+      if (supersededIds.length > 0) {
+        await applyIds(supersededIds, {
+          confirmation_status: "superseded", last_checked_at: checkedAt, push_error: null,
+        });
+      }
+      if (expiredIds.length > 0) {
+        await applyIds(expiredIds, {
+          confirmation_status: "expired", last_checked_at: checkedAt,
+          reconcile_state: null,
+          push_error: "Stay date passed before Previo confirmed this price",
+        });
+      }
+      for (const entry of patches.values()) await applyIds(entry.ids, entry.patch);
+
       if (auditRows.length > 0) {
         const { error: auditError } = await service.from("rate_change_audit").insert(auditRows);
         if (auditError) errors.push(`rate reconciliation audit: ${auditError.message}`);
