@@ -877,7 +877,10 @@ export default function RevenueHotelDetail() {
             roomsAvailable={live.roomsAvailable}
             selectedMonth={selectedMonth}
             onSelectedMonthChange={setSelectedMonth}
+            nights={live.nights}
+            cancellations={live.cancellations}
           />
+
 
           <RateStrategyGrid
             loading={live.loading}
