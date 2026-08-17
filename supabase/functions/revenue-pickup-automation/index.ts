@@ -841,6 +841,14 @@ Deno.serve(async (req) => {
             continue;
           }
 
+          // Same rule at ROOM TYPE level: this type is gone for that date even
+          // if the property still has rooms elsewhere.
+          if (typeSoldOut(rate.room_type_name, rate.obk_id, rate.stay_date)) {
+            heldSoldOut++;
+            markdownBlocks["room_type_sold_out"] = (markdownBlocks["room_type_sold_out"] ?? 0) + 1;
+            continue;
+          }
+
 
           // A cancellation is not an instant reason to discount: the room often
           // sells again within the hour. The date waits out its cooldown, and
