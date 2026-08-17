@@ -1974,6 +1974,58 @@ export default function RateStrategyGrid({
     };
   }, []);
 
+  /**
+   * Touch equivalent of the mouse drag above. Pointer events stop firing on a
+   * phone the moment the browser takes the gesture over for scrolling, so the
+   * block selection is driven by non-passive touch events on the calendar
+   * itself: while a range is being drawn we cancel the scroll by hand.
+   */
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const onTouchMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      if (!cellDraggingRef.current) {
+        // Moved before the hold completed — the user is scrolling, not selecting.
+        const p = pendingCell.current;
+        if (p && (Math.abs(t.clientX - p.x) > 10 || Math.abs(t.clientY - p.y) > 10)) {
+          if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
+          pendingCell.current = null;
+        }
+        return;
+      }
+      e.preventDefault();
+      const under = document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null;
+      const cell = under?.closest?.("[data-cell-row]") as HTMLElement | null;
+      if (!cell) return;
+      const hit = { row: Number(cell.dataset.cellRow), date: Number(cell.dataset.cellDate) };
+      if (!Number.isFinite(hit.row) || !Number.isFinite(hit.date)) return;
+      setRangeFocus((prev) => (prev && prev.row === hit.row && prev.date === hit.date ? prev : hit));
+    };
+
+    const onTouchEnd = () => {
+      if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
+      pendingCell.current = null;
+      if (!cellDraggingRef.current) return;
+      cellDraggingRef.current = false;
+      setCellDragging(false);
+      suppressClick.current = true;
+      window.setTimeout(() => { suppressClick.current = false; }, 250);
+      if (rangeRectRef.current) setRangeToolOpen(true);
+    };
+
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchEnd);
+    return () => {
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, []);
+
 
   /** Send everything the selection tool previews straight to Previo. */
   async function applyRangeTool() {
@@ -2439,7 +2491,7 @@ export default function RateStrategyGrid({
                         <span className="font-medium">{formatDay(d)}</span>
                         {dayLatest && (
                           <span
-                            className="absolute bottom-0 left-0 right-0 flex h-3 cursor-pointer items-end justify-center"
+                            className="absolute bottom-0 left-1/2 flex h-3 w-4 -translate-x-1/2 cursor-pointer items-end justify-center"
                             role="button"
                             tabIndex={-1}
                             aria-label={`See every price change on ${d}`}
@@ -3841,6 +3893,7 @@ export default function RateStrategyGrid({
         hotelId={hotelId}
         date={dayChangesDate}
         onOpenChange={(o) => { if (!o) setDayChangesDate(null); }}
+        onEditPrices={canEditRates ? (d) => { setDayChangesDate(null); openDayTool([d]); } : undefined}
       />
     </Card>
 

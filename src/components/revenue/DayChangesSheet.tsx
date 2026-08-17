@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Loader2, Pencil } from "lucide-react";
 import { formatWhen, type RateAuditRow } from "@/lib/rateAudit";
 import { markerOrigin } from "@/lib/rateMarkers";
 import { ORIGIN_DOT_CLASS, ORIGIN_LABEL, budapestDayStartMs, type ChangeOrigin } from "@/lib/rateOrigin";
@@ -32,10 +33,13 @@ export default function DayChangesSheet({
   hotelId,
   date,
   onOpenChange,
+  onEditPrices,
 }: {
   hotelId?: string | null;
   date: string | null;
   onOpenChange: (open: boolean) => void;
+  /** Jump straight from "what changed" to "change it" on a phone. */
+  onEditPrices?: (date: string) => void;
 }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
@@ -133,6 +137,11 @@ export default function DayChangesSheet({
         <SheetHeader className="pb-2">
           <SheetTitle className="text-base">Price changes on {date}</SheetTitle>
         </SheetHeader>
+        {onEditPrices && date && (
+          <Button className="mb-2 w-full" onClick={() => onEditPrices(date)}>
+            <Pencil className="mr-2 h-4 w-4" /> Change prices for this day
+          </Button>
+        )}
         <div className="flex-1 min-h-0 overflow-y-auto">
           {loading && (
             <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
