@@ -18,3 +18,4 @@ for(const l of ['hu','es','vi','mn','az','tl','uk','ru']){const b=bundle(l);cons
 console.log('EN',Object.keys(en).length);
 for(const l of Object.keys(out))console.log(l,out[l].length);
 await Bun.write('tmpscripts/missing.json',JSON.stringify({en,missing:out},null,1));
+for(const l of ['hu','es','vi','mn','az','tl','uk','ru']){const b=bundle(l);const same=Object.keys(en).filter(k=>b[k]===en[k]);console.log('SAME-as-EN',l,same.length);}
