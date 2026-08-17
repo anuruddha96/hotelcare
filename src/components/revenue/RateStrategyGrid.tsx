@@ -3006,19 +3006,40 @@ export default function RateStrategyGrid({
               type="button"
               aria-label="Show earlier dates"
               onClick={() => nudge(-1)}
+              onPointerEnter={() => { manualNav.current = true; setHoverArrow("left"); }}
+              onPointerLeave={() => { manualNav.current = false; setHoverArrow(null); endHold(); }}
+              onPointerDown={() => startHold(-1)}
+              onPointerUp={endHold}
+              onPointerCancel={endHold}
               className={`absolute top-1/2 z-40 hidden -translate-y-1/2 items-center justify-center rounded-full border bg-card/90 p-1.5 shadow-sm backdrop-blur transition-all hover:bg-card sm:flex ${edges.left ? "opacity-90 hover:opacity-100" : "pointer-events-none opacity-0"}`}
               style={{ left: LEFT_W + 6 }}
             >
               <ChevronLeft className="h-4 w-4" />
+              {hoverArrow === "left" && (
+                <span className="pointer-events-none absolute left-full ml-2 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-[11px] font-normal text-popover-foreground shadow-md">
+                  Click here to move manually
+                </span>
+              )}
             </button>
             <button
               type="button"
               aria-label="Show later dates"
               onClick={() => nudge(1)}
-              className={`absolute right-1.5 top-1/2 z-40 hidden -translate-y-1/2 items-center justify-center rounded-full border bg-card/90 p-1.5 shadow-sm backdrop-blur transition-all hover:bg-card sm:flex ${edges.right ? "opacity-90 hover:opacity-100 animate-pulse" : "pointer-events-none opacity-0"}`}
+              onPointerEnter={() => { manualNav.current = true; setHoverArrow("right"); }}
+              onPointerLeave={() => { manualNav.current = false; setHoverArrow(null); endHold(); }}
+              onPointerDown={() => startHold(1)}
+              onPointerUp={endHold}
+              onPointerCancel={endHold}
+              className={`absolute right-1.5 top-1/2 z-40 hidden -translate-y-1/2 items-center justify-center rounded-full border bg-card/90 p-1.5 shadow-sm backdrop-blur transition-all hover:bg-card sm:flex ${edges.right ? "opacity-90 hover:opacity-100" : "pointer-events-none opacity-0"}`}
             >
               <ChevronRight className="h-4 w-4" />
+              {hoverArrow === "right" && (
+                <span className="pointer-events-none absolute right-full mr-2 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-[11px] font-normal text-popover-foreground shadow-md">
+                  Click here to move manually
+                </span>
+              )}
             </button>
+
           </div>
 
 
