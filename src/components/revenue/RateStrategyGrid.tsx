@@ -1748,7 +1748,110 @@ export default function RateStrategyGrid({
   visibleDatesRef.current = dates;
   const rows = reviewOnly && flagged.rowKeys.size
     ? allRows.filter((r) => (r.kind === "rate" ? flagged.rowKeys.has(r.key) : r.kind !== "group"))
-    : allRows;
+
+  /* ---- Free cell-range selection (any room types × any dates) ---- */
+
+  /** Normalised rectangle of the current selection, in row/date indexes. */
+  const rangeRect = useMemo(() => {
+    if (!rangeAnchor || !rangeFocus) return null;
+    return {
+      r0: Math.min(rangeAnchor.row, rangeFocus.row),
+      r1: Math.max(rangeAnchor.row, rangeFocus.row),
+      d0: Math.min(rangeAnchor.date, rangeFocus.date),
+      d1: Math.max(rangeAnchor.date, rangeFocus.date),
+    };
+  }, [rangeAnchor, rangeFocus]);
+
+  const inRange = useCallback((rowIdx: number, dateIdx: number) => {
+    if (!rangeRect) return false;
+    return rowIdx >= rangeRect.r0 && rowIdx <= rangeRect.r1 && dateIdx >= rangeRect.d0 && dateIdx <= rangeRect.d1;
+  }, [rangeRect]);
+
+  /** Every priceable cell inside the rectangle, with its current price. */
+  const rangeCells = useMemo(() => {
+    const out: Array<{ date: string; row: Extract<Row, { kind: "rate" }>; current: number | null }> = [];
+    if (!rangeRect) return out;
+    for (let ri = rangeRect.r0; ri <= rangeRect.r1; ri += 1) {
+      const row = rows[ri];
+      if (!row || row.kind !== "rate" || !row.obk) continue;
+      for (let di = rangeRect.d0; di <= rangeRect.d1; di += 1) {
+        const d = dates[di];
+        if (!d) continue;
+        out.push({ date: d, row, current: priceMap.get(row.obk)?.get(row.occ)?.get(d) ?? null });
+      }
+    }
+    return out;
+  }, [rangeRect, rows, dates, priceMap]);
+
+  /** What the selection tool would change, always in whole money. */
+  const rangeChanges = useMemo(() => {
+    const input = Number(rangeValue);
+    const out: Array<{ date: string; row: Extract<Row, { kind: "rate" }>; from: number | null; to: number }> = [];
+    if (!Number.isFinite(input)) return out;
+    for (const cell of rangeCells) {
+      let next: number | null = null;
+      if (rangeCalc === "set") next = input;
+      else if (cell.current === null) continue;
+      else if (rangeCalc === "percent") next = cell.current * (1 + input / 100);
+      else next = cell.current + input;
+      if (next === null || !Number.isFinite(next) || next <= 0) continue;
+      const whole = Math.max(1, Math.round(next));
+      if (cell.current !== null && Math.round(cell.current) === whole) continue;
+      out.push({ date: cell.date, row: cell.row, from: cell.current, to: whole });
+    }
+    return out;
+  }, [rangeCells, rangeCalc, rangeValue]);
+
+  const clearRange = useCallback(() => {
+    setRangeAnchor(null);
+    setRangeFocus(null);
+  }, []);
+
+  /** Start (or extend) a selection from a cell. */
+  const rangePointerDown = useCallback((rowIdx: number, dateIdx: number, extend: boolean) => {
+    if (extend && rangeAnchor) {
+      setRangeFocus({ row: rowIdx, date: dateIdx });
+      return;
+    }
+    setRangeAnchor({ row: rowIdx, date: dateIdx });
+    setRangeFocus({ row: rowIdx, date: dateIdx });
+    rangeDragging.current = true;
+    const stop = () => {
+      rangeDragging.current = false;
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointerup", stop);
+  }, [rangeAnchor]);
+
+  /** Send everything the selection tool previews straight to Previo. */
+  async function applyRangeTool() {
+    if (!hotelId || rangeChanges.length === 0) return;
+    const { data: auth } = await supabase.auth.getUser();
+    const rowsToSave = rangeChanges.map((c) => ({
+      hotel_id: hotelId,
+      organization_slug: organizationSlug ?? null,
+      stay_date: c.date,
+      obk_id: c.row.obk,
+      room_type_name: c.row.roomTypeName,
+      occupancy: c.row.occ,
+      old_price: c.from,
+      new_price: c.to,
+      status: "draft",
+      push_error: null,
+      created_by: auth.user?.id ?? null,
+    }));
+    setRangeToolOpen(false);
+    clearRange();
+    publishInBackground(rowsToSave, {
+      source: "cell-selection",
+      notes: rangeCalc === "percent"
+        ? `${rangeValue}%`
+        : rangeCalc === "amount"
+          ? `${rangeValue} ${getRevenueCurrency().code}`
+          : `set ${rangeValue}`,
+    });
+  }
+
 
   function cellFor(row: Row, d: string) {
     if (row.kind === "group") return null;
