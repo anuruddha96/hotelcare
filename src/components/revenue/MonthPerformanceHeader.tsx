@@ -112,6 +112,12 @@ export default function MonthPerformanceHeader({
     const revenue = rows.reduce((s, m) => s + m.revenueEur, 0);
     const left = rows.reduce((s, m) => s + m.roomsLeft, 0);
     const pickup = rows.reduce((s, m) => s + (m.netPickup ?? 0), 0);
+    // Movement behind the net figure: reservations that came in and rooms lost
+    // inside the selected booking window.
+    const gained = rows.reduce((s, m) => s + (m.newBookings ?? 0), 0);
+    const lost = rows.reduce((s, m) => s + (m.roomsLost ?? 0), 0);
+    const datesUp = rows.filter((m) => (m.netPickup ?? 0) > 0).length;
+    const datesDown = rows.filter((m) => (m.netPickup ?? 0) < 0).length;
     return {
       days: rows.length,
       sold,
@@ -119,6 +125,11 @@ export default function MonthPerformanceHeader({
       left,
       revenue,
       pickup,
+      gained,
+      lost,
+      datesUp,
+      datesDown,
+
       occupancyPct: capacity ? (sold / capacity) * 100 : 0,
       adr: sold ? revenue / sold : null,
       revpar: capacity ? revenue / capacity : null,
