@@ -2422,13 +2422,15 @@ export default function RateStrategyGrid({
                       ? `${d} · demand ${BAND_LABEL[dem.band]} (${dem.score}/100)\n${dem.drivers.slice(0, 4).join("\n")}`
                       : `${d} · demand not available yet`;
                     return (
-                      <div
+                      <button
                         key={d}
+                        type="button"
+                        onClick={() => setDemandDay(d)}
                         title={evs.length
-                          ? `${demandLine}\n\nEvents:\n${evs.map(e => `• ${e.title} (${e.impact} impact)`).join("\n")}`
-                          : demandLine}
-                        className={`relative flex items-center justify-center shrink-0 text-[10px] font-semibold ${dem ? demandTone(dem.band) : `text-muted-foreground ${dayBg(d, i)}`} ${dayEdge(d)}`}
-                        style={{ width: CELL_W }}
+                          ? `${demandLine}\n\nEvents:\n${evs.map(e => `• ${e.title} (${e.impact} impact)`).join("\n")}\n\nClick for details`
+                          : `${demandLine}\n\nClick for details`}
+                        className={`relative flex items-center justify-center shrink-0 text-[10px] font-semibold hover:ring-1 hover:ring-inset hover:ring-primary/50 ${dem ? demandTone(dem.band) : `text-muted-foreground ${dayBg(d, i)}`} ${dayEdge(d)}`}
+                        style={{ width: CELL_W, height: "100%" }}
                       >
                         {dem ? DEMAND_SHORT[dem.band] : "·"}
                         {evs.length > 0 && (
@@ -2438,8 +2440,9 @@ export default function RateStrategyGrid({
                             }`}
                           />
                         )}
-                      </div>
+                      </button>
                     );
+
                   })}
                 </div>
               </div>
