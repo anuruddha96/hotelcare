@@ -5185,6 +5185,10 @@ export type Database = {
           evaluation_interval_minutes: number
           event_surcharge_auto: boolean
           event_surcharge_eur: number
+          far_out_days: number
+          far_out_enabled: boolean
+          far_out_notify: boolean
+          far_out_surcharge: number
           future_booking_window_days: number
           high_occupancy_pct: number
           hotel_id: string
@@ -5199,6 +5203,7 @@ export type Database = {
           last_no_pickup_slot: string | null
           last_run_at: string | null
           last_successful_evaluation_at: string | null
+          lead_bands_enabled: boolean
           long_lead_days: number
           low_occupancy_pct: number
           manual_markdown_hold_hours: number
@@ -5250,6 +5255,10 @@ export type Database = {
           evaluation_interval_minutes?: number
           event_surcharge_auto?: boolean
           event_surcharge_eur?: number
+          far_out_days?: number
+          far_out_enabled?: boolean
+          far_out_notify?: boolean
+          far_out_surcharge?: number
           future_booking_window_days?: number
           high_occupancy_pct?: number
           hotel_id: string
@@ -5264,6 +5273,7 @@ export type Database = {
           last_no_pickup_slot?: string | null
           last_run_at?: string | null
           last_successful_evaluation_at?: string | null
+          lead_bands_enabled?: boolean
           long_lead_days?: number
           low_occupancy_pct?: number
           manual_markdown_hold_hours?: number
@@ -5315,6 +5325,10 @@ export type Database = {
           evaluation_interval_minutes?: number
           event_surcharge_auto?: boolean
           event_surcharge_eur?: number
+          far_out_days?: number
+          far_out_enabled?: boolean
+          far_out_notify?: boolean
+          far_out_surcharge?: number
           future_booking_window_days?: number
           high_occupancy_pct?: number
           hotel_id?: string
@@ -5329,6 +5343,7 @@ export type Database = {
           last_no_pickup_slot?: string | null
           last_run_at?: string | null
           last_successful_evaluation_at?: string | null
+          lead_bands_enabled?: boolean
           long_lead_days?: number
           low_occupancy_pct?: number
           manual_markdown_hold_hours?: number
