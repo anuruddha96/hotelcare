@@ -840,3 +840,50 @@ export function farOutBookingText(input: {
 }): string {
   return `Raised by ${money(input.amount, input.currency)} because a booking arrived for ${input.stayDate}, ${input.daysOut} days before arrival — well beyond the usual booking window.`;
 }
+
+// --------------------------------------------------------------------------
+// Far-out floor top-up
+// --------------------------------------------------------------------------
+
+export interface FarOutFloorTopUpInput {
+  enabled: boolean;
+  /** Lead time in days for the stay date. */
+  daysOut: number;
+  /** Only stay dates at least this far out are topped up. */
+  thresholdDays: number;
+  /** Prices at or below this level are considered too cheap that far out. */
+  priceThreshold: number;
+  /** Fixed amount added to such a price. */
+  amount: number;
+  currentPrice: number;
+}
+
+/**
+ * A room type still priced at or below the "too cheap" level months before
+ * arrival is leaving money on the table: there is plenty of time to sell it.
+ * A fixed top-up lifts it once per evaluation, never past the threshold logic
+ * of any other guard (caps and rounding are applied by the caller).
+ */
+export function farOutFloorTopUp(input: FarOutFloorTopUpInput): number {
+  if (!input.enabled) return 0;
+  const days = Number(input.daysOut);
+  const thresholdDays = Math.max(0, Number(input.thresholdDays) || 0);
+  const priceThreshold = Number(input.priceThreshold);
+  const amount = Math.max(0, Number(input.amount) || 0);
+  const price = Number(input.currentPrice);
+  if (!Number.isFinite(days) || days < thresholdDays) return 0;
+  if (!Number.isFinite(price) || price <= 0) return 0;
+  if (!Number.isFinite(priceThreshold) || price > priceThreshold) return 0;
+  if (amount <= 0) return 0;
+  return roundMoney(amount);
+}
+
+/** Plain sentence for the far-out floor top-up, used in cell history. */
+export function farOutFloorTopUpText(input: {
+  amount: number;
+  currency?: string | null;
+  priceThreshold: number;
+  daysOut: number;
+}): string {
+  return `Raised by ${money(input.amount, input.currency)} because the price was at or below ${money(input.priceThreshold, input.currency)} with ${input.daysOut} days still to sell.`;
+}
