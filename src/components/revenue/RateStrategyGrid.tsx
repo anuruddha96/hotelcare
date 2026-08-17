@@ -1363,21 +1363,35 @@ export default function RateStrategyGrid({
   /** Whether there is more calendar to the left / right (drives the edge hints). */
   const [edges, setEdges] = useState({ left: false, right: true });
 
-  /** Sticky month label + auto-extend the horizon when the user scrolls right. */
+  /** True while the pointer rests on an arrow: automatic gliding pauses there. */
+  const manualNav = useRef(false);
+  const [hoverArrow, setHoverArrow] = useState<null | "left" | "right">(null);
+
+  /**
+   * Sticky month label + auto-extend the horizon when the user scrolls right.
+   * The work is deferred to the next frame so a fast flick never has state
+   * updates running on every scroll event — that is what made it feel stuck.
+   */
+  const scrollRaf = useRef<number | null>(null);
   function onScroll() {
-    const el = scrollRef.current;
-    if (!el) return;
-    const idx = Math.min(allDates.length - 1, Math.max(0, Math.round(el.scrollLeft / CELL_W)));
-    const label = formatMonth(allDates[idx]);
-    setVisibleMonth((prev) => (prev === label ? prev : label));
-    const canLeft = el.scrollLeft > 4;
-    const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
-    setEdges((prev) => (prev.left === canLeft && prev.right === canRight ? prev : { left: canLeft, right: canRight }));
-    const nearEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - CELL_W * 3;
-    if (nearEnd) {
-      setDays((d) => (d < 30 ? 30 : d < 60 ? 60 : d < 120 ? 120 : d < 180 ? 180 : d));
-    }
+    if (scrollRaf.current !== null) return;
+    scrollRaf.current = requestAnimationFrame(() => {
+      scrollRaf.current = null;
+      const el = scrollRef.current;
+      if (!el) return;
+      const idx = Math.min(allDates.length - 1, Math.max(0, Math.round(el.scrollLeft / CELL_W)));
+      const label = formatMonth(allDates[idx]);
+      setVisibleMonth((prev) => (prev === label ? prev : label));
+      const canLeft = el.scrollLeft > 4;
+      const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+      setEdges((prev) => (prev.left === canLeft && prev.right === canRight ? prev : { left: canLeft, right: canRight }));
+      const nearEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - CELL_W * 3;
+      if (nearEnd) {
+        setDays((d) => (d < 30 ? 30 : d < 60 ? 60 : d < 120 ? 120 : d < 180 ? 180 : d));
+      }
+    });
   }
+  useEffect(() => () => { if (scrollRaf.current !== null) cancelAnimationFrame(scrollRaf.current); }, []);
 
   /** Glide a whole screen of dates left or right, animated. */
   const nudge = (dir: -1 | 1) => {
@@ -1386,6 +1400,22 @@ export default function RateStrategyGrid({
     const page = Math.max(CELL_W * 3, Math.floor((el.clientWidth - LEFT_W) * 0.8 / CELL_W) * CELL_W);
     el.scrollBy({ left: dir * page, behavior: "smooth" });
   };
+
+  /** Press and hold an arrow to keep moving; a single click moves one screen. */
+  const arrowHoldTimer = useRef<number | null>(null);
+  const holdRepeat = useRef<number | null>(null);
+  const startHold = (dir: -1 | 1) => {
+    manualNav.current = true;
+    arrowHoldTimer.current = window.setTimeout(() => {
+      holdRepeat.current = window.setInterval(() => nudge(dir), 350);
+    }, 450);
+  };
+  const endHold = () => {
+    if (arrowHoldTimer.current !== null) { clearTimeout(arrowHoldTimer.current); arrowHoldTimer.current = null; }
+    if (holdRepeat.current !== null) { clearInterval(holdRepeat.current); holdRepeat.current = null; }
+  };
+  useEffect(() => endHold, []);
+
 
   /**
    * Edge auto-scroll: a mouse user without a horizontal wheel can simply move
@@ -1452,7 +1482,9 @@ export default function RateStrategyGrid({
       if (e.pointerType !== "mouse") return;
       const r = el.getBoundingClientRect();
       const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-      if (!inside) { stop(); kick(); return; }
+      // Resting on an arrow means the user wants to steer by hand: the
+      // automatic edge glide stands down until the pointer leaves it.
+      if (!inside || manualNav.current) { stop(); kick(); return; }
 
       // Smooth ramp (ease-in-out) so entering the zone does not jolt.
       const ramp = (d: number) => {
@@ -2974,19 +3006,40 @@ export default function RateStrategyGrid({
               type="button"
               aria-label="Show earlier dates"
               onClick={() => nudge(-1)}
+              onPointerEnter={() => { manualNav.current = true; setHoverArrow("left"); }}
+              onPointerLeave={() => { manualNav.current = false; setHoverArrow(null); endHold(); }}
+              onPointerDown={() => startHold(-1)}
+              onPointerUp={endHold}
+              onPointerCancel={endHold}
               className={`absolute top-1/2 z-40 hidden -translate-y-1/2 items-center justify-center rounded-full border bg-card/90 p-1.5 shadow-sm backdrop-blur transition-all hover:bg-card sm:flex ${edges.left ? "opacity-90 hover:opacity-100" : "pointer-events-none opacity-0"}`}
               style={{ left: LEFT_W + 6 }}
             >
               <ChevronLeft className="h-4 w-4" />
+              {hoverArrow === "left" && (
+                <span className="pointer-events-none absolute left-full ml-2 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-[11px] font-normal text-popover-foreground shadow-md">
+                  Click here to move manually
+                </span>
+              )}
             </button>
             <button
               type="button"
               aria-label="Show later dates"
               onClick={() => nudge(1)}
-              className={`absolute right-1.5 top-1/2 z-40 hidden -translate-y-1/2 items-center justify-center rounded-full border bg-card/90 p-1.5 shadow-sm backdrop-blur transition-all hover:bg-card sm:flex ${edges.right ? "opacity-90 hover:opacity-100 animate-pulse" : "pointer-events-none opacity-0"}`}
+              onPointerEnter={() => { manualNav.current = true; setHoverArrow("right"); }}
+              onPointerLeave={() => { manualNav.current = false; setHoverArrow(null); endHold(); }}
+              onPointerDown={() => startHold(1)}
+              onPointerUp={endHold}
+              onPointerCancel={endHold}
+              className={`absolute right-1.5 top-1/2 z-40 hidden -translate-y-1/2 items-center justify-center rounded-full border bg-card/90 p-1.5 shadow-sm backdrop-blur transition-all hover:bg-card sm:flex ${edges.right ? "opacity-90 hover:opacity-100" : "pointer-events-none opacity-0"}`}
             >
               <ChevronRight className="h-4 w-4" />
+              {hoverArrow === "right" && (
+                <span className="pointer-events-none absolute right-full mr-2 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-[11px] font-normal text-popover-foreground shadow-md">
+                  Click here to move manually
+                </span>
+              )}
             </button>
+
           </div>
 
 
