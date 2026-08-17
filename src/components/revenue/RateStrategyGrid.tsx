@@ -210,7 +210,7 @@ function MetricInfo({ title, body }: { title: string; body: string }) {
 }
 
 type Row =
-  | { kind: "group"; key: string; label: string; note: string; units: number; typeName: string; rawName: string }
+  | { kind: "group"; key: string; label: string; note: string; units: number; typeName: string; rawName: string; obkOfType: string | null }
   | { kind: "rate"; key: string; label: string; obk: string | null; occ: number; roomTypeName: string; displayName: string }
   | { kind: "adr"; key: string; label: string }
   | { kind: "revpar"; key: string; label: string };
@@ -899,6 +899,103 @@ export default function RateStrategyGrid({
     return m;
   }, [metrics]);
 
+  // ---- Minimum stay + rooms to sell -----------------------------------
+  // Both are restrictions rather than prices, so they travel to Previo on
+  // their own channel and are saved here first so the calendar never lies.
+  const [minStayByDate, setMinStayByDate] = useState<Map<string, number>>(new Map());
+  const [invOverride, setInvOverride] = useState<Map<string, number>>(new Map());
+  /** The cell currently being typed into: "min|<date>" or "inv|<rawName>|<date>". */
+  const [restrictionEdit, setRestrictionEdit] = useState<{ key: string; value: string } | null>(null);
+  const [restrictionBusy, setRestrictionBusy] = useState<string | null>(null);
+
+  const loadMinStay = useCallback(async () => {
+    if (!hotelId) { setMinStayByDate(new Map()); return; }
+    const { data } = await supabase
+      .from("min_stay_rules")
+      .select("stay_date, min_nights")
+      .eq("hotel_id", hotelId)
+      .limit(1000);
+    const map = new Map<string, number>();
+    for (const r of (data ?? []) as Array<{ stay_date: string; min_nights: number }>) {
+      map.set(r.stay_date, Number(r.min_nights) || 1);
+    }
+    setMinStayByDate(map);
+  }, [hotelId]);
+
+  useEffect(() => { void loadMinStay(); }, [loadMinStay]);
+
+  /** Send one restriction change to Previo and keep the cell honest. */
+  const sendRestriction = useCallback(async (opts: {
+    key: string;
+    date: string;
+    minStay?: number;
+    roomsToSell?: number;
+    obkId?: string | null;
+    roomTypeName?: string | null;
+  }) => {
+    if (!hotelId) return;
+    setRestrictionBusy(opts.key);
+    try {
+      const { data, error } = await supabase.functions.invoke("previo-push-restrictions", {
+        body: {
+          hotelId,
+          items: [{
+            date: opts.date,
+            minStay: opts.minStay ?? null,
+            roomsToSell: opts.roomsToSell ?? null,
+            obkId: opts.obkId ?? null,
+            roomTypeName: opts.roomTypeName ?? null,
+          }],
+        },
+      });
+      if (error) throw error;
+      if (!data?.ok) {
+        const detail = data?.results?.[0]?.message ?? data?.error ?? "Previo did not accept the change.";
+        throw new Error(detail);
+      }
+      toast.success(
+        opts.minStay !== undefined
+          ? `Minimum stay for ${opts.date} set to ${opts.minStay} night${opts.minStay === 1 ? "" : "s"} in Previo`
+          : `${opts.roomTypeName ?? "Room type"} on ${opts.date}: ${opts.roomsToSell} to sell in Previo`,
+      );
+    } catch (e) {
+      toast.error((e as Error).message);
+      // Roll the optimistic value back so nobody trusts a change that failed.
+      if (opts.minStay !== undefined) void loadMinStay();
+      else setInvOverride((prev) => {
+        const next = new Map(prev);
+        next.delete(opts.key.replace(/^inv\|/, ""));
+        return next;
+      });
+    } finally {
+      setRestrictionBusy(null);
+    }
+  }, [hotelId, loadMinStay]);
+
+  const commitMinStay = (date: string, raw: string) => {
+    setRestrictionEdit(null);
+    const nights = Math.round(Number(raw));
+    if (!Number.isFinite(nights) || nights < 1 || nights > 30) {
+      if (raw.trim()) toast.error("Minimum stay must be between 1 and 30 nights.");
+      return;
+    }
+    if ((minStayByDate.get(date) ?? 1) === nights) return;
+    setMinStayByDate((prev) => new Map(prev).set(date, nights));
+    void sendRestriction({ key: `min|${date}`, date, minStay: nights });
+  };
+
+  const commitInventory = (date: string, rawName: string, obkId: string | null, label: string, raw: string) => {
+    setRestrictionEdit(null);
+    const rooms = Math.round(Number(raw));
+    if (!Number.isFinite(rooms) || rooms < 0 || rooms > 999) {
+      if (raw.trim()) toast.error("Rooms to sell must be a whole number.");
+      return;
+    }
+    const cellKey = `${rawName}|${date}`;
+    setInvOverride((prev) => new Map(prev).set(cellKey, rooms));
+    void sendRestriction({ key: `inv|${cellKey}`, date, roomsToSell: rooms, obkId, roomTypeName: label });
+  };
+
   /**
    * Room types must never blink out of the grid while a reload is in flight —
    * an empty prop for a moment used to leave only ADR and RevPAR on screen.
@@ -919,7 +1016,7 @@ export default function RateStrategyGrid({
     const out: Row[] = [];
     for (const rt of pricedTypes) {
       const label = localizedRoomTypeName(rt.name, rt.name_translations, language);
-      out.push({ kind: "group", key: `g-${rt.id}`, label, note: `×${rt.num_rooms}`, units: rt.num_rooms || 0, typeName: label, rawName: rt.name });
+      out.push({ kind: "group", key: `g-${rt.id}`, label, note: `×${rt.num_rooms}`, units: rt.num_rooms || 0, typeName: label, rawName: rt.name, obkOfType: rt.pms_room_id ?? null });
       const byOcc = rt.pms_room_id ? priceMap.get(rt.pms_room_id) : undefined;
       const occs = byOcc ? Array.from(byOcc.keys()).sort((a, b) => a - b) : [2];
       for (const occ of occs) {
@@ -2229,6 +2326,65 @@ export default function RateStrategyGrid({
                   })}
                 </div>
 
+                {/* Minimum stay — editable, written straight to Previo */}
+                <div className="flex border-b bg-card" style={{ height: ROW_H }}>
+                  <div className="sticky left-0 z-40 flex items-center border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
+                    {railed ? <span title="Minimum stay">Min</span> : (
+                      <>
+                        Min stay
+                        <MetricInfo
+                          title="Minimum stay"
+                          body="The shortest booking accepted for that arrival date. Tap a cell to change it: the new rule is saved here and sent to Previo straight away, for every mapped room type. 1 night means no restriction."
+                        />
+                      </>
+                    )}
+                  </div>
+                  {dates.map((d, i) => {
+                    const key = `min|${d}`;
+                    const nights = minStayByDate.get(d) ?? null;
+                    const editing = restrictionEdit?.key === key;
+                    const busy = restrictionBusy === key;
+                    if (editing) {
+                      return (
+                        <div key={d} className={`flex items-center justify-center shrink-0 ${dayBg(d, i)} ${dayEdge(d)}`} style={{ width: CELL_W }}>
+                          <input
+                            autoFocus
+                            type="number"
+                            min={1}
+                            max={30}
+                            inputMode="numeric"
+                            className="h-5 w-[85%] rounded border bg-background px-1 text-center text-[10px] tabular-nums"
+                            value={restrictionEdit.value}
+                            onChange={(e) => setRestrictionEdit({ key, value: e.target.value })}
+                            onBlur={(e) => commitMinStay(d, e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") commitMinStay(d, (e.target as HTMLInputElement).value);
+                              if (e.key === "Escape") setRestrictionEdit(null);
+                            }}
+                          />
+                        </div>
+                      );
+                    }
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        disabled={!canEditRates || busy}
+                        onClick={() => canEditRates && setRestrictionEdit({ key, value: String(nights ?? 1) })}
+                        title={nights && nights > 1
+                          ? `${d} · minimum ${nights} nights${canEditRates ? " — tap to change" : ""}`
+                          : `${d} · no minimum stay${canEditRates ? " — tap to set one" : ""}`}
+                        className={`flex items-center justify-center shrink-0 tabular-nums text-[10px] ${
+                          nights && nights > 1 ? "font-semibold text-amber-700 dark:text-amber-400" : "text-muted-foreground"
+                        } ${dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:bg-accent/60" : ""}`}
+                        style={{ width: CELL_W }}
+                      >
+                        {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : nights && nights > 1 ? `${nights}N` : "·"}
+                      </button>
+                    );
+                  })}
+                </div>
+
                 {/* Demand grade */}
                 <div className="flex border-b-2 border-b-foreground/20 bg-card" style={{ height: ROW_H }}>
                   <div className="sticky left-0 z-40 flex items-center border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
@@ -2314,18 +2470,47 @@ export default function RateStrategyGrid({
                   {dates.map((d, i) => {
                     if (row.kind === "group") {
                       const units = row.units;
-                      const left = leftByTypeDate?.get(`${row.rawName}|${d}`);
+                      const cell = `${row.rawName}|${d}`;
+                      const override = invOverride.get(cell);
+                      const left = override ?? leftByTypeDate?.get(cell);
+                      const key = `inv|${cell}`;
+                      const editing = restrictionEdit?.key === key;
+                      const busy = restrictionBusy === key;
+                      if (editing) {
+                        return (
+                          <div key={d} className={`flex items-center justify-center shrink-0 ${dayEdge(d)}`} style={{ width: CELL_W }}>
+                            <input
+                              autoFocus
+                              type="number"
+                              min={0}
+                              max={units || 999}
+                              inputMode="numeric"
+                              className="h-5 w-[85%] rounded border bg-background px-1 text-center text-[10px] tabular-nums"
+                              value={restrictionEdit.value}
+                              onChange={(e) => setRestrictionEdit({ key, value: e.target.value })}
+                              onBlur={(e) => commitInventory(d, row.rawName, row.obkOfType, row.typeName, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") commitInventory(d, row.rawName, row.obkOfType, row.typeName, (e.target as HTMLInputElement).value);
+                                if (e.key === "Escape") setRestrictionEdit(null);
+                              }}
+                            />
+                          </div>
+                        );
+                      }
                       return (
-                        <div
+                        <button
                           key={d}
+                          type="button"
+                          disabled={!canEditRates || busy}
+                          onClick={() => canEditRates && setRestrictionEdit({ key, value: String(left ?? units ?? 0) })}
                           title={left === undefined
-                            ? `${row.typeName} · availability not synced for ${d}`
-                            : `${row.typeName} · ${left} of ${units} left on ${d}`}
-                          className={`flex items-center justify-center shrink-0 text-[10px] tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
+                            ? `${row.typeName} · availability not synced for ${d}${canEditRates ? " — tap to set rooms to sell" : ""}`
+                            : `${row.typeName} · ${left} of ${units} left on ${d}${canEditRates ? " — tap to change how many are on sale" : ""}`}
+                          className={`flex items-center justify-center shrink-0 text-[10px] tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)} ${canEditRates ? "hover:bg-accent/60" : ""}`}
                           style={{ width: CELL_W }}
                         >
-                          {left === undefined ? "" : left === 0 ? "Sold out" : `${left} left`}
-                        </div>
+                          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : left === undefined ? (canEditRates ? "·" : "") : left === 0 ? "Sold out" : `${left} left`}
+                        </button>
                       );
                     }
                     if (row.kind !== "rate") {
