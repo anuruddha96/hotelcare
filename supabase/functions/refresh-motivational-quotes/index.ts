@@ -71,14 +71,19 @@ serve(async (req) => {
     if (days < 25) return json({ ok: true, skipped: "refreshed recently", days: Math.round(days) });
   }
 
-  // Single-flight lease (10 minutes).
+  // Single-flight lease (10 minutes), claimed with a compare-and-swap on the
+  // row we just read: a second run reads a different `updated_at` and bails.
+  if (state?.lease_until && new Date(state.lease_until).getTime() > Date.now()) {
+    return json({ ok: true, skipped: "another run holds the lease" });
+  }
   const leaseUntil = new Date(Date.now() + 10 * 60_000).toISOString();
-  const { data: claimed } = await admin
+  const { data: claimed, error: claimErr } = await admin
     .from("motivational_quote_state")
     .update({ status: "running", lease_until: leaseUntil, paused_reason: null, updated_at: nowIso })
     .eq("id", true)
-    .or(`lease_until.is.null,lease_until.lt.${nowIso}`)
+    .eq("updated_at", state?.updated_at ?? nowIso)
     .select("id");
+  if (claimErr) return json({ ok: false, error: claimErr.message }, 200);
   if (!claimed?.length) return json({ ok: true, skipped: "another run holds the lease" });
 
   const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
