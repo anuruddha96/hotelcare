@@ -85,24 +85,28 @@ Deno.serve(async (req) => {
         `Use null for price when you could not find it. Do not guess or interpolate.`,
       ].filter(Boolean).join(" ");
 
-      const res = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: "gpt-4.1",
-          tools: [{ type: "web_search_preview", search_context_size: "medium" }],
-          max_output_tokens: 8000,
-          input: prompt,
-        }),
-      });
-
-      if (!res.ok) {
-        const detail = (await res.text()).slice(0, 400);
-        console.error(`competitor-rate-scan: OpenAI ${res.status} ${detail}`);
-        continue;
+      // Best model first; fall back when the account has no access to it.
+      let res: Response | null = null;
+      for (const model of ["gpt-5", "gpt-4.1"]) {
+        const attempt = await fetch("https://api.openai.com/v1/responses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model,
+            tools: [{ type: "web_search_preview", search_context_size: "medium" }],
+            max_output_tokens: 8000,
+            input: prompt,
+          }),
+        });
+        if (attempt.ok) { res = attempt; break; }
+        const detail = (await attempt.text()).slice(0, 300);
+        console.error(`competitor-rate-scan: ${model} → ${attempt.status} ${detail}`);
       }
 
+      if (!res) continue;
+
       const payload = await res.json();
+
       const text: string = payload.output_text
         ?? (payload.output ?? [])
           .flatMap((o: { content?: { text?: string }[] }) => o.content ?? [])
