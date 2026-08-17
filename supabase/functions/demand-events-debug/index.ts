@@ -37,8 +37,15 @@ Deno.serve(async (req) => {
 
   const body: Record<string, unknown> = {
     model,
-    instructions: "You are a hotel-market analyst building an events calendar.",
-    input: `List demand-driving events in Budapest, Hungary between ${month}-01 and ${month}-28. Include holidays, festivals, concerts, congresses. Give source_url for each.`,
+    instructions: [
+      "You are a hotel-market analyst building an events calendar that drives room pricing.",
+      "You MUST use the web search tool for every request and read the official event page, the venue's programme page, the city tourism board, or a reputable local listing before reporting an event.",
+      "Report the exact published dates. Never estimate, never round a festival to a full week, and never rely on memory.",
+      "Include the full range of demand drivers: arena and club concerts, festivals, sport fixtures and races, congresses, trade fairs and exhibitions, public holidays, school holidays, and smaller published local events that still fill hotels.",
+      "Every event must include the source URL you read the dates from. If you cannot find a source, leave the event out.",
+      "Only include events that take place, at least partly, inside the requested month and city.",
+    ].join(" "),
+    input: `List demand-driving events in Budapest, Hungary that occur between ${month}-01 and ${month}-28. For each event give: date (YYYY-MM-DD first day), end_date (YYYY-MM-DD, only for multi-day events), title, category (concert, festival, sports, conference, fair, holiday, other), venue, expected_impact on hotel demand (low, medium, high), whether it takes place on the same dates every year, the source_url you verified the dates on, and a confidence between 0 and 1. Be thorough: include small and mid-size published events too.`,
     text: { format: { type: "json_schema", name: "events", strict: true, schema } },
   };
   if (useSearch) { body.tools = [{ type: "web_search_preview", search_context_size: "high" }]; body.tool_choice = "auto"; }
