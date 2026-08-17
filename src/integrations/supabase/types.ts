@@ -776,6 +776,92 @@ export type Database = {
           },
         ]
       }
+      competitor_properties: {
+        Row: {
+          active: boolean
+          created_at: string
+          created_by: string | null
+          hotel_id: string
+          id: string
+          name: string
+          notes: string | null
+          organization_slug: string
+          source_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          hotel_id: string
+          id?: string
+          name: string
+          notes?: string | null
+          organization_slug: string
+          source_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          hotel_id?: string
+          id?: string
+          name?: string
+          notes?: string | null
+          organization_slug?: string
+          source_url?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      competitor_rates: {
+        Row: {
+          captured_at: string
+          competitor_id: string
+          created_at: string
+          currency: string
+          hotel_id: string
+          id: string
+          organization_slug: string
+          rate: number | null
+          source: string | null
+          stay_date: string
+        }
+        Insert: {
+          captured_at?: string
+          competitor_id: string
+          created_at?: string
+          currency?: string
+          hotel_id: string
+          id?: string
+          organization_slug: string
+          rate?: number | null
+          source?: string | null
+          stay_date: string
+        }
+        Update: {
+          captured_at?: string
+          competitor_id?: string
+          created_at?: string
+          currency?: string
+          hotel_id?: string
+          id?: string
+          organization_slug?: string
+          rate?: number | null
+          source?: string | null
+          stay_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "competitor_rates_competitor_id_fkey"
+            columns: ["competitor_id"]
+            isOneToOne: false
+            referencedRelation: "competitor_properties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_overview_meal_totals: {
         Row: {
           adults: number | null
@@ -5025,6 +5111,42 @@ export type Database = {
           reason?: string | null
           stay_date?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      revenue_digest_settings: {
+        Row: {
+          enabled: boolean
+          hotel_id: string
+          last_sent_on: string | null
+          organization_slug: string
+          recipients: string[]
+          send_hour: number
+          send_minute: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          enabled?: boolean
+          hotel_id: string
+          last_sent_on?: string | null
+          organization_slug: string
+          recipients?: string[]
+          send_hour?: number
+          send_minute?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          enabled?: boolean
+          hotel_id?: string
+          last_sent_on?: string | null
+          organization_slug?: string
+          recipients?: string[]
+          send_hour?: number
+          send_minute?: number
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: []
       }

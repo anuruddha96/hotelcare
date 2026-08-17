@@ -17,7 +17,13 @@ import {
   ArrowLeft, ChevronLeft, ChevronRight, Upload, TrendingUp, TrendingDown,
   AlertTriangle, Loader2, Check, Edit3, X, Calendar as CalIcon, BarChart3,
   Settings2, Sparkles, Plus, RefreshCw, Bot, History as HistoryIcon, Gauge, Activity,
+  PieChart, Binoculars, Mail,
 } from "lucide-react";
+import SegmentPerformancePanel from "@/components/revenue/SegmentPerformancePanel";
+import YearOverYearPanel from "@/components/revenue/YearOverYearPanel";
+import CompetitorRatePanel from "@/components/revenue/CompetitorRatePanel";
+import MorningDigestPanel from "@/components/revenue/MorningDigestPanel";
+
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 import { computeSuggestedRate, type PricingMultipliers, type EngineSettings, leadTimeBucket, DOW_NAMES, MONTH_NAMES, LEAD_LABELS } from "@/lib/revenuePricing";
 import { setRevenueCurrency, useRevenueCurrency, money, getRevenueCurrency } from "@/lib/revenueCurrency";
@@ -196,6 +202,17 @@ export default function RevenueHotelDetail() {
     }
     return out;
   }, [demandEvents]);
+
+  // Our own lowest published price per date — used by the competitor watch.
+  const ourRateByDate = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const r of live.rates) {
+      if (!Number.isFinite(r.price)) continue;
+      const cur = out.get(r.stay_date);
+      if (cur === undefined || r.price < cur) out.set(r.stay_date, r.price);
+    }
+    return out;
+  }, [live.rates]);
 
 
   // Rooms still sellable per room type and date.
@@ -936,44 +953,92 @@ export default function RevenueHotelDetail() {
           <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
 
 
-           {isTechnicalAdmin && <RevenueToolsBar
+           <RevenueToolsBar
             tools={[
               {
-                key: "demand",
-                label: "Demand desk",
-                icon: <Gauge className="h-4 w-4" />,
+                key: "segments",
+                label: "Segments & channels",
+                icon: <PieChart className="h-4 w-4" />,
+                featureKey: "revenue.segments",
                 render: () => (
-                  <DemandPricingPanel
+                  <SegmentPerformancePanel nights={live.nights} selectedMonth={selectedMonth} />
+                ),
+              },
+              {
+                key: "yoy",
+                label: "Year over year",
+                icon: <BarChart3 className="h-4 w-4" />,
+                featureKey: "revenue.yoy",
+                render: () => <YearOverYearPanel hotelId={hotelId ?? null} />,
+              },
+              {
+                key: "compset",
+                label: "Competitor rates",
+                icon: <Binoculars className="h-4 w-4" />,
+                featureKey: "revenue.compset",
+                render: () => (
+                  <CompetitorRatePanel
                     hotelId={hotelId ?? null}
                     organizationSlug={organizationSlug ?? null}
-                    today={live.today}
-                    nights={live.nights}
-                    rates={live.rates}
+                    canEdit={revAdmin}
+                    ratesByDate={ourRateByDate}
+                  />
+                ),
+              },
+              {
+                key: "digest",
+                label: "Morning e-mail",
+                icon: <Mail className="h-4 w-4" />,
+                featureKey: "revenue.digest",
+                render: () => (
+                  <MorningDigestPanel
+                    hotelId={hotelId ?? null}
+                    organizationSlug={organizationSlug ?? null}
                     canEdit={revAdmin}
                   />
                 ),
               },
-              {
-                key: "pulse",
-                label: "Revenue pulse",
-                icon: <Activity className="h-4 w-4" />,
-                render: () => (
-                  <RevenuePulsePanel
-                    today={live.today}
-                    metrics={live.metrics}
-                    roomsAvailable={live.roomsAvailable}
-                    thresholds={live.thresholds}
-                  />
-                ),
-              },
-              {
-                key: "ai",
-                label: "AI intelligence",
-                icon: <Sparkles className="h-4 w-4" />,
-                render: () => <RevenueIntelligencePanel hotelId={hotelId ?? null} />,
-              },
+              ...(isTechnicalAdmin
+                ? [
+                    {
+                      key: "demand",
+                      label: "Demand desk",
+                      icon: <Gauge className="h-4 w-4" />,
+                      render: () => (
+                        <DemandPricingPanel
+                          hotelId={hotelId ?? null}
+                          organizationSlug={organizationSlug ?? null}
+                          today={live.today}
+                          nights={live.nights}
+                          rates={live.rates}
+                          canEdit={revAdmin}
+                        />
+                      ),
+                    },
+                    {
+                      key: "pulse",
+                      label: "Revenue pulse",
+                      icon: <Activity className="h-4 w-4" />,
+                      render: () => (
+                        <RevenuePulsePanel
+                          today={live.today}
+                          metrics={live.metrics}
+                          roomsAvailable={live.roomsAvailable}
+                          thresholds={live.thresholds}
+                        />
+                      ),
+                    },
+                    {
+                      key: "ai",
+                      label: "AI intelligence",
+                      icon: <Sparkles className="h-4 w-4" />,
+                      render: () => <RevenueIntelligencePanel hotelId={hotelId ?? null} />,
+                    },
+                  ]
+                : []),
             ]}
-           />}
+           />
+
 
 
           {live.error && <p className="text-sm text-destructive">{live.error}</p>}

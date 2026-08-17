@@ -1,11 +1,14 @@
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { NewFeatureBadge, useFeatureSeen } from "@/components/common/NewFeatureBadge";
 
 export interface RevenueTool {
   key: string;
   label: string;
   icon: ReactNode;
+  /** Release key used by the "New" badge; omit for older tools. */
+  featureKey?: string;
   /** Rendered lazily, only while the panel is open. */
   render: () => ReactNode;
 }
@@ -18,6 +21,7 @@ export interface RevenueTool {
 export default function RevenueToolsBar({ tools }: { tools: RevenueTool[] }) {
   const [open, setOpen] = useState<string | null>(null);
   const active = tools.find((t) => t.key === open) ?? null;
+  const { isNew, markSeen } = useFeatureSeen();
 
   return (
     <>
@@ -28,13 +32,18 @@ export default function RevenueToolsBar({ tools }: { tools: RevenueTool[] }) {
             variant="outline"
             size="sm"
             className="gap-1.5"
-            onClick={() => setOpen(t.key)}
+            onClick={() => {
+              setOpen(t.key);
+              if (t.featureKey) markSeen(t.featureKey);
+            }}
           >
             {t.icon}
             {t.label}
+            <NewFeatureBadge show={!!t.featureKey && isNew(t.featureKey)} />
           </Button>
         ))}
       </div>
+
 
       <Sheet open={!!active} onOpenChange={(o) => !o && setOpen(null)}>
         <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-4">
