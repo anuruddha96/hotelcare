@@ -4103,4 +4103,3 @@ export const inlineTranslations: any = {
     'dirtyLinen.remove': 'Удалить',
   },
 };
-};

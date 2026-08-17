@@ -4101,4 +4101,3 @@
     'dirtyLinen.removeConfirmDescription': 'Вы уверены, что хотите удалить {item} ({count} шт.) из комнаты {room}? Эта запись будет удалена безвозвратно.',
     'dirtyLinen.remove': 'Удалить',
   },
-};
