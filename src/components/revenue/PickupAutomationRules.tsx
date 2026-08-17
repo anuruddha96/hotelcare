@@ -321,6 +321,12 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       spike_lookback_days: source.rule.spike_lookback_days ?? 7,
       event_surcharge_eur: source.rule.event_surcharge_eur ?? 10,
       event_surcharge_auto: source.rule.event_surcharge_auto ?? false,
+      lead_bands_enabled: source.rule.lead_bands_enabled ?? true,
+      far_out_days: source.rule.far_out_days ?? 90,
+      far_out_enabled: source.rule.far_out_enabled ?? true,
+      far_out_surcharge: source.rule.far_out_surcharge ?? 35,
+      far_out_notify: source.rule.far_out_notify ?? true,
+
     }));
 
     toast.success(`Copied settings from ${source.label} — still off until you turn it on`);
