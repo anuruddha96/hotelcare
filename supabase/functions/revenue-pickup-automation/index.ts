@@ -225,10 +225,13 @@ function applyAiFactors(
     if (factor === undefined || factor >= 0.999) continue;
     const cell = `${row.stay_date}|${row.obk_id}|${row.occupancy}`;
     if (factor < 0.2) { dropped.add(cell); rows.splice(i, 1); continue; }
-    const magnitude = roundMoney(Math.abs(Number(row.increase_amount || 0)) * factor);
+    // A softened move must stay a whole currency unit, otherwise the advisor
+    // re-introduces cents that the rest of the engine carefully avoids.
+    const magnitude = Math.round(Math.abs(Number(row.increase_amount || 0)) * factor);
     if (magnitude <= 0) { dropped.add(cell); rows.splice(i, 1); continue; }
     const old = Number(row.old_price);
-    const next = roundMoney(direction === "increase" ? old + magnitude : old - magnitude);
+    const next = Math.round(direction === "increase" ? old + magnitude : old - magnitude);
+
     row.increase_amount = direction === "increase" ? magnitude : -magnitude;
     row.new_price = next;
     row.cap_applied = magnitude;
