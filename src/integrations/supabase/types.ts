@@ -2481,6 +2481,66 @@ export type Database = {
         }
         Relationships: []
       }
+      motivational_quote_state: {
+        Row: {
+          id: boolean
+          last_error: string | null
+          last_refresh_at: string | null
+          lease_until: string | null
+          paused_reason: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          id?: boolean
+          last_error?: string | null
+          last_refresh_at?: string | null
+          lease_until?: string | null
+          paused_reason?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: boolean
+          last_error?: string | null
+          last_refresh_at?: string | null
+          lease_until?: string | null
+          paused_reason?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      motivational_quotes: {
+        Row: {
+          author: string
+          created_at: string
+          id: string
+          is_active: boolean
+          quote: string
+          quote_key: string | null
+          source: string
+        }
+        Insert: {
+          author?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          quote: string
+          quote_key?: string | null
+          source?: string
+        }
+        Update: {
+          author?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          quote?: string
+          quote_key?: string | null
+          source?: string
+        }
+        Relationships: []
+      }
       notification_preferences: {
         Row: {
           banner_permanently_hidden: boolean | null
