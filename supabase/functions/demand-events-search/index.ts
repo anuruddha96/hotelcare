@@ -14,11 +14,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -121,7 +117,8 @@ serve(async (req) => {
       `For each event give: date (YYYY-MM-DD first day), end_date (YYYY-MM-DD, only for multi-day events), title, ` +
       `category (concert, festival, sports, conference, fair, holiday, other), venue, expected_impact on hotel demand ` +
       `(low, medium, high), whether it takes place on the same dates every year, the source_url you verified the dates on, ` +
-      `and a confidence between 0 and 1. Be thorough: include small and mid-size published events too.`;
+      `and a confidence between 0 and 1. Be thorough, but return at most 25 of the strongest verified demand drivers. ` +
+      `Keep titles and venue names concise and use one direct source URL per event.`;
 
     const schema = {
       type: "object",
@@ -151,20 +148,22 @@ serve(async (req) => {
     };
 
     /** One call to the Responses API; returns the parsed event array. */
-    const askOpenAI = async (withSearch: boolean): Promise<{ events: any[]; error?: string }> => {
+    const askOpenAI = async (compactRetry = false): Promise<{ events: any[]; error?: string; retryable?: boolean }> => {
       const payload: Record<string, unknown> = {
         model: "gpt-4.1",
         temperature: 0,
-        instructions: withSearch
-          ? instructions
-          : `${instructions} The web search tool is unavailable for this attempt: report only events whose published dates you are confident about, and still give the official page as source_url.`,
-        input: prompt,
+        instructions: compactRetry
+          ? `${instructions} This is a retry after the previous answer was too long. Return no more than 15 of the highest-impact verified events. Keep every field concise.`
+          : instructions,
+        input: compactRetry ? `${prompt} Prioritize high and medium impact events and produce compact JSON.` : prompt,
         text: { format: { type: "json_schema", name: "events", strict: true, schema } },
+        // The previous implicit budget cut busy months off at about 4.7 KB,
+        // leaving an unterminated JSON document. Reserve enough room for the
+        // structured response; the compact retry is a second safety net.
+        max_output_tokens: compactRetry ? 10000 : 16000,
+        tools: [{ type: "web_search_preview", search_context_size: compactRetry ? "medium" : "high" }],
+        tool_choice: "auto",
       };
-      if (withSearch) {
-        payload.tools = [{ type: "web_search_preview", search_context_size: "high" }];
-        payload.tool_choice = "auto";
-      }
 
       const aiResp = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
@@ -181,6 +180,10 @@ serve(async (req) => {
       }
 
       const ai = await aiResp.json();
+      if (ai.status === "incomplete") {
+        console.error("event response incomplete", JSON.stringify(ai.incomplete_details ?? {}));
+        return { events: [], error: "The event search answer was cut off.", retryable: true };
+      }
       // Responses API: prefer output_text, fall back to walking the output items.
       let raw: string = ai.output_text ?? "";
       if (!raw && Array.isArray(ai.output)) {
@@ -193,16 +196,16 @@ serve(async (req) => {
       try {
         return { events: JSON.parse(raw || "{}").events ?? [] };
       } catch (err) {
-        console.error("event json parse failed", String(err), raw.slice(0, 300));
-        return { events: [], error: "The event search returned an unreadable answer. Try again." };
+        console.error("event json parse failed", String(err), `chars=${raw.length}`, raw.slice(-300));
+        return { events: [], error: "The event search returned an unreadable answer.", retryable: true };
       }
     };
 
-    // A web-search run occasionally comes back with nothing at all; retry once
-    // without the tool so the month is never silently empty.
-    let { events, error: aiError } = await askOpenAI(true);
-    if (!events.length && !aiError) {
-      const retry = await askOpenAI(false);
+    // Retry empty, incomplete, and malformed answers. Previously parse errors
+    // set aiError, which accidentally prevented the retry entirely.
+    let { events, error: aiError, retryable } = await askOpenAI(false);
+    if (!events.length && (retryable || !aiError)) {
+      const retry = await askOpenAI(true);
       events = retry.events;
       aiError = retry.error;
     }
