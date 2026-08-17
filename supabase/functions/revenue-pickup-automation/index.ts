@@ -609,6 +609,7 @@ Deno.serve(async (req) => {
       /** Dates already moved DOWN this cycle — they must not also move up. */
       const markdownDatesThisRun = new Set<string>();
       let strongActions = 0;
+      let topUpActions = 0;
       const strongDates = new Set<string>();
 
       if (rule.no_pickup_enabled) {
@@ -1440,7 +1441,7 @@ Deno.serve(async (req) => {
         summary.push({
           hotel_id: rule.hotel_id, pickups: 0, actions: markdownActions,
           markdowns: markdownActions, markdown_stay_dates: markdownStayDates,
-          queued: markdownActions, blocked: markdownBlocks,
+          queued: markdownActions + topUpActions, floor_topups: topUpActions, blocked: markdownBlocks,
 
           next_run_at: nextRunAt(now, intervalMinutes),
         });
