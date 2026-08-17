@@ -128,12 +128,21 @@ Deno.serve(async (req) => {
       const wantsInventory = item.roomsToSell !== undefined && item.roomsToSell !== null;
       if (!wantsMinStay && !wantsInventory) continue;
 
-      // A house-wide minimum stay is written to every mapped room type.
-      const obkList = item.obkId
-        ? [item.obkId]
-        : wantsMinStay && !wantsInventory
-          ? Array.from(new Set(maps.map((m: any) => String(m.previo_room_type_id))))
-          : [null];
+      if (wantsInventory && !wantsMinStay) {
+        // Previo refuses availability over the price channel (error 3010).
+        failed += 1;
+        results.push({
+          date: item.date,
+          roomTypeName: item.roomTypeName ?? null,
+          ok: false,
+          message: "Rooms to sell can only be changed in Previo — it does not accept availability from Hotel Care.",
+        });
+        continue;
+      }
+
+      // Previo keeps the minimum stay on the date (rate plan season), not on a
+      // single room type, so a change is written to every mapped room type.
+      const obkList = Array.from(new Set(maps.map((m: any) => String(m.previo_room_type_id))));
 
       let allOk = true;
       let lastMessage = "Success";
@@ -147,8 +156,8 @@ Deno.serve(async (req) => {
             prlId,
             from: item.date,
             to: item.date,
-            minStay: wantsMinStay ? Number(item.minStay) : null,
-            roomsToSell: wantsInventory ? Number(item.roomsToSell) : null,
+            minStay: Number(item.minStay),
+            roomsToSell: null,
           },
         });
         if (!res.ok) {
@@ -157,7 +166,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      if (allOk && wantsMinStay && orgSlug) {
+      if (allOk && orgSlug) {
         // Keep the calendar honest even before the next PMS sync.
         await admin.from("min_stay_rules").upsert({
           hotel_id: hotelId,
@@ -172,6 +181,7 @@ Deno.serve(async (req) => {
       if (allOk) sent += 1; else failed += 1;
       results.push({ date: item.date, roomTypeName: item.roomTypeName ?? null, ok: allOk, message: lastMessage });
     }
+
 
     return json({ ok: failed === 0, sent, failed, results });
   } catch (e) {
