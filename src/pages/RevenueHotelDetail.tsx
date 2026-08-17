@@ -936,44 +936,92 @@ export default function RevenueHotelDetail() {
           <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
 
 
-           {isTechnicalAdmin && <RevenueToolsBar
+           <RevenueToolsBar
             tools={[
               {
-                key: "demand",
-                label: "Demand desk",
-                icon: <Gauge className="h-4 w-4" />,
+                key: "segments",
+                label: "Segments & channels",
+                icon: <PieChart className="h-4 w-4" />,
+                featureKey: "revenue.segments",
                 render: () => (
-                  <DemandPricingPanel
+                  <SegmentPerformancePanel nights={live.nights} selectedMonth={selectedMonth} />
+                ),
+              },
+              {
+                key: "yoy",
+                label: "Year over year",
+                icon: <BarChart3 className="h-4 w-4" />,
+                featureKey: "revenue.yoy",
+                render: () => <YearOverYearPanel hotelId={hotelId ?? null} />,
+              },
+              {
+                key: "compset",
+                label: "Competitor rates",
+                icon: <Binoculars className="h-4 w-4" />,
+                featureKey: "revenue.compset",
+                render: () => (
+                  <CompetitorRatePanel
                     hotelId={hotelId ?? null}
                     organizationSlug={organizationSlug ?? null}
-                    today={live.today}
-                    nights={live.nights}
-                    rates={live.rates}
+                    canEdit={revAdmin}
+                    ratesByDate={ourRateByDate}
+                  />
+                ),
+              },
+              {
+                key: "digest",
+                label: "Morning e-mail",
+                icon: <Mail className="h-4 w-4" />,
+                featureKey: "revenue.digest",
+                render: () => (
+                  <MorningDigestPanel
+                    hotelId={hotelId ?? null}
+                    organizationSlug={organizationSlug ?? null}
                     canEdit={revAdmin}
                   />
                 ),
               },
-              {
-                key: "pulse",
-                label: "Revenue pulse",
-                icon: <Activity className="h-4 w-4" />,
-                render: () => (
-                  <RevenuePulsePanel
-                    today={live.today}
-                    metrics={live.metrics}
-                    roomsAvailable={live.roomsAvailable}
-                    thresholds={live.thresholds}
-                  />
-                ),
-              },
-              {
-                key: "ai",
-                label: "AI intelligence",
-                icon: <Sparkles className="h-4 w-4" />,
-                render: () => <RevenueIntelligencePanel hotelId={hotelId ?? null} />,
-              },
+              ...(isTechnicalAdmin
+                ? [
+                    {
+                      key: "demand",
+                      label: "Demand desk",
+                      icon: <Gauge className="h-4 w-4" />,
+                      render: () => (
+                        <DemandPricingPanel
+                          hotelId={hotelId ?? null}
+                          organizationSlug={organizationSlug ?? null}
+                          today={live.today}
+                          nights={live.nights}
+                          rates={live.rates}
+                          canEdit={revAdmin}
+                        />
+                      ),
+                    },
+                    {
+                      key: "pulse",
+                      label: "Revenue pulse",
+                      icon: <Activity className="h-4 w-4" />,
+                      render: () => (
+                        <RevenuePulsePanel
+                          today={live.today}
+                          metrics={live.metrics}
+                          roomsAvailable={live.roomsAvailable}
+                          thresholds={live.thresholds}
+                        />
+                      ),
+                    },
+                    {
+                      key: "ai",
+                      label: "AI intelligence",
+                      icon: <Sparkles className="h-4 w-4" />,
+                      render: () => <RevenueIntelligencePanel hotelId={hotelId ?? null} />,
+                    },
+                  ]
+                : []),
             ]}
-           />}
+           />
+
 
 
           {live.error && <p className="text-sm text-destructive">{live.error}</p>}
