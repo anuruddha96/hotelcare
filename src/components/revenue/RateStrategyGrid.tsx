@@ -1817,21 +1817,92 @@ export default function RateStrategyGrid({
     setRangeFocus(null);
   }, []);
 
-  /** Start (or extend) a selection from a cell. */
-  const rangePointerDown = useCallback((rowIdx: number, dateIdx: number, extend: boolean) => {
-    if (extend && rangeAnchor) {
+  /**
+   * Pointer down on a price cell. We do not commit to a selection yet: a plain
+   * click still opens the single-cell editor. A mouse drag onto another cell,
+   * or a press-and-hold on touch, turns it into a block selection.
+   */
+  const cellPointerDown = useCallback((rowIdx: number, dateIdx: number, e: React.PointerEvent) => {
+    const touch = e.pointerType !== "mouse";
+    if (e.shiftKey && rangeAnchor) {
       setRangeFocus({ row: rowIdx, date: dateIdx });
+      suppressClick.current = true;
       return;
     }
-    setRangeAnchor({ row: rowIdx, date: dateIdx });
-    setRangeFocus({ row: rowIdx, date: dateIdx });
-    rangeDragging.current = true;
-    const stop = () => {
-      rangeDragging.current = false;
-      window.removeEventListener("pointerup", stop);
+    clearRange();
+    pendingCell.current = { row: rowIdx, date: dateIdx, x: e.clientX, y: e.clientY, touch };
+    if (touch) {
+      if (holdTimer.current) window.clearTimeout(holdTimer.current);
+      holdTimer.current = window.setTimeout(() => {
+        const p = pendingCell.current;
+        if (!p) return;
+        cellDraggingRef.current = true;
+        setCellDragging(true);
+        setRangeAnchor({ row: p.row, date: p.date });
+        setRangeFocus({ row: p.row, date: p.date });
+        try { navigator.vibrate?.(12); } catch { /* not supported */ }
+      }, 320);
+    }
+  }, [rangeAnchor, clearRange]);
+
+  /** Mouse moved onto another cell while the button is down → start dragging. */
+  const cellPointerEnter = useCallback((rowIdx: number, dateIdx: number) => {
+    const p = pendingCell.current;
+    if (cellDraggingRef.current) {
+      setRangeFocus({ row: rowIdx, date: dateIdx });
+      return true;
+    }
+    if (p && !p.touch && (p.row !== rowIdx || p.date !== dateIdx)) {
+      cellDraggingRef.current = true;
+      setCellDragging(true);
+      setRangeAnchor({ row: p.row, date: p.date });
+      setRangeFocus({ row: rowIdx, date: dateIdx });
+      return true;
+    }
+    return false;
+  }, []);
+
+  /** Latest rectangle, readable from the global pointer listeners. */
+  const rangeRectRef = useRef(rangeRect);
+  rangeRectRef.current = rangeRect;
+
+  useEffect(() => {
+    const findCell = (x: number, y: number) => {
+      const el = document.elementFromPoint(x, y) as HTMLElement | null;
+      const cell = el?.closest?.("[data-cell-row]") as HTMLElement | null;
+      if (!cell) return null;
+      return { row: Number(cell.dataset.cellRow), date: Number(cell.dataset.cellDate) };
     };
-    window.addEventListener("pointerup", stop);
-  }, [rangeAnchor]);
+    const onMove = (e: PointerEvent) => {
+      if (!cellDraggingRef.current) return;
+      e.preventDefault();
+      const hit = findCell(e.clientX, e.clientY);
+      if (hit && Number.isFinite(hit.row) && Number.isFinite(hit.date)) {
+        setRangeFocus((prev) => (prev && prev.row === hit.row && prev.date === hit.date ? prev : hit));
+      }
+    };
+    const onUp = () => {
+      if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
+      pendingCell.current = null;
+      if (!cellDraggingRef.current) return;
+      cellDraggingRef.current = false;
+      setCellDragging(false);
+      suppressClick.current = true;
+      window.setTimeout(() => { suppressClick.current = false; }, 250);
+      // Selection finished → go straight to the pricing tool.
+      const rect = rangeRectRef.current;
+      if (rect) setRangeToolOpen(true);
+    };
+    window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, []);
+
 
   /** Send everything the selection tool previews straight to Previo. */
   async function applyRangeTool() {
