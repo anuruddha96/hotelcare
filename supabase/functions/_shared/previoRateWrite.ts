@@ -309,6 +309,79 @@ export async function readPrevioRateLevels(opts: {
 }
 
 
+function addDaysIso(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Season span in nights. Previo emits contiguous `[from, to)` blocks, the
+ *  same reading the nightly sync uses. */
+function seasonSpan(from: string, to: string): number {
+  const a = Date.parse(`${from}T00:00:00Z`);
+  const b = Date.parse(`${to}T00:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 1;
+  return Math.max(1, Math.round((b - a) / 86_400_000));
+}
+
+/**
+ * Published prices for one room type across a **date range**, keyed
+ * `YYYY-MM-DD|occupancy`.
+ *
+ * A push batch covers a whole range, so verifying only its first date left
+ * every other date permanently "awaiting confirmation". Previo answers with
+ * `<season from..to>` blocks, which are expanded per night here.
+ */
+export async function readPrevioRateLevelsRange(opts: {
+  creds: PrevioCredentials;
+  pmsHotelId: string;
+  from: string;
+  to: string;
+  obkId: string;
+  prlId?: string | null;
+  /** Days per getRates call; keeps a six-month push inside the runtime. */
+  chunkDays?: number;
+}): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const chunk = Math.max(1, opts.chunkDays ?? 45);
+  let cursor = opts.from;
+  while (cursor <= opts.to) {
+    const end = addDaysIso(cursor, chunk - 1) > opts.to ? opts.to : addDaysIso(cursor, chunk - 1);
+    const res = await callPrevioXml({
+      method: "getRates",
+      creds: opts.creds,
+      pmsHotelId: opts.pmsHotelId,
+      extraXml:
+        `<term><from>${esc(cursor)}</from><to>${esc(end)}</to></term>` +
+        (opts.prlId ? `<prlId>${esc(opts.prlId)}</prlId>` : ""),
+    });
+    if (res.ok) {
+      for (const seasonRaw of res.text.split(/<season>/i).slice(1)) {
+        const season = seasonRaw.split(/<\/season>/i)[0] ?? "";
+        const seasonFrom = (season.match(/<from>([^<]*)<\/from>/i)?.[1] ?? "").slice(0, 10);
+        if (!seasonFrom) continue;
+        const seasonTo = (season.match(/<to>([^<]*)<\/to>/i)?.[1] ?? seasonFrom).slice(0, 10);
+        const span = seasonSpan(seasonFrom, seasonTo);
+        for (const kindRaw of season.split(/<objectKind>/i).slice(1)) {
+          const block = kindRaw.split(/<\/objectKind>/i)[0] ?? "";
+          const obk = block.match(/<obkId>([^<]*)<\/obkId>/i)?.[1]?.trim();
+          if (obk !== opts.obkId) continue;
+          const levels = new Map<number, number>();
+          parseRateLevels(block, levels);
+          for (let i = 0; i < span; i++) {
+            const day = addDaysIso(seasonFrom, i);
+            if (day < cursor || day > end) continue;
+            for (const [occ, price] of levels) out.set(`${day}|${occ}`, price);
+          }
+        }
+      }
+    }
+    cursor = addDaysIso(end, 1);
+  }
+  return out;
+}
+
+
 // ---------------------------------------------------------------------------
 // Restrictions (minimum stay)
 //

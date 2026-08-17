@@ -262,6 +262,18 @@ interface PendingDraft {
   push_error?: string | null;
 }
 
+/** How long a price has been waiting for Previo's read-back, in plain words. */
+function waitLabel(stamp?: string | null): string | null {
+  const t = Date.parse(String(stamp ?? ""));
+  if (!Number.isFinite(t)) return null;
+  const mins = Math.floor((Date.now() - t) / 60000);
+  if (mins < 2) return null;
+  if (mins < 60) return `${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) return `${hours} h`;
+  return `${Math.floor(hours / 24)} days`;
+}
+
 
 /**
  * Previo-style pricelist: room types down a FROZEN left column with one
@@ -1148,6 +1160,15 @@ export default function RateStrategyGrid({
     () => pending.filter((d) => classifyDraft(d) === "inflight"),
     [pending],
   );
+
+  /** Age of the longest-waiting confirmation, so "still checking" is honest. */
+  const oldestAwaitingLabel = useMemo(() => {
+    const stamps = awaitingDrafts
+      .map((d) => Date.parse(String(d.updated_at ?? d.created_at ?? "")))
+      .filter((t) => Number.isFinite(t) && t > 0);
+    if (stamps.length === 0) return null;
+    return waitLabel(new Date(Math.min(...stamps)).toISOString());
+  }, [awaitingDrafts]);
 
   const divergentDrafts = useMemo(
     () => pending.filter((d) => d.confirmation_status === "different"),
@@ -3685,7 +3706,9 @@ export default function RateStrategyGrid({
                         </span>
                       )}
                       {d.status === "pushed" && d.confirmation_status !== "different" && (
-                        <span className="block text-[10px] text-muted-foreground">Accepted — awaiting confirmation from Previo sync</span>
+                        <span className="block text-[10px] text-muted-foreground">
+                          Accepted by Previo — confirming{waitLabel(d.updated_at ?? d.created_at) ? ` (waiting ${waitLabel(d.updated_at ?? d.created_at)})` : ""}
+                        </span>
                       )}
                       {d.confirmation_status === "different" && (
                         <span className="block text-[10px] text-destructive">
@@ -3721,6 +3744,12 @@ export default function RateStrategyGrid({
           </div>
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">Only persistent Previo errors appear here. Successful publishing and verification stay in the background.</p>
+            {oldestAwaitingLabel && (
+              <p className="text-[11px] text-muted-foreground">
+                Oldest price still confirming: {oldestAwaitingLabel}. Use “Check Previo now” to settle these against the live prices.
+              </p>
+            )}
+
 
             <div className="flex flex-wrap items-center gap-2">
               <Button
