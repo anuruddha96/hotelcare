@@ -87,10 +87,13 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
+  const [alreadyAdded, setAlreadyAdded] = useState<Candidate[]>([]);
+  const [searchedMonth, setSearchedMonth] = useState<string | null>(null);
   const [picked, setPicked] = useState<Record<number, boolean>>({});
   const [skipped, setSkipped] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [edit, setEdit] = useState<EventEdit | null>(null);
+
 
   // manual form
   const [title, setTitle] = useState("");
