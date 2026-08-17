@@ -2503,7 +2503,38 @@ export default function RateStrategyGrid({
               ))}
 
             </div>
+            </div>
+
+            {/* Edge hints: a soft fade plus an animated chevron showing there
+                is more calendar that way. They fade out at the ends. */}
+            <div
+              aria-hidden
+              className={`pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-background to-transparent transition-opacity duration-200 ${edges.right ? "opacity-100" : "opacity-0"}`}
+            />
+            <div
+              aria-hidden
+              className={`pointer-events-none absolute inset-y-0 w-10 bg-gradient-to-r from-background to-transparent transition-opacity duration-200 ${edges.left ? "opacity-100" : "opacity-0"}`}
+              style={{ left: LEFT_W }}
+            />
+            <button
+              type="button"
+              aria-label="Show earlier dates"
+              onClick={() => nudge(-1)}
+              className={`absolute top-1/2 z-40 hidden -translate-y-1/2 items-center justify-center rounded-full border bg-card/90 p-1.5 shadow-sm backdrop-blur transition-all hover:bg-card sm:flex ${edges.left ? "opacity-90 hover:opacity-100" : "pointer-events-none opacity-0"}`}
+              style={{ left: LEFT_W + 6 }}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              aria-label="Show later dates"
+              onClick={() => nudge(1)}
+              className={`absolute right-1.5 top-1/2 z-40 hidden -translate-y-1/2 items-center justify-center rounded-full border bg-card/90 p-1.5 shadow-sm backdrop-blur transition-all hover:bg-card sm:flex ${edges.right ? "opacity-90 hover:opacity-100 animate-pulse" : "pointer-events-none opacity-0"}`}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
           </div>
+
 
         )}
       </CardContent>
