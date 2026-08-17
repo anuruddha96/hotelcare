@@ -1500,6 +1500,21 @@ Deno.serve(async (req) => {
         // surcharge instead of the ordinary booking-window tier.
         const base = tierIncrease(rule.booking_window_tiers ?? [], daysOut);
         let increase = ev.sequence >= 2 ? Number(rule.second_pickup_surcharge || 0) : base;
+
+        // A booking landing far beyond the usual booking window is the
+        // strongest willingness-to-pay signal there is: the date has months
+        // left to sell, so it earns the far-out surcharge instead of the
+        // ordinary tier.
+        const farOut = farOutSurcharge({
+          enabled: rule.far_out_enabled !== false && rule.lead_bands_enabled !== false,
+          daysOut,
+          farOutDays: Math.max(0, Number(rule.far_out_days ?? 90)),
+          surcharge: Number(rule.far_out_surcharge ?? 0),
+          maximumIncrease: rule.maximum_increase,
+        });
+        const isFarOut = farOut > increase;
+        if (isFarOut) increase = farOut;
+
         if (rule.maximum_increase) increase = Math.min(increase, Number(rule.maximum_increase));
         if (increase <= 0) continue;
 
@@ -1508,6 +1523,16 @@ Deno.serve(async (req) => {
         if (room <= 0) continue;
         increase = Math.min(increase, room);
         raisedToday.set(ev.stay_date, already + increase);
+        if (isFarOut) {
+          const seen = farOutLifts.get(ev.stay_date);
+          farOutLifts.set(ev.stay_date, {
+            stay_date: ev.stay_date,
+            days_out: daysOut,
+            amount: Math.max(increase, seen?.amount ?? 0),
+            bookings: (seen?.bookings ?? 0) + 1,
+          });
+        }
+
 
         for (const rate of latestRate.values()) {
           if (rate.stay_date !== ev.stay_date) continue;
