@@ -32,10 +32,13 @@ export default function DayChangesSheet({
   hotelId,
   date,
   onOpenChange,
+  onEditPrices,
 }: {
   hotelId?: string | null;
   date: string | null;
   onOpenChange: (open: boolean) => void;
+  /** Jump straight from "what changed" to "change it" on a phone. */
+  onEditPrices?: (date: string) => void;
 }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
