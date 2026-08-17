@@ -121,7 +121,13 @@ interface Rule {
   far_out_enabled: boolean;
   far_out_surcharge: number;
   far_out_notify: boolean;
+  // Far-out floor top-up
+  far_out_floor_topup_enabled: boolean;
+  far_out_floor_topup_days: number;
+  far_out_floor_topup_threshold: number;
+  far_out_floor_topup_amount: number;
 }
+
 
 
 const json = (body: unknown, status = 200) =>
