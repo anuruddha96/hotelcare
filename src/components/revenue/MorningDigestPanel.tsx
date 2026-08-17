@@ -74,6 +74,7 @@ export default function MorningDigestPanel({ hotelId, organizationSlug, canEdit 
   const sendNow = async () => {
     if (!hotelId) return;
     setSending(true);
+    setSendError(null);
     try {
       const { data, error } = await supabase.functions.invoke("revenue-morning-digest", {
         body: { hotelId, force: true },
