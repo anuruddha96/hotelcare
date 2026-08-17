@@ -61,7 +61,8 @@ interface Props {
   /** Internal demand grade per stay date (old-school demand book). */
   demandByDate?: Map<string, { score: number; band: DemandBand; drivers: string[] }>;
   /** Approved events per stay date, shown as a marker on the demand row. */
-  eventsByDate?: Map<string, { title: string; impact: string }[]>;
+  eventsByDate?: Map<string, DemandEventDetail[]>;
+
   /** Rooms still sellable per `${roomTypeLabel}|${date}`. */
   leftByTypeDate?: Map<string, number>;
   /** Reload the hotel's rates after Previo confirms a price push. */
