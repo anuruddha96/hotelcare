@@ -388,6 +388,12 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       spike_lookback_days: rule.spike_lookback_days,
       event_surcharge_eur: rule.event_surcharge_eur,
       event_surcharge_auto: rule.event_surcharge_auto,
+      lead_bands_enabled: rule.lead_bands_enabled,
+      far_out_days: rule.far_out_days,
+      far_out_enabled: rule.far_out_enabled,
+      far_out_surcharge: rule.far_out_surcharge,
+      far_out_notify: rule.far_out_notify,
+
       // Saving never triggers an immediate evaluation: an enabled rule is
       // simply scheduled one normal interval from now, so nobody gets a
       // surprise markdown for pressing Save. "Run now" stays the explicit
