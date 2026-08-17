@@ -1469,6 +1469,9 @@ Deno.serve(async (req) => {
         res_id: string; at: string; sequence: number; events: number;
       };
       const cellDecisions = new Map<string, CellDecision>();
+      /** Stay dates lifted because a booking arrived beyond the booking window. */
+      const farOutLifts = new Map<string, { stay_date: string; days_out: number; amount: number; bookings: number }>();
+
 
       for (const ev of events) {
         const daysOut = dayDiff(today, ev.stay_date);
