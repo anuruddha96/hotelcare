@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Loader2, Pencil } from "lucide-react";
 import { formatWhen, type RateAuditRow } from "@/lib/rateAudit";
 import { markerOrigin } from "@/lib/rateMarkers";
 import { ORIGIN_DOT_CLASS, ORIGIN_LABEL, budapestDayStartMs, type ChangeOrigin } from "@/lib/rateOrigin";
