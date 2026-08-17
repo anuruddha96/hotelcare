@@ -366,6 +366,71 @@ function tierIncrease(tiers: Tier[], daysOut: number): number {
   return 0;
 }
 
+function normTypeName(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+/**
+ * Per ROOM TYPE availability, the same arithmetic the price grid shows:
+ * physical rooms of that type minus booked nights of that type for the date.
+ * The hotel-level sold-out guard cannot see this — a 1-room type can be gone
+ * while the property is only 60% full — so every decision also asks here.
+ * Returns null when the type is unknown (never block on missing data).
+ */
+async function loadTypeAvailability(
+  admin: any,
+  hotelId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<{ left: (roomTypeName: unknown, obkId: unknown, stayDate: string) => number | null }> {
+  const [{ data: types }, { data: nights }] = await Promise.all([
+    admin.from("room_types").select("name, num_rooms, is_sellable, pms_room_id").eq("hotel_id", hotelId).limit(500),
+    admin.from("revenue_booking_nights").select("stay_date, room_type_name, obk_id")
+      .eq("hotel_id", hotelId).gte("stay_date", fromDate).lte("stay_date", toDate).limit(100000),
+  ]);
+
+  const capacityByName = new Map<string, number>();
+  const nameByPmsId = new Map<string, string>();
+  for (const t of (types ?? []) as any[]) {
+    if (t.is_sellable === false) continue;
+    const key = normTypeName(t.name);
+    if (!key) continue;
+    capacityByName.set(key, Math.max(capacityByName.get(key) ?? 0, Number(t.num_rooms) || 0));
+    for (const raw of String(t.pms_room_id ?? "").split(",")) {
+      const id = raw.trim();
+      if (id) nameByPmsId.set(id, key);
+    }
+  }
+
+  const resolve = (roomTypeName: unknown, obkId: unknown): string | null => {
+    const byName = normTypeName(roomTypeName);
+    if (byName && capacityByName.has(byName)) return byName;
+    const pmsId = String(obkId ?? "").split(":").pop()?.trim() ?? "";
+    const byId = pmsId ? nameByPmsId.get(pmsId) : undefined;
+    return byId ?? null;
+  };
+
+  const soldByKey = new Map<string, number>();
+  for (const n of (nights ?? []) as any[]) {
+    const key = resolve(n.room_type_name, n.obk_id);
+    if (!key) continue;
+    const cell = `${key}|${n.stay_date}`;
+    soldByKey.set(cell, (soldByKey.get(cell) ?? 0) + 1);
+  }
+
+  return {
+    left(roomTypeName, obkId, stayDate) {
+      const key = resolve(roomTypeName, obkId);
+      if (!key) return null;
+      const capacity = capacityByName.get(key);
+      if (capacity === undefined || !(capacity > 0)) return null;
+      return Math.max(0, capacity - (soldByKey.get(`${key}|${stayDate}`) ?? 0));
+    },
+  };
+}
+
+
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -575,6 +640,18 @@ Deno.serve(async (req) => {
       // Observation window: since the previous SUCCESSFUL evaluation (normally
       // ~60 minutes), so a slightly late scheduler still sees every booking.
       const evalWindow = observationWindow(now, rule.last_successful_evaluation_at, intervalMinutes);
+
+      // Room-type level availability for the whole horizon, loaded once and
+      // consulted by every decision pass below.
+      const availHorizon = new Date(`${today}T00:00:00Z`);
+      availHorizon.setUTCDate(availHorizon.getUTCDate() + Math.max(1, Number(rule.future_booking_window_days || 183)));
+      const typeAvail = await loadTypeAvailability(admin, rule.hotel_id, today, availHorizon.toISOString().slice(0, 10));
+      /** True when this room type has nothing left to sell on that date. */
+      const typeSoldOut = (roomTypeName: unknown, obkId: unknown, stayDate: string): boolean => {
+        if (rule.sold_out_guard_enabled === false) return false;
+        return typeAvail.left(roomTypeName, obkId, stayDate) === 0;
+      };
+
       const lookbackFrom = new Date(
         Math.min(
           Date.parse(evalWindow.from),
@@ -761,6 +838,14 @@ Deno.serve(async (req) => {
               blockedDates.set(rate.stay_date, "sold_out");
               markdownBlocks["sold_out"] = (markdownBlocks["sold_out"] ?? 0) + 1;
             }
+            continue;
+          }
+
+          // Same rule at ROOM TYPE level: this type is gone for that date even
+          // if the property still has rooms elsewhere.
+          if (typeSoldOut(rate.room_type_name, rate.obk_id, rate.stay_date)) {
+            heldSoldOut++;
+            markdownBlocks["room_type_sold_out"] = (markdownBlocks["room_type_sold_out"] ?? 0) + 1;
             continue;
           }
 
@@ -1209,6 +1294,7 @@ Deno.serve(async (req) => {
             occupancyPct: occByDate.get(rate.stay_date) ?? null,
             soldOutOccupancyPct: Number(rule.sold_out_occupancy_pct ?? 100),
           })) { heldSoldOut++; continue; }
+          if (typeSoldOut(rate.room_type_name, rate.obk_id, rate.stay_date)) { heldSoldOut++; continue; }
 
           const cell = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
           const current = effectivePrice(Number(rate.price), strongPendingByCell.get(cell) ?? []);
@@ -1358,6 +1444,7 @@ Deno.serve(async (req) => {
               occupancyPct: topOcc.get(rate.stay_date) ?? null,
               soldOutOccupancyPct: Number(rule.sold_out_occupancy_pct ?? 100),
             })) continue;
+            if (typeSoldOut(rate.room_type_name, rate.obk_id, rate.stay_date)) continue;
 
             const cell = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
             const current = effectivePrice(Number(rate.price), topPendingByCell.get(cell) ?? []);
@@ -1689,6 +1776,9 @@ Deno.serve(async (req) => {
               : String(rate.room_type_name ?? "").trim().toLowerCase() === String(ev.room_type_name ?? "").trim().toLowerCase();
             if (!sameRoom) continue;
           }
+          // This room type has nothing left for that date — raising it can only
+          // look wrong later. The pickup is still recorded, the cell is not moved.
+          if (typeSoldOut(rate.room_type_name, rate.obk_id, rate.stay_date)) { heldSoldOut++; continue; }
           const oldPrice = Number(rate.price);
           if (!Number.isFinite(oldPrice) || oldPrice <= 0) continue;
 
