@@ -3021,8 +3021,8 @@ export default function RateStrategyGrid({
               type="button"
               aria-label="Show earlier dates"
               onClick={() => nudge(-1)}
-              onPointerEnter={() => { manualNav.current = true; setHoverArrow("left"); }}
-              onPointerLeave={() => { manualNav.current = false; setHoverArrow(null); endHold(); }}
+              onPointerEnter={() => { manualNav.current = true; showArrowHint("left"); }}
+              onPointerLeave={() => { manualNav.current = false; hideArrowHint(); endHold(); }}
               onPointerDown={() => startHold(-1)}
               onPointerUp={endHold}
               onPointerCancel={endHold}
@@ -3040,8 +3040,8 @@ export default function RateStrategyGrid({
               type="button"
               aria-label="Show later dates"
               onClick={() => nudge(1)}
-              onPointerEnter={() => { manualNav.current = true; setHoverArrow("right"); }}
-              onPointerLeave={() => { manualNav.current = false; setHoverArrow(null); endHold(); }}
+              onPointerEnter={() => { manualNav.current = true; showArrowHint("right"); }}
+              onPointerLeave={() => { manualNav.current = false; hideArrowHint(); endHold(); }}
               onPointerDown={() => startHold(1)}
               onPointerUp={endHold}
               onPointerCancel={endHold}
