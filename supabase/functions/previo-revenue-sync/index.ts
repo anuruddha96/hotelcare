@@ -145,10 +145,15 @@ function parseRates(xml: string, ratePlanFilter: string | null): RateRow[] {
       const to = (grab(season, "to") ?? from).slice(0, 10);
       if (!from) continue;
       const span = Math.max(1, daysBetween(from, to) || 1);
+      // Previo keeps the minimum stay on the season (date range of a rate
+      // plan), not on the room type — `<minStay>` sits after the objectKind
+      // blocks. Some accounts also repeat it per room type, so prefer that
+      // when present and fall back to the season rule.
+      const seasonMinStay = grab(season.replace(/<objectKind>[\s\S]*<\/objectKind>/i, ""), "minStay");
       for (const ok of blocks(season, "objectKind")) {
         const obkId = grab(ok, "obkId");
         if (!obkId) continue;
-        const minStay = grab(ok, "minStay");
+        const minStay = grab(ok, "minStay") ?? seasonMinStay;
         const cta = (grab(ok, "closeToArrival") ?? "false") === "true";
         const ctd = (grab(ok, "closeToDeparture") ?? "false") === "true";
         for (const rate of blocks(ok, "rate")) {
