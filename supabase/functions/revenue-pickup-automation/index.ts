@@ -1603,15 +1603,23 @@ Deno.serve(async (req) => {
           increase_amount: newPrice - decision.old_price,
           new_price: newPrice,
           status: rule.auto_publish ? "queued" : "suggested",
-          decision_reason: "positive_pickup",
-          reason_detail: decisionReasonText({
-            kind: "positive_pickup",
-            netPickup: netPickup.get(decision.stay_date) ?? decision.events,
-            occupancyPct: occByStayDate.get(decision.stay_date) ?? null,
-            daysOut: dayDiff(today, decision.stay_date),
-            amount: newPrice - decision.old_price,
-            currency: decision.currency,
-          }),
+          decision_reason: farOutLifts.has(decision.stay_date) ? "far_out_booking" : "positive_pickup",
+          reason_detail: farOutLifts.has(decision.stay_date)
+            ? farOutBookingText({
+              stayDate: decision.stay_date,
+              daysOut: dayDiff(today, decision.stay_date),
+              amount: newPrice - decision.old_price,
+              currency: decision.currency,
+            })
+            : decisionReasonText({
+              kind: "positive_pickup",
+              netPickup: netPickup.get(decision.stay_date) ?? decision.events,
+              occupancyPct: occByStayDate.get(decision.stay_date) ?? null,
+              daysOut: dayDiff(today, decision.stay_date),
+              amount: newPrice - decision.old_price,
+              currency: decision.currency,
+            }),
+
         });
 
         if (rule.auto_publish) {
