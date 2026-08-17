@@ -1161,6 +1161,15 @@ export default function RateStrategyGrid({
     [pending],
   );
 
+  /** Age of the longest-waiting confirmation, so "still checking" is honest. */
+  const oldestAwaitingLabel = useMemo(() => {
+    const stamps = awaitingDrafts
+      .map((d) => Date.parse(String(d.updated_at ?? d.created_at ?? "")))
+      .filter((t) => Number.isFinite(t) && t > 0);
+    if (stamps.length === 0) return null;
+    return waitLabel(new Date(Math.min(...stamps)).toISOString());
+  }, [awaitingDrafts]);
+
   const divergentDrafts = useMemo(
     () => pending.filter((d) => d.confirmation_status === "different"),
     [pending],
