@@ -3685,7 +3685,9 @@ export default function RateStrategyGrid({
                         </span>
                       )}
                       {d.status === "pushed" && d.confirmation_status !== "different" && (
-                        <span className="block text-[10px] text-muted-foreground">Accepted — awaiting confirmation from Previo sync</span>
+                        <span className="block text-[10px] text-muted-foreground">
+                          Accepted by Previo — confirming{waitLabel(d.updated_at ?? d.created_at) ? ` (waiting ${waitLabel(d.updated_at ?? d.created_at)})` : ""}
+                        </span>
                       )}
                       {d.confirmation_status === "different" && (
                         <span className="block text-[10px] text-destructive">
