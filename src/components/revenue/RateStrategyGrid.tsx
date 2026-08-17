@@ -2439,7 +2439,7 @@ export default function RateStrategyGrid({
                         <span className="font-medium">{formatDay(d)}</span>
                         {dayLatest && (
                           <span
-                            className="absolute bottom-0 left-0 right-0 flex h-3 cursor-pointer items-end justify-center"
+                            className="absolute bottom-0 left-1/2 flex h-3 w-4 -translate-x-1/2 cursor-pointer items-end justify-center"
                             role="button"
                             tabIndex={-1}
                             aria-label={`See every price change on ${d}`}
