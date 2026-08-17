@@ -831,13 +831,31 @@ Deno.serve(async (req) => {
             }
           }
 
+          // Lead-time band: only the immediate selling window uses the big
+          // step. Further out a date drifts by the ordinary base step at most,
+          // so a January date cannot be walked down hour after hour.
+          const band = leadBandFor(dayDiff(local.date, rate.stay_date), {
+            immediateWindowDays: Math.max(0, Number(rule.immediate_window_days ?? 14)),
+            nearTermDays: Math.max(0, Number(rule.near_term_days ?? 30)),
+            farOutDays: Math.max(0, Number(rule.far_out_days ?? 90)),
+          });
+          const bandStep = rule.lead_bands_enabled === false
+            ? immediate.step
+            : bandMarkdownStep({
+              band,
+              step: immediate.step,
+              baseStep: Number(rule.no_pickup_decrease ?? 0.5),
+            });
+          if (bandStep <= 0) continue;
+
           if (!allowedStepByDate.has(rate.stay_date)) {
             allowedStepByDate.set(rate.stay_date, dateAllowedStep({
-              decreasePerEvaluation: immediate.step,
+              decreasePerEvaluation: bandStep,
               stayDateMovedToday: movedTodayByDate.get(rate.stay_date) ?? 0,
               maxDailyDecreasePerDate: Number(rule.max_daily_decrease_per_date || 10),
             }));
           }
+
           const allowed = allowedStepByDate.get(rate.stay_date) ?? 0;
           if (allowed <= 0) {
             if (!blockedDates.has(rate.stay_date)) {
