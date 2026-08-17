@@ -176,12 +176,9 @@ function isWeekendTrading(d: string): boolean {
   return day === 5 || day === 6 || day === 0;
 }
 
-/** Vertical rules: month > week > day, so columns never blur together.
- *  Friday and Monday get stronger separators to bracket the weekend block. */
+/** Vertical rules: month > week > day, so columns never blur together. */
 function dayEdge(d: string): string {
   if (d.endsWith("-01")) return "border-l-2 border-l-foreground/40";
-  if (isMonday(d)) return "border-l-2 border-l-primary/45";
-  if (new Date(`${d}T00:00:00Z`).getUTCDay() === 5) return "border-l-2 border-l-primary/45";
   return "border-l border-l-border/40";
 }
 
@@ -189,7 +186,7 @@ function dayEdge(d: string): string {
  *  Fri–Sun (the revenue weekend trading block) gets a stronger muted fill
  *  so users can immediately spot the high-value columns. */
 function dayBg(d: string, i: number): string {
-  if (isWeekendTrading(d)) return "bg-primary/10";
+  if (isWeekendTrading(d)) return "bg-primary/15";
   return i % 2 === 1 ? "bg-foreground/[0.03]" : "";
 }
 
