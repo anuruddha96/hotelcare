@@ -96,7 +96,8 @@ export default function MorningDigestPanel({ hotelId, organizationSlug, canEdit 
       toast.success("Digest sent — check your inbox (and spam).");
       void load();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not send the digest");
+      // Shown inline, not as a toast: a toast here covers the panel's close button.
+      setSendError(e instanceof Error ? e.message : "Could not send the digest");
     } finally {
       setSending(false);
     }
