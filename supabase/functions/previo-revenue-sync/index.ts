@@ -661,6 +661,41 @@ serve(async (req) => {
     if (error) errors.push(`rates upsert: ${error.message}`);
   }
 
+  // Mirror Previo's minimum-stay rules per stay date so the calendar shows the
+  // same restrictions the PMS does. Previo is the source of truth here: the
+  // rule belongs to the date (all room types share it), never to a room type.
+  if (!probeOnly && ratePayload.length > 0 && orgSlug) {
+    const minStayByDate = new Map<string, number>();
+    for (const r of dedupedRates.values()) {
+      const nights = Number(r.min_stay);
+      if (!Number.isFinite(nights) || nights < 1) continue;
+      const current = minStayByDate.get(r.stay_date) ?? 1;
+      if (nights > current) minStayByDate.set(r.stay_date, Math.round(nights));
+      else if (!minStayByDate.has(r.stay_date)) minStayByDate.set(r.stay_date, Math.round(nights));
+    }
+    // Dates Previo priced but left unrestricted must fall back to 1, otherwise
+    // a removed restriction would linger in Hotel Care forever.
+    for (const r of dedupedRates.values()) {
+      if (!minStayByDate.has(r.stay_date)) minStayByDate.set(r.stay_date, 1);
+    }
+    const minStayPayload = Array.from(minStayByDate.entries()).map(([stay_date, min_nights]) => ({
+      hotel_id: hotelId,
+      organization_slug: orgSlug,
+      stay_date,
+      min_nights,
+      notes: "previo",
+      updated_at: new Date().toISOString(),
+    }));
+    for (let i = 0; i < minStayPayload.length; i += 500) {
+      const { error } = await service
+        .from("min_stay_rules")
+        .upsert(minStayPayload.slice(i, i + 500), { onConflict: "hotel_id,stay_date" });
+      if (error) errors.push(`min stay upsert: ${error.message}`);
+    }
+  }
+
+
+
   // EQC acceptance is not publication proof. This authoritative pull is the
   // final arbiter for every requested cell and records requested vs. landed.
   let reconciledDrafts = 0;
