@@ -2896,7 +2896,120 @@ export default function RateStrategyGrid({
         )}
       </CardContent>
 
+      {/* Cell-block selection bar: what is picked, and what to do with it. */}
+      {rangeMode && (
+        <div className="fixed inset-x-0 bottom-0 z-[60] border-t bg-card/95 px-3 py-2.5 shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.35)] backdrop-blur animate-fade-in sm:inset-x-auto sm:bottom-6 sm:right-6 sm:rounded-full sm:border sm:px-4 sm:py-2">
+          <div className="mx-auto flex max-w-2xl items-center gap-2">
+            <MousePointerSquareDashed className="h-4 w-4 shrink-0 text-primary" />
+            <div className="min-w-0 flex-1 text-xs">
+              {rangeCells.length === 0 ? (
+                <span className="text-muted-foreground">
+                  {isMobile
+                    ? "Tap a price to start, then tap another to close the block."
+                    : "Drag across any prices — room types down, dates across. Shift-click extends."}
+                </span>
+              ) : (
+                <span>
+                  <span className="font-medium">{rangeCells.length} price{rangeCells.length === 1 ? "" : "s"} selected</span>
+                  <span className="text-muted-foreground">
+                    {" · "}{(rangeRect ? rangeRect.r1 - rangeRect.r0 + 1 : 0)} row{rangeRect && rangeRect.r1 - rangeRect.r0 === 0 ? "" : "s"}
+                    {" × "}{(rangeRect ? rangeRect.d1 - rangeRect.d0 + 1 : 0)} date{rangeRect && rangeRect.d1 - rangeRect.d0 === 0 ? "" : "s"}
+                  </span>
+                </span>
+              )}
+            </div>
+            {rangeCells.length > 0 && (
+              <>
+                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={clearRange}>
+                  Clear
+                </Button>
+                <Button size="sm" className="h-8 text-xs" onClick={() => setRangeToolOpen(true)}>
+                  Change prices
+                </Button>
+              </>
+            )}
+            <Button
+              size="icon" variant="ghost" className="h-8 w-8"
+              aria-label="Leave cell selection"
+              onClick={() => { setRangeMode(false); clearRange(); }}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Price the selected block */}
+      <Dialog open={rangeToolOpen} onOpenChange={(o) => setRangeToolOpen(o)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base">
+              Change {rangeCells.length} selected price{rangeCells.length === 1 ? "" : "s"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-md border bg-muted/30 p-2 text-[11px] text-muted-foreground">
+              {rangeRect && dates[rangeRect.d0] ? (
+                <>
+                  {dates[rangeRect.d0]}
+                  {rangeRect.d1 > rangeRect.d0 ? ` … ${dates[rangeRect.d1]}` : ""}
+                  {" · "}
+                  {Array.from(new Set(rangeCells.map((c) => c.row.roomTypeName))).join(", ")}
+                </>
+              ) : null}
+            </div>
+            <div className="flex gap-2">
+              <Select value={rangeCalc} onValueChange={(v) => setRangeCalc(v as typeof rangeCalc)}>
+                <SelectTrigger className="h-9 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="amount">Change by amount</SelectItem>
+                  <SelectItem value="percent">Change by %</SelectItem>
+                  <SelectItem value="set">Set price to</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                value={rangeValue}
+                onChange={(e) => setRangeValue(e.target.value)}
+                inputMode="decimal"
+                className="h-9 flex-1 text-sm"
+                aria-label="Amount"
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Prices are always sent to Previo as whole {getRevenueCurrency().code}.
+            </p>
+            <div className="max-h-52 overflow-y-auto rounded-md border">
+              {rangeChanges.length === 0 ? (
+                <p className="p-3 text-xs text-muted-foreground">Nothing would change with these settings.</p>
+              ) : (
+                rangeChanges.slice(0, 60).map((c) => (
+                  <div key={`${c.date}|${c.row.key}`} className="flex items-center justify-between border-b px-2 py-1 text-[11px] last:border-b-0">
+                    <span className="truncate">{c.date} · {c.row.roomTypeName} · {c.row.occ}g</span>
+                    <span className="tabular-nums">
+                      <span className="text-muted-foreground">{moneyBase(c.from)}</span>
+                      {" → "}
+                      <span className="font-semibold">{moneyBase(c.to)}</span>
+                    </span>
+                  </div>
+                ))
+              )}
+              {rangeChanges.length > 60 && (
+                <p className="px-2 py-1 text-[11px] text-muted-foreground">+{rangeChanges.length - 60} more</p>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRangeToolOpen(false)}>Cancel</Button>
+            <Button disabled={rangeChanges.length === 0} onClick={() => void applyRangeTool()}>
+              <Send className="mr-1 h-4 w-4" />
+              Update {rangeChanges.length} price{rangeChanges.length === 1 ? "" : "s"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {multiMode && pickedDates.size > 0 && (
+
         <div
           className="fixed inset-x-0 bottom-0 z-[60] border-t bg-card/95 px-3 pt-2.5 shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.35)] backdrop-blur animate-fade-in sm:inset-x-auto sm:bottom-6 sm:right-6 sm:rounded-full sm:border sm:px-4 sm:py-2"
           style={{ paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom))" }}
