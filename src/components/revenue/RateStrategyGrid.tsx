@@ -2386,8 +2386,13 @@ export default function RateStrategyGrid({
                         style={{ width: CELL_W, height: DAY_H }}
                       >
 
-                        <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
+                        <span className={`text-[10px] ${isWeekendTrading(d) ? "font-bold text-foreground" : "text-muted-foreground"}`}>
+                          {formatWeekday(d)}
+                        </span>
                         <span className="font-medium">{formatDay(d)}</span>
+                        {isWeekendTrading(d) && (
+                          <span className="pointer-events-none absolute top-0.5 right-0.5 flex h-1.5 w-1.5 rounded-full bg-primary/60" aria-hidden />
+                        )}
                         {dayLatest && (
                           <span className="pointer-events-none absolute bottom-[1px] left-0 right-0 flex justify-center" aria-hidden>
                             {/* Secondary by design: it sits under the date and
