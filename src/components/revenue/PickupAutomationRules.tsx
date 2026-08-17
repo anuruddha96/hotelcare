@@ -58,6 +58,12 @@ interface Rule {
   spike_lookback_days: number;
   event_surcharge_eur: number;
   event_surcharge_auto: boolean;
+  lead_bands_enabled: boolean;
+  far_out_days: number;
+  far_out_enabled: boolean;
+  far_out_surcharge: number;
+  far_out_notify: boolean;
+
   last_run_at?: string | null;
   next_run_at?: string | null;
   last_evaluated_at?: string | null;
