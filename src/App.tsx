@@ -30,6 +30,9 @@ import BreakfastAuth from "./pages/BreakfastAuth";
 import PurchaseInvoices from "./pages/PurchaseInvoices";
 import TrainingCenterPage from "./pages/TrainingCenter";
 import ReceptionHome from "./pages/ReceptionHome";
+import AssistantPage from "./pages/AssistantPage";
+import AssistantInsights from "./pages/AssistantInsights";
+import AssistantLauncher from "@/components/assistant/AssistantLauncher";
 import { WelcomeBackOverlay } from "@/components/revenue/WelcomeBackOverlay";
 
 const queryClient = new QueryClient();
@@ -86,7 +89,11 @@ const TenantRouter = () => {
         <Route path="/purchase-invoices" element={<PurchaseInvoices />} />
         <Route path="/training" element={<TrainingCenterPage />} />
         <Route path="/reception" element={<ReceptionHome />} />
+        <Route path="/assistant" element={<AssistantPage />} />
+        <Route path="/assistant/:threadId" element={<AssistantPage />} />
+        <Route path="/assistant-insights" element={<AssistantInsights />} />
       </Routes>
+      <AssistantLauncher />
     </TenantProvider>
   );
 };
