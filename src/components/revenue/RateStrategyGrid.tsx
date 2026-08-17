@@ -35,6 +35,7 @@ import { classifyDraft } from "@/lib/rateChangeGroups";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
+import DayChangesSheet from "@/components/revenue/DayChangesSheet";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
 import PickupAutomationRules from "@/components/revenue/PickupAutomationRules";
 import { publishRates } from "@/lib/ratePublishing";
@@ -408,6 +409,8 @@ export default function RateStrategyGrid({
   const [editMode, setEditMode] = useState<"set" | "percent">("set");
   /** Whole-day price tool, opened by tapping (or dragging across) date headers. */
   const [dayTool, setDayTool] = useState<string | null>(null);
+  /** Which date's full change list is open (tapping the dot under a date). */
+  const [dayChangesDate, setDayChangesDate] = useState<string | null>(null);
   /** Outcome of the last direct push from the day tool. */
   const [dayResult, setDayResult] = useState<{
     pushed: number;
@@ -2435,12 +2438,22 @@ export default function RateStrategyGrid({
                         </span>
                         <span className="font-medium">{formatDay(d)}</span>
                         {dayLatest && (
-                          <span className="pointer-events-none absolute bottom-[1px] left-0 right-0 flex justify-center" aria-hidden>
+                          <span
+                            className="absolute bottom-0 left-0 right-0 flex h-3 cursor-pointer items-end justify-center"
+                            role="button"
+                            tabIndex={-1}
+                            aria-label={`See every price change on ${d}`}
+                            title={`See every price change on ${d}`}
+                            onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                            onTouchStart={(e) => e.stopPropagation()}
+                            onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); suppressDayClick.current = true; setDayChangesDate(d); }}
+                            onClick={(e) => { e.stopPropagation(); e.preventDefault(); setDayChangesDate(d); }}
+                          >
                             {/* Secondary by design: it sits under the date and
                                 shrinks with the calendar's own zoom instead of
                                 covering the day number on a phone. */}
                             <i
-                              className={`block rounded-full ${ORIGIN_DOT_CLASS[dayLatest.origin]}`}
+                              className={`mb-[1px] block rounded-full ${ORIGIN_DOT_CLASS[dayLatest.origin]}`}
                               style={{ width: DAY_DOT, height: DAY_DOT }}
                             />
                           </span>
@@ -2493,9 +2506,16 @@ export default function RateStrategyGrid({
                           ))}
                           {dayChanges.length > 3 && (
                             <p className="text-[11px] text-muted-foreground">
-                              +{dayChanges.length - 3} more change{dayChanges.length - 3 === 1 ? "" : "s"} — open a price cell for its full history
+                              +{dayChanges.length - 3} more change{dayChanges.length - 3 === 1 ? "" : "s"}
                             </p>
                           )}
+                          <button
+                            type="button"
+                            className="text-[11px] font-medium text-primary hover:underline"
+                            onClick={(e) => { e.stopPropagation(); setDayChangesDate(d); }}
+                          >
+                            See every change on this date
+                          </button>
                         </HoverCardContent>
                       </HoverCard>
                     );
@@ -3816,6 +3836,12 @@ export default function RateStrategyGrid({
           })()}
         </DialogContent>
       </Dialog>
+
+      <DayChangesSheet
+        hotelId={hotelId}
+        date={dayChangesDate}
+        onOpenChange={(o) => { if (!o) setDayChangesDate(null); }}
+      />
     </Card>
 
   );
