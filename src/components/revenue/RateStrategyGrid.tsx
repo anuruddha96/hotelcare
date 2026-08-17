@@ -431,8 +431,9 @@ export default function RateStrategyGrid({
    */
   const [rangeAnchor, setRangeAnchor] = useState<{ row: number; date: number } | null>(null);
   const [rangeFocus, setRangeFocus] = useState<{ row: number; date: number } | null>(null);
-  const [selecting, setSelecting] = useState(false);
-  const selectingRef = useRef(false);
+  const [cellDragging, setCellDragging] = useState(false);
+  const cellDraggingRef = useRef(false);
+
   /** The cell the pointer went down on, before we know if it is a drag. */
   const pendingCell = useRef<{ row: number; date: number; x: number; y: number; touch: boolean } | null>(null);
   const holdTimer = useRef<number | null>(null);
