@@ -210,7 +210,7 @@ function MetricInfo({ title, body }: { title: string; body: string }) {
 }
 
 type Row =
-  | { kind: "group"; key: string; label: string; note: string; units: number; typeName: string; rawName: string }
+  | { kind: "group"; key: string; label: string; note: string; units: number; typeName: string; rawName: string; obkOfType: string | null }
   | { kind: "rate"; key: string; label: string; obk: string | null; occ: number; roomTypeName: string; displayName: string }
   | { kind: "adr"; key: string; label: string }
   | { kind: "revpar"; key: string; label: string };
@@ -1016,7 +1016,7 @@ export default function RateStrategyGrid({
     const out: Row[] = [];
     for (const rt of pricedTypes) {
       const label = localizedRoomTypeName(rt.name, rt.name_translations, language);
-      out.push({ kind: "group", key: `g-${rt.id}`, label, note: `×${rt.num_rooms}`, units: rt.num_rooms || 0, typeName: label, rawName: rt.name });
+      out.push({ kind: "group", key: `g-${rt.id}`, label, note: `×${rt.num_rooms}`, units: rt.num_rooms || 0, typeName: label, rawName: rt.name, obkOfType: rt.pms_room_id ?? null });
       const byOcc = rt.pms_room_id ? priceMap.get(rt.pms_room_id) : undefined;
       const occs = byOcc ? Array.from(byOcc.keys()).sort((a, b) => a - b) : [2];
       for (const occ of occs) {
@@ -2326,6 +2326,65 @@ export default function RateStrategyGrid({
                   })}
                 </div>
 
+                {/* Minimum stay — editable, written straight to Previo */}
+                <div className="flex border-b bg-card" style={{ height: ROW_H }}>
+                  <div className="sticky left-0 z-40 flex items-center border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
+                    {railed ? <span title="Minimum stay">Min</span> : (
+                      <>
+                        Min stay
+                        <MetricInfo
+                          title="Minimum stay"
+                          body="The shortest booking accepted for that arrival date. Tap a cell to change it: the new rule is saved here and sent to Previo straight away, for every mapped room type. 1 night means no restriction."
+                        />
+                      </>
+                    )}
+                  </div>
+                  {dates.map((d, i) => {
+                    const key = `min|${d}`;
+                    const nights = minStayByDate.get(d) ?? null;
+                    const editing = restrictionEdit?.key === key;
+                    const busy = restrictionBusy === key;
+                    if (editing) {
+                      return (
+                        <div key={d} className={`flex items-center justify-center shrink-0 ${dayBg(d, i)} ${dayEdge(d)}`} style={{ width: CELL_W }}>
+                          <input
+                            autoFocus
+                            type="number"
+                            min={1}
+                            max={30}
+                            inputMode="numeric"
+                            className="h-5 w-[85%] rounded border bg-background px-1 text-center text-[10px] tabular-nums"
+                            value={restrictionEdit.value}
+                            onChange={(e) => setRestrictionEdit({ key, value: e.target.value })}
+                            onBlur={(e) => commitMinStay(d, e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") commitMinStay(d, (e.target as HTMLInputElement).value);
+                              if (e.key === "Escape") setRestrictionEdit(null);
+                            }}
+                          />
+                        </div>
+                      );
+                    }
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        disabled={!canEditRates || busy}
+                        onClick={() => canEditRates && setRestrictionEdit({ key, value: String(nights ?? 1) })}
+                        title={nights && nights > 1
+                          ? `${d} · minimum ${nights} nights${canEditRates ? " — tap to change" : ""}`
+                          : `${d} · no minimum stay${canEditRates ? " — tap to set one" : ""}`}
+                        className={`flex items-center justify-center shrink-0 tabular-nums text-[10px] ${
+                          nights && nights > 1 ? "font-semibold text-amber-700 dark:text-amber-400" : "text-muted-foreground"
+                        } ${dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:bg-accent/60" : ""}`}
+                        style={{ width: CELL_W }}
+                      >
+                        {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : nights && nights > 1 ? `${nights}N` : "·"}
+                      </button>
+                    );
+                  })}
+                </div>
+
                 {/* Demand grade */}
                 <div className="flex border-b-2 border-b-foreground/20 bg-card" style={{ height: ROW_H }}>
                   <div className="sticky left-0 z-40 flex items-center border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
@@ -2411,18 +2470,47 @@ export default function RateStrategyGrid({
                   {dates.map((d, i) => {
                     if (row.kind === "group") {
                       const units = row.units;
-                      const left = leftByTypeDate?.get(`${row.rawName}|${d}`);
+                      const cell = `${row.rawName}|${d}`;
+                      const override = invOverride.get(cell);
+                      const left = override ?? leftByTypeDate?.get(cell);
+                      const key = `inv|${cell}`;
+                      const editing = restrictionEdit?.key === key;
+                      const busy = restrictionBusy === key;
+                      if (editing) {
+                        return (
+                          <div key={d} className={`flex items-center justify-center shrink-0 ${dayEdge(d)}`} style={{ width: CELL_W }}>
+                            <input
+                              autoFocus
+                              type="number"
+                              min={0}
+                              max={units || 999}
+                              inputMode="numeric"
+                              className="h-5 w-[85%] rounded border bg-background px-1 text-center text-[10px] tabular-nums"
+                              value={restrictionEdit.value}
+                              onChange={(e) => setRestrictionEdit({ key, value: e.target.value })}
+                              onBlur={(e) => commitInventory(d, row.rawName, row.obkOfType, row.typeName, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") commitInventory(d, row.rawName, row.obkOfType, row.typeName, (e.target as HTMLInputElement).value);
+                                if (e.key === "Escape") setRestrictionEdit(null);
+                              }}
+                            />
+                          </div>
+                        );
+                      }
                       return (
-                        <div
+                        <button
                           key={d}
+                          type="button"
+                          disabled={!canEditRates || busy}
+                          onClick={() => canEditRates && setRestrictionEdit({ key, value: String(left ?? units ?? 0) })}
                           title={left === undefined
-                            ? `${row.typeName} · availability not synced for ${d}`
-                            : `${row.typeName} · ${left} of ${units} left on ${d}`}
-                          className={`flex items-center justify-center shrink-0 text-[10px] tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
+                            ? `${row.typeName} · availability not synced for ${d}${canEditRates ? " — tap to set rooms to sell" : ""}`
+                            : `${row.typeName} · ${left} of ${units} left on ${d}${canEditRates ? " — tap to change how many are on sale" : ""}`}
+                          className={`flex items-center justify-center shrink-0 text-[10px] tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)} ${canEditRates ? "hover:bg-accent/60" : ""}`}
                           style={{ width: CELL_W }}
                         >
-                          {left === undefined ? "" : left === 0 ? "Sold out" : `${left} left`}
-                        </div>
+                          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : left === undefined ? (canEditRates ? "·" : "") : left === 0 ? "Sold out" : `${left} left`}
+                        </button>
                       );
                     }
                     if (row.kind !== "rate") {
