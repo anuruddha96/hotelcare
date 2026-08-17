@@ -310,11 +310,11 @@ export async function readPrevioRateLevels(opts: {
 
 
 // ---------------------------------------------------------------------------
-// Restrictions (minimum stay) and inventory (rooms to sell)
+// Restrictions (minimum stay)
 //
-// Same EQC AvailRateUpdate channel as prices — Previo accepts <Inventory> on
-// the room type and <Restrictions> on the rate plan inside the same message
-// shape the price writer already uses.
+// Same EQC AvailRateUpdate channel as prices — <Restrictions minLOS> on the
+// rate plan inside the message shape the price writer already uses. Inventory
+// ("rooms to sell") is NOT accepted by Previo's EQC copy; see below.
 // ---------------------------------------------------------------------------
 
 export interface RestrictionWriteTarget {
@@ -328,8 +328,9 @@ export interface RestrictionWriteTarget {
   to: string;
   /** Minimum nights, 1 = no restriction. Omit to leave the stay rule alone. */
   minStay?: number | null;
-  /** Rooms to sell for this room type. Omit to leave inventory alone. */
+  /** Not supported by Previo — kept so callers compile; always rejected. */
   roomsToSell?: number | null;
+
 }
 
 /**
