@@ -1748,8 +1748,10 @@ export default function RateStrategyGrid({
   visibleDatesRef.current = dates;
   const rows = reviewOnly && flagged.rowKeys.size
     ? allRows.filter((r) => (r.kind === "rate" ? flagged.rowKeys.has(r.key) : r.kind !== "group"))
+    : allRows;
 
   /* ---- Free cell-range selection (any room types × any dates) ---- */
+
 
   /** Normalised rectangle of the current selection, in row/date indexes. */
   const rangeRect = useMemo(() => {
