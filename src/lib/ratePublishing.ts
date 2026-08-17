@@ -6,8 +6,8 @@ export async function publishRates(opts: {
   organizationSlug?: string | null;
   source?: "manual" | "bulk" | "pickup-board" | "automation";
   changes: DraftChange[];
-}): Promise<{ runId: string; queued: number }> {
-  if (opts.changes.length === 0) return { runId: "", queued: 0 };
+}): Promise<{ runId: string; queued: number; skippedSoldOut: number }> {
+  if (opts.changes.length === 0) return { runId: "", queued: 0, skippedSoldOut: 0 };
   const { data, error } = await supabase.functions.invoke("revenue-enqueue-rates", {
     body: {
       hotelId: opts.hotelId,
@@ -17,7 +17,7 @@ export async function publishRates(opts: {
     },
   });
   if (error) throw error;
-  const result = data as { runId?: string; queued?: number; error?: string };
+  const result = data as { runId?: string; queued?: number; skippedSoldOut?: number; error?: string };
   if (result.error || !result.runId) throw new Error(result.error ?? "Could not send prices to Previo");
-  return { runId: result.runId, queued: result.queued ?? opts.changes.length };
+  return { runId: result.runId, queued: result.queued ?? opts.changes.length, skippedSoldOut: result.skippedSoldOut ?? 0 };
 }

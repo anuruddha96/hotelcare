@@ -208,7 +208,7 @@ Deno.serve(async (req) => {
     if (edgeRuntime.EdgeRuntime?.waitUntil) edgeRuntime.EdgeRuntime.waitUntil(expandAndPush());
     else void expandAndPush();
 
-    return json({ ok: true, runId, queued: changes.length });
+    return json({ ok: true, runId, queued: changes.length, skippedSoldOut });
 
   } catch (error) {
     console.error("rate enqueue failed", error);
