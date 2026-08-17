@@ -923,6 +923,10 @@ export default function RateStrategyGrid({
   }, [hotelId]);
 
   useEffect(() => { void loadMinStay(); }, [loadMinStay]);
+  // A PMS sync rewrites the mirrored Previo restrictions, so pick them up as
+  // soon as fresh prices land instead of waiting for a property switch.
+  useEffect(() => { void loadMinStay(); }, [rates.length, loadMinStay]);
+
 
   /** Send one restriction change to Previo and keep the cell honest. */
   const sendRestriction = useCallback(async (opts: {
