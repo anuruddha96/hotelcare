@@ -1,6 +1,7 @@
 // Temporary read-only probe: dump Previo getRates XML for one property so we
 // can see where minimum-stay restrictions live in the response.
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { writePrevioRestrictions } from "../_shared/previoRateWrite.ts";
 import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
 
 const corsHeaders = {
@@ -41,6 +42,28 @@ Deno.serve(async (req) => {
   if (!cfg) return new Response("no config", { status: 404, headers: corsHeaders });
 
   const creds = loadPrevioCredentials((cfg as any).credentials_secret_name);
+  if (url.searchParams.get("setmin")) {
+    const { data: maps } = await service
+      .from("previo_rate_plan_mapping")
+      .select("previo_rate_plan_id, previo_room_type_id").eq("hotel_id", hotelId);
+    const out: unknown[] = [];
+    for (const m of (maps ?? []) as any[]) {
+      const res = await writePrevioRestrictions({
+        creds,
+        pmsHotelId: String((cfg as any).pms_hotel_id || ""),
+        target: {
+          obkId: String(m.previo_room_type_id).split(":").pop()!,
+          prlId: String(m.previo_rate_plan_id),
+          from, to,
+          minStay: Number(url.searchParams.get("setmin")),
+          roomsToSell: null,
+        },
+      });
+      out.push({ obk: m.previo_room_type_id, ...res.attempts[0] });
+    }
+    return new Response(JSON.stringify(out, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
   const r = await callPrevioXml({
     method,
     creds,
