@@ -155,6 +155,14 @@ async function sendWithFallback(
     if (!error && data) return { ok: true, from };
     lastError = error ? (error.message ?? JSON.stringify(error)) : "no id returned";
     console.error(`revenue-morning-digest: send from ${from} failed — ${lastError}`);
+    // An invalid key fails identically for every sender — stop and say so plainly.
+    if (/api key is invalid|unauthorized|restricted api key/i.test(lastError)) {
+      return {
+        ok: false,
+        error:
+          "Resend rejected the API key. Add a valid RESEND_API_KEY in the project secrets (Resend → API Keys, sending permission), then try again.",
+      };
+    }
   }
   return { ok: false, error: lastError };
 }

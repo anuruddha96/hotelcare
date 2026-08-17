@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Loader2, Mail, Send } from "lucide-react";
+import { AlertCircle, Loader2, Mail, Send, X } from "lucide-react";
 
 interface Props {
   hotelId: string | null;
@@ -36,6 +36,7 @@ export default function MorningDigestPanel({ hotelId, organizationSlug, canEdit 
   const [saving, setSaving] = useState(false);
   const [sending, setSending] = useState(false);
   const [recipientText, setRecipientText] = useState("");
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!hotelId) return;
@@ -74,6 +75,7 @@ export default function MorningDigestPanel({ hotelId, organizationSlug, canEdit 
   const sendNow = async () => {
     if (!hotelId) return;
     setSending(true);
+    setSendError(null);
     try {
       const { data, error } = await supabase.functions.invoke("revenue-morning-digest", {
         body: { hotelId, force: true },
@@ -94,7 +96,8 @@ export default function MorningDigestPanel({ hotelId, organizationSlug, canEdit 
       toast.success("Digest sent — check your inbox (and spam).");
       void load();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not send the digest");
+      // Shown inline, not as a toast: a toast here covers the panel's close button.
+      setSendError(e instanceof Error ? e.message : "Could not send the digest");
     } finally {
       setSending(false);
     }
@@ -169,6 +172,24 @@ export default function MorningDigestPanel({ hotelId, organizationSlug, canEdit 
       <p className="text-[11px] text-muted-foreground">
         The test goes to your own address plus the extra recipients above.
       </p>
+
+      {sendError && (
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-destructive">The e-mail was not sent</p>
+            <p className="mt-0.5 text-xs text-muted-foreground break-words">{sendError}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSendError(null)}
+            className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted"
+            aria-label="Dismiss"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
