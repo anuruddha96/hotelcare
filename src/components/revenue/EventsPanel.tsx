@@ -209,6 +209,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
   const runSearch = async () => {
     setSearching(true);
     setCandidates(null);
+    setAlreadyAdded([]);
     try {
       const { data, error } = await supabase.functions.invoke("demand-events-search", {
         body: { city, country, month },
@@ -216,14 +217,18 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
       if (error) throw error;
       if (!data?.ok) throw new Error(data?.error ?? "Event search failed");
       const fresh = (data.candidates ?? []) as Candidate[];
-      const dupes = (data.duplicates ?? []).length as number;
-      setSkipped(dupes);
+      const known = (data.duplicates ?? []) as Candidate[];
+      setSkipped(known.length);
+      setAlreadyAdded(known);
       setCandidates(fresh);
+      setSearchedMonth(month);
       setPicked(Object.fromEntries(fresh.map((_, i) => [i, true])));
       if (!fresh.length) {
-        toast.info(dupes
-          ? `No new events — ${dupes} found ${dupes === 1 ? "event is" : "events are"} already in your calendar.`
+        toast.info(known.length
+          ? `No new events — all ${known.length} found ${known.length === 1 ? "event is" : "events are"} already in your calendar.`
           : "No new events found for this month.");
+      } else {
+        toast.success(`${fresh.length} new event${fresh.length === 1 ? "" : "s"} to review`);
       }
     } catch (e) {
       toast.error((e as Error).message);
@@ -254,8 +259,10 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     if (error) { toast.error(error.message); return; }
     toast.success(`${chosen.length} event${chosen.length === 1 ? "" : "s"} added to the calendar`);
     setCandidates(null);
+    setAlreadyAdded([]);
     void load();
   };
+
 
   const startEdit = (e: DemandEventRow) => {
     setEditingId(e.id);
