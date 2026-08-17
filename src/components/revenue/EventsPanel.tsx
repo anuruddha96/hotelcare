@@ -445,22 +445,80 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
         )}
 
 
-        {/* the month's events */}
-        <div className="space-y-2">
+        {/* the month's events, as a calendar */}
+        <div className="space-y-3">
           {loading ? (
             <p className="text-sm text-muted-foreground inline-flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading events…
             </p>
-          ) : events.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No events recorded for {fmtMonth(month)} yet. Add one below or run the AI search.
-            </p>
           ) : (
-            <ul className="divide-y rounded-lg border">
-              {events.map((e) => (
-                <li key={e.id} className="flex items-start justify-between gap-3 p-2">
-                  {editingId === e.id && edit ? (
-                    <>
+            <>
+              <div className="overflow-hidden rounded-lg border">
+                <div className="grid grid-cols-7 border-b bg-muted/40">
+                  {WEEKDAYS.map((w) => (
+                    <div key={w} className="px-1 py-1.5 text-center text-[11px] font-medium text-muted-foreground">
+                      {w}
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7">
+                  {grid.map((cell, idx) => {
+                    const dayEvents = cell.date ? (eventsByDay[cell.date] ?? []) : [];
+                    return (
+                      <div
+                        key={cell.date ?? `pad-${idx}`}
+                        className={`min-h-[84px] border-b border-r p-1 last-in-row:border-r-0 ${
+                          cell.date ? "" : "bg-muted/20"
+                        } ${cell.date === todayStr ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : ""}`}
+                      >
+                        {cell.date && (
+                          <>
+                            <div className="mb-1 flex items-center justify-between">
+                              <span className={`text-[11px] ${cell.date === todayStr ? "font-bold text-primary" : "text-muted-foreground"}`}>
+                                {Number(cell.date.slice(8, 10))}
+                              </span>
+                              {dayEvents.length > 2 && (
+                                <span className="text-[10px] text-muted-foreground">{dayEvents.length}</span>
+                              )}
+                            </div>
+                            <div className="space-y-0.5">
+                              {dayEvents.slice(0, 3).map((e) => (
+                                <button
+                                  key={`${cell.date}-${e.id}`}
+                                  type="button"
+                                  onClick={() => setSelectedId(e.id === selectedId ? null : e.id)}
+                                  title={`${e.title}${e.venue ? ` · ${e.venue}` : ""}`}
+                                  className={`block w-full truncate rounded px-1 py-0.5 text-left text-[10px] leading-tight transition-colors hover:opacity-80 ${impactTone(e.expected_impact)} ${
+                                    selectedId === e.id ? "ring-1 ring-primary" : ""
+                                  }`}
+                                >
+                                  {e.title}
+                                </button>
+                              ))}
+                              {dayEvents.length > 3 && (
+                                <span className="block px-1 text-[10px] text-muted-foreground">
+                                  +{dayEvents.length - 3} more
+                                </span>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {events.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No events recorded for {fmtMonth(month)} yet. Add one below or run the AI search.
+                </p>
+              )}
+
+              {selectedEvent && (
+                <div className="rounded-lg border p-3">
+                  {editingId === selectedEvent.id && edit ? (
+                    <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 grid gap-2 sm:grid-cols-2">
                         <Input
                           value={edit.title}
@@ -510,38 +568,50 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                           <X className="h-4 w-4" />
                         </Button>
                       </div>
-                    </>
-                  ) : (
-                  <>
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm font-medium">{e.title}</span>
-                      <Badge variant="secondary" className={impactTone(e.expected_impact)}>{e.expected_impact}</Badge>
-                      {e.recurs_annually && (
-                        <Badge variant="outline" className="gap-1"><Repeat className="h-3 w-3" /> yearly</Badge>
-                      )}
-                      {e.source === "ai" && <Badge variant="outline">AI</Badge>}
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {fmtDay(e.event_date)}{e.end_date ? ` – ${fmtDay(e.end_date)}` : ""}
-                      {e.venue ? ` · ${e.venue}` : ""} · {e.category} · {e.city}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => startEdit(e)} aria-label="Edit event">
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => remove(e.id)} aria-label="Delete event">
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  </>
+                  ) : (
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-medium">{selectedEvent.title}</span>
+                          <Badge variant="secondary" className={impactTone(selectedEvent.expected_impact)}>
+                            {selectedEvent.expected_impact}
+                          </Badge>
+                          {selectedEvent.recurs_annually && (
+                            <Badge variant="outline" className="gap-1"><Repeat className="h-3 w-3" /> yearly</Badge>
+                          )}
+                          {selectedEvent.source === "ai" && <Badge variant="outline">AI</Badge>}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {fmtDay(selectedEvent.event_date)}
+                          {selectedEvent.end_date ? ` – ${fmtDay(selectedEvent.end_date)}` : ""}
+                          {selectedEvent.venue ? ` · ${selectedEvent.venue}` : ""} · {selectedEvent.category} · {selectedEvent.city}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => startEdit(selectedEvent)} aria-label="Edit event">
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => { void remove(selectedEvent.id); setSelectedId(null); }}
+                          aria-label="Delete event"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => setSelectedId(null)} aria-label="Close details">
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
                   )}
-                </li>
-              ))}
-            </ul>
+                </div>
+              )}
+            </>
           )}
         </div>
+
 
         {/* manual entry */}
         <Collapsible>
