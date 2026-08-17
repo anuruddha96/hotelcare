@@ -1,0 +1,2 @@
+ALTER TABLE public.revenue_pickup_automation_rules DROP CONSTRAINT IF EXISTS no_pickup_decrease_range;
+ALTER TABLE public.revenue_pickup_automation_rules ADD CONSTRAINT no_pickup_decrease_positive CHECK (no_pickup_decrease > 0);
