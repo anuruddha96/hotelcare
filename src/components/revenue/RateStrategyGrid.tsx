@@ -270,6 +270,10 @@ export default function RateStrategyGrid({
   useRevenueCurrency(); // re-render when the Ft/€ switch flips
   const isMobile = useIsMobile();
 
+  /** Date whose demand breakdown and events are open in the detail dialog. */
+  const [demandDay, setDemandDay] = useState<string | null>(null);
+
+
   /**
    * Reading size of the calendar, saved on the user's profile so it follows
    * them from the office screen to a phone. Clamped so the grid can never be
