@@ -170,19 +170,26 @@ function isMonday(d: string): boolean {
   return new Date(`${d}T00:00:00Z`).getUTCDay() === 1;
 }
 
-/** Vertical rules: month > week > day, so columns never blur together. */
+/** Friday kicks off the high-value weekend trading block. */
+function isWeekendTrading(d: string): boolean {
+  const day = new Date(`${d}T00:00:00Z`).getUTCDay();
+  return day === 5 || day === 6 || day === 0;
+}
+
+/** Vertical rules: month > week > day, so columns never blur together.
+ *  Friday and Monday get stronger separators to bracket the weekend block. */
 function dayEdge(d: string): string {
   if (d.endsWith("-01")) return "border-l-2 border-l-foreground/40";
-  if (isMonday(d)) return "border-l border-l-foreground/25";
+  if (isMonday(d)) return "border-l border-l-foreground/40";
+  if (new Date(`${d}T00:00:00Z`).getUTCDay() === 5) return "border-l border-l-primary/30";
   return "border-l border-l-border/40";
 }
 
-/** Zebra shading so a long row of numbers stays trackable. */
+/** Zebra shading so a long row of numbers stays trackable.
+ *  Fri–Sun (the revenue weekend trading block) gets a stronger muted fill
+ *  so users can immediately spot the high-value columns. */
 function dayBg(d: string, i: number): string {
-  const day = new Date(`${d}T00:00:00Z`).getUTCDay();
-  // Revenue teams read Friday as part of the weekend trading block. Keep all
-  // three columns visibly grouped without overpowering price status colours.
-  if (day === 5 || day === 6 || day === 0) return "bg-muted/75";
+  if (isWeekendTrading(d)) return "bg-muted";
   return i % 2 === 1 ? "bg-foreground/[0.03]" : "";
 }
 
@@ -2379,8 +2386,13 @@ export default function RateStrategyGrid({
                         style={{ width: CELL_W, height: DAY_H }}
                       >
 
-                        <span className="text-[10px] text-muted-foreground">{formatWeekday(d)}</span>
+                        <span className={`text-[10px] ${isWeekendTrading(d) ? "font-bold text-foreground" : "text-muted-foreground"}`}>
+                          {formatWeekday(d)}
+                        </span>
                         <span className="font-medium">{formatDay(d)}</span>
+                        {isWeekendTrading(d) && (
+                          <span className="pointer-events-none absolute top-0.5 right-0.5 flex h-1.5 w-1.5 rounded-full bg-primary/60" aria-hidden />
+                        )}
                         {dayLatest && (
                           <span className="pointer-events-none absolute bottom-[1px] left-0 right-0 flex justify-center" aria-hidden>
                             {/* Secondary by design: it sits under the date and
