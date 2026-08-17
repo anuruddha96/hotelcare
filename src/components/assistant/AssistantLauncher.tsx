@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { MessageCircleQuestion, Plus, ShieldQuestion, Sparkles, Trash2, X } from "lucide-react";
+import { MessageCircleQuestion, Plus, ShieldQuestion, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
 import { useAssistant } from "@/hooks/useAssistant";
 import AssistantChat from "./AssistantChat";
 import AssistantAccessRequests, { canApproveAssistantAccess } from "./AssistantAccessRequests";
 import { cn } from "@/lib/utils";
+import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
 
 /**
  * Floating assistant available on every authenticated page. The active thread
@@ -17,6 +18,8 @@ import { cn } from "@/lib/utils";
 export default function AssistantLauncher() {
   const { user, profile } = useAuth();
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState("chat");
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -26,6 +29,21 @@ export default function AssistantLauncher() {
   useEffect(() => {
     if (threadId) setOpen(true);
   }, [threadId]);
+
+  useLayoutEffect(() => {
+    if (!open || typeof window === "undefined") return;
+    const viewport = window.visualViewport;
+    const update = () => setViewportHeight(Math.round(viewport?.height ?? window.innerHeight));
+    update();
+    viewport?.addEventListener("resize", update);
+    viewport?.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    return () => {
+      viewport?.removeEventListener("resize", update);
+      viewport?.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, [open]);
 
   const setThread = useCallback(
     (id: string | null) => {
@@ -39,7 +57,10 @@ export default function AssistantLauncher() {
 
   const newThread = useCallback(async () => {
     const id = await createThread();
-    if (id) setThread(id);
+    if (id) {
+      setThread(id);
+      setTab("chat");
+    }
     return id;
   }, [createThread, setThread]);
 
@@ -59,33 +80,31 @@ export default function AssistantLauncher() {
         )}
         aria-label="Open the Hotel Care Assistant"
       >
-        <Sparkles className="h-4 w-4" />
+        <img src={hotelCareMark} alt="" className="h-5 w-5 rounded-sm" />
         <span className="hidden sm:inline">Ask</span>
       </Button>
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent
           side="right"
+          style={viewportHeight ? { height: `${viewportHeight}px`, maxHeight: `${viewportHeight}px` } : undefined}
           className="w-full sm:max-w-md p-3 flex flex-col gap-2 h-[100dvh] max-h-[100dvh] overflow-hidden
-                     pt-[calc(0.75rem+env(safe-area-inset-top))] pb-[env(safe-area-inset-bottom)]
+                     pt-[max(0.75rem,env(safe-area-inset-top))] pb-0
                      duration-300 data-[state=open]:duration-300"
         >
-          <div className="flex items-center justify-between gap-2 pt-1">
+          <SheetTitle className="sr-only">Hotel Care Assistant</SheetTitle>
+          <SheetDescription className="sr-only">Role-aware assistant for Hotel Care</SheetDescription>
+          <div className="flex items-center gap-2 pr-10 pt-1">
             <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                <Sparkles className="h-4 w-4 text-primary" />
-              </div>
+              <img src={hotelCareMark} alt="Hotel Care" className="h-8 w-8 rounded-lg" />
               <div className="leading-tight">
                 <p className="text-sm font-semibold">Hotel Care Assistant</p>
                 <p className="text-[11px] text-muted-foreground">Ask anything about your work</p>
               </div>
             </div>
-            <Button size="icon" variant="ghost" onClick={() => setOpen(false)} aria-label="Close">
-              <X className="h-4 w-4" />
-            </Button>
           </div>
 
-          <Tabs defaultValue="chat" className="flex-1 min-h-0 flex flex-col">
+          <Tabs value={tab} onValueChange={setTab} className="flex-1 min-h-0 flex flex-col">
             <TabsList className="w-full">
               <TabsTrigger value="chat" className="flex-1">
                 Chat
@@ -101,7 +120,7 @@ export default function AssistantLauncher() {
             </TabsList>
 
             <TabsContent value="chat" className="flex-1 min-h-0 mt-2">
-              <AssistantChat threadId={threadId} onNeedThread={newThread} />
+              <AssistantChat threadId={threadId} onNeedThread={newThread} onThreadUpdated={loadThreads} />
             </TabsContent>
 
             <TabsContent value="threads" className="flex-1 min-h-0 mt-2 overflow-y-auto">
@@ -117,7 +136,13 @@ export default function AssistantLauncher() {
                       t.id === threadId && "border-primary bg-primary/5",
                     )}
                   >
-                    <button className="flex-1 text-left text-sm truncate" onClick={() => setThread(t.id)}>
+                    <button
+                      className="flex-1 text-left text-sm truncate"
+                      onClick={() => {
+                        setThread(t.id);
+                        setTab("chat");
+                      }}
+                    >
                       {t.title}
                     </button>
                     <button

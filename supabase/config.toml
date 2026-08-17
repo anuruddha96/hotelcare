@@ -174,3 +174,6 @@ verify_jwt = false
 
 [functions.assistant-chat]
 verify_jwt = false
+
+[functions.assistant-save-abort]
+verify_jwt = false
