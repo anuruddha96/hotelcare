@@ -88,17 +88,6 @@ function detectRequestedScope(question: string): Scope | null {
   return null;
 }
 
-function tenantQuery(query: any, profile: Profile) {
-  let scoped = query;
-  if (profile.role !== "admin" && profile.organization_slug) {
-    scoped = scoped.eq("organization_slug", profile.organization_slug);
-  }
-  if (profile.role !== "admin" && profile.assigned_hotel) {
-    scoped = scoped.eq("hotel_id", profile.assigned_hotel);
-  }
-  return scoped;
-}
-
 function buildTools(service: any, profile: Profile, scopes: Set<Scope>) {
   const tools: Record<string, any> = {
     get_context_now: tool({
@@ -146,12 +135,13 @@ function buildTools(service: any, profile: Profile, scopes: Set<Scope>) {
         const to = endDate ?? from;
         let query = service
           .from("revenue_daily_snapshots")
-          .select("stay_date,occupancy_pct,adr,revpar,rooms_sold,rooms_available,pickup_1d")
+          .select("stay_date,captured_date,occupancy_pct,adr_eur,revenue_eur,rooms_sold,rooms_available")
           .gte("stay_date", from)
           .lte("stay_date", to)
+          .eq("organization_slug", profile.organization_slug)
+          .eq("hotel_id", profile.assigned_hotel)
           .order("stay_date")
           .limit(370);
-        query = tenantQuery(query, profile);
         const { data, error } = await query;
         if (error) throw new Error(`Revenue lookup failed: ${error.message}`);
         return { from, to, rows: data ?? [] };
@@ -164,16 +154,24 @@ function buildTools(service: any, profile: Profile, scopes: Set<Scope>) {
       description: "Read room status and today's assignments inside the user's authorized hotel and organization only.",
       inputSchema: jsonSchema<Record<string, never>>({ type: "object", properties: {}, required: [], additionalProperties: false }),
       execute: async () => {
-        let roomsQuery = service.from("rooms").select("id,room_number,status").limit(500);
-        let assignmentsQuery = service
-          .from("room_assignments")
-          .select("id,room_id,housekeeper_id,status,started_at,completed_at")
-          .gte("created_at", `${new Date().toISOString().slice(0, 10)}T00:00:00Z`)
+        const roomsQuery = service
+          .from("rooms")
+          .select("id,room_number,status")
+          .eq("organization_slug", profile.organization_slug)
+          .eq("hotel", profile.assigned_hotel)
           .limit(500);
-        roomsQuery = tenantQuery(roomsQuery, profile);
-        assignmentsQuery = tenantQuery(assignmentsQuery, profile);
-        const [rooms, assignments] = await Promise.all([roomsQuery, assignmentsQuery]);
+        const rooms = await roomsQuery;
         if (rooms.error) throw new Error(`Room lookup failed: ${rooms.error.message}`);
+        const roomIds = (rooms.data ?? []).map((room: any) => room.id);
+        const assignments = roomIds.length
+          ? await service
+              .from("room_assignments")
+              .select("id,room_id,assigned_to,status,started_at,completed_at")
+              .eq("organization_slug", profile.organization_slug)
+              .in("room_id", roomIds)
+              .eq("assignment_date", new Date().toISOString().slice(0, 10))
+              .limit(500)
+          : { data: [], error: null };
         if (assignments.error) throw new Error(`Assignment lookup failed: ${assignments.error.message}`);
         const counts: Record<string, number> = {};
         for (const room of rooms.data ?? []) counts[room.status] = (counts[room.status] ?? 0) + 1;
@@ -194,11 +192,12 @@ function buildTools(service: any, profile: Profile, scopes: Set<Scope>) {
       execute: async ({ status }) => {
         let query = service
           .from("tickets")
-          .select("id,ticket_number,title,description,status,priority,room_id,sla_due_date,created_at")
+          .select("id,ticket_number,title,description,status,priority,room_number,sla_due_date,created_at")
+          .eq("organization_slug", profile.organization_slug)
+          .eq("hotel", profile.assigned_hotel)
           .order("created_at", { ascending: false })
           .limit(100);
         if (status) query = query.eq("status", status);
-        query = tenantQuery(query, profile);
         const { data, error } = await query;
         if (error) throw new Error(`Maintenance lookup failed: ${error.message}`);
         return { tickets: data ?? [] };
@@ -220,15 +219,17 @@ function buildTools(service: any, profile: Profile, scopes: Set<Scope>) {
         let reservationsQuery = service
           .from("reservations")
           .select("id,check_in_date,check_out_date,status")
+          .eq("organization_slug", profile.organization_slug)
+          .eq("hotel_id", profile.assigned_hotel)
           .or(`check_in_date.eq.${target},check_out_date.eq.${target}`)
           .limit(500);
         let breakfastQuery = service
           .from("breakfast_roster")
-          .select("id,breakfast_date,adults,children")
-          .eq("breakfast_date", target)
+          .select("id,stay_date,breakfast_count")
+          .eq("organization_slug", profile.organization_slug)
+          .eq("hotel_id", profile.assigned_hotel)
+          .eq("stay_date", target)
           .limit(500);
-        reservationsQuery = tenantQuery(reservationsQuery, profile);
-        breakfastQuery = tenantQuery(breakfastQuery, profile);
         const [reservations, breakfast] = await Promise.all([reservationsQuery, breakfastQuery]);
         if (reservations.error) throw new Error(`Reservation lookup failed: ${reservations.error.message}`);
         if (breakfast.error) throw new Error(`Breakfast lookup failed: ${breakfast.error.message}`);
@@ -237,12 +238,9 @@ function buildTools(service: any, profile: Profile, scopes: Set<Scope>) {
           date: target,
           arrivals: rows.filter((row: any) => row.check_in_date === target).length,
           departures: rows.filter((row: any) => row.check_out_date === target).length,
-          breakfast: (breakfast.data ?? []).reduce(
-            (sum: { adults: number; children: number }, row: any) => ({
-              adults: sum.adults + (Number(row.adults) || 0),
-              children: sum.children + (Number(row.children) || 0),
-            }),
-            { adults: 0, children: 0 },
+          breakfastCount: (breakfast.data ?? []).reduce(
+            (sum: number, row: any) => sum + (Number(row.breakfast_count) || 0),
+            0,
           ),
         };
       },
@@ -417,11 +415,11 @@ For general knowledge, answer normally. For Hotel Care usage questions, use the 
           user_id: userData.user.id,
           organization_slug: profile.organization_slug,
           hotel_id: profile.assigned_hotel,
-          thread_id: threadId,
-          action: usedTools.length ? "data_answer" : "answer",
-          tool_name: usedTools[0] ?? null,
+          role: profile.role,
           question,
-          details: { role: profile.role, tools: usedTools },
+          refused: false,
+          scopes_used: usedTools,
+          model: modelId,
         });
         if (auditError) console.error("assistant audit failed", auditError);
       },
