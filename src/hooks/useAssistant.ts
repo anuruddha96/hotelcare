@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import type { UIMessage } from "ai";
 
 export interface AssistantThread {
   id: string;
@@ -18,26 +19,38 @@ export interface AssistantMessage {
   needsScope?: string | null;
 }
 
+export function assistantRowsToUiMessages(rows: AssistantMessage[]): UIMessage[] {
+  return rows.map((row) => ({
+    id: row.id,
+    role: row.role,
+    parts: [{ type: "text", text: row.content }],
+    metadata: row.needsScope ? { needsScope: row.needsScope } : undefined,
+  }));
+}
+
 /** Threads + messages for the signed-in user, persisted in the database. */
 export function useAssistant(threadId: string | null) {
   const { user, profile } = useAuth();
-  /** Threads created in this session already hold their messages in state. */
-  const localThreadsRef = useRef<Set<string>>(new Set());
   const [threads, setThreads] = useState<AssistantThread[]>([]);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
-  const [sending, setSending] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
 
   const loadThreads = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("assistant_threads")
       .select("id,title,updated_at")
       .eq("user_id", user.id)
+      .eq("organization_slug", profile?.organization_slug ?? "")
+      .eq("hotel_id", profile?.assigned_hotel ?? "")
       .order("updated_at", { ascending: false })
       .limit(50);
+    if (error) {
+      console.error("Failed to load assistant threads", error);
+      return;
+    }
     setThreads((data ?? []) as AssistantThread[]);
-  }, [user]);
+  }, [user, profile?.organization_slug, profile?.assigned_hotel]);
 
   useEffect(() => {
     loadThreads();
@@ -50,19 +63,18 @@ export function useAssistant(threadId: string | null) {
         setMessages([]);
         return;
       }
-      // Never wipe an in-flight conversation we just started locally.
-      if (localThreadsRef.current.has(threadId)) return;
       setLoadingMessages(true);
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("assistant_messages")
         .select("id,role,content,refused,created_at")
         .eq("thread_id", threadId)
         .eq("user_id", user.id)
         .order("created_at", { ascending: true });
-      if (!cancelled) {
+      if (!cancelled && !error) {
         setMessages((data ?? []) as AssistantMessage[]);
-        setLoadingMessages(false);
       }
+      if (error) console.error("Failed to load assistant messages", error);
+      if (!cancelled) setLoadingMessages(false);
     };
     run();
     return () => {
@@ -83,71 +95,22 @@ export function useAssistant(threadId: string | null) {
       .select("id,title,updated_at")
       .single();
     if (error || !data) return null;
-    localThreadsRef.current.add(data.id);
     setThreads((t) => [data as AssistantThread, ...t]);
     return data.id;
   }, [user, profile]);
 
   const deleteThread = useCallback(async (id: string) => {
-    await supabase.from("assistant_threads").delete().eq("id", id);
+    const { error } = await supabase
+      .from("assistant_threads")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user?.id ?? "");
+    if (error) return false;
     setThreads((t) => t.filter((x) => x.id !== id));
-  }, []);
+    return true;
+  }, [user?.id]);
 
-  const send = useCallback(
-    async (question: string, activeThreadId: string) => {
-      if (!question.trim() || !user) return;
-      setSending(true);
-      const optimistic: AssistantMessage = {
-        id: `tmp-${Date.now()}`,
-        role: "user",
-        content: question,
-        created_at: new Date().toISOString(),
-      };
-      setMessages((m) => [...m, optimistic]);
-      try {
-        const { data, error } = await supabase.functions.invoke("assistant-chat", {
-          body: {
-            thread_id: activeThreadId,
-            question,
-            language: profile?.["preferred_language" as keyof typeof profile] ?? undefined,
-          },
-        });
-        if (error) throw error;
-        if ((data as any)?.error) throw new Error((data as any).error);
-        setMessages((m) => [
-          ...m,
-          {
-            id: `a-${Date.now()}`,
-            role: "assistant",
-            content: (data as any).answer as string,
-            refused: !!(data as any).needs_scope,
-            needsScope: (data as any).needs_scope ?? null,
-            created_at: new Date().toISOString(),
-          },
-        ]);
-        // The backend names the conversation from the first question.
-        const title = (data as any)?.title as string | null | undefined;
-        if (title) {
-          setThreads((t) => t.map((x) => (x.id === activeThreadId ? { ...x, title } : x)));
-        }
-      } catch (e) {
-        setMessages((m) => [
-          ...m,
-          {
-            id: `e-${Date.now()}`,
-            role: "assistant",
-            content: `Sorry — ${e instanceof Error ? e.message : "something went wrong"}.`,
-            created_at: new Date().toISOString(),
-          },
-        ]);
-      } finally {
-        setSending(false);
-      }
-    },
-    [user, profile, threads],
-  );
-
-  return { threads, messages, sending, loadingMessages, createThread, deleteThread, send, loadThreads };
+  return { threads, messages, loadingMessages, createThread, deleteThread, loadThreads };
 }
 
 /** Ask a manager for temporary access to a data area. */

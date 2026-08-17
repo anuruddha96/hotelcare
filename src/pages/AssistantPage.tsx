@@ -1,12 +1,13 @@
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Plus, Sparkles, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
 import { useAssistant } from "@/hooks/useAssistant";
 import AssistantChat from "@/components/assistant/AssistantChat";
 import { cn } from "@/lib/utils";
+import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
 
 /** Full-page view of the assistant. Every thread has its own URL. */
 export default function AssistantPage() {
@@ -27,11 +28,17 @@ export default function AssistantPage() {
   };
 
   return (
-    <div className="p-3 sm:p-6 max-w-6xl mx-auto">
+    <div className="p-3 sm:p-6 max-w-6xl mx-auto min-h-[100dvh]">
       <div className="flex items-center gap-2 mb-4">
-        <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center">
-          <Sparkles className="h-4 w-4 text-primary" />
-        </div>
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label="Back"
+          onClick={() => (window.history.length > 1 ? navigate(-1) : navigate(`/${profile?.organization_slug}`))}
+        >
+          <ArrowLeft />
+        </Button>
+        <img src={hotelCareMark} alt="Hotel Care" className="h-9 w-9 rounded-lg" />
         <div>
           <h1 className="text-lg font-semibold leading-tight">Hotel Care Assistant</h1>
           <p className="text-xs text-muted-foreground">Answers stay inside your role and your property.</p>
@@ -70,7 +77,7 @@ export default function AssistantPage() {
           </div>
         </Card>
 
-        <Card className="p-3 h-[70vh] flex flex-col min-h-0">
+        <Card className="p-3 h-[calc(100dvh-8rem)] min-h-[32rem] flex flex-col min-h-0">
           <AssistantChat threadId={threadId ?? null} onNeedThread={newThread} />
         </Card>
       </div>

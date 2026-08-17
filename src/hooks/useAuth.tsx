@@ -18,6 +18,7 @@ interface Profile {
   is_super_admin?: boolean;
   organization_slug?: string;
   acts_as_housekeeper?: boolean;
+  preferred_language?: string | null;
 }
 
 interface AuthContextType {

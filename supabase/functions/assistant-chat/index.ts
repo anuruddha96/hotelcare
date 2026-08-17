@@ -1,540 +1,419 @@
-// Hotel Care Assistant — role-aware, read-only AI helper.
-//
-// Everything that matters for safety happens here, server-side:
-//  * the caller's JWT is validated and the profile is loaded from the database
-//  * scopes come from the role, never from the request body
-//  * only the tools the role may use are offered to the model
-//  * every tool re-applies the organization + hotel filter itself
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { createClient } from "npm:@supabase/supabase-js@2";
+import { createOpenAI } from "npm:@ai-sdk/openai@4";
 import {
-  scopesForRole,
-  canSeeAllOrganizations,
-  type AssistantScope,
-} from "../_shared/assistantScopes.ts";
-import { searchHowTo } from "../_shared/assistantHowTo.ts";
+  convertToModelMessages,
+  jsonSchema,
+  stepCountIs,
+  streamText,
+  tool,
+  type UIMessage,
+} from "npm:ai@7";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+type Profile = {
+  id: string;
+  role: string;
+  assigned_hotel: string | null;
+  organization_slug: string | null;
+  preferred_language: string | null;
 };
 
-const CHEAP_MODEL = "gpt-4o-mini";
-const SMART_MODEL = "gpt-4o";
-const DAILY_LIMIT = 80;
+type Scope = "revenue" | "housekeeping" | "maintenance" | "reception";
 
-const BUDAPEST = "Europe/Budapest";
-function budapestNow() {
-  const now = new Date();
-  const date = new Intl.DateTimeFormat("en-CA", { timeZone: BUDAPEST, dateStyle: "short" }).format(now);
-  const time = new Intl.DateTimeFormat("en-GB", { timeZone: BUDAPEST, timeStyle: "short" }).format(now);
-  const weekday = new Intl.DateTimeFormat("en-GB", { timeZone: BUDAPEST, weekday: "long" }).format(now);
-  return { date, time, weekday };
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: "English",
+  hu: "Hungarian",
+  es: "Spanish",
+  vi: "Vietnamese",
+  mn: "Mongolian",
+  ru: "Russian",
+  uk: "Ukrainian",
+};
+
+const HOW_TO = `
+Hotel Care workflow reference:
+- Housekeepers must sign in before starting a room. In Team View they open an assigned room, tap Start Cleaning, complete the checklist/photos, then Complete.
+- Managers use Auto-Assign or Team View for rooms and public areas. The old General Tasks tab no longer exists.
+- Maintenance tickets are created from the maintenance area, include the room/location, priority and required photos, then move Open → In progress → Completed.
+- Reception/front office can use the public breakfast lookup and the nightly Previo upload surfaces available to their role.
+- Revenue tools are available only to revenue-authorized roles. Rate changes and minimum-stay actions follow the Revenue calendar workflow.
+- If a feature is not visible, explain that access is role-controlled; never suggest bypassing permissions.
+`;
+
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
-function monthRange(month?: string, from?: string, to?: string) {
-  if (from && to) return { from, to };
-  const { date } = budapestNow();
-  const m = month && /^\d{4}-\d{2}$/.test(month) ? month : date.slice(0, 7);
-  const start = `${m}-01`;
-  const d = new Date(`${m}-01T00:00:00Z`);
-  d.setUTCMonth(d.getUTCMonth() + 1);
-  d.setUTCDate(0);
-  return { from: start, to: d.toISOString().slice(0, 10) };
+function allowedScopes(role: string): Set<Scope> {
+  if (["admin", "manager", "top_management", "top_management_manager"].includes(role)) {
+    return new Set(["revenue", "housekeeping", "maintenance", "reception"]);
+  }
+  if (["housekeeping", "housekeeping_manager", "supervisor"].includes(role)) return new Set(["housekeeping"]);
+  if (["maintenance", "maintenance_manager"].includes(role)) return new Set(["maintenance"]);
+  if (["reception", "reception_manager", "front_office"].includes(role)) return new Set(["reception"]);
+  return new Set();
 }
 
-interface Ctx {
-  supabase: any;
-  userId: string;
-  role: string;
-  orgSlug: string | null;
-  hotelId: string | null;
-  scopes: AssistantScope[];
-  allOrgs: boolean;
+function extractText(message: UIMessage | undefined): string {
+  return (message?.parts ?? [])
+    .filter((part): part is Extract<(typeof message.parts)[number], { type: "text" }> => part.type === "text")
+    .map((part) => part.text)
+    .join("")
+    .trim();
 }
 
-/* ------------------------------------------------------------------ */
-/* Tools                                                               */
-/* ------------------------------------------------------------------ */
+function normalizeMessages(value: unknown): UIMessage[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 200) return null;
+  const messages = value.filter(
+    (item): item is UIMessage =>
+      Boolean(item) &&
+      typeof item === "object" &&
+      typeof (item as UIMessage).id === "string" &&
+      ["user", "assistant", "system"].includes((item as UIMessage).role) &&
+      Array.isArray((item as UIMessage).parts),
+  );
+  return messages.length === value.length ? messages : null;
+}
 
-function toolDefs(ctx: Ctx) {
-  const tools: any[] = [
-    {
-      type: "function",
-      name: "get_context_now",
-      description:
-        "Current date and time in Budapest plus the hotel and organization the user is working in. Call this whenever the question uses today, tomorrow, this month or a weekday.",
-      strict: true,
-      parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
-    },
-    {
-      type: "function",
-      name: "get_app_howto",
-      description:
-        "Search the Hotel Care how-to knowledge for the real workflow of a feature (assigning rooms, tickets, prices, breakfast, attendance...).",
-      strict: true,
-      parameters: {
-        type: "object",
-        properties: { query: { type: "string", description: "What the user wants to do" } },
-        required: ["query"],
-        additionalProperties: false,
+function detectRequestedScope(question: string): Scope | null {
+  const q = question.toLowerCase();
+  if (/\b(adr|revpar|revenue|rate|price|pickup|occupancy|min.?stay)\b/.test(q)) return "revenue";
+  if (/\b(clean|cleaning|housekeep|dirty room|inspected room|assignment)\b/.test(q)) return "housekeeping";
+  if (/\b(maintenance|ticket|repair|broken|sla|overdue issue)\b/.test(q)) return "maintenance";
+  if (/\b(arrival|departure|check.?in|check.?out|breakfast|guest)\b/.test(q)) return "reception";
+  return null;
+}
+
+function tenantQuery(query: any, profile: Profile) {
+  let scoped = query;
+  if (profile.role !== "admin" && profile.organization_slug) {
+    scoped = scoped.eq("organization_slug", profile.organization_slug);
+  }
+  if (profile.role !== "admin" && profile.assigned_hotel) {
+    scoped = scoped.eq("hotel_id", profile.assigned_hotel);
+  }
+  return scoped;
+}
+
+function buildTools(service: any, profile: Profile, scopes: Set<Scope>) {
+  const tools: Record<string, any> = {
+    get_context_now: tool({
+      description: "Get the current date and time in the hotel's Budapest timezone.",
+      inputSchema: jsonSchema<Record<string, never>>({ type: "object", properties: {}, required: [], additionalProperties: false }),
+      execute: async () => {
+        const now = new Date();
+        return {
+          iso: now.toISOString(),
+          budapest: new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Europe/Budapest",
+            dateStyle: "full",
+            timeStyle: "long",
+          }).format(now),
+        };
       },
-    },
-  ];
+    }),
+    get_app_howto: tool({
+      description: "Read the Hotel Care workflow reference when the user asks how to use the app.",
+      inputSchema: jsonSchema<{ topic: string }>({
+        type: "object",
+        properties: { topic: { type: "string" } },
+        required: ["topic"],
+        additionalProperties: false,
+      }),
+      execute: async ({ topic }) => ({ topic, guide: HOW_TO }),
+    }),
+  };
 
-  if (ctx.scopes.includes("revenue")) {
-    tools.push({
-      type: "function",
-      name: "get_revenue_metrics",
-      description:
-        "Revenue figures for the user's hotel: ADR, occupancy, RevPAR, rooms sold, rooms available and revenue, for a month or a date range.",
-      strict: true,
-      parameters: {
+  if (scopes.has("revenue")) {
+    tools.get_revenue_metrics = tool({
+      description: "Read revenue metrics for dates inside the user's authorized hotel and organization only.",
+      inputSchema: jsonSchema<{ startDate: string | null; endDate: string | null }>({
         type: "object",
         properties: {
-          month: { type: ["string", "null"], description: "YYYY-MM, e.g. 2027-01" },
-          from: { type: ["string", "null"], description: "YYYY-MM-DD" },
-          to: { type: ["string", "null"], description: "YYYY-MM-DD" },
+          startDate: { type: ["string", "null"], description: "YYYY-MM-DD or null" },
+          endDate: { type: ["string", "null"], description: "YYYY-MM-DD or null" },
         },
-        required: ["month", "from", "to"],
+        required: ["startDate", "endDate"],
         additionalProperties: false,
+      }),
+      execute: async ({ startDate, endDate }) => {
+        const today = new Date().toISOString().slice(0, 10);
+        const from = startDate ?? today;
+        const to = endDate ?? from;
+        let query = service
+          .from("revenue_daily_snapshots")
+          .select("stay_date,occupancy_pct,adr,revpar,rooms_sold,rooms_available,pickup_1d")
+          .gte("stay_date", from)
+          .lte("stay_date", to)
+          .order("stay_date")
+          .limit(370);
+        query = tenantQuery(query, profile);
+        const { data, error } = await query;
+        if (error) throw new Error(`Revenue lookup failed: ${error.message}`);
+        return { from, to, rows: data ?? [] };
       },
     });
   }
 
-  if (ctx.scopes.includes("housekeeping")) {
-    tools.push({
-      type: "function",
-      name: "get_housekeeping_status",
-      description: "Today's housekeeping picture for the user's hotel: room statuses and assignment progress per housekeeper.",
-      strict: true,
-      parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
+  if (scopes.has("housekeeping")) {
+    tools.get_housekeeping_status = tool({
+      description: "Read room status and today's assignments inside the user's authorized hotel and organization only.",
+      inputSchema: jsonSchema<Record<string, never>>({ type: "object", properties: {}, required: [], additionalProperties: false }),
+      execute: async () => {
+        let roomsQuery = service.from("rooms").select("id,room_number,status").limit(500);
+        let assignmentsQuery = service
+          .from("room_assignments")
+          .select("id,room_id,housekeeper_id,status,started_at,completed_at")
+          .gte("created_at", `${new Date().toISOString().slice(0, 10)}T00:00:00Z`)
+          .limit(500);
+        roomsQuery = tenantQuery(roomsQuery, profile);
+        assignmentsQuery = tenantQuery(assignmentsQuery, profile);
+        const [rooms, assignments] = await Promise.all([roomsQuery, assignmentsQuery]);
+        if (rooms.error) throw new Error(`Room lookup failed: ${rooms.error.message}`);
+        if (assignments.error) throw new Error(`Assignment lookup failed: ${assignments.error.message}`);
+        const counts: Record<string, number> = {};
+        for (const room of rooms.data ?? []) counts[room.status] = (counts[room.status] ?? 0) + 1;
+        return { roomStatusCounts: counts, assignments: assignments.data ?? [] };
+      },
     });
   }
 
-  if (ctx.scopes.includes("maintenance")) {
-    tools.push({
-      type: "function",
-      name: "get_maintenance_tickets",
-      description: "Open and overdue maintenance tickets for the user's hotel.",
-      strict: true,
-      parameters: {
+  if (scopes.has("maintenance")) {
+    tools.get_maintenance_tickets = tool({
+      description: "Read maintenance tickets inside the user's authorized hotel and organization only.",
+      inputSchema: jsonSchema<{ status: string | null }>({
         type: "object",
-        properties: { status: { type: ["string", "null"], description: "open, in_progress or completed" } },
+        properties: { status: { type: ["string", "null"], description: "open, in_progress, completed, or null" } },
         required: ["status"],
         additionalProperties: false,
+      }),
+      execute: async ({ status }) => {
+        let query = service
+          .from("tickets")
+          .select("id,ticket_number,title,description,status,priority,room_id,sla_due_date,created_at")
+          .order("created_at", { ascending: false })
+          .limit(100);
+        if (status) query = query.eq("status", status);
+        query = tenantQuery(query, profile);
+        const { data, error } = await query;
+        if (error) throw new Error(`Maintenance lookup failed: ${error.message}`);
+        return { tickets: data ?? [] };
       },
     });
   }
 
-  if (ctx.scopes.includes("reception")) {
-    tools.push({
-      type: "function",
-      name: "get_front_desk_today",
-      description: "Today's reception picture: room statuses, checkout rooms and arrivals/departures counts for the user's hotel.",
-      strict: true,
-      parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
+  if (scopes.has("reception")) {
+    tools.get_reception_overview = tool({
+      description: "Read arrivals, departures, room status, and breakfast counts inside the user's authorized hotel and organization only. Never returns guest personal details.",
+      inputSchema: jsonSchema<{ date: string | null }>({
+        type: "object",
+        properties: { date: { type: ["string", "null"], description: "YYYY-MM-DD or null for today" } },
+        required: ["date"],
+        additionalProperties: false,
+      }),
+      execute: async ({ date }) => {
+        const target = date ?? new Date().toISOString().slice(0, 10);
+        let reservationsQuery = service
+          .from("reservations")
+          .select("id,check_in_date,check_out_date,status")
+          .or(`check_in_date.eq.${target},check_out_date.eq.${target}`)
+          .limit(500);
+        let breakfastQuery = service
+          .from("breakfast_roster")
+          .select("id,breakfast_date,adults,children")
+          .eq("breakfast_date", target)
+          .limit(500);
+        reservationsQuery = tenantQuery(reservationsQuery, profile);
+        breakfastQuery = tenantQuery(breakfastQuery, profile);
+        const [reservations, breakfast] = await Promise.all([reservationsQuery, breakfastQuery]);
+        if (reservations.error) throw new Error(`Reservation lookup failed: ${reservations.error.message}`);
+        if (breakfast.error) throw new Error(`Breakfast lookup failed: ${breakfast.error.message}`);
+        const rows = reservations.data ?? [];
+        return {
+          date: target,
+          arrivals: rows.filter((row: any) => row.check_in_date === target).length,
+          departures: rows.filter((row: any) => row.check_out_date === target).length,
+          breakfast: (breakfast.data ?? []).reduce(
+            (sum: { adults: number; children: number }, row: any) => ({
+              adults: sum.adults + (Number(row.adults) || 0),
+              children: sum.children + (Number(row.children) || 0),
+            }),
+            { adults: 0, children: 0 },
+          ),
+        };
+      },
     });
   }
 
   return tools;
 }
 
-async function runTool(ctx: Ctx, name: string, args: any): Promise<unknown> {
-  const { supabase, orgSlug, hotelId } = ctx;
-  const scopeGuard = (s: AssistantScope) => {
-    if (!ctx.scopes.includes(s)) throw new Error(`not_allowed:${s}`);
-  };
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-  if (name === "get_context_now") {
-    const now = budapestNow();
-    return { ...now, hotel_id: hotelId, organization: orgSlug, role: ctx.role };
-  }
-
-  if (name === "get_app_howto") {
-    return { entries: searchHowTo(String(args?.query ?? ""), ctx.scopes) };
-  }
-
-  if (!hotelId) return { error: "No hotel is selected for this user." };
-
-  if (name === "get_revenue_metrics") {
-    scopeGuard("revenue");
-    const { from, to } = monthRange(args?.month ?? undefined, args?.from ?? undefined, args?.to ?? undefined);
-    let q = supabase
-      .from("revenue_daily_snapshots")
-      .select("stay_date,rooms_sold,rooms_available,occupancy_pct,revenue_eur,adr_eur,captured_at")
-      .eq("hotel_id", hotelId)
-      .gte("stay_date", from)
-      .lte("stay_date", to)
-      .order("captured_at", { ascending: false })
-      .limit(4000);
-    if (!ctx.allOrgs && orgSlug) q = q.eq("organization_slug", orgSlug);
-    const { data, error } = await q;
-    if (error) return { error: error.message };
-    // keep the latest capture per stay date
-    const latest = new Map<string, any>();
-    for (const r of data ?? []) if (!latest.has(r.stay_date)) latest.set(r.stay_date, r);
-    const rows = [...latest.values()].sort((a, b) => a.stay_date.localeCompare(b.stay_date));
-    const soldTotal = rows.reduce((s, r) => s + (r.rooms_sold ?? 0), 0);
-    const availTotal = rows.reduce((s, r) => s + (r.rooms_available ?? 0), 0);
-    const revenueTotal = rows.reduce((s, r) => s + Number(r.revenue_eur ?? 0), 0);
-    return {
-      range: { from, to },
-      days: rows.length,
-      rooms_sold: soldTotal,
-      rooms_available: availTotal,
-      rooms_left_to_sell: Math.max(0, availTotal - soldTotal),
-      occupancy_pct: availTotal ? Math.round((soldTotal / availTotal) * 1000) / 10 : null,
-      adr: soldTotal ? Math.round((revenueTotal / soldTotal) * 100) / 100 : null,
-      revpar: availTotal ? Math.round((revenueTotal / availTotal) * 100) / 100 : null,
-      revenue_on_the_books: Math.round(revenueTotal),
-      daily: rows.slice(0, 45).map((r) => ({
-        date: r.stay_date,
-        sold: r.rooms_sold,
-        available: r.rooms_available,
-        occ: r.occupancy_pct,
-        adr: r.adr_eur,
-      })),
-    };
-  }
-
-  if (name === "get_housekeeping_status") {
-    scopeGuard("housekeeping");
-    const { date } = budapestNow();
-    let roomsQ = supabase.from("rooms").select("id,room_number,status,is_checkout_room").eq("hotel", hotelId).limit(1000);
-    if (!ctx.allOrgs && orgSlug) roomsQ = roomsQ.eq("organization_slug", orgSlug);
-    let asgQ = supabase
-      .from("room_assignments")
-      .select("id,status,assigned_to,assignment_type,room_id")
-      .eq("assignment_date", date)
-      .limit(1000);
-    if (!ctx.allOrgs && orgSlug) asgQ = asgQ.eq("organization_slug", orgSlug);
-    const [{ data: rooms }, { data: assignments }] = await Promise.all([roomsQ, asgQ]);
-    const roomIds = new Set((rooms ?? []).map((r: any) => r.id));
-    const mine = (assignments ?? []).filter((a: any) => roomIds.has(a.room_id));
-    const byStatus: Record<string, number> = {};
-    for (const r of rooms ?? []) byStatus[r.status ?? "unknown"] = (byStatus[r.status ?? "unknown"] ?? 0) + 1;
-    const staffIds = [...new Set(mine.map((a: any) => a.assigned_to).filter(Boolean))];
-    const { data: staff } = staffIds.length
-      ? await supabase.from("profiles").select("id,full_name,nickname").in("id", staffIds)
-      : { data: [] as any[] };
-    const nameOf = (id: string) => {
-      const p = (staff ?? []).find((s: any) => s.id === id);
-      return p?.full_name || p?.nickname || "Unassigned";
-    };
-    const perStaff: Record<string, { total: number; completed: number; in_progress: number }> = {};
-    for (const a of mine) {
-      const key = nameOf(a.assigned_to);
-      perStaff[key] ??= { total: 0, completed: 0, in_progress: 0 };
-      perStaff[key].total += 1;
-      if (a.status === "completed") perStaff[key].completed += 1;
-      if (a.status === "in_progress") perStaff[key].in_progress += 1;
-    }
-    return {
-      date,
-      total_rooms: rooms?.length ?? 0,
-      rooms_by_status: byStatus,
-      checkout_rooms: (rooms ?? []).filter((r: any) => r.is_checkout_room).length,
-      assignments_today: mine.length,
-      completed_today: mine.filter((a: any) => a.status === "completed").length,
-      per_housekeeper: perStaff,
-    };
-  }
-
-  if (name === "get_maintenance_tickets") {
-    scopeGuard("maintenance");
-    let q = supabase
-      .from("tickets")
-      .select("ticket_number,title,room_number,priority,status,sla_due_date,created_at,on_hold,department")
-      .eq("hotel", hotelId)
-      .order("created_at", { ascending: false })
-      .limit(80);
-    if (!ctx.allOrgs && orgSlug) q = q.eq("organization_slug", orgSlug);
-    const status = args?.status;
-    if (status) q = q.eq("status", status);
-    else q = q.in("status", ["open", "in_progress"]);
-    const { data, error } = await q;
-    if (error) return { error: error.message };
-    const nowIso = new Date().toISOString();
-    return {
-      count: data?.length ?? 0,
-      overdue: (data ?? []).filter((t: any) => t.sla_due_date && t.sla_due_date < nowIso && t.status !== "completed").length,
-      tickets: data ?? [],
-    };
-  }
-
-  if (name === "get_front_desk_today") {
-    scopeGuard("reception");
-    const { date } = budapestNow();
-    let roomsQ = supabase.from("rooms").select("room_number,status,is_checkout_room,checkout_time").eq("hotel", hotelId).limit(1000);
-    if (!ctx.allOrgs && orgSlug) roomsQ = roomsQ.eq("organization_slug", orgSlug);
-    const { data: rooms } = await roomsQ;
-    const byStatus: Record<string, number> = {};
-    for (const r of rooms ?? []) byStatus[r.status ?? "unknown"] = (byStatus[r.status ?? "unknown"] ?? 0) + 1;
-    return {
-      date,
-      total_rooms: rooms?.length ?? 0,
-      rooms_by_status: byStatus,
-      checkout_rooms: (rooms ?? []).filter((r: any) => r.is_checkout_room).length,
-    };
-  }
-
-  return { error: `Unknown tool ${name}` };
-}
-
-/* ------------------------------------------------------------------ */
-/* Prompt                                                              */
-/* ------------------------------------------------------------------ */
-
-function systemPrompt(ctx: Ctx, language: string, grants: string[]) {
-  const scopeList = ctx.scopes.length ? ctx.scopes.join(", ") : "none (how-to help only)";
-  return `You are "Hotel Care Assistant", the in-app helper of the Hotel Care hotel operations platform.
-
-WHO YOU ARE TALKING TO
-- Role: ${ctx.role}
-- Organization: ${ctx.orgSlug ?? "unknown"}
-- Hotel currently selected: ${ctx.hotelId ?? "none"}
-- Data areas this person may see: ${scopeList}${grants.length ? ` (temporary approved access: ${grants.join(", ")})` : ""}
-
-WHAT YOU DO
-1. Help people use the app. Use get_app_howto before explaining any Hotel Care workflow, and follow it exactly.
-2. Answer questions about live hotel data using the tools you were given. Call get_context_now whenever the question involves today, this month or a weekday.
-3. Answer light general-knowledge questions normally.
-
-HARD RULES
-- You only ever see this person's own organization and hotel. Never mention, compare with, count or speculate about other organizations, other companies' hotels, or the size of the wider group. If asked, say you can only speak about their own property.
-- If a question needs a data area that is not in the list above, do NOT guess and do NOT use general knowledge as a substitute. Answer with exactly one line: NEEDS_ACCESS:<area> followed by a short friendly sentence saying they can request approval from their manager. Valid areas: revenue, housekeeping, maintenance, reception.
-- Never reveal guest personal data, passwords, credentials, salaries or other staff's private details.
-- You are read-only: never claim to have changed a price, an assignment or a ticket. Explain how the person can do it instead.
-
-STYLE
-- ALWAYS reply in the same language the person wrote their latest message in. If that is unclear, use ${language}.
-- Be short and practical: a couple of sentences or a small markdown list. Give concrete numbers with their date range when you used data.`;
-}
-
-/** Short conversation title in the user's own language. */
-async function makeTitle(apiKey: string, question: string): Promise<string> {
   try {
-    const res = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: CHEAP_MODEL,
-        instructions:
-          "Write a 3-5 word title for this chat, in the same language as the message. Plain text, no quotes, no punctuation at the end.",
-        input: question.slice(0, 500),
-        store: false,
-        max_output_tokens: 40,
-      }),
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) return json({ error: "Authentication required" }, 401);
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const openAiKey = Deno.env.get("OPENAI_API_KEY");
+    if (!supabaseUrl || !anonKey || !serviceKey || !openAiKey) {
+      return json({ error: "Assistant configuration is incomplete" }, 500);
+    }
+
+    const authClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+      auth: { persistSession: false },
     });
-    if (!res.ok) return question.slice(0, 60);
-    const data = await res.json();
-    const t = String(data.output_text ?? "").replace(/["\n]/g, " ").trim();
-    return t ? t.slice(0, 60) : question.slice(0, 60);
-  } catch {
-    return question.slice(0, 60);
-  }
-}
+    const service = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+    const token = authHeader.slice(7);
+    const { data: userData, error: userError } = await authClient.auth.getUser(token);
+    if (userError || !userData.user) return json({ error: "Invalid session" }, 401);
 
-/* ------------------------------------------------------------------ */
+    const body = await req.json().catch(() => null);
+    const threadId = typeof body?.thread_id === "string" ? body.thread_id : "";
+    const messages = normalizeMessages(body?.messages);
+    if (!threadId || !messages) return json({ error: "A valid thread and message history are required" }, 400);
+    const latest = [...messages].reverse().find((message) => message.role === "user");
+    const question = extractText(latest);
+    if (!question || question.length > 10_000) return json({ error: "Question is empty or too long" }, 400);
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-
-  const json = (body: unknown, status = 200) =>
-    new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-
-  try {
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const token = authHeader.replace(/^Bearer\s+/i, "");
-    if (!token) return json({ error: "Unauthorized" }, 401);
-
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-    const userClient = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY")!);
-    const { data: userRes, error: userErr } = await userClient.auth.getUser(token);
-    if (userErr || !userRes?.user) return json({ error: "Unauthorized" }, 401);
-
-    const supabase = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role, organization_slug, assigned_hotel, preferred_language, full_name")
-      .eq("id", userRes.user.id)
-      .maybeSingle();
-    if (!profile) return json({ error: "No profile" }, 403);
-
-    const body = await req.json().catch(() => ({}));
-    const question = String(body?.question ?? "").slice(0, 4000).trim();
-    const threadId = body?.thread_id ? String(body.thread_id) : null;
-    if (!question) return json({ error: "question required" }, 400);
-
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) return json({ error: "OPENAI_API_KEY missing" }, 500);
-
-    // Daily fair-use cap per user.
-    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-    const { count } = await supabase
-      .from("assistant_audit_log")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", userRes.user.id)
-      .gte("created_at", since);
-    if ((count ?? 0) >= DAILY_LIMIT) {
-      return json({ error: "You have reached today's assistant limit. Please try again tomorrow." }, 429);
+    const [{ data: profile, error: profileError }, { data: thread, error: threadError }] = await Promise.all([
+      service
+        .from("profiles")
+        .select("id,role,assigned_hotel,organization_slug,preferred_language")
+        .eq("id", userData.user.id)
+        .is("deleted_at", null)
+        .single(),
+      service
+        .from("assistant_threads")
+        .select("id,user_id,organization_slug,hotel_id,title")
+        .eq("id", threadId)
+        .eq("user_id", userData.user.id)
+        .single(),
+    ]);
+    if (profileError || !profile) return json({ error: "Profile not found" }, 403);
+    if (threadError || !thread) return json({ error: "Conversation not found" }, 404);
+    if (thread.organization_slug !== profile.organization_slug || thread.hotel_id !== profile.assigned_hotel) {
+      return json({ error: "Conversation is outside your current property scope" }, 403);
     }
 
-    // Temporary approved scopes.
-    const { data: grantRows } = await supabase
-      .from("assistant_access_requests")
-      .select("requested_scope, expires_at")
-      .eq("user_id", userRes.user.id)
-      .eq("status", "approved")
-      .gt("expires_at", new Date().toISOString());
-    const grants = [...new Set((grantRows ?? []).map((g: any) => g.requested_scope))] as AssistantScope[];
+    const scopes = allowedScopes(profile.role);
+    const requestedScope = detectRequestedScope(question);
+    const deniedScope = requestedScope && !scopes.has(requestedScope) ? requestedScope : null;
+    const languageCode = typeof body?.language === "string" ? body.language : profile.preferred_language ?? "en";
+    const language = LANGUAGE_NAMES[languageCode] ?? LANGUAGE_NAMES.en;
 
-    const ctx: Ctx = {
-      supabase,
-      userId: userRes.user.id,
-      role: profile.role,
-      orgSlug: profile.organization_slug ?? null,
-      hotelId: profile.assigned_hotel ?? null,
-      scopes: [...new Set([...scopesForRole(profile.role), ...grants])] as AssistantScope[],
-      allOrgs: canSeeAllOrganizations(profile.role),
-    };
+    const { error: userInsertError } = await service.from("assistant_messages").insert({
+      thread_id: threadId,
+      user_id: userData.user.id,
+      role: "user",
+      content: question,
+      refused: false,
+    });
+    if (userInsertError) return json({ error: `Could not save your message: ${userInsertError.message}` }, 500);
 
-    // History for this thread (server-side, scoped to the owner).
-    let history: any[] = [];
-    if (threadId) {
-      const { data: msgs } = await supabase
-        .from("assistant_messages")
-        .select("role, content")
-        .eq("thread_id", threadId)
-        .eq("user_id", ctx.userId)
-        .order("created_at", { ascending: true })
-        .limit(30);
-      history = (msgs ?? []).map((m: any) => ({
-        role: m.role,
-        content: [{ type: m.role === "assistant" ? "output_text" : "input_text", text: m.content }],
-      }));
+    if (thread.title === "New chat") {
+      const title = question.replace(/\s+/g, " ").trim().slice(0, 60) || "New chat";
+      const { error: titleError } = await service
+        .from("assistant_threads")
+        .update({ title, updated_at: new Date().toISOString() })
+        .eq("id", threadId)
+        .eq("user_id", userData.user.id);
+      if (titleError) console.error("assistant title update failed", titleError);
     }
 
-    // Model routing: cheap by default, stronger only for data analysis.
-    const dataish = /(adr|revpar|occupanc|pickup|revenue|price|rate|ticket|sla|clean|assign|room|forecast|compare|why|analy)/i.test(
-      question,
-    );
-    const model = dataish && ctx.scopes.length ? SMART_MODEL : CHEAP_MODEL;
-    const language = String(body?.language || profile.preferred_language || "English");
-
-    const tools = toolDefs(ctx);
-    const input: any[] = [
-      ...history,
-      { role: "user", content: [{ type: "input_text", text: question }] },
-    ];
-
-    const scopesUsed = new Set<string>();
-    let title: string | null = null;
-    let answer = "";
-
-    // Tool loop (max 4 rounds), non-streaming per round but each round is short.
-    for (let round = 0; round < 4; round++) {
-      const res = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_API_KEY}` },
-        body: JSON.stringify({
-          model,
-          instructions: systemPrompt(ctx, language, grants),
-          input,
-          tools,
-          store: false,
-          max_output_tokens: 1200,
-        }),
+    if (deniedScope) {
+      const answer = `I can’t access ${deniedScope} information with your current role. You can request temporary access from an authorized manager.`;
+      const { error: deniedInsertError } = await service.from("assistant_messages").insert({
+        thread_id: threadId,
+        user_id: userData.user.id,
+        role: "assistant",
+        content: answer,
+        refused: true,
       });
-      if (!res.ok) {
-        const text = await res.text();
-        console.error("OpenAI error", res.status, text);
-        return json({ error: `AI service error (${res.status}). Please try again.` }, res.status === 429 ? 429 : 502);
-      }
-      const data = await res.json();
-      const outputs: any[] = data.output ?? [];
-      const calls = outputs.filter((o) => o.type === "function_call");
-      answer = (data.output_text ?? "").trim() ||
-        outputs
-          .filter((o) => o.type === "message")
-          .flatMap((o: any) => (o.content ?? []).filter((c: any) => c.type === "output_text").map((c: any) => c.text))
-          .join("\n")
-          .trim();
-
-      if (!calls.length) break;
-
-      for (const c of outputs) input.push(c);
-      for (const c of calls) {
-        let result: unknown;
-        try {
-          result = await runTool(ctx, c.name, JSON.parse(c.arguments || "{}"));
-          if (c.name.startsWith("get_revenue")) scopesUsed.add("revenue");
-          if (c.name.startsWith("get_housekeeping")) scopesUsed.add("housekeeping");
-          if (c.name.startsWith("get_maintenance")) scopesUsed.add("maintenance");
-          if (c.name.startsWith("get_front_desk")) scopesUsed.add("reception");
-        } catch (e) {
-          result = { error: String(e instanceof Error ? e.message : e) };
-        }
-        input.push({
-          type: "function_call_output",
-          call_id: c.call_id,
-          output: JSON.stringify(result).slice(0, 20000),
-        });
-      }
+      if (deniedInsertError) return json({ error: `Could not save the assistant reply: ${deniedInsertError.message}` }, 500);
+      return new Response(
+        `data: ${JSON.stringify({ type: "start", messageId: crypto.randomUUID(), messageMetadata: { needsScope: deniedScope } })}\n\n` +
+          `data: ${JSON.stringify({ type: "text-start", id: "refusal" })}\n\n` +
+          `data: ${JSON.stringify({ type: "text-delta", id: "refusal", delta: answer })}\n\n` +
+          `data: ${JSON.stringify({ type: "text-end", id: "refusal" })}\n\n` +
+          `data: ${JSON.stringify({ type: "finish", finishReason: "stop", messageMetadata: { needsScope: deniedScope } })}\n\n` +
+          "data: [DONE]\n\n",
+        { headers: { ...corsHeaders, "Content-Type": "text/event-stream", "x-vercel-ai-ui-message-stream": "v1" } },
+      );
     }
 
-    // Refusal detection -> the UI offers a "Request access" button.
-    let needsScope: string | null = null;
-    const m = answer.match(/NEEDS_ACCESS:\s*(revenue|housekeeping|maintenance|reception)/i);
-    if (m) {
-      needsScope = m[1].toLowerCase();
-      answer = answer.replace(/NEEDS_ACCESS:\s*\w+/i, "").trim();
-      if (!answer) {
-        answer = `That information sits outside your access. You can ask a manager to approve temporary access.`;
-      }
-    }
-    if (!answer) answer = "I could not produce an answer for that. Please rephrase the question.";
+    const openai = createOpenAI({ apiKey: openAiKey });
+    const modelId = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
+    const result = streamText({
+      model: openai.responses(modelId),
+      system: `You are the Hotel Care Assistant. Be concise, practical, and accurate.
+Reply in ${language}; if the latest user message is clearly in another language, reply in that language instead.
+The authenticated user's role is ${profile.role}. Their organization is ${profile.organization_slug ?? "none"} and hotel/venue is ${profile.assigned_hotel ?? "none"}.
+Use tools for live hotel facts. Never invent internal data. Never reveal another organization, hotel, venue, guest identity, credential, staff pay, or information outside the available tools.
+Unavailable tools are unavailable because of authorization. If asked for an unauthorized data area, say access is required without speculating about the data.
+For general knowledge, answer normally. For Hotel Care usage questions, use the workflow reference tool.`,
+      messages: await convertToModelMessages(messages),
+      tools: buildTools(service, profile as Profile, scopes),
+      stopWhen: stepCountIs(50),
+      abortSignal: req.signal,
+      providerOptions: { openai: { store: false } },
+    });
 
-    // Persist + audit.
-    if (threadId) {
-      await supabase.from("assistant_messages").insert([
-        { thread_id: threadId, user_id: ctx.userId, role: "user", content: question },
-        {
+    return result.toUIMessageStreamResponse({
+      originalMessages: messages,
+      sendReasoning: true,
+      headers: corsHeaders,
+      onFinish: async ({ responseMessage, isAborted }) => {
+        if (isAborted) return;
+        const answer = extractText(responseMessage);
+        if (!answer) return;
+        const { error: assistantInsertError } = await service.from("assistant_messages").insert({
           thread_id: threadId,
-          user_id: ctx.userId,
+          user_id: userData.user.id,
           role: "assistant",
           content: answer,
-          model,
-          scopes_used: [...scopesUsed],
-          refused: !!needsScope,
-        },
-      ]);
-      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-      if (history.length === 0) {
-        title = await makeTitle(OPENAI_API_KEY, question);
-        patch.title = title;
-      }
-      await supabase
-        .from("assistant_threads")
-        .update(patch)
-        .eq("id", threadId)
-        .eq("user_id", ctx.userId);
-    }
-    await supabase.from("assistant_audit_log").insert({
-      user_id: ctx.userId,
-      organization_slug: ctx.orgSlug,
-      hotel_id: ctx.hotelId,
-      role: ctx.role,
-      question,
-      refused: !!needsScope,
-      scopes_used: [...scopesUsed],
-      model,
+          refused: false,
+        });
+        if (assistantInsertError) {
+          console.error("assistant reply persistence failed", assistantInsertError);
+          return;
+        }
+        await service
+          .from("assistant_threads")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", threadId)
+          .eq("user_id", userData.user.id);
+        const usedTools = responseMessage.parts
+          .filter((part) => part.type.startsWith("tool-") || part.type === "dynamic-tool")
+          .map((part) => part.type);
+        const { error: auditError } = await service.from("assistant_audit_log").insert({
+          user_id: userData.user.id,
+          organization_slug: profile.organization_slug,
+          hotel_id: profile.assigned_hotel,
+          thread_id: threadId,
+          action: usedTools.length ? "data_answer" : "answer",
+          tool_name: usedTools[0] ?? null,
+          question,
+          details: { role: profile.role, tools: usedTools },
+        });
+        if (auditError) console.error("assistant audit failed", auditError);
+      },
+      onError: (error) => {
+        console.error("assistant stream failed", error);
+        return error instanceof Error ? error.message : "The assistant could not complete the response";
+      },
     });
-
-    return json({ answer, model, scopes_used: [...scopesUsed], needs_scope: needsScope, title });
-  } catch (e) {
-    console.error("assistant-chat failed", e);
-    return json({ error: e instanceof Error ? e.message : "Unexpected error" }, 500);
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return json({ error: "Request cancelled" }, 499);
+    console.error("assistant-chat error", error);
+    return json({ error: error instanceof Error ? error.message : "Assistant request failed" }, 500);
   }
 });
