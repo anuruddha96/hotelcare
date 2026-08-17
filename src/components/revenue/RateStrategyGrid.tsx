@@ -1929,12 +1929,14 @@ export default function RateStrategyGrid({
             No room types yet — run a sync to pull them from Previo.
           </div>
         ) : (
+          <div className="relative">
           <div
             ref={scrollRef}
             onScroll={onScroll}
-            className={`relative overflow-auto overscroll-x-contain text-[11px] sm:text-xs ${dragging ? "select-none" : ""}`}
+            className={`relative overflow-auto overscroll-x-contain scroll-smooth text-[11px] sm:text-xs ${dragging ? "select-none" : ""}`}
             style={{ maxHeight: expanded ? "calc(100vh - 190px)" : isMobile ? "68vh" : "72vh", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
           >
+
             <div ref={gridRef} style={{ width: LEFT_W + dates.length * CELL_W }}>
               {/* ---- Sticky header: month, dates and the day metrics ---- */}
               <div className="sticky top-0 z-30">
