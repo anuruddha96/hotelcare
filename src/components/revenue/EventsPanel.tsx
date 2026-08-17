@@ -292,6 +292,49 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     void load();
   };
 
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  /** Events keyed by every day they span inside the visible month. */
+  const eventsByDay = useMemo(() => {
+    const map: Record<string, DemandEventRow[]> = {};
+    for (const e of events) {
+      // Yearly events are stored on their original year; project onto this month.
+      const startRaw = e.recurs_annually ? `${month}-${String(e.event_date).slice(8, 10)}` : e.event_date;
+      const spanDays = e.end_date
+        ? Math.max(0, Math.round(
+            (Date.parse(`${e.end_date}T00:00:00Z`) - Date.parse(`${e.event_date}T00:00:00Z`)) / 86400000,
+          ))
+        : 0;
+      for (let i = 0; i <= spanDays; i++) {
+        const d = new Date(`${startRaw}T00:00:00Z`);
+        if (Number.isNaN(d.getTime())) break;
+        d.setUTCDate(d.getUTCDate() + i);
+        const key = d.toISOString().slice(0, 10);
+        if (key.slice(0, 7) !== month) continue;
+        (map[key] ??= []).push(e);
+      }
+    }
+    return map;
+  }, [events, month]);
+
+  /** Monday-first month grid, padded to whole weeks. */
+  const grid = useMemo(() => {
+    const first = new Date(`${month}-01T00:00:00Z`);
+    const lead = (first.getUTCDay() + 6) % 7;
+    const daysInMonth = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+    const cells: { date: string | null }[] = [];
+    for (let i = 0; i < lead; i++) cells.push({ date: null });
+    for (let d = 1; d <= daysInMonth; d++) cells.push({ date: `${month}-${String(d).padStart(2, "0")}` });
+    while (cells.length % 7 !== 0) cells.push({ date: null });
+    return cells;
+  }, [month]);
+
+  const selectedEvent = useMemo(
+    () => events.find((e) => e.id === selectedId) ?? null,
+    [events, selectedId],
+  );
+
+
   return (
     <Card>
       <CardHeader className="pb-3">
