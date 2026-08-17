@@ -2571,7 +2571,7 @@ export default function RateStrategyGrid({
               </div>
 
               {/* ---- Room-type / metric rows ---- */}
-              {rows.map((row) => (
+              {rows.map((row, rowIdx) => (
                 <div
                   key={row.key}
                   className={`flex ${row.kind === "group" ? "border-b border-b-foreground/25 bg-muted/50" : row.kind === "rate" ? "border-b" : "border-b border-t-2 border-t-foreground/20 bg-primary/10 font-semibold"}`}
