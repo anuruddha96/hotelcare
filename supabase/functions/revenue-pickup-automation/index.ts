@@ -640,6 +640,18 @@ Deno.serve(async (req) => {
       // Observation window: since the previous SUCCESSFUL evaluation (normally
       // ~60 minutes), so a slightly late scheduler still sees every booking.
       const evalWindow = observationWindow(now, rule.last_successful_evaluation_at, intervalMinutes);
+
+      // Room-type level availability for the whole horizon, loaded once and
+      // consulted by every decision pass below.
+      const availHorizon = new Date(`${today}T00:00:00Z`);
+      availHorizon.setUTCDate(availHorizon.getUTCDate() + Math.max(1, Number(rule.future_booking_window_days || 183)));
+      const typeAvail = await loadTypeAvailability(admin, rule.hotel_id, today, availHorizon.toISOString().slice(0, 10));
+      /** True when this room type has nothing left to sell on that date. */
+      const typeSoldOut = (roomTypeName: unknown, obkId: unknown, stayDate: string): boolean => {
+        if (rule.sold_out_guard_enabled === false) return false;
+        return typeAvail.left(roomTypeName, obkId, stayDate) === 0;
+      };
+
       const lookbackFrom = new Date(
         Math.min(
           Date.parse(evalWindow.from),
