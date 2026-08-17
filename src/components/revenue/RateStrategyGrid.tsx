@@ -410,7 +410,7 @@ export default function RateStrategyGrid({
   /** Whole-day price tool, opened by tapping (or dragging across) date headers. */
   const [dayTool, setDayTool] = useState<string | null>(null);
   /** Which date's full change list is open (tapping the dot under a date). */
-  const [dayChanges, setDayChanges] = useState<string | null>(null);
+  const [dayChangesDate, setDayChangesDate] = useState<string | null>(null);
   /** Outcome of the last direct push from the day tool. */
   const [dayResult, setDayResult] = useState<{
     pushed: number;
@@ -2446,8 +2446,8 @@ export default function RateStrategyGrid({
                             title={`See every price change on ${d}`}
                             onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); }}
                             onTouchStart={(e) => e.stopPropagation()}
-                            onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); suppressDayClick.current = true; setDayChanges(d); }}
-                            onClick={(e) => { e.stopPropagation(); e.preventDefault(); setDayChanges(d); }}
+                            onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); suppressDayClick.current = true; setDayChangesDate(d); }}
+                            onClick={(e) => { e.stopPropagation(); e.preventDefault(); setDayChangesDate(d); }}
                           >
                             {/* Secondary by design: it sits under the date and
                                 shrinks with the calendar's own zoom instead of
@@ -2512,7 +2512,7 @@ export default function RateStrategyGrid({
                           <button
                             type="button"
                             className="text-[11px] font-medium text-primary hover:underline"
-                            onClick={(e) => { e.stopPropagation(); setDayChanges(d); }}
+                            onClick={(e) => { e.stopPropagation(); setDayChangesDate(d); }}
                           >
                             See every change on this date
                           </button>
