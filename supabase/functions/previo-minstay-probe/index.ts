@@ -42,6 +42,17 @@ Deno.serve(async (req) => {
   if (!cfg) return new Response("no config", { status: 404, headers: corsHeaders });
 
   const creds = loadPrevioCredentials((cfg as any).credentials_secret_name);
+  if (req.method === "POST") {
+    const raw = await req.text();
+    const key = (creds as any).eqcApiKey || (creds as any).apiKey || (creds as any).password;
+    const resp = await fetch("https://api.previo.app/eqc1/ar", {
+      method: "POST",
+      headers: { "Content-Type": "application/xml; charset=utf-8", "Authorization": `ApiKey ${key}` },
+      body: raw.replace(/__HOTID__/g, String((cfg as any).pms_hotel_id || "")),
+    });
+    return new Response(JSON.stringify({ status: resp.status, text: await resp.text() }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
   if (url.searchParams.get("setmin") || url.searchParams.get("setinv")) {
     const { data: maps } = await service
       .from("previo_rate_plan_mapping")
