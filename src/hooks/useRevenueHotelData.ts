@@ -30,20 +30,44 @@ export interface RevenueRoomType {
   name_translations: Record<string, string>;
 }
 
-/** Supabase caps a single select at 1000 rows — page through everything. */
+/**
+ * Supabase caps a single select at 1000 rows — page through everything.
+ *
+ * Pages used to be fetched one after another, so a property with 12k booking
+ * nights paid twelve round trips in a row before anything appeared. Pages are
+ * now requested in parallel waves: the first page tells us whether there is
+ * more, and the rest come back together.
+ */
 async function fetchAll<T>(
   build: () => ReturnType<typeof supabase.from>,
   apply: (q: any) => any,
 ): Promise<T[]> {
   const page = 1000;
-  const out: T[] = [];
-  for (let offset = 0; offset < 20000; offset += page) {
+  const wave = 6;
+  const maxRows = 20000;
+
+  const readPage = async (offset: number): Promise<T[]> => {
     const { data, error } = await apply(build()).range(offset, offset + page - 1);
     if (error) throw error;
-    const rows = (data ?? []) as T[];
-    out.push(...rows);
-    if (rows.length < page) break;
+    return (data ?? []) as T[];
+  };
+
+  const first = await readPage(0);
+  if (first.length < page) return first;
+
+  const out: T[] = [...first];
+  for (let start = page; start < maxRows; start += page * wave) {
+    const offsets: number[] = [];
+    for (let i = 0; i < wave && start + i * page < maxRows; i++) offsets.push(start + i * page);
+    const pages = await Promise.all(offsets.map(readPage));
+    let exhausted = false;
+    for (const rows of pages) {
+      out.push(...rows);
+      if (rows.length < page) exhausted = true;
+    }
+    if (exhausted) break;
   }
+
   return out;
 }
 
