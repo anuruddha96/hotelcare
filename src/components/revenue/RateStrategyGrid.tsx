@@ -425,16 +425,23 @@ export default function RateStrategyGrid({
 
   /**
    * Free cell selection: drag a rectangle across any room-type rows and any
-   * dates, then price exactly that block. Vertical (several room types on one
-   * date), horizontal (one room type across dates) and everything in between.
+   * dates, then price exactly that block. No mode to switch on — dragging on
+   * desktop, or press-and-hold then drag on a phone, starts it, and letting go
+   * opens the pricing tool for whatever was picked.
    */
-  const [rangeMode, setRangeMode] = useState(false);
   const [rangeAnchor, setRangeAnchor] = useState<{ row: number; date: number } | null>(null);
   const [rangeFocus, setRangeFocus] = useState<{ row: number; date: number } | null>(null);
-  const rangeDragging = useRef(false);
+  const [selecting, setSelecting] = useState(false);
+  const selectingRef = useRef(false);
+  /** The cell the pointer went down on, before we know if it is a drag. */
+  const pendingCell = useRef<{ row: number; date: number; x: number; y: number; touch: boolean } | null>(null);
+  const holdTimer = useRef<number | null>(null);
+  /** Set right after a drag so the trailing click does not open the editor. */
+  const suppressClick = useRef(false);
   const [rangeToolOpen, setRangeToolOpen] = useState(false);
   const [rangeCalc, setRangeCalc] = useState<"amount" | "percent" | "set">("amount");
   const [rangeValue, setRangeValue] = useState("2");
+
 
 
   const [saving, setSaving] = useState(false);
