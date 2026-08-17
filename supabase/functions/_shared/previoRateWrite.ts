@@ -315,11 +315,13 @@ function addDaysIso(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function daysInclusive(from: string, to: string): number {
+/** Season span in nights. Previo emits contiguous `[from, to)` blocks, the
+ *  same reading the nightly sync uses. */
+function seasonSpan(from: string, to: string): number {
   const a = Date.parse(`${from}T00:00:00Z`);
   const b = Date.parse(`${to}T00:00:00Z`);
-  if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return 1;
-  return Math.round((b - a) / 86_400_000) + 1;
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 1;
+  return Math.max(1, Math.round((b - a) / 86_400_000));
 }
 
 /**
@@ -359,7 +361,7 @@ export async function readPrevioRateLevelsRange(opts: {
         const seasonFrom = (season.match(/<from>([^<]*)<\/from>/i)?.[1] ?? "").slice(0, 10);
         if (!seasonFrom) continue;
         const seasonTo = (season.match(/<to>([^<]*)<\/to>/i)?.[1] ?? seasonFrom).slice(0, 10);
-        const span = daysInclusive(seasonFrom, seasonTo);
+        const span = seasonSpan(seasonFrom, seasonTo);
         for (const kindRaw of season.split(/<objectKind>/i).slice(1)) {
           const block = kindRaw.split(/<\/objectKind>/i)[0] ?? "";
           const obk = block.match(/<obkId>([^<]*)<\/obkId>/i)?.[1]?.trim();
