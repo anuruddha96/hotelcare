@@ -2730,14 +2730,25 @@ export default function RateStrategyGrid({
 
 
 
+                    const picked = rangeMode && inRange(rowIdx, i);
                     const cellButton = (
                       <button
                         key={d}
                         type="button"
                         disabled={!canEditRates}
-                        onPointerEnter={() => { void loadCellHistory(d); void loadAutomationDate(d); }}
+                        onPointerEnter={() => {
+                          if (rangeMode && rangeDragging.current) { setRangeFocus({ row: rowIdx, date: i }); return; }
+                          void loadCellHistory(d); void loadAutomationDate(d);
+                        }}
+                        onPointerDown={(e) => {
+                          if (!rangeMode || !canEditRates) return;
+                          e.preventDefault();
+                          rangePointerDown(rowIdx, i, e.shiftKey || (isMobile && !!rangeAnchor));
+                        }}
                         onClick={() => {
                           if (!canEditRates) return;
+                          // While picking a block, a tap only draws the selection.
+                          if (rangeMode) return;
                           // On a phone there is no hover, so a tap tells the
                           // cell's story first and offers editing from there.
                           if (isMobile) {
@@ -2766,8 +2777,9 @@ export default function RateStrategyGrid({
                         }}
 
                         title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
-                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
+                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
                         style={{ width: CELL_W }}
+
                       >
                         {shown === undefined ? (
                           <span className="text-muted-foreground">—</span>
