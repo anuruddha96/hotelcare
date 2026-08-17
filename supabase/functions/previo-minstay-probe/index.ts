@@ -22,6 +22,18 @@ Deno.serve(async (req) => {
   const to = url.searchParams.get("to") || "2026-09-14";
   const method = url.searchParams.get("method") || "getRates";
 
+  if (url.searchParams.get("run") === "sync") {
+    const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/previo-revenue-sync`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+      },
+      body: JSON.stringify({ hotelId, horizonDays: 60 }),
+    });
+    return new Response(await r.text(), { status: r.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
   const { data: cfg } = await service
     .from("pms_configurations")
     .select("pms_hotel_id, credentials_secret_name")
