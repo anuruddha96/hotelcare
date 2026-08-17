@@ -1966,7 +1966,8 @@ Deno.serve(async (req) => {
         held_sold_out: heldSoldOut,
         actions: inserted, markdowns: markdownActions,
         markdown_stay_dates: markdownStayDates, blocked: markdownBlocks,
-        queued: queued + markdownActions + strongActions,
+        queued: queued + markdownActions + strongActions + topUpActions,
+        floor_topups: topUpActions,
         pushed: 0, failed: failedCount,
 
         push_error: null, auto_publish: rule.auto_publish, changed,
