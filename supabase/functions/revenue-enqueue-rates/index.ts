@@ -78,10 +78,12 @@ Deno.serve(async (req) => {
     let skippedSoldOut = 0;
     try {
       const dateList = changes.map((c) => c.stay_date).sort();
-      const [{ data: capacityRows }, { data: nightRows }] = await Promise.all([
-        admin.from("room_types").select("name, num_rooms, counts_toward_inventory").eq("hotel_id", hotelId),
-        admin.from("revenue_booking_nights").select("stay_date, room_type_name")
+       const [{ data: capacityRows }, { data: nightRows }] = await Promise.all([
+         admin.from("room_types").select("name, pms_room_id, num_rooms, counts_toward_inventory")
+           .eq("hotel_id", hotelId).eq("organization_slug", profile.organization_slug),
+         admin.from("revenue_booking_nights").select("stay_date, obk_id, room_type_name")
           .eq("hotel_id", hotelId)
+           .eq("organization_slug", profile.organization_slug)
           .gte("stay_date", dateList[0]).lte("stay_date", dateList[dateList.length - 1])
           .limit(50000),
       ]);
@@ -89,19 +91,27 @@ Deno.serve(async (req) => {
       for (const row of capacityRows ?? []) {
         const rooms = Number((row as any).num_rooms);
         if ((row as any).counts_toward_inventory === false || !Number.isFinite(rooms) || rooms <= 0) continue;
-        capacity.set(String((row as any).name).trim().toLowerCase(), rooms);
+         const name = String((row as any).name).trim().toLowerCase();
+         const obk = String((row as any).pms_room_id ?? "").trim();
+         capacity.set(`name:${name}`, rooms);
+         if (obk) capacity.set(`obk:${obk}`, rooms);
       }
       const sold = new Map<string, number>();
       for (const row of nightRows ?? []) {
-        const key = `${(row as any).stay_date}|${String((row as any).room_type_name ?? "").trim().toLowerCase()}`;
-        sold.set(key, (sold.get(key) ?? 0) + 1);
+         const date = String((row as any).stay_date);
+         const name = String((row as any).room_type_name ?? "").trim().toLowerCase();
+         const obk = String((row as any).obk_id ?? "").trim();
+         if (name) sold.set(`${date}|name:${name}`, (sold.get(`${date}|name:${name}`) ?? 0) + 1);
+         if (obk) sold.set(`${date}|obk:${obk}`, (sold.get(`${date}|obk:${obk}`) ?? 0) + 1);
       }
       if (capacity.size > 0) {
         const kept = changes.filter((change) => {
           const name = change.room_type_name.trim().toLowerCase();
-          const rooms = capacity.get(name);
+           const obk = String(change.obk_id ?? "").trim();
+           const identity = obk && capacity.has(`obk:${obk}`) ? `obk:${obk}` : `name:${name}`;
+           const rooms = capacity.get(identity);
           if (!rooms) return true;
-          return (sold.get(`${change.stay_date}|${name}`) ?? 0) < rooms;
+           return (sold.get(`${change.stay_date}|${identity}`) ?? 0) < rooms;
         });
         skippedSoldOut = changes.length - kept.length;
         if (kept.length > 0) changes = kept;

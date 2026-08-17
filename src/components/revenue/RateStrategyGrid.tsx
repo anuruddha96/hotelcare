@@ -179,7 +179,10 @@ function dayEdge(d: string): string {
 
 /** Zebra shading so a long row of numbers stays trackable. */
 function dayBg(d: string, i: number): string {
-  if (isWeekend(d)) return "bg-muted/60";
+  const day = new Date(`${d}T00:00:00Z`).getUTCDay();
+  // Revenue teams read Friday as part of the weekend trading block. Keep all
+  // three columns visibly grouped without overpowering price status colours.
+  if (day === 5 || day === 6 || day === 0) return "bg-muted/75";
   return i % 2 === 1 ? "bg-foreground/[0.03]" : "";
 }
 
@@ -1493,6 +1496,17 @@ export default function RateStrategyGrid({
     audit: { source: string; notes: string },
   ) => {
     if (!hotelId || rowsToSave.length === 0) return;
+    const sellableRows = rowsToSave.filter((row) =>
+      (leftByTypeDate?.get(`${row.room_type_name}|${row.stay_date}`) ?? 1) > 0);
+    const skippedSoldOut = rowsToSave.length - sellableRows.length;
+    if (skippedSoldOut > 0) {
+      toast.info(`${skippedSoldOut} sold-out price cell${skippedSoldOut === 1 ? " was" : "s were"} skipped`);
+    }
+    if (sellableRows.length === 0) {
+      toast.error("All selected room types are sold out on those dates");
+      return;
+    }
+    rowsToSave = sellableRows;
     // 1. Optimistic mirror — the calendar reads the new prices immediately.
     setOptimistic((prev) => {
       const next = new Map(prev);
@@ -1570,7 +1584,7 @@ export default function RateStrategyGrid({
         toast.error(e instanceof Error ? e.message : "Could not send the prices to Previo");
       }
     })();
-  }, [hotelId, organizationSlug, refreshDrafts, reloadAudit, onRatesUpdated]);
+  }, [hotelId, organizationSlug, refreshDrafts, reloadAudit, onRatesUpdated, leftByTypeDate]);
 
   /** Publish one or many absolute target prices without blocking on Previo. */
   async function saveDraft() {
@@ -1592,6 +1606,7 @@ export default function RateStrategyGrid({
 
     const rowsToSave: any[] = [];
     for (const d of targetDates) {
+      if ((leftByTypeDate?.get(`${edit.room_type_name}|${d}`) ?? 1) <= 0) continue;
       for (const occ of occs) {
         const current = edit.obk_id ? priceMap.get(edit.obk_id)?.get(occ)?.get(d) ?? null : null;
         const next = editMode === "set"
@@ -1670,6 +1685,7 @@ export default function RateStrategyGrid({
     for (const row of rateRows) {
       if (dayTypes.size > 0 && !dayTypes.has(row.roomTypeName)) continue;
       for (const d of dayToolDates) {
+        if ((leftByTypeDate?.get(`${row.roomTypeName}|${d}`) ?? 1) <= 0) continue;
         const current = row.obk ? priceMap.get(row.obk)?.get(row.occ)?.get(d) ?? null : null;
         const next = dayToolNext(current);
         if (next === null || (current !== null && Math.round(next) === Math.round(current))) continue;
@@ -1677,7 +1693,7 @@ export default function RateStrategyGrid({
       }
     }
     return out;
-  }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext]);
+  }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext, leftByTypeDate]);
 
   /** Publish every change the day tool previews. */
   async function applyDayTool(_mode: "draft" | "push" = "push") {
@@ -1787,11 +1803,12 @@ export default function RateStrategyGrid({
       for (let di = rangeRect.d0; di <= rangeRect.d1; di += 1) {
         const d = dates[di];
         if (!d) continue;
+        if ((leftByTypeDate?.get(`${row.roomTypeName}|${d}`) ?? 1) <= 0) continue;
         out.push({ date: d, row, current: priceMap.get(row.obk)?.get(row.occ)?.get(d) ?? null });
       }
     }
     return out;
-  }, [rangeRect, rows, dates, priceMap]);
+  }, [rangeRect, rows, dates, priceMap, leftByTypeDate]);
 
   /** What the selection tool would change, always in whole money. */
   const rangeChanges = useMemo(() => {
@@ -2763,6 +2780,8 @@ export default function RateStrategyGrid({
                     const sending = inFlight.get(`${d}|${row.roomTypeName}|${row.occ}`);
                     const flashKind = flash.get(`${d}|${row.roomTypeName}|${row.occ}`);
                     const shown = draft ?? sending ?? published;
+                    const roomsLeft = leftByTypeDate?.get(`${row.roomTypeName}|${d}`);
+                    const soldOut = roomsLeft !== undefined && roomsLeft <= 0;
                     const tone = rateTone(shown, thresholds);
                     const ck = cellKey(d, row.roomTypeName, row.occ);
                     // The real rows for THIS exact cell, loaded per stay date.
@@ -2820,17 +2839,17 @@ export default function RateStrategyGrid({
                         type="button"
                         data-cell-row={rowIdx}
                         data-cell-date={i}
-                        disabled={!canEditRates}
+                        disabled={!canEditRates || soldOut}
                         onPointerEnter={() => {
                           if (cellPointerEnter(rowIdx, i)) return;
                           void loadCellHistory(d); void loadAutomationDate(d);
                         }}
                         onPointerDown={(e) => {
-                          if (!canEditRates) return;
+                          if (!canEditRates || soldOut) return;
                           cellPointerDown(rowIdx, i, e);
                         }}
                         onClick={() => {
-                          if (!canEditRates) return;
+                          if (!canEditRates || soldOut) return;
                           // A drag just finished — the pricing tool is opening.
                           if (suppressClick.current || cellDragging) return;
 
@@ -2861,8 +2880,8 @@ export default function RateStrategyGrid({
                           });
                         }}
 
-                        title={`${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
-                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
+                        title={soldOut ? `${d} · ${row.roomTypeName} · sold out · price changes are disabled` : `${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
+                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates && !soldOut ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "opacity-45 line-through" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${picked && !soldOut ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
                         style={{ width: CELL_W }}
 
                       >
@@ -3017,7 +3036,7 @@ export default function RateStrategyGrid({
               />
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Prices are always sent to Previo as whole {getRevenueCurrency().code}.
+              Sold-out cells are excluded. Prices are always sent to Previo as whole {getRevenueCurrency().code}.
             </p>
             <div className="max-h-52 overflow-y-auto rounded-md border">
               {rangeChanges.length === 0 ? (
