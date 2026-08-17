@@ -63,6 +63,10 @@ interface Rule {
   far_out_enabled: boolean;
   far_out_surcharge: number;
   far_out_notify: boolean;
+  far_out_floor_topup_enabled: boolean;
+  far_out_floor_topup_days: number;
+  far_out_floor_topup_threshold: number;
+  far_out_floor_topup_amount: number;
 
   last_run_at?: string | null;
   next_run_at?: string | null;
@@ -116,6 +120,8 @@ const DEFAULT_RULE: Rule = {
   event_surcharge_eur: 10, event_surcharge_auto: false,
   lead_bands_enabled: true, far_out_days: 90, far_out_enabled: true,
   far_out_surcharge: 35, far_out_notify: true,
+  far_out_floor_topup_enabled: true, far_out_floor_topup_days: 90,
+  far_out_floor_topup_threshold: 100, far_out_floor_topup_amount: 22,
 
 };
 
@@ -326,6 +332,10 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       far_out_enabled: source.rule.far_out_enabled ?? true,
       far_out_surcharge: source.rule.far_out_surcharge ?? 35,
       far_out_notify: source.rule.far_out_notify ?? true,
+      far_out_floor_topup_enabled: source.rule.far_out_floor_topup_enabled ?? true,
+      far_out_floor_topup_days: source.rule.far_out_floor_topup_days ?? 90,
+      far_out_floor_topup_threshold: source.rule.far_out_floor_topup_threshold ?? 100,
+      far_out_floor_topup_amount: source.rule.far_out_floor_topup_amount ?? 22,
 
     }));
 
@@ -393,6 +403,10 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       far_out_enabled: rule.far_out_enabled,
       far_out_surcharge: rule.far_out_surcharge,
       far_out_notify: rule.far_out_notify,
+      far_out_floor_topup_enabled: rule.far_out_floor_topup_enabled,
+      far_out_floor_topup_days: rule.far_out_floor_topup_days,
+      far_out_floor_topup_threshold: rule.far_out_floor_topup_threshold,
+      far_out_floor_topup_amount: rule.far_out_floor_topup_amount,
 
       // Saving never triggers an immediate evaluation: an enabled rule is
       // simply scheduled one normal interval from now, so nobody gets a
@@ -959,6 +973,36 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                     </div>
                     <Switch checked={rule.far_out_notify} disabled={!rule.far_out_enabled}
                       onCheckedChange={(far_out_notify) => setRule({ ...rule, far_out_notify })} />
+                  </div>
+                  <div className="flex items-center justify-between gap-3 border-t pt-3">
+                    <div>
+                      <Label>Top up cheap far-out prices</Label>
+                      <p className="text-xs text-muted-foreground">
+                        A price still at or below the level below, that far before arrival, is lifted by a fixed amount on every automatic check.
+                      </p>
+                    </div>
+                    <Switch checked={rule.far_out_floor_topup_enabled}
+                      onCheckedChange={(far_out_floor_topup_enabled) => setRule({ ...rule, far_out_floor_topup_enabled })} />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label className="text-xs">From (days out)</Label>
+                      <Input type="number" min={0} max={400} disabled={!rule.far_out_floor_topup_enabled}
+                        value={rule.far_out_floor_topup_days}
+                        onChange={(e) => setRule({ ...rule, far_out_floor_topup_days: Number(e.target.value) })} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Price at or below ({rule.currency})</Label>
+                      <Input type="number" min={0} disabled={!rule.far_out_floor_topup_enabled}
+                        value={rule.far_out_floor_topup_threshold}
+                        onChange={(e) => setRule({ ...rule, far_out_floor_topup_threshold: Number(e.target.value) })} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Top up by ({rule.currency})</Label>
+                      <Input type="number" min={0} disabled={!rule.far_out_floor_topup_enabled}
+                        value={rule.far_out_floor_topup_amount}
+                        onChange={(e) => setRule({ ...rule, far_out_floor_topup_amount: Number(e.target.value) })} />
+                    </div>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
                     Every lift still respects the daily rise limit, the maximum single change and the sold-out guard.

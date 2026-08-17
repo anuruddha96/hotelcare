@@ -37,6 +37,8 @@ import {
   farOutSurcharge,
   soldOutBlocksAnyChange,
   farOutBookingText,
+  farOutFloorTopUp,
+  farOutFloorTopUpText,
 } from "../_shared/pricingRules.ts";
 
 
@@ -119,7 +121,13 @@ interface Rule {
   far_out_enabled: boolean;
   far_out_surcharge: number;
   far_out_notify: boolean;
+  // Far-out floor top-up
+  far_out_floor_topup_enabled: boolean;
+  far_out_floor_topup_days: number;
+  far_out_floor_topup_threshold: number;
+  far_out_floor_topup_amount: number;
 }
+
 
 
 const json = (body: unknown, status = 200) =>
@@ -601,6 +609,7 @@ Deno.serve(async (req) => {
       /** Dates already moved DOWN this cycle — they must not also move up. */
       const markdownDatesThisRun = new Set<string>();
       let strongActions = 0;
+      let topUpActions = 0;
       const strongDates = new Set<string>();
 
       if (rule.no_pickup_enabled) {
@@ -1285,6 +1294,139 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ------------------------------------------------------------------
+      // Far-out floor top-up.
+      //
+      // A room type still sitting at or below the "too cheap" level months
+      // before arrival is under-priced: the date has plenty of time to sell.
+      // Every such cell gets one fixed top-up per evaluation. Sold-out dates
+      // and dates already marked down in this cycle are left alone.
+      // ------------------------------------------------------------------
+      if (rule.far_out_floor_topup_enabled !== false && Number(rule.far_out_floor_topup_amount ?? 0) > 0) {
+        const local = localParts(rule.run_timezone || "Europe/Budapest");
+        const slot = `${local.time.slice(0, 2)}:${String(Math.floor(Number(local.time.slice(3, 5)) / 15) * 15).padStart(2, "0")}`;
+        const topUpFromDays = Math.max(0, Number(rule.far_out_floor_topup_days ?? 90));
+        const start = new Date(`${local.date}T00:00:00Z`);
+        start.setUTCDate(start.getUTCDate() + topUpFromDays);
+        const startDate = start.toISOString().slice(0, 10);
+        const horizon = new Date(`${local.date}T00:00:00Z`);
+        horizon.setUTCDate(horizon.getUTCDate() + Math.max(1, Number(rule.future_booking_window_days || 183)));
+        const horizonDate = horizon.toISOString().slice(0, 10);
+
+        if (startDate <= horizonDate) {
+          const [
+            { data: topRates },
+            { data: topSnapshots },
+            { data: topPending },
+          ] = await Promise.all([
+            admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", startDate).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).limit(50000),
+            admin.from("revenue_daily_snapshots").select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date").eq("hotel_id", rule.hotel_id).gte("stay_date", startDate).lte("stay_date", horizonDate).order("captured_date", { ascending: false }).limit(20000),
+            admin.from("revenue_rate_drafts").select("id, stay_date, obk_id, occupancy, new_price, status, created_at").eq("hotel_id", rule.hotel_id).gte("stay_date", startDate).in("status", ["draft", "sending", "pushed"]).is("superseded_at", null).limit(50000),
+          ]);
+
+          const topOcc = new Map<string, number | null>();
+          const topLeft = new Map<string, number | null>();
+          for (const row of (topSnapshots ?? []) as any[]) {
+            if (topOcc.has(row.stay_date)) continue;
+            topOcc.set(row.stay_date, row.occupancy_pct === null || row.occupancy_pct === undefined ? null : Number(row.occupancy_pct));
+            const sold = Number(row.rooms_sold);
+            const total = Number(row.rooms_available);
+            topLeft.set(row.stay_date, Number.isFinite(sold) && Number.isFinite(total) ? total - sold : null);
+          }
+
+          const topPendingByCell = new Map<string, Array<{ id: string; new_price: number; created_at: string; claimed: boolean }>>();
+          for (const row of (topPending ?? []) as any[]) {
+            const key = `${row.stay_date}|${row.obk_id}|${row.occupancy}`;
+            const list = topPendingByCell.get(key) ?? [];
+            list.push({ id: row.id, new_price: Number(row.new_price), created_at: row.created_at, claimed: row.status !== "draft" });
+            topPendingByCell.set(key, list);
+          }
+
+          const topLatest = new Map<string, any>();
+          for (const rate of (topRates ?? []) as any[]) {
+            const key = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
+            if (!topLatest.has(key)) topLatest.set(key, rate);
+          }
+
+          const topRows: any[] = [];
+          const topDrafts: any[] = [];
+          for (const rate of topLatest.values()) {
+            if (markdownDatesThisRun.has(rate.stay_date)) continue;
+            if (soldOutBlocksAnyChange({
+              enabled: rule.sold_out_guard_enabled !== false,
+              roomsLeft: topLeft.get(rate.stay_date) ?? null,
+              occupancyPct: topOcc.get(rate.stay_date) ?? null,
+              soldOutOccupancyPct: Number(rule.sold_out_occupancy_pct ?? 100),
+            })) continue;
+
+            const cell = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
+            const current = effectivePrice(Number(rate.price), topPendingByCell.get(cell) ?? []);
+            if (current === null) continue;
+            const daysOut = dayDiff(local.date, rate.stay_date);
+            const topUp = farOutFloorTopUp({
+              enabled: true,
+              daysOut,
+              thresholdDays: topUpFromDays,
+              priceThreshold: Number(rule.far_out_floor_topup_threshold ?? 100),
+              amount: Number(rule.far_out_floor_topup_amount ?? 0),
+              currentPrice: current,
+            });
+            if (topUp <= 0) continue;
+
+            const newPrice = applyRounding(
+              current + topUp, "increase", rule.whole_number_prices !== false,
+              rule.minimum_adr === null ? null : Number(rule.minimum_adr),
+            );
+            if (!(newPrice > current)) continue;
+
+            topRows.push({
+              rule_id: rule.id, rule_version: rule.version, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
+              reservation_id: null, stay_date: rate.stay_date, pickup_at: null, pickup_sequence: 0,
+              room_type_name: rate.room_type_name, obk_id: String(rate.obk_id), occupancy: Number(rate.occupancy) || 2,
+              old_price: current, increase_amount: newPrice - current, new_price: newPrice,
+              status: rule.auto_publish ? "queued" : "suggested", decision_type: "far_out_floor_topup",
+              observation_from: evalWindow.from, observation_to: runStartedAt,
+              net_pickup: 0, schedule_slot: slot, local_business_date: local.date, cap_applied: newPrice - current,
+              decision_reason: "far_out_floor_topup",
+              reason_detail: farOutFloorTopUpText({
+                amount: newPrice - current,
+                currency: rate.currency ?? rule.currency ?? "EUR",
+                priceThreshold: Number(rule.far_out_floor_topup_threshold ?? 100),
+                daysOut,
+              }),
+            });
+            if (rule.auto_publish) topDrafts.push({
+              hotel_id: rule.hotel_id, organization_slug: rule.organization_slug, stay_date: rate.stay_date,
+              obk_id: String(rate.obk_id), room_type_name: rate.room_type_name, occupancy: Number(rate.occupancy) || 2,
+              old_price: current, new_price: newPrice, currency: rate.currency ?? rule.currency ?? "EUR", status: "draft",
+              priority: priorityOf("pickup"), intent_source: "automation_far_out_topup",
+            });
+          }
+
+          if (!dryRun && topRows.length > 0) {
+            const { data: insertedTop, error: topError } = await admin.from("revenue_pickup_automation_actions")
+              .upsert(topRows, { onConflict: "hotel_id,stay_date,obk_id,occupancy,rule_version,schedule_slot,local_business_date", ignoreDuplicates: true })
+              .select("stay_date,obk_id,occupancy");
+            if (topError) throw topError;
+            const accepted = new Set((insertedTop ?? []).map((row: any) => `${row.stay_date}|${row.obk_id}|${row.occupancy}`));
+            const payload = topDrafts.filter((row) => accepted.has(`${row.stay_date}|${row.obk_id}|${row.occupancy}`));
+            topUpActions = payload.length;
+            if (payload.length > 0) {
+              const runId = await queueIntents(admin, rule, payload, priorityOf("pickup"));
+              if (runId) {
+                await admin.from("revenue_pickup_automation_actions")
+                  .update({ push_run_id: runId })
+                  .eq("hotel_id", rule.hotel_id)
+                  .eq("rule_version", rule.version)
+                  .eq("schedule_slot", slot)
+                  .eq("local_business_date", local.date)
+                  .eq("decision_type", "far_out_floor_topup")
+                  .is("push_run_id", null);
+              }
+            }
+          }
+        }
+      }
 
 
       if (pickups.length === 0) {
@@ -1299,7 +1441,7 @@ Deno.serve(async (req) => {
         summary.push({
           hotel_id: rule.hotel_id, pickups: 0, actions: markdownActions,
           markdowns: markdownActions, markdown_stay_dates: markdownStayDates,
-          queued: markdownActions, blocked: markdownBlocks,
+          queued: markdownActions + topUpActions, floor_topups: topUpActions, blocked: markdownBlocks,
 
           next_run_at: nextRunAt(now, intervalMinutes),
         });
@@ -1824,7 +1966,8 @@ Deno.serve(async (req) => {
         held_sold_out: heldSoldOut,
         actions: inserted, markdowns: markdownActions,
         markdown_stay_dates: markdownStayDates, blocked: markdownBlocks,
-        queued: queued + markdownActions + strongActions,
+        queued: queued + markdownActions + strongActions + topUpActions,
+        floor_topups: topUpActions,
         pushed: 0, failed: failedCount,
 
         push_error: null, auto_publish: rule.auto_publish, changed,

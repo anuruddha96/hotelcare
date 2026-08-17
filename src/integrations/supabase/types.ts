@@ -5467,6 +5467,10 @@ export type Database = {
           event_surcharge_eur: number
           far_out_days: number
           far_out_enabled: boolean
+          far_out_floor_topup_amount: number
+          far_out_floor_topup_days: number
+          far_out_floor_topup_enabled: boolean
+          far_out_floor_topup_threshold: number
           far_out_notify: boolean
           far_out_surcharge: number
           future_booking_window_days: number
@@ -5537,6 +5541,10 @@ export type Database = {
           event_surcharge_eur?: number
           far_out_days?: number
           far_out_enabled?: boolean
+          far_out_floor_topup_amount?: number
+          far_out_floor_topup_days?: number
+          far_out_floor_topup_enabled?: boolean
+          far_out_floor_topup_threshold?: number
           far_out_notify?: boolean
           far_out_surcharge?: number
           future_booking_window_days?: number
@@ -5607,6 +5615,10 @@ export type Database = {
           event_surcharge_eur?: number
           far_out_days?: number
           far_out_enabled?: boolean
+          far_out_floor_topup_amount?: number
+          far_out_floor_topup_days?: number
+          far_out_floor_topup_enabled?: boolean
+          far_out_floor_topup_threshold?: number
           far_out_notify?: boolean
           far_out_surcharge?: number
           future_booking_window_days?: number
