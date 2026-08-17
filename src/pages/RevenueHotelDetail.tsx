@@ -197,6 +197,17 @@ export default function RevenueHotelDetail() {
     return out;
   }, [demandEvents]);
 
+  // Our own lowest published price per date — used by the competitor watch.
+  const ourRateByDate = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const r of live.rates) {
+      if (!Number.isFinite(r.price)) continue;
+      const cur = out.get(r.stay_date);
+      if (cur === undefined || r.price < cur) out.set(r.stay_date, r.price);
+    }
+    return out;
+  }, [live.rates]);
+
 
   // Rooms still sellable per room type and date.
   const leftByTypeDate = useMemo(() => {
