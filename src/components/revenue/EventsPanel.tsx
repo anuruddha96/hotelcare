@@ -162,7 +162,10 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     d.setUTCMonth(d.getUTCMonth() + delta);
     setMonth(monthKey(d));
     setCandidates(null);
+    setAlreadyAdded([]);
+    setSearchedMonth(null);
   };
+
 
   const saveLocation = async () => {
     if (!hotelId) return;
