@@ -57,10 +57,10 @@ export default function AssistantLauncher() {
 
   const newThread = useCallback(async () => {
     const id = await createThread();
-      if (id) {
-        setThread(id);
-        setTab("chat");
-      }
+    if (id) {
+      setThread(id);
+      setTab("chat");
+    }
     return id;
   }, [createThread, setThread]);
 

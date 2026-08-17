@@ -46,7 +46,7 @@ export default function AssistantPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-[240px_1fr]">
-        <Card className="p-2 h-fit space-y-2">
+        <Card className="hidden p-2 h-fit space-y-2 md:block">
           <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={newThread}>
             <Plus className="h-3.5 w-3.5" /> New chat
           </Button>

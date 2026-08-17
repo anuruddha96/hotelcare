@@ -58,8 +58,9 @@ function allowedScopes(role: string): Set<Scope> {
 }
 
 function extractText(message: UIMessage | undefined): string {
-  return (message?.parts ?? [])
-    .filter((part): part is Extract<(typeof message.parts)[number], { type: "text" }> => part.type === "text")
+  const parts = message?.parts ?? [];
+  return parts
+    .filter((part): part is Extract<(typeof parts)[number], { type: "text" }> => part.type === "text")
     .map((part) => part.text)
     .join("")
     .trim();
@@ -304,6 +305,24 @@ Deno.serve(async (req) => {
       return json({ error: "Conversation is outside your current property scope" }, 403);
     }
 
+    const { data: storedRows, error: storedError } = await service
+      .from("assistant_messages")
+      .select("id,role,content,created_at")
+      .eq("thread_id", threadId)
+      .eq("user_id", userData.user.id)
+      .order("created_at", { ascending: true })
+      .limit(200);
+    if (storedError) return json({ error: `Could not load conversation history: ${storedError.message}` }, 500);
+    const storedMessages: UIMessage[] = (storedRows ?? []).map((row: any) => ({
+      id: row.id,
+      role: row.role,
+      parts: [{ type: "text", text: row.content }],
+    }));
+    const modelMessages = [
+      ...storedMessages,
+      { id: latest?.id ?? crypto.randomUUID(), role: "user" as const, parts: [{ type: "text" as const, text: question }] },
+    ];
+
     const scopes = allowedScopes(profile.role);
     const requestedScope = detectRequestedScope(question);
     const deniedScope = requestedScope && !scopes.has(requestedScope) ? requestedScope : null;
@@ -360,7 +379,7 @@ The authenticated user's role is ${profile.role}. Their organization is ${profil
 Use tools for live hotel facts. Never invent internal data. Never reveal another organization, hotel, venue, guest identity, credential, staff pay, or information outside the available tools.
 Unavailable tools are unavailable because of authorization. If asked for an unauthorized data area, say access is required without speculating about the data.
 For general knowledge, answer normally. For Hotel Care usage questions, use the workflow reference tool.`,
-      messages: await convertToModelMessages(messages),
+      messages: await convertToModelMessages(modelMessages),
       tools: buildTools(service, profile as Profile, scopes),
       stopWhen: stepCountIs(50),
       abortSignal: req.signal,
@@ -368,7 +387,7 @@ For general knowledge, answer normally. For Hotel Care usage questions, use the 
     });
 
     return result.toUIMessageStreamResponse({
-      originalMessages: messages,
+      originalMessages: modelMessages,
       sendReasoning: true,
       headers: corsHeaders,
       onFinish: async ({ responseMessage, isAborted }) => {

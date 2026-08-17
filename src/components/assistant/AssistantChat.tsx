@@ -19,6 +19,7 @@ import {
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input";
 import { Shimmer } from "@/components/ai-elements/shimmer";
+import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/components/ai-elements/tool";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -225,6 +226,26 @@ function ChatSession({
                   }
                 >
                   {message.role === "assistant" ? <MessageResponse>{text}</MessageResponse> : <p>{text}</p>}
+                  {message.role === "assistant" &&
+                    message.parts.map((part, partIndex) => {
+                      if (!(part.type.startsWith("tool-") || part.type === "dynamic-tool")) return null;
+                      const toolPart = part as any;
+                      const toolName = part.type === "dynamic-tool" ? toolPart.toolName : part.type.slice(5);
+                      return (
+                        <Tool key={`${message.id}-tool-${partIndex}`} defaultOpen={false}>
+                          <ToolHeader
+                            type={toolPart.type}
+                            state={toolPart.state}
+                            toolName={part.type === "dynamic-tool" ? toolName : undefined}
+                            title={toolName.replaceAll("_", " ")}
+                          />
+                          <ToolContent>
+                            <ToolInput input={toolPart.input} />
+                            <ToolOutput output={toolPart.output} errorText={toolPart.errorText} />
+                          </ToolContent>
+                        </Tool>
+                      );
+                    })}
                   {needsScope && index === messages.length - 1 && (
                     <Button
                       size="sm"
