@@ -1444,6 +1444,7 @@ Deno.serve(async (req) => {
               occupancyPct: topOcc.get(rate.stay_date) ?? null,
               soldOutOccupancyPct: Number(rule.sold_out_occupancy_pct ?? 100),
             })) continue;
+            if (typeSoldOut(rate.room_type_name, rate.obk_id, rate.stay_date)) continue;
 
             const cell = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
             const current = effectivePrice(Number(rate.price), topPendingByCell.get(cell) ?? []);
