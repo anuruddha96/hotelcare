@@ -150,63 +150,86 @@ serve(async (req) => {
       required: ["events"],
     };
 
-    const aiResp = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
+    /** One call to the Responses API; returns the parsed event array. */
+    const askOpenAI = async (withSearch: boolean): Promise<{ events: any[]; error?: string }> => {
+      const payload: Record<string, unknown> = {
         model: "gpt-4.1",
         temperature: 0,
-        instructions,
+        instructions: withSearch
+          ? instructions
+          : `${instructions} The web search tool is unavailable for this attempt: report only events whose published dates you are confident about, and still give the official page as source_url.`,
         input: prompt,
-        tools: [{ type: "web_search_preview", search_context_size: "high" }],
-        tool_choice: "auto",
-        text: {
-          format: { type: "json_schema", name: "events", strict: true, schema },
-        },
-      }),
-    });
+        text: { format: { type: "json_schema", name: "events", strict: true, schema } },
+      };
+      if (withSearch) {
+        payload.tools = [{ type: "web_search_preview", search_context_size: "high" }];
+        payload.tool_choice = "auto";
+      }
 
-    if (!aiResp.ok) {
-      const text = await aiResp.text();
-      console.error("openai error", aiResp.status, text.slice(0, 800));
-      if (aiResp.status === 429) return json({ ok: false, error: "The event search is rate limited, try again in a minute." }, 200);
-      if (aiResp.status === 401) return json({ ok: false, error: "The OpenAI key was rejected. Check the key in project settings." }, 200);
-      return json({ ok: false, error: `Event search failed (${aiResp.status}).` }, 200);
-    }
+      const aiResp = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-    const ai = await aiResp.json();
-    // Responses API: prefer output_text, fall back to walking the output items.
-    let raw: string = ai.output_text ?? "";
-    if (!raw && Array.isArray(ai.output)) {
-      for (const item of ai.output) {
-        for (const part of item?.content ?? []) {
-          if (typeof part?.text === "string") raw += part.text;
+      if (!aiResp.ok) {
+        const text = await aiResp.text();
+        console.error("openai error", aiResp.status, text.slice(0, 800));
+        if (aiResp.status === 429) return { events: [], error: "The event search is rate limited, try again in a minute." };
+        if (aiResp.status === 401) return { events: [], error: "The OpenAI key was rejected. Check the key in project settings." };
+        return { events: [], error: `Event search failed (${aiResp.status}).` };
+      }
+
+      const ai = await aiResp.json();
+      // Responses API: prefer output_text, fall back to walking the output items.
+      let raw: string = ai.output_text ?? "";
+      if (!raw && Array.isArray(ai.output)) {
+        for (const item of ai.output) {
+          for (const part of item?.content ?? []) {
+            if (typeof part?.text === "string") raw += part.text;
+          }
         }
       }
+      try {
+        return { events: JSON.parse(raw || "{}").events ?? [] };
+      } catch (err) {
+        console.error("event json parse failed", String(err), raw.slice(0, 300));
+        return { events: [], error: "The event search returned an unreadable answer. Try again." };
+      }
+    };
+
+    // A web-search run occasionally comes back with nothing at all; retry once
+    // without the tool so the month is never silently empty.
+    let { events, error: aiError } = await askOpenAI(true);
+    if (!events.length && !aiError) {
+      const retry = await askOpenAI(false);
+      events = retry.events;
+      aiError = retry.error;
     }
-    let events: any[] = [];
-    try { events = JSON.parse(raw || "{}").events ?? []; } catch { events = []; }
+    if (!events.length && aiError) return json({ ok: false, error: aiError }, 200);
 
     const seen = new Set<string>();
     const all = events
-      .filter((e) => e?.title && isDate(e?.date) && typeof e?.source_url === "string" && /^https?:\/\//.test(e.source_url))
+      .filter((e) => e?.title && isDate(e?.date))
       .map((e) => {
         const event_date = String(e.date);
         const end_date = isDate(e.end_date) && String(e.end_date) >= event_date ? String(e.end_date) : null;
+        const url = typeof e.source_url === "string" && /^https?:\/\//.test(e.source_url) ? String(e.source_url).slice(0, 500) : null;
         return {
           event_date,
           end_date,
-          title: String(e.title).slice(0, 200),
-          category: String(e.category ?? "other"),
-          venue: e.venue ? String(e.venue).slice(0, 160) : null,
+          title: clean(e.title, 200),
+          category: clean(e.category ?? "other", 40) || "other",
+          venue: clean(e.venue, 160) || null,
           expected_impact: ["low", "medium", "high"].includes(String(e.expected_impact)) ? String(e.expected_impact) : "medium",
           recurs_annually: !!e.recurs_annually,
-          url: String(e.source_url).slice(0, 500),
+          url,
           confidence: Number.isFinite(Number(e.confidence)) ? Number(e.confidence) : null,
           city,
           country,
         };
       })
+      .filter((c) => c.title.length > 1 && c.event_date >= monthStart && c.event_date <= monthEnd)
       // Drop repeats inside the AI's own answer.
       .filter((c) => {
         const key = `${normTitle(c.title)}|${c.event_date}`;
@@ -240,9 +263,11 @@ serve(async (req) => {
       month,
       city,
       country,
+      found: all.length,
       candidates,
-      duplicates: duplicates.map((d) => ({ title: d.title, event_date: d.event_date })),
+      duplicates,
     });
+
   } catch (e) {
     console.error(e);
     return json({ ok: false, error: (e as Error)?.message ?? "Unexpected error" }, 200);
