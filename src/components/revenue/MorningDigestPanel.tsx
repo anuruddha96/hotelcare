@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Loader2, Send } from "lucide-react";
+import { Loader2, Mail, Send } from "lucide-react";
 
 interface Props {
   hotelId: string | null;
