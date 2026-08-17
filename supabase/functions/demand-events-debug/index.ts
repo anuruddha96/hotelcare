@@ -57,6 +57,30 @@ Deno.serve(async (req) => {
     body: JSON.stringify(body),
   });
   const text = await r.text();
+  // Replicate the real function's parsing to see where candidates are lost.
+  let diag: any = {};
+  try {
+    const ai = JSON.parse(text);
+    let raw: string = ai.output_text ?? "";
+    diag.outputTextLen = raw.length;
+    if (!raw && Array.isArray(ai.output)) {
+      for (const item of ai.output) {
+        for (const part of item?.content ?? []) {
+          if (typeof part?.text === "string") raw += part.text;
+        }
+      }
+    }
+    diag.rawLen = raw.length;
+    try {
+      const parsedEvents = JSON.parse(raw || "{}").events ?? [];
+      diag.eventCount = parsedEvents.length;
+      diag.withSource = parsedEvents.filter((e: any) => typeof e?.source_url === "string" && /^https?:\/\//.test(e.source_url)).length;
+      diag.first = parsedEvents[0];
+    } catch (err) {
+      diag.parseError = String(err).slice(0, 300);
+      diag.rawHead = raw.slice(0, 200);
+    }
+  } catch (err) { diag.outerError = String(err).slice(0, 200); }
   let parsed: unknown = null;
   try {
     const j = JSON.parse(text);
@@ -69,7 +93,7 @@ Deno.serve(async (req) => {
       message: JSON.stringify((j.output ?? []).filter((o: any) => o.type === "message")).slice(0, 2000),
     };
   } catch { /* raw below */ }
-  return new Response(JSON.stringify({ httpStatus: r.status, parsed, raw: parsed ? undefined : text.slice(0, 1500) }, null, 2), {
+  return new Response(JSON.stringify({ httpStatus: r.status, diag, parsed, raw: parsed ? undefined : text.slice(0, 1500) }, null, 2), {
     headers: { "Content-Type": "application/json" },
   });
 });
