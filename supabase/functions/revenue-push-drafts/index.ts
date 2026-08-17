@@ -7,7 +7,7 @@
 // Previo in background so a partial failure is visible instead of silent.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { loadPrevioCredentials, hasPrevioCredentials } from "../_shared/previoCredentials.ts";
-import { writePrevioRate, readPrevioRateLevels } from "../_shared/previoRateWrite.ts";
+import { writePrevioRate, readPrevioRateLevelsRange } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 import { pricesMatch } from "../_shared/pricingRules.ts";
 
@@ -585,8 +585,11 @@ Deno.serve(async (req) => {
 
         const verifyAcceptedRates = async () => {
           try {
-            const landed = await readPrevioRateLevels({
-              creds, pmsHotelId, date: b.from, obkId: b.obkId, prlId: b.prlId,
+            // Verify every date the batch covered, not just its first day:
+            // a season-long push otherwise left all later dates stuck on
+            // "awaiting confirmation" forever.
+            const landed = await readPrevioRateLevelsRange({
+              creds, pmsHotelId, from: b.from, to: b.to, obkId: b.obkId, prlId: b.prlId,
             });
             if (landed.size === 0) return;
             const checkedAt = new Date().toISOString();
@@ -595,7 +598,7 @@ Deno.serve(async (req) => {
             const auditRows: Record<string, unknown>[] = [];
             for (const d of b.drafts as any[]) {
               const occupancy = Math.max(1, Math.round(Number(d.occupancy) || 2));
-              const actual = landed.get(occupancy);
+              const actual = landed.get(`${d.stay_date}|${occupancy}`);
               if (actual === undefined || !Number.isFinite(actual)) continue;
               const confirmed = pricesMatch(Number(d.new_price), Number(actual));
               const updateKey = `${occupancy}|${actual}|${confirmed}|${d.new_price}`;
