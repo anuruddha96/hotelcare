@@ -423,6 +423,20 @@ export default function RateStrategyGrid({
   const [selDates, setSelDates] = useState<Set<string>>(new Set());
   const [selecting, setSelecting] = useState(false);
 
+  /**
+   * Free cell selection: drag a rectangle across any room-type rows and any
+   * dates, then price exactly that block. Vertical (several room types on one
+   * date), horizontal (one room type across dates) and everything in between.
+   */
+  const [rangeMode, setRangeMode] = useState(false);
+  const [rangeAnchor, setRangeAnchor] = useState<{ row: number; date: number } | null>(null);
+  const [rangeFocus, setRangeFocus] = useState<{ row: number; date: number } | null>(null);
+  const rangeDragging = useRef(false);
+  const [rangeToolOpen, setRangeToolOpen] = useState(false);
+  const [rangeCalc, setRangeCalc] = useState<"amount" | "percent" | "set">("amount");
+  const [rangeValue, setRangeValue] = useState("2");
+
+
   const [saving, setSaving] = useState(false);
   /** Live progress of the prices currently on their way to Previo. */
   const [pushRun, setPushRun] = useState<{
