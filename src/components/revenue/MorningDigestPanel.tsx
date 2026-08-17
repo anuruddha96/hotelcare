@@ -172,6 +172,24 @@ export default function MorningDigestPanel({ hotelId, organizationSlug, canEdit 
       <p className="text-[11px] text-muted-foreground">
         The test goes to your own address plus the extra recipients above.
       </p>
+
+      {sendError && (
+        <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-destructive">The e-mail was not sent</p>
+            <p className="mt-0.5 text-xs text-muted-foreground break-words">{sendError}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSendError(null)}
+            className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted"
+            aria-label="Dismiss"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
