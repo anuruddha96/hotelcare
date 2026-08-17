@@ -3337,6 +3337,95 @@ export default function RateStrategyGrid({
 
         </DialogContent>
       </Dialog>
+
+      {/* Demand day detail: the grade, why it moved, and what is on in town. */}
+      <Dialog open={!!demandDay} onOpenChange={(o) => !o && setDemandDay(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {demandDay
+                ? new Date(`${demandDay}T00:00:00Z`).toLocaleDateString(undefined, {
+                    timeZone: "UTC", weekday: "long", day: "numeric", month: "long", year: "numeric",
+                  })
+                : ""}
+            </DialogTitle>
+          </DialogHeader>
+
+          {(() => {
+            if (!demandDay) return null;
+            const dem = demandByDate?.get(demandDay);
+            const evs = eventsByDate?.get(demandDay) ?? [];
+            return (
+              <div className="max-h-[70vh] space-y-4 overflow-y-auto">
+                <div className="rounded-lg border p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Demand grade</span>
+                    {dem ? (
+                      <Badge className={demandTone(dem.band)} variant="secondary">
+                        {BAND_LABEL[dem.band]} · {dem.score}/100
+                      </Badge>
+                    ) : (
+                      <span className="text-sm text-muted-foreground">Not available yet</span>
+                    )}
+                  </div>
+                  {dem && dem.drivers.length > 0 && (
+                    <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                      {dem.drivers.map((dr, i) => <li key={i}>• {dr}</li>)}
+                    </ul>
+                  )}
+                </div>
+
+                <div>
+                  <p className="mb-2 text-sm font-medium">
+                    Events in town {evs.length ? `(${evs.length})` : ""}
+                  </p>
+                  {evs.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      No events recorded for this date. Add one in the events &amp; demand calendar below the grid.
+                    </p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {evs.map((e, i) => (
+                        <li key={`${e.title}-${i}`} className="rounded-lg border p-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-medium">{e.title}</span>
+                            <Badge variant="secondary" className={
+                              e.impact === "high" ? "bg-red-100 text-red-700"
+                                : e.impact === "medium" ? "bg-amber-100 text-amber-700"
+                                : "bg-muted text-muted-foreground"
+                            }>
+                              {e.impact} impact
+                            </Badge>
+                            {e.category && <Badge variant="outline">{e.category}</Badge>}
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {e.start === e.end || !e.end
+                              ? e.start
+                              : `${e.start} → ${e.end}`}
+                            {e.venue ? ` · ${e.venue}` : ""}
+                          </p>
+                          {e.notes && <p className="mt-1 text-xs text-muted-foreground">{e.notes}</p>}
+                          {e.url && (
+                            <a
+                              href={e.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-1 inline-block text-[11px] underline underline-offset-2 text-muted-foreground hover:text-foreground"
+                            >
+                              Open the source
+                            </a>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </Card>
+
   );
 }
