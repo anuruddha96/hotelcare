@@ -1363,21 +1363,35 @@ export default function RateStrategyGrid({
   /** Whether there is more calendar to the left / right (drives the edge hints). */
   const [edges, setEdges] = useState({ left: false, right: true });
 
-  /** Sticky month label + auto-extend the horizon when the user scrolls right. */
+  /** True while the pointer rests on an arrow: automatic gliding pauses there. */
+  const manualNav = useRef(false);
+  const [hoverArrow, setHoverArrow] = useState<null | "left" | "right">(null);
+
+  /**
+   * Sticky month label + auto-extend the horizon when the user scrolls right.
+   * The work is deferred to the next frame so a fast flick never has state
+   * updates running on every scroll event — that is what made it feel stuck.
+   */
+  const scrollRaf = useRef<number | null>(null);
   function onScroll() {
-    const el = scrollRef.current;
-    if (!el) return;
-    const idx = Math.min(allDates.length - 1, Math.max(0, Math.round(el.scrollLeft / CELL_W)));
-    const label = formatMonth(allDates[idx]);
-    setVisibleMonth((prev) => (prev === label ? prev : label));
-    const canLeft = el.scrollLeft > 4;
-    const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
-    setEdges((prev) => (prev.left === canLeft && prev.right === canRight ? prev : { left: canLeft, right: canRight }));
-    const nearEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - CELL_W * 3;
-    if (nearEnd) {
-      setDays((d) => (d < 30 ? 30 : d < 60 ? 60 : d < 120 ? 120 : d < 180 ? 180 : d));
-    }
+    if (scrollRaf.current !== null) return;
+    scrollRaf.current = requestAnimationFrame(() => {
+      scrollRaf.current = null;
+      const el = scrollRef.current;
+      if (!el) return;
+      const idx = Math.min(allDates.length - 1, Math.max(0, Math.round(el.scrollLeft / CELL_W)));
+      const label = formatMonth(allDates[idx]);
+      setVisibleMonth((prev) => (prev === label ? prev : label));
+      const canLeft = el.scrollLeft > 4;
+      const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+      setEdges((prev) => (prev.left === canLeft && prev.right === canRight ? prev : { left: canLeft, right: canRight }));
+      const nearEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - CELL_W * 3;
+      if (nearEnd) {
+        setDays((d) => (d < 30 ? 30 : d < 60 ? 60 : d < 120 ? 120 : d < 180 ? 180 : d));
+      }
+    });
   }
+  useEffect(() => () => { if (scrollRaf.current !== null) cancelAnimationFrame(scrollRaf.current); }, []);
 
   /** Glide a whole screen of dates left or right, animated. */
   const nudge = (dir: -1 | 1) => {
@@ -1386,6 +1400,22 @@ export default function RateStrategyGrid({
     const page = Math.max(CELL_W * 3, Math.floor((el.clientWidth - LEFT_W) * 0.8 / CELL_W) * CELL_W);
     el.scrollBy({ left: dir * page, behavior: "smooth" });
   };
+
+  /** Press and hold an arrow to keep moving; a single click moves one screen. */
+  const holdTimer = useRef<number | null>(null);
+  const holdRepeat = useRef<number | null>(null);
+  const startHold = (dir: -1 | 1) => {
+    manualNav.current = true;
+    holdTimer.current = window.setTimeout(() => {
+      holdRepeat.current = window.setInterval(() => nudge(dir), 350);
+    }, 450);
+  };
+  const endHold = () => {
+    if (holdTimer.current !== null) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+    if (holdRepeat.current !== null) { clearInterval(holdRepeat.current); holdRepeat.current = null; }
+  };
+  useEffect(() => endHold, []);
+
 
   /**
    * Edge auto-scroll: a mouse user without a horizontal wheel can simply move
