@@ -274,21 +274,23 @@ export default function RevenueHotelDetail() {
       if (revRes.data?.success === false) {
         throw new Error(revRes.data?.errors?.[0] || "Revenue sync was incomplete");
       }
-      setSyncPct(65);
-      setSyncStep("Refreshing occupancy for the next 90 days…");
-      await supabase.functions.invoke("previo-sync-daily-overview", { body: { hotelId, days: 90 } });
-      setSyncPct(80);
-      setSyncStep("Translating room-type names…");
-      // Previo publishes names in the property's own language; translate once
-      // so the grid reads correctly in every app language.
-      await supabase.functions.invoke("translate-room-types", { body: { hotelId } });
-      setSyncPct(88);
-      setSyncStep("Checking prices against the safety net…");
-      // Fresh prices are screened for human error (2 EUR, 9000 EUR …) and
-      // admins + top management are emailed about anything suspicious.
-      await supabase.functions.invoke("revenue-rate-alerts", { body: { hotelId } });
-      setSyncPct(94);
+      // Prices and reservations are in — put them on screen straight away
+      // instead of making the person wait for the tidy-up jobs behind them.
+      setSyncPct(60);
       setSyncStep("Recalculating pickup, ADR and RevPAR…");
+      await Promise.all([load(), live.reload()]);
+      setSyncPct(80);
+      setSyncStep("Refreshing occupancy and checking prices…");
+      // None of these depend on each other, so they run together:
+      // occupancy for the next 90 days, room-type name translation (Previo
+      // publishes them in the property's own language) and the price safety
+      // net that emails admins about a 2 EUR or 9000 EUR mistake.
+      await Promise.all([
+        supabase.functions.invoke("previo-sync-daily-overview", { body: { hotelId, days: 90 } }),
+        supabase.functions.invoke("translate-room-types", { body: { hotelId } }),
+        supabase.functions.invoke("revenue-rate-alerts", { body: { hotelId } }),
+      ]);
+      setSyncPct(94);
       await Promise.all([load(), live.reload()]);
       setSyncPct(100);
       setSyncStep("Up to date");
@@ -725,7 +727,10 @@ export default function RevenueHotelDetail() {
   }
 
   // First load for this property: show the shape of the page, never blanks.
-  if ((live.loading || syncing || syncWaiting || syncError) && live.roomTypes.length === 0) {
+  // Only the cached read blocks the page. A Previo sync keeps running behind
+  // the numbers (thin bar at the top), so nobody waits on Previo to see the
+  // property they just opened.
+  if ((live.loading || syncError) && live.roomTypes.length === 0) {
     return (
       <div className="min-h-screen bg-background">
         <WelcomeBackOverlay
