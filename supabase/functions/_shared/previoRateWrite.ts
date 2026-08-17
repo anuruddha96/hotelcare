@@ -308,3 +308,97 @@ export async function readPrevioRateLevels(opts: {
   return await attempt();
 }
 
+
+// ---------------------------------------------------------------------------
+// Restrictions (minimum stay) and inventory (rooms to sell)
+//
+// Same EQC AvailRateUpdate channel as prices — Previo accepts <Inventory> on
+// the room type and <Restrictions> on the rate plan inside the same message
+// shape the price writer already uses.
+// ---------------------------------------------------------------------------
+
+export interface RestrictionWriteTarget {
+  /** Previo room type id. */
+  obkId: string;
+  /** Previo rate plan (pricelist) id — required for a stay restriction. */
+  prlId?: string | null;
+  /** YYYY-MM-DD, inclusive. */
+  from: string;
+  /** YYYY-MM-DD, inclusive. */
+  to: string;
+  /** Minimum nights, 1 = no restriction. Omit to leave the stay rule alone. */
+  minStay?: number | null;
+  /** Rooms to sell for this room type. Omit to leave inventory alone. */
+  roomsToSell?: number | null;
+}
+
+export function buildRestrictionUpdateXml(hotelId: string, t: RestrictionWriteTarget): string {
+  const inventory = Number.isFinite(Number(t.roomsToSell)) && t.roomsToSell !== null && t.roomsToSell !== undefined
+    ? `    <Inventory totalInventoryAvailable="${esc(Math.max(0, Math.round(Number(t.roomsToSell))))}" />\n`
+    : "";
+  const minStay = Number.isFinite(Number(t.minStay)) && t.minStay !== null && t.minStay !== undefined
+    ? Math.max(1, Math.round(Number(t.minStay)))
+    : null;
+  const ratePlan = minStay !== null && t.prlId
+    ? `    <RatePlan id="${esc(t.prlId)}">\n` +
+      `      <Restrictions minLOS="${esc(minStay)}" />\n` +
+      `    </RatePlan>\n`
+    : "";
+  return `<?xml version="1.0" encoding="utf-8"?>
+<AvailRateUpdateRQ xmlns="${EQC_AR_NS}">
+  <Hotel id="${esc(hotelId)}" />
+  <DateRange from="${esc(t.from)}" to="${esc(t.to)}" />
+  <RoomType id="${esc(t.obkId)}">
+${inventory}${ratePlan}  </RoomType>
+</AvailRateUpdateRQ>`;
+}
+
+/** Send a minimum-stay and/or inventory change to Previo. */
+export async function writePrevioRestrictions(opts: {
+  creds: PrevioCredentials;
+  pmsHotelId: string;
+  target: RestrictionWriteTarget;
+}): Promise<RateWriteResult> {
+  const key = eqcApiKey(opts.creds);
+  if (!key) {
+    return {
+      ok: false,
+      method: null,
+      attempts: [{
+        method: RATE_WRITE_METHOD,
+        ok: false,
+        status: 0,
+        message: "No Previo API key available for EQC.",
+      }],
+    };
+  }
+
+  const body = buildRestrictionUpdateXml(String(opts.pmsHotelId ?? ""), opts.target);
+  let status = 0;
+  let text = "";
+  try {
+    const resp = await fetch(EQC_AR_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        "Authorization": `ApiKey ${key}`,
+      },
+      body,
+      signal: AbortSignal.timeout(PREVIO_WRITE_TIMEOUT_MS),
+    });
+    status = resp.status;
+    text = await resp.text();
+  } catch (e) {
+    return {
+      ok: false,
+      method: null,
+      attempts: [{ method: RATE_WRITE_METHOD, ok: false, status: 0, message: e instanceof Error ? e.message : String(e) }],
+    };
+  }
+
+  const err = text.match(/<Error[^>]*code="([^"]*)"[^>]*>([^<]*)<\/Error>/i);
+  const success = /<Success\s*\/?>/i.test(text);
+  const ok = status >= 200 && status < 300 && !err && success;
+  const message = err ? `${err[1]}: ${err[2].trim()}` : ok ? "Success" : text.replace(/\s+/g, " ").trim().slice(0, 300);
+  return { ok, method: ok ? RATE_WRITE_METHOD : null, attempts: [{ method: RATE_WRITE_METHOD, ok, status, message }] };
+}
