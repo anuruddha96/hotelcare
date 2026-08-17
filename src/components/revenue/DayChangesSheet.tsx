@@ -136,6 +136,11 @@ export default function DayChangesSheet({
         <SheetHeader className="pb-2">
           <SheetTitle className="text-base">Price changes on {date}</SheetTitle>
         </SheetHeader>
+        {onEditPrices && date && (
+          <Button className="mb-2 w-full" onClick={() => onEditPrices(date)}>
+            <Pencil className="mr-2 h-4 w-4" /> Change prices for this day
+          </Button>
+        )}
         <div className="flex-1 min-h-0 overflow-y-auto">
           {loading && (
             <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
