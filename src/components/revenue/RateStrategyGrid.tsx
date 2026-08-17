@@ -1402,16 +1402,16 @@ export default function RateStrategyGrid({
   };
 
   /** Press and hold an arrow to keep moving; a single click moves one screen. */
-  const holdTimer = useRef<number | null>(null);
+  const arrowHoldTimer = useRef<number | null>(null);
   const holdRepeat = useRef<number | null>(null);
   const startHold = (dir: -1 | 1) => {
     manualNav.current = true;
-    holdTimer.current = window.setTimeout(() => {
+    arrowHoldTimer.current = window.setTimeout(() => {
       holdRepeat.current = window.setInterval(() => nudge(dir), 350);
     }, 450);
   };
   const endHold = () => {
-    if (holdTimer.current !== null) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+    if (arrowHoldTimer.current !== null) { clearTimeout(arrowHoldTimer.current); arrowHoldTimer.current = null; }
     if (holdRepeat.current !== null) { clearInterval(holdRepeat.current); holdRepeat.current = null; }
   };
   useEffect(() => endHold, []);
