@@ -1779,6 +1779,44 @@ Deno.serve(async (req) => {
         if (notifErr) console.error("notification insert failed", notifErr);
       }
 
+      // A booking for a stay date months away is rare and valuable: the people
+      // who watch this property are told about it by name, with what the engine
+      // did, so they can review the date themselves.
+      if (rule.far_out_notify !== false && farOutLifts.size > 0) {
+        const lifts = Array.from(farOutLifts.values()).sort((a, b) => a.stay_date.localeCompare(b.stay_date));
+        const first = lifts[0];
+        const currency = rule.currency ?? "EUR";
+        const { error: farErr } = await admin.from("revenue_automation_notifications").insert({
+          hotel_id: rule.hotel_id,
+          organization_slug: rule.organization_slug,
+          notification_type: "far_out_booking",
+          run_source: isEngine ? "automatic" : "manual",
+          actor_name: isEngine ? "Automatic pricing" : (actorName ?? "Manual run"),
+          actor_user_id: isEngine ? null : actorUserId,
+          rule_id: rule.id,
+          action_ids: [],
+          pickups_count: lifts.reduce((sum, l) => sum + l.bookings, 0),
+          actions_count: lifts.length,
+          pushed_count: 0,
+          failed_count: 0,
+          currency,
+          severity: "info",
+          summary: lifts.length === 1
+            ? `Booking received for ${first.stay_date}, ${first.days_out} days out — price lifted by ${first.amount} ${currency}, review`
+            : `${lifts.length} bookings beyond the booking window (from ${first.stay_date}) — prices lifted, review`,
+          changes: lifts.map((l) => ({
+            stay_date: l.stay_date,
+            days_out: l.days_out,
+            increase: l.amount,
+            bookings: l.bookings,
+            currency,
+          })),
+        });
+        if (farErr) console.error("far-out notification insert failed", farErr);
+      }
+
+
+
       summary.push({
         hotel_id: rule.hotel_id, pickups: events.length,
         skipped_not_new: skippedStale, skipped_negative_pickup: skippedNegative,
