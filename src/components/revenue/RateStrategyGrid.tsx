@@ -180,8 +180,8 @@ function isWeekendTrading(d: string): boolean {
  *  Friday and Monday get stronger separators to bracket the weekend block. */
 function dayEdge(d: string): string {
   if (d.endsWith("-01")) return "border-l-2 border-l-foreground/40";
-  if (isMonday(d)) return "border-l border-l-foreground/40";
-  if (new Date(`${d}T00:00:00Z`).getUTCDay() === 5) return "border-l border-l-primary/30";
+  if (isMonday(d)) return "border-l-2 border-l-primary/45";
+  if (new Date(`${d}T00:00:00Z`).getUTCDay() === 5) return "border-l-2 border-l-primary/45";
   return "border-l border-l-border/40";
 }
 
@@ -189,7 +189,7 @@ function dayEdge(d: string): string {
  *  Fri–Sun (the revenue weekend trading block) gets a stronger muted fill
  *  so users can immediately spot the high-value columns. */
 function dayBg(d: string, i: number): string {
-  if (isWeekendTrading(d)) return "bg-muted";
+  if (isWeekendTrading(d)) return "bg-primary/10";
   return i % 2 === 1 ? "bg-foreground/[0.03]" : "";
 }
 
@@ -2390,9 +2390,6 @@ export default function RateStrategyGrid({
                           {formatWeekday(d)}
                         </span>
                         <span className="font-medium">{formatDay(d)}</span>
-                        {isWeekendTrading(d) && (
-                          <span className="pointer-events-none absolute top-0.5 right-0.5 flex h-1.5 w-1.5 rounded-full bg-primary/60" aria-hidden />
-                        )}
                         {dayLatest && (
                           <span className="pointer-events-none absolute bottom-[1px] left-0 right-0 flex justify-center" aria-hidden>
                             {/* Secondary by design: it sits under the date and

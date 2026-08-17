@@ -512,7 +512,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                     return (
                       <div
                         key={cell.date ?? `pad-${idx}`}
-                        className={`min-h-[84px] border-b border-r p-1 last-in-row:border-r-0 ${
+                        className={`min-h-[84px] border-b border-r p-1 ${
                           cell.date ? "" : "bg-muted/20"
                         } ${cell.date === todayStr ? "bg-primary/5 ring-1 ring-inset ring-primary/40" : ""}`}
                       >
