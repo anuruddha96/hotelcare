@@ -1366,6 +1366,21 @@ export default function RateStrategyGrid({
   /** True while the pointer rests on an arrow: automatic gliding pauses there. */
   const manualNav = useRef(false);
   const [hoverArrow, setHoverArrow] = useState<null | "left" | "right">(null);
+  // The "move manually" hint is a nudge, not a permanent label: it fades out
+  // three seconds after the cursor lands on an arrow.
+  const arrowHintTimer = useRef<number | null>(null);
+  const showArrowHint = (side: "left" | "right") => {
+    if (arrowHintTimer.current) window.clearTimeout(arrowHintTimer.current);
+    setHoverArrow(side);
+    arrowHintTimer.current = window.setTimeout(() => setHoverArrow(null), 3000);
+  };
+  const hideArrowHint = () => {
+    if (arrowHintTimer.current) window.clearTimeout(arrowHintTimer.current);
+    arrowHintTimer.current = null;
+    setHoverArrow(null);
+  };
+  useEffect(() => () => { if (arrowHintTimer.current) window.clearTimeout(arrowHintTimer.current); }, []);
+
 
   /**
    * Sticky month label + auto-extend the horizon when the user scrolls right.
