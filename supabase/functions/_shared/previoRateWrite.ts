@@ -310,11 +310,11 @@ export async function readPrevioRateLevels(opts: {
 
 
 // ---------------------------------------------------------------------------
-// Restrictions (minimum stay) and inventory (rooms to sell)
+// Restrictions (minimum stay)
 //
-// Same EQC AvailRateUpdate channel as prices — Previo accepts <Inventory> on
-// the room type and <Restrictions> on the rate plan inside the same message
-// shape the price writer already uses.
+// Same EQC AvailRateUpdate channel as prices — <Restrictions minLOS> on the
+// rate plan inside the message shape the price writer already uses. Inventory
+// ("rooms to sell") is NOT accepted by Previo's EQC copy; see below.
 // ---------------------------------------------------------------------------
 
 export interface RestrictionWriteTarget {
@@ -328,14 +328,21 @@ export interface RestrictionWriteTarget {
   to: string;
   /** Minimum nights, 1 = no restriction. Omit to leave the stay rule alone. */
   minStay?: number | null;
-  /** Rooms to sell for this room type. Omit to leave inventory alone. */
+  /** Not supported by Previo — kept so callers compile; always rejected. */
   roomsToSell?: number | null;
+
 }
 
+/**
+ * Previo's EQC copy accepts `<Restrictions minLOS>` only. Verified against the
+ * live account: any `<Inventory>` element, and a `closed` attribute on either
+ * RoomType or RatePlan, is refused with error 3010 ("validation against schema
+ * failed"). Rooms to sell therefore stays a Previo-side setting.
+ */
+export const PREVIO_INVENTORY_UNSUPPORTED =
+  "Previo does not accept availability (rooms to sell) over its price channel \u2014 change it in Previo itself.";
+
 export function buildRestrictionUpdateXml(hotelId: string, t: RestrictionWriteTarget): string {
-  const inventory = Number.isFinite(Number(t.roomsToSell)) && t.roomsToSell !== null && t.roomsToSell !== undefined
-    ? `    <Inventory totalInventoryAvailable="${esc(Math.max(0, Math.round(Number(t.roomsToSell))))}" />\n`
-    : "";
   const minStay = Number.isFinite(Number(t.minStay)) && t.minStay !== null && t.minStay !== undefined
     ? Math.max(1, Math.round(Number(t.minStay)))
     : null;
@@ -349,11 +356,11 @@ export function buildRestrictionUpdateXml(hotelId: string, t: RestrictionWriteTa
   <Hotel id="${esc(hotelId)}" />
   <DateRange from="${esc(t.from)}" to="${esc(t.to)}" />
   <RoomType id="${esc(t.obkId)}">
-${inventory}${ratePlan}  </RoomType>
+${ratePlan}  </RoomType>
 </AvailRateUpdateRQ>`;
 }
 
-/** Send a minimum-stay and/or inventory change to Previo. */
+/** Send a minimum-stay change to Previo. Inventory is not supported there. */
 export async function writePrevioRestrictions(opts: {
   creds: PrevioCredentials;
   pmsHotelId: string;
@@ -370,6 +377,14 @@ export async function writePrevioRestrictions(opts: {
         status: 0,
         message: "No Previo API key available for EQC.",
       }],
+    };
+  }
+
+  if (opts.target.roomsToSell !== null && opts.target.roomsToSell !== undefined && (opts.target.minStay === null || opts.target.minStay === undefined)) {
+    return {
+      ok: false,
+      method: null,
+      attempts: [{ method: RATE_WRITE_METHOD, ok: false, status: 0, message: PREVIO_INVENTORY_UNSUPPORTED }],
     };
   }
 

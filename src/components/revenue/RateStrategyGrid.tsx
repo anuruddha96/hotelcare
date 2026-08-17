@@ -923,6 +923,10 @@ export default function RateStrategyGrid({
   }, [hotelId]);
 
   useEffect(() => { void loadMinStay(); }, [loadMinStay]);
+  // A PMS sync rewrites the mirrored Previo restrictions, so pick them up as
+  // soon as fresh prices land instead of waiting for a property switch.
+  useEffect(() => { void loadMinStay(); }, [rates.length, loadMinStay]);
+
 
   /** Send one restriction change to Previo and keep the cell honest. */
   const sendRestriction = useCallback(async (opts: {
@@ -2474,7 +2478,10 @@ export default function RateStrategyGrid({
                       const override = invOverride.get(cell);
                       const left = override ?? leftByTypeDate?.get(cell);
                       const key = `inv|${cell}`;
-                      const editing = restrictionEdit?.key === key;
+                      // Previo's price channel refuses availability writes, so
+                      // this row reads out what the PMS says instead of
+                      // pretending it can be changed from here.
+                      const editing = false;
                       const busy = restrictionBusy === key;
                       if (editing) {
                         return (
@@ -2501,12 +2508,11 @@ export default function RateStrategyGrid({
                         <button
                           key={d}
                           type="button"
-                          disabled={!canEditRates || busy}
-                          onClick={() => canEditRates && setRestrictionEdit({ key, value: String(left ?? units ?? 0) })}
+                          disabled
                           title={left === undefined
-                            ? `${row.typeName} · availability not synced for ${d}${canEditRates ? " — tap to set rooms to sell" : ""}`
-                            : `${row.typeName} · ${left} of ${units} left on ${d}${canEditRates ? " — tap to change how many are on sale" : ""}`}
-                          className={`flex items-center justify-center shrink-0 text-[10px] tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)} ${canEditRates ? "hover:bg-accent/60" : ""}`}
+                            ? `${row.typeName} · availability not synced for ${d}`
+                            : `${row.typeName} · ${left} of ${units} left on ${d} — rooms to sell can only be changed in Previo`}
+                          className={`flex items-center justify-center shrink-0 text-[10px] tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
                           style={{ width: CELL_W }}
                         >
                           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : left === undefined ? (canEditRates ? "·" : "") : left === 0 ? "Sold out" : `${left} left`}
