@@ -1213,6 +1213,9 @@ export default function RateStrategyGrid({
 
 
 
+  /** Whether there is more calendar to the left / right (drives the edge hints). */
+  const [edges, setEdges] = useState({ left: false, right: true });
+
   /** Sticky month label + auto-extend the horizon when the user scrolls right. */
   function onScroll() {
     const el = scrollRef.current;
@@ -1220,50 +1223,95 @@ export default function RateStrategyGrid({
     const idx = Math.min(allDates.length - 1, Math.max(0, Math.round(el.scrollLeft / CELL_W)));
     const label = formatMonth(allDates[idx]);
     setVisibleMonth((prev) => (prev === label ? prev : label));
+    const canLeft = el.scrollLeft > 4;
+    const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+    setEdges((prev) => (prev.left === canLeft && prev.right === canRight ? prev : { left: canLeft, right: canRight }));
     const nearEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - CELL_W * 3;
     if (nearEnd) {
       setDays((d) => (d < 30 ? 30 : d < 60 ? 60 : d < 120 ? 120 : d < 180 ? 180 : d));
     }
   }
 
+  /** Glide a whole screen of dates left or right, animated. */
+  const nudge = (dir: -1 | 1) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const page = Math.max(CELL_W * 3, Math.floor((el.clientWidth - LEFT_W) * 0.8 / CELL_W) * CELL_W);
+    el.scrollBy({ left: dir * page, behavior: "smooth" });
+  };
+
   /**
    * Edge auto-scroll: a mouse user without a horizontal wheel can simply move
    * the pointer near the left/right (or top/bottom) edge of the calendar and
-   * it glides that way. Speed ramps up the closer to the edge you get, and it
-   * stops the moment the pointer leaves the zone, the window loses focus, or
-   * a real wheel/touch scroll takes over.
+   * it glides that way. The speed is eased towards its target instead of being
+   * applied straight away, and fractional pixels are carried between frames,
+   * so the movement reads as one continuous glide rather than a stutter.
    */
-  const edgeVec = useRef({ x: 0, y: 0 });
+  const edgeVec = useRef({ x: 0, y: 0 });      // target velocity, px/frame
+  const edgeVel = useRef({ x: 0, y: 0 });      // eased velocity actually applied
+  const edgeFrac = useRef({ x: 0, y: 0 });     // sub-pixel remainder
   const edgeRaf = useRef<number | null>(null);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     if (isMobile) return;
 
-    const ZONE = 90;      // px from the edge where the pull starts
-    const MAX = 26;       // px per frame at the very edge
+    const ZONE = 110;     // px from the edge where the pull starts
+    const MAX = 22;       // px per frame at the very edge
+    const EASE = 0.18;    // how quickly the real speed catches the target
 
     const stop = () => {
       edgeVec.current = { x: 0, y: 0 };
+    };
+
+    const hardStop = () => {
+      edgeVec.current = { x: 0, y: 0 };
+      edgeVel.current = { x: 0, y: 0 };
+      edgeFrac.current = { x: 0, y: 0 };
       if (edgeRaf.current !== null) { cancelAnimationFrame(edgeRaf.current); edgeRaf.current = null; }
     };
 
     const step = () => {
       const node = scrollRef.current;
-      const { x, y } = edgeVec.current;
-      if (!node || (x === 0 && y === 0)) { edgeRaf.current = null; return; }
-      node.scrollLeft += x;
-      node.scrollTop += y;
+      if (!node) { edgeRaf.current = null; return; }
+      const target = edgeVec.current;
+      const vel = edgeVel.current;
+      vel.x += (target.x - vel.x) * EASE;
+      vel.y += (target.y - vel.y) * EASE;
+      if (Math.abs(vel.x) < 0.05) vel.x = 0;
+      if (Math.abs(vel.y) < 0.05) vel.y = 0;
+
+      if (vel.x === 0 && vel.y === 0 && target.x === 0 && target.y === 0) {
+        edgeFrac.current = { x: 0, y: 0 };
+        edgeRaf.current = null;
+        return;
+      }
+
+      const dx = vel.x + edgeFrac.current.x;
+      const dy = vel.y + edgeFrac.current.y;
+      const ix = Math.trunc(dx);
+      const iy = Math.trunc(dy);
+      edgeFrac.current = { x: dx - ix, y: dy - iy };
+      if (ix) node.scrollLeft += ix;
+      if (iy) node.scrollTop += iy;
       edgeRaf.current = requestAnimationFrame(step);
+    };
+
+    const kick = () => {
+      if (edgeRaf.current === null) edgeRaf.current = requestAnimationFrame(step);
     };
 
     const onMove = (e: PointerEvent) => {
       if (e.pointerType !== "mouse") return;
       const r = el.getBoundingClientRect();
       const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-      if (!inside) { stop(); return; }
+      if (!inside) { stop(); kick(); return; }
 
-      const ramp = (d: number) => Math.round(MAX * Math.pow(Math.max(0, (ZONE - d) / ZONE), 2));
+      // Smooth ramp (ease-in-out) so entering the zone does not jolt.
+      const ramp = (d: number) => {
+        const t = Math.min(1, Math.max(0, (ZONE - d) / ZONE));
+        return MAX * (t * t * (3 - 2 * t));
+      };
       let x = 0;
       const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
       const canLeft = el.scrollLeft > 0;
@@ -1279,20 +1327,20 @@ export default function RateStrategyGrid({
       else if (e.clientY < r.top + ZONE && canUp) y = -ramp(e.clientY - r.top);
 
       edgeVec.current = { x, y };
-      if ((x !== 0 || y !== 0) && edgeRaf.current === null) edgeRaf.current = requestAnimationFrame(step);
-      if (x === 0 && y === 0) stop();
+      kick();
     };
 
     window.addEventListener("pointermove", onMove, { passive: true });
-    window.addEventListener("blur", stop);
+    window.addEventListener("blur", hardStop);
     el.addEventListener("pointerleave", stop);
     return () => {
       window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("blur", stop);
+      window.removeEventListener("blur", hardStop);
       el.removeEventListener("pointerleave", stop);
-      stop();
+      hardStop();
     };
   }, [isMobile, LEFT_W]);
+
 
 
   /**
