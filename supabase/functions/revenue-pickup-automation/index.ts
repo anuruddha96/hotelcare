@@ -366,6 +366,71 @@ function tierIncrease(tiers: Tier[], daysOut: number): number {
   return 0;
 }
 
+function normTypeName(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+/**
+ * Per ROOM TYPE availability, the same arithmetic the price grid shows:
+ * physical rooms of that type minus booked nights of that type for the date.
+ * The hotel-level sold-out guard cannot see this — a 1-room type can be gone
+ * while the property is only 60% full — so every decision also asks here.
+ * Returns null when the type is unknown (never block on missing data).
+ */
+async function loadTypeAvailability(
+  admin: any,
+  hotelId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<{ left: (roomTypeName: unknown, obkId: unknown, stayDate: string) => number | null }> {
+  const [{ data: types }, { data: nights }] = await Promise.all([
+    admin.from("room_types").select("name, num_rooms, is_sellable, pms_room_id").eq("hotel_id", hotelId).limit(500),
+    admin.from("revenue_booking_nights").select("stay_date, room_type_name, obk_id")
+      .eq("hotel_id", hotelId).gte("stay_date", fromDate).lte("stay_date", toDate).limit(100000),
+  ]);
+
+  const capacityByName = new Map<string, number>();
+  const nameByPmsId = new Map<string, string>();
+  for (const t of (types ?? []) as any[]) {
+    if (t.is_sellable === false) continue;
+    const key = normTypeName(t.name);
+    if (!key) continue;
+    capacityByName.set(key, Math.max(capacityByName.get(key) ?? 0, Number(t.num_rooms) || 0));
+    for (const raw of String(t.pms_room_id ?? "").split(",")) {
+      const id = raw.trim();
+      if (id) nameByPmsId.set(id, key);
+    }
+  }
+
+  const resolve = (roomTypeName: unknown, obkId: unknown): string | null => {
+    const byName = normTypeName(roomTypeName);
+    if (byName && capacityByName.has(byName)) return byName;
+    const pmsId = String(obkId ?? "").split(":").pop()?.trim() ?? "";
+    const byId = pmsId ? nameByPmsId.get(pmsId) : undefined;
+    return byId ?? null;
+  };
+
+  const soldByKey = new Map<string, number>();
+  for (const n of (nights ?? []) as any[]) {
+    const key = resolve(n.room_type_name, n.obk_id);
+    if (!key) continue;
+    const cell = `${key}|${n.stay_date}`;
+    soldByKey.set(cell, (soldByKey.get(cell) ?? 0) + 1);
+  }
+
+  return {
+    left(roomTypeName, obkId, stayDate) {
+      const key = resolve(roomTypeName, obkId);
+      if (!key) return null;
+      const capacity = capacityByName.get(key);
+      if (capacity === undefined || !(capacity > 0)) return null;
+      return Math.max(0, capacity - (soldByKey.get(`${key}|${stayDate}`) ?? 0));
+    },
+  };
+}
+
+
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
