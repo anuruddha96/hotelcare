@@ -112,6 +112,12 @@ export default function MonthPerformanceHeader({
     const revenue = rows.reduce((s, m) => s + m.revenueEur, 0);
     const left = rows.reduce((s, m) => s + m.roomsLeft, 0);
     const pickup = rows.reduce((s, m) => s + (m.netPickup ?? 0), 0);
+    // Movement behind the net figure: reservations that came in and rooms lost
+    // inside the selected booking window.
+    const gained = rows.reduce((s, m) => s + (m.newBookings ?? 0), 0);
+    const lost = rows.reduce((s, m) => s + (m.roomsLost ?? 0), 0);
+    const datesUp = rows.filter((m) => (m.netPickup ?? 0) > 0).length;
+    const datesDown = rows.filter((m) => (m.netPickup ?? 0) < 0).length;
     return {
       days: rows.length,
       sold,
@@ -119,6 +125,11 @@ export default function MonthPerformanceHeader({
       left,
       revenue,
       pickup,
+      gained,
+      lost,
+      datesUp,
+      datesDown,
+
       occupancyPct: capacity ? (sold / capacity) * 100 : 0,
       adr: sold ? revenue / sold : null,
       revpar: capacity ? revenue / capacity : null,
@@ -339,15 +350,16 @@ export default function MonthPerformanceHeader({
           <Tile
             label="Pickup in window"
             value={`${agg.pickup > 0 ? "+" : ""}${agg.pickup}`}
-            sub={`booked in: ${windowLabel(pickupWindowDays).toLowerCase()}`}
+            sub={`${agg.gained} in · ${agg.lost} out · booked in: ${windowLabel(pickupWindowDays).toLowerCase()}`}
             icon={agg.pickup >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
             surface={agg.pickup < 0 ? "border-l-destructive bg-destructive/5" : "border-l-emerald-500 bg-emerald-500/5"}
             tone={agg.pickup < 0 ? "text-destructive" : agg.pickup > 0 ? "text-emerald-600 dark:text-emerald-400" : ""}
             explain={{
               title: "Pickup in window",
-              body: `Net room-nights gained or lost for stay dates in ${monthLabel}, counting only bookings created (or cancelled) during the selected window — currently "${windowLabel(pickupWindowDays)}". Change the window with the selector above.`,
+              body: `For stay dates in ${monthLabel}, counting only movement during "${windowLabel(pickupWindowDays)}":\n\n• ${agg.gained} reservation${agg.gained === 1 ? "" : "s"} came in\n• ${agg.lost} room-night${agg.lost === 1 ? "" : "s"} were lost (cancellations or no-shows)\n• net ${agg.pickup > 0 ? "+" : ""}${agg.pickup}\n• ${agg.datesUp} date${agg.datesUp === 1 ? "" : "s"} up · ${agg.datesDown} down\n\nChange the window with the selector above.`,
             }}
           />
+
         </div>
 
         {/* Dots: which KPI card you are on (phones only) */}

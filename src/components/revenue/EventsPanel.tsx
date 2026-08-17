@@ -10,7 +10,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Loader2, Plus, Repeat, Settings2, Sparkles, Trash2,
+  CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Check, ExternalLink, Loader2, Pencil, Plus, Repeat, Settings2, Sparkles, Trash2, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -48,6 +48,14 @@ interface Candidate {
   country: string;
 }
 
+interface EventEdit {
+  title: string;
+  event_date: string;
+  end_date: string;
+  expected_impact: string;
+  recurs_annually: boolean;
+}
+
 const CATEGORIES = ["concert", "festival", "sports", "conference", "fair", "holiday", "other"];
 const IMPACTS = [
   { value: "high", label: "High impact" },
@@ -80,6 +88,9 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
   const [searching, setSearching] = useState(false);
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [picked, setPicked] = useState<Record<number, boolean>>({});
+  const [skipped, setSkipped] = useState(0);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [edit, setEdit] = useState<EventEdit | null>(null);
 
   // manual form
   const [title, setTitle] = useState("");
@@ -198,12 +209,16 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
       });
       if (error) throw error;
       if (!data?.ok) throw new Error(data?.error ?? "Event search failed");
-      const found = (data.candidates ?? []) as Candidate[];
-      const known = new Set(events.map((e) => `${e.event_date}|${e.title.toLowerCase()}`));
-      const fresh = found.filter((c) => !known.has(`${c.event_date}|${c.title.toLowerCase()}`));
+      const fresh = (data.candidates ?? []) as Candidate[];
+      const dupes = (data.duplicates ?? []).length as number;
+      setSkipped(dupes);
       setCandidates(fresh);
       setPicked(Object.fromEntries(fresh.map((_, i) => [i, true])));
-      if (!fresh.length) toast.info("No new events found for this month.");
+      if (!fresh.length) {
+        toast.info(dupes
+          ? `No new events — ${dupes} found ${dupes === 1 ? "event is" : "events are"} already in your calendar.`
+          : "No new events found for this month.");
+      }
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -233,6 +248,34 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     if (error) { toast.error(error.message); return; }
     toast.success(`${chosen.length} event${chosen.length === 1 ? "" : "s"} added to the calendar`);
     setCandidates(null);
+    void load();
+  };
+
+  const startEdit = (e: DemandEventRow) => {
+    setEditingId(e.id);
+    setEdit({
+      title: e.title,
+      event_date: e.event_date,
+      end_date: e.end_date ?? "",
+      expected_impact: e.expected_impact,
+      recurs_annually: e.recurs_annually,
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editingId || !edit) return;
+    if (!edit.title.trim() || !edit.event_date) { toast.error("A title and a date are required."); return; }
+    const { error } = await (supabase as any).from("demand_events").update({
+      title: edit.title.trim(),
+      event_date: edit.event_date,
+      end_date: edit.end_date || null,
+      expected_impact: edit.expected_impact,
+      recurs_annually: edit.recurs_annually,
+      source: "manual",
+    }).eq("id", editingId);
+    if (error) { toast.error(error.message); return; }
+    setEditingId(null); setEdit(null);
+    toast.success("Event updated");
     void load();
   };
 
@@ -292,7 +335,13 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
         {candidates && candidates.length > 0 && (
           <div className="rounded-lg border p-3 space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-medium">Suggested for {fmtMonth(month)} — tick the ones to keep</p>
+              <div>
+                <p className="text-sm font-medium">Suggested for {fmtMonth(month)} — tick the ones to keep</p>
+                <p className="text-xs text-muted-foreground">
+                  Dates were read from the linked sources.
+                  {skipped > 0 && ` ${skipped} duplicate${skipped === 1 ? "" : "s"} already in your calendar were skipped.`}
+                </p>
+              </div>
               <Button size="sm" onClick={saveSelected}>Add selected</Button>
             </div>
             <ul className="space-y-1">
@@ -316,6 +365,16 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                       {c.venue ? ` · ${c.venue}` : ""}
                       {c.confidence != null ? ` · confidence ${Math.round(c.confidence * 100)}%` : ""}
                     </p>
+                    {c.url && (
+                      <a
+                        href={c.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                      >
+                        <ExternalLink className="h-3 w-3" /> Check the dates on the source
+                      </a>
+                    )}
                   </div>
                 </li>
               ))}
@@ -337,6 +396,60 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
             <ul className="divide-y rounded-lg border">
               {events.map((e) => (
                 <li key={e.id} className="flex items-start justify-between gap-3 p-2">
+                  {editingId === e.id && edit ? (
+                    <>
+                      <div className="flex-1 grid gap-2 sm:grid-cols-2">
+                        <Input
+                          value={edit.title}
+                          onChange={(ev) => setEdit({ ...edit, title: ev.target.value })}
+                          className="h-8 sm:col-span-2"
+                          placeholder="Title"
+                        />
+                        <Input
+                          type="date"
+                          value={edit.event_date}
+                          onChange={(ev) => setEdit({ ...edit, event_date: ev.target.value })}
+                          className="h-8"
+                        />
+                        <Input
+                          type="date"
+                          value={edit.end_date}
+                          onChange={(ev) => setEdit({ ...edit, end_date: ev.target.value })}
+                          className="h-8"
+                        />
+                        <Select
+                          value={edit.expected_impact}
+                          onValueChange={(v) => setEdit({ ...edit, expected_impact: v })}
+                        >
+                          <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {IMPACTS.map((i) => <SelectItem key={i.value} value={i.value}>{i.label}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        <label className="inline-flex items-center gap-2 text-xs">
+                          <Checkbox
+                            checked={edit.recurs_annually}
+                            onCheckedChange={(v) => setEdit({ ...edit, recurs_annually: !!v })}
+                          />
+                          Repeats every year
+                        </label>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <Button variant="ghost" size="icon" onClick={saveEdit} aria-label="Save event">
+                          <Check className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => { setEditingId(null); setEdit(null); }}
+                          aria-label="Cancel editing"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                  <>
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-medium">{e.title}</span>
@@ -351,9 +464,16 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
                       {e.venue ? ` · ${e.venue}` : ""} · {e.category} · {e.city}
                     </p>
                   </div>
-                  <Button variant="ghost" size="icon" onClick={() => remove(e.id)} aria-label="Delete event">
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="icon" onClick={() => startEdit(e)} aria-label="Edit event">
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => remove(e.id)} aria-label="Delete event">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  </>
+                  )}
                 </li>
               ))}
             </ul>
