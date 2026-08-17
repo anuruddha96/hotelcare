@@ -701,6 +701,26 @@ serve(async (req) => {
   let reconciledDrafts = 0;
   let divergentDrafts = 0;
   let requeuedCells = 0;
+
+  // Past stay dates fall outside the sync window, so nothing would ever
+  // resolve them: close them out so they stop counting as "still checking".
+  {
+    const todaySweep = new Date().toISOString().slice(0, 10);
+    const { error: expireError } = await service
+      .from("revenue_rate_drafts")
+      .update({
+        confirmation_status: "expired",
+        last_checked_at: new Date().toISOString(),
+        reconcile_state: null,
+        push_error: "Stay date passed before Previo confirmed this price",
+      })
+      .eq("hotel_id", hotelId)
+      .eq("status", "pushed")
+      .in("confirmation_status", ["sending", "sent", "checking", "pending"])
+      .lt("stay_date", todaySweep);
+    if (expireError) errors.push(`expire past drafts: ${expireError.message}`);
+  }
+
   if (ratePayload.length > 0) {
     const livePrice = new Map<string, { price: number; ratePlanId: string }>();
     for (const rate of ratePayload) {
