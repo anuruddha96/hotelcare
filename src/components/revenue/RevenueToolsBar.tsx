@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { X } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { NewFeatureBadge, useFeatureSeen } from "@/components/common/NewFeatureBadge";
 
@@ -47,8 +48,20 @@ export default function RevenueToolsBar({ tools }: { tools: RevenueTool[] }) {
 
       <Sheet open={!!active} onOpenChange={(o) => !o && setOpen(null)}>
         <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-4">
-          <SheetHeader className="pb-2">
-            <SheetTitle className="text-base">{active?.label}</SheetTitle>
+          {/* Own close button: the sheet's corner X can sit under a toast on mobile. */}
+          <SheetHeader className="pb-2 pr-10">
+            <div className="flex items-center justify-between gap-2">
+              <SheetTitle className="text-base">{active?.label}</SheetTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9 gap-1 px-2 text-muted-foreground"
+                onClick={() => setOpen(null)}
+              >
+                <X className="h-4 w-4" />
+                Close
+              </Button>
+            </div>
           </SheetHeader>
           <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
             {active?.render()}
