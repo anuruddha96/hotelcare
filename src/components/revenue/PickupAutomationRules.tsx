@@ -58,6 +58,12 @@ interface Rule {
   spike_lookback_days: number;
   event_surcharge_eur: number;
   event_surcharge_auto: boolean;
+  lead_bands_enabled: boolean;
+  far_out_days: number;
+  far_out_enabled: boolean;
+  far_out_surcharge: number;
+  far_out_notify: boolean;
+
   last_run_at?: string | null;
   next_run_at?: string | null;
   last_evaluated_at?: string | null;
@@ -108,6 +114,9 @@ const DEFAULT_RULE: Rule = {
   immediate_sell_mode_enabled: true, immediate_window_days: 14, immediate_markdown_step: 2,
   spike_detection_enabled: true, spike_threshold_pct: 5, spike_lookback_days: 7,
   event_surcharge_eur: 10, event_surcharge_auto: false,
+  lead_bands_enabled: true, far_out_days: 90, far_out_enabled: true,
+  far_out_surcharge: 35, far_out_notify: true,
+
 };
 
 
@@ -312,6 +321,12 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       spike_lookback_days: source.rule.spike_lookback_days ?? 7,
       event_surcharge_eur: source.rule.event_surcharge_eur ?? 10,
       event_surcharge_auto: source.rule.event_surcharge_auto ?? false,
+      lead_bands_enabled: source.rule.lead_bands_enabled ?? true,
+      far_out_days: source.rule.far_out_days ?? 90,
+      far_out_enabled: source.rule.far_out_enabled ?? true,
+      far_out_surcharge: source.rule.far_out_surcharge ?? 35,
+      far_out_notify: source.rule.far_out_notify ?? true,
+
     }));
 
     toast.success(`Copied settings from ${source.label} — still off until you turn it on`);
@@ -373,6 +388,12 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       spike_lookback_days: rule.spike_lookback_days,
       event_surcharge_eur: rule.event_surcharge_eur,
       event_surcharge_auto: rule.event_surcharge_auto,
+      lead_bands_enabled: rule.lead_bands_enabled,
+      far_out_days: rule.far_out_days,
+      far_out_enabled: rule.far_out_enabled,
+      far_out_surcharge: rule.far_out_surcharge,
+      far_out_notify: rule.far_out_notify,
+
       // Saving never triggers an immediate evaluation: an enabled rule is
       // simply scheduled one normal interval from now, so nobody gets a
       // surprise markdown for pressing Save. "Run now" stays the explicit
@@ -876,7 +897,77 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                 </AccordionContent>
               </AccordionItem>
 
+              <AccordionItem value="leadbands">
+                <AccordionTrigger className="py-3 text-left">
+                  <div>
+                    <p className="text-sm font-medium">Lead-time bands &amp; far-out bookings</p>
+                    <p className="text-xs font-normal text-muted-foreground">
+                      {rule.lead_bands_enabled
+                        ? `Sell 0–${rule.immediate_window_days}d · react ${rule.immediate_window_days + 1}–${rule.near_term_days}d · protect ${rule.near_term_days + 1}–${rule.far_out_days}d · lift beyond ${rule.far_out_days}d`
+                        : "One flat rule across the whole calendar"}
+                    </p>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="space-y-3 pb-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <Label>Price by how far away the stay date is</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Close to arrival the price is a selling tool; further out it is protected. Without this, one flat rule walks distant dates down hour after hour.
+                      </p>
+                    </div>
+                    <Switch checked={rule.lead_bands_enabled} onCheckedChange={(lead_bands_enabled) => setRule({ ...rule, lead_bands_enabled })} />
+                  </div>
+
+                  <div className="rounded-md border bg-muted/40 p-3 text-xs space-y-1">
+                    <p><span className="font-medium">0–{rule.immediate_window_days} days</span> — sell: quiet dates are lowered by the full sell-now step.</p>
+                    <p><span className="font-medium">{rule.immediate_window_days + 1}–{rule.near_term_days} days</span> — react to pickup: new bookings raise the price, a quiet check takes off {rule.currency} {rule.no_pickup_decrease}.</p>
+                    <p><span className="font-medium">{rule.near_term_days + 1}–{rule.far_out_days} days</span> — protect: rises on pickup, only the small step down when demand is clearly weak.</p>
+                    <p><span className="font-medium">Beyond {rule.far_out_days} days</span> — lift: any booking earns the far-out surcharge, markdowns stay token-sized.</p>
+                    <p className="text-muted-foreground">Band edges come from the sell-now window, “near-term days” and the far-out setting below.</p>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <Label>Lift the price on far-out bookings</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Someone booking months ahead is planning, not bargain hunting — the date still has months to sell.
+                      </p>
+                    </div>
+                    <Switch checked={rule.far_out_enabled} onCheckedChange={(far_out_enabled) => setRule({ ...rule, far_out_enabled })} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Far-out starts at (days before arrival)</Label>
+                      <Input type="number" min={30} max={365} disabled={!rule.far_out_enabled}
+                        value={rule.far_out_days}
+                        onChange={(e) => setRule({ ...rule, far_out_days: Number(e.target.value) })} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Surcharge per far-out booking ({rule.currency})</Label>
+                      <Input type="number" min={0} max={rule.currency === "EUR" ? 200 : 200000} disabled={!rule.far_out_enabled}
+                        value={rule.far_out_surcharge}
+                        onChange={(e) => setRule({ ...rule, far_out_surcharge: Number(e.target.value) })} />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <Label>Notify the team about far-out bookings</Label>
+                      <p className="text-xs text-muted-foreground">
+                        A notification names the stay date, how far out it is and how much the price was lifted, so someone can review it.
+                      </p>
+                    </div>
+                    <Switch checked={rule.far_out_notify} disabled={!rule.far_out_enabled}
+                      onCheckedChange={(far_out_notify) => setRule({ ...rule, far_out_notify })} />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Every lift still respects the daily rise limit, the maximum single change and the sold-out guard.
+                  </p>
+                </AccordionContent>
+              </AccordionItem>
+
               <AccordionItem value="safety">
+
                 <AccordionTrigger className="py-3 text-left">
                   <div>
                     <p className="text-sm font-medium">Safety limits</p>

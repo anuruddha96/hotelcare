@@ -737,3 +737,106 @@ export function demandSignalText(input: {
     : "";
   return `Raised by ${money(input.amount, input.currency)} because ${why}${tail}.`;
 }
+
+// --------------------------------------------------------------------------
+// Lead-time bands
+// --------------------------------------------------------------------------
+
+export type LeadBand = "immediate" | "near" | "mid" | "far";
+
+export interface LeadBandConfig {
+  /** 0..N days: sell the room, price is a conversion tool. */
+  immediateWindowDays: number;
+  /** N..M days: react to pickup, gentle drift down when nothing moves. */
+  nearTermDays: number;
+  /** Beyond this the stay date is "far out": protect and lift. */
+  farOutDays: number;
+}
+
+/**
+ * Which lead-time band a stay date belongs to. The bands are what makes the
+ * automation behave differently a week before arrival than six months before,
+ * instead of applying one flat rule across the whole calendar.
+ */
+export function leadBandFor(daysOut: number, cfg: LeadBandConfig): LeadBand {
+  const days = Math.max(0, Number(daysOut) || 0);
+  const immediate = Math.max(0, Number(cfg.immediateWindowDays) || 0);
+  const near = Math.max(immediate, Number(cfg.nearTermDays) || 0);
+  const far = Math.max(near, Number(cfg.farOutDays) || 0);
+  if (days <= immediate) return "immediate";
+  if (days <= near) return "near";
+  if (days <= far) return "mid";
+  return "far";
+}
+
+/**
+ * How much of the computed markdown a band allows. Close to arrival the full
+ * step is used; further out only the ordinary base step, so a December date
+ * cannot be walked down aggressively hour after hour.
+ */
+export function bandMarkdownStep(input: {
+  band: LeadBand;
+  step: number;
+  baseStep: number;
+}): number {
+  const step = Math.max(0, Number(input.step) || 0);
+  const base = Math.max(0, Number(input.baseStep) || 0);
+  if (step <= 0) return 0;
+  if (input.band === "immediate") return step;
+  if (base <= 0) return step;
+  return Math.min(step, base);
+}
+
+// --------------------------------------------------------------------------
+// Far-out booking surcharge
+// --------------------------------------------------------------------------
+
+export interface FarOutSurchargeInput {
+  enabled: boolean;
+  daysOut: number;
+  /** Lead time past which a booking counts as "beyond the booking window". */
+  farOutDays: number;
+  /** Currency amount added when such a booking arrives. */
+  surcharge: number;
+  maximumIncrease?: number | null;
+  /** Currency still available under the per-date daily rise cap. */
+  remainingDailyRoom?: number | null;
+}
+
+/**
+ * A reservation for a stay date far beyond the usual booking window is a strong
+ * willingness-to-pay signal: someone is planning early and the date has months
+ * left to sell. It earns a bigger, bounded lift than an ordinary pickup tier.
+ */
+export function farOutSurcharge(input: FarOutSurchargeInput): number {
+  if (!input.enabled) return 0;
+  const days = Number(input.daysOut);
+  const threshold = Math.max(0, Number(input.farOutDays) || 0);
+  if (!Number.isFinite(days) || days < threshold || threshold <= 0) return 0;
+  let amount = roundMoney(Math.max(0, Number(input.surcharge) || 0));
+  if (amount <= 0) return 0;
+  if (input.maximumIncrease) amount = Math.min(amount, Number(input.maximumIncrease));
+  if (input.remainingDailyRoom !== null && input.remainingDailyRoom !== undefined) {
+    amount = Math.min(amount, Math.max(0, Number(input.remainingDailyRoom)));
+  }
+  return Math.max(0, roundMoney(amount));
+}
+
+/**
+ * Sold out means untouched — in BOTH directions. A date (or room type) with
+ * nothing left to sell must not be marked down either: the discount cannot win
+ * a booking and only devalues the rate if a cancellation arrives.
+ */
+export function soldOutBlocksAnyChange(input: SoldOutInput): boolean {
+  return soldOutBlocksIncrease(input);
+}
+
+/** Plain sentence for a far-out booking lift, used in history and notifications. */
+export function farOutBookingText(input: {
+  stayDate: string;
+  daysOut: number;
+  amount: number;
+  currency?: string | null;
+}): string {
+  return `Raised by ${money(input.amount, input.currency)} because a booking arrived for ${input.stayDate}, ${input.daysOut} days before arrival — well beyond the usual booking window.`;
+}

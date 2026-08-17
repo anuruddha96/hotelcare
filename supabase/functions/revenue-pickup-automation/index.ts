@@ -32,7 +32,13 @@ import {
   detectDemandSpike,
   eventSurcharge,
   demandSignalText,
+  leadBandFor,
+  bandMarkdownStep,
+  farOutSurcharge,
+  soldOutBlocksAnyChange,
+  farOutBookingText,
 } from "../_shared/pricingRules.ts";
+
 
 
 const corsHeaders = {
@@ -105,8 +111,16 @@ interface Rule {
   spike_threshold_pct: number;
   spike_lookback_days: number;
   event_surcharge_eur: number;
+
   event_surcharge_auto: boolean;
+  // Lead-time bands + far-out booking surcharge
+  lead_bands_enabled: boolean;
+  far_out_days: number;
+  far_out_enabled: boolean;
+  far_out_surcharge: number;
+  far_out_notify: boolean;
 }
+
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -724,6 +738,24 @@ Deno.serve(async (req) => {
             continue;
           }
 
+          // Sold out means untouched in BOTH directions: a discount on a date
+          // with nothing left to sell cannot win a booking, it only devalues
+          // the rate if a cancellation arrives later.
+          if (soldOutBlocksAnyChange({
+            enabled: rule.sold_out_guard_enabled !== false,
+            roomsLeft: guardsFor?.left ?? null,
+            occupancyPct: guardsFor?.pct ?? null,
+            soldOutOccupancyPct: Number(rule.sold_out_occupancy_pct ?? 100),
+          })) {
+            heldSoldOut++;
+            if (!blockedDates.has(rate.stay_date)) {
+              blockedDates.set(rate.stay_date, "sold_out");
+              markdownBlocks["sold_out"] = (markdownBlocks["sold_out"] ?? 0) + 1;
+            }
+            continue;
+          }
+
+
           // A cancellation is not an instant reason to discount: the room often
           // sells again within the hour. The date waits out its cooldown, and
           // the wait itself is recorded so the cell history can explain it.
@@ -799,13 +831,31 @@ Deno.serve(async (req) => {
             }
           }
 
+          // Lead-time band: only the immediate selling window uses the big
+          // step. Further out a date drifts by the ordinary base step at most,
+          // so a January date cannot be walked down hour after hour.
+          const band = leadBandFor(dayDiff(local.date, rate.stay_date), {
+            immediateWindowDays: Math.max(0, Number(rule.immediate_window_days ?? 14)),
+            nearTermDays: Math.max(0, Number(rule.near_term_days ?? 30)),
+            farOutDays: Math.max(0, Number(rule.far_out_days ?? 90)),
+          });
+          const bandStep = rule.lead_bands_enabled === false
+            ? immediate.step
+            : bandMarkdownStep({
+              band,
+              step: immediate.step,
+              baseStep: Number(rule.no_pickup_decrease ?? 0.5),
+            });
+          if (bandStep <= 0) continue;
+
           if (!allowedStepByDate.has(rate.stay_date)) {
             allowedStepByDate.set(rate.stay_date, dateAllowedStep({
-              decreasePerEvaluation: immediate.step,
+              decreasePerEvaluation: bandStep,
               stayDateMovedToday: movedTodayByDate.get(rate.stay_date) ?? 0,
               maxDailyDecreasePerDate: Number(rule.max_daily_decrease_per_date || 10),
             }));
           }
+
           const allowed = allowedStepByDate.get(rate.stay_date) ?? 0;
           if (allowed <= 0) {
             if (!blockedDates.has(rate.stay_date)) {
@@ -1419,6 +1469,9 @@ Deno.serve(async (req) => {
         res_id: string; at: string; sequence: number; events: number;
       };
       const cellDecisions = new Map<string, CellDecision>();
+      /** Stay dates lifted because a booking arrived beyond the booking window. */
+      const farOutLifts = new Map<string, { stay_date: string; days_out: number; amount: number; bookings: number }>();
+
 
       for (const ev of events) {
         const daysOut = dayDiff(today, ev.stay_date);
@@ -1450,6 +1503,21 @@ Deno.serve(async (req) => {
         // surcharge instead of the ordinary booking-window tier.
         const base = tierIncrease(rule.booking_window_tiers ?? [], daysOut);
         let increase = ev.sequence >= 2 ? Number(rule.second_pickup_surcharge || 0) : base;
+
+        // A booking landing far beyond the usual booking window is the
+        // strongest willingness-to-pay signal there is: the date has months
+        // left to sell, so it earns the far-out surcharge instead of the
+        // ordinary tier.
+        const farOut = farOutSurcharge({
+          enabled: rule.far_out_enabled !== false && rule.lead_bands_enabled !== false,
+          daysOut,
+          farOutDays: Math.max(0, Number(rule.far_out_days ?? 90)),
+          surcharge: Number(rule.far_out_surcharge ?? 0),
+          maximumIncrease: rule.maximum_increase,
+        });
+        const isFarOut = farOut > increase;
+        if (isFarOut) increase = farOut;
+
         if (rule.maximum_increase) increase = Math.min(increase, Number(rule.maximum_increase));
         if (increase <= 0) continue;
 
@@ -1458,6 +1526,16 @@ Deno.serve(async (req) => {
         if (room <= 0) continue;
         increase = Math.min(increase, room);
         raisedToday.set(ev.stay_date, already + increase);
+        if (isFarOut) {
+          const seen = farOutLifts.get(ev.stay_date);
+          farOutLifts.set(ev.stay_date, {
+            stay_date: ev.stay_date,
+            days_out: daysOut,
+            amount: Math.max(increase, seen?.amount ?? 0),
+            bookings: (seen?.bookings ?? 0) + 1,
+          });
+        }
+
 
         for (const rate of latestRate.values()) {
           if (rate.stay_date !== ev.stay_date) continue;
@@ -1525,15 +1603,23 @@ Deno.serve(async (req) => {
           increase_amount: newPrice - decision.old_price,
           new_price: newPrice,
           status: rule.auto_publish ? "queued" : "suggested",
-          decision_reason: "positive_pickup",
-          reason_detail: decisionReasonText({
-            kind: "positive_pickup",
-            netPickup: netPickup.get(decision.stay_date) ?? decision.events,
-            occupancyPct: occByStayDate.get(decision.stay_date) ?? null,
-            daysOut: dayDiff(today, decision.stay_date),
-            amount: newPrice - decision.old_price,
-            currency: decision.currency,
-          }),
+          decision_reason: farOutLifts.has(decision.stay_date) ? "far_out_booking" : "positive_pickup",
+          reason_detail: farOutLifts.has(decision.stay_date)
+            ? farOutBookingText({
+              stayDate: decision.stay_date,
+              daysOut: dayDiff(today, decision.stay_date),
+              amount: newPrice - decision.old_price,
+              currency: decision.currency,
+            })
+            : decisionReasonText({
+              kind: "positive_pickup",
+              netPickup: netPickup.get(decision.stay_date) ?? decision.events,
+              occupancyPct: occByStayDate.get(decision.stay_date) ?? null,
+              daysOut: dayDiff(today, decision.stay_date),
+              amount: newPrice - decision.old_price,
+              currency: decision.currency,
+            }),
+
         });
 
         if (rule.auto_publish) {
@@ -1692,6 +1778,44 @@ Deno.serve(async (req) => {
         });
         if (notifErr) console.error("notification insert failed", notifErr);
       }
+
+      // A booking for a stay date months away is rare and valuable: the people
+      // who watch this property are told about it by name, with what the engine
+      // did, so they can review the date themselves.
+      if (rule.far_out_notify !== false && farOutLifts.size > 0) {
+        const lifts = Array.from(farOutLifts.values()).sort((a, b) => a.stay_date.localeCompare(b.stay_date));
+        const first = lifts[0];
+        const currency = rule.currency ?? "EUR";
+        const { error: farErr } = await admin.from("revenue_automation_notifications").insert({
+          hotel_id: rule.hotel_id,
+          organization_slug: rule.organization_slug,
+          notification_type: "far_out_booking",
+          run_source: isEngine ? "automatic" : "manual",
+          actor_name: isEngine ? "Automatic pricing" : (actorName ?? "Manual run"),
+          actor_user_id: isEngine ? null : actorUserId,
+          rule_id: rule.id,
+          action_ids: [],
+          pickups_count: lifts.reduce((sum, l) => sum + l.bookings, 0),
+          actions_count: lifts.length,
+          pushed_count: 0,
+          failed_count: 0,
+          currency,
+          severity: "info",
+          summary: lifts.length === 1
+            ? `Booking received for ${first.stay_date}, ${first.days_out} days out — price lifted by ${first.amount} ${currency}, review`
+            : `${lifts.length} bookings beyond the booking window (from ${first.stay_date}) — prices lifted, review`,
+          changes: lifts.map((l) => ({
+            stay_date: l.stay_date,
+            days_out: l.days_out,
+            increase: l.amount,
+            bookings: l.bookings,
+            currency,
+          })),
+        });
+        if (farErr) console.error("far-out notification insert failed", farErr);
+      }
+
+
 
       summary.push({
         hotel_id: rule.hotel_id, pickups: events.length,
