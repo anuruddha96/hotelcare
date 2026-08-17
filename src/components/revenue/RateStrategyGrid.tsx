@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, Trash2, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, RefreshCw, CheckCheck, Star, ChevronLeft, ChevronRight, MousePointerSquareDashed, X } from "lucide-react";
+import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, Trash2, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, RefreshCw, CheckCheck, Star, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -425,16 +425,24 @@ export default function RateStrategyGrid({
 
   /**
    * Free cell selection: drag a rectangle across any room-type rows and any
-   * dates, then price exactly that block. Vertical (several room types on one
-   * date), horizontal (one room type across dates) and everything in between.
+   * dates, then price exactly that block. No mode to switch on — dragging on
+   * desktop, or press-and-hold then drag on a phone, starts it, and letting go
+   * opens the pricing tool for whatever was picked.
    */
-  const [rangeMode, setRangeMode] = useState(false);
   const [rangeAnchor, setRangeAnchor] = useState<{ row: number; date: number } | null>(null);
   const [rangeFocus, setRangeFocus] = useState<{ row: number; date: number } | null>(null);
-  const rangeDragging = useRef(false);
+  const [cellDragging, setCellDragging] = useState(false);
+  const cellDraggingRef = useRef(false);
+
+  /** The cell the pointer went down on, before we know if it is a drag. */
+  const pendingCell = useRef<{ row: number; date: number; x: number; y: number; touch: boolean } | null>(null);
+  const holdTimer = useRef<number | null>(null);
+  /** Set right after a drag so the trailing click does not open the editor. */
+  const suppressClick = useRef(false);
   const [rangeToolOpen, setRangeToolOpen] = useState(false);
   const [rangeCalc, setRangeCalc] = useState<"amount" | "percent" | "set">("amount");
   const [rangeValue, setRangeValue] = useState("2");
+
 
 
   const [saving, setSaving] = useState(false);
@@ -1809,21 +1817,92 @@ export default function RateStrategyGrid({
     setRangeFocus(null);
   }, []);
 
-  /** Start (or extend) a selection from a cell. */
-  const rangePointerDown = useCallback((rowIdx: number, dateIdx: number, extend: boolean) => {
-    if (extend && rangeAnchor) {
+  /**
+   * Pointer down on a price cell. We do not commit to a selection yet: a plain
+   * click still opens the single-cell editor. A mouse drag onto another cell,
+   * or a press-and-hold on touch, turns it into a block selection.
+   */
+  const cellPointerDown = useCallback((rowIdx: number, dateIdx: number, e: React.PointerEvent) => {
+    const touch = e.pointerType !== "mouse";
+    if (e.shiftKey && rangeAnchor) {
       setRangeFocus({ row: rowIdx, date: dateIdx });
+      suppressClick.current = true;
       return;
     }
-    setRangeAnchor({ row: rowIdx, date: dateIdx });
-    setRangeFocus({ row: rowIdx, date: dateIdx });
-    rangeDragging.current = true;
-    const stop = () => {
-      rangeDragging.current = false;
-      window.removeEventListener("pointerup", stop);
+    clearRange();
+    pendingCell.current = { row: rowIdx, date: dateIdx, x: e.clientX, y: e.clientY, touch };
+    if (touch) {
+      if (holdTimer.current) window.clearTimeout(holdTimer.current);
+      holdTimer.current = window.setTimeout(() => {
+        const p = pendingCell.current;
+        if (!p) return;
+        cellDraggingRef.current = true;
+        setCellDragging(true);
+        setRangeAnchor({ row: p.row, date: p.date });
+        setRangeFocus({ row: p.row, date: p.date });
+        try { navigator.vibrate?.(12); } catch { /* not supported */ }
+      }, 320);
+    }
+  }, [rangeAnchor, clearRange]);
+
+  /** Mouse moved onto another cell while the button is down → start dragging. */
+  const cellPointerEnter = useCallback((rowIdx: number, dateIdx: number) => {
+    const p = pendingCell.current;
+    if (cellDraggingRef.current) {
+      setRangeFocus({ row: rowIdx, date: dateIdx });
+      return true;
+    }
+    if (p && !p.touch && (p.row !== rowIdx || p.date !== dateIdx)) {
+      cellDraggingRef.current = true;
+      setCellDragging(true);
+      setRangeAnchor({ row: p.row, date: p.date });
+      setRangeFocus({ row: rowIdx, date: dateIdx });
+      return true;
+    }
+    return false;
+  }, []);
+
+  /** Latest rectangle, readable from the global pointer listeners. */
+  const rangeRectRef = useRef(rangeRect);
+  rangeRectRef.current = rangeRect;
+
+  useEffect(() => {
+    const findCell = (x: number, y: number) => {
+      const el = document.elementFromPoint(x, y) as HTMLElement | null;
+      const cell = el?.closest?.("[data-cell-row]") as HTMLElement | null;
+      if (!cell) return null;
+      return { row: Number(cell.dataset.cellRow), date: Number(cell.dataset.cellDate) };
     };
-    window.addEventListener("pointerup", stop);
-  }, [rangeAnchor]);
+    const onMove = (e: PointerEvent) => {
+      if (!cellDraggingRef.current) return;
+      e.preventDefault();
+      const hit = findCell(e.clientX, e.clientY);
+      if (hit && Number.isFinite(hit.row) && Number.isFinite(hit.date)) {
+        setRangeFocus((prev) => (prev && prev.row === hit.row && prev.date === hit.date ? prev : hit));
+      }
+    };
+    const onUp = () => {
+      if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
+      pendingCell.current = null;
+      if (!cellDraggingRef.current) return;
+      cellDraggingRef.current = false;
+      setCellDragging(false);
+      suppressClick.current = true;
+      window.setTimeout(() => { suppressClick.current = false; }, 250);
+      // Selection finished → go straight to the pricing tool.
+      const rect = rangeRectRef.current;
+      if (rect) setRangeToolOpen(true);
+    };
+    window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, []);
+
 
   /** Send everything the selection tool previews straight to Previo. */
   async function applyRangeTool() {
@@ -1923,18 +2002,8 @@ export default function RateStrategyGrid({
                 {multiMode ? "Done selecting" : "Select days"}
               </Button>
             )}
-            {canEditRates && (
-              <Button
-                size="sm"
-                variant={rangeMode ? "default" : "outline"}
-                className="h-8 gap-1.5 text-xs"
-                title="Drag a block across any room types and any dates, then price it"
-                onClick={() => { setRangeMode((v) => !v); clearRange(); }}
-              >
-                <MousePointerSquareDashed className="h-3.5 w-3.5" />
-                {rangeMode ? "Done selecting cells" : "Select cells"}
-              </Button>
-            )}
+
+
 
             <Button
               size="sm"
@@ -2183,8 +2252,9 @@ export default function RateStrategyGrid({
           <div
             ref={scrollRef}
             onScroll={onScroll}
-            className={`relative overflow-auto overscroll-x-contain text-[11px] sm:text-xs ${dragging || rangeMode ? "select-none" : ""}`}
-            style={{ maxHeight: expanded ? "calc(100vh - 190px)" : isMobile ? "68vh" : "72vh", WebkitOverflowScrolling: "touch" } as React.CSSProperties}
+            className={`relative overflow-auto overscroll-x-contain text-[11px] sm:text-xs ${dragging || cellDragging ? "select-none" : ""}`}
+            style={{ maxHeight: expanded ? "calc(100vh - 190px)" : isMobile ? "68vh" : "72vh", WebkitOverflowScrolling: "touch", touchAction: cellDragging ? "none" : undefined } as React.CSSProperties}
+
           >
 
             <div ref={gridRef} style={{ width: LEFT_W + dates.length * CELL_W }}>
@@ -2743,25 +2813,27 @@ export default function RateStrategyGrid({
 
 
 
-                    const picked = rangeMode && inRange(rowIdx, i);
+                    const picked = inRange(rowIdx, i);
                     const cellButton = (
                       <button
                         key={d}
                         type="button"
+                        data-cell-row={rowIdx}
+                        data-cell-date={i}
                         disabled={!canEditRates}
                         onPointerEnter={() => {
-                          if (rangeMode && rangeDragging.current) { setRangeFocus({ row: rowIdx, date: i }); return; }
+                          if (cellPointerEnter(rowIdx, i)) return;
                           void loadCellHistory(d); void loadAutomationDate(d);
                         }}
                         onPointerDown={(e) => {
-                          if (!rangeMode || !canEditRates) return;
-                          e.preventDefault();
-                          rangePointerDown(rowIdx, i, e.shiftKey || (isMobile && !!rangeAnchor));
+                          if (!canEditRates) return;
+                          cellPointerDown(rowIdx, i, e);
                         }}
                         onClick={() => {
                           if (!canEditRates) return;
-                          // While picking a block, a tap only draws the selection.
-                          if (rangeMode) return;
+                          // A drag just finished — the pricing tool is opening.
+                          if (suppressClick.current || cellDragging) return;
+
                           // On a phone there is no hover, so a tap tells the
                           // cell's story first and offers editing from there.
                           if (isMobile) {
@@ -2829,7 +2901,7 @@ export default function RateStrategyGrid({
 
                       </button>
                     );
-                    if ((!history && !marker && !cellAutomation?.length) || isMobile || rangeMode) return cellButton;
+                    if ((!history && !marker && !cellAutomation?.length) || isMobile || cellDragging) return cellButton;
                     return (
                       <HoverCard key={d} openDelay={120} closeDelay={60}>
                         <HoverCardTrigger asChild>{cellButton}</HoverCardTrigger>
@@ -2896,51 +2968,20 @@ export default function RateStrategyGrid({
         )}
       </CardContent>
 
-      {/* Cell-block selection bar: what is picked, and what to do with it. */}
-      {rangeMode && (
-        <div className="fixed inset-x-0 bottom-0 z-[60] border-t bg-card/95 px-3 py-2.5 shadow-[0_-8px_24px_-12px_rgba(0,0,0,0.35)] backdrop-blur animate-fade-in sm:inset-x-auto sm:bottom-6 sm:right-6 sm:rounded-full sm:border sm:px-4 sm:py-2">
-          <div className="mx-auto flex max-w-2xl items-center gap-2">
-            <MousePointerSquareDashed className="h-4 w-4 shrink-0 text-primary" />
-            <div className="min-w-0 flex-1 text-xs">
-              {rangeCells.length === 0 ? (
-                <span className="text-muted-foreground">
-                  {isMobile
-                    ? "Tap a price to start, then tap another to close the block."
-                    : "Drag across any prices — room types down, dates across. Shift-click extends."}
-                </span>
-              ) : (
-                <span>
-                  <span className="font-medium">{rangeCells.length} price{rangeCells.length === 1 ? "" : "s"} selected</span>
-                  <span className="text-muted-foreground">
-                    {" · "}{(rangeRect ? rangeRect.r1 - rangeRect.r0 + 1 : 0)} row{rangeRect && rangeRect.r1 - rangeRect.r0 === 0 ? "" : "s"}
-                    {" × "}{(rangeRect ? rangeRect.d1 - rangeRect.d0 + 1 : 0)} date{rangeRect && rangeRect.d1 - rangeRect.d0 === 0 ? "" : "s"}
-                  </span>
-                </span>
-              )}
-            </div>
-            {rangeCells.length > 0 && (
-              <>
-                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={clearRange}>
-                  Clear
-                </Button>
-                <Button size="sm" className="h-8 text-xs" onClick={() => setRangeToolOpen(true)}>
-                  Change prices
-                </Button>
-              </>
-            )}
-            <Button
-              size="icon" variant="ghost" className="h-8 w-8"
-              aria-label="Leave cell selection"
-              onClick={() => { setRangeMode(false); clearRange(); }}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+      {/* Live counter while a block is being dragged out. */}
+      {cellDragging && rangeRect && (
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full border bg-card/95 px-4 py-2 text-xs shadow-lg backdrop-blur animate-fade-in">
+          <span className="font-medium">{rangeCells.length} price{rangeCells.length === 1 ? "" : "s"}</span>
+          <span className="text-muted-foreground">
+            {" · "}{rangeRect.r1 - rangeRect.r0 + 1} row{rangeRect.r1 === rangeRect.r0 ? "" : "s"}
+            {" × "}{rangeRect.d1 - rangeRect.d0 + 1} date{rangeRect.d1 === rangeRect.d0 ? "" : "s"}
+          </span>
         </div>
       )}
 
+
       {/* Price the selected block */}
-      <Dialog open={rangeToolOpen} onOpenChange={(o) => setRangeToolOpen(o)}>
+      <Dialog open={rangeToolOpen} onOpenChange={(o) => { setRangeToolOpen(o); if (!o) clearRange(); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-base">
