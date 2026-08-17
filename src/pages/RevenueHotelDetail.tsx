@@ -730,7 +730,9 @@ export default function RevenueHotelDetail() {
   // Only the cached read blocks the page. A Previo sync keeps running behind
   // the numbers (thin bar at the top), so nobody waits on Previo to see the
   // property they just opened.
-  if ((live.loading || syncError) && live.roomTypes.length === 0) {
+  // The exception is a property with nothing cached yet: there is literally
+  // nothing to render, so the first sync is worth waiting for.
+  if ((live.loading || syncError || syncing || syncWaiting) && live.roomTypes.length === 0) {
     return (
       <div className="min-h-screen bg-background">
         <WelcomeBackOverlay
