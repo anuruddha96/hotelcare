@@ -32,7 +32,13 @@ import {
   detectDemandSpike,
   eventSurcharge,
   demandSignalText,
+  leadBandFor,
+  bandMarkdownStep,
+  farOutSurcharge,
+  soldOutBlocksAnyChange,
+  farOutBookingText,
 } from "../_shared/pricingRules.ts";
+
 
 
 const corsHeaders = {
