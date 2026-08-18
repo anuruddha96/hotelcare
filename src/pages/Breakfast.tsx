@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { useTranslation } from "@/hooks/useTranslation";
 import { bbT } from "@/lib/breakfast-translations";
 import OccupancyPickupChart from "@/components/breakfast/OccupancyPickupChart";
+import RestaurantReservations from "@/components/breakfast/RestaurantReservations";
+
 
 interface RestaurantDef {
   key: string;
@@ -79,6 +81,8 @@ export default function Breakfast() {
   const [dataSource, setDataSource] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [tab, setTab] = useState<"rooms" | "reservations">("rooms");
+
 
   // Load this org's hotels (skipped on hotel-code direct lookup)
   useEffect(() => {
@@ -390,7 +394,39 @@ export default function Breakfast() {
           )}
         </CardHeader>
         <CardContent className="space-y-3">
+          {!hotelCode && selection && (
+            <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+              <button
+                type="button"
+                onClick={() => setTab("rooms")}
+                className={`rounded-md py-1.5 text-sm font-medium transition-colors ${tab === "rooms" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
+              >
+                {tt("tabRooms")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("reservations")}
+                className={`rounded-md py-1.5 text-sm font-medium transition-colors ${tab === "reservations" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
+              >
+                {tt("tabReservations")}
+              </button>
+            </div>
+          )}
+
+          {!hotelCode && selection && tab === "reservations" && (
+            <>
+              <div>
+                <Label>{tt("date")}</Label>
+                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              </div>
+              <RestaurantReservations hotelId={selection.hotel_id} date={date} language={language} />
+            </>
+          )}
+
+          {tab === "rooms" && (
+          <div className="space-y-3">
           <div>
+
             <Label>{tt("roomNumber")}</Label>
             <Input
               value={room}
@@ -554,7 +590,10 @@ export default function Breakfast() {
               </div>
             </div>
           )}
+          </div>
+          )}
         </CardContent>
+
       </Card>
     </div>
   );

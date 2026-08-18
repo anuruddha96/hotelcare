@@ -4761,6 +4761,154 @@ export type Database = {
           },
         ]
       }
+      restaurant_reservations: {
+        Row: {
+          created_at: string
+          ends_at: string | null
+          guest_email: string | null
+          guest_name: string
+          guest_phone: string | null
+          hotel_id: string
+          id: string
+          notes: string | null
+          occasion: string | null
+          outlet_slug: string
+          party_size: number
+          raw_payload: Json | null
+          service_date: string
+          source_project: string
+          source_reservation_id: string
+          special_requests: string | null
+          starts_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          ends_at?: string | null
+          guest_email?: string | null
+          guest_name?: string
+          guest_phone?: string | null
+          hotel_id: string
+          id?: string
+          notes?: string | null
+          occasion?: string | null
+          outlet_slug?: string
+          party_size?: number
+          raw_payload?: Json | null
+          service_date: string
+          source_project: string
+          source_reservation_id: string
+          special_requests?: string | null
+          starts_at: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          ends_at?: string | null
+          guest_email?: string | null
+          guest_name?: string
+          guest_phone?: string | null
+          hotel_id?: string
+          id?: string
+          notes?: string | null
+          occasion?: string | null
+          outlet_slug?: string
+          party_size?: number
+          raw_payload?: Json | null
+          service_date?: string
+          source_project?: string
+          source_reservation_id?: string
+          special_requests?: string | null
+          starts_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "restaurant_reservations_hotel_id_fkey"
+            columns: ["hotel_id"]
+            isOneToOne: false
+            referencedRelation: "hotels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      restaurant_webhook_log: {
+        Row: {
+          created_at: string
+          http_status: number
+          id: string
+          message: string | null
+          outcome: string
+          payload: Json | null
+          property_slug: string | null
+          source_reservation_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          http_status: number
+          id?: string
+          message?: string | null
+          outcome: string
+          payload?: Json | null
+          property_slug?: string | null
+          source_reservation_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          http_status?: number
+          id?: string
+          message?: string | null
+          outcome?: string
+          payload?: Json | null
+          property_slug?: string | null
+          source_reservation_id?: string | null
+        }
+        Relationships: []
+      }
+      restaurant_webhook_sources: {
+        Row: {
+          created_at: string
+          hotel_id: string
+          id: string
+          is_active: boolean
+          outlet_slugs: string[]
+          property_slug: string
+          secret_name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          hotel_id: string
+          id?: string
+          is_active?: boolean
+          outlet_slugs?: string[]
+          property_slug: string
+          secret_name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          is_active?: boolean
+          outlet_slugs?: string[]
+          property_slug?: string
+          secret_name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "restaurant_webhook_sources_hotel_id_fkey"
+            columns: ["hotel_id"]
+            isOneToOne: false
+            referencedRelation: "hotels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       revenue_ai_insights: {
         Row: {
           created_at: string
