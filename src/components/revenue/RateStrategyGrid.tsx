@@ -1966,6 +1966,71 @@ export default function RateStrategyGrid({
     setRangeFocus(null);
   }, []);
 
+  /* ---- Instant selection painting ----------------------------------------
+   * Re-rendering the whole calendar on every pointer move made the selection
+   * feel laggy, so while a block is being dragged the highlight is written
+   * straight onto the DOM (one rAF per frame) and React state is only
+   * committed once the finger or mouse is lifted. */
+  const anchorRef = useRef<{ row: number; date: number } | null>(null);
+  const focusRef = useRef<{ row: number; date: number } | null>(null);
+  const paintRaf = useRef<number | null>(null);
+  const pillRef = useRef<HTMLDivElement | null>(null);
+  const SEL_CLASSES = ["bg-primary/25", "ring-1", "ring-inset", "ring-primary"];
+
+  const paintSelection = useCallback(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    const a = anchorRef.current;
+    const f = focusRef.current;
+    const rect = a && f ? {
+      r0: Math.min(a.row, f.row), r1: Math.max(a.row, f.row),
+      d0: Math.min(a.date, f.date), d1: Math.max(a.date, f.date),
+    } : null;
+    let count = 0;
+    const cells = root.querySelectorAll<HTMLElement>("[data-cell-row]");
+    cells.forEach((el) => {
+      const r = Number(el.dataset.cellRow);
+      const d = Number(el.dataset.cellDate);
+      const on = !!rect && !(el as HTMLButtonElement).disabled
+        && r >= rect.r0 && r <= rect.r1 && d >= rect.d0 && d <= rect.d1;
+      if (on) count += 1;
+      if (on === el.dataset.selPainted === true) { /* noop guard below */ }
+      const painted = el.dataset.selPainted === "1";
+      if (on && !painted) { el.classList.add(...SEL_CLASSES); el.dataset.selPainted = "1"; }
+      else if (!on && painted) { el.classList.remove(...SEL_CLASSES); delete el.dataset.selPainted; }
+    });
+    const pill = pillRef.current;
+    if (pill && rect) {
+      pill.textContent = `${count} price${count === 1 ? "" : "s"} · ${rect.r1 - rect.r0 + 1} row${rect.r1 === rect.r0 ? "" : "s"} × ${rect.d1 - rect.d0 + 1} date${rect.d1 === rect.d0 ? "" : "s"}`;
+    }
+  }, []);
+
+  /** Queue a repaint on the next frame — never more than one per frame. */
+  const schedulePaint = useCallback(() => {
+    if (paintRaf.current !== null) return;
+    paintRaf.current = window.requestAnimationFrame(() => {
+      paintRaf.current = null;
+      paintSelection();
+    });
+  }, [paintSelection]);
+
+  /** Drop every painted class so React can own the highlight again. */
+  const unpaintSelection = useCallback(() => {
+    anchorRef.current = null;
+    focusRef.current = null;
+    if (paintRaf.current !== null) { window.cancelAnimationFrame(paintRaf.current); paintRaf.current = null; }
+    paintSelection();
+  }, [paintSelection]);
+
+  /** Start a block selection right now, with no React round-trip. */
+  const beginCellDrag = useCallback((row: number, date: number) => {
+    anchorRef.current = { row, date };
+    focusRef.current = { row, date };
+    cellDraggingRef.current = true;
+    paintSelection();
+    setCellDragging(true);
+  }, [paintSelection]);
+
   /**
    * Pointer down on a price cell. We do not commit to a selection yet: a plain
    * click still opens the single-cell editor. A mouse drag onto another cell,
@@ -1979,20 +2044,18 @@ export default function RateStrategyGrid({
       return;
     }
     clearRange();
+    unpaintSelection();
     pendingCell.current = { row: rowIdx, date: dateIdx, x: e.clientX, y: e.clientY, touch };
     if (touch) {
       if (holdTimer.current) window.clearTimeout(holdTimer.current);
       holdTimer.current = window.setTimeout(() => {
         const p = pendingCell.current;
         if (!p) return;
-        cellDraggingRef.current = true;
-        setCellDragging(true);
-        setRangeAnchor({ row: p.row, date: p.date });
-        setRangeFocus({ row: p.row, date: p.date });
+        beginCellDrag(p.row, p.date);
         try { navigator.vibrate?.(12); } catch { /* not supported */ }
-      }, 320);
+      }, 180);
     }
-  }, [rangeAnchor, clearRange]);
+  }, [rangeAnchor, clearRange, unpaintSelection, beginCellDrag]);
 
   /** Mouse moved onto another cell while the button is down → start dragging. */
   const cellPointerEnter = useCallback((rowIdx: number, dateIdx: number) => {
