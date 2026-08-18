@@ -3176,7 +3176,10 @@ export default function RateStrategyGrid({
                           });
                         }}
 
-                        title={soldOut ? `${d} · ${row.roomTypeName} · sold out · price changes are disabled` : `${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
+                        /* No native tooltip: the hover card below is the one
+                           place the cell's story is told, so the browser
+                           bubble can't fight it for the same pixels. */
+                        aria-label={soldOut ? `${d} · ${row.roomTypeName} · sold out · price changes are disabled` : `${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
                         className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates && !soldOut ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "opacity-45 line-through" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${picked && !soldOut ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
                         style={{ width: CELL_W }}
 
