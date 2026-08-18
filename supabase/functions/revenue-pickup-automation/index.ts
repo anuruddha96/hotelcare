@@ -1556,6 +1556,7 @@ Deno.serve(async (req) => {
               rule.minimum_adr === null ? null : Number(rule.minimum_adr),
             );
             if (!(newPrice > current)) continue;
+            const movedBy = roundStep(newPrice - current, rule.whole_number_prices !== false, "nearest");
 
             // The top-up is the newest intent for this cell: any not-yet-sent
             // draft (typically the markdown from this same run) is replaced.
@@ -1567,13 +1568,14 @@ Deno.serve(async (req) => {
               rule_id: rule.id, rule_version: rule.version, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
               reservation_id: null, stay_date: rate.stay_date, pickup_at: null, pickup_sequence: 0,
               room_type_name: rate.room_type_name, obk_id: String(rate.obk_id), occupancy: Number(rate.occupancy) || 2,
-              old_price: current, increase_amount: newPrice - current, new_price: newPrice,
+              old_price: current, increase_amount: movedBy, new_price: newPrice,
               status: rule.auto_publish ? "queued" : "suggested", decision_type: "far_out_floor_topup",
               observation_from: evalWindow.from, observation_to: runStartedAt,
-              net_pickup: 0, schedule_slot: slot, local_business_date: local.date, cap_applied: newPrice - current,
+              net_pickup: 0, schedule_slot: slot, local_business_date: local.date, cap_applied: movedBy,
               decision_reason: "far_out_floor_topup",
               reason_detail: farOutFloorTopUpText({
-                amount: newPrice - current,
+                amount: movedBy,
+
                 currency: rate.currency ?? rule.currency ?? "EUR",
                 priceThreshold: Number(rule.far_out_floor_topup_threshold ?? 100),
                 daysOut,
