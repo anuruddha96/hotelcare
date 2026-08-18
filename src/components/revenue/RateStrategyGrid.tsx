@@ -1221,10 +1221,24 @@ export default function RateStrategyGrid({
       flashTimers.current.set(k, setTimeout(() => {
         flashTimers.current.delete(k);
         setFlash((prev) => { const next = new Map(prev); next.delete(k); return next; });
-      }, 1400));
+      }, 450));
     }
   }, []);
   useEffect(() => () => { flashTimers.current.forEach((t) => clearTimeout(t)); }, []);
+
+  // Hover dwell: sweeping the cursor across the calendar used to fire a history
+  // read per cell. Nothing loads until the pointer has rested for 2 seconds.
+  const HOVER_DWELL_MS = 2000;
+  const dwellTimer = useRef<number | null>(null);
+  const cancelDwell = useCallback(() => {
+    if (dwellTimer.current !== null) { window.clearTimeout(dwellTimer.current); dwellTimer.current = null; }
+  }, []);
+  const scheduleDwell = useCallback((run: () => void) => {
+    cancelDwell();
+    dwellTimer.current = window.setTimeout(() => { dwellTimer.current = null; run(); }, HOVER_DWELL_MS);
+  }, [cancelDwell]);
+  useEffect(() => cancelDwell, [cancelDwell]);
+
 
   // Prices that changed since the last load — whoever moved them — get the
   // confirming green pulse the moment the new number reaches the grid.
@@ -2616,7 +2630,7 @@ export default function RateStrategyGrid({
                     if (!trail && dayChanges.length === 0) return dayButton;
                     const up = (trail?.avgDelta ?? 0) >= 0;
                     return (
-                      <HoverCard key={d} openDelay={150} closeDelay={60}>
+                      <HoverCard key={d} openDelay={2000} closeDelay={60}>
                         <HoverCardTrigger asChild>{dayButton}</HoverCardTrigger>
                         <HoverCardContent align="center" className="w-72 p-3 text-xs space-y-2">
                           <p className="font-medium">{formatWeekday(d)} {formatDay(d)} · last price changes</p>
@@ -3112,14 +3126,20 @@ export default function RateStrategyGrid({
                         data-cell-row={rowIdx}
                         data-cell-date={i}
                         disabled={!canEditRates || soldOut}
-                        onPointerEnter={() => {
+                        onPointerEnter={(e) => {
                           if (cellPointerEnter(rowIdx, i)) return;
+                          if (e.pointerType === "touch") return;
                           // Pass the newest change we already know about, so a
                           // cached-but-stale date is re-read instead of opening
-                          // a blank drawer next to a coloured dot.
-                          void loadCellHistory(d, false, marker?.at ?? markerByDate.get(d)?.at ?? null);
-                          void loadAutomationDate(d);
+                          // a blank drawer next to a coloured dot. Only once the
+                          // cursor has actually settled on this cell.
+                          scheduleDwell(() => {
+                            void loadCellHistory(d, false, marker?.at ?? markerByDate.get(d)?.at ?? null);
+                            void loadAutomationDate(d);
+                          });
                         }}
+                        onPointerLeave={cancelDwell}
+
                         onPointerDown={(e) => {
                           if (!canEditRates || soldOut) return;
                           cellPointerDown(rowIdx, i, e);
@@ -3198,7 +3218,7 @@ export default function RateStrategyGrid({
                     );
                     if ((!history && !marker && !cellAutomation?.length) || isMobile || cellDragging) return cellButton;
                     return (
-                      <HoverCard key={d} openDelay={120} closeDelay={60}>
+                      <HoverCard key={d} openDelay={2000} closeDelay={60}>
                         <HoverCardTrigger asChild>{cellButton}</HoverCardTrigger>
                         <HoverCardContent align="center" className="w-72 p-3 text-xs">
                           <p className="font-medium">{row.roomTypeName} · {row.occ}g · {d}</p>

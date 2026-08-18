@@ -123,10 +123,12 @@ export default {
 				'accordion-down': 'accordion-down 0.2s ease-out',
 				'accordion-up': 'accordion-up 0.2s ease-out',
 				'scale-in': 'scale-in 0.3s ease-out',
-				'rate-bump': 'rate-bump 0.55s cubic-bezier(0.34, 1.56, 0.64, 1)',
-				'rate-flash': 'rate-flash 1.1s ease-out',
-				'rate-confirm': 'rate-confirm 1.2s ease-out',
-				'rate-rise': 'rate-rise 0.35s ease-out',
+				/* Price feedback is deliberately quick: the grid must feel instant. */
+				'rate-bump': 'rate-bump 0.28s cubic-bezier(0.34, 1.4, 0.64, 1)',
+				'rate-flash': 'rate-flash 0.35s ease-out',
+				'rate-confirm': 'rate-confirm 0.4s ease-out',
+				'rate-rise': 'rate-rise 0.18s ease-out',
+
 			}
 
 		}

@@ -414,6 +414,32 @@ export function applyRounding(
   return wholeNumbers ? roundWholePrice(value, direction, floorPrice) : roundMoney(value);
 }
 
+/**
+ * Whole-unit STEP amounts.
+ *
+ * The final price was already whole, but the step itself was still scaled at
+ * cents (a tier clamped by the remaining daily cap gave "19.55 EUR"), which
+ * leaked into the explanation line and the stored delta. When a property asked
+ * for whole numbers, every step it applies is a whole unit too.
+ *
+ * `mode` is "down" for anything bounded by a cap (never spend more than the
+ * cap allows) and "nearest" for a plain reported amount.
+ */
+export function roundStep(
+  amount: number,
+  wholeNumbers: boolean,
+  mode: "down" | "nearest" = "down",
+): number {
+  const v = roundMoney(Number(amount) || 0);
+  if (!wholeNumbers || !Number.isFinite(v)) return v;
+  const sign = v < 0 ? -1 : 1;
+  const abs = Math.abs(v);
+  const out = mode === "down" ? Math.floor(abs + 1e-9) : Math.round(abs);
+  return sign * out;
+}
+
+
+
 // --------------------------------------------------------------------------
 // Short booking window guard
 // --------------------------------------------------------------------------

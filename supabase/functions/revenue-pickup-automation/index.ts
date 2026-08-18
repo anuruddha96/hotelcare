@@ -23,6 +23,8 @@ import {
   strongDemandStep,
   clampAiFactor,
   applyRounding,
+  roundStep,
+
   shortWindowIncreaseAllowed,
   soldOutBlocksIncrease,
   cancellationHold,
@@ -966,24 +968,28 @@ Deno.serve(async (req) => {
             nearTermDays: Math.max(0, Number(rule.near_term_days ?? 30)),
             farOutDays: Math.max(0, Number(rule.far_out_days ?? 90)),
           });
-          const bandStep = rule.lead_bands_enabled === false
+          const wantsWholeNumbers = rule.whole_number_prices !== false;
+          const bandStepRaw = rule.lead_bands_enabled === false
             ? immediate.step
             : bandMarkdownStep({
               band,
               step: immediate.step,
               baseStep: Number(rule.no_pickup_decrease ?? 0.5),
             });
+          // Whole-number properties move by whole steps: a 1.50 drift is never
+          // applied, and never written into the explanation line.
+          const bandStep = roundStep(bandStepRaw, wantsWholeNumbers, "nearest");
           if (bandStep <= 0) {
             noteBlock(rate.stay_date, "band_step_zero");
             continue;
           }
 
           if (!allowedStepByDate.has(rate.stay_date)) {
-            allowedStepByDate.set(rate.stay_date, dateAllowedStep({
+            allowedStepByDate.set(rate.stay_date, roundStep(dateAllowedStep({
               decreasePerEvaluation: bandStep,
               stayDateMovedToday: movedTodayByDate.get(rate.stay_date) ?? 0,
               maxDailyDecreasePerDate: Number(rule.max_daily_decrease_per_date || 10),
-            }));
+            }), wantsWholeNumbers, "down"));
           }
 
           const allowed = allowedStepByDate.get(rate.stay_date) ?? 0;
@@ -991,6 +997,7 @@ Deno.serve(async (req) => {
             noteBlock(rate.stay_date, "daily_cap");
             continue;
           }
+
 
           const pending = pendingByCell.get(cellKey) ?? [];
           const current = effectivePrice(Number(rate.price), pending);
@@ -1041,7 +1048,8 @@ Deno.serve(async (req) => {
           }
 
           step.newPrice = targetPrice;
-          step.applied = roundMoney(current - targetPrice);
+          step.applied = roundStep(current - targetPrice, wholeNumbers, "nearest");
+          const movedBy = roundStep(targetPrice - current, wholeNumbers, "nearest");
 
           markdownDates.add(rate.stay_date);
           for (const intent of pending) if (!intent.claimed) supersede.push(intent.id);
@@ -1050,7 +1058,7 @@ Deno.serve(async (req) => {
             rule_id: rule.id, rule_version: rule.version, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
             reservation_id: null, stay_date: rate.stay_date, pickup_at: null, pickup_sequence: 0,
             room_type_name: rate.room_type_name, obk_id: String(rate.obk_id), occupancy: Number(rate.occupancy) || 2,
-            old_price: current, increase_amount: step.newPrice - current, new_price: step.newPrice,
+            old_price: current, increase_amount: movedBy, new_price: step.newPrice,
             status: rule.auto_publish ? "queued" : "suggested", decision_type: "no_pickup_markdown",
             observation_from: observationFrom, observation_to: runStartedAt,
             net_pickup: net,
@@ -1061,7 +1069,9 @@ Deno.serve(async (req) => {
               netPickup: net,
               occupancyPct: guardsFor?.pct ?? null,
               daysOut: dayDiff(local.date, rate.stay_date),
-              amount: step.newPrice - current,
+              amount: movedBy,
+              currency: rate.currency ?? rule.currency ?? "EUR",
+
               currency: rate.currency ?? rule.currency ?? "EUR",
             }),
           });
@@ -1353,10 +1363,13 @@ Deno.serve(async (req) => {
               });
             }
 
-            stepByDate.set(rate.stay_date, base);
+            // Whole-unit steps only: an event/spike scaled step of 4.5 becomes
+            // 4 rather than a decimal amount in the trail.
+            stepByDate.set(rate.stay_date, roundStep(base, rule.whole_number_prices !== false, "down"));
           }
           const step = stepByDate.get(rate.stay_date) ?? 0;
           if (step <= 0) continue;
+
 
           // Nothing left to sell on that date: a higher price cannot win a
           // booking, it can only look wrong after a cancellation.
@@ -1376,20 +1389,22 @@ Deno.serve(async (req) => {
             rule.minimum_adr === null ? null : Number(rule.minimum_adr),
           );
           if (!(newPrice > current)) continue;
+          const movedBy = roundStep(newPrice - current, rule.whole_number_prices !== false, "nearest");
 
           strongDates.add(rate.stay_date);
           strongRows.push({
             rule_id: rule.id, rule_version: rule.version, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
             reservation_id: null, stay_date: rate.stay_date, pickup_at: null, pickup_sequence: 0,
             room_type_name: rate.room_type_name, obk_id: String(rate.obk_id), occupancy: Number(rate.occupancy) || 2,
-            old_price: current, increase_amount: step, new_price: newPrice,
+            old_price: current, increase_amount: movedBy, new_price: newPrice,
             status: rule.auto_publish ? "queued" : "suggested", decision_type: "smart_strong_demand",
             observation_from: evalWindow.from, observation_to: runStartedAt,
-            net_pickup: 0, schedule_slot: slot, local_business_date: local.date, cap_applied: step,
+            net_pickup: 0, schedule_slot: slot, local_business_date: local.date, cap_applied: movedBy,
+
             decision_reason: event ? "event_demand" : spike ? "demand_spike" : "strong_demand",
             reason_detail: (spike || event)
               ? demandSignalText({
-                amount: newPrice - current,
+                amount: movedBy,
                 currency: rate.currency ?? rule.currency ?? "EUR",
                 spikeDeltaPct: spike?.deltaPct ?? null,
                 lookbackDays: Number(rule.spike_lookback_days ?? 7),
@@ -1401,9 +1416,10 @@ Deno.serve(async (req) => {
                 kind: "strong_demand",
                 occupancyPct: occByDate.get(rate.stay_date) ?? null,
                 daysOut: dayDiff(local.date, rate.stay_date),
-                amount: newPrice - current,
+                amount: movedBy,
                 currency: rate.currency ?? rule.currency ?? "EUR",
               }),
+
           });
           if (rule.auto_publish) strongDrafts.push({
             hotel_id: rule.hotel_id, organization_slug: rule.organization_slug, stay_date: rate.stay_date,
@@ -1542,6 +1558,7 @@ Deno.serve(async (req) => {
               rule.minimum_adr === null ? null : Number(rule.minimum_adr),
             );
             if (!(newPrice > current)) continue;
+            const movedBy = roundStep(newPrice - current, rule.whole_number_prices !== false, "nearest");
 
             // The top-up is the newest intent for this cell: any not-yet-sent
             // draft (typically the markdown from this same run) is replaced.
@@ -1553,13 +1570,14 @@ Deno.serve(async (req) => {
               rule_id: rule.id, rule_version: rule.version, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
               reservation_id: null, stay_date: rate.stay_date, pickup_at: null, pickup_sequence: 0,
               room_type_name: rate.room_type_name, obk_id: String(rate.obk_id), occupancy: Number(rate.occupancy) || 2,
-              old_price: current, increase_amount: newPrice - current, new_price: newPrice,
+              old_price: current, increase_amount: movedBy, new_price: newPrice,
               status: rule.auto_publish ? "queued" : "suggested", decision_type: "far_out_floor_topup",
               observation_from: evalWindow.from, observation_to: runStartedAt,
-              net_pickup: 0, schedule_slot: slot, local_business_date: local.date, cap_applied: newPrice - current,
+              net_pickup: 0, schedule_slot: slot, local_business_date: local.date, cap_applied: movedBy,
               decision_reason: "far_out_floor_topup",
               reason_detail: farOutFloorTopUpText({
-                amount: newPrice - current,
+                amount: movedBy,
+
                 currency: rate.currency ?? rule.currency ?? "EUR",
                 priceThreshold: Number(rule.far_out_floor_topup_threshold ?? 100),
                 daysOut,
@@ -1877,11 +1895,19 @@ Deno.serve(async (req) => {
         if (rule.maximum_increase) increase = Math.min(increase, Number(rule.maximum_increase));
         if (increase <= 0) { noteSkip(ev.stay_date, "no_tier_increase"); continue; }
 
+        const wholePrices = rule.whole_number_prices !== false;
         const already = raisedToday.get(ev.stay_date) ?? 0;
-        const room = Math.max(0, Number(rule.max_daily_increase_per_date || 0) - already);
+        // The remaining daily room is what used to turn a clean 25 EUR tier
+        // into "19.55 EUR": clamp it to whole units first.
+        const room = roundStep(
+          Math.max(0, Number(rule.max_daily_increase_per_date || 0) - already),
+          wholePrices, "down",
+        );
         if (room <= 0) { noteSkip(ev.stay_date, "daily_cap"); continue; }
-        increase = Math.min(increase, room);
+        increase = roundStep(Math.min(increase, room), wholePrices, "down");
+        if (increase <= 0) { noteSkip(ev.stay_date, "rounding_no_change"); continue; }
         raisedToday.set(ev.stay_date, already + increase);
+
         if (isFarOut) {
           const seen = farOutLifts.get(ev.stay_date);
           farOutLifts.set(ev.stay_date, {
@@ -1944,12 +1970,16 @@ Deno.serve(async (req) => {
       }
 
       for (const decision of cellDecisions.values()) {
+        const wholePrices = rule.whole_number_prices !== false;
         const newPrice = applyRounding(
           decision.old_price + decision.increase, "increase",
-          rule.whole_number_prices !== false,
+          wholePrices,
           rule.minimum_adr === null ? null : Number(rule.minimum_adr),
         );
         if (newPrice <= decision.old_price) { noteSkip(decision.stay_date, "rounding_no_change"); continue; }
+        // The price Previo held may itself have had cents; the amount we report
+        // is the whole-unit move the guest-facing price actually made.
+        const movedBy = roundStep(newPrice - decision.old_price, wholePrices, "nearest");
 
         actionsToInsert.push({
           rule_id: rule.id,
@@ -1964,7 +1994,7 @@ Deno.serve(async (req) => {
           obk_id: decision.obk_id,
           occupancy: decision.occupancy,
           old_price: decision.old_price,
-          increase_amount: newPrice - decision.old_price,
+          increase_amount: movedBy,
           new_price: newPrice,
           status: rule.auto_publish ? "queued" : "suggested",
           decision_reason: farOutLifts.has(decision.stay_date) ? "far_out_booking" : "positive_pickup",
@@ -1972,7 +2002,7 @@ Deno.serve(async (req) => {
             ? farOutBookingText({
               stayDate: decision.stay_date,
               daysOut: dayDiff(today, decision.stay_date),
-              amount: newPrice - decision.old_price,
+              amount: movedBy,
               currency: decision.currency,
             })
             : decisionReasonText({
@@ -1980,9 +2010,10 @@ Deno.serve(async (req) => {
               netPickup: netPickup.get(decision.stay_date) ?? decision.events,
               occupancyPct: occByStayDate.get(decision.stay_date) ?? null,
               daysOut: dayDiff(today, decision.stay_date),
-              amount: newPrice - decision.old_price,
+              amount: movedBy,
               currency: decision.currency,
             }),
+
 
         });
 
