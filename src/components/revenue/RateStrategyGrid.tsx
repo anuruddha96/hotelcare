@@ -606,7 +606,7 @@ export default function RateStrategyGrid({
     byCell: markerByCell,
     byDate: markerByDate,
     reload: reloadMarkers,
-  } = useRateCellMarkers(hotelId, allDates[0], allDates[allDates.length - 1]);
+  } = useRateCellMarkers(hotelId, allDates[0], allDates[allDates.length - 1], markerSinceMs);
 
   /** Real per-cell history, fetched one stay date at a time when opened. */
   const { byCell: cellHistoryByCell, names: cellHistoryNames, loadDate: loadCellHistory, invalidate: invalidateCellHistory } = useCellRateHistory(hotelId);

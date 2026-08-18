@@ -99,8 +99,12 @@ export function indexCellMarkers(rows: CellMarkerRow[] | undefined): Map<string,
 export function dayMarkers(
   cells: Map<string, CellMarker>,
   now: number = Date.now(),
+  sinceMs?: number,
 ): Map<string, { origin: ChangeOrigin; at: string }> {
-  const dayStart = budapestDayStartMs(now);
+  // The header dot must cover exactly the stretch the pickup row is measuring,
+  // otherwise a change made inside the automation's 48h window shows a dot with
+  // an empty pickup cell (or the reverse) purely because of a midnight cut.
+  const dayStart = sinceMs ?? budapestDayStartMs(now);
   const out = new Map<string, { origin: ChangeOrigin; at: string }>();
   for (const [key, m] of cells) {
     const t = Date.parse(m.at);
