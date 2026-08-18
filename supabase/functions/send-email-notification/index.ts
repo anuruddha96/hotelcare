@@ -6,20 +6,14 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Allowed email domains for security
-const allowedDomains = [
-  'gmail.com',
-  'outlook.com',
-  'hotmail.com',
-  'yahoo.com',
-  'company.com', // Add your company domain here
-  'rdhotels.com' // Add specific hotel domains
-];
-
+// Staff addresses live on many different domains (personal Gmail, hotel
+// domains, group domains), so a fixed allow-list silently swallowed real
+// notifications. Any well-formed address is accepted; delivery is then
+// controlled centrally by the organization's Email settings.
 function validateEmailDomain(email: string): boolean {
-  const domain = email.split('@')[1]?.toLowerCase();
-  return allowedDomains.includes(domain);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
 }
+
 
 interface EmailRequest {
   to: string;
