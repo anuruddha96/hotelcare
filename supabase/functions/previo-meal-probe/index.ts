@@ -100,6 +100,22 @@ serve(async (req) => {
       combos[k] = (combos[k] || 0) + 1;
     }
 
+    if (body.rooms) {
+      const perRoom = blocks.map((b) => {
+        const st = parseInt((b.match(/<statusId>(\d+)<\/statusId>/) || [, "0"])[1], 10);
+        const obj = (b.match(/<object>[\s\S]*?<name>([^<]*)<\/name>/) || [, ""])[1];
+        const ids = Array.from(b.matchAll(/<guestMealId>(\d+)<\/guestMealId>/g)).map((m) => Number(m[1]));
+        const guests = (b.match(/<guest>/g) || []).length;
+        return {
+          room: obj, statusId: st, guests, mealIds: ids,
+          breakfastGuests: ids.filter((i) => i === 2 || i === 3 || i === 4 || i === 5).length,
+          from: (b.match(/<from>([^<]*)<\/from>/) || [, ""])[1].slice(0, 10),
+          to: (b.match(/<to>([^<]*)<\/to>/) || [, ""])[1].slice(0, 10),
+        };
+      });
+      return new Response(JSON.stringify({ perRoom }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     return new Response(JSON.stringify({
       ok: r.ok,
       status: r.status,
