@@ -183,3 +183,9 @@ verify_jwt = false
 
 [functions.email-config]
 verify_jwt = false
+
+[functions.restaurant-reservation-webhook]
+verify_jwt = false
+
+[functions.restaurant-reservations-list]
+verify_jwt = false
