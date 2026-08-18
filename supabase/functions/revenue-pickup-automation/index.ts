@@ -968,24 +968,28 @@ Deno.serve(async (req) => {
             nearTermDays: Math.max(0, Number(rule.near_term_days ?? 30)),
             farOutDays: Math.max(0, Number(rule.far_out_days ?? 90)),
           });
-          const bandStep = rule.lead_bands_enabled === false
+          const wantsWholeNumbers = rule.whole_number_prices !== false;
+          const bandStepRaw = rule.lead_bands_enabled === false
             ? immediate.step
             : bandMarkdownStep({
               band,
               step: immediate.step,
               baseStep: Number(rule.no_pickup_decrease ?? 0.5),
             });
+          // Whole-number properties move by whole steps: a 1.50 drift is never
+          // applied, and never written into the explanation line.
+          const bandStep = roundStep(bandStepRaw, wantsWholeNumbers, "nearest");
           if (bandStep <= 0) {
             noteBlock(rate.stay_date, "band_step_zero");
             continue;
           }
 
           if (!allowedStepByDate.has(rate.stay_date)) {
-            allowedStepByDate.set(rate.stay_date, dateAllowedStep({
+            allowedStepByDate.set(rate.stay_date, roundStep(dateAllowedStep({
               decreasePerEvaluation: bandStep,
               stayDateMovedToday: movedTodayByDate.get(rate.stay_date) ?? 0,
               maxDailyDecreasePerDate: Number(rule.max_daily_decrease_per_date || 10),
-            }));
+            }), wantsWholeNumbers, "down"));
           }
 
           const allowed = allowedStepByDate.get(rate.stay_date) ?? 0;
@@ -993,6 +997,7 @@ Deno.serve(async (req) => {
             noteBlock(rate.stay_date, "daily_cap");
             continue;
           }
+
 
           const pending = pendingByCell.get(cellKey) ?? [];
           const current = effectivePrice(Number(rate.price), pending);
