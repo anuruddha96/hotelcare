@@ -4211,12 +4211,16 @@ export function TranslationProvider({ children }: { children: React.ReactNode })
     return detected || 'en';
   });
 
-  const [cachedBundles] = useState<Record<Language, Record<string, string>>>(() =>
-    supportedLanguages.reduce((bundles, lang) => {
-      bundles[lang] = getCachedTranslationBundle(lang);
-      return bundles;
-    }, {} as Record<Language, Record<string, string>>)
-  );
+  const [cachedBundles, setCachedBundles] = useState<Partial<Record<Language, Record<string, string>>>>(() => ({
+    en: getCachedTranslationBundle('en'),
+    ...(language === 'en' ? {} : { [language]: getCachedTranslationBundle(language) }),
+  }));
+
+  useEffect(() => {
+    setCachedBundles((current) => current[language]
+      ? current
+      : { ...current, [language]: getCachedTranslationBundle(language) });
+  }, [language]);
 
   // Load custom translations from localStorage
   const [customTranslations, setCustomTranslations] = useState<any>(() => {
