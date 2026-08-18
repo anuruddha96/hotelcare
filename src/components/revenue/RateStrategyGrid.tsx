@@ -2069,14 +2069,25 @@ export default function RateStrategyGrid({
       if (rangeRectRef.current) setRangeToolOpen(true);
     };
 
+    // The move listener must sit on the grid (it cancels the scroll), but the
+    // end listeners live on the window: if the cell under the finger is
+    // re-rendered away mid-gesture the touchend never reaches the grid, and the
+    // calendar would stay locked in "selecting" mode and refuse to scroll.
     el.addEventListener("touchmove", onTouchMove, { passive: false });
-    el.addEventListener("touchend", onTouchEnd);
-    el.addEventListener("touchcancel", onTouchEnd);
+    window.addEventListener("touchend", onTouchEnd);
+    window.addEventListener("touchcancel", onTouchEnd);
+    window.addEventListener("pointercancel", onTouchEnd);
+    window.addEventListener("blur", onTouchEnd);
+    document.addEventListener("visibilitychange", onTouchEnd);
     return () => {
       el.removeEventListener("touchmove", onTouchMove);
-      el.removeEventListener("touchend", onTouchEnd);
-      el.removeEventListener("touchcancel", onTouchEnd);
+      window.removeEventListener("touchend", onTouchEnd);
+      window.removeEventListener("touchcancel", onTouchEnd);
+      window.removeEventListener("pointercancel", onTouchEnd);
+      window.removeEventListener("blur", onTouchEnd);
+      document.removeEventListener("visibilitychange", onTouchEnd);
     };
+
   }, []);
 
 
