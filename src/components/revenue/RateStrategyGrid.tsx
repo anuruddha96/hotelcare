@@ -3705,49 +3705,66 @@ export default function RateStrategyGrid({
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <div className="flex flex-wrap gap-1.5">
-                {[1, 2, 8, 11, 18, 22].map((n) => (
-                  <Button
-                    key={`up-${n}`}
-                    size="sm"
-                    variant={dayMode === "amount" && dayValue === String(n) ? "default" : "outline"}
-                    className="h-8 min-w-[62px] text-[11px]"
-                    onClick={() => { setDayMode("amount"); setDayValue(String(n)); }}
-                  >
-                    +{n} {getRevenueCurrency().code}
-                  </Button>
-                ))}
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">Increase</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
+                    <Button
+                      key={`up-${n}`}
+                      size="sm"
+                      variant={dayMode === "amount" && dayValue === String(n) ? "default" : "outline"}
+                      className="h-8 min-w-[58px] text-[11px]"
+                      onClick={() => { setDayMode("amount"); setDayValue(String(n)); }}
+                    >
+                      +{n}
+                    </Button>
+                  ))}
+                </div>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {[-1, -2, -5].map((n) => (
-                  <Button
-                    key={`down-${n}`}
-                    size="sm"
-                    variant={dayMode === "amount" && dayValue === String(n) ? "default" : "outline"}
-                    className="h-8 min-w-[62px] text-[11px]"
-                    onClick={() => { setDayMode("amount"); setDayValue(String(n)); }}
-                  >
-                    {n} {getRevenueCurrency().code}
-                  </Button>
-                ))}
-                {[
-                  { label: "Peak +10%", value: "10" },
-                  { label: "Event +20%", value: "20" },
-                  { label: "Soft −5%", value: "-5" },
-                ].map((p) => (
-                  <Button
-                    key={p.label}
-                    size="sm"
-                    variant={dayMode === "percent" && dayValue === p.value ? "default" : "outline"}
-                    className="h-8 text-[11px]"
-                    onClick={() => { setDayMode("percent"); setDayValue(p.value); }}
-                  >
-                    {p.label}
-                  </Button>
-                ))}
+
+              <div className="space-y-1">
+                <div className="text-[10px] font-medium uppercase tracking-wide text-rose-600">Decrease</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
+                    <Button
+                      key={`down-${n}`}
+                      size="sm"
+                      variant={dayMode === "amount" && dayValue === String(-n) ? "default" : "outline"}
+                      className="h-8 min-w-[58px] text-[11px]"
+                      onClick={() => { setDayMode("amount"); setDayValue(String(-n)); }}
+                    >
+                      −{n}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Percent · {getRevenueCurrency().code} amounts above
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { label: "Peak +10%", value: "10" },
+                    { label: "Event +20%", value: "20" },
+                    { label: "Soft −5%", value: "-5" },
+                    { label: "Clear −10%", value: "-10" },
+                  ].map((p) => (
+                    <Button
+                      key={p.label}
+                      size="sm"
+                      variant={dayMode === "percent" && dayValue === p.value ? "default" : "outline"}
+                      className="h-8 text-[11px]"
+                      onClick={() => { setDayMode("percent"); setDayValue(p.value); }}
+                    >
+                      {p.label}
+                    </Button>
+                  ))}
+                </div>
               </div>
             </div>
+
 
 
             <div className="grid grid-cols-3 gap-2">
