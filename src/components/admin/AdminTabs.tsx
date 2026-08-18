@@ -6,10 +6,12 @@ import { TranslationManagement } from './TranslationManagement';
 import { PhotoCleanupManager } from '@/components/dashboard/PhotoCleanupManager';
 import PMSConfigurationManagement from './PMSConfigurationManagement';
 import { BreakfastCodeManagement } from './BreakfastCodeManagement';
-import { Building2, Hotel, Languages, HardDrive, Cable, Coffee, GraduationCap, MapPin } from 'lucide-react';
+import { Building2, Hotel, Languages, HardDrive, Cable, Coffee, GraduationCap, MapPin, Mail } from 'lucide-react';
 import { TrainingAdminPanel } from './TrainingAdminPanel';
 import AiProviderStatus from './AiProviderStatus';
 import RevenueEngineControls from './RevenueEngineControls';
+import EmailSettingsPanel from './EmailSettingsPanel';
+
 
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import VenueManagement from '@/components/slnt/VenueManagement';
