@@ -81,6 +81,8 @@ export default function Breakfast() {
   const [dataSource, setDataSource] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [tab, setTab] = useState<"rooms" | "reservations">("rooms");
+
 
   // Load this org's hotels (skipped on hotel-code direct lookup)
   useEffect(() => {
