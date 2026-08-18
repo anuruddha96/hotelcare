@@ -21,18 +21,30 @@ export function useCellRateHistory(hotelId?: string | null, perCell = 8) {
   const knownIds = useRef(new Set<string>());
   const loaded = useRef(new Set<string>());
   const inflight = useRef(new Set<string>());
+  /** Newest row this hook has for a date — used to spot a stale cache. */
+  const newestByDate = useRef(new Map<string, string>());
 
   useEffect(() => {
     loaded.current = new Set();
     inflight.current = new Set();
+    newestByDate.current = new Map();
     setByCell(new Map());
     knownIds.current = new Set();
     setNames(new Map());
   }, [hotelId]);
 
-  const loadDate = useCallback(async (date: string, force = false) => {
+  /**
+   * `freshAsOf` is the newest change the calendar KNOWS about for this date
+   * (from the marker read). If the cache is older than that — or empty while a
+   * marker exists — the drawer would open blank next to a coloured dot, so the
+   * date is re-read instead of served from cache.
+   */
+  const loadDate = useCallback(async (date: string, force = false, freshAsOf?: string | null) => {
     if (!hotelId || !date) return;
-    if (!force && (loaded.current.has(date) || inflight.current.has(date))) return;
+    const cachedNewest = newestByDate.current.get(date);
+    const stale = !!freshAsOf && (!cachedNewest || cachedNewest < freshAsOf);
+    if (!force && !stale && (loaded.current.has(date) || inflight.current.has(date))) return;
+    if (inflight.current.has(date)) return;
     inflight.current.add(date);
     try {
       const since = new Date(Date.now() - RECENT_WINDOW_MS * 4).toISOString();
