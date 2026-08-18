@@ -7,8 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, Trash2, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, RefreshCw, CheckCheck, Star, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { Loader2, CalendarRange, ChevronDown, Info, AlertTriangle, Send, History, SlidersHorizontal, Maximize2, Minimize2, ZoomIn, ZoomOut, Star, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -29,7 +28,7 @@ import { useRateAudit } from "@/hooks/useRateAudit";
 import { useRateCellMarkers } from "@/hooks/useRateCellMarkers";
 import { useCellRateHistory } from "@/hooks/useCellRateHistory";
 import { usePickupAutomationActions, type AutomationAction } from "@/hooks/usePickupAutomationActions";
-import { cellKey, formatWhen, logRateChanges, resolveRateMismatches, type RateAuditRow } from "@/lib/rateAudit";
+import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
 import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, budapestDayStartMs, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
 import { classifyDraft } from "@/lib/rateChangeGroups";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
@@ -250,8 +249,7 @@ interface PendingDraft {
   created_at?: string | null;
   updated_at?: string | null;
   stay_date: string;
-
-
+  obk_id?: string | null;
   room_type_name: string;
   occupancy: number;
   old_price: number | null;
@@ -261,19 +259,6 @@ interface PendingDraft {
   actual_previo_price?: number | null;
   push_error?: string | null;
 }
-
-/** How long a price has been waiting for Previo's read-back, in plain words. */
-function waitLabel(stamp?: string | null): string | null {
-  const t = Date.parse(String(stamp ?? ""));
-  if (!Number.isFinite(t)) return null;
-  const mins = Math.floor((Date.now() - t) / 60000);
-  if (mins < 2) return null;
-  if (mins < 60) return `${mins} min`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 48) return `${hours} h`;
-  return `${Math.floor(hours / 24)} days`;
-}
-
 
 /**
  * Previo-style pricelist: room types down a FROZEN left column with one
@@ -471,23 +456,13 @@ export default function RateStrategyGrid({
 
 
   const [saving, setSaving] = useState(false);
-  /** Live progress of the prices currently on their way to Previo. */
-  const [pushRun, setPushRun] = useState<{
-    total: number; done: number; failed: number;
-    state: "sending" | "done" | "error"; message?: string;
-  } | null>(null);
-
   /** Prices that have not left the app yet (real drafts and refused rows). */
   const [drafts, setDrafts] = useState<Map<string, number>>(new Map());
   /** Prices already sent to Previo and waiting for its read-back. */
   const [inFlight, setInFlight] = useState<Map<string, number>>(new Map());
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
-  const [selectedDraftIds, setSelectedDraftIds] = useState<Set<string>>(new Set());
-  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
-  const [clearAllMode, setClearAllMode] = useState(false);
-
-  const [removingDrafts, setRemovingDrafts] = useState(false);
+  const [retryingFailures, setRetryingFailures] = useState(false);
   /** Result of the harmless Previo rate-write capability check. */
   const [probing, setProbing] = useState(false);
   const [probe, setProbe] = useState<{ ok: boolean; message: string; support?: string | null } | null>(null);
@@ -1120,9 +1095,9 @@ export default function RateStrategyGrid({
     if (!hotelId) return;
     const { data } = await supabase
       .from("revenue_rate_drafts")
-      .select("id, created_at, updated_at, stay_date, room_type_name, occupancy, old_price, new_price, status, confirmation_status, actual_previo_price, push_error")
+      .select("id, created_at, updated_at, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, status, confirmation_status, actual_previo_price, push_error")
       .eq("hotel_id", hotelId)
-      .or("status.in.(draft,failed),and(status.eq.pushed,confirmation_status.in.(sending,sent,checking,pending,different))")
+      .eq("status", "failed")
       .order("stay_date");
     const all = (data ?? []) as PendingDraft[];
     // Only the newest request per cell still means anything. An older request
@@ -1142,17 +1117,7 @@ export default function RateStrategyGrid({
     // already took, and a dead attempt (refused, superseded or a publish that
     // never reported back). Only the first is an actionable draft — the last
     // one is history and must never wear the dotted "waiting" underline.
-    const unsentMap = new Map<string, number>();
-    const inFlightMap = new Map<string, number>();
-    for (const d of rows) {
-      const key = `${d.stay_date}|${d.room_type_name}|${d.occupancy}`;
-      const price = Number(d.new_price);
-      const state = classifyDraft(d);
-      if (state === "inflight") inFlightMap.set(key, price);
-      else if (state === "unsent") unsentMap.set(key, price);
-    }
-    setDrafts(unsentMap);
-    setInFlight(inFlightMap);
+    setDrafts(new Map());
   }, [hotelId]);
 
 
@@ -1166,41 +1131,6 @@ export default function RateStrategyGrid({
     [pending],
   );
 
-  // Three very different states used to be counted as one "waiting" number:
-  // a price nobody has sent yet, a price Previo already accepted, and a price
-  // that landed on a different value. Keeping them apart is the difference
-  // between "the push failed" and "the push is done".
-  const awaitingDrafts = useMemo(
-    () => pending.filter((d) => classifyDraft(d) === "inflight"),
-    [pending],
-  );
-
-  /** Age of the longest-waiting confirmation, so "still checking" is honest. */
-  const oldestAwaitingLabel = useMemo(() => {
-    const stamps = awaitingDrafts
-      .map((d) => Date.parse(String(d.updated_at ?? d.created_at ?? "")))
-      .filter((t) => Number.isFinite(t) && t > 0);
-    if (stamps.length === 0) return null;
-    return waitLabel(new Date(Math.min(...stamps)).toISOString());
-  }, [awaitingDrafts]);
-
-  const divergentDrafts = useMemo(
-    () => pending.filter((d) => d.confirmation_status === "different"),
-    [pending],
-  );
-
-  /**
-   * "Did not land" flags nobody has checked yet.
-   *
-   * Previo can round or refuse part of a price, and that leaves a red note in
-   * the trail. Once someone has looked at Previo and is happy, the note has to
-   * be closable — otherwise a corrected date stays red forever.
-   */
-  const openMismatches = useMemo(
-    () => auditManualRows.filter((r) =>
-      r.source === "previo_different" && !r.payload?.resolved_at && !!r.stay_date && r.stay_date >= today),
-    [auditManualRows, today],
-  );
   /**
    * Short-lived "this price just moved" highlights. A calendar of numbers is
    * easy to lose your place in, so a change announces itself: blue when it is
@@ -1261,100 +1191,6 @@ export default function RateStrategyGrid({
     if (moved.length > 0 && moved.length <= 400) markFlash(moved, "confirm");
   }, [rates, markFlash]);
 
-  const [rechecking, setRechecking] = useState(false);
-  const [clearingFlags, setClearingFlags] = useState(false);
-
-  /** Read the live prices back from Previo and re-judge every open flag. */
-  const recheckPrevio = useCallback(async () => {
-    if (!hotelId) return;
-    setRechecking(true);
-    try {
-      const { error } = await supabase.functions.invoke("previo-revenue-sync", {
-        body: { hotelId, horizonDays: Math.max(30, days) },
-      });
-      if (error) throw error;
-      await Promise.all([refreshDrafts(), reloadAudit(), onRatesUpdated?.()]);
-      toast.success("Checked against Previo", {
-        description: "The calendar now shows the prices Previo is holding right now.",
-      });
-    } catch (e) {
-      toast.error("Could not reach Previo", {
-        description: e instanceof Error ? e.message : "Please try again in a moment.",
-      });
-    } finally {
-      setRechecking(false);
-    }
-  }, [hotelId, days, refreshDrafts, reloadAudit, onRatesUpdated]);
-
-  /** One cell: accept what Previo holds and stop flagging it. */
-  const acceptPrevioPrice = useCallback(async (draft: PendingDraft) => {
-    try {
-      await supabase.from("revenue_rate_drafts")
-        .update({ confirmation_status: "superseded" })
-        .eq("id", draft.id);
-      await resolveRateMismatches(
-        auditManualRows.filter((r) => r.source === "previo_different"
-          && r.stay_date === draft.stay_date
-          && r.payload?.room_type_name === draft.room_type_name
-          && r.payload?.occupancy === draft.occupancy
-          && !r.payload?.resolved_at),
-      );
-      await Promise.all([refreshDrafts(), reloadAudit()]);
-      toast.success("Previo's price kept", { description: `${draft.room_type_name} · ${draft.stay_date}` });
-    } catch {
-      toast.error("Could not update this price");
-    }
-  }, [auditManualRows, refreshDrafts, reloadAudit]);
-
-  /** Close the flags: the price in Previo is the one the hotel wants. */
-  const clearMismatchFlags = useCallback(async () => {
-    setClearingFlags(true);
-    try {
-      const done = await resolveRateMismatches(openMismatches);
-      const ids = divergentDrafts.map((d) => d.id);
-      if (ids.length > 0) {
-        await supabase.from("revenue_rate_drafts")
-          .update({ confirmation_status: "superseded" })
-          .in("id", ids);
-      }
-      await Promise.all([reloadAudit(), refreshDrafts()]);
-      toast.success(`${done} price flag${done === 1 ? "" : "s"} cleared`, {
-        description: "Previo's price is now treated as the agreed one. The history keeps the record.",
-      });
-    } catch {
-      toast.error("Could not clear the flags", { description: "Please try again in a moment." });
-    } finally {
-      setClearingFlags(false);
-    }
-  }, [openMismatches, divergentDrafts, reloadAudit, refreshDrafts]);
-
-  /**
-   * Confirmation is nobody's chore. While prices are still waiting for Previo's
-   * read-back, the app quietly re-checks on its own: a couple of cheap refreshes
-   * first, then an authoritative Previo read if anything is still open.
-   */
-  const awaitingCount = awaitingDrafts.length;
-  const confirmRefs = useRef({ refreshDrafts, reloadAudit, onRatesUpdated });
-  confirmRefs.current = { refreshDrafts, reloadAudit, onRatesUpdated };
-  useEffect(() => {
-    if (!hotelId || awaitingCount === 0) return;
-    let cancelled = false;
-    const timers: number[] = [];
-    const soft = async () => {
-      if (cancelled) return;
-      const r = confirmRefs.current;
-      await Promise.all([r.refreshDrafts(), r.reloadAudit(), r.onRatesUpdated?.()]);
-    };
-    timers.push(window.setTimeout(() => void soft(), 5000));
-    timers.push(window.setTimeout(() => void soft(), 15000));
-    timers.push(window.setTimeout(() => void soft(), 60000));
-    timers.push(window.setTimeout(() => void soft(), 150000));
-    return () => { cancelled = true; timers.forEach((t) => window.clearTimeout(t)); };
-  }, [hotelId, awaitingCount]);
-
-
-
-
   /** Fill the Previo pricelist mapping from Previo itself. */
   async function syncRatePlans() {
     if (!hotelId) return;
@@ -1376,38 +1212,25 @@ export default function RateStrategyGrid({
     }
   }
 
-  async function discardDraft(id: string) {
-    const { error } = await supabase.from("revenue_rate_drafts").delete().eq("id", id);
-    if (error) { toast.error("Could not discard the draft"); return; }
-    await refreshDrafts();
-  }
-
-  async function discardSelectedDrafts() {
-    // "Clear all" wipes every waiting change; otherwise just the ticked rows.
-    // Rows already accepted by Previo are cleared too — removing them only
-    // stops Hotel Care waiting for a confirmation, it never changes Previo.
-    const ids = clearAllMode ? pending.map((d) => d.id) : Array.from(selectedDraftIds);
-    if (ids.length === 0) return;
-    setRemovingDrafts(true);
-    let failed = false;
-    let removed = 0;
-    for (let i = 0; i < ids.length; i += 200) {
-      const { data, error } = await supabase
-        .from("revenue_rate_drafts")
-        .delete()
-        .in("id", ids.slice(i, i + 200))
-        .select("id");
-      if (error) { failed = true; break; }
-      removed += (data ?? []).length;
+  async function retryFailedPrices() {
+    if (!hotelId || pending.length === 0) return;
+    setRetryingFailures(true);
+    try {
+      const result = await publishRates({
+        hotelId, organizationSlug, source: "manual",
+        changes: pending.map((d) => ({
+          stay_date: d.stay_date, obk_id: d.obk_id ?? null, room_type_name: d.room_type_name,
+          occupancy: d.occupancy, old_price: d.old_price, new_price: d.new_price,
+        })),
+      });
+      setPushOpen(false);
+      setPending([]);
+      toast.success(`${result.queued} failed price${result.queued === 1 ? "" : "s"} queued again`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not retry these prices");
+    } finally {
+      setRetryingFailures(false);
     }
-    setRemovingDrafts(false);
-    if (failed) { toast.error("Could not remove the drafts"); return; }
-    setSelectedDraftIds(new Set());
-    setRemoveConfirmOpen(false);
-    setClearAllMode(false);
-    await refreshDrafts();
-    if (removed === 0) toast.error("Nothing was removed — you may not have permission to clear these rows.");
-    else toast.success(`${removed} draft${removed === 1 ? "" : "s"} removed`);
   }
 
 
