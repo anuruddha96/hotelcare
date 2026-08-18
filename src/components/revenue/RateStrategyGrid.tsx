@@ -3608,179 +3608,42 @@ export default function RateStrategyGrid({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={pushOpen} onOpenChange={(o) => {
-        if (!o) {
-          setPushOpen(false);
-          setSelectedDraftIds(new Set());
-        }
-      }}>
-
+      <Dialog open={pushOpen} onOpenChange={setPushOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-base">Price changes waiting to go live</DialogTitle>
+            <DialogTitle className="text-base">Previo refused these prices</DialogTitle>
           </DialogHeader>
-          <div className="max-h-[50vh] overflow-y-auto -mx-2 px-2">
+          <div className="max-h-[50vh] overflow-y-auto">
             <table className="w-full text-xs">
               <thead className="text-muted-foreground">
                 <tr className="border-b">
-                  <th className="w-8 py-1.5">
-                    <Checkbox
-                      aria-label="Select all price changes"
-                      checked={pending.length > 0 && selectedDraftIds.size === pending.length}
-                      onCheckedChange={(checked) => setSelectedDraftIds(checked === true ? new Set(pending.map((d) => d.id)) : new Set())}
-                    />
-                  </th>
-                  <th className="text-left py-1.5">Date</th>
-                  <th className="text-left py-1.5">Room type</th>
-                  <th className="text-right py-1.5">Now</th>
-                  <th className="text-right py-1.5">New</th>
-                  <th />
+                  <th className="py-1.5 text-left">Date</th>
+                  <th className="py-1.5 text-left">Room type</th>
+                  <th className="py-1.5 text-right">Price</th>
                 </tr>
               </thead>
               <tbody>
                 {pending.map((d) => (
-                  <tr key={d.id} className="border-b last:border-0">
-                    <td className="py-1.5">
-                      <Checkbox
-                        aria-label={`Select ${d.room_type_name} on ${d.stay_date}`}
-                        checked={selectedDraftIds.has(d.id)}
-                        onCheckedChange={(checked) => setSelectedDraftIds((current) => {
-                          const next = new Set(current);
-                          if (checked === true) next.add(d.id); else next.delete(d.id);
-                          return next;
-                        })}
-                      />
+                  <tr key={d.id} className="border-b last:border-0 align-top">
+                    <td className="py-2 whitespace-nowrap">{d.stay_date}</td>
+                    <td className="py-2">
+                      <span>{d.room_type_name} · {d.occupancy}g</span>
+                      <span className="block text-[10px] text-destructive">{d.push_error || "Previo rejected this price"}</span>
                     </td>
-                    <td className="py-1.5 whitespace-nowrap">{d.stay_date}</td>
-                    <td className="py-1.5">
-                      {d.room_type_name} · {d.occupancy}g
-                      {d.status === "failed" && (
-                        <span className="block text-[10px] text-destructive">
-                          Failed: {d.push_error || "Previo rejected this price"} — will retry on next push
-                        </span>
-                      )}
-                      {d.status === "pushed" && d.confirmation_status !== "different" && (
-                        <span className="block text-[10px] text-muted-foreground">
-                          Accepted by Previo — confirming{waitLabel(d.updated_at ?? d.created_at) ? ` (waiting ${waitLabel(d.updated_at ?? d.created_at)})` : ""}
-                        </span>
-                      )}
-                      {d.confirmation_status === "different" && (
-                        <span className="block text-[10px] text-destructive">
-                          Requested {moneyBase(d.new_price)} · Previo has {moneyBase(d.actual_previo_price)}
-                        </span>
-                      )}
-                    </td>
-
-                    <td className="py-1.5 text-right tabular-nums text-muted-foreground">{moneyBase(d.old_price)}</td>
-                    <td className="py-1.5 text-right tabular-nums font-semibold">{moneyBase(d.new_price)}</td>
-                    <td className="py-1.5 text-right whitespace-nowrap">
-                      {d.confirmation_status === "different" && (
-                        <Button
-                          size="sm" variant="ghost" className="h-7 px-2 text-[11px]"
-                          title="Previo's price is the one we want — stop flagging this cell"
-                          onClick={() => void acceptPrevioPrice(d)}
-                        >
-                          <CheckCheck className="h-3.5 w-3.5 mr-1" />Keep Previo's
-                        </Button>
-                      )}
-                      <Button
-                        size="icon" variant="ghost" className="h-7 w-7"
-                        aria-label="Discard this change"
-                        onClick={() => void discardDraft(d.id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </td>
+                    <td className="py-2 text-right font-semibold tabular-nums">{moneyBase(d.new_price)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">Only persistent Previo errors appear here. Successful publishing and verification stay in the background.</p>
-            {oldestAwaitingLabel && (
-              <p className="text-[11px] text-muted-foreground">
-                Oldest price still confirming: {oldestAwaitingLabel}. Use “Check Previo now” to settle these against the live prices.
-              </p>
-            )}
-
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm" variant="outline" className="h-7 text-[11px]"
-                disabled={rechecking}
-                onClick={() => void recheckPrevio()}
-              >
-                {rechecking ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RefreshCw className="h-3 w-3 mr-1" />}
-                Check Previo now
-              </Button>
-              <span className="text-[11px] text-muted-foreground">
-                Reads the live prices back from Previo and clears anything that already matches.
-              </span>
-            </div>
-            {failedCount > 0 && (
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  size="sm" variant="outline" className="h-7 text-[11px]"
-                  disabled={probing}
-                  onClick={() => void checkWriteAccess()}
-                >
-                  {probing && <Loader2 className="h-3 w-3 animate-spin mr-1" />}Check Previo access
-                </Button>
-                <Button
-                  size="sm" variant="outline" className="h-7 text-[11px]"
-                  disabled={probing}
-                  onClick={() => void syncRatePlans()}
-                >
-                  Refresh room mapping
-                </Button>
-                {probe && (
-                  <span className={`text-[11px] ${probe.ok ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
-                    {probe.message}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
+          <p className="text-xs text-muted-foreground">Only persistent write failures appear here. Successful delivery and verification stay in the background.</p>
           <DialogFooter className="gap-2">
-            <div className="mr-auto flex flex-wrap gap-2">
-              {selectedDraftIds.size > 0 && (
-                <Button variant="destructive" onClick={() => { setClearAllMode(false); setRemoveConfirmOpen(true); }}>
-                  <Trash2 className="mr-1 h-4 w-4" />Remove ({selectedDraftIds.size})
-                </Button>
-              )}
-              {pending.length > 0 && (
-                <Button variant="outline" onClick={() => { setClearAllMode(true); setRemoveConfirmOpen(true); }}>
-                  <Trash2 className="mr-1 h-4 w-4" />Clear all ({pending.length})
-                </Button>
-              )}
-            </div>
-            <Button variant="ghost" onClick={() => setPushOpen(false)}>Close</Button>
-
-          </DialogFooter>
-
-
-        </DialogContent>
-      </Dialog>
-      <Dialog open={removeConfirmOpen} onOpenChange={(o) => { setRemoveConfirmOpen(o); if (!o) setClearAllMode(false); }}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-base">
-              {clearAllMode ? "Clear every waiting change?" : "Remove selected drafts?"}
-            </DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            This removes {clearAllMode ? pending.length : selectedDraftIds.size} unsent price change
-            {(clearAllMode ? pending.length : selectedDraftIds.size) === 1 ? "" : "s"} from Hotel Care. Live Previo prices are not changed.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setRemoveConfirmOpen(false); setClearAllMode(false); }}>Keep drafts</Button>
-            <Button variant="destructive" onClick={() => void discardSelectedDrafts()} disabled={removingDrafts}>
-              {removingDrafts && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
-              {clearAllMode ? "Clear all" : "Remove drafts"}
+            <Button variant="outline" onClick={() => setPushOpen(false)}>Close</Button>
+            <Button onClick={() => void retryFailedPrices()} disabled={retryingFailures || pending.length === 0}>
+              {retryingFailures && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Retry {pending.length} price{pending.length === 1 ? "" : "s"}
             </Button>
           </DialogFooter>
-
         </DialogContent>
       </Dialog>
 
