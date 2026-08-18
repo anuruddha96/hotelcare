@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useTrainingV2, txt } from './TrainingV2Provider';
+import { useTrainingV2Optional, txt } from './TrainingV2Provider';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,14 +22,18 @@ const HEADER = {
 };
 
 export function TrainingHelpButtonV2() {
-  const { availableCurricula, completion, start, lang, registerLauncher } = useTrainingV2();
+  const ctx = useTrainingV2Optional();
   const navigate = useNavigate();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const btnRef = useRef<HTMLButtonElement>(null);
+  const registerLauncher = ctx?.registerLauncher;
 
   useEffect(() => {
-    registerLauncher(btnRef.current);
+    registerLauncher?.(btnRef.current);
   }, [registerLauncher]);
+
+  if (!ctx) return null;
+  const { availableCurricula, completion, start, lang } = ctx;
 
   if (availableCurricula.length === 0) return null;
 
