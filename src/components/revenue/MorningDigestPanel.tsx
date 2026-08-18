@@ -171,7 +171,7 @@ export default function MorningDigestPanel({ hotelId, organizationSlug, canEdit 
         Send me one now
       </Button>
       <p className="text-[11px] text-muted-foreground">
-        The test goes to your own address plus the extra recipients above.
+        The test goes to your own address plus the recipients above, and refreshes live Previo data first.
       </p>
 
       {sendError && (
