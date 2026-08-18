@@ -3219,13 +3219,15 @@ export default function RateStrategyGrid({
 
                       </button>
                     );
-                    if ((!history && !marker && !cellAutomation?.length) || isMobile || cellDragging) return cellButton;
+                    if (isMobile || cellDragging) return cellButton;
                     return (
                       <HoverCard key={d} openDelay={2000} closeDelay={60}>
                         <HoverCardTrigger asChild>{cellButton}</HoverCardTrigger>
                         <HoverCardContent align="center" className="w-72 p-3 text-xs">
                           <p className="font-medium">{row.roomTypeName} · {row.occ}g · {d}</p>
-                          <p className="text-[11px] text-muted-foreground">{originLabel}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {soldOut ? "Sold out · price changes are disabled" : `${tone.label} · ${originLabel}`}
+                          </p>
                           <p className="mt-1 mb-2 flex justify-between">
                             <span className="text-muted-foreground">Current price</span>
                             <span className="tabular-nums font-semibold">{moneyBase(published ?? null)}</span>
