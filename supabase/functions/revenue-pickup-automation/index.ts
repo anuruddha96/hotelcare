@@ -1621,15 +1621,31 @@ Deno.serve(async (req) => {
         if (!latestRate.has(key)) latestRate.set(key, r);
       }
 
-      // 4. How much this stay date already went up today (daily cap).
+      // 4. How much this stay date already went up today (daily cap), plus
+      //    which reservations were ALREADY used to lift a price inside the
+      //    pickup window — a booking may only surge its dates once, no matter
+      //    how many hourly runs still see it as fresh.
       const dayStart = `${today}T00:00:00Z`;
-      const { data: todaysActions } = await admin
-        .from("revenue_pickup_automation_actions")
-        .select("stay_date, reservation_id, increase_amount")
-        .eq("hotel_id", rule.hotel_id)
-        .in("stay_date", stayDates)
-        .gte("created_at", dayStart)
-        .limit(20000);
+      const [{ data: todaysActions }, { data: windowRaises }] = await Promise.all([
+        admin
+          .from("revenue_pickup_automation_actions")
+          .select("stay_date, reservation_id, increase_amount")
+          .eq("hotel_id", rule.hotel_id)
+          .in("stay_date", stayDates)
+          .gte("created_at", dayStart)
+          .limit(20000),
+        admin
+          .from("revenue_pickup_automation_actions")
+          .select("stay_date, reservation_id")
+          .eq("hotel_id", rule.hotel_id)
+          .in("stay_date", stayDates)
+          .in("decision_type", ["positive_pickup", "far_out_booking"])
+          .gte("created_at", freshFrom)
+          .limit(20000),
+      ]);
+      const alreadyRaisedRes = new Set(
+        ((windowRaises ?? []) as any[]).map((a) => `${a.stay_date}|${a.reservation_id ?? ""}`),
+      );
       const raisedByEvent = new Map<string, number>();
       for (const a of (todaysActions ?? []) as any[]) {
         const eventKey = `${a.stay_date}|${a.reservation_id ?? ""}`;
