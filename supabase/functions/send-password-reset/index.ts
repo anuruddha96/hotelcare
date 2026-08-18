@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.53.0";
-import { Resend } from "npm:resend@4.0.0";
+import { mailClient } from "../_shared/emailSender.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,7 +8,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const resend = mailClient());
+const resend = mailClient();
 
 interface PasswordResetRequest {
   email: string;
