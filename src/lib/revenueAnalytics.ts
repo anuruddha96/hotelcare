@@ -30,6 +30,42 @@ export function daysBetween(a: string, b: string): number {
   return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
 }
 
+/**
+ * The pickup window the automation engine itself uses: a ROLLING 48 hours, not
+ * a Budapest calendar day. Encoded as a negative number of hours so the single
+ * `pickupWindowDays` value can carry either mode without a second prop.
+ *
+ * This is why the calendar and the automation used to disagree: a booking taken
+ * yesterday at 21:00 is inside the engine's window but outside "Today", so a
+ * price rose against an empty pickup cell.
+ */
+export const PICKUP_WINDOW_48H = -48;
+
+/** True when the value means "the last N hours" rather than "the last N days". */
+export function isRollingPickupWindow(windowDays: number): boolean {
+  return windowDays < 0;
+}
+
+/** Epoch ms at which the selected pickup window opens. */
+export function pickupWindowStartMs(windowDays: number, now: number = Date.now()): number {
+  if (isRollingPickupWindow(windowDays)) return now - Math.abs(windowDays) * 3_600_000;
+  const firstDay = addDays(budapestDayOf(new Date(now).toISOString()), -Math.max(0, windowDays - 1));
+  return Date.parse(`${firstDay}T00:00:00Z`) - 2 * 3_600_000; // Budapest midnight, DST-tolerant
+}
+
+/** First Budapest calendar day the window can touch (used for day-keyed data). */
+export function pickupWindowFirstDay(windowDays: number, now: number = Date.now()): string {
+  return budapestDayOf(new Date(pickupWindowStartMs(windowDays, now)).toISOString());
+}
+
+export function pickupWindowLabel(windowDays: number): string {
+  if (isRollingPickupWindow(windowDays)) return `Last ${Math.abs(windowDays)} hours`;
+  if (windowDays <= 1) return "Today";
+  if (windowDays === 2) return "Yesterday + today";
+  return `Last ${windowDays} days`;
+}
+
+
 export function dateRange(from: string, to: string): string[] {
   const out: string[] = [];
   const n = daysBetween(from, to);
@@ -184,7 +220,17 @@ export function buildDayMetrics(params: {
   const cancellations = params.cancellations ?? [];
   const movements = params.movements ?? [];
   const today = budapestToday();
-  const windowStart = addDays(today, -Math.max(0, windowDays - 1));
+  const now = Date.now();
+  // One rule for "is this inside the window", shared by bookings, cancellations
+  // and sync movements, so a rolling 48h window behaves exactly like the engine.
+  const windowStartMs = pickupWindowStartMs(windowDays, now);
+  const windowStart = pickupWindowFirstDay(windowDays, now);
+  const inWindow = (iso: string | null | undefined): boolean => {
+    if (!iso) return false;
+    const t = Date.parse(iso);
+    return Number.isFinite(t) ? t >= windowStartMs : budapestDayOf(iso) >= windowStart;
+  };
+
 
   const sold = new Map<string, number>();
   const revenue = new Map<string, number>();
@@ -197,8 +243,8 @@ export function buildDayMetrics(params: {
     sold.set(n.stay_date, (sold.get(n.stay_date) ?? 0) + 1);
     revenue.set(n.stay_date, (revenue.get(n.stay_date) ?? 0) + (n.nightly_price_eur ?? 0));
     if (n.created_at_pms) {
-      const createdDay = budapestDayOf(n.created_at_pms);
-      if (createdDay >= windowStart) {
+      if (inWindow(n.created_at_pms)) {
+
         const set = createdRes.get(n.stay_date) ?? new Set<string>();
         set.add(String(n.res_id));
         createdRes.set(n.stay_date, set);
@@ -214,7 +260,7 @@ export function buildDayMetrics(params: {
   const cancelledRes = new Map<string, Set<string>>();
   for (const c of cancellations) {
     if (!c.cancelled_at) continue;
-    if (budapestDayOf(c.cancelled_at) < windowStart) continue;
+    if (!inWindow(c.cancelled_at)) continue;
     const set = cancelledRes.get(c.stay_date) ?? new Set<string>();
     set.add(String(c.res_id));
     cancelledRes.set(c.stay_date, set);
@@ -234,11 +280,13 @@ export function buildDayMetrics(params: {
   const MOVEMENT_LAG_MS = 30 * 60 * 1000;
   const syncedMovement = new Map<string, number>();
   for (const movement of movements) {
-    const happenedAt = Date.parse(movement.captured_at) - MOVEMENT_LAG_MS;
-    const day = Number.isFinite(happenedAt)
-      ? budapestDayOf(new Date(happenedAt).toISOString())
-      : budapestDayOf(movement.captured_at);
-    if (day < windowStart) continue;
+    const parsed = Date.parse(movement.captured_at);
+    const happenedAt = Number.isFinite(parsed) ? parsed - MOVEMENT_LAG_MS : NaN;
+    const inside = Number.isFinite(happenedAt)
+      ? inWindow(new Date(happenedAt).toISOString())
+      : inWindow(movement.captured_at);
+    if (!inside) continue;
+
     syncedMovement.set(
       movement.stay_date,
       (syncedMovement.get(movement.stay_date) ?? 0) + Number(movement.delta || 0),

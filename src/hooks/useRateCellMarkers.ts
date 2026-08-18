@@ -12,7 +12,7 @@ import { RECENT_WINDOW_MS } from "@/lib/rateOrigin";
  * four-month range costs a couple of thousand rows instead of the tens of
  * thousands the raw audit table writes every day.
  */
-export function useRateCellMarkers(hotelId?: string | null, from?: string, to?: string) {
+export function useRateCellMarkers(hotelId?: string | null, from?: string, to?: string, sinceMs?: number) {
   const [rows, setRows] = useState<CellMarkerRow[]>([]);
   const [loading, setLoading] = useState(false);
   /** Re-derive the Budapest day boundary as the clock crosses midnight. */
@@ -69,7 +69,7 @@ export function useRateCellMarkers(hotelId?: string | null, from?: string, to?: 
   }, []);
 
   const byCell = useMemo(() => indexCellMarkers(rows), [rows]);
-  const byDate = useMemo(() => dayMarkers(byCell, tick), [byCell, tick]);
+  const byDate = useMemo(() => dayMarkers(byCell, tick, sinceMs), [byCell, tick, sinceMs]);
 
   return { rows, byCell, byDate, loading, reload: load };
 }

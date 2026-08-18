@@ -16,6 +16,9 @@ import { useUiPreference } from "@/hooks/useUiPreference";
 import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend,
   type BookingNight, type DayMetrics, type RoomTypeRate,
+  PICKUP_WINDOW_48H,
+  pickupWindowLabel,
+  pickupWindowStartMs,
 } from "@/lib/revenueAnalytics";
 import {
   localizedRoomTypeName, occupancyTone2, pickupTone, rateTone,
@@ -93,6 +96,9 @@ const RANGE_OPTIONS = [
 
 
 const PICKUP_WINDOWS = [
+  // The engine's own window comes first: this is the only option whose numbers
+  // can be compared like-for-like with an automation change.
+  { value: PICKUP_WINDOW_48H, label: "Last 48 hours (automation)" },
   { value: 1, label: "Today" },
   { value: 2, label: "Yesterday + today" },
   { value: 3, label: "Last 3 days" },
@@ -592,6 +598,23 @@ export default function RateStrategyGrid({
   const allDates = useMemo(() => dateRange(today, addDays(today, days - 1)), [today, days]);
 
   /**
+   * Header dots follow the SAME stretch of time as the pickup row above them.
+   * Re-derived every minute so a rolling window keeps moving with the clock.
+   */
+  const [markerClock, setMarkerClock] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setMarkerClock(Date.now()), 60_000);
+    return () => window.clearInterval(t);
+  }, []);
+  /** True when the pickup row measures exactly what the engine measures. */
+  const isAutomationWindow = pickupWindowDays === PICKUP_WINDOW_48H;
+  const markerSinceMs = useMemo(
+    () => pickupWindowStartMs(pickupWindowDays, markerClock),
+    [pickupWindowDays, markerClock],
+  );
+
+
+  /**
    * Durable change markers for everything on screen. Read from the database in
    * ONE bounded call per range (newest change per exact cell), so the dots
    * survive a reload instead of living only in optimistic state.
@@ -600,7 +623,7 @@ export default function RateStrategyGrid({
     byCell: markerByCell,
     byDate: markerByDate,
     reload: reloadMarkers,
-  } = useRateCellMarkers(hotelId, allDates[0], allDates[allDates.length - 1]);
+  } = useRateCellMarkers(hotelId, allDates[0], allDates[allDates.length - 1], markerSinceMs);
 
   /** Real per-cell history, fetched one stay date at a time when opened. */
   const { byCell: cellHistoryByCell, names: cellHistoryNames, loadDate: loadCellHistory, invalidate: invalidateCellHistory } = useCellRateHistory(hotelId);
@@ -2417,7 +2440,7 @@ export default function RateStrategyGrid({
                         Pickup
                         <MetricInfo
                           title="Net pickup"
-                          body="New room-nights booked in the selected window minus room-nights cancelled in the same window. Negative means the date lost rooms. Source: Previo reservations."
+                          body={`Reservations gained in the selected window minus reservations lost in the same window. Negative means the date lost rooms. Source: Previo reservations.\n\nThe pricing automation reacts to a rolling 48 hours of bookings, so pick "Last 48 hours (automation)" if you want this row to explain the purple dots. On any other window a price can move with an empty pickup cell — the booking landed just outside what you are looking at.`}
                         />
                       </>
                     )}
@@ -2438,7 +2461,7 @@ export default function RateStrategyGrid({
                         key={d}
                         title={pickup === null
                           ? `${d} · pickup not available yet`
-                          : `${d} · ${pickup > 0 ? "+" : ""}${pickup} (${tone.label}) — ${m?.newBookings ?? 0} new, ${lost} lost${latestLabel ? ` · last pickup ${latestLabel}` : ""}`}
+                          : `${d} · net ${pickup > 0 ? "+" : ""}${pickup} (${tone.label}) — ${m?.newBookings ?? 0} in, ${lost} out, counted over ${pickupWindowLabel(pickupWindowDays).toLowerCase()}${latestLabel ? ` · last movement ${latestLabel}` : ""}${isAutomationWindow ? "" : " · the automation reacts to the last 48 hours, so this window can disagree with the purple dots"}`}
                         className={`flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)}`}
                         style={{ width: CELL_W, contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
                       >

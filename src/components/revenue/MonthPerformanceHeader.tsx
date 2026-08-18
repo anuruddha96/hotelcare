@@ -5,12 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ChevronLeft, ChevronRight, BedDouble, Coins, Gauge, DoorOpen, TrendingUp, TrendingDown, Info, CalendarPlus } from "lucide-react";
-import { budapestDayOf, formatMonth, type BookingNight, type CancelledNight, type DayMetrics } from "@/lib/revenueAnalytics";
+import { budapestDayOf, formatMonth, pickupWindowLabel, PICKUP_WINDOW_48H, type BookingNight, type CancelledNight, type DayMetrics } from "@/lib/revenueAnalytics";
 import { money, eurEquivalent, setRevenueCurrency, setDisplayCurrency, currencySymbol, useRevenueCurrency, isForeignCurrency } from "@/lib/revenueCurrency";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 const PICKUP_WINDOWS = [
+  { value: PICKUP_WINDOW_48H, label: "Last 48 hours (automation)" },
   { value: 1, label: "Today only" },
   { value: 2, label: "Yesterday + today" },
   { value: 3, label: "Last 3 days" },
@@ -22,7 +23,7 @@ const PICKUP_WINDOWS = [
 ];
 
 function windowLabel(days: number) {
-  return PICKUP_WINDOWS.find((p) => p.value === days)?.label ?? `Last ${days} days`;
+  return PICKUP_WINDOWS.find((p) => p.value === days)?.label ?? pickupWindowLabel(days);
 }
 
 function Explain({ title, body }: { title: string; body: string }) {

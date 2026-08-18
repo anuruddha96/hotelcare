@@ -27,6 +27,7 @@ import MorningDigestPanel from "@/components/revenue/MorningDigestPanel";
 import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 import { computeSuggestedRate, type PricingMultipliers, type EngineSettings, leadTimeBucket, DOW_NAMES, MONTH_NAMES, LEAD_LABELS } from "@/lib/revenuePricing";
 import { setRevenueCurrency, useRevenueCurrency, money, getRevenueCurrency } from "@/lib/revenueCurrency";
+import { PICKUP_WINDOW_48H } from "@/lib/revenueAnalytics";
 import RoomsSetupTab from "@/components/revenue/settings/RoomsSetupTab";
 import PercentAdjustmentTab from "@/components/revenue/settings/PercentAdjustmentTab";
 import { CalendarYearView, CalendarQuarterView } from "@/components/revenue/CalendarYearView";
@@ -126,7 +127,9 @@ export default function RevenueHotelDetail() {
 
   const [view, setView] = useState<"week"|"month"|"quarter"|"year">("month");
   const [tab, setTab] = useState("grid");
-  const [pickupWindow, setPickupWindow] = useState(1);
+  // Default to the automation's own rolling 48h window so the pickup row and
+  // the purple dots always describe the same stretch of time.
+  const [pickupWindow, setPickupWindow] = useState<number>(PICKUP_WINDOW_48H);
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const live = useRevenueHotelData(hotelId ?? null, 190, pickupWindow);
 
