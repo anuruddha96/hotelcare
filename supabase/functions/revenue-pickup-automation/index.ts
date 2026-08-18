@@ -1494,8 +1494,11 @@ Deno.serve(async (req) => {
 
           const topRows: any[] = [];
           const topDrafts: any[] = [];
+          const topSupersede: string[] = [];
           for (const rate of topLatest.values()) {
-            if (markdownDatesThisRun.has(rate.stay_date)) continue;
+            // A date marked down in this same run is NOT skipped: the markdown
+            // is exactly what can push a far-out cell under the threshold, and
+            // the top-up reads the marked-down target through `effectivePrice`.
             if (soldOutBlocksAnyChange({
               enabled: rule.sold_out_guard_enabled !== false,
               roomsLeft: topLeft.get(rate.stay_date) ?? null,
@@ -1505,8 +1508,10 @@ Deno.serve(async (req) => {
             if (typeSoldOut(rate.room_type_name, rate.obk_id, rate.stay_date)) continue;
 
             const cell = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
-            const current = effectivePrice(Number(rate.price), topPendingByCell.get(cell) ?? []);
+            const cellPending = topPendingByCell.get(cell) ?? [];
+            const current = effectivePrice(Number(rate.price), cellPending);
             if (current === null) continue;
+
             const daysOut = dayDiff(local.date, rate.stay_date);
             const topUp = farOutFloorTopUp({
               enabled: true,
