@@ -598,6 +598,21 @@ export default function RateStrategyGrid({
   const allDates = useMemo(() => dateRange(today, addDays(today, days - 1)), [today, days]);
 
   /**
+   * Header dots follow the SAME stretch of time as the pickup row above them.
+   * Re-derived every minute so a rolling window keeps moving with the clock.
+   */
+  const [markerClock, setMarkerClock] = useState(() => Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setMarkerClock(Date.now()), 60_000);
+    return () => window.clearInterval(t);
+  }, []);
+  const markerSinceMs = useMemo(
+    () => pickupWindowStartMs(pickupWindowDays, markerClock),
+    [pickupWindowDays, markerClock],
+  );
+
+
+  /**
    * Durable change markers for everything on screen. Read from the database in
    * ONE bounded call per range (newest change per exact cell), so the dots
    * survive a reload instead of living only in optimistic state.
