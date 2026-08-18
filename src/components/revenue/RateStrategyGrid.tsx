@@ -831,9 +831,20 @@ export default function RateStrategyGrid({
       if (a < 0 || b < 0) return;
       setPickedDates(new Set(list.slice(Math.min(a, b), Math.max(a, b) + 1)));
     };
+    // A window-level end guarantees the hold is released even when the date
+    // button under the finger re-renders mid-gesture.
+    const onEnd = () => { lpActive.current = false; lpAnchor.current = null; cancelLongPress(); };
     el.addEventListener("touchmove", onMove, { passive: false });
-    return () => el.removeEventListener("touchmove", onMove);
+    window.addEventListener("touchend", onEnd);
+    window.addEventListener("touchcancel", onEnd);
+    return () => {
+      el.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onEnd);
+      window.removeEventListener("touchcancel", onEnd);
+    };
   }, [allDates, cancelLongPress]);
+
+
 
   /** Price-cell history on touch: tap a cell to read who changed it and when. */
   const [cellInfo, setCellInfo] = useState<{
@@ -2069,14 +2080,41 @@ export default function RateStrategyGrid({
       if (rangeRectRef.current) setRangeToolOpen(true);
     };
 
+    /** Release the lock without opening the pricing tool. */
+    const abort = () => {
+      if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
+      pendingCell.current = null;
+      if (!cellDraggingRef.current) return;
+      cellDraggingRef.current = false;
+      setCellDragging(false);
+    };
+    /** A fresh gesture means any earlier one is over — never stay locked. */
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 1 && cellDraggingRef.current && !pendingCell.current) abort();
+    };
+
+    // The move listener must sit on the grid (it cancels the scroll), but the
+    // end listeners live on the window: if the cell under the finger is
+    // re-rendered away mid-gesture the touchend never reaches the grid, and the
+    // calendar would stay locked in "selecting" mode and refuse to scroll.
     el.addEventListener("touchmove", onTouchMove, { passive: false });
-    el.addEventListener("touchend", onTouchEnd);
-    el.addEventListener("touchcancel", onTouchEnd);
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchend", onTouchEnd);
+    window.addEventListener("touchcancel", abort);
+    window.addEventListener("pointercancel", abort);
+    window.addEventListener("blur", abort);
+    document.addEventListener("visibilitychange", abort);
     return () => {
       el.removeEventListener("touchmove", onTouchMove);
-      el.removeEventListener("touchend", onTouchEnd);
-      el.removeEventListener("touchcancel", onTouchEnd);
+      window.removeEventListener("touchstart", onTouchStart);
+      window.removeEventListener("touchend", onTouchEnd);
+      window.removeEventListener("touchcancel", abort);
+      window.removeEventListener("pointercancel", abort);
+      window.removeEventListener("blur", abort);
+      document.removeEventListener("visibilitychange", abort);
     };
+
+
   }, []);
 
 
