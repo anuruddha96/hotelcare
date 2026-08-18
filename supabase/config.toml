@@ -177,3 +177,6 @@ verify_jwt = false
 
 [functions.assistant-save-abort]
 verify_jwt = false
+
+[functions.previo-meal-probe]
+verify_jwt = false
