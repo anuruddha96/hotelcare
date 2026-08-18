@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { useTranslation } from "@/hooks/useTranslation";
 import { bbT } from "@/lib/breakfast-translations";
 import OccupancyPickupChart from "@/components/breakfast/OccupancyPickupChart";
+import RestaurantReservations from "@/components/breakfast/RestaurantReservations";
+
 
 interface RestaurantDef {
   key: string;
@@ -586,7 +588,10 @@ export default function Breakfast() {
               </div>
             </div>
           )}
+          </div>
+          )}
         </CardContent>
+
       </Card>
     </div>
   );
