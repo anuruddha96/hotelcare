@@ -16,6 +16,9 @@ import { useUiPreference } from "@/hooks/useUiPreference";
 import {
   addDays, dateRange, eur, formatDay, formatMonth, formatWeekday, isWeekend,
   type BookingNight, type DayMetrics, type RoomTypeRate,
+  PICKUP_WINDOW_48H,
+  pickupWindowLabel,
+  pickupWindowStartMs,
 } from "@/lib/revenueAnalytics";
 import {
   localizedRoomTypeName, occupancyTone2, pickupTone, rateTone,

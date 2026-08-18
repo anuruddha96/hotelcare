@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Bar, CartesianGrid, Cell, ComposedChart, Label, LabelList, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from "recharts";
 import { Activity } from "lucide-react";
 import type { DayMetrics } from "@/lib/revenueAnalytics";
-import { budapestToday, daysBetween } from "@/lib/revenueAnalytics";
+import { budapestToday, daysBetween, pickupWindowLabel, PICKUP_WINDOW_48H } from "@/lib/revenueAnalytics";
 import { money, currencySymbol } from "@/lib/revenueCurrency";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { supabase } from "@/integrations/supabase/client";
