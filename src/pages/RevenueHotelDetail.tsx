@@ -126,7 +126,9 @@ export default function RevenueHotelDetail() {
 
   const [view, setView] = useState<"week"|"month"|"quarter"|"year">("month");
   const [tab, setTab] = useState("grid");
-  const [pickupWindow, setPickupWindow] = useState(1);
+  // Default to the automation's own rolling 48h window so the pickup row and
+  // the purple dots always describe the same stretch of time.
+  const [pickupWindow, setPickupWindow] = useState<number>(PICKUP_WINDOW_48H);
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const live = useRevenueHotelData(hotelId ?? null, 190, pickupWindow);
 

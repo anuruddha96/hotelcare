@@ -69,11 +69,12 @@ export default function PickupMovementBoard({
   const isNew = useIsNewSince(seenSince);
 
 
-  const windowFirstDay = useMemo(
-    () => addDays(budapestToday(), -Math.max(0, windowDays - 1)),
-    [windowDays],
-  );
-  const inWindow = (iso: string | null | undefined) => !!iso && budapestDayOf(iso) >= windowFirstDay;
+  const windowStartMs = useMemo(() => pickupWindowStartMs(windowDays), [windowDays]);
+  const inWindow = (iso: string | null | undefined) => {
+    if (!iso) return false;
+    const t = Date.parse(iso);
+    return Number.isFinite(t) && t >= windowStartMs;
+  };
 
   const reservations = useMemo<ReservationRow[]>(() => {
     const build = (source: Array<BookingNight | CancelledNight>, kind: ReservationRow["kind"]) => {
@@ -152,7 +153,7 @@ export default function PickupMovementBoard({
       <CardHeader className="pb-2">
         <CardTitle className="flex flex-wrap items-center gap-2 text-base">
           <Scale className="h-4 w-4 text-primary" />
-          Reservations moved in the last {windowDays} day{windowDays === 1 ? "" : "s"}
+          Reservations moved in {pickupWindowLabel(windowDays).toLowerCase()}
           {newCount > 0 && (
             <Badge className="gap-1 px-1.5 py-0 text-[10px]">
               <Sparkles className="h-3 w-3" />{newCount} new since your last visit

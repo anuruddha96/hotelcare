@@ -93,6 +93,9 @@ const RANGE_OPTIONS = [
 
 
 const PICKUP_WINDOWS = [
+  // The engine's own window comes first: this is the only option whose numbers
+  // can be compared like-for-like with an automation change.
+  { value: PICKUP_WINDOW_48H, label: "Last 48 hours (automation)" },
   { value: 1, label: "Today" },
   { value: 2, label: "Yesterday + today" },
   { value: 3, label: "Last 3 days" },

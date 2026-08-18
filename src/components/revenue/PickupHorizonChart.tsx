@@ -335,7 +335,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                 </div>
               )}
               <span className="text-[11px] text-muted-foreground">
-                measuring {pickupWindowDays ?? 1} day{(pickupWindowDays ?? 1) > 1 ? "s" : ""} of bookings
+                measuring {pickupWindowLabel(pickupWindowDays ?? PICKUP_WINDOW_48H).toLowerCase()} of bookings
               </span>
             </>
           )}
