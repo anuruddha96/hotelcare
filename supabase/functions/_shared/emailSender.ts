@@ -70,6 +70,24 @@ export interface SendResult {
 
 function humanError(status: number, body: string): { message: string; keyProblem: boolean } {
   const lower = body.toLowerCase();
+  // Order matters: Resend answers 403 both for a bad key and for the sandbox
+  // sender restriction, so the specific messages are matched first.
+  if (/you can only send testing emails to your own email address/.test(lower)) {
+    const owner = body.match(/\(([^)]+@[^)]+)\)/)?.[1];
+    return {
+      message:
+        `The sandbox sender onboarding@resend.dev only delivers to the Resend account owner${owner ? ` (${owner})` : ""}. ` +
+        "Verify your own domain at resend.com/domains and save that address in Email settings — then everyone receives the digest.",
+      keyProblem: false,
+    };
+  }
+  if (/domain is not verified|not verified/.test(lower)) {
+    return {
+      message:
+        "The sender domain is not verified in Resend. Verify it at resend.com/domains, then save that address in Email settings.",
+      keyProblem: false,
+    };
+  }
   if (status === 401 || status === 403 || /api key is invalid|restricted api key|unauthorized/.test(lower)) {
     return {
       message:
@@ -77,22 +95,25 @@ function humanError(status: number, body: string): { message: string; keyProblem
       keyProblem: true,
     };
   }
-  if (/domain is not verified|not verified/.test(lower)) {
-    return {
-      message:
-        "The sender domain is not verified in Resend. Verify the domain, or use onboarding@resend.dev (which only delivers to the Resend account owner).",
-      keyProblem: false,
-    };
-  }
-  if (/you can only send testing emails to your own email address/.test(lower)) {
-    return {
-      message:
-        "onboarding@resend.dev only delivers to the Resend account owner. Verify your own domain in Resend and set it as the sender address in Email settings.",
-      keyProblem: false,
-    };
-  }
   return { message: `Resend responded ${status}: ${body.slice(0, 400)}`, keyProblem: false };
 }
+
+/** Verified sending domains on the Resend account, newest usable first. */
+async function verifiedDomains(apiKey: string): Promise<string[]> {
+  try {
+    const res = await fetch(`${RESEND_API}/domains`, { headers: { Authorization: `Bearer ${apiKey}` } });
+    if (!res.ok) return [];
+    const parsed = await res.json().catch(() => null);
+    const list = Array.isArray(parsed?.data) ? parsed.data : [];
+    return list
+      .filter((d: { status?: string }) => String(d.status ?? "").toLowerCase() === "verified")
+      .map((d: { name?: string }) => String(d.name ?? ""))
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 
 /** Raw send — no settings lookup, no on/off checks. */
 export async function sendViaResend(opts: {
