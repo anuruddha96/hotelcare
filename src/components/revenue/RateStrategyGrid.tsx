@@ -3388,14 +3388,11 @@ export default function RateStrategyGrid({
         )}
       </CardContent>
 
-      {/* Live counter while a block is being dragged out. */}
-      {cellDragging && rangeRect && (
-        <div className="pointer-events-none fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full border bg-card/95 px-4 py-2 text-xs shadow-lg backdrop-blur animate-fade-in">
-          <span className="font-medium">{rangeCells.length} price{rangeCells.length === 1 ? "" : "s"}</span>
-          <span className="text-muted-foreground">
-            {" · "}{rangeRect.r1 - rangeRect.r0 + 1} row{rangeRect.r1 === rangeRect.r0 ? "" : "s"}
-            {" × "}{rangeRect.d1 - rangeRect.d0 + 1} date{rangeRect.d1 === rangeRect.d0 ? "" : "s"}
-          </span>
+      {/* Live counter while a block is being dragged out (text written directly
+          by the painter so it keeps up with the finger). */}
+      {cellDragging && (
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full border bg-card/95 px-4 py-2 text-xs font-medium shadow-lg backdrop-blur animate-fade-in">
+          <div ref={pillRef}>Selecting…</div>
         </div>
       )}
 
