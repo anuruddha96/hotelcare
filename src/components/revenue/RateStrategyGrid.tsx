@@ -831,9 +831,18 @@ export default function RateStrategyGrid({
       if (a < 0 || b < 0) return;
       setPickedDates(new Set(list.slice(Math.min(a, b), Math.max(a, b) + 1)));
     };
+    // A window-level end guarantees the hold is released even when the date
+    // button under the finger re-renders mid-gesture.
+    const onEnd = () => { lpActive.current = false; lpAnchor.current = null; cancelLongPress(); };
     el.addEventListener("touchmove", onMove, { passive: false });
-    return () => el.removeEventListener("touchmove", onMove);
-  }, [allDates, cancelLongPress]);
+    window.addEventListener("touchend", onEnd);
+    window.addEventListener("touchcancel", onEnd);
+    return () => {
+      el.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onEnd);
+      window.removeEventListener("touchcancel", onEnd);
+    };
+
 
   /** Price-cell history on touch: tap a cell to read who changed it and when. */
   const [cellInfo, setCellInfo] = useState<{
