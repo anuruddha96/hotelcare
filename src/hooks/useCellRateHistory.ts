@@ -74,6 +74,9 @@ export function useCellRateHistory(hotelId?: string | null, perCell = 8) {
         return next;
       });
       loaded.current.add(date);
+      let newest = "";
+      for (const r of rows) if (r.performed_at > newest) newest = r.performed_at;
+      newestByDate.current.set(date, newest);
 
       const ids = Array.from(new Set(
         rows.map((r) => r.performed_by).filter((id): id is string => !!id && !knownIds.current.has(id)),
