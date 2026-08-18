@@ -698,11 +698,21 @@ Deno.serve(async (req) => {
         horizon.setUTCDate(horizon.getUTCDate() + Math.max(1, Number(rule.future_booking_window_days || 183)));
         const horizonDate = horizon.toISOString().slice(0, 10);
         const observationFrom = evalWindow.from;
+        // The markdown side must use the SAME idea of "this date picked up" as
+        // the increase side, otherwise a date that took a booking last night is
+        // marked down every hour and raised in the same run. Both now look back
+        // over the configured pickup window (default 48h).
+        const pickupWindowFrom = new Date(
+          now.getTime() - Math.max(1, Number(rule.pickup_lookback_hours || 48)) * 3_600_000,
+        ).toISOString();
+        const bookingsFrom = new Date(
+          Math.min(Date.parse(observationFrom), Date.parse(pickupWindowFrom)),
+        ).toISOString();
         // Cancellations are read over a wider window than the pickup window so
         // the cooldown can still see a cancellation that landed minutes ago.
         const cooldownMinutes = Math.max(0, Number(rule.cancellation_wait_minutes ?? 60));
         const cancellationsFrom = new Date(
-          Math.min(Date.parse(observationFrom), now.getTime() - (cooldownMinutes + 5) * 60_000),
+          Math.min(Date.parse(bookingsFrom), now.getTime() - (cooldownMinutes + 5) * 60_000),
         ).toISOString();
 
         const [
