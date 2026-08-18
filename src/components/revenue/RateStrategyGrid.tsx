@@ -2630,7 +2630,7 @@ export default function RateStrategyGrid({
                     if (!trail && dayChanges.length === 0) return dayButton;
                     const up = (trail?.avgDelta ?? 0) >= 0;
                     return (
-                      <HoverCard key={d} openDelay={150} closeDelay={60}>
+                      <HoverCard key={d} openDelay={2000} closeDelay={60}>
                         <HoverCardTrigger asChild>{dayButton}</HoverCardTrigger>
                         <HoverCardContent align="center" className="w-72 p-3 text-xs space-y-2">
                           <p className="font-medium">{formatWeekday(d)} {formatDay(d)} · last price changes</p>
@@ -3218,7 +3218,7 @@ export default function RateStrategyGrid({
                     );
                     if ((!history && !marker && !cellAutomation?.length) || isMobile || cellDragging) return cellButton;
                     return (
-                      <HoverCard key={d} openDelay={120} closeDelay={60}>
+                      <HoverCard key={d} openDelay={2000} closeDelay={60}>
                         <HoverCardTrigger asChild>{cellButton}</HoverCardTrigger>
                         <HoverCardContent align="center" className="w-72 p-3 text-xs">
                           <p className="font-medium">{row.roomTypeName} · {row.occ}g · {d}</p>
