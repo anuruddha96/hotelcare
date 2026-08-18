@@ -76,6 +76,9 @@ export default function Breakfast() {
   const [savingMark, setSavingMark] = useState(false);
   const [rooms, setRooms] = useState<any[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(false);
+  const [dataSource, setDataSource] = useState<string | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   // Load this org's hotels (skipped on hotel-code direct lookup)
   useEffect(() => {
@@ -220,6 +223,21 @@ export default function Breakfast() {
     setRoomsLoading(false);
     if (error || !data) { setRooms([]); return; }
     setRooms(data.rooms ?? []);
+    setDataSource(data.data_source ?? null);
+    setLastSyncedAt(data.last_synced_at ?? null);
+  }
+
+  // Pull the freshest reservations straight from the PMS, then reload the grid.
+  async function syncFromPms() {
+    if (!selection) return;
+    setSyncing(true);
+    const { error } = await supabase.functions.invoke("previo-sync-daily-overview-all", {
+      body: { hotelId: selection.hotel_id, days: 2 },
+    });
+    setSyncing(false);
+    if (error) { toast.error(error.message); return; }
+    await loadRooms();
+    toast.success(tt("syncDone"));
   }
 
   // Initial load + on selection/date change
@@ -228,6 +246,14 @@ export default function Breakfast() {
     void loadRooms();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selection?.hotel_id, selection?.location_key, date]);
+
+  // Keep the roster fresh without staff having to reload the page.
+  useEffect(() => {
+    if (!selection || hotelCode) return;
+    const id = setInterval(() => { void loadRooms(); }, 5 * 60 * 1000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection?.hotel_id, date]);
 
   // Realtime subscription on breakfast_attendance for this hotel + date
   useEffect(() => {
@@ -476,10 +502,22 @@ export default function Breakfast() {
           {!hotelCode && selection && (
             <div className="pt-3 border-t">
               <div className="flex items-center justify-between mb-2">
-                <div className="font-semibold text-sm">{tt("roomsTitle")} · {rooms.length}</div>
-                <Button variant="ghost" size="sm" className="h-7" onClick={() => void loadRooms()} disabled={roomsLoading}>
-                  <RefreshCw className={`h-3 w-3 ${roomsLoading ? "animate-spin" : ""}`} />
-                </Button>
+                <div>
+                  <div className="font-semibold text-sm">{tt("roomsTitle")} · {rooms.length}</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {dataSource === "previo"
+                      ? tt("liveFrom", { time: lastSyncedAt ? new Date(lastSyncedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—" })
+                      : dataSource === "manual" ? tt("uploadedData") : ""}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="sm" className="h-7" onClick={() => void loadRooms()} disabled={roomsLoading}>
+                    <RefreshCw className={`h-3 w-3 ${roomsLoading ? "animate-spin" : ""}`} />
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => void syncFromPms()} disabled={syncing}>
+                    {syncing ? <Loader2 className="h-3 w-3 animate-spin" /> : tt("syncNow")}
+                  </Button>
+                </div>
               </div>
               <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground mb-2">
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400"/>{tt("legendPending")}</span>
