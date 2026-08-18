@@ -1221,7 +1221,7 @@ export default function RateStrategyGrid({
       flashTimers.current.set(k, setTimeout(() => {
         flashTimers.current.delete(k);
         setFlash((prev) => { const next = new Map(prev); next.delete(k); return next; });
-      }, 1400));
+      }, 450));
     }
   }, []);
   useEffect(() => () => { flashTimers.current.forEach((t) => clearTimeout(t)); }, []);
