@@ -1599,17 +1599,6 @@ export default function RateStrategyGrid({
     audit: { source: string; notes: string },
   ) => {
     if (!hotelId || rowsToSave.length === 0) return;
-    const sellableRows = rowsToSave.filter((row) =>
-      (leftByTypeDate?.get(`${row.room_type_name}|${row.stay_date}`) ?? 1) > 0);
-    const skippedSoldOut = rowsToSave.length - sellableRows.length;
-    if (skippedSoldOut > 0) {
-      toast.info(`${skippedSoldOut} sold-out price cell${skippedSoldOut === 1 ? " was" : "s were"} skipped`);
-    }
-    if (sellableRows.length === 0) {
-      toast.error("All selected room types are sold out on those dates");
-      return;
-    }
-    rowsToSave = sellableRows;
     // 1. Optimistic mirror — the calendar reads the new prices immediately.
     setOptimistic((prev) => {
       const next = new Map(prev);
@@ -1687,7 +1676,7 @@ export default function RateStrategyGrid({
         toast.error(e instanceof Error ? e.message : "Could not send the prices to Previo");
       }
     })();
-  }, [hotelId, organizationSlug, refreshDrafts, reloadAudit, onRatesUpdated, leftByTypeDate]);
+  }, [hotelId, organizationSlug, refreshDrafts, reloadAudit, onRatesUpdated]);
 
   /** Publish one or many absolute target prices without blocking on Previo. */
   async function saveDraft() {
@@ -1709,7 +1698,6 @@ export default function RateStrategyGrid({
 
     const rowsToSave: any[] = [];
     for (const d of targetDates) {
-      if ((leftByTypeDate?.get(`${edit.room_type_name}|${d}`) ?? 1) <= 0) continue;
       for (const occ of occs) {
         const current = edit.obk_id ? priceMap.get(edit.obk_id)?.get(occ)?.get(d) ?? null : null;
         const next = editMode === "set"
@@ -1788,7 +1776,6 @@ export default function RateStrategyGrid({
     for (const row of rateRows) {
       if (dayTypes.size > 0 && !dayTypes.has(row.roomTypeName)) continue;
       for (const d of dayToolDates) {
-        if ((leftByTypeDate?.get(`${row.roomTypeName}|${d}`) ?? 1) <= 0) continue;
         const current = row.obk ? priceMap.get(row.obk)?.get(row.occ)?.get(d) ?? null : null;
         const next = dayToolNext(current);
         if (next === null || (current !== null && Math.round(next) === Math.round(current))) continue;
@@ -1796,7 +1783,7 @@ export default function RateStrategyGrid({
       }
     }
     return out;
-  }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext, leftByTypeDate]);
+  }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext]);
 
   /** Publish every change the day tool previews. */
   async function applyDayTool(_mode: "draft" | "push" = "push") {
@@ -1935,12 +1922,11 @@ export default function RateStrategyGrid({
       for (let di = rangeRect.d0; di <= rangeRect.d1; di += 1) {
         const d = dates[di];
         if (!d) continue;
-        if ((leftByTypeDate?.get(`${row.roomTypeName}|${d}`) ?? 1) <= 0) continue;
         out.push({ date: d, row, current: priceMap.get(row.obk)?.get(row.occ)?.get(d) ?? null });
       }
     }
     return out;
-  }, [rangeRect, rows, dates, priceMap, leftByTypeDate]);
+  }, [rangeRect, rows, dates, priceMap]);
 
   /** What the selection tool would change, always in whole money. */
   const rangeChanges = useMemo(() => {
