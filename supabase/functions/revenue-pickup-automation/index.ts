@@ -1825,6 +1825,7 @@ Deno.serve(async (req) => {
         }
 
 
+        let matchedRate = 0;
         for (const rate of latestRate.values()) {
           if (rate.stay_date !== ev.stay_date) continue;
           if (rule.application_scope !== "all_room_types") {
@@ -1835,6 +1836,7 @@ Deno.serve(async (req) => {
               : String(rate.room_type_name ?? "").trim().toLowerCase() === String(ev.room_type_name ?? "").trim().toLowerCase();
             if (!sameRoom) continue;
           }
+          matchedRate++;
           // This room type has nothing left for that date — raising it can only
           // look wrong later. The pickup is still recorded, the cell is not moved.
           if (typeSoldOut(rate.room_type_name, rate.obk_id, rate.stay_date)) { heldSoldOut++; noteSkip(ev.stay_date, "room_type_sold_out"); continue; }
@@ -1868,6 +1870,9 @@ Deno.serve(async (req) => {
             });
           }
         }
+        // The booking's room type has no live price row for that date, so there
+        // was nothing to raise. Silent before; now it is on the record.
+        if (matchedRate === 0) noteSkip(ev.stay_date, "no_price_row_for_room_type");
       }
 
       for (const decision of cellDecisions.values()) {
@@ -1876,7 +1881,7 @@ Deno.serve(async (req) => {
           rule.whole_number_prices !== false,
           rule.minimum_adr === null ? null : Number(rule.minimum_adr),
         );
-        if (newPrice <= decision.old_price) continue;
+        if (newPrice <= decision.old_price) { noteSkip(decision.stay_date, "rounding_no_change"); continue; }
 
         actionsToInsert.push({
           rule_id: rule.id,
