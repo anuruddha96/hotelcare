@@ -962,6 +962,10 @@ export function useTrainingV2() {
   return ctx;
 }
 
+export function useTrainingV2Optional() {
+  return useContext(TrainingV2Context);
+}
+
 export function txt(text: import('./types').I18nText, lang: LangCode): string {
   return tx(text, lang);
 }
