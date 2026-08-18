@@ -324,6 +324,9 @@ export default function RateStrategyGrid({
     setZoomPref(clamped);
   }, [zoom, setZoomPref]);
 
+  /** The events band can be folded away when the reader wants a plain grid. */
+  const [showEventBand, setShowEventBand] = useState(true);
+
   const CELL_W = Math.round(BASE_CELL_W * zoom);
   const ROW_H = Math.round(BASE_ROW_H * zoom);
   const GROUP_H = Math.round(BASE_GROUP_H * zoom);
@@ -1845,6 +1848,35 @@ export default function RateStrategyGrid({
   });
   // Selection helpers read this so a drag only ever covers what is on screen.
   visibleDatesRef.current = dates;
+
+  /**
+   * Events drawn as bars that span their whole run, so a three-day festival
+   * reads as one labelled band instead of three anonymous stars. Overlapping
+   * events are stacked into lanes (max 3) so the row stays compact.
+   */
+  const eventBands = useMemo(() => {
+    if (!eventsByDate || eventsByDate.size === 0) return { lanes: 0, bars: [] as Array<{ key: string; title: string; impact: string; from: number; to: number; lane: number; date: string }> };
+    const index = new Map(dates.map((d, i) => [d, i]));
+    const seen = new Map<string, { title: string; impact: string; from: number; to: number; date: string }>();
+    for (const d of dates) {
+      for (const e of eventsByDate.get(d) ?? []) {
+        const key = `${e.title}|${e.start ?? d}`;
+        const at = index.get(d)!;
+        const found = seen.get(key);
+        if (found) { found.from = Math.min(found.from, at); found.to = Math.max(found.to, at); }
+        else seen.set(key, { title: e.title, impact: e.impact, from: at, to: at, date: d });
+      }
+    }
+    const sorted = [...seen.entries()].sort((a, b) => a[1].from - b[1].from || b[1].to - a[1].to);
+    const laneEnds: number[] = [];
+    const bars = sorted.map(([key, b]) => {
+      let lane = laneEnds.findIndex((end) => end < b.from);
+      if (lane === -1) { lane = laneEnds.length; laneEnds.push(b.to); } else laneEnds[lane] = b.to;
+      return { key, ...b, lane };
+    }).filter((b) => b.lane < 3);
+    return { lanes: Math.min(3, laneEnds.length), bars };
+  }, [eventsByDate, dates.join(",")]);
+
   const rows = reviewOnly && flagged.rowKeys.size
     ? allRows.filter((r) => (r.kind === "rate" ? flagged.rowKeys.has(r.key) : r.kind !== "group"))
     : allRows;
@@ -2802,7 +2834,7 @@ export default function RateStrategyGrid({
                         style={{ width: CELL_W, height: "100%" }}
                       >
                         {dem ? DEMAND_SHORT[dem.band] : "·"}
-                        {evs.length > 0 && (
+                        {!showEventBand && evs.length > 0 && (
                           <Star
                             className={`absolute right-0.5 top-0.5 h-2.5 w-2.5 ${
                               evs.some(e => e.impact === "high") ? "text-red-500 fill-red-500" : "text-amber-500 fill-amber-500"
@@ -2814,7 +2846,63 @@ export default function RateStrategyGrid({
 
                   })}
                 </div>
+
+                {/* Events band — one labelled bar per event, spanning its dates */}
+                {eventBands.bars.length > 0 && (
+                  <div
+                    className="flex border-b-2 border-b-foreground/20 bg-card"
+                    style={{ height: showEventBand ? Math.max(ROW_H, eventBands.lanes * 16 + 6) : ROW_H }}
+                  >
+                    <div className="sticky left-0 z-40 flex items-center gap-1 border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowEventBand((v) => !v)}
+                        className="truncate text-left hover:text-primary"
+                        title={showEventBand ? "Hide the event names" : "Show the event names"}
+                      >
+                        {railed ? "Ev" : "Events"}
+                      </button>
+                      {!railed && (
+                        <span className="text-[10px] text-muted-foreground">{showEventBand ? "on" : "off"}</span>
+                      )}
+                    </div>
+                    <div className="relative shrink-0" style={{ width: dates.length * CELL_W, height: "100%" }}>
+                      {dates.map((d, i) => (
+                        <div
+                          key={d}
+                          className={`absolute top-0 h-full ${dayBg(d, i)} ${dayEdge(d)}`}
+                          style={{ left: i * CELL_W, width: CELL_W }}
+                        />
+                      ))}
+                      {showEventBand && eventBands.bars.map((b) => {
+                        const high = b.impact === "high";
+                        return (
+                          <button
+                            key={b.key}
+                            type="button"
+                            onClick={() => setDemandDay(dates[b.from])}
+                            title={`${b.title} — ${b.impact} impact (${dates[b.from]}${b.to > b.from ? ` → ${dates[b.to]}` : ""})`}
+                            className={`absolute flex items-center overflow-hidden rounded-[3px] border px-1 text-[9px] font-medium leading-none hover:ring-1 hover:ring-primary ${
+                              high
+                                ? "border-red-400/60 bg-red-500/15 text-red-700 dark:text-red-300"
+                                : "border-amber-400/60 bg-amber-400/15 text-amber-800 dark:text-amber-300"
+                            }`}
+                            style={{
+                              left: b.from * CELL_W + 1,
+                              width: (b.to - b.from + 1) * CELL_W - 2,
+                              top: 3 + b.lane * 16,
+                              height: 13,
+                            }}
+                          >
+                            <span className="truncate">{b.title}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
+
 
               {/* ---- Room-type / metric rows ---- */}
               {rows.map((row, rowIdx) => (

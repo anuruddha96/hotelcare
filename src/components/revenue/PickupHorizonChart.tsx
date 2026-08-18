@@ -115,6 +115,9 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
   const [showAdr, setShowAdr] = useState(false);
   const [showDemand, setShowDemand] = useState(true);
   const [compare, setCompare] = useState(false);
+  /** Event shading can be switched off when it crowds the chart. */
+  const [showEvents, setShowEvents] = useState(true);
+
   /** Properties the reader has switched off in comparison mode. */
   const [hiddenHotels, setHiddenHotels] = useState<Set<string>>(new Set());
   const toggleHotel = (id: string) => setHiddenHotels((prev) => {
@@ -353,6 +356,11 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
               <Button size="sm" variant={showDemand ? "default" : "ghost"} className="h-7 rounded-none px-2 text-xs"
                 onClick={() => setShowDemand((v) => !v)}>City demand</Button>
             )}
+            {(eventsByDate?.size ?? 0) > 0 && (
+              <Button size="sm" variant={showEvents ? "default" : "ghost"} className="h-7 rounded-none px-2 text-xs"
+                onClick={() => setShowEvents((v) => !v)}>Events</Button>
+            )}
+
             {hotels.length > 1 && (
               <Button size="sm" variant={compare ? "default" : "ghost"} className="h-7 rounded-none px-2 text-xs"
                 onClick={() => setCompare((v) => !v)}>Compare properties</Button>
@@ -429,7 +437,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                 hide={!showAdr || usesPercentAxis}
                 tickFormatter={(v: number) => `${currencySymbol()}${Math.round(v)}`}
                 domain={adrDomain} />
-                            {data.filter(d => eventsByDate?.has(d.date)).map((d) => (
+              {showEvents && data.filter(d => eventsByDate?.has(d.date)).map((d) => (
                 <ReferenceLine
                   key={d.date}
                   yAxisId="pickup"
@@ -438,6 +446,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   strokeWidth={8}
                 />
               ))}
+
               {monthMarks.map((m) => (
                 <ReferenceLine
                   key={m.date} yAxisId="pickup" x={m.label} stroke="hsl(var(--foreground) / 0.35)"
