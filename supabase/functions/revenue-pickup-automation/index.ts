@@ -1048,7 +1048,8 @@ Deno.serve(async (req) => {
           }
 
           step.newPrice = targetPrice;
-          step.applied = roundMoney(current - targetPrice);
+          step.applied = roundStep(current - targetPrice, wholeNumbers, "nearest");
+          const movedBy = roundStep(targetPrice - current, wholeNumbers, "nearest");
 
           markdownDates.add(rate.stay_date);
           for (const intent of pending) if (!intent.claimed) supersede.push(intent.id);
@@ -1057,7 +1058,7 @@ Deno.serve(async (req) => {
             rule_id: rule.id, rule_version: rule.version, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
             reservation_id: null, stay_date: rate.stay_date, pickup_at: null, pickup_sequence: 0,
             room_type_name: rate.room_type_name, obk_id: String(rate.obk_id), occupancy: Number(rate.occupancy) || 2,
-            old_price: current, increase_amount: step.newPrice - current, new_price: step.newPrice,
+            old_price: current, increase_amount: movedBy, new_price: step.newPrice,
             status: rule.auto_publish ? "queued" : "suggested", decision_type: "no_pickup_markdown",
             observation_from: observationFrom, observation_to: runStartedAt,
             net_pickup: net,
@@ -1068,7 +1069,9 @@ Deno.serve(async (req) => {
               netPickup: net,
               occupancyPct: guardsFor?.pct ?? null,
               daysOut: dayDiff(local.date, rate.stay_date),
-              amount: step.newPrice - current,
+              amount: movedBy,
+              currency: rate.currency ?? rule.currency ?? "EUR",
+
               currency: rate.currency ?? rule.currency ?? "EUR",
             }),
           });
