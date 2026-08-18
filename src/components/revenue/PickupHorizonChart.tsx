@@ -115,6 +115,9 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
   const [showAdr, setShowAdr] = useState(false);
   const [showDemand, setShowDemand] = useState(true);
   const [compare, setCompare] = useState(false);
+  /** Event shading can be switched off when it crowds the chart. */
+  const [showEvents, setShowEvents] = useState(true);
+
   /** Properties the reader has switched off in comparison mode. */
   const [hiddenHotels, setHiddenHotels] = useState<Set<string>>(new Set());
   const toggleHotel = (id: string) => setHiddenHotels((prev) => {
