@@ -225,9 +225,20 @@ export function buildDayMetrics(params: {
   // Every Previo sync stores its reservation-level gain/loss. Summing captures
   // within the selected Budapest window matches the PMS pickup report and does
   // not depend on unsupported cancellation-status filters.
+  //
+  // A capture reports what changed since the PREVIOUS sync, so its movement
+  // happened BEFORE its timestamp. The midnight run (00:00 Budapest) therefore
+  // carries the last minutes of yesterday; counting it as "today" made the
+  // calendar disagree with Previo's pick-up report. Shifting the attribution
+  // back by half a sync interval puts each movement on the day it happened.
+  const MOVEMENT_LAG_MS = 30 * 60 * 1000;
   const syncedMovement = new Map<string, number>();
   for (const movement of movements) {
-    if (budapestDayOf(movement.captured_at) < windowStart) continue;
+    const happenedAt = Date.parse(movement.captured_at) - MOVEMENT_LAG_MS;
+    const day = Number.isFinite(happenedAt)
+      ? budapestDayOf(new Date(happenedAt).toISOString())
+      : budapestDayOf(movement.captured_at);
+    if (day < windowStart) continue;
     syncedMovement.set(
       movement.stay_date,
       (syncedMovement.get(movement.stay_date) ?? 0) + Number(movement.delta || 0),
