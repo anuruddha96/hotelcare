@@ -3126,14 +3126,20 @@ export default function RateStrategyGrid({
                         data-cell-row={rowIdx}
                         data-cell-date={i}
                         disabled={!canEditRates || soldOut}
-                        onPointerEnter={() => {
+                        onPointerEnter={(e) => {
                           if (cellPointerEnter(rowIdx, i)) return;
+                          if (e.pointerType === "touch") return;
                           // Pass the newest change we already know about, so a
                           // cached-but-stale date is re-read instead of opening
-                          // a blank drawer next to a coloured dot.
-                          void loadCellHistory(d, false, marker?.at ?? markerByDate.get(d)?.at ?? null);
-                          void loadAutomationDate(d);
+                          // a blank drawer next to a coloured dot. Only once the
+                          // cursor has actually settled on this cell.
+                          scheduleDwell(() => {
+                            void loadCellHistory(d, false, marker?.at ?? markerByDate.get(d)?.at ?? null);
+                            void loadAutomationDate(d);
+                          });
                         }}
+                        onPointerLeave={cancelDwell}
+
                         onPointerDown={(e) => {
                           if (!canEditRates || soldOut) return;
                           cellPointerDown(rowIdx, i, e);
