@@ -1075,6 +1075,20 @@ Deno.serve(async (req) => {
         markdownStayDates = markdownDates.size;
         for (const d of markdownDates) markdownDatesThisRun.add(d);
 
+        // Diagnostics: the earliest dates that did NOT move down, with the
+        // guard that stopped them. This is what answers "why was nothing before
+        // October considered?" without another investigation.
+        {
+          const held = Array.from(blockedDates.entries())
+            .filter(([d]) => !markdownDates.has(d))
+            .sort((a, b) => a[0].localeCompare(b[0]));
+          console.log(
+            `[markdown] ${rule.hotel_id} moved=${markdownDates.size} held=${held.length} ` +
+            `reasons=${JSON.stringify(markdownBlocks)} first=${JSON.stringify(held.slice(0, 25))}`,
+          );
+        }
+
+
         // Optional AI advisor on the markdown side: it can only confirm or
         // soften a deterministic decrease, never deepen it.
         if (rule.ai_assist_enabled && markdownRows.length > 0) {
