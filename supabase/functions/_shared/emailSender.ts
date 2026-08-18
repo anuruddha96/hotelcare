@@ -122,6 +122,7 @@ export async function sendViaResend(opts: {
   to: string[];
   subject: string;
   html: string;
+  text?: string;
   replyTo?: string | null;
 }): Promise<SendResult> {
   const res = await fetch(`${RESEND_API}/emails`, {
@@ -135,6 +136,7 @@ export async function sendViaResend(opts: {
       to: opts.to,
       subject: opts.subject,
       html: opts.html,
+      ...(opts.text ? { text: opts.text } : {}),
       ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
     }),
   });
