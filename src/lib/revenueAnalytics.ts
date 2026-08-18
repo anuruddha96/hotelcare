@@ -220,7 +220,17 @@ export function buildDayMetrics(params: {
   const cancellations = params.cancellations ?? [];
   const movements = params.movements ?? [];
   const today = budapestToday();
-  const windowStart = addDays(today, -Math.max(0, windowDays - 1));
+  const now = Date.now();
+  // One rule for "is this inside the window", shared by bookings, cancellations
+  // and sync movements, so a rolling 48h window behaves exactly like the engine.
+  const windowStartMs = pickupWindowStartMs(windowDays, now);
+  const windowStart = pickupWindowFirstDay(windowDays, now);
+  const inWindow = (iso: string | null | undefined): boolean => {
+    if (!iso) return false;
+    const t = Date.parse(iso);
+    return Number.isFinite(t) ? t >= windowStartMs : budapestDayOf(iso) >= windowStart;
+  };
+
 
   const sold = new Map<string, number>();
   const revenue = new Map<string, number>();
