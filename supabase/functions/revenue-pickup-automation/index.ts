@@ -1776,7 +1776,7 @@ Deno.serve(async (req) => {
           enabled: rule.short_window_guard_enabled !== false,
           shortWindowDays: Math.max(0, Number(rule.short_window_days ?? 7)),
           minOccupancyPct: Number(rule.short_window_min_occupancy_pct ?? 70),
-        })) { heldShortWindow++; continue; }
+        })) { heldShortWindow++; noteSkip(ev.stay_date, "short_window"); continue; }
 
         // Last room gone: record the booking, leave the price where it is.
         if (soldOutBlocksIncrease({
@@ -1784,7 +1784,7 @@ Deno.serve(async (req) => {
           roomsLeft: leftByStayDate.get(ev.stay_date) ?? null,
           occupancyPct: occByStayDate.get(ev.stay_date) ?? null,
           soldOutOccupancyPct: Number(rule.sold_out_occupancy_pct ?? 100),
-        })) { heldSoldOut++; continue; }
+        })) { heldSoldOut++; noteSkip(ev.stay_date, "sold_out"); continue; }
 
 
         // The 2nd booking inside the window is the "heat" signal: it takes the
@@ -1807,11 +1807,11 @@ Deno.serve(async (req) => {
         if (isFarOut) increase = farOut;
 
         if (rule.maximum_increase) increase = Math.min(increase, Number(rule.maximum_increase));
-        if (increase <= 0) continue;
+        if (increase <= 0) { noteSkip(ev.stay_date, "no_tier_increase"); continue; }
 
         const already = raisedToday.get(ev.stay_date) ?? 0;
         const room = Math.max(0, Number(rule.max_daily_increase_per_date || 0) - already);
-        if (room <= 0) continue;
+        if (room <= 0) { noteSkip(ev.stay_date, "daily_cap"); continue; }
         increase = Math.min(increase, room);
         raisedToday.set(ev.stay_date, already + increase);
         if (isFarOut) {
@@ -1837,9 +1837,9 @@ Deno.serve(async (req) => {
           }
           // This room type has nothing left for that date — raising it can only
           // look wrong later. The pickup is still recorded, the cell is not moved.
-          if (typeSoldOut(rate.room_type_name, rate.obk_id, rate.stay_date)) { heldSoldOut++; continue; }
+          if (typeSoldOut(rate.room_type_name, rate.obk_id, rate.stay_date)) { heldSoldOut++; noteSkip(ev.stay_date, "room_type_sold_out"); continue; }
           const oldPrice = Number(rate.price);
-          if (!Number.isFinite(oldPrice) || oldPrice <= 0) continue;
+          if (!Number.isFinite(oldPrice) || oldPrice <= 0) { noteSkip(ev.stay_date, "no_current_price"); continue; }
 
           const cellKey = `${ev.stay_date}|${String(rate.obk_id)}|${Number(rate.occupancy) || 2}`;
           const current = cellDecisions.get(cellKey);
