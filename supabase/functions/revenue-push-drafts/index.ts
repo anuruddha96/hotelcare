@@ -171,6 +171,45 @@ Deno.serve(async (req) => {
     const { data: loadedDrafts, error: draftErr } = await q;
     if (draftErr) throw draftErr;
     let drafts = loadedDrafts ?? [];
+
+    // Last-moment recency guard. Queued runs are delivered by priority, so an
+    // older job can reach Previo after a newer price for the same cell was
+    // already sent (a reconciliation retry behind a manual edit, for example).
+    // Publishing it would visibly bounce the price back, so any draft that is
+    // no longer the newest intent for its cell is closed out here instead.
+    if (drafts.length > 0) {
+      const dates = (drafts as any[]).map((d) => d.stay_date).sort();
+      const { data: siblings } = await admin
+        .from("revenue_rate_drafts")
+        .select("id, stay_date, room_type_name, occupancy, created_at")
+        .eq("hotel_id", hotelId)
+        .gte("stay_date", dates[0]).lte("stay_date", dates[dates.length - 1])
+        .is("superseded_at", null)
+        .order("created_at", { ascending: false })
+        .limit(8000);
+      const newestByCell = new Map<string, { id: string; created_at: string }>();
+      for (const s of (siblings ?? []) as any[]) {
+        const key = `${s.stay_date}|${s.room_type_name}|${s.occupancy}`;
+        if (!newestByCell.has(key)) newestByCell.set(key, { id: s.id, created_at: s.created_at });
+      }
+      const staleIds: string[] = [];
+      drafts = (drafts as any[]).filter((d) => {
+        const newest = newestByCell.get(`${d.stay_date}|${d.room_type_name}|${d.occupancy}`);
+        if (!newest || newest.id === d.id) return true;
+        if (Date.parse(newest.created_at) <= Date.parse(d.created_at)) return true;
+        staleIds.push(d.id);
+        return false;
+      });
+      for (let i = 0; i < staleIds.length; i += 300) {
+        await admin.from("revenue_rate_drafts").update({
+          status: "superseded",
+          confirmation_status: "superseded",
+          superseded_at: new Date().toISOString(),
+          push_error: null,
+        }).in("id", staleIds.slice(i, i + 300));
+      }
+    }
+
     if (drafts.length === 0) {
       if (requestedRunId) {
         await admin.from("revenue_rate_push_runs").update({
@@ -179,6 +218,7 @@ Deno.serve(async (req) => {
       }
       return json({ ok: true, pushed: 0, failed: 0, message: "Nothing to push." });
     }
+
 
     // Sold-out room types are published as well: a cancellation can reopen the
     // date at any time, and freezing those prices left gaps in the calendar
