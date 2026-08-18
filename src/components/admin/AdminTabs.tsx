@@ -6,10 +6,12 @@ import { TranslationManagement } from './TranslationManagement';
 import { PhotoCleanupManager } from '@/components/dashboard/PhotoCleanupManager';
 import PMSConfigurationManagement from './PMSConfigurationManagement';
 import { BreakfastCodeManagement } from './BreakfastCodeManagement';
-import { Building2, Hotel, Languages, HardDrive, Cable, Coffee, GraduationCap, MapPin } from 'lucide-react';
+import { Building2, Hotel, Languages, HardDrive, Cable, Coffee, GraduationCap, MapPin, Mail } from 'lucide-react';
 import { TrainingAdminPanel } from './TrainingAdminPanel';
 import AiProviderStatus from './AiProviderStatus';
 import RevenueEngineControls from './RevenueEngineControls';
+import EmailSettingsPanel from './EmailSettingsPanel';
+
 
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import VenueManagement from '@/components/slnt/VenueManagement';
@@ -57,6 +59,10 @@ export const AdminTabs = () => {
                 Venues &amp; Access
               </TabsTrigger>
             )}
+            <TabsTrigger value="email" className="gap-2">
+              <Mail className="w-4 h-4" />
+              E-mail
+            </TabsTrigger>
             <TabsTrigger value="system" className="gap-2">
               <HardDrive className="w-4 h-4" />
               System
@@ -98,6 +104,10 @@ export const AdminTabs = () => {
 
         <TabsContent value="translations">
           <TranslationManagement />
+        </TabsContent>
+
+        <TabsContent value="email">
+          <EmailSettingsPanel />
         </TabsContent>
 
         <TabsContent value="system">

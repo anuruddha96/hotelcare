@@ -7,7 +7,7 @@
 // sends it with Resend.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { Resend } from "npm:resend@2.0.0";
+import { sendEmail } from "../_shared/emailSender.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -135,38 +135,6 @@ function renderHtml(hotelName: string, today: string, d: Awaited<ReturnType<type
   </div>`;
 }
 
-// Resend refuses to deliver from an unverified domain, and the shared sandbox
-// sender only reaches the account owner. Try the branded sender first and fall
-// back, so a misconfigured domain never silently swallows the mail.
-const SENDERS = [
-  "Hotel Care <noreply@rdhotels.com>",
-  "Hotel Care <onboarding@resend.dev>",
-];
-
-async function sendWithFallback(
-  resend: Resend,
-  to: string[],
-  subject: string,
-  html: string,
-): Promise<{ ok: boolean; from?: string; error?: string }> {
-  let lastError = "unknown error";
-  for (const from of SENDERS) {
-    const { data, error } = await resend.emails.send({ from, to, subject, html });
-    if (!error && data) return { ok: true, from };
-    lastError = error ? (error.message ?? JSON.stringify(error)) : "no id returned";
-    console.error(`revenue-morning-digest: send from ${from} failed — ${lastError}`);
-    // An invalid key fails identically for every sender — stop and say so plainly.
-    if (/api key is invalid|unauthorized|restricted api key/i.test(lastError)) {
-      return {
-        ok: false,
-        error:
-          "Resend rejected the API key. Add a valid RESEND_API_KEY in the project secrets (Resend → API Keys, sending permission), then try again.",
-      };
-    }
-  }
-  return { ok: false, error: lastError };
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -176,9 +144,9 @@ Deno.serve(async (req) => {
   );
 
   try {
-    const resendKey = Deno.env.get("RESEND_API_KEY");
-    if (!resendKey) return json({ error: "RESEND_API_KEY is not configured" }, 500);
-    const resend = new Resend(resendKey);
+    if (!Deno.env.get("RESEND_API_KEY")) {
+      return json({ error: "No RESEND_API_KEY is configured. Add it in Admin → E-mail settings." }, 500);
+    }
 
     const body = await req.json().catch(() => ({}));
     const force = Boolean(body.force);
@@ -240,12 +208,14 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const result = await sendWithFallback(
-        resend,
-        recipients,
-        `${hotelName} — morning revenue summary (${now.date})`,
-        renderHtml(hotelName, now.date, digest),
-      );
+      const result = await sendEmail({
+        admin,
+        organizationSlug: s.organization_slug as string | null,
+        to: recipients,
+        subject: `${hotelName} — morning revenue summary (${now.date})`,
+        html: renderHtml(hotelName, now.date, digest),
+        kind: "digest",
+      });
 
       if (!result.ok) {
         failures.push({ hotel_id: s.hotel_id, error: result.error ?? "send failed" });
