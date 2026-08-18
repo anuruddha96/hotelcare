@@ -2075,6 +2075,38 @@ Deno.serve(async (req) => {
         if (notifErr) console.error("notification insert failed", notifErr);
       }
 
+      // Dates that DID pick up but were deliberately held. Recorded so "there
+      // was a booking, why no surcharge?" has an answer in the app itself.
+      if (skipReasonByDate.size > 0) {
+        const held = Array.from(skipReasonByDate.entries())
+          .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+          .slice(0, 60)
+          .map(([stay_date, reason]) => ({ stay_date, reason }));
+        const { error: heldErr } = await admin.from("revenue_automation_notifications").insert({
+          hotel_id: rule.hotel_id,
+          organization_slug: rule.organization_slug,
+          notification_type: "pickup_held",
+          run_source: isEngine ? "automatic" : "manual",
+          actor_name: isEngine ? "Automatic pricing" : (actorName ?? "Manual run"),
+          actor_user_id: isEngine ? null : actorUserId,
+          rule_id: rule.id,
+          action_ids: [],
+          pickups_count: skipReasonByDate.size,
+          actions_count: 0,
+          pushed_count: 0,
+          failed_count: 0,
+          currency: rule.currency ?? "EUR",
+          severity: "info",
+          summary: `${skipReasonByDate.size} date(s) with pickup held — ${Object.entries(skipCounts)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([reason, count]) => `${reason.replace(/_/g, " ")} ×${count}`)
+            .join(", ")}`,
+          changes: held,
+        });
+        if (heldErr) console.error("held notification insert failed", heldErr);
+      }
+
       // A booking for a stay date months away is rare and valuable: the people
       // who watch this property are told about it by name, with what the engine
       // did, so they can review the date themselves.
