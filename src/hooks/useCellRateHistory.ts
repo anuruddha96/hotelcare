@@ -106,6 +106,7 @@ export function useCellRateHistory(hotelId?: string | null, perCell = 8) {
   /** Forget everything so the next open re-reads fresh rows. */
   const invalidate = useCallback(() => {
     loaded.current = new Set();
+    newestByDate.current = new Map();
     setByCell(new Map());
   }, []);
 
