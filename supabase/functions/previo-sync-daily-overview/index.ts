@@ -89,10 +89,20 @@ serve(async (req) => {
 
     const { data: targetHotel } = await service
       .from("hotel_configurations")
-      .select("organization_id, organizations!inner(slug)")
+      .select("organization_id")
       .eq("hotel_id", hotelId)
+      .limit(1)
       .maybeSingle();
-    const targetOrg = (targetHotel as any)?.organizations?.slug ?? null;
+    let targetOrg: string | null = null;
+    if (targetHotel?.organization_id) {
+      const { data: orgRow } = await service
+        .from("organizations")
+        .select("slug")
+        .eq("id", targetHotel.organization_id)
+        .maybeSingle();
+      targetOrg = orgRow?.slug ?? null;
+    }
+
     if (!targetOrg) {
       return new Response(JSON.stringify({ error: "Unknown property" }), {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
