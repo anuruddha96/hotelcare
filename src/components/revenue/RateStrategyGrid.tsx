@@ -1994,7 +1994,6 @@ export default function RateStrategyGrid({
       const on = !!rect && !(el as HTMLButtonElement).disabled
         && r >= rect.r0 && r <= rect.r1 && d >= rect.d0 && d <= rect.d1;
       if (on) count += 1;
-      if (on === el.dataset.selPainted === true) { /* noop guard below */ }
       const painted = el.dataset.selPainted === "1";
       if (on && !painted) { el.classList.add(...SEL_CLASSES); el.dataset.selPainted = "1"; }
       else if (!on && painted) { el.classList.remove(...SEL_CLASSES); delete el.dataset.selPainted; }
