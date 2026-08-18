@@ -120,7 +120,7 @@ export default function PickupMovementBoard({
       });
     };
     return [...build(nights, "booked"), ...build(cancellations, "cancelled")];
-  }, [nights, cancellations, windowFirstDay]);
+  }, [nights, cancellations, windowStartMs]);
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
