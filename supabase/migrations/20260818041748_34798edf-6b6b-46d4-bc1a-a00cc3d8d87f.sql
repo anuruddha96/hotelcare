@@ -1,0 +1,2 @@
+ALTER TABLE public.revenue_pickup_automation_actions DROP CONSTRAINT IF EXISTS automation_decision_type_valid;
+ALTER TABLE public.revenue_pickup_automation_actions ADD CONSTRAINT automation_decision_type_valid CHECK (decision_type = ANY (ARRAY['positive_pickup','no_pickup_markdown','smart_strong_demand','far_out_floor_topup','far_out_booking','cancellation_cooldown','event_demand','demand_spike','immediate_sell','surge','decay','manual']));
