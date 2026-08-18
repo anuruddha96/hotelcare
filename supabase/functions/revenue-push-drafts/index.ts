@@ -691,6 +691,10 @@ Deno.serve(async (req) => {
     // Callers that hand over an explicit list (the automation engine) keep
     // their leftovers moving too.
     const restIds = draftIds.length > SLICE ? draftIds.slice(SLICE) : [];
+    if (restIds.length > 0) {
+      await admin.from("revenue_rate_drafts").update({ push_run_id: pushRunId })
+        .in("id", restIds).in("status", ["draft", "failed"]);
+    }
     const more = (remaining ?? 0) > 0 || restIds.length > 0;
 
     const { data: runSoFar } = await admin.from("revenue_rate_push_runs")
@@ -734,21 +738,28 @@ Deno.serve(async (req) => {
 
         publisherLock = null;
       }
-      if (continuationBudget > 0) {
-        const continueRun = (async () => {
-          await new Promise((resolve) => setTimeout(resolve, 350));
-          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-publish-queue`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-            },
-            body: JSON.stringify({ trigger: "continuation", continuationBudget: continuationBudget - 1 }),
-          });
-        })().catch((error) => console.error("could not continue publisher queue", pushRunId, error));
-        const rt = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
-        if (rt) rt.waitUntil(continueRun); else void continueRun;
+    }
+
+    // A completed slice also nudges the next property, not only this run. The
+    // cron remains a recovery backstop rather than the normal queue handoff.
+    if (continuationBudget > 0) {
+      if (publisherLock) {
+        await admin.rpc("release_publisher_lease", { p_token: publisherLock });
+        publisherLock = null;
       }
+      const continueQueue = (async () => {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-publish-queue`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+          },
+          body: JSON.stringify({ trigger: "continuation", continuationBudget: continuationBudget - 1 }),
+        });
+      })().catch((error) => console.error("could not continue publisher queue", pushRunId, error));
+      const rt = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
+      if (rt) rt.waitUntil(continueQueue); else void continueQueue;
     }
 
 

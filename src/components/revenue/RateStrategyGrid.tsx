@@ -30,7 +30,6 @@ import { useCellRateHistory } from "@/hooks/useCellRateHistory";
 import { usePickupAutomationActions, type AutomationAction } from "@/hooks/usePickupAutomationActions";
 import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
 import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, budapestDayStartMs, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
-import { classifyDraft } from "@/lib/rateChangeGroups";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
 
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
@@ -463,9 +462,6 @@ export default function RateStrategyGrid({
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
   const [retryingFailures, setRetryingFailures] = useState(false);
-  /** Result of the harmless Previo rate-write capability check. */
-  const [probing, setProbing] = useState(false);
-  const [probe, setProbe] = useState<{ ok: boolean; message: string; support?: string | null } | null>(null);
 
   /** Price-change trail: cell history on hover, and the activity panel below. */
   const { rows: auditRows, manualRows: auditManualRows, byCell: auditByCell, originByCell: cellOriginByCell, names: auditNames, reload: reloadAuditRows } = useRateAudit(hotelId);
@@ -568,35 +564,6 @@ export default function RateStrategyGrid({
 
 
 
-
-  /**
-   * Ask Previo whether this property accepts rate writes at all, by writing a
-   * future date's current price back to itself. Nothing changes either way.
-   */
-  async function checkWriteAccess() {
-    if (!hotelId) return;
-    setProbing(true);
-    setProbe(null);
-    try {
-      const { data, error } = await supabase.functions.invoke("previo-rate-write-probe", { body: { hotelId } });
-      if (error) throw error;
-      const res = data as { ok?: boolean; method?: string | null; error?: string; supportRequest?: string | null; attempts?: Array<{ method: string; status: number; message: string }> };
-      if (res.ok) {
-        setProbe({ ok: true, message: `Previo accepts price writes (${res.method}). Pushes will go live.` });
-      } else {
-        const first = res.attempts?.[0];
-        setProbe({
-          ok: false,
-          message: res.error ?? `Previo refused every rate-write call${first ? ` — ${first.method}: ${first.message}` : ""}. Send the text below to Previo support.`,
-          support: res.supportRequest ?? null,
-        });
-      }
-    } catch (e) {
-      setProbe({ ok: false, message: e instanceof Error ? e.message : "Could not reach Previo" });
-    } finally {
-      setProbing(false);
-    }
-  }
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -1190,27 +1157,6 @@ export default function RateStrategyGrid({
     // A whole-season push would strobe the screen; a handful reads as feedback.
     if (moved.length > 0 && moved.length <= 400) markFlash(moved, "confirm");
   }, [rates, markFlash]);
-
-  /** Fill the Previo pricelist mapping from Previo itself. */
-  async function syncRatePlans() {
-    if (!hotelId) return;
-    setProbing(true);
-    setProbe(null);
-    try {
-      const { data, error } = await supabase.functions.invoke("previo-sync-rate-plans", { body: { hotelId } });
-      if (error) throw error;
-      const res = data as { ok?: boolean; mapped?: number; error?: string | null };
-      if (res?.ok) {
-        setProbe({ ok: true, message: `Matched ${res.mapped} room type${res.mapped === 1 ? "" : "s"} to a Previo pricelist. You can push prices now.` });
-      } else {
-        setProbe({ ok: false, message: res?.error || "Previo did not return any pricelist." });
-      }
-    } catch (e) {
-      setProbe({ ok: false, message: e instanceof Error ? e.message : "Could not reach Previo" });
-    } finally {
-      setProbing(false);
-    }
-  }
 
   async function retryFailedPrices() {
     if (!hotelId || pending.length === 0) return;
