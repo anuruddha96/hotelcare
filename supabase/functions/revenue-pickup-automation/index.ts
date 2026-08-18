@@ -723,12 +723,14 @@ Deno.serve(async (req) => {
           admin.from("rate_change_audit").select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).gte("performed_at", new Date(Date.now() - Math.max(0, Number(rule.manual_markdown_hold_hours || 0)) * 3_600_000).toISOString()).limit(20000),
         ]);
 
-        // NET pickup for the observation window: new booking nights minus
-        // cancellations. Only a genuinely positive net blocks a markdown; a
-        // cancellation can never create an increase.
+        // NET pickup for the observation window: genuinely NEW booking nights
+        // (Previo creation time, never the sync capture time — a re-sync of an
+        // old booking is not pickup) minus cancellations. Only a real positive
+        // net blocks a markdown; a cancellation can never create an increase.
         const cancellationRows = ((recentCancellations ?? []) as Array<{ stay_date: string; cancelled_at: string }>);
         const netByDate = netPickupByDate(
-          (recentBookings ?? []) as Array<{ stay_date: string }>,
+          ((recentBookings ?? []) as Array<{ stay_date: string; created_at_pms: string | null }>)
+            .filter((b) => !!b.created_at_pms && b.created_at_pms >= observationFrom),
           cancellationRows.filter((c) => c.cancelled_at >= observationFrom),
         );
         // Newest cancellation per stay date drives the cooldown.
