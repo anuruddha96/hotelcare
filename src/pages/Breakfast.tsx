@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Coffee, Search, CheckCircle2, RefreshCw, MapPin, Building2, ArrowLeft, AlertTriangle } from "lucide-react";
+import { Coffee, Search, CheckCircle2, RefreshCw, MapPin, Building2, ArrowLeft, AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/hooks/useTranslation";
 import { bbT } from "@/lib/breakfast-translations";
