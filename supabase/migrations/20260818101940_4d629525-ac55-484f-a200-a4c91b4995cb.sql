@@ -1,0 +1,2 @@
+ALTER TABLE public.revenue_pickup_automation_rules ALTER COLUMN sold_out_guard_enabled SET DEFAULT false;
+UPDATE public.revenue_pickup_automation_rules SET sold_out_guard_enabled = false WHERE sold_out_guard_enabled IS DISTINCT FROM false;
