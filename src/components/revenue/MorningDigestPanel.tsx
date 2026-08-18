@@ -152,7 +152,7 @@ export default function MorningDigestPanel({ hotelId, organizationSlug, canEdit 
       </div>
 
       <div className="space-y-1">
-        <Label className="text-xs">Extra recipients (comma separated)</Label>
+        <Label className="text-xs">Recipients (comma separated)</Label>
         <Input
           value={recipientText} disabled={!canEdit}
           placeholder="owner@example.com, director@example.com"
@@ -161,7 +161,8 @@ export default function MorningDigestPanel({ hotelId, organizationSlug, canEdit 
           className="h-9 text-base sm:text-sm"
         />
         <p className="text-[11px] text-muted-foreground">
-          Managers and top management of this hotel always receive it while it is switched on.
+          Only these addresses receive the digest — managers are no longer added automatically. Each person
+          gets their own copy, so nobody sees the other recipients. Leave it empty and nothing is sent.
         </p>
       </div>
 
@@ -170,7 +171,7 @@ export default function MorningDigestPanel({ hotelId, organizationSlug, canEdit 
         Send me one now
       </Button>
       <p className="text-[11px] text-muted-foreground">
-        The test goes to your own address plus the extra recipients above.
+        The test goes to your own address plus the recipients above, and refreshes live Previo data first.
       </p>
 
       {sendError && (

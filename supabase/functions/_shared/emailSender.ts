@@ -122,6 +122,7 @@ export async function sendViaResend(opts: {
   to: string[];
   subject: string;
   html: string;
+  text?: string;
   replyTo?: string | null;
 }): Promise<SendResult> {
   const res = await fetch(`${RESEND_API}/emails`, {
@@ -135,6 +136,7 @@ export async function sendViaResend(opts: {
       to: opts.to,
       subject: opts.subject,
       html: opts.html,
+      ...(opts.text ? { text: opts.text } : {}),
       ...(opts.replyTo ? { reply_to: opts.replyTo } : {}),
     }),
   });
@@ -160,6 +162,7 @@ export async function sendEmail(opts: {
   to: string[];
   subject: string;
   html: string;
+  text?: string;
   kind?: "transactional" | "digest";
   settings?: EmailSettings;
 }): Promise<SendResult> {
@@ -203,7 +206,8 @@ export async function sendEmail(opts: {
   let last: SendResult = { ok: false, error: "unknown error" };
   for (const from of senders) {
     const result = await sendViaResend({
-      apiKey, from, to: recipients, subject: opts.subject, html: opts.html, replyTo: settings.reply_to,
+      apiKey, from, to: recipients, subject: opts.subject, html: opts.html, text: opts.text,
+      replyTo: settings.reply_to,
     });
     if (result.ok) return result;
     last = result;
