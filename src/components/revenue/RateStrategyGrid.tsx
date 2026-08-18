@@ -606,6 +606,8 @@ export default function RateStrategyGrid({
     const t = window.setInterval(() => setMarkerClock(Date.now()), 60_000);
     return () => window.clearInterval(t);
   }, []);
+  /** True when the pickup row measures exactly what the engine measures. */
+  const isAutomationWindow = pickupWindowDays === PICKUP_WINDOW_48H;
   const markerSinceMs = useMemo(
     () => pickupWindowStartMs(pickupWindowDays, markerClock),
     [pickupWindowDays, markerClock],
