@@ -1441,11 +1441,9 @@ export default function RateStrategyGrid({
       return next;
     });
     markFlash(rowsToSave.map((r) => `${r.stay_date}|${r.room_type_name}|${r.occupancy}`), "team");
-    setPushRun({ total: rowsToSave.length, done: 0, failed: 0, state: "sending" });
-
     void (async () => {
       try {
-        const { runId } = await publishRates({ hotelId, organizationSlug, source: "manual", changes: rowsToSave });
+        await publishRates({ hotelId, organizationSlug, source: "manual", changes: rowsToSave });
 
         // 2. The change dots come from the audit trail, so write it right away.
         void logRateChanges({
@@ -1460,42 +1458,11 @@ export default function RateStrategyGrid({
           })),
         }).then(() => reloadAudit());
 
-        // 3. Follow the run quietly and only speak up if something failed.
-        for (let attempt = 0; attempt < 400; attempt++) {
-          await new Promise((resolve) => setTimeout(resolve, attempt < 5 ? 1200 : 3000));
-          const { data } = await supabase.from("revenue_rate_push_runs")
-            .select("status, requested_count, processed_count, accepted_count, failed_count, last_error")
-            .eq("id", runId).maybeSingle();
-          if (!data) continue;
-          const total = Number(data.requested_count ?? rowsToSave.length);
-          const done = Number(data.processed_count ?? 0);
-          const failed = Number(data.failed_count ?? 0);
-          const finished = data.status === "completed" || data.status === "failed" || (done > 0 && done >= total);
-          setPushRun({
-            total, done, failed,
-            state: finished ? (failed > 0 || data.status === "failed" ? "error" : "done") : "sending",
-            message: data.last_error ?? undefined,
-          });
-          if (finished) {
-            await Promise.all([refreshDrafts(), reloadAudit(), onRatesUpdated?.()]);
-            if (failed > 0 || data.status === "failed") {
-              toast.error(`${failed || total} price${(failed || total) === 1 ? "" : "s"} did not reach Previo`);
-            } else {
-              window.setTimeout(() => setPushRun(null), 4000);
-            }
-            return;
-          }
-        }
-        setPushRun(null);
       } catch (e) {
-        setPushRun({
-          total: rowsToSave.length, done: 0, failed: rowsToSave.length, state: "error",
-          message: e instanceof Error ? e.message : String(e),
-        });
         toast.error(e instanceof Error ? e.message : "Could not send the prices to Previo");
       }
     })();
-  }, [hotelId, organizationSlug, refreshDrafts, reloadAudit, onRatesUpdated]);
+  }, [hotelId, organizationSlug, reloadAudit]);
 
   /** Publish one or many absolute target prices without blocking on Previo. */
   async function saveDraft() {
@@ -2241,51 +2208,6 @@ export default function RateStrategyGrid({
           </div>
         </details>
 
-        {/* Quiet, self-clearing publishing pill — never blocks the calendar. */}
-        {pushRun && (
-          <div
-            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] animate-fade-in
-              ${pushRun.state === "error"
-                ? "border-destructive/40 bg-destructive/10 text-destructive"
-                : pushRun.state === "done"
-                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700"
-                  : "border-primary/30 bg-primary/5 text-foreground"}`}
-            role="status"
-          >
-            {pushRun.state === "sending" && (
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
-              </span>
-            )}
-            <span className="font-medium">
-              {pushRun.state === "error"
-                ? `${pushRun.failed || pushRun.total} price${(pushRun.failed || pushRun.total) === 1 ? "" : "s"} need attention`
-                : pushRun.state === "done"
-                  ? `${pushRun.total} price${pushRun.total === 1 ? "" : "s"} live in Previo`
-                  : `Sending ${pushRun.total} price${pushRun.total === 1 ? "" : "s"} to Previo — your prices are already up to date here`}
-            </span>
-            {pushRun.state === "sending" && pushRun.total > 0 && (
-              <>
-                {/* Plain counts, so it is obvious what is done and what is left. */}
-                <span className="tabular-nums text-muted-foreground">
-                  {Math.max(0, pushRun.done - pushRun.failed)} sent
-                  {" · "}{Math.max(0, pushRun.total - pushRun.done)} waiting
-                  {pushRun.failed > 0 ? <span className="text-destructive"> · {pushRun.failed} failed</span> : null}
-                </span>
-                <span className="hidden sm:flex h-1 w-24 overflow-hidden rounded-full bg-primary/15">
-                  <span
-                    className="h-full rounded-full bg-primary transition-all duration-500"
-                    style={{ width: `${Math.max(6, Math.min(100, Math.round((pushRun.done / pushRun.total) * 100)))}%` }}
-                  />
-                </span>
-              </>
-            )}
-          </div>
-        )}
-
-
-
         <p className="text-[11px] text-muted-foreground">
           Live Previo prices.
           {canEditRates ? " Tap a price, or a date to change a whole day." : ""}
@@ -2312,53 +2234,11 @@ export default function RateStrategyGrid({
             </button>
           </div>
         )}
-        {canEditRates && (failedCount > 0 || divergentDrafts.length > 0 || openMismatches.length > 0) && (
-          // Quiet, non-blocking status pill: the sync now retries mismatches on
-          // its own, so this is information first and an action only if asked.
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="self-start inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-300"
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                {failedCount > 0 && <span>{failedCount} refused</span>}
-                {(divergentDrafts.length > 0 || openMismatches.length > 0) && (
-                  <span>{Math.max(divergentDrafts.length, openMismatches.length)} still checking</span>
-                )}
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-72 space-y-2 text-xs">
-              <p className="text-muted-foreground leading-relaxed">
-                Hotel Care re-checks these prices with Previo automatically and re-sends
-                them if they did not land. You only need to step in if they keep failing.
-              </p>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  size="sm" variant="outline" className="h-7 text-xs"
-                  disabled={rechecking}
-                  onClick={() => void recheckPrevio()}
-                >
-                  {rechecking ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5 mr-1" />}
-                  Check now
-                </Button>
-                {openMismatches.length > 0 && (
-                  <Button
-                    size="sm" variant="outline" className="h-7 text-xs"
-                    disabled={clearingFlags}
-                    onClick={() => void clearMismatchFlags()}
-                  >
-                    {clearingFlags ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5 mr-1" />}
-                    Clear ({openMismatches.length})
-                  </Button>
-                )}
-                <Button size="sm" className="h-7 text-xs" onClick={() => setPushOpen(true)}>
-                  <Send className="h-3.5 w-3.5 mr-1" />
-                  Details
-                </Button>
-              </div>
-            </PopoverContent>
-          </Popover>
+        {canEditRates && failedCount > 0 && (
+          <Button size="sm" variant="destructive" className="self-start h-7 text-xs" onClick={() => setPushOpen(true)}>
+            <AlertTriangle className="mr-1 h-3.5 w-3.5" />
+            {failedCount} price{failedCount === 1 ? "" : "s"} refused
+          </Button>
         )}
 
 
