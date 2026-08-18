@@ -825,9 +825,10 @@ Deno.serve(async (req) => {
         for (const rate of latest.values()) {
           const cellKey = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
           const net = netByDate.get(rate.stay_date) ?? 0;
+          const netWindow = netByDateWindow.get(rate.stay_date) ?? 0;
           const guardsFor = occupancyByDate.get(rate.stay_date);
           const block = markdownBlockReason({
-            hadPickup: net > 0,
+            hadPickup: net > 0 || netWindow > 0,
             roomsAvailable: guardsFor?.left ?? null,
             occupancyPct: guardsFor?.pct ?? null,
             protectHighOccupancy: rule.protect_high_occupancy !== false,
