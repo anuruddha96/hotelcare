@@ -183,9 +183,19 @@ export async function sendEmail(opts: {
     return { ok: false, skipped: true, error: "The daily digest is switched off for this organization." };
   }
 
+  const name = (settings.from_name || "Hotel Care").replace(/[<>]/g, "").trim();
   const primary = senderString(settings);
-  const fallback = `${(settings.from_name || "Hotel Care").replace(/[<>]/g, "")} <${DEFAULT_SETTINGS.from_email}>`;
-  const senders = primary === fallback ? [primary] : [primary, fallback];
+  const primaryDomain = (settings.from_email || DEFAULT_SETTINGS.from_email).split("@")[1]?.toLowerCase() ?? "";
+  const senders = [primary];
+
+  // The Resend sandbox sender only reaches the account owner, so when no real
+  // sender is configured we look up a verified domain and use that instead —
+  // the digest then reaches every recipient without any manual setup.
+  if (primaryDomain === "resend.dev") {
+    for (const domain of await verifiedDomains(apiKey)) {
+      senders.unshift(`${name} <noreply@${domain}>`);
+    }
+  }
 
   let last: SendResult = { ok: false, error: "unknown error" };
   for (const from of senders) {
@@ -197,6 +207,7 @@ export async function sendEmail(opts: {
     if (result.keyProblem) break; // a bad key fails the same for every sender
   }
   return last;
+
 }
 
 /** Checks the stored key against Resend and returns the verified domains. */
