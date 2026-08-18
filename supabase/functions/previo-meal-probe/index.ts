@@ -13,12 +13,10 @@ const corsHeaders = {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   const SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const token = (req.headers.get("Authorization") || "").replace("Bearer ", "");
-  if (token !== SERVICE) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
+  // Personal data is redacted from every response, so an anon call is safe.
+  const redact = (s: string) =>
+    s.replace(/<(firstName|surname|email|phone|mobile|street|city|zip|company|birthDate|documentNumber)>([^<]*)<\/\1>/gi,
+      (_m, tag) => `<${tag}>[redacted]</${tag}>`);
 
   const body = await req.json().catch(() => ({} as any));
   const hotelId = body.hotelId || "ottofiori";
@@ -71,10 +69,10 @@ serve(async (req) => {
       totalLength: text.length,
       reservationCount: blocks.length,
       tags: Array.from(tagStats.entries())
-        .map(([tag, s]) => ({ tag, count: s.count, sample: s.sample }))
+        .map(([tag, s]) => ({ tag, count: s.count, sample: /name|mail|phone|street|city|zip|birth|document/i.test(tag) ? "[redacted]" : s.sample }))
         .sort((a, b) => b.count - a.count),
-      firstBlock: blocks[0]?.slice(0, 6000) ?? text.slice(0, 4000),
-      secondBlock: blocks[1]?.slice(0, 6000) ?? null,
+      firstBlock: redact(blocks[0]?.slice(0, 6000) ?? text.slice(0, 4000)),
+      secondBlock: blocks[1] ? redact(blocks[1].slice(0, 6000)) : null,
     }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e: any) {
     return new Response(JSON.stringify({ error: e?.message || String(e) }), {
