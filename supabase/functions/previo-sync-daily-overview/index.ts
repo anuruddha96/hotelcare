@@ -142,7 +142,9 @@ serve(async (req) => {
       method: "searchReservations",
       creds,
       pmsHotelId: String(cfg.pms_hotel_id || ""),
-      extraXml: `<term><from>${fromDate}</from><to>${toDate}</to></term>`,
+      // Start one day earlier: guests whose last night is fromDate-1 eat
+      // breakfast on fromDate, so their reservation must be in the result set.
+      extraXml: `<term><from>${addDays(fromDate, -1)}</from><to>${toDate}</to></term>`,
     });
     const xmlText = xmlResult.text;
     if (!xmlResult.ok) {
