@@ -390,7 +390,39 @@ export default function Breakfast() {
           )}
         </CardHeader>
         <CardContent className="space-y-3">
+          {!hotelCode && selection && (
+            <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
+              <button
+                type="button"
+                onClick={() => setTab("rooms")}
+                className={`rounded-md py-1.5 text-sm font-medium transition-colors ${tab === "rooms" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
+              >
+                {tt("tabRooms")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("reservations")}
+                className={`rounded-md py-1.5 text-sm font-medium transition-colors ${tab === "reservations" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
+              >
+                {tt("tabReservations")}
+              </button>
+            </div>
+          )}
+
+          {!hotelCode && selection && tab === "reservations" && (
+            <>
+              <div>
+                <Label>{tt("date")}</Label>
+                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+              </div>
+              <RestaurantReservations hotelId={selection.hotel_id} date={date} language={language} />
+            </>
+          )}
+
+          {tab === "rooms" && (
+          <div className="space-y-3">
           <div>
+
             <Label>{tt("roomNumber")}</Label>
             <Input
               value={room}
