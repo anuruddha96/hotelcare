@@ -356,6 +356,11 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
               <Button size="sm" variant={showDemand ? "default" : "ghost"} className="h-7 rounded-none px-2 text-xs"
                 onClick={() => setShowDemand((v) => !v)}>City demand</Button>
             )}
+            {(eventsByDate?.size ?? 0) > 0 && (
+              <Button size="sm" variant={showEvents ? "default" : "ghost"} className="h-7 rounded-none px-2 text-xs"
+                onClick={() => setShowEvents((v) => !v)}>Events</Button>
+            )}
+
             {hotels.length > 1 && (
               <Button size="sm" variant={compare ? "default" : "ghost"} className="h-7 rounded-none px-2 text-xs"
                 onClick={() => setCompare((v) => !v)}>Compare properties</Button>
