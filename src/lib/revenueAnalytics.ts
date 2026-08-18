@@ -30,6 +30,42 @@ export function daysBetween(a: string, b: string): number {
   return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000);
 }
 
+/**
+ * The pickup window the automation engine itself uses: a ROLLING 48 hours, not
+ * a Budapest calendar day. Encoded as a negative number of hours so the single
+ * `pickupWindowDays` value can carry either mode without a second prop.
+ *
+ * This is why the calendar and the automation used to disagree: a booking taken
+ * yesterday at 21:00 is inside the engine's window but outside "Today", so a
+ * price rose against an empty pickup cell.
+ */
+export const PICKUP_WINDOW_48H = -48;
+
+/** True when the value means "the last N hours" rather than "the last N days". */
+export function isRollingPickupWindow(windowDays: number): boolean {
+  return windowDays < 0;
+}
+
+/** Epoch ms at which the selected pickup window opens. */
+export function pickupWindowStartMs(windowDays: number, now: number = Date.now()): number {
+  if (isRollingPickupWindow(windowDays)) return now - Math.abs(windowDays) * 3_600_000;
+  const firstDay = addDays(budapestDayOf(new Date(now).toISOString()), -Math.max(0, windowDays - 1));
+  return Date.parse(`${firstDay}T00:00:00Z`) - 2 * 3_600_000; // Budapest midnight, DST-tolerant
+}
+
+/** First Budapest calendar day the window can touch (used for day-keyed data). */
+export function pickupWindowFirstDay(windowDays: number, now: number = Date.now()): string {
+  return budapestDayOf(new Date(pickupWindowStartMs(windowDays, now)).toISOString());
+}
+
+export function pickupWindowLabel(windowDays: number): string {
+  if (isRollingPickupWindow(windowDays)) return `Last ${Math.abs(windowDays)} hours`;
+  if (windowDays <= 1) return "Today";
+  if (windowDays === 2) return "Yesterday + today";
+  return `Last ${windowDays} days`;
+}
+
+
 export function dateRange(from: string, to: string): string[] {
   const out: string[] = [];
   const n = daysBetween(from, to);
