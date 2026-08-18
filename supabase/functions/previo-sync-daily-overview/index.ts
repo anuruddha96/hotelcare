@@ -33,11 +33,11 @@ interface ParsedReservation {
   statusId: number;
   guestNames: string;
   pax: number;
-  // meal flags per stay-night (best-effort from Previo block)
-  hasBreakfast: boolean;
-  hasLunch: boolean;
-  hasDinner: boolean;
-  isAllInclusive: boolean;
+  // meal headcounts per stay-night, derived from per-guest Previo meal ids
+  breakfastGuests: number;
+  lunchGuests: number;
+  dinnerGuests: number;
+  allInclusiveGuests: number;
 }
 
 serve(async (req) => {
@@ -173,16 +173,28 @@ serve(async (req) => {
       }
       const pax = guestBlocks.length || 1;
 
-      // Meals: look for <meal> / <board> / <package> markers (best-effort)
-      const mealText = (block.match(/<meal[^>]*>([^<]*)<\/meal>/i)
-        || block.match(/<board[^>]*>([^<]*)<\/board>/i)
-        || block.match(/<package[^>]*>([^<]*)<\/package>/i)
-        || [, ""])[1] || "";
-      const ml = mealText.toLowerCase();
-      const hasBreakfast = /\bbb\b|breakfast|bnf|reggeli/.test(ml);
-      const hasLunch = /\blunch\b|ebéd/.test(ml);
-      const hasDinner = /\bhb\b|dinner|vacsora/.test(ml);
-      const isAllInclusive = /\bai\b|all[\s-]?inclusive/.test(ml);
+      // Meals: Previo carries the board plan per guest as <guestMealId>.
+      // Standard Previo meal ids: 1 = no meal, 2 = breakfast, 3 = half board,
+      // 4 = full board, 5 = all inclusive. Counting guests (not reservations)
+      // gives the exact per-room breakfast/lunch/dinner headcount the BB page
+      // needs. Text notes are only used as a fallback when the ids are absent.
+      const mealIds = Array.from(block.matchAll(/<guestMealId>(\d+)<\/guestMealId>/g))
+        .map((m) => Number(m[1]));
+      let breakfastGuests = mealIds.filter((id) => id === 2 || id === 3 || id === 4).length;
+      let lunchGuests = mealIds.filter((id) => id === 4).length;
+      let dinnerGuests = mealIds.filter((id) => id === 3 || id === 4).length;
+      let allInclusiveGuests = mealIds.filter((id) => id === 5).length;
+
+      if (mealIds.length === 0) {
+        const noteText = (block.match(/<note>([\s\S]*?)<\/note>/i) || [, ""])[1] || "";
+        const ml = noteText.toLowerCase();
+        if (/\bai\b|all[\s-]?inclusive/.test(ml)) allInclusiveGuests = pax;
+        else {
+          if (/\bbb\b|breakfast|reggeli|snidane|snídaně/.test(ml)) breakfastGuests = pax;
+          if (/\blunch\b|ebéd/.test(ml)) lunchGuests = pax;
+          if (/\bhb\b|dinner|vacsora/.test(ml)) dinnerGuests = pax;
+        }
+      }
 
       reservations.push({
         roomName,
@@ -191,12 +203,17 @@ serve(async (req) => {
         statusId,
         guestNames: names.join(", "),
         pax,
-        hasBreakfast,
-        hasLunch,
-        hasDinner,
-        isAllInclusive,
+        breakfastGuests,
+        lunchGuests,
+        dinnerGuests,
+        allInclusiveGuests,
       });
     }
+
+    // Same-day departures per room, so an arrival into a room someone left
+    // that morning is reported as a "turnover" like the XLSX overview does.
+    const departuresByRoomDate = new Set<string>();
+    for (const r of reservations) departuresByRoomDate.add(`${r.roomName}|${r.departureDate}`);
 
     // Expand per business_date
     const capturedAt = new Date().toISOString();
@@ -221,13 +238,15 @@ serve(async (req) => {
           room_suffix,
           arrival_date: r.arrivalDate,
           departure_date: r.departureDate,
-          status: String(r.statusId),
+          status: cursor === r.arrivalDate
+            ? (departuresByRoomDate.has(`${r.roomName}|${cursor}`) ? "turnover" : "arriving")
+            : "ongoing",
           guest_names: r.guestNames || null,
           pax: r.pax,
-          breakfast: r.hasBreakfast ? r.pax : 0,
-          lunch: r.hasLunch ? r.pax : 0,
-          dinner: r.hasDinner ? r.pax : 0,
-          all_inclusive: r.isAllInclusive ? r.pax : 0,
+          breakfast: r.breakfastGuests,
+          lunch: r.lunchGuests,
+          dinner: r.dinnerGuests,
+          all_inclusive: r.allInclusiveGuests,
           housekeeping_stay: null,
           housekeeping_dep: cursor === addDays(r.departureDate, -1) ? "DEP" : null,
           source: "previo",
