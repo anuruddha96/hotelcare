@@ -85,17 +85,16 @@ Deno.serve(async (req) => {
 
     const { priority, intent } = INTENT_BY_SOURCE[source] ?? { priority: 50, intent: source };
 
-    // The only work the caller waits for: record the run. Everything else —
-    // expanding drafts, queueing items, sending to Previo — happens after the
-    // response so a 6-month bulk edit returns as fast as a single cell.
+    // Durability comes before acknowledgement. The browser may disappear as
+    // soon as this function returns, so the run and every item must already be
+    // committed before we tell the user that the prices were queued.
     const { error: runError } = await admin.from("revenue_rate_push_runs").insert({
       id: runId, hotel_id: hotelId, organization_slug: orgSlug,
       source, requested_count: changes.length, created_by: user.id, priority,
     });
     if (runError) throw runError;
 
-    const expandAndPush = async () => {
-      try {
+    try {
         const dates = changes.map((change) => change.stay_date).sort();
         // Older intents for the same cells are superseded, never deleted: the
         // audit trail of "what we meant to send" has to survive. Rows already
@@ -153,26 +152,24 @@ Deno.serve(async (req) => {
           if (itemError) throw itemError;
         }
 
-        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
+        const kick = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-publish-queue`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
           },
-          body: JSON.stringify({ hotelId, pushRunId: runId }),
-        });
-      } catch (error) {
-        console.error("background rate expansion failed", runId, error);
-        await admin.from("revenue_rate_push_runs").update({
-          status: "failed", finished_at: new Date().toISOString(),
-          last_error: error instanceof Error ? error.message : String(error),
-        }).eq("id", runId);
-      }
-    };
-
-    const edgeRuntime = globalThis as typeof globalThis & { EdgeRuntime?: { waitUntil: (promise: Promise<unknown>) => void } };
-    if (edgeRuntime.EdgeRuntime?.waitUntil) edgeRuntime.EdgeRuntime.waitUntil(expandAndPush());
-    else void expandAndPush();
+          body: JSON.stringify({ trigger: "enqueue", continuationBudget: 12 }),
+        }).catch((error) => console.error("could not kick publisher queue", runId, error));
+        const edgeRuntime = globalThis as typeof globalThis & { EdgeRuntime?: { waitUntil: (promise: Promise<unknown>) => void } };
+        if (edgeRuntime.EdgeRuntime?.waitUntil) edgeRuntime.EdgeRuntime.waitUntil(kick);
+        else void kick;
+    } catch (error) {
+      await admin.from("revenue_rate_push_runs").update({
+        status: "failed", finished_at: new Date().toISOString(),
+        last_error: error instanceof Error ? error.message : String(error),
+      }).eq("id", runId);
+      throw error;
+    }
 
     return json({ ok: true, runId, queued: changes.length, skippedSoldOut });
 

@@ -69,6 +69,8 @@ Deno.serve(async (req) => {
     const hotelId: string | null = typeof body.hotelId === "string" ? body.hotelId : null;
     const draftIds: string[] = Array.isArray(body.draftIds) ? body.draftIds : [];
     const requestedRunId: string | null = typeof body.pushRunId === "string" ? body.pushRunId : null;
+    const continuationBudget = Math.max(0, Math.min(20,
+      Number.isFinite(Number(body.continuationBudget)) ? Number(body.continuationBudget) : 12));
     if (!hotelId) return json({ error: "hotelId is required" }, 400);
 
     if (profile && profile.role !== "admin" && profile.assigned_hotel && profile.assigned_hotel !== hotelId) {
@@ -721,23 +723,32 @@ Deno.serve(async (req) => {
     }
 
     if (more) {
-      // Hand the lock over before the next slice starts, otherwise the
-      // follow-up call would queue behind this one's own reservation.
+      // Give the global queue the next turn instead of recursively calling this
+      // run. This preserves priority/fairness across properties and carries a
+      // strict hop budget, so no invocation chain can run forever.
+      await admin.from("revenue_rate_push_runs").update({
+        status: "queued", started_at: null,
+      }).eq("id", pushRunId).eq("status", "processing");
       if (publisherLock) {
         await admin.rpc("release_publisher_lease", { p_token: publisherLock });
 
         publisherLock = null;
       }
-      const continueRun = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-        },
-        body: JSON.stringify({ hotelId, pushRunId, ...(restIds.length ? { draftIds: restIds } : {}) }),
-      }).catch((error) => console.error("could not continue push run", pushRunId, error));
-      const rt = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
-      if (rt) rt.waitUntil(continueRun); else void continueRun;
+      if (continuationBudget > 0) {
+        const continueRun = (async () => {
+          await new Promise((resolve) => setTimeout(resolve, 350));
+          await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-publish-queue`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+            },
+            body: JSON.stringify({ trigger: "continuation", continuationBudget: continuationBudget - 1 }),
+          });
+        })().catch((error) => console.error("could not continue publisher queue", pushRunId, error));
+        const rt = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
+        if (rt) rt.waitUntil(continueRun); else void continueRun;
+      }
     }
 
 
