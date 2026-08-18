@@ -243,8 +243,8 @@ export function buildDayMetrics(params: {
     sold.set(n.stay_date, (sold.get(n.stay_date) ?? 0) + 1);
     revenue.set(n.stay_date, (revenue.get(n.stay_date) ?? 0) + (n.nightly_price_eur ?? 0));
     if (n.created_at_pms) {
-      const createdDay = budapestDayOf(n.created_at_pms);
-      if (createdDay >= windowStart) {
+      if (inWindow(n.created_at_pms)) {
+
         const set = createdRes.get(n.stay_date) ?? new Set<string>();
         set.add(String(n.res_id));
         createdRes.set(n.stay_date, set);
