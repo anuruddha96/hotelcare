@@ -743,6 +743,14 @@ Deno.serve(async (req) => {
             .filter((b) => !!b.created_at_pms && b.created_at_pms >= observationFrom),
           cancellationRows.filter((c) => c.cancelled_at >= observationFrom),
         );
+        // Same measure over the full pickup window, so a date that took a real
+        // booking in the last 48h is never marked down while the increase pass
+        // still considers that booking fresh.
+        const netByDateWindow = netPickupByDate(
+          ((recentBookings ?? []) as Array<{ stay_date: string; created_at_pms: string | null }>)
+            .filter((b) => !!b.created_at_pms && b.created_at_pms >= pickupWindowFrom),
+          cancellationRows.filter((c) => c.cancelled_at >= pickupWindowFrom),
+        );
         // Newest cancellation per stay date drives the cooldown.
         const lastCancelByDate = new Map<string, string>();
         const cancelCountByDate = new Map<string, number>();
