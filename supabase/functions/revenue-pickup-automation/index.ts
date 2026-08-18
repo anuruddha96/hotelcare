@@ -698,11 +698,21 @@ Deno.serve(async (req) => {
         horizon.setUTCDate(horizon.getUTCDate() + Math.max(1, Number(rule.future_booking_window_days || 183)));
         const horizonDate = horizon.toISOString().slice(0, 10);
         const observationFrom = evalWindow.from;
+        // The markdown side must use the SAME idea of "this date picked up" as
+        // the increase side, otherwise a date that took a booking last night is
+        // marked down every hour and raised in the same run. Both now look back
+        // over the configured pickup window (default 48h).
+        const pickupWindowFrom = new Date(
+          now.getTime() - Math.max(1, Number(rule.pickup_lookback_hours || 48)) * 3_600_000,
+        ).toISOString();
+        const bookingsFrom = new Date(
+          Math.min(Date.parse(observationFrom), Date.parse(pickupWindowFrom)),
+        ).toISOString();
         // Cancellations are read over a wider window than the pickup window so
         // the cooldown can still see a cancellation that landed minutes ago.
         const cooldownMinutes = Math.max(0, Number(rule.cancellation_wait_minutes ?? 60));
         const cancellationsFrom = new Date(
-          Math.min(Date.parse(observationFrom), now.getTime() - (cooldownMinutes + 5) * 60_000),
+          Math.min(Date.parse(bookingsFrom), now.getTime() - (cooldownMinutes + 5) * 60_000),
         ).toISOString();
 
         const [
@@ -714,7 +724,7 @@ Deno.serve(async (req) => {
           { data: pendingDrafts },
           { data: manualEdits },
         ] = await Promise.all([
-          admin.from("revenue_booking_nights").select("stay_date, created_at_pms").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("created_at_pms", observationFrom).limit(20000),
+          admin.from("revenue_booking_nights").select("stay_date, created_at_pms").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("created_at_pms", bookingsFrom).limit(20000),
           admin.from("revenue_cancelled_nights").select("stay_date, cancelled_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("cancelled_at", cancellationsFrom).limit(20000),
           admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).limit(50000),
           admin.from("revenue_pickup_automation_actions").select("stay_date, obk_id, occupancy, increase_amount").eq("hotel_id", rule.hotel_id).eq("decision_type", "no_pickup_markdown").eq("local_business_date", local.date).limit(50000),
@@ -732,6 +742,14 @@ Deno.serve(async (req) => {
           ((recentBookings ?? []) as Array<{ stay_date: string; created_at_pms: string | null }>)
             .filter((b) => !!b.created_at_pms && b.created_at_pms >= observationFrom),
           cancellationRows.filter((c) => c.cancelled_at >= observationFrom),
+        );
+        // Same measure over the full pickup window, so a date that took a real
+        // booking in the last 48h is never marked down while the increase pass
+        // still considers that booking fresh.
+        const netByDateWindow = netPickupByDate(
+          ((recentBookings ?? []) as Array<{ stay_date: string; created_at_pms: string | null }>)
+            .filter((b) => !!b.created_at_pms && b.created_at_pms >= pickupWindowFrom),
+          cancellationRows.filter((c) => c.cancelled_at >= pickupWindowFrom),
         );
         // Newest cancellation per stay date drives the cooldown.
         const lastCancelByDate = new Map<string, string>();
@@ -807,9 +825,10 @@ Deno.serve(async (req) => {
         for (const rate of latest.values()) {
           const cellKey = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
           const net = netByDate.get(rate.stay_date) ?? 0;
+          const netWindow = netByDateWindow.get(rate.stay_date) ?? 0;
           const guardsFor = occupancyByDate.get(rate.stay_date);
           const block = markdownBlockReason({
-            hadPickup: net > 0,
+            hadPickup: net > 0 || netWindow > 0,
             roomsAvailable: guardsFor?.left ?? null,
             occupancyPct: guardsFor?.pct ?? null,
             protectHighOccupancy: rule.protect_high_occupancy !== false,
@@ -1636,15 +1655,21 @@ Deno.serve(async (req) => {
           .limit(20000),
         admin
           .from("revenue_pickup_automation_actions")
-          .select("stay_date, reservation_id")
+          .select("stay_date, reservation_id, status")
           .eq("hotel_id", rule.hotel_id)
           .in("stay_date", stayDates)
           .in("decision_type", ["positive_pickup", "far_out_booking"])
           .gte("created_at", freshFrom)
           .limit(20000),
       ]);
+      // A booking may lift its dates once — but only if that lift actually
+      // reached Previo. A refused, failed or expired push must not spend the
+      // booking's single chance, otherwise the price silently never moves.
+      const RAISE_SPENT = new Set(["queued", "sending", "pushed", "confirmed", "suggested"]);
       const alreadyRaisedRes = new Set(
-        ((windowRaises ?? []) as any[]).map((a) => `${a.stay_date}|${a.reservation_id ?? ""}`),
+        ((windowRaises ?? []) as any[])
+          .filter((a) => RAISE_SPENT.has(String(a.status ?? "")))
+          .map((a) => `${a.stay_date}|${a.reservation_id ?? ""}`),
       );
       const raisedByEvent = new Map<string, number>();
       for (const a of (todaysActions ?? []) as any[]) {
@@ -1665,6 +1690,17 @@ Deno.serve(async (req) => {
       }> = [];
       let skippedStale = 0;
       let skippedNegative = 0;
+      /**
+       * Why a stay date with a fresh booking did NOT go up. Without this the
+       * engine simply went quiet and nobody could tell a deliberate hold from a
+       * bug — which is exactly the question this run has to answer.
+       */
+      const skipReasonByDate = new Map<string, string>();
+      const skipCounts: Record<string, number> = {};
+      const noteSkip = (stayDate: string, reason: string) => {
+        skipCounts[reason] = (skipCounts[reason] ?? 0) + 1;
+        if (!skipReasonByDate.has(stayDate)) skipReasonByDate.set(stayDate, reason);
+      };
       for (const p of pickups) {
         if (rule.positive_pickup_enabled === false) continue;
         const key = `${p.stay_date}|${p.res_id}`;
@@ -1674,13 +1710,15 @@ Deno.serve(async (req) => {
         // booking must not move a price. The window is the configured pickup
         // lookback (default 48h), not "since local midnight": a booking taken
         // at 22:00 last night is still fresh demand at 04:00 this morning.
-        if (!p.created_at_pms || p.created_at_pms < freshFrom) { skippedStale++; continue; }
+        if (!p.created_at_pms || p.created_at_pms < freshFrom) { skippedStale++; noteSkip(p.stay_date, "stale_booking"); continue; }
         // ...but it may only lift its dates once, ever.
-        if (alreadyRaisedRes.has(key)) { skippedStale++; continue; }
+        if (alreadyRaisedRes.has(key)) { skippedStale++; noteSkip(p.stay_date, "already_raised"); continue; }
+        // A date already moved DOWN in this run must not also move up.
+        if (markdownDatesThisRun.has(p.stay_date)) { skippedStale++; noteSkip(p.stay_date, "marked_down_this_run"); continue; }
         // And the stay date must be net positive over the window, with today
         // not net negative, so a day whose movement is cancellations never goes up.
-        if ((netPickup.get(p.stay_date) ?? 0) <= 0) { skippedNegative++; continue; }
-        if ((netToday.get(p.stay_date) ?? 0) < 0) { skippedNegative++; continue; }
+        if ((netPickup.get(p.stay_date) ?? 0) <= 0) { skippedNegative++; noteSkip(p.stay_date, "net_negative"); continue; }
+        if ((netToday.get(p.stay_date) ?? 0) < 0) { skippedNegative++; noteSkip(p.stay_date, "cancelled_today"); continue; }
 
         const at = Date.parse(p.created_at_pms);
         if (!Number.isFinite(at)) continue;
@@ -1738,7 +1776,7 @@ Deno.serve(async (req) => {
           enabled: rule.short_window_guard_enabled !== false,
           shortWindowDays: Math.max(0, Number(rule.short_window_days ?? 7)),
           minOccupancyPct: Number(rule.short_window_min_occupancy_pct ?? 70),
-        })) { heldShortWindow++; continue; }
+        })) { heldShortWindow++; noteSkip(ev.stay_date, "short_window"); continue; }
 
         // Last room gone: record the booking, leave the price where it is.
         if (soldOutBlocksIncrease({
@@ -1746,7 +1784,7 @@ Deno.serve(async (req) => {
           roomsLeft: leftByStayDate.get(ev.stay_date) ?? null,
           occupancyPct: occByStayDate.get(ev.stay_date) ?? null,
           soldOutOccupancyPct: Number(rule.sold_out_occupancy_pct ?? 100),
-        })) { heldSoldOut++; continue; }
+        })) { heldSoldOut++; noteSkip(ev.stay_date, "sold_out"); continue; }
 
 
         // The 2nd booking inside the window is the "heat" signal: it takes the
@@ -1769,11 +1807,11 @@ Deno.serve(async (req) => {
         if (isFarOut) increase = farOut;
 
         if (rule.maximum_increase) increase = Math.min(increase, Number(rule.maximum_increase));
-        if (increase <= 0) continue;
+        if (increase <= 0) { noteSkip(ev.stay_date, "no_tier_increase"); continue; }
 
         const already = raisedToday.get(ev.stay_date) ?? 0;
         const room = Math.max(0, Number(rule.max_daily_increase_per_date || 0) - already);
-        if (room <= 0) continue;
+        if (room <= 0) { noteSkip(ev.stay_date, "daily_cap"); continue; }
         increase = Math.min(increase, room);
         raisedToday.set(ev.stay_date, already + increase);
         if (isFarOut) {
@@ -1787,6 +1825,7 @@ Deno.serve(async (req) => {
         }
 
 
+        let matchedRate = 0;
         for (const rate of latestRate.values()) {
           if (rate.stay_date !== ev.stay_date) continue;
           if (rule.application_scope !== "all_room_types") {
@@ -1797,11 +1836,12 @@ Deno.serve(async (req) => {
               : String(rate.room_type_name ?? "").trim().toLowerCase() === String(ev.room_type_name ?? "").trim().toLowerCase();
             if (!sameRoom) continue;
           }
+          matchedRate++;
           // This room type has nothing left for that date — raising it can only
           // look wrong later. The pickup is still recorded, the cell is not moved.
-          if (typeSoldOut(rate.room_type_name, rate.obk_id, rate.stay_date)) { heldSoldOut++; continue; }
+          if (typeSoldOut(rate.room_type_name, rate.obk_id, rate.stay_date)) { heldSoldOut++; noteSkip(ev.stay_date, "room_type_sold_out"); continue; }
           const oldPrice = Number(rate.price);
-          if (!Number.isFinite(oldPrice) || oldPrice <= 0) continue;
+          if (!Number.isFinite(oldPrice) || oldPrice <= 0) { noteSkip(ev.stay_date, "no_current_price"); continue; }
 
           const cellKey = `${ev.stay_date}|${String(rate.obk_id)}|${Number(rate.occupancy) || 2}`;
           const current = cellDecisions.get(cellKey);
@@ -1830,6 +1870,9 @@ Deno.serve(async (req) => {
             });
           }
         }
+        // The booking's room type has no live price row for that date, so there
+        // was nothing to raise. Silent before; now it is on the record.
+        if (matchedRate === 0) noteSkip(ev.stay_date, "no_price_row_for_room_type");
       }
 
       for (const decision of cellDecisions.values()) {
@@ -1838,7 +1881,7 @@ Deno.serve(async (req) => {
           rule.whole_number_prices !== false,
           rule.minimum_adr === null ? null : Number(rule.minimum_adr),
         );
-        if (newPrice <= decision.old_price) continue;
+        if (newPrice <= decision.old_price) { noteSkip(decision.stay_date, "rounding_no_change"); continue; }
 
         actionsToInsert.push({
           rule_id: rule.id,
@@ -2032,6 +2075,41 @@ Deno.serve(async (req) => {
         if (notifErr) console.error("notification insert failed", notifErr);
       }
 
+      // Dates that DID pick up but were deliberately held. Recorded so "there
+      // was a booking, why no surcharge?" has an answer in the app itself.
+      // Only for a run someone started by hand: that is the moment the question
+      // "there was pickup, why did nothing move?" is actually asked. Hourly
+      // automatic runs stay silent so the inbox is not flooded.
+      if (!isEngine && skipReasonByDate.size > 0) {
+        const held = Array.from(skipReasonByDate.entries())
+          .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+          .slice(0, 60)
+          .map(([stay_date, reason]) => ({ stay_date, reason }));
+        const { error: heldErr } = await admin.from("revenue_automation_notifications").insert({
+          hotel_id: rule.hotel_id,
+          organization_slug: rule.organization_slug,
+          notification_type: "pickup_held",
+          run_source: isEngine ? "automatic" : "manual",
+          actor_name: isEngine ? "Automatic pricing" : (actorName ?? "Manual run"),
+          actor_user_id: isEngine ? null : actorUserId,
+          rule_id: rule.id,
+          action_ids: [],
+          pickups_count: skipReasonByDate.size,
+          actions_count: 0,
+          pushed_count: 0,
+          failed_count: 0,
+          currency: rule.currency ?? "EUR",
+          severity: "info",
+          summary: `${skipReasonByDate.size} date(s) with pickup held — ${Object.entries(skipCounts)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([reason, count]) => `${reason.replace(/_/g, " ")} ×${count}`)
+            .join(", ")}`,
+          changes: held,
+        });
+        if (heldErr) console.error("held notification insert failed", heldErr);
+      }
+
       // A booking for a stay date months away is rare and valuable: the people
       // who watch this property are told about it by name, with what the engine
       // did, so they can review the date themselves.
@@ -2075,6 +2153,12 @@ Deno.serve(async (req) => {
         skipped_not_new: skippedStale, skipped_negative_pickup: skippedNegative,
         held_short_window: heldShortWindow,
         held_sold_out: heldSoldOut,
+        // Why each date with fresh pickup did not go up — the answer to
+        // "there was a booking, why no surcharge?".
+        skip_reasons: skipCounts,
+        held_dates: Array.from(skipReasonByDate.entries())
+          .slice(0, 60)
+          .map(([stay_date, reason]) => ({ stay_date, reason })),
         actions: inserted, markdowns: markdownActions,
         markdown_stay_dates: markdownStayDates, blocked: markdownBlocks,
         queued: queued + markdownActions + strongActions + topUpActions,
