@@ -137,6 +137,7 @@ serve(async (req) => {
         };
       });
 
+      rooms.sort((a: any, b: any) => String(a.room).localeCompare(String(b.room), undefined, { numeric: true }));
 
       const lastSynced = latestCapture(liveSnaps);
       const liveSource = (liveSnaps ?? []).some((r: any) => r.source === "previo") ? "previo" : (liveSnaps.length ? "manual" : null);
