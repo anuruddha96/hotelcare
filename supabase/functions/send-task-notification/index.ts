@@ -8,7 +8,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
+const resend = mailClient());
 
 interface TaskNotificationRequest {
   userId: string;

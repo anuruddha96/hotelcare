@@ -6,7 +6,7 @@
 // Each (date × room type × occupancy × price) is only ever reported once.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
-import { Resend } from "npm:resend@2.0.0";
+import { mailClient } from "../_shared/emailSender.ts";
 
 const ALERT_ROLES = ["admin", "top_management", "top_management_manager"];
 const HORIZON_DAYS = 120;
@@ -153,7 +153,7 @@ Deno.serve(async (req) => {
             </div>`;
 
           try {
-            const resend = new Resend(resendKey);
+            const resend = mailClient();
             await resend.emails.send({
               from: "Hotel Care <onboarding@resend.dev>",
               to: unique,

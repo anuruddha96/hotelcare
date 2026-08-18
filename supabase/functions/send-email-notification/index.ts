@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { Resend } from "npm:resend@2.0.0";
+import { mailClient } from "../_shared/emailSender.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -44,7 +44,7 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error('RESEND_API_KEY is not configured');
     }
 
-    const resend = new Resend(resendApiKey);
+    const resend = mailClient();
     
     const { to, ticketId, ticketNumber, ticketTitle, hotel, assignedBy, priority, description }: EmailRequest = await req.json();
 

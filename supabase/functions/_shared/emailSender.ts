@@ -208,3 +208,52 @@ export async function checkResendKey(): Promise<{
   } catch { /* ignore */ }
   return { configured: true, valid: true, domains };
 }
+
+/**
+ * Drop-in replacement for the old `new Resend(key)` usage.
+ *
+ * Older functions call `resend.emails.send({ from, to, subject, html })` with a
+ * hard-coded sender. This adapter ignores that sender and uses the
+ * organization's Email settings instead, so changing the sender in one place
+ * changes every message the app sends.
+ */
+export function mailClient(organizationSlug?: string | null) {
+  const admin = {
+    from: (table: string) => ({
+      select: (cols: string) => ({
+        eq: (col: string, val: string) => ({
+          maybeSingle: async () => {
+            const url = Deno.env.get("SUPABASE_URL");
+            const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+            if (!url || !key) return { data: null };
+            const res = await fetch(
+              `${url}/rest/v1/${table}?select=${encodeURIComponent(cols)}&${col}=eq.${encodeURIComponent(val)}&limit=1`,
+              { headers: { apikey: key, Authorization: `Bearer ${key}` } },
+            );
+            if (!res.ok) return { data: null };
+            const rows = await res.json().catch(() => []);
+            return { data: Array.isArray(rows) ? rows[0] ?? null : null };
+          },
+        }),
+      }),
+    }),
+  };
+
+  return {
+    emails: {
+      send: async (msg: { from?: string; to: string[] | string; subject: string; html: string }) => {
+        const to = Array.isArray(msg.to) ? msg.to : [msg.to];
+        const result = await sendEmail({
+          admin,
+          organizationSlug,
+          to,
+          subject: msg.subject,
+          html: msg.html,
+          kind: "transactional",
+        });
+        if (!result.ok) return { data: null, error: { message: result.error ?? "send failed" } };
+        return { data: { id: result.id ?? "sent" }, error: null };
+      },
+    },
+  };
+}
