@@ -71,54 +71,10 @@ Deno.serve(async (req) => {
     }
     let changes = [...byCell.values()];
 
-    // A sold-out room type has nothing left to sell on that date, so changing
-    // its price is noise (and can even hurt future rate integrity). Those cells
-    // are dropped here; every other date/room type in the same selection is
-    // still published.
-    let skippedSoldOut = 0;
-    try {
-      const dateList = changes.map((c) => c.stay_date).sort();
-       const [{ data: capacityRows }, { data: nightRows }] = await Promise.all([
-         admin.from("room_types").select("name, pms_room_id, num_rooms, counts_toward_inventory")
-           .eq("hotel_id", hotelId).eq("organization_slug", profile.organization_slug),
-         admin.from("revenue_booking_nights").select("stay_date, obk_id, room_type_name")
-          .eq("hotel_id", hotelId)
-           .eq("organization_slug", profile.organization_slug)
-          .gte("stay_date", dateList[0]).lte("stay_date", dateList[dateList.length - 1])
-          .limit(50000),
-      ]);
-      const capacity = new Map<string, number>();
-      for (const row of capacityRows ?? []) {
-        const rooms = Number((row as any).num_rooms);
-        if ((row as any).counts_toward_inventory === false || !Number.isFinite(rooms) || rooms <= 0) continue;
-         const name = String((row as any).name).trim().toLowerCase();
-         const obk = String((row as any).pms_room_id ?? "").trim();
-         capacity.set(`name:${name}`, rooms);
-         if (obk) capacity.set(`obk:${obk}`, rooms);
-      }
-      const sold = new Map<string, number>();
-      for (const row of nightRows ?? []) {
-         const date = String((row as any).stay_date);
-         const name = String((row as any).room_type_name ?? "").trim().toLowerCase();
-         const obk = String((row as any).obk_id ?? "").trim();
-         if (name) sold.set(`${date}|name:${name}`, (sold.get(`${date}|name:${name}`) ?? 0) + 1);
-         if (obk) sold.set(`${date}|obk:${obk}`, (sold.get(`${date}|obk:${obk}`) ?? 0) + 1);
-      }
-      if (capacity.size > 0) {
-        const kept = changes.filter((change) => {
-          const name = change.room_type_name.trim().toLowerCase();
-           const obk = String(change.obk_id ?? "").trim();
-           const identity = obk && capacity.has(`obk:${obk}`) ? `obk:${obk}` : `name:${name}`;
-           const rooms = capacity.get(identity);
-          if (!rooms) return true;
-           return (sold.get(`${change.stay_date}|${identity}`) ?? 0) < rooms;
-        });
-        skippedSoldOut = changes.length - kept.length;
-        if (kept.length > 0) changes = kept;
-      }
-    } catch (soldOutError) {
-      console.error("sold-out filter skipped", soldOutError);
-    }
+    // Sold-out room types are published too. A date can free up at any moment
+    // through a cancellation, and holding its price still made the calendar
+    // inconsistent and hard to follow, so every selected cell is sent.
+    const skippedSoldOut = 0;
     if (changes.length === 0) {
       return json({ error: "Every selected room type is sold out on those dates — nothing to publish." }, 400);
     }
