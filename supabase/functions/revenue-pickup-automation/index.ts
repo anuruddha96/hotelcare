@@ -1392,10 +1392,11 @@ Deno.serve(async (req) => {
             rule_id: rule.id, rule_version: rule.version, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
             reservation_id: null, stay_date: rate.stay_date, pickup_at: null, pickup_sequence: 0,
             room_type_name: rate.room_type_name, obk_id: String(rate.obk_id), occupancy: Number(rate.occupancy) || 2,
-            old_price: current, increase_amount: step, new_price: newPrice,
+            old_price: current, increase_amount: newPrice - current, new_price: newPrice,
             status: rule.auto_publish ? "queued" : "suggested", decision_type: "smart_strong_demand",
             observation_from: evalWindow.from, observation_to: runStartedAt,
-            net_pickup: 0, schedule_slot: slot, local_business_date: local.date, cap_applied: step,
+            net_pickup: 0, schedule_slot: slot, local_business_date: local.date, cap_applied: newPrice - current,
+
             decision_reason: event ? "event_demand" : spike ? "demand_spike" : "strong_demand",
             reason_detail: (spike || event)
               ? demandSignalText({
