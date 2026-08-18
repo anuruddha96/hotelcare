@@ -333,42 +333,99 @@ Deno.serve(async (req) => {
     const failures: { hotel_id: string; error: string }[] = [];
 
     for (const s of due) {
-      const digest = await buildDigest(admin, s.hotel_id, (s.organization_slug as string | null) ?? null, now.date);
-      const { data: hotel } = await admin.from("hotels").select("name").eq("id", s.hotel_id).maybeSingle();
-      const hotelName = (hotel?.name as string | undefined) ?? "Your hotel";
-
-      let recipients: string[] = [];
-      if (force) {
-        recipients = [requester?.email, ...(s.recipients ?? [])].filter(Boolean) as string[];
-      } else {
-        recipients = [...(s.recipients ?? [])];
-        const { data: staff } = await admin
-          .from("profiles")
-          .select("email, role, assigned_hotel, organization_slug")
-          .eq("organization_slug", s.organization_slug)
-          .in("role", ["admin", "top_management", "top_management_manager", "manager"])
-          .is("deleted_at", null);
-        for (const p of staff ?? []) {
-          if (p.email) recipients.push(p.email as string);
-        }
-      }
-      recipients = [...new Set(recipients.filter(Boolean))];
+      // Only the addresses configured in Revenue → Morning e-mail. A forced
+      // test also goes to the person who pressed the button. No role-based
+      // expansion — this is confidential commercial data.
+      const configured = ((s.recipients ?? []) as string[])
+        .map((x) => String(x ?? "").trim())
+        .filter((x) => /\S+@\S+\.\S+/.test(x) && !/@rdhotels\.local$/i.test(x));
+      const recipients = [...new Set(
+        (force ? [requester?.email ?? "", ...configured] : configured).filter(Boolean),
+      )] as string[];
       if (!recipients.length) {
-        failures.push({ hotel_id: s.hotel_id, error: "No recipients — add an e-mail address." });
+        failures.push({ hotel_id: s.hotel_id, error: "No recipients configured — add an e-mail address in Revenue → Morning e-mail." });
         continue;
       }
 
-      const result = await sendEmail({
-        admin,
-        organizationSlug: s.organization_slug as string | null,
-        to: recipients,
-        subject: `${hotelName} — morning revenue summary (${now.date})`,
-        html: renderHtml(hotelName, now.date, digest),
-        kind: "digest",
-      });
+      // Refresh live Previo data first so the mail matches what the app shows
+      // right now; if it fails we still send, but the mail says the data is old.
+      let synced = false;
+      try {
+        const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/previo-revenue-sync`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          },
+          body: JSON.stringify({ hotelId: s.hotel_id }),
+          signal: AbortSignal.timeout(90_000),
+        });
+        synced = res.ok;
+        if (!res.ok) console.warn(`digest sync failed for ${s.hotel_id}: ${res.status}`);
+      } catch (e) {
+        console.warn(`digest sync error for ${s.hotel_id}`, e);
+      }
 
-      if (!result.ok) {
-        failures.push({ hotel_id: s.hotel_id, error: result.error ?? "send failed" });
+      const { data: state } = await admin
+        .from("revenue_sync_state")
+        .select("last_success_at")
+        .eq("hotel_id", s.hotel_id)
+        .maybeSingle();
+      const lastSuccess = state?.last_success_at ? new Date(state.last_success_at as string) : null;
+      const meta: Meta = {
+        asOf: `${String(now.hour).padStart(2, "0")}:${String(now.minute).padStart(2, "0")}`,
+        syncedAt: lastSuccess
+          ? new Intl.DateTimeFormat("en-GB", {
+              timeZone: "Europe/Budapest", hour: "2-digit", minute: "2-digit", hour12: false,
+            }).format(lastSuccess)
+          : null,
+        stale: !synced && (!lastSuccess || Date.now() - lastSuccess.getTime() > 6 * 60 * 60 * 1000),
+      };
+
+      const digest = await buildDigest(admin, s.hotel_id, (s.organization_slug as string | null) ?? null, now.date);
+
+      // hotel_id can be a slug ("ottofiori") or a UUID — resolve both.
+      const isUuid = /^[0-9a-f-]{36}$/i.test(String(s.hotel_id));
+      let hotelName: string | null = null;
+      if (isUuid) {
+        const { data: hotel } = await admin.from("hotels").select("name").eq("id", s.hotel_id).maybeSingle();
+        hotelName = (hotel?.name as string | undefined) ?? null;
+      } else {
+        const { data: named } = await admin.rpc("get_hotel_name_from_id", { hotel_id: s.hotel_id });
+        hotelName = typeof named === "string" && named && named !== s.hotel_id ? named : null;
+        if (!hotelName) {
+          const { data: hotel } = await admin.from("hotels").select("name").eq("name", s.hotel_id).maybeSingle();
+          hotelName = (hotel?.name as string | undefined) ?? null;
+        }
+      }
+      if (!hotelName) {
+        failures.push({ hotel_id: s.hotel_id, error: `Could not resolve the hotel name for "${s.hotel_id}" — digest not sent.` });
+        continue;
+      }
+
+      const html = renderHtml(hotelName, now.date, digest, meta);
+      const text = renderText(hotelName, now.date, digest, meta);
+      const subject = `${hotelName} — morning revenue summary (${now.date})`;
+
+      // One message per recipient: nobody sees the other addresses.
+      let anySent = false;
+      let lastError: string | null = null;
+      for (const to of recipients) {
+        const result = await sendEmail({
+          admin,
+          organizationSlug: s.organization_slug as string | null,
+          to: [to],
+          subject,
+          html,
+          text,
+          kind: "digest",
+        });
+        if (result.ok) anySent = true;
+        else lastError = result.error ?? "send failed";
+      }
+
+      if (!anySent) {
+        failures.push({ hotel_id: s.hotel_id, error: lastError ?? "send failed" });
         continue;
       }
 
