@@ -2988,7 +2988,11 @@ export default function RateStrategyGrid({
                         disabled={!canEditRates || soldOut}
                         onPointerEnter={() => {
                           if (cellPointerEnter(rowIdx, i)) return;
-                          void loadCellHistory(d); void loadAutomationDate(d);
+                          // Pass the newest change we already know about, so a
+                          // cached-but-stale date is re-read instead of opening
+                          // a blank drawer next to a coloured dot.
+                          void loadCellHistory(d, false, marker?.at ?? markerByDate.get(d)?.at ?? null);
+                          void loadAutomationDate(d);
                         }}
                         onPointerDown={(e) => {
                           if (!canEditRates || soldOut) return;
@@ -3002,7 +3006,7 @@ export default function RateStrategyGrid({
                           // On a phone there is no hover, so a tap tells the
                           // cell's story first and offers editing from there.
                           if (isMobile) {
-                            void loadCellHistory(d);
+                            void loadCellHistory(d, false, marker?.at ?? markerByDate.get(d)?.at ?? null);
                             void loadAutomationDate(d);
                             setCellInfo({
 
