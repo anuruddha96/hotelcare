@@ -905,6 +905,7 @@ serve(async (req) => {
         );
         if (willRetry) {
           retryCells.push({
+            draft_id: draft.id,
             stay_date: draft.stay_date, obk_id: draft.obk_id, room_type_name: draft.room_type_name,
             occupancy: draft.occupancy, old_price: landed, new_price: Number(draft.new_price),
             created_by: draft.created_by,
