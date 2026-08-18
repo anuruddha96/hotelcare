@@ -1690,6 +1690,17 @@ Deno.serve(async (req) => {
       }> = [];
       let skippedStale = 0;
       let skippedNegative = 0;
+      /**
+       * Why a stay date with a fresh booking did NOT go up. Without this the
+       * engine simply went quiet and nobody could tell a deliberate hold from a
+       * bug — which is exactly the question this run has to answer.
+       */
+      const skipReasonByDate = new Map<string, string>();
+      const skipCounts: Record<string, number> = {};
+      const noteSkip = (stayDate: string, reason: string) => {
+        skipCounts[reason] = (skipCounts[reason] ?? 0) + 1;
+        if (!skipReasonByDate.has(stayDate)) skipReasonByDate.set(stayDate, reason);
+      };
       for (const p of pickups) {
         if (rule.positive_pickup_enabled === false) continue;
         const key = `${p.stay_date}|${p.res_id}`;
@@ -1699,13 +1710,15 @@ Deno.serve(async (req) => {
         // booking must not move a price. The window is the configured pickup
         // lookback (default 48h), not "since local midnight": a booking taken
         // at 22:00 last night is still fresh demand at 04:00 this morning.
-        if (!p.created_at_pms || p.created_at_pms < freshFrom) { skippedStale++; continue; }
+        if (!p.created_at_pms || p.created_at_pms < freshFrom) { skippedStale++; noteSkip(p.stay_date, "stale_booking"); continue; }
         // ...but it may only lift its dates once, ever.
-        if (alreadyRaisedRes.has(key)) { skippedStale++; continue; }
+        if (alreadyRaisedRes.has(key)) { skippedStale++; noteSkip(p.stay_date, "already_raised"); continue; }
+        // A date already moved DOWN in this run must not also move up.
+        if (markdownDatesThisRun.has(p.stay_date)) { skippedStale++; noteSkip(p.stay_date, "marked_down_this_run"); continue; }
         // And the stay date must be net positive over the window, with today
         // not net negative, so a day whose movement is cancellations never goes up.
-        if ((netPickup.get(p.stay_date) ?? 0) <= 0) { skippedNegative++; continue; }
-        if ((netToday.get(p.stay_date) ?? 0) < 0) { skippedNegative++; continue; }
+        if ((netPickup.get(p.stay_date) ?? 0) <= 0) { skippedNegative++; noteSkip(p.stay_date, "net_negative"); continue; }
+        if ((netToday.get(p.stay_date) ?? 0) < 0) { skippedNegative++; noteSkip(p.stay_date, "cancelled_today"); continue; }
 
         const at = Date.parse(p.created_at_pms);
         if (!Number.isFinite(at)) continue;
