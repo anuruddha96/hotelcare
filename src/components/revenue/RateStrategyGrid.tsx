@@ -1966,6 +1966,70 @@ export default function RateStrategyGrid({
     setRangeFocus(null);
   }, []);
 
+  /* ---- Instant selection painting ----------------------------------------
+   * Re-rendering the whole calendar on every pointer move made the selection
+   * feel laggy, so while a block is being dragged the highlight is written
+   * straight onto the DOM (one rAF per frame) and React state is only
+   * committed once the finger or mouse is lifted. */
+  const anchorRef = useRef<{ row: number; date: number } | null>(null);
+  const focusRef = useRef<{ row: number; date: number } | null>(null);
+  const paintRaf = useRef<number | null>(null);
+  const pillRef = useRef<HTMLDivElement | null>(null);
+  const SEL_CLASSES = ["bg-primary/25", "ring-1", "ring-inset", "ring-primary"];
+
+  const paintSelection = useCallback(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    const a = anchorRef.current;
+    const f = focusRef.current;
+    const rect = a && f ? {
+      r0: Math.min(a.row, f.row), r1: Math.max(a.row, f.row),
+      d0: Math.min(a.date, f.date), d1: Math.max(a.date, f.date),
+    } : null;
+    let count = 0;
+    const cells = root.querySelectorAll<HTMLElement>("[data-cell-row]");
+    cells.forEach((el) => {
+      const r = Number(el.dataset.cellRow);
+      const d = Number(el.dataset.cellDate);
+      const on = !!rect && !(el as HTMLButtonElement).disabled
+        && r >= rect.r0 && r <= rect.r1 && d >= rect.d0 && d <= rect.d1;
+      if (on) count += 1;
+      const painted = el.dataset.selPainted === "1";
+      if (on && !painted) { el.classList.add(...SEL_CLASSES); el.dataset.selPainted = "1"; }
+      else if (!on && painted) { el.classList.remove(...SEL_CLASSES); delete el.dataset.selPainted; }
+    });
+    const pill = pillRef.current;
+    if (pill && rect) {
+      pill.textContent = `${count} price${count === 1 ? "" : "s"} · ${rect.r1 - rect.r0 + 1} row${rect.r1 === rect.r0 ? "" : "s"} × ${rect.d1 - rect.d0 + 1} date${rect.d1 === rect.d0 ? "" : "s"}`;
+    }
+  }, []);
+
+  /** Queue a repaint on the next frame — never more than one per frame. */
+  const schedulePaint = useCallback(() => {
+    if (paintRaf.current !== null) return;
+    paintRaf.current = window.requestAnimationFrame(() => {
+      paintRaf.current = null;
+      paintSelection();
+    });
+  }, [paintSelection]);
+
+  /** Drop every painted class so React can own the highlight again. */
+  const unpaintSelection = useCallback(() => {
+    anchorRef.current = null;
+    focusRef.current = null;
+    if (paintRaf.current !== null) { window.cancelAnimationFrame(paintRaf.current); paintRaf.current = null; }
+    paintSelection();
+  }, [paintSelection]);
+
+  /** Start a block selection right now, with no React round-trip. */
+  const beginCellDrag = useCallback((row: number, date: number) => {
+    anchorRef.current = { row, date };
+    focusRef.current = { row, date };
+    cellDraggingRef.current = true;
+    paintSelection();
+    setCellDragging(true);
+  }, [paintSelection]);
+
   /**
    * Pointer down on a price cell. We do not commit to a selection yet: a plain
    * click still opens the single-cell editor. A mouse drag onto another cell,
@@ -1979,41 +2043,50 @@ export default function RateStrategyGrid({
       return;
     }
     clearRange();
+    unpaintSelection();
     pendingCell.current = { row: rowIdx, date: dateIdx, x: e.clientX, y: e.clientY, touch };
     if (touch) {
       if (holdTimer.current) window.clearTimeout(holdTimer.current);
       holdTimer.current = window.setTimeout(() => {
         const p = pendingCell.current;
         if (!p) return;
-        cellDraggingRef.current = true;
-        setCellDragging(true);
-        setRangeAnchor({ row: p.row, date: p.date });
-        setRangeFocus({ row: p.row, date: p.date });
+        beginCellDrag(p.row, p.date);
         try { navigator.vibrate?.(12); } catch { /* not supported */ }
-      }, 320);
+      }, 180);
     }
-  }, [rangeAnchor, clearRange]);
+  }, [rangeAnchor, clearRange, unpaintSelection, beginCellDrag]);
 
   /** Mouse moved onto another cell while the button is down → start dragging. */
   const cellPointerEnter = useCallback((rowIdx: number, dateIdx: number) => {
     const p = pendingCell.current;
     if (cellDraggingRef.current) {
-      setRangeFocus({ row: rowIdx, date: dateIdx });
+      focusRef.current = { row: rowIdx, date: dateIdx };
+      schedulePaint();
       return true;
     }
     if (p && !p.touch && (p.row !== rowIdx || p.date !== dateIdx)) {
-      cellDraggingRef.current = true;
-      setCellDragging(true);
-      setRangeAnchor({ row: p.row, date: p.date });
-      setRangeFocus({ row: rowIdx, date: dateIdx });
+      beginCellDrag(p.row, p.date);
+      focusRef.current = { row: rowIdx, date: dateIdx };
+      paintSelection();
       return true;
     }
     return false;
-  }, []);
+  }, [schedulePaint, beginCellDrag, paintSelection]);
 
-  /** Latest rectangle, readable from the global pointer listeners. */
-  const rangeRectRef = useRef(rangeRect);
-  rangeRectRef.current = rangeRect;
+  /**
+   * Gesture finished: hand the painted rectangle over to React state so the
+   * pricing tool can work with it, and drop the hand-painted classes in the
+   * same tick so nothing is highlighted twice.
+   */
+  const commitSelection = useCallback(() => {
+    const a = anchorRef.current;
+    const f = focusRef.current;
+    unpaintSelection();
+    if (!a || !f) return false;
+    setRangeAnchor(a);
+    setRangeFocus(f);
+    return true;
+  }, [unpaintSelection]);
 
   useEffect(() => {
     const findCell = (x: number, y: number) => {
@@ -2027,7 +2100,10 @@ export default function RateStrategyGrid({
       e.preventDefault();
       const hit = findCell(e.clientX, e.clientY);
       if (hit && Number.isFinite(hit.row) && Number.isFinite(hit.date)) {
-        setRangeFocus((prev) => (prev && prev.row === hit.row && prev.date === hit.date ? prev : hit));
+        const prev = focusRef.current;
+        if (prev && prev.row === hit.row && prev.date === hit.date) return;
+        focusRef.current = hit;
+        schedulePaint();
       }
     };
     const onUp = () => {
@@ -2039,8 +2115,7 @@ export default function RateStrategyGrid({
       suppressClick.current = true;
       window.setTimeout(() => { suppressClick.current = false; }, 250);
       // Selection finished → go straight to the pricing tool.
-      const rect = rangeRectRef.current;
-      if (rect) setRangeToolOpen(true);
+      if (commitSelection()) setRangeToolOpen(true);
     };
     window.addEventListener("pointermove", onMove, { passive: false });
     window.addEventListener("pointerup", onUp);
@@ -2050,7 +2125,7 @@ export default function RateStrategyGrid({
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, []);
+  }, [schedulePaint, commitSelection]);
 
   /**
    * Touch equivalent of the mouse drag above. Pointer events stop firing on a
@@ -2080,7 +2155,10 @@ export default function RateStrategyGrid({
       if (!cell) return;
       const hit = { row: Number(cell.dataset.cellRow), date: Number(cell.dataset.cellDate) };
       if (!Number.isFinite(hit.row) || !Number.isFinite(hit.date)) return;
-      setRangeFocus((prev) => (prev && prev.row === hit.row && prev.date === hit.date ? prev : hit));
+      const prev = focusRef.current;
+      if (prev && prev.row === hit.row && prev.date === hit.date) return;
+      focusRef.current = hit;
+      schedulePaint();
     };
 
     const onTouchEnd = () => {
@@ -2091,7 +2169,7 @@ export default function RateStrategyGrid({
       setCellDragging(false);
       suppressClick.current = true;
       window.setTimeout(() => { suppressClick.current = false; }, 250);
-      if (rangeRectRef.current) setRangeToolOpen(true);
+      if (commitSelection()) setRangeToolOpen(true);
     };
 
     /** Release the lock without opening the pricing tool. */
@@ -2101,6 +2179,7 @@ export default function RateStrategyGrid({
       if (!cellDraggingRef.current) return;
       cellDraggingRef.current = false;
       setCellDragging(false);
+      unpaintSelection();
     };
     /** A fresh gesture means any earlier one is over — never stay locked. */
     const onTouchStart = (e: TouchEvent) => {
@@ -2128,8 +2207,12 @@ export default function RateStrategyGrid({
       document.removeEventListener("visibilitychange", abort);
     };
 
+  }, [schedulePaint, commitSelection, unpaintSelection]);
 
-  }, []);
+  /** Fill the live counter as soon as it mounts. */
+  useEffect(() => {
+    if (cellDragging) paintSelection();
+  }, [cellDragging, paintSelection]);
 
 
   /** Send everything the selection tool previews straight to Previo. */
@@ -3309,14 +3392,11 @@ export default function RateStrategyGrid({
         )}
       </CardContent>
 
-      {/* Live counter while a block is being dragged out. */}
-      {cellDragging && rangeRect && (
-        <div className="pointer-events-none fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full border bg-card/95 px-4 py-2 text-xs shadow-lg backdrop-blur animate-fade-in">
-          <span className="font-medium">{rangeCells.length} price{rangeCells.length === 1 ? "" : "s"}</span>
-          <span className="text-muted-foreground">
-            {" · "}{rangeRect.r1 - rangeRect.r0 + 1} row{rangeRect.r1 === rangeRect.r0 ? "" : "s"}
-            {" × "}{rangeRect.d1 - rangeRect.d0 + 1} date{rangeRect.d1 === rangeRect.d0 ? "" : "s"}
-          </span>
+      {/* Live counter while a block is being dragged out (text written directly
+          by the painter so it keeps up with the finger). */}
+      {cellDragging && (
+        <div className="pointer-events-none fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full border bg-card/95 px-4 py-2 text-xs font-medium shadow-lg backdrop-blur animate-fade-in">
+          <div ref={pillRef}>Selecting…</div>
         </div>
       )}
 
