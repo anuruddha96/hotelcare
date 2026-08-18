@@ -195,7 +195,10 @@ export async function sendEmail(opts: {
     for (const domain of await verifiedDomains(apiKey)) {
       senders.unshift(`${name} <noreply@${domain}>`);
     }
+  } else {
+    senders.push(`${name} <${DEFAULT_SETTINGS.from_email}>`); // last resort
   }
+
 
   let last: SendResult = { ok: false, error: "unknown error" };
   for (const from of senders) {
