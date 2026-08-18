@@ -1963,12 +1963,16 @@ Deno.serve(async (req) => {
       }
 
       for (const decision of cellDecisions.values()) {
+        const wholePrices = rule.whole_number_prices !== false;
         const newPrice = applyRounding(
           decision.old_price + decision.increase, "increase",
-          rule.whole_number_prices !== false,
+          wholePrices,
           rule.minimum_adr === null ? null : Number(rule.minimum_adr),
         );
         if (newPrice <= decision.old_price) { noteSkip(decision.stay_date, "rounding_no_change"); continue; }
+        // The price Previo held may itself have had cents; the amount we report
+        // is the whole-unit move the guest-facing price actually made.
+        const movedBy = roundStep(newPrice - decision.old_price, wholePrices, "nearest");
 
         actionsToInsert.push({
           rule_id: rule.id,
@@ -1983,7 +1987,7 @@ Deno.serve(async (req) => {
           obk_id: decision.obk_id,
           occupancy: decision.occupancy,
           old_price: decision.old_price,
-          increase_amount: newPrice - decision.old_price,
+          increase_amount: movedBy,
           new_price: newPrice,
           status: rule.auto_publish ? "queued" : "suggested",
           decision_reason: farOutLifts.has(decision.stay_date) ? "far_out_booking" : "positive_pickup",
@@ -1991,7 +1995,7 @@ Deno.serve(async (req) => {
             ? farOutBookingText({
               stayDate: decision.stay_date,
               daysOut: dayDiff(today, decision.stay_date),
-              amount: newPrice - decision.old_price,
+              amount: movedBy,
               currency: decision.currency,
             })
             : decisionReasonText({
@@ -1999,9 +2003,10 @@ Deno.serve(async (req) => {
               netPickup: netPickup.get(decision.stay_date) ?? decision.events,
               occupancyPct: occByStayDate.get(decision.stay_date) ?? null,
               daysOut: dayDiff(today, decision.stay_date),
-              amount: newPrice - decision.old_price,
+              amount: movedBy,
               currency: decision.currency,
             }),
+
 
         });
 
