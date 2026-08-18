@@ -93,23 +93,32 @@ serve(async (req) => {
         servedMap.set(k, (servedMap.get(k) ?? 0) + (s.served_count || 0));
       }
       const liveSnaps = preferLive(snaps ?? []);
-      const rooms = liveSnaps.map((r: any) => {
+      // Only rooms that actually have a reservation on this date appear in the
+      // grid. Vacant rooms (and rooms absent from the Previo daily overview)
+      // are intentionally omitted so red never means "empty room".
+      const rooms = liveSnaps
+        .filter((r: any) => {
+          const st = String(r.status ?? "").toLowerCase();
+          return st === "arriving" || st === "ongoing" || st === "turnover" || st === "departing" || st === "stayover";
+        })
+        .map((r: any) => {
         const key = normalizeRoomNumber(r.room_number ?? "");
         const servedTotal = servedMap.get(key) ?? 0;
         const breakfast = r.breakfast ?? 0;
         const allInc = r.all_inclusive ?? 0;
         const eligible = breakfast > 0 || allInc > 0;
+        const arriving = String(r.status ?? "").toLowerCase() === "arriving";
+        const entitlement = breakfast > 0 ? breakfast : allInc;
         let chipStatus: string;
-        // Eligibility wins over row status: if the room has breakfast/AI
-        // entitlement it must appear as pending/partial/served so staff can
-        // mark it, even when Previo still lists it as arriving.
-        if (eligible) {
-          if (servedTotal >= breakfast && breakfast > 0) chipStatus = "served";
-          else if (servedTotal > 0) chipStatus = "partial";
-          else chipStatus = "pending";
-        } else if (r.status === "arriving") {
+        if (servedTotal > 0) {
+          chipStatus = entitlement > 0 && servedTotal >= entitlement ? "served" : "partial";
+        } else if (arriving) {
+          // Reservation exists but the guest has not checked in yet.
           chipStatus = "arriving";
+        } else if (eligible) {
+          chipStatus = "pending";
         } else {
+          // In-house guest with no breakfast/AI entitlement.
           chipStatus = "no_breakfast";
         }
         return {
@@ -128,46 +137,8 @@ serve(async (req) => {
         };
       });
 
-      // Union with the master rooms table so any room missing from the PMS
-      // daily overview snapshot (e.g. Hotel Memories Budapest room 216) still
-      // appears in the BB grid as "no breakfast / vacant".
-      try {
-        const { data: hotelCfg } = await supabaseEarly
-          .from("hotel_configurations")
-          .select("hotel_name")
-          .eq("hotel_id", hotel_id)
-          .maybeSingle();
-        const hotelName = hotelCfg?.hotel_name;
-        if (hotelName) {
-          const { data: masterRooms } = await supabaseEarly
-            .from("rooms")
-            .select("room_number")
-            .eq("hotel", hotelName);
-          const present = new Set(rooms.map((r: any) => normalizeRoomNumber(r.room ?? "")));
-          for (const mr of masterRooms ?? []) {
-            const key = normalizeRoomNumber(mr.room_number ?? "");
-            if (key && !present.has(key)) {
-              rooms.push({
-                room: mr.room_number,
-                room_label: null,
-                room_type_code: null,
-                room_type_label: null,
-                room_suffix: null,
-                pax: 0,
-                breakfast: 0,
-                all_inclusive: 0,
-                served: 0,
-                status: "no_breakfast",
-                row_status: "vacant",
-                source: null,
-
-              });
-            }
-          }
-        }
-      } catch (_e) { /* non-fatal — fall back to snapshot-only list */ }
-
       rooms.sort((a: any, b: any) => String(a.room).localeCompare(String(b.room), undefined, { numeric: true }));
+
       const lastSynced = latestCapture(liveSnaps);
       const liveSource = (liveSnaps ?? []).some((r: any) => r.source === "previo") ? "previo" : (liveSnaps.length ? "manual" : null);
       return new Response(JSON.stringify({ rooms, snapshot_date: snapshotDate, stay_date: stayDate, last_synced_at: lastSynced, data_source: liveSource }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
