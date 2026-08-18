@@ -60,6 +60,26 @@ serve(async (req) => {
       }
     }
 
+    // Meal-signal report: correlate per-guest <guestMealId>, OTA note "Meals x"
+    // and the kitchen note prefix so we can pick a reliable breakfast source.
+    const mealIdCounts: Record<string, number> = {};
+    const noteMealCounts: Record<string, number> = {};
+    const kitchenCounts: Record<string, number> = {};
+    const combos: Record<string, number> = {};
+    for (const b of blocks) {
+      const ids = Array.from(b.matchAll(/<guestMealId>(\d+)<\/guestMealId>/g)).map((m) => m[1]);
+      const uniq = Array.from(new Set(ids)).sort().join("+") || "none";
+      mealIdCounts[uniq] = (mealIdCounts[uniq] || 0) + 1;
+      const note = (b.match(/<note>([\s\S]*?)<\/note>/) || [, ""])[1];
+      const noteMeal = (note.match(/Meals[^a-zA-Z]{0,12}([A-Za-z ]{3,30})/) || [, ""])[1].trim().toLowerCase().slice(0, 24) || "none";
+      noteMealCounts[noteMeal] = (noteMealCounts[noteMeal] || 0) + 1;
+      const kitchen = /breakfast\s*(in|included)/i.test(note) ? "breakfast_in"
+        : /kuchyn[eě][^<]{0,40}?(no breakfast|without)/i.test(note) ? "no_breakfast" : "unclear";
+      kitchenCounts[kitchen] = (kitchenCounts[kitchen] || 0) + 1;
+      const k = `mealIds=${uniq}|note=${noteMeal}|kitchen=${kitchen}`;
+      combos[k] = (combos[k] || 0) + 1;
+    }
+
     return new Response(JSON.stringify({
       ok: r.ok,
       status: r.status,
@@ -67,6 +87,10 @@ serve(async (req) => {
       hotelId,
       window: { from, to },
       totalLength: text.length,
+      mealIdCounts,
+      noteMealCounts,
+      kitchenCounts,
+      combos,
       reservationCount: blocks.length,
       tags: Array.from(tagStats.entries())
         .map(([tag, s]) => ({ tag, count: s.count, sample: /name|mail|phone|street|city|zip|birth|document/i.test(tag) ? "[redacted]" : s.sample }))
