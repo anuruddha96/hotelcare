@@ -37,6 +37,26 @@ serve(async (req) => {
     });
   }
 
+  // Multi-method discovery mode: try a list of operations and report status.
+  if (Array.isArray(body.methods)) {
+    const creds = loadPrevioCredentials(cfg.credentials_secret_name);
+    const out: any[] = [];
+    for (const m of body.methods as string[]) {
+      try {
+        const rr = await callPrevioXml({
+          method: m, creds, pmsHotelId: String(cfg.pms_hotel_id || ""),
+          extraXml: body.extraXml ?? `<term><from>${from}</from><to>${to}</to></term>`,
+        });
+        out.push({ method: m, ok: rr.ok, status: rr.status, snippet: (rr.text || "").slice(0, 400) });
+      } catch (e: any) {
+        out.push({ method: m, error: e?.message || String(e) });
+      }
+    }
+    return new Response(JSON.stringify({ discovery: out }, null, 2), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   try {
     const creds = loadPrevioCredentials(cfg.credentials_secret_name);
     const r = await callPrevioXml({
