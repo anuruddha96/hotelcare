@@ -2077,7 +2077,10 @@ Deno.serve(async (req) => {
 
       // Dates that DID pick up but were deliberately held. Recorded so "there
       // was a booking, why no surcharge?" has an answer in the app itself.
-      if (skipReasonByDate.size > 0) {
+      // Only for a run someone started by hand: that is the moment the question
+      // "there was pickup, why did nothing move?" is actually asked. Hourly
+      // automatic runs stay silent so the inbox is not flooded.
+      if (!isEngine && skipReasonByDate.size > 0) {
         const held = Array.from(skipReasonByDate.entries())
           .sort((a, b) => (a[0] < b[0] ? -1 : 1))
           .slice(0, 60)
