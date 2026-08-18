@@ -429,7 +429,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                 hide={!showAdr || usesPercentAxis}
                 tickFormatter={(v: number) => `${currencySymbol()}${Math.round(v)}`}
                 domain={adrDomain} />
-                            {data.filter(d => eventsByDate?.has(d.date)).map((d) => (
+              {showEvents && data.filter(d => eventsByDate?.has(d.date)).map((d) => (
                 <ReferenceLine
                   key={d.date}
                   yAxisId="pickup"
@@ -438,6 +438,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   strokeWidth={8}
                 />
               ))}
+
               {monthMarks.map((m) => (
                 <ReferenceLine
                   key={m.date} yAxisId="pickup" x={m.label} stroke="hsl(var(--foreground) / 0.35)"
