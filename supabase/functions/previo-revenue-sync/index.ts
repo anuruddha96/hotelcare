@@ -792,7 +792,7 @@ serve(async (req) => {
        * Only these exact cells are re-sent — never the original date range.
        */
       const retryCells: Array<{
-        stay_date: string; obk_id: string | null; room_type_name: string; occupancy: number;
+        draft_id: string; stay_date: string; obk_id: string | null; room_type_name: string; occupancy: number;
         old_price: number | null; new_price: number; created_by: string | null;
       }> = [];
       const MAX_RECONCILE_ATTEMPTS = 3;
