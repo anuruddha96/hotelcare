@@ -2827,7 +2827,7 @@ export default function RateStrategyGrid({
                         key={d}
                         title={`${m?.roomsSold ?? 0} / ${m?.roomsAvailable ?? 0} rooms · ${tone.label}`}
                         className={`flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)}`}
-                        style={{ width: CELL_W }}
+                        style={{ width: CELL_W, contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
                       >
                         {pct ? `${Math.round(pct)}%` : "—"}
                       </div>
