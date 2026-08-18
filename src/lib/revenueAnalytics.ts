@@ -260,7 +260,7 @@ export function buildDayMetrics(params: {
   const cancelledRes = new Map<string, Set<string>>();
   for (const c of cancellations) {
     if (!c.cancelled_at) continue;
-    if (budapestDayOf(c.cancelled_at) < windowStart) continue;
+    if (!inWindow(c.cancelled_at)) continue;
     const set = cancelledRes.get(c.stay_date) ?? new Set<string>();
     set.add(String(c.res_id));
     cancelledRes.set(c.stay_date, set);
