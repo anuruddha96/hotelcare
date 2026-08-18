@@ -817,6 +817,18 @@ Deno.serve(async (req) => {
         const holdRows = new Map<string, any>();
         const supersede: string[] = [];
         const blockedDates = new Map<string, string>();
+        /**
+         * Every reason a stay date did not move DOWN, including the ones that
+         * used to be a silent `continue`. Without this the answer to "why was
+         * this date never considered?" cannot be given from the data.
+         */
+        const noteBlock = (stayDate: string, reason: string) => {
+          if (!blockedDates.has(stayDate)) {
+            blockedDates.set(stayDate, reason);
+            markdownBlocks[reason] = (markdownBlocks[reason] ?? 0) + 1;
+          }
+        };
+
         // One allowed step per stay date, derived from movement recorded before
         // this evaluation. Every eligible cell of that date uses the SAME step.
         const allowedStepByDate = new Map<string, number>();
