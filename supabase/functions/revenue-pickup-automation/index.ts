@@ -714,7 +714,7 @@ Deno.serve(async (req) => {
           { data: pendingDrafts },
           { data: manualEdits },
         ] = await Promise.all([
-          admin.from("revenue_booking_nights").select("stay_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("captured_at", observationFrom).limit(20000),
+          admin.from("revenue_booking_nights").select("stay_date, created_at_pms").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("created_at_pms", observationFrom).limit(20000),
           admin.from("revenue_cancelled_nights").select("stay_date, cancelled_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("cancelled_at", cancellationsFrom).limit(20000),
           admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).limit(50000),
           admin.from("revenue_pickup_automation_actions").select("stay_date, obk_id, occupancy, increase_amount").eq("hotel_id", rule.hotel_id).eq("decision_type", "no_pickup_markdown").eq("local_business_date", local.date).limit(50000),
@@ -723,12 +723,14 @@ Deno.serve(async (req) => {
           admin.from("rate_change_audit").select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).gte("performed_at", new Date(Date.now() - Math.max(0, Number(rule.manual_markdown_hold_hours || 0)) * 3_600_000).toISOString()).limit(20000),
         ]);
 
-        // NET pickup for the observation window: new booking nights minus
-        // cancellations. Only a genuinely positive net blocks a markdown; a
-        // cancellation can never create an increase.
+        // NET pickup for the observation window: genuinely NEW booking nights
+        // (Previo creation time, never the sync capture time — a re-sync of an
+        // old booking is not pickup) minus cancellations. Only a real positive
+        // net blocks a markdown; a cancellation can never create an increase.
         const cancellationRows = ((recentCancellations ?? []) as Array<{ stay_date: string; cancelled_at: string }>);
         const netByDate = netPickupByDate(
-          (recentBookings ?? []) as Array<{ stay_date: string }>,
+          ((recentBookings ?? []) as Array<{ stay_date: string; created_at_pms: string | null }>)
+            .filter((b) => !!b.created_at_pms && b.created_at_pms >= observationFrom),
           cancellationRows.filter((c) => c.cancelled_at >= observationFrom),
         );
         // Newest cancellation per stay date drives the cooldown.
@@ -1619,15 +1621,31 @@ Deno.serve(async (req) => {
         if (!latestRate.has(key)) latestRate.set(key, r);
       }
 
-      // 4. How much this stay date already went up today (daily cap).
+      // 4. How much this stay date already went up today (daily cap), plus
+      //    which reservations were ALREADY used to lift a price inside the
+      //    pickup window — a booking may only surge its dates once, no matter
+      //    how many hourly runs still see it as fresh.
       const dayStart = `${today}T00:00:00Z`;
-      const { data: todaysActions } = await admin
-        .from("revenue_pickup_automation_actions")
-        .select("stay_date, reservation_id, increase_amount")
-        .eq("hotel_id", rule.hotel_id)
-        .in("stay_date", stayDates)
-        .gte("created_at", dayStart)
-        .limit(20000);
+      const [{ data: todaysActions }, { data: windowRaises }] = await Promise.all([
+        admin
+          .from("revenue_pickup_automation_actions")
+          .select("stay_date, reservation_id, increase_amount")
+          .eq("hotel_id", rule.hotel_id)
+          .in("stay_date", stayDates)
+          .gte("created_at", dayStart)
+          .limit(20000),
+        admin
+          .from("revenue_pickup_automation_actions")
+          .select("stay_date, reservation_id")
+          .eq("hotel_id", rule.hotel_id)
+          .in("stay_date", stayDates)
+          .in("decision_type", ["positive_pickup", "far_out_booking"])
+          .gte("created_at", freshFrom)
+          .limit(20000),
+      ]);
+      const alreadyRaisedRes = new Set(
+        ((windowRaises ?? []) as any[]).map((a) => `${a.stay_date}|${a.reservation_id ?? ""}`),
+      );
       const raisedByEvent = new Map<string, number>();
       for (const a of (todaysActions ?? []) as any[]) {
         const eventKey = `${a.stay_date}|${a.reservation_id ?? ""}`;
@@ -1652,14 +1670,17 @@ Deno.serve(async (req) => {
         const key = `${p.stay_date}|${p.res_id}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        // Only a booking Previo itself created today (property-local) is
-        // pickup — a re-synced or older booking must not move a price.
+        // Only a genuinely new Previo booking is pickup — a re-synced or older
+        // booking must not move a price. The window is the configured pickup
+        // lookback (default 48h), not "since local midnight": a booking taken
+        // at 22:00 last night is still fresh demand at 04:00 this morning.
         if (!p.created_at_pms || p.created_at_pms < freshFrom) { skippedStale++; continue; }
-        if (p.created_at_pms < dayStartUtc) { skippedStale++; continue; }
-        // And the stay date must be up both over the window and today, so a
-        // day whose only movement today is cancellations never goes up.
+        // ...but it may only lift its dates once, ever.
+        if (alreadyRaisedRes.has(key)) { skippedStale++; continue; }
+        // And the stay date must be net positive over the window, with today
+        // not net negative, so a day whose movement is cancellations never goes up.
         if ((netPickup.get(p.stay_date) ?? 0) <= 0) { skippedNegative++; continue; }
-        if ((netToday.get(p.stay_date) ?? 0) <= 0) { skippedNegative++; continue; }
+        if ((netToday.get(p.stay_date) ?? 0) < 0) { skippedNegative++; continue; }
 
         const at = Date.parse(p.created_at_pms);
         if (!Number.isFinite(at)) continue;
