@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { getTabHotel, setTabHotel, withTabHotel } from '@/lib/tabHotel';
@@ -41,6 +41,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const lastVisibilityCheckRef = useRef(0);
 
   const fetchProfile = async (userId: string, userEmail?: string, userMetadata?: any) => {
     try {
@@ -121,17 +122,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    // Re-validate session when tab becomes visible again (fixes rooms disappearing)
+    // Re-validate an old session when the tab returns, but do not refetch the
+    // full profile on every app switch. Auth change events already refresh the
+    // profile when identity/claims actually change.
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && isMounted) {
-        console.log('Tab became visible, re-validating session...');
+        const now = Date.now();
+        if (now - lastVisibilityCheckRef.current < 30 * 60 * 1000) return;
+        lastVisibilityCheckRef.current = now;
         supabase.auth.getSession().then(({ data: { session } }) => {
           if (!isMounted) return;
           if (session?.user) {
             setSession(session);
             setUser(session.user);
-            // Re-fetch profile to ensure fresh data
-            fetchProfile(session.user.id, session.user.email, session.user.user_metadata);
           } else {
             console.warn('Session expired while tab was backgrounded');
             setUser(null);

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { claimRevenueSync, fetchRevenueSyncInfo } from "@/lib/revenueFreshness";
+import { claimRevenueSync, fetchRevenueSyncInfo, REVENUE_STALE_MS } from "@/lib/revenueFreshness";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -88,9 +88,7 @@ const SWITCHABLE_ROLES = ["admin", "manager", "housekeeping_manager", "top_manag
 
 
 /** How often the page re-checks the shared property freshness timestamp. */
-const BACKGROUND_SYNC_MS = 5 * 60 * 1000;
-/** How long a tab must sit idle before we greet the user on their return. */
-const IDLE_WELCOME_MS = 20 * 60 * 1000;
+const BACKGROUND_SYNC_MS = REVENUE_STALE_MS;
 const DOW_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 function fmtMonth(d: Date) { return d.toLocaleString("en-US", { month: "long", year: "numeric" }); }
@@ -254,13 +252,15 @@ export default function RevenueHotelDetail() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const autoSyncedHotelRef = useRef<string | null>(null);
   const syncingRef = useRef(false);
+  const activeHotelRef = useRef(hotelId);
+  const loadInFlightRef = useRef<{ hotelId: string; promise: Promise<void> } | null>(null);
+  activeHotelRef.current = hotelId;
 
   /** Pull fresh Previo revenue + occupancy data with visible progress. */
   async function runSync(force = false) {
     if (!hotelId || syncingRef.current) return;
     const claim = await claimRevenueSync(hotelId, force);
     if (claim === "fresh") {
-      await live.reload();
       return;
     }
     if (claim === "already_running") {
@@ -291,11 +291,8 @@ export default function RevenueHotelDetail() {
       if (revRes.data?.success === false) {
         throw new Error(revRes.data?.errors?.[0] || "Revenue sync was incomplete");
       }
-      // Prices and reservations are in — put them on screen straight away
-      // instead of making the person wait for the tidy-up jobs behind them.
       setSyncPct(60);
       setSyncStep("Recalculating pickup, ADR and RevPAR…");
-      await Promise.all([load(), live.reload()]);
       setSyncPct(80);
       setSyncStep("Refreshing occupancy and checking prices…");
       // None of these depend on each other, so they run together:
@@ -401,25 +398,12 @@ export default function RevenueHotelDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hotelId]);
 
-  // Coming back to a tab that sat idle for a long time: greet the user and
-  // hold the screen until fresh numbers are in, instead of quietly swapping
-  // stale figures under their eyes.
-  const hiddenSince = useRef<number | null>(null);
-  const [welcomeBack, setWelcomeBack] = useState(false);
+  // Returning to the tab never replaces the working screen. The shared
+  // freshness claim makes this a no-op while data is younger than 30 minutes.
   useEffect(() => {
     if (!hotelId) return;
     const onVisibility = () => {
-      if (document.visibilityState === "hidden") {
-        hiddenSince.current = Date.now();
-        return;
-      }
-      const away = hiddenSince.current ? Date.now() - hiddenSince.current : 0;
-      hiddenSince.current = null;
-      if (away < IDLE_WELCOME_MS) return;
-      setWelcomeBack(true);
-      void (async () => {
-        try { await runSync(); } finally { setWelcomeBack(false); }
-      })();
+      if (document.visibilityState === "visible") void runSync();
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
@@ -428,8 +412,18 @@ export default function RevenueHotelDetail() {
 
 
 
-  async function load() {
+  function load(): Promise<void> {
     if (!hotelId) return;
+    if (loadInFlightRef.current?.hotelId === hotelId) return loadInFlightRef.current.promise;
+    const targetHotelId = hotelId;
+    const promise = loadForHotel(targetHotelId).finally(() => {
+      if (loadInFlightRef.current?.promise === promise) loadInFlightRef.current = null;
+    });
+    loadInFlightRef.current = { hotelId: targetHotelId, promise };
+    return promise;
+  }
+
+  async function loadForHotel(targetHotelId: string) {
     // Pull a full ±395d window so we can show historical months plus YoY / MoM
     // comparisons for any day the user navigates to.
     const past = iso(addDays(new Date(), -395));
@@ -437,7 +431,7 @@ export default function RevenueHotelDetail() {
     const [{ data: h }, { data: s }, { data: r }, { data: dr }, { data: ev }, { data: ms }, { data: alerts }, { data: st }, { data: rooms }, { data: dow }, { data: mon }, { data: lead }, { data: occT }, { data: occS }, { data: occSnaps }] = await Promise.all([
       supabase.from("hotel_configurations").select("hotel_name").eq("hotel_id", hotelId).maybeSingle(),
       supabase.from("pickup_snapshots").select("stay_date,bookings_current,bookings_last_year,delta,captured_at")
-        .eq("hotel_id", hotelId).gte("stay_date", past).lte("stay_date", horizon)
+        .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon)
         .order("captured_at", { ascending: false }).limit(10000),
       supabase.from("rate_recommendations").select("*")
         .eq("hotel_id", hotelId).gte("stay_date", past).lte("stay_date", horizon).limit(2000),
@@ -461,7 +455,8 @@ export default function RevenueHotelDetail() {
         .order("captured_at", { ascending: false }).limit(10000),
     ]);
 
-    setHotelName(h?.hotel_name ?? hotelId);
+    if (activeHotelRef.current !== targetHotelId) return;
+    setHotelName(h?.hotel_name ?? targetHotelId);
     setSnapshots((s ?? []) as Snap[]);
     setRecs((r ?? []) as Rec[]);
     setRates((dr ?? []) as any);
@@ -472,7 +467,7 @@ export default function RevenueHotelDetail() {
     // Money on this page is whatever the PMS publishes (HUF for SLNT, EUR for
     // Ottofiori) — configure the formatter before anything renders numbers.
     setRevenueCurrency({
-      hotelId: hotelId ?? undefined,
+       hotelId: targetHotelId,
       code: (st as any)?.base_currency ?? "EUR",
       eurRate: (st as any)?.eur_conversion_rate ?? null,
       eurRateSource: (st as any)?.eur_rate_source ?? null,
@@ -488,11 +483,12 @@ export default function RevenueHotelDetail() {
     // Autopilot decisions + last push timestamp (best-effort, errors ignored)
     const [{ data: dec }, { data: lp }] = await Promise.all([
       (supabase as any).from("autopilot_decisions").select("stay_date,decision_type,reason")
-        .eq("hotel_id", hotelId).order("created_at", { ascending: false }).limit(500),
+        .eq("hotel_id", targetHotelId).order("created_at", { ascending: false }).limit(500),
       (supabase as any).from("pms_sync_history").select("created_at,sync_status")
-        .eq("hotel_id", hotelId).eq("sync_type", "rate_push").eq("sync_status", "success")
+        .eq("hotel_id", targetHotelId).eq("sync_type", "rate_push").eq("sync_status", "success")
         .order("created_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
+    if (activeHotelRef.current !== targetHotelId) return;
     setDecisions((dec ?? []) as any);
     setLastPushAt(lp?.created_at ?? null);
 
@@ -774,9 +770,6 @@ export default function RevenueHotelDetail() {
 
 
     <div className="min-h-screen bg-background">
-      {welcomeBack && (
-        <WelcomeBackOverlay name={profile?.full_name} step={syncStep} progress={syncPct} />
-      )}
       <Header />
       {/* Cached numbers stay on screen while a refresh lands — a thin bar says so. */}
       {live.loading && (

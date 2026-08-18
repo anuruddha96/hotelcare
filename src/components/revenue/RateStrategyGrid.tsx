@@ -1452,10 +1452,6 @@ export default function RateStrategyGrid({
       const canLeft = el.scrollLeft > 4;
       const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
       setEdges((prev) => (prev.left === canLeft && prev.right === canRight ? prev : { left: canLeft, right: canRight }));
-      const nearEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - CELL_W * 3;
-      if (nearEnd) {
-        setDays((d) => (d < 30 ? 30 : d < 60 ? 60 : d < 120 ? 120 : d < 180 ? 180 : d));
-      }
     });
   }
   useEffect(() => () => { if (scrollRaf.current !== null) cancelAnimationFrame(scrollRaf.current); }, []);
@@ -1961,6 +1957,8 @@ export default function RateStrategyGrid({
   const focusRef = useRef<{ row: number; date: number } | null>(null);
   const paintRaf = useRef<number | null>(null);
   const pillRef = useRef<HTMLDivElement | null>(null);
+  const cellElementsRef = useRef(new Map<string, HTMLButtonElement>());
+  const paintedCellsRef = useRef(new Set<string>());
   const SEL_CLASSES = ["bg-primary/25", "ring-1", "ring-inset", "ring-primary"];
 
   const paintSelection = useCallback(() => {
@@ -1972,18 +1970,27 @@ export default function RateStrategyGrid({
       r0: Math.min(a.row, f.row), r1: Math.max(a.row, f.row),
       d0: Math.min(a.date, f.date), d1: Math.max(a.date, f.date),
     } : null;
-    let count = 0;
-    const cells = root.querySelectorAll<HTMLElement>("[data-cell-row]");
-    cells.forEach((el) => {
-      const r = Number(el.dataset.cellRow);
-      const d = Number(el.dataset.cellDate);
-      const on = !!rect && !(el as HTMLButtonElement).disabled
-        && r >= rect.r0 && r <= rect.r1 && d >= rect.d0 && d <= rect.d1;
-      if (on) count += 1;
-      const painted = el.dataset.selPainted === "1";
-      if (on && !painted) { el.classList.add(...SEL_CLASSES); el.dataset.selPainted = "1"; }
-      else if (!on && painted) { el.classList.remove(...SEL_CLASSES); delete el.dataset.selPainted; }
-    });
+    const next = new Set<string>();
+    if (rect) {
+      for (let r = rect.r0; r <= rect.r1; r += 1) {
+        for (let d = rect.d0; d <= rect.d1; d += 1) {
+          const key = `${r}:${d}`;
+          const el = cellElementsRef.current.get(key);
+          if (el && !el.disabled) next.add(key);
+        }
+      }
+    }
+    for (const key of paintedCellsRef.current) {
+      if (next.has(key)) continue;
+      const el = cellElementsRef.current.get(key);
+      if (el) el.classList.remove(...SEL_CLASSES);
+    }
+    for (const key of next) {
+      if (paintedCellsRef.current.has(key)) continue;
+      cellElementsRef.current.get(key)?.classList.add(...SEL_CLASSES);
+    }
+    paintedCellsRef.current = next;
+    const count = next.size;
     const pill = pillRef.current;
     if (pill && rect) {
       pill.textContent = `${count} price${count === 1 ? "" : "s"} · ${rect.r1 - rect.r0 + 1} row${rect.r1 === rect.r0 ? "" : "s"} × ${rect.d1 - rect.d0 + 1} date${rect.d1 === rect.d0 ? "" : "s"}`;
@@ -2624,6 +2631,11 @@ export default function RateStrategyGrid({
                       <button
                         key={d}
                         type="button"
+                        ref={(el) => {
+                          const key = `${rowIdx}:${i}`;
+                          if (el) cellElementsRef.current.set(key, el);
+                          else cellElementsRef.current.delete(key);
+                        }}
                         data-date={d}
                         disabled={!canEditRates}
                         onPointerDown={(e) => {
@@ -3424,7 +3436,7 @@ export default function RateStrategyGrid({
               />
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Sold-out cells are excluded. Prices are always sent to Previo as whole {getRevenueCurrency().code}.
+              Sold-out cells are included. Prices are always sent to Previo as whole {getRevenueCurrency().code}.
             </p>
             <div className="max-h-52 overflow-y-auto rounded-md border">
               {rangeChanges.length === 0 ? (

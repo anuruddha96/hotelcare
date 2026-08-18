@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   addDays,
@@ -111,15 +111,23 @@ export function useRevenueHotelData(
   const [thresholds, setThresholds] = useState<RevenueThresholds>(DEFAULT_THRESHOLDS);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [lastSyncBy, setLastSyncBy] = useState<string | null>(null);
+  const hasPayloadRef = useRef(false);
+  const requestVersionRef = useRef(0);
+  const inFlightRef = useRef<Promise<void> | null>(null);
 
   const today = budapestToday();
   const horizonEnd = addDays(today, horizonDays);
 
   const reload = useCallback(async () => {
     if (!hotelId) { setLoading(false); return; }
+    // Several page-level events can ask for the same payload at once. Share the
+    // active request instead of issuing another seven paginated query groups.
+    if (inFlightRef.current) return inFlightRef.current;
+    const requestVersion = ++requestVersionRef.current;
+    const request = (async () => {
     // Keep the last successful calendar mounted during background refreshes.
     // `loading` is only a blocking state before the first successful payload.
-    if (roomTypes.length === 0 && rates.length === 0) setLoading(true);
+    if (!hasPayloadRef.current) setLoading(true);
     setError(null);
     try {
       const [rt, nightRows, snapRows, rateRows, cancelRows, movementRows, settings, sync] = await Promise.all([
@@ -173,6 +181,10 @@ export function useRevenueHotelData(
           .eq("hotel_id", hotelId).maybeSingle(),
       ]);
 
+      // A response for an old property/range must never replace the currently
+      // selected property's calendar.
+      if (requestVersion !== requestVersionRef.current) return;
+
       
       setRoomTypes(((rt.data ?? []) as any[]).map((r) => ({
         ...r,
@@ -216,13 +228,25 @@ export function useRevenueHotelData(
       const syncRow = sync.data as { last_success_at?: string; last_success_by_name?: string | null } | null;
       setLastSyncAt(syncRow?.last_success_at ?? null);
       setLastSyncBy(syncRow?.last_success_by_name ?? null);
+      hasPayloadRef.current = true;
     } catch (e) {
+      if (requestVersion !== requestVersionRef.current) return;
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      if (requestVersion === requestVersionRef.current) setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hotelId, horizonDays, roomTypes.length, rates.length]);
+    })();
+    inFlightRef.current = request;
+    try { await request; } finally {
+      if (inFlightRef.current === request) inFlightRef.current = null;
+    }
+  }, [hotelId, horizonDays, today, horizonEnd]);
+
+  useEffect(() => {
+    requestVersionRef.current += 1;
+    inFlightRef.current = null;
+    hasPayloadRef.current = false;
+  }, [hotelId, horizonDays]);
 
   useEffect(() => { void reload(); }, [reload]);
 
