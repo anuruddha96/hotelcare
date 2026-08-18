@@ -2118,6 +2118,12 @@ Deno.serve(async (req) => {
         skipped_not_new: skippedStale, skipped_negative_pickup: skippedNegative,
         held_short_window: heldShortWindow,
         held_sold_out: heldSoldOut,
+        // Why each date with fresh pickup did not go up — the answer to
+        // "there was a booking, why no surcharge?".
+        skip_reasons: skipCounts,
+        held_dates: Array.from(skipReasonByDate.entries())
+          .slice(0, 60)
+          .map(([stay_date, reason]) => ({ stay_date, reason })),
         actions: inserted, markdowns: markdownActions,
         markdown_stay_dates: markdownStayDates, blocked: markdownBlocks,
         queued: queued + markdownActions + strongActions + topUpActions,
