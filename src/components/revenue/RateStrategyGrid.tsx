@@ -2207,8 +2207,12 @@ export default function RateStrategyGrid({
       document.removeEventListener("visibilitychange", abort);
     };
 
+  }, [schedulePaint, commitSelection, unpaintSelection]);
 
-  }, []);
+  /** Fill the live counter as soon as it mounts. */
+  useEffect(() => {
+    if (cellDragging) paintSelection();
+  }, [cellDragging, paintSelection]);
 
 
   /** Send everything the selection tool previews straight to Previo. */
