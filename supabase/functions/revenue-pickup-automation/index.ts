@@ -1529,6 +1529,12 @@ Deno.serve(async (req) => {
             );
             if (!(newPrice > current)) continue;
 
+            // The top-up is the newest intent for this cell: any not-yet-sent
+            // draft (typically the markdown from this same run) is replaced.
+            for (const intent of cellPending) if (!intent.claimed) topSupersede.push(intent.id);
+
+
+
             topRows.push({
               rule_id: rule.id, rule_version: rule.version, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
               reservation_id: null, stay_date: rate.stay_date, pickup_at: null, pickup_sequence: 0,
