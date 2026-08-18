@@ -413,7 +413,7 @@ export default function RevenueHotelDetail() {
 
 
   function load(): Promise<void> {
-    if (!hotelId) return;
+    if (!hotelId) return Promise.resolve();
     if (loadInFlightRef.current?.hotelId === hotelId) return loadInFlightRef.current.promise;
     const targetHotelId = hotelId;
     const promise = loadForHotel(targetHotelId).finally(() => {
@@ -429,29 +429,29 @@ export default function RevenueHotelDetail() {
     const past = iso(addDays(new Date(), -395));
     const horizon = iso(addDays(new Date(), 395));
     const [{ data: h }, { data: s }, { data: r }, { data: dr }, { data: ev }, { data: ms }, { data: alerts }, { data: st }, { data: rooms }, { data: dow }, { data: mon }, { data: lead }, { data: occT }, { data: occS }, { data: occSnaps }] = await Promise.all([
-      supabase.from("hotel_configurations").select("hotel_name").eq("hotel_id", hotelId).maybeSingle(),
+      supabase.from("hotel_configurations").select("hotel_name").eq("hotel_id", targetHotelId).maybeSingle(),
       supabase.from("pickup_snapshots").select("stay_date,bookings_current,bookings_last_year,delta,captured_at")
         .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon)
         .order("captured_at", { ascending: false }).limit(10000),
       supabase.from("rate_recommendations").select("*")
-        .eq("hotel_id", hotelId).gte("stay_date", past).lte("stay_date", horizon).limit(2000),
+        .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon).limit(2000),
       (supabase as any).from("daily_rates").select("stay_date,rate_eur,occupancy_pct,source")
-        .eq("hotel_id", hotelId).gte("stay_date", past).lte("stay_date", horizon).limit(2000),
-      (supabase as any).from("hotel_events").select("*").eq("hotel_id", hotelId)
+        .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon).limit(2000),
+      (supabase as any).from("hotel_events").select("*").eq("hotel_id", targetHotelId)
         .gte("event_date", past).lte("event_date", horizon).limit(500),
       (supabase as any).from("min_stay_rules").select("stay_date,min_nights")
-        .eq("hotel_id", hotelId).gte("stay_date", past).lte("stay_date", horizon).limit(2000),
-      supabase.from("revenue_alerts").select("stay_date").eq("hotel_id", hotelId).is("acknowledged_at", null).eq("alert_type", "abnormal_pickup"),
-      supabase.from("hotel_revenue_settings").select("*").eq("hotel_id", hotelId).maybeSingle(),
-      (supabase as any).from("room_types").select("name,base_price_eur,min_price_eur,max_price_eur,is_reference,num_rooms").eq("hotel_id", hotelId),
-      (supabase as any).from("dow_adjustments").select("dow,percent").eq("hotel_id", hotelId),
-      (supabase as any).from("monthly_adjustments").select("month,percent").eq("hotel_id", hotelId),
-      (supabase as any).from("lead_time_adjustments").select("bucket,percent").eq("hotel_id", hotelId),
-      (supabase as any).from("occupancy_targets").select("month,target_pct").eq("hotel_id", hotelId),
-      (supabase as any).from("occupancy_strategy").select("aggressiveness").eq("hotel_id", hotelId).maybeSingle(),
+        .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon).limit(2000),
+      supabase.from("revenue_alerts").select("stay_date").eq("hotel_id", targetHotelId).is("acknowledged_at", null).eq("alert_type", "abnormal_pickup"),
+      supabase.from("hotel_revenue_settings").select("*").eq("hotel_id", targetHotelId).maybeSingle(),
+      (supabase as any).from("room_types").select("name,base_price_eur,min_price_eur,max_price_eur,is_reference,num_rooms").eq("hotel_id", targetHotelId),
+      (supabase as any).from("dow_adjustments").select("dow,percent").eq("hotel_id", targetHotelId),
+      (supabase as any).from("monthly_adjustments").select("month,percent").eq("hotel_id", targetHotelId),
+      (supabase as any).from("lead_time_adjustments").select("bucket,percent").eq("hotel_id", targetHotelId),
+      (supabase as any).from("occupancy_targets").select("month,target_pct").eq("hotel_id", targetHotelId),
+      (supabase as any).from("occupancy_strategy").select("aggressiveness").eq("hotel_id", targetHotelId).maybeSingle(),
       (supabase as any).from("occupancy_snapshots")
         .select("stay_date,occupancy_pct,rooms_sold,captured_at")
-        .eq("hotel_id", hotelId).gte("stay_date", past).lte("stay_date", horizon)
+        .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon)
         .order("captured_at", { ascending: false }).limit(10000),
     ]);
 

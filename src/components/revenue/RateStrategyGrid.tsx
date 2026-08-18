@@ -2631,11 +2631,6 @@ export default function RateStrategyGrid({
                       <button
                         key={d}
                         type="button"
-                        ref={(el) => {
-                          const key = `${rowIdx}:${i}`;
-                          if (el) cellElementsRef.current.set(key, el);
-                          else cellElementsRef.current.delete(key);
-                        }}
                         data-date={d}
                         disabled={!canEditRates}
                         onPointerDown={(e) => {
@@ -3204,6 +3199,11 @@ export default function RateStrategyGrid({
                       <button
                         key={d}
                         type="button"
+                        ref={(el) => {
+                          const key = `${rowIdx}:${i}`;
+                          if (el) cellElementsRef.current.set(key, el);
+                          else cellElementsRef.current.delete(key);
+                        }}
                         data-cell-row={rowIdx}
                         data-cell-date={i}
                         disabled={!canEditRates}
