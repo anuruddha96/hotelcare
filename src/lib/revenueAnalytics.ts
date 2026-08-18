@@ -280,11 +280,13 @@ export function buildDayMetrics(params: {
   const MOVEMENT_LAG_MS = 30 * 60 * 1000;
   const syncedMovement = new Map<string, number>();
   for (const movement of movements) {
-    const happenedAt = Date.parse(movement.captured_at) - MOVEMENT_LAG_MS;
-    const day = Number.isFinite(happenedAt)
-      ? budapestDayOf(new Date(happenedAt).toISOString())
-      : budapestDayOf(movement.captured_at);
-    if (day < windowStart) continue;
+    const parsed = Date.parse(movement.captured_at);
+    const happenedAt = Number.isFinite(parsed) ? parsed - MOVEMENT_LAG_MS : NaN;
+    const inside = Number.isFinite(happenedAt)
+      ? inWindow(new Date(happenedAt).toISOString())
+      : inWindow(movement.captured_at);
+    if (!inside) continue;
+
     syncedMovement.set(
       movement.stay_date,
       (syncedMovement.get(movement.stay_date) ?? 0) + Number(movement.delta || 0),
