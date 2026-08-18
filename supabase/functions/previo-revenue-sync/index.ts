@@ -1375,13 +1375,25 @@ serve(async (req) => {
       if (previousByStayKey.size > 0) {
         const previousKeys = new Set(previousByStayKey.keys());
         const currentKeys = new Set(nights.map((row) => stayKeyOf(row)));
+        // When the horizon grows (90d -> 6m), every stay date past the old end
+        // is seen for the first time. Its existing reservations are NOT pickup,
+        // so gains are only counted up to the furthest date a previous sync
+        // already stored. Losses are unaffected: they can only exist on dates
+        // that were already covered.
+        let coveredTo = "";
+        for (const key of previousKeys) {
+          const d = key.slice(key.lastIndexOf("|") + 1);
+          if (d > coveredTo) coveredTo = d;
+        }
         for (const key of currentKeys) {
           if (previousKeys.has(key)) continue;
           const stayDate = key.slice(key.lastIndexOf("|") + 1);
+          if (coveredTo && stayDate > coveredTo) continue;
           const slot = movementByDate.get(stayDate) ?? { gained: 0, lost: 0 };
           slot.gained += 1;
           movementByDate.set(stayDate, slot);
         }
+
         for (const key of previousKeys) {
           if (currentKeys.has(key)) continue;
           const stayDate = key.slice(key.lastIndexOf("|") + 1);
