@@ -7,6 +7,31 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+
+// Live PMS rows (source='previo') always win over manual XLSX uploads for the
+// same room + date; the uploads are a fallback for properties without an API.
+function preferLive(rows: any[]): any[] {
+  const byRoom = new Map<string, any>();
+  for (const r of rows ?? []) {
+    const key = normalizeRoomNumber(r.room_number ?? "") || String(r.room_label ?? "");
+    const cur = byRoom.get(key);
+    if (!cur) { byRoom.set(key, r); continue; }
+    const better = r.source === "previo" && cur.source !== "previo";
+    const newer = r.source === cur.source && String(r.captured_at ?? "") > String(cur.captured_at ?? "");
+    if (better || newer) byRoom.set(key, r);
+  }
+  return Array.from(byRoom.values());
+}
+
+function latestCapture(rows: any[]): string | null {
+  let out: string | null = null;
+  for (const r of rows ?? []) {
+    const c = r?.captured_at ? String(r.captured_at) : null;
+    if (c && (!out || c > out)) out = c;
+  }
+  return out;
+}
+
 const ipHits = new Map<string, { count: number; reset: number }>();
 function rateLimit(ip: string, limit = 60, windowMs = 60_000): boolean {
   const now = Date.now();
@@ -35,7 +60,7 @@ serve(async (req) => {
     if (mode === "list") {
       let { data: snaps } = await supabaseEarly
         .from("daily_overview_snapshots")
-        .select("room_number, room_type_code, room_suffix, room_label, guest_names, pax, breakfast, all_inclusive, status, business_date")
+        .select("room_number, room_type_code, room_suffix, room_label, guest_names, pax, breakfast, all_inclusive, status, business_date, source, captured_at")
         .eq("hotel_id", hotel_id)
         .eq("business_date", stayDate);
       let snapshotDate = stayDate;
@@ -51,7 +76,7 @@ serve(async (req) => {
           snapshotDate = latest[0].business_date;
           const { data: fb } = await supabaseEarly
             .from("daily_overview_snapshots")
-            .select("room_number, room_type_code, room_suffix, room_label, guest_names, pax, breakfast, all_inclusive, status, business_date")
+            .select("room_number, room_type_code, room_suffix, room_label, guest_names, pax, breakfast, all_inclusive, status, business_date, source, captured_at")
             .eq("hotel_id", hotel_id)
             .eq("business_date", snapshotDate);
           snaps = fb ?? [];
@@ -67,7 +92,8 @@ serve(async (req) => {
         const k = normalizeRoomNumber(s.room_number ?? "");
         servedMap.set(k, (servedMap.get(k) ?? 0) + (s.served_count || 0));
       }
-      const rooms = (snaps ?? []).map((r: any) => {
+      const liveSnaps = preferLive(snaps ?? []);
+      const rooms = liveSnaps.map((r: any) => {
         const key = normalizeRoomNumber(r.room_number ?? "");
         const servedTotal = servedMap.get(key) ?? 0;
         const breakfast = r.breakfast ?? 0;
@@ -98,6 +124,7 @@ serve(async (req) => {
           served: servedTotal,
           status: chipStatus,
           row_status: r.status,
+          source: r.source,
         };
       });
 
@@ -132,6 +159,8 @@ serve(async (req) => {
                 served: 0,
                 status: "no_breakfast",
                 row_status: "vacant",
+                source: null,
+
               });
             }
           }
@@ -139,7 +168,9 @@ serve(async (req) => {
       } catch (_e) { /* non-fatal — fall back to snapshot-only list */ }
 
       rooms.sort((a: any, b: any) => String(a.room).localeCompare(String(b.room), undefined, { numeric: true }));
-      return new Response(JSON.stringify({ rooms, snapshot_date: snapshotDate, stay_date: stayDate }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const lastSynced = latestCapture(liveSnaps);
+      const liveSource = (liveSnaps ?? []).some((r: any) => r.source === "previo") ? "previo" : (liveSnaps.length ? "manual" : null);
+      return new Response(JSON.stringify({ rooms, snapshot_date: snapshotDate, stay_date: stayDate, last_synced_at: lastSynced, data_source: liveSource }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     }
 
@@ -151,7 +182,7 @@ serve(async (req) => {
     // 1) Try exact-date snapshot for this hotel
     let { data: snaps } = await supabase
       .from("daily_overview_snapshots")
-      .select("room_number, room_type_code, room_suffix, room_label, guest_names, pax, breakfast, lunch, dinner, all_inclusive, business_date, arrival_date, departure_date, status")
+      .select("room_number, room_type_code, room_suffix, room_label, guest_names, pax, breakfast, lunch, dinner, all_inclusive, business_date, arrival_date, departure_date, status, source, captured_at")
       .eq("hotel_id", hotel_id)
       .eq("business_date", stayDate);
 
@@ -170,14 +201,15 @@ serve(async (req) => {
         snapshotDate = latest[0].business_date;
         const { data: fallback } = await supabase
           .from("daily_overview_snapshots")
-          .select("room_number, room_type_code, room_suffix, room_label, guest_names, pax, breakfast, lunch, dinner, all_inclusive, business_date, arrival_date, departure_date, status")
+          .select("room_number, room_type_code, room_suffix, room_label, guest_names, pax, breakfast, lunch, dinner, all_inclusive, business_date, arrival_date, departure_date, status, source, captured_at")
           .eq("hotel_id", hotel_id)
           .eq("business_date", snapshotDate);
         snaps = fallback ?? [];
       }
     }
 
-    const match: any = (snaps ?? []).find((r: any) => normalizeRoomNumber(r.room_number ?? "") === normRoom) ?? null;
+    const roomMatches = (snaps ?? []).filter((r: any) => normalizeRoomNumber(r.room_number ?? "") === normRoom);
+    const match: any = preferLive(roomMatches)[0] ?? null;
 
     if (match) {
       const breakfast = match.breakfast ?? 0;
@@ -198,6 +230,8 @@ serve(async (req) => {
         status,
         source: "daily_overview",
         hotel_id, stay_date: stayDate, snapshot_date: snapshotDate,
+        data_source: match.source ?? null,
+        last_synced_at: match.captured_at ?? null,
         room: match.room_number,
         room_type_code: match.room_type_code,
         room_type_label: roomTypeLabel(match.room_type_code),
