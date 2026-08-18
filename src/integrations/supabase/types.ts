@@ -1396,6 +1396,42 @@ export type Database = {
           },
         ]
       }
+      email_settings: {
+        Row: {
+          created_at: string
+          digest_enabled: boolean
+          from_email: string
+          from_name: string
+          organization_slug: string
+          reply_to: string | null
+          transactional_enabled: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          digest_enabled?: boolean
+          from_email?: string
+          from_name?: string
+          organization_slug: string
+          reply_to?: string | null
+          transactional_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          digest_enabled?: boolean
+          from_email?: string
+          from_name?: string
+          organization_slug?: string
+          reply_to?: string | null
+          transactional_enabled?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       general_tasks: {
         Row: {
           assigned_by: string
