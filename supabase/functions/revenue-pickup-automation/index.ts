@@ -1389,21 +1389,22 @@ Deno.serve(async (req) => {
             rule.minimum_adr === null ? null : Number(rule.minimum_adr),
           );
           if (!(newPrice > current)) continue;
+          const movedBy = roundStep(newPrice - current, rule.whole_number_prices !== false, "nearest");
 
           strongDates.add(rate.stay_date);
           strongRows.push({
             rule_id: rule.id, rule_version: rule.version, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
             reservation_id: null, stay_date: rate.stay_date, pickup_at: null, pickup_sequence: 0,
             room_type_name: rate.room_type_name, obk_id: String(rate.obk_id), occupancy: Number(rate.occupancy) || 2,
-            old_price: current, increase_amount: newPrice - current, new_price: newPrice,
+            old_price: current, increase_amount: movedBy, new_price: newPrice,
             status: rule.auto_publish ? "queued" : "suggested", decision_type: "smart_strong_demand",
             observation_from: evalWindow.from, observation_to: runStartedAt,
-            net_pickup: 0, schedule_slot: slot, local_business_date: local.date, cap_applied: newPrice - current,
+            net_pickup: 0, schedule_slot: slot, local_business_date: local.date, cap_applied: movedBy,
 
             decision_reason: event ? "event_demand" : spike ? "demand_spike" : "strong_demand",
             reason_detail: (spike || event)
               ? demandSignalText({
-                amount: newPrice - current,
+                amount: movedBy,
                 currency: rate.currency ?? rule.currency ?? "EUR",
                 spikeDeltaPct: spike?.deltaPct ?? null,
                 lookbackDays: Number(rule.spike_lookback_days ?? 7),
@@ -1415,9 +1416,10 @@ Deno.serve(async (req) => {
                 kind: "strong_demand",
                 occupancyPct: occByDate.get(rate.stay_date) ?? null,
                 daysOut: dayDiff(local.date, rate.stay_date),
-                amount: newPrice - current,
+                amount: movedBy,
                 currency: rate.currency ?? rule.currency ?? "EUR",
               }),
+
           });
           if (rule.auto_publish) strongDrafts.push({
             hotel_id: rule.hotel_id, organization_slug: rule.organization_slug, stay_date: rate.stay_date,
