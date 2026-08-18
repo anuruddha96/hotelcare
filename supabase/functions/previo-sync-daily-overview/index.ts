@@ -225,9 +225,14 @@ serve(async (req) => {
     const departuresByRoomDate = new Set<string>();
     for (const r of reservations) departuresByRoomDate.add(`${r.roomName}|${r.departureDate}`);
 
-    // Expand per business_date
+    // Expand per breakfast morning.
+    // A guest who sleeps the night of D-1 eats breakfast on the morning of D,
+    // so a reservation covering nights [arrival, departure) produces breakfast
+    // rows for the mornings [arrival+1 ... departure]. That means the guest who
+    // checks out on D is the one eating breakfast on D, and a guest arriving on
+    // D first appears on D+1.
     const capturedAt = new Date().toISOString();
-    const rows: any[] = [];
+    const rowByKey = new Map<string, any>();
     for (const r of reservations) {
       const parsed = parseRoomCode(r.roomName, hotelId);
       const room_label = r.roomName;
@@ -235,22 +240,22 @@ serve(async (req) => {
       const room_type_code = parsed?.room_type_code ?? null;
       const room_suffix = parsed?.room_suffix ?? null;
 
-      let cursor = r.arrivalDate < fromDate ? fromDate : r.arrivalDate;
-      const stopAt = r.departureDate > toDate ? toDate : r.departureDate;
-      while (cursor < stopAt) {
-        rows.push({
+      let night = r.arrivalDate;
+      while (night < r.departureDate) {
+        const morning = addDays(night, 1);
+        night = addDays(night, 1);
+        if (morning < fromDate || morning >= toDate) continue;
+        const row = {
           hotel_id: hotelId,
           organization_slug: orgSlug,
-          business_date: cursor,
+          business_date: morning,
           room_label,
           room_number,
           room_type_code,
           room_suffix,
           arrival_date: r.arrivalDate,
           departure_date: r.departureDate,
-          status: cursor === r.arrivalDate
-            ? (departuresByRoomDate.has(`${r.roomName}|${cursor}`) ? "turnover" : "arriving")
-            : "ongoing",
+          status: morning === r.departureDate ? "departing" : "ongoing",
           guest_names: r.guestNames || null,
           pax: r.pax,
           breakfast: r.breakfastGuests,
@@ -258,15 +263,23 @@ serve(async (req) => {
           dinner: r.dinnerGuests,
           all_inclusive: r.allInclusiveGuests,
           housekeeping_stay: null,
-          housekeeping_dep: cursor === addDays(r.departureDate, -1) ? "DEP" : null,
+          housekeeping_dep: morning === r.departureDate ? "DEP" : null,
           source: "previo",
           source_filename: null,
           uploaded_by: null,
           captured_at: capturedAt,
-        });
-        cursor = addDays(cursor, 1);
+        };
+        // The unique index is (hotel_id, business_date, room_label, source):
+        // never emit two rows for the same room+morning, otherwise the whole
+        // insert chunk fails. Prefer the reservation with meals to serve.
+        const key = `${morning}|${room_label}`;
+        const prev = rowByKey.get(key);
+        if (!prev || (row.breakfast + row.all_inclusive) > (prev.breakfast + prev.all_inclusive)) {
+          rowByKey.set(key, row);
+        }
       }
     }
+    const rows: any[] = Array.from(rowByKey.values());
 
     // Clear previo rows in window then re-insert (cancellations vanish)
     await service.from("daily_overview_snapshots")
