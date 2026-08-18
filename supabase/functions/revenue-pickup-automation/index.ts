@@ -235,6 +235,21 @@ async function aiScaleDeltas(candidates: AiCandidate[], rule: Rule): Promise<Map
  * advisor effectively cancels (below a fifth of the deterministic move) are
  * dropped entirely.
  */
+/**
+ * Keep the stored explanation in step with a softened move. The sentence is
+ * written before the AI advisor runs, so its "Raised by 5 EUR" would otherwise
+ * contradict the +3 EUR that was actually sent.
+ */
+function rewriteReasonAmount(detail: unknown, magnitude: number): string | null {
+  if (typeof detail !== "string" || !detail) return (detail as string) ?? null;
+  const replaced = detail.replace(
+    /\b(Raised|Lowered) by \d+(?:\.\d+)?(\s+[A-Za-z]{3})/,
+    (_m, verb: string, cur: string) => `${verb} by ${magnitude}${cur}`,
+  );
+  if (replaced === detail) return detail;
+  return `${replaced} The move was softened from the full step by the AI advisor.`;
+}
+
 function applyAiFactors(
   rows: any[],
   drafts: any[],
@@ -259,10 +274,12 @@ function applyAiFactors(
     row.increase_amount = direction === "increase" ? magnitude : -magnitude;
     row.new_price = next;
     row.cap_applied = magnitude;
+    row.reason_detail = rewriteReasonAmount(row.reason_detail, magnitude);
     for (const draft of drafts) {
       if (`${draft.stay_date}|${draft.obk_id}|${draft.occupancy}` === cell) draft.new_price = next;
     }
   }
+
   for (let i = drafts.length - 1; i >= 0; i--) {
     const draft = drafts[i];
     if (dropped.has(`${draft.stay_date}|${draft.obk_id}|${draft.occupancy}`)) drafts.splice(i, 1);
