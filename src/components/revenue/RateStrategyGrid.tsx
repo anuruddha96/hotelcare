@@ -842,6 +842,8 @@ export default function RateStrategyGrid({
       window.removeEventListener("touchend", onEnd);
       window.removeEventListener("touchcancel", onEnd);
     };
+  }, [allDates, cancelLongPress]);
+
 
 
   /** Price-cell history on touch: tap a cell to read who changed it and when. */
