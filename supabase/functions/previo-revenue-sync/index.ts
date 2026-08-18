@@ -975,15 +975,34 @@ serve(async (req) => {
       // serialisation and queue safety stay exactly as they are.
       if (retryCells.length > 0) {
         try {
-          // Idempotency: never queue a cell that is already waiting to go out.
+          // Idempotency AND recency. A cell may have been re-priced after the
+          // draft we are about to retry (by hand, by the automation, or by an
+          // earlier retry that has since been confirmed). Re-sending the older
+          // target is what made prices flip back and forth, so a retry only
+          // goes out when its draft is still the newest intent for that cell
+          // and nothing else is queued for it.
           const { data: inflight } = await service.from("revenue_rate_drafts")
-            .select("stay_date, room_type_name, occupancy")
+            .select("id, stay_date, room_type_name, occupancy, status, created_at")
             .eq("hotel_id", hotelId)
-            .in("status", ["draft", "queued"])
-            .gte("stay_date", from).lte("stay_date", to);
-          const busy = new Set((inflight ?? []).map((d: { stay_date: string; room_type_name: string; occupancy: number }) =>
-            `${d.stay_date}|${d.room_type_name}|${d.occupancy}`));
-          const todo = retryCells.filter((c) => !busy.has(`${c.stay_date}|${c.room_type_name}|${c.occupancy}`));
+            .gte("stay_date", from).lte("stay_date", to)
+            .is("superseded_at", null)
+            .order("created_at", { ascending: false })
+            .limit(8000);
+          const busy = new Set<string>();
+          const newestByCell = new Map<string, string>();
+          for (const d of (inflight ?? []) as Array<{
+            id: string; stay_date: string; room_type_name: string; occupancy: number; status: string | null;
+          }>) {
+            const key = `${d.stay_date}|${d.room_type_name}|${d.occupancy}`;
+            if (!newestByCell.has(key)) newestByCell.set(key, d.id);
+            if (d.status === "draft" || d.status === "queued" || d.status === "failed") busy.add(key);
+          }
+          const todo = retryCells.filter((c) => {
+            const key = `${c.stay_date}|${c.room_type_name}|${c.occupancy}`;
+            if (busy.has(key)) return false;
+            const newest = newestByCell.get(key);
+            return !newest || newest === c.draft_id;
+          });
           if (todo.length > 0) {
             const runId = crypto.randomUUID();
             const { error: runError } = await service.from("revenue_rate_push_runs").insert({
