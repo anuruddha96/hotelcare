@@ -1008,6 +1008,9 @@ serve(async (req) => {
             const { error: runError } = await service.from("revenue_rate_push_runs").insert({
               id: runId, hotel_id: hotelId, organization_slug: orgSlug,
               source: "reconcile", requested_count: todo.length,
+              // Behind every human edit: a retry must never overtake a price a
+              // person just asked for.
+              priority: 30, status: "queued",
               created_by: todo.find((c) => c.created_by)?.created_by ?? null,
             });
             if (runError) throw runError;
@@ -1030,14 +1033,9 @@ serve(async (req) => {
               draft_id: idsByCell.get(`${c.stay_date}|${c.room_type_name}|${c.occupancy}`),
             })));
             if (itemError) throw itemError;
-            await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-push-drafts`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-              },
-              body: JSON.stringify({ hotelId, pushRunId: runId }),
-            });
+            // Delivered by the global publisher queue in priority order rather
+            // than fired straight at Previo, so it cannot jump the lease ahead
+            // of manual pushes that are already waiting.
             requeuedCells = todo.length;
           }
         } catch (e) {
