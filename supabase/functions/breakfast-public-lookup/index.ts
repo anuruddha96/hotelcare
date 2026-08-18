@@ -159,6 +159,8 @@ serve(async (req) => {
                 served: 0,
                 status: "no_breakfast",
                 row_status: "vacant",
+                source: null,
+
               });
             }
           }
