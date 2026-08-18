@@ -3176,7 +3176,10 @@ export default function RateStrategyGrid({
                           });
                         }}
 
-                        title={soldOut ? `${d} · ${row.roomTypeName} · sold out · price changes are disabled` : `${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
+                        /* No native tooltip: the hover card below is the one
+                           place the cell's story is told, so the browser
+                           bubble can't fight it for the same pixels. */
+                        aria-label={soldOut ? `${d} · ${row.roomTypeName} · sold out · price changes are disabled` : `${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
                         className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates && !soldOut ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "opacity-45 line-through" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${picked && !soldOut ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
                         style={{ width: CELL_W }}
 
@@ -3216,13 +3219,15 @@ export default function RateStrategyGrid({
 
                       </button>
                     );
-                    if ((!history && !marker && !cellAutomation?.length) || isMobile || cellDragging) return cellButton;
+                    if (isMobile || cellDragging) return cellButton;
                     return (
                       <HoverCard key={d} openDelay={2000} closeDelay={60}>
                         <HoverCardTrigger asChild>{cellButton}</HoverCardTrigger>
                         <HoverCardContent align="center" className="w-72 p-3 text-xs">
                           <p className="font-medium">{row.roomTypeName} · {row.occ}g · {d}</p>
-                          <p className="text-[11px] text-muted-foreground">{originLabel}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {soldOut ? "Sold out · price changes are disabled" : `${tone.label} · ${originLabel}`}
+                          </p>
                           <p className="mt-1 mb-2 flex justify-between">
                             <span className="text-muted-foreground">Current price</span>
                             <span className="tabular-nums font-semibold">{moneyBase(published ?? null)}</span>
