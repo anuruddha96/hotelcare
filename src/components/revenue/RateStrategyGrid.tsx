@@ -1849,11 +1849,11 @@ export default function RateStrategyGrid({
     }
     return map;
   }, [nights]);
-  const dates = allDates.filter((d) => {
+  const dates = useMemo(() => allDates.filter((d) => {
     if (reviewOnly && flagged.dateKeys.size && !flagged.dateKeys.has(d)) return false;
     if (pickupOnly && (metricByDate.get(d)?.netPickup ?? 0) === 0) return false;
     return true;
-  });
+  }), [allDates, reviewOnly, pickupOnly, flagged.dateKeys, metricByDate]);
   // Selection helpers read this so a drag only ever covers what is on screen.
   visibleDatesRef.current = dates;
 
@@ -1869,7 +1869,8 @@ export default function RateStrategyGrid({
     for (const d of dates) {
       for (const e of eventsByDate.get(d) ?? []) {
         const key = `${e.title}|${e.start ?? d}`;
-        const at = index.get(d)!;
+        const at = index.get(d);
+        if (at === undefined) continue;
         const found = seen.get(key);
         if (found) { found.from = Math.min(found.from, at); found.to = Math.max(found.to, at); }
         else seen.set(key, { title: e.title, impact: e.impact, from: at, to: at, date: d });
@@ -1883,7 +1884,7 @@ export default function RateStrategyGrid({
       return { key, ...b, lane };
     }).filter((b) => b.lane < 3);
     return { lanes: Math.min(3, laneEnds.length), bars };
-  }, [eventsByDate, dates.join(",")]);
+  }, [eventsByDate, dates]);
 
   const rows = reviewOnly && flagged.rowKeys.size
     ? allRows.filter((r) => (r.kind === "rate" ? flagged.rowKeys.has(r.key) : r.kind !== "group"))
@@ -2790,7 +2791,7 @@ export default function RateStrategyGrid({
                           ? `${d} · pickup not available yet`
                           : `${d} · ${pickup > 0 ? "+" : ""}${pickup} (${tone.label}) — ${m?.newBookings ?? 0} new, ${lost} lost${latestLabel ? ` · last pickup ${latestLabel}` : ""}`}
                         className={`flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)}`}
-                        style={{ width: CELL_W }}
+                        style={{ width: CELL_W, contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
                       >
                         <span>{pickup === null || pickup === 0 ? "·" : `${pickup > 0 ? "+" : ""}${pickup}`}</span>
                         {lost > 0 && (
