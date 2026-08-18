@@ -1845,6 +1845,35 @@ export default function RateStrategyGrid({
   });
   // Selection helpers read this so a drag only ever covers what is on screen.
   visibleDatesRef.current = dates;
+
+  /**
+   * Events drawn as bars that span their whole run, so a three-day festival
+   * reads as one labelled band instead of three anonymous stars. Overlapping
+   * events are stacked into lanes (max 3) so the row stays compact.
+   */
+  const eventBands = useMemo(() => {
+    if (!eventsByDate || eventsByDate.size === 0) return { lanes: 0, bars: [] as Array<{ key: string; title: string; impact: string; from: number; to: number; lane: number; date: string }> };
+    const index = new Map(dates.map((d, i) => [d, i]));
+    const seen = new Map<string, { title: string; impact: string; from: number; to: number; date: string }>();
+    for (const d of dates) {
+      for (const e of eventsByDate.get(d) ?? []) {
+        const key = `${e.title}|${e.start ?? d}`;
+        const at = index.get(d)!;
+        const found = seen.get(key);
+        if (found) { found.from = Math.min(found.from, at); found.to = Math.max(found.to, at); }
+        else seen.set(key, { title: e.title, impact: e.impact, from: at, to: at, date: d });
+      }
+    }
+    const sorted = [...seen.entries()].sort((a, b) => a[1].from - b[1].from || b[1].to - a[1].to);
+    const laneEnds: number[] = [];
+    const bars = sorted.map(([key, b]) => {
+      let lane = laneEnds.findIndex((end) => end < b.from);
+      if (lane === -1) { lane = laneEnds.length; laneEnds.push(b.to); } else laneEnds[lane] = b.to;
+      return { key, ...b, lane };
+    }).filter((b) => b.lane < 3);
+    return { lanes: Math.min(3, laneEnds.length), bars };
+  }, [eventsByDate, dates.join(",")]);
+
   const rows = reviewOnly && flagged.rowKeys.size
     ? allRows.filter((r) => (r.kind === "rate" ? flagged.rowKeys.has(r.key) : r.kind !== "group"))
     : allRows;
