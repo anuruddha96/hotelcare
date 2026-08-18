@@ -29,15 +29,17 @@ Deno.serve(async (req) => {
   );
 
   try {
-    // The same master brake that pauses automation pauses delivery.
+    const body = await req.json().catch(() => ({}));
+    const continuationBudget = Math.max(0, Math.min(20,
+      Number.isFinite(Number(body?.continuationBudget)) ? Number(body.continuationBudget) : 12));
+
+    // Manual delivery is deliberately independent of the automation switch.
+    // A manager turning smart pricing off must never pause prices they submit.
     const { data: config } = await admin
       .from("revenue_engine_config")
-      .select("automation_enabled, publisher_lock_at")
+      .select("publisher_lock_at")
       .eq("id", "global")
       .maybeSingle();
-    if (config && config.automation_enabled === false) {
-      return json({ ok: true, code: "paused", msg: "Revenue automation is paused." });
-    }
 
     // Somebody is already publishing — leave the queue alone, we run again in
     // a few minutes. A stale lease is recovered by the lease claim itself.
@@ -79,7 +81,7 @@ Deno.serve(async (req) => {
         "Content-Type": "application/json",
         "x-engine-key": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
       },
-      body: JSON.stringify({ hotelId: run.hotel_id, pushRunId: run.run_id }),
+       body: JSON.stringify({ hotelId: run.hotel_id, pushRunId: run.run_id, continuationBudget }),
     }).catch((e) => console.error("queue drainer could not start push", run.run_id, e));
 
     const rt = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
