@@ -150,7 +150,7 @@ Deno.serve(async (req) => {
     const SLICE = 400;
     let q = admin
       .from("revenue_rate_drafts")
-      .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, currency, created_by, organization_slug")
+      .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, currency, created_by, organization_slug, created_at")
       .eq("hotel_id", hotelId)
       // A newer intent for the same cell supersedes this one; never publish an
       // obsolete price.
