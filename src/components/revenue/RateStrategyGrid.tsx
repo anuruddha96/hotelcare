@@ -324,6 +324,9 @@ export default function RateStrategyGrid({
     setZoomPref(clamped);
   }, [zoom, setZoomPref]);
 
+  /** The events band can be folded away when the reader wants a plain grid. */
+  const [showEventBand, setShowEventBand] = useState(true);
+
   const CELL_W = Math.round(BASE_CELL_W * zoom);
   const ROW_H = Math.round(BASE_ROW_H * zoom);
   const GROUP_H = Math.round(BASE_GROUP_H * zoom);
