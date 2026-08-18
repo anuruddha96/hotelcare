@@ -724,7 +724,7 @@ Deno.serve(async (req) => {
           { data: pendingDrafts },
           { data: manualEdits },
         ] = await Promise.all([
-          admin.from("revenue_booking_nights").select("stay_date, created_at_pms").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("created_at_pms", observationFrom).limit(20000),
+          admin.from("revenue_booking_nights").select("stay_date, created_at_pms").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("created_at_pms", bookingsFrom).limit(20000),
           admin.from("revenue_cancelled_nights").select("stay_date, cancelled_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("cancelled_at", cancellationsFrom).limit(20000),
           admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).limit(50000),
           admin.from("revenue_pickup_automation_actions").select("stay_date, obk_id, occupancy, increase_amount").eq("hotel_id", rule.hotel_id).eq("decision_type", "no_pickup_markdown").eq("local_business_date", local.date).limit(50000),
