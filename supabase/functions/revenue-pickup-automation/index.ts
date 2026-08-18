@@ -817,6 +817,18 @@ Deno.serve(async (req) => {
         const holdRows = new Map<string, any>();
         const supersede: string[] = [];
         const blockedDates = new Map<string, string>();
+        /**
+         * Every reason a stay date did not move DOWN, including the ones that
+         * used to be a silent `continue`. Without this the answer to "why was
+         * this date never considered?" cannot be given from the data.
+         */
+        const noteBlock = (stayDate: string, reason: string) => {
+          if (!blockedDates.has(stayDate)) {
+            blockedDates.set(stayDate, reason);
+            markdownBlocks[reason] = (markdownBlocks[reason] ?? 0) + 1;
+          }
+        };
+
         // One allowed step per stay date, derived from movement recorded before
         // this evaluation. Every eligible cell of that date uses the SAME step.
         const allowedStepByDate = new Map<string, number>();
@@ -961,7 +973,10 @@ Deno.serve(async (req) => {
               step: immediate.step,
               baseStep: Number(rule.no_pickup_decrease ?? 0.5),
             });
-          if (bandStep <= 0) continue;
+          if (bandStep <= 0) {
+            noteBlock(rate.stay_date, "band_step_zero");
+            continue;
+          }
 
           if (!allowedStepByDate.has(rate.stay_date)) {
             allowedStepByDate.set(rate.stay_date, dateAllowedStep({
@@ -973,36 +988,58 @@ Deno.serve(async (req) => {
 
           const allowed = allowedStepByDate.get(rate.stay_date) ?? 0;
           if (allowed <= 0) {
-            if (!blockedDates.has(rate.stay_date)) {
-              blockedDates.set(rate.stay_date, "daily_cap");
-              markdownBlocks["daily_cap"] = (markdownBlocks["daily_cap"] ?? 0) + 1;
-            }
+            noteBlock(rate.stay_date, "daily_cap");
             continue;
           }
 
           const pending = pendingByCell.get(cellKey) ?? [];
           const current = effectivePrice(Number(rate.price), pending);
-          if (current === null) continue;
+          if (current === null) {
+            noteBlock(rate.stay_date, "no_price");
+            continue;
+          }
+
+          // Beyond the far-out window the floor is whatever the property asked
+          // the top-up to protect: a December date must never be walked below
+          // the threshold that the top-up pass would immediately lift again.
+          const daysOutCell = dayDiff(local.date, rate.stay_date);
+          const topUpActive = rule.far_out_floor_topup_enabled !== false
+            && Number(rule.far_out_floor_topup_amount ?? 0) > 0;
+          const topUpFloor = topUpActive && daysOutCell >= Math.max(0, Number(rule.far_out_floor_topup_days ?? 90))
+            ? Number(rule.far_out_floor_topup_threshold ?? 100)
+            : null;
+          const adrFloor = rule.minimum_adr === null || rule.minimum_adr === undefined
+            ? null
+            : Number(rule.minimum_adr);
+          const effectiveFloor = [adrFloor, topUpFloor]
+            .filter((v): v is number => v !== null && Number.isFinite(v))
+            .reduce<number | null>((max, v) => (max === null ? v : Math.max(max, v)), null);
 
           // The cap is already honoured by `allowed`; per cell only the ADR
           // floor can shrink the step further.
           const step = computeMarkdown({
             effectivePrice: current,
             decreasePerEvaluation: allowed,
-            floorPrice: rule.minimum_adr === null ? null : Number(rule.minimum_adr),
+            floorPrice: effectiveFloor,
             stayDateMovedToday: 0,
             maxDailyDecreasePerDate: 0,
           });
-          if (!step) continue;
+          if (!step) {
+            noteBlock(rate.stay_date, "at_floor");
+            continue;
+          }
 
           // Whole prices only (when the property asked for it): a markdown
           // rounds DOWN so it can never round itself back up over the floor.
           const wholeNumbers = rule.whole_number_prices !== false;
           const targetPrice = applyRounding(
-            step.newPrice, "decrease", wholeNumbers,
-            rule.minimum_adr === null ? null : Number(rule.minimum_adr),
+            step.newPrice, "decrease", wholeNumbers, effectiveFloor,
           );
-          if (!(targetPrice > 0) || targetPrice >= current) continue;
+          if (!(targetPrice > 0) || targetPrice >= current) {
+            noteBlock(rate.stay_date, "rounding_no_change");
+            continue;
+          }
+
           step.newPrice = targetPrice;
           step.applied = roundMoney(current - targetPrice);
 
@@ -1037,6 +1074,20 @@ Deno.serve(async (req) => {
         }
         markdownStayDates = markdownDates.size;
         for (const d of markdownDates) markdownDatesThisRun.add(d);
+
+        // Diagnostics: the earliest dates that did NOT move down, with the
+        // guard that stopped them. This is what answers "why was nothing before
+        // October considered?" without another investigation.
+        {
+          const held = Array.from(blockedDates.entries())
+            .filter(([d]) => !markdownDates.has(d))
+            .sort((a, b) => a[0].localeCompare(b[0]));
+          console.log(
+            `[markdown] ${rule.hotel_id} moved=${markdownDates.size} held=${held.length} ` +
+            `reasons=${JSON.stringify(markdownBlocks)} first=${JSON.stringify(held.slice(0, 25))}`,
+          );
+        }
+
 
         // Optional AI advisor on the markdown side: it can only confirm or
         // soften a deterministic decrease, never deepen it.
@@ -1457,8 +1508,11 @@ Deno.serve(async (req) => {
 
           const topRows: any[] = [];
           const topDrafts: any[] = [];
+          const topSupersede: string[] = [];
           for (const rate of topLatest.values()) {
-            if (markdownDatesThisRun.has(rate.stay_date)) continue;
+            // A date marked down in this same run is NOT skipped: the markdown
+            // is exactly what can push a far-out cell under the threshold, and
+            // the top-up reads the marked-down target through `effectivePrice`.
             if (soldOutBlocksAnyChange({
               enabled: rule.sold_out_guard_enabled !== false,
               roomsLeft: topLeft.get(rate.stay_date) ?? null,
@@ -1468,8 +1522,10 @@ Deno.serve(async (req) => {
             if (typeSoldOut(rate.room_type_name, rate.obk_id, rate.stay_date)) continue;
 
             const cell = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
-            const current = effectivePrice(Number(rate.price), topPendingByCell.get(cell) ?? []);
+            const cellPending = topPendingByCell.get(cell) ?? [];
+            const current = effectivePrice(Number(rate.price), cellPending);
             if (current === null) continue;
+
             const daysOut = dayDiff(local.date, rate.stay_date);
             const topUp = farOutFloorTopUp({
               enabled: true,
@@ -1486,6 +1542,12 @@ Deno.serve(async (req) => {
               rule.minimum_adr === null ? null : Number(rule.minimum_adr),
             );
             if (!(newPrice > current)) continue;
+
+            // The top-up is the newest intent for this cell: any not-yet-sent
+            // draft (typically the markdown from this same run) is replaced.
+            for (const intent of cellPending) if (!intent.claimed) topSupersede.push(intent.id);
+
+
 
             topRows.push({
               rule_id: rule.id, rule_version: rule.version, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
@@ -1520,6 +1582,12 @@ Deno.serve(async (req) => {
             const payload = topDrafts.filter((row) => accepted.has(`${row.stay_date}|${row.obk_id}|${row.occupancy}`));
             topUpActions = payload.length;
             if (payload.length > 0) {
+              for (let i = 0; i < topSupersede.length; i += 200) {
+                await admin.from("revenue_rate_drafts")
+                  .update({ superseded_at: new Date().toISOString(), status: "superseded" })
+                  .in("id", topSupersede.slice(i, i + 200));
+              }
+
               const runId = await queueIntents(admin, rule, payload, priorityOf("pickup"));
               if (runId) {
                 await admin.from("revenue_pickup_automation_actions")
