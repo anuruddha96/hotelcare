@@ -220,11 +220,6 @@ serve(async (req) => {
       });
     }
 
-    // Same-day departures per room, so an arrival into a room someone left
-    // that morning is reported as a "turnover" like the XLSX overview does.
-    const departuresByRoomDate = new Set<string>();
-    for (const r of reservations) departuresByRoomDate.add(`${r.roomName}|${r.departureDate}`);
-
     // Expand per breakfast morning.
     // A guest who sleeps the night of D-1 eats breakfast on the morning of D,
     // so a reservation covering nights [arrival, departure) produces breakfast
