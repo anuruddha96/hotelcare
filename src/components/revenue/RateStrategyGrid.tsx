@@ -2060,22 +2060,33 @@ export default function RateStrategyGrid({
   const cellPointerEnter = useCallback((rowIdx: number, dateIdx: number) => {
     const p = pendingCell.current;
     if (cellDraggingRef.current) {
-      setRangeFocus({ row: rowIdx, date: dateIdx });
+      focusRef.current = { row: rowIdx, date: dateIdx };
+      schedulePaint();
       return true;
     }
     if (p && !p.touch && (p.row !== rowIdx || p.date !== dateIdx)) {
-      cellDraggingRef.current = true;
-      setCellDragging(true);
-      setRangeAnchor({ row: p.row, date: p.date });
-      setRangeFocus({ row: rowIdx, date: dateIdx });
+      beginCellDrag(p.row, p.date);
+      focusRef.current = { row: rowIdx, date: dateIdx };
+      paintSelection();
       return true;
     }
     return false;
-  }, []);
+  }, [schedulePaint, beginCellDrag, paintSelection]);
 
-  /** Latest rectangle, readable from the global pointer listeners. */
-  const rangeRectRef = useRef(rangeRect);
-  rangeRectRef.current = rangeRect;
+  /**
+   * Gesture finished: hand the painted rectangle over to React state so the
+   * pricing tool can work with it, and drop the hand-painted classes in the
+   * same tick so nothing is highlighted twice.
+   */
+  const commitSelection = useCallback(() => {
+    const a = anchorRef.current;
+    const f = focusRef.current;
+    unpaintSelection();
+    if (!a || !f) return false;
+    setRangeAnchor(a);
+    setRangeFocus(f);
+    return true;
+  }, [unpaintSelection]);
 
   useEffect(() => {
     const findCell = (x: number, y: number) => {
@@ -2089,7 +2100,10 @@ export default function RateStrategyGrid({
       e.preventDefault();
       const hit = findCell(e.clientX, e.clientY);
       if (hit && Number.isFinite(hit.row) && Number.isFinite(hit.date)) {
-        setRangeFocus((prev) => (prev && prev.row === hit.row && prev.date === hit.date ? prev : hit));
+        const prev = focusRef.current;
+        if (prev && prev.row === hit.row && prev.date === hit.date) return;
+        focusRef.current = hit;
+        schedulePaint();
       }
     };
     const onUp = () => {
@@ -2101,8 +2115,7 @@ export default function RateStrategyGrid({
       suppressClick.current = true;
       window.setTimeout(() => { suppressClick.current = false; }, 250);
       // Selection finished → go straight to the pricing tool.
-      const rect = rangeRectRef.current;
-      if (rect) setRangeToolOpen(true);
+      if (commitSelection()) setRangeToolOpen(true);
     };
     window.addEventListener("pointermove", onMove, { passive: false });
     window.addEventListener("pointerup", onUp);
@@ -2112,7 +2125,7 @@ export default function RateStrategyGrid({
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, []);
+  }, [schedulePaint, commitSelection]);
 
   /**
    * Touch equivalent of the mouse drag above. Pointer events stop firing on a
@@ -2142,7 +2155,10 @@ export default function RateStrategyGrid({
       if (!cell) return;
       const hit = { row: Number(cell.dataset.cellRow), date: Number(cell.dataset.cellDate) };
       if (!Number.isFinite(hit.row) || !Number.isFinite(hit.date)) return;
-      setRangeFocus((prev) => (prev && prev.row === hit.row && prev.date === hit.date ? prev : hit));
+      const prev = focusRef.current;
+      if (prev && prev.row === hit.row && prev.date === hit.date) return;
+      focusRef.current = hit;
+      schedulePaint();
     };
 
     const onTouchEnd = () => {
@@ -2153,7 +2169,7 @@ export default function RateStrategyGrid({
       setCellDragging(false);
       suppressClick.current = true;
       window.setTimeout(() => { suppressClick.current = false; }, 250);
-      if (rangeRectRef.current) setRangeToolOpen(true);
+      if (commitSelection()) setRangeToolOpen(true);
     };
 
     /** Release the lock without opening the pricing tool. */
@@ -2163,6 +2179,7 @@ export default function RateStrategyGrid({
       if (!cellDraggingRef.current) return;
       cellDraggingRef.current = false;
       setCellDragging(false);
+      unpaintSelection();
     };
     /** A fresh gesture means any earlier one is over — never stay locked. */
     const onTouchStart = (e: TouchEvent) => {
