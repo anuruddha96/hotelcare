@@ -1226,6 +1226,20 @@ export default function RateStrategyGrid({
   }, []);
   useEffect(() => () => { flashTimers.current.forEach((t) => clearTimeout(t)); }, []);
 
+  // Hover dwell: sweeping the cursor across the calendar used to fire a history
+  // read per cell. Nothing loads until the pointer has rested for 2 seconds.
+  const HOVER_DWELL_MS = 2000;
+  const dwellTimer = useRef<number | null>(null);
+  const cancelDwell = useCallback(() => {
+    if (dwellTimer.current !== null) { window.clearTimeout(dwellTimer.current); dwellTimer.current = null; }
+  }, []);
+  const scheduleDwell = useCallback((run: () => void) => {
+    cancelDwell();
+    dwellTimer.current = window.setTimeout(() => { dwellTimer.current = null; run(); }, HOVER_DWELL_MS);
+  }, [cancelDwell]);
+  useEffect(() => cancelDwell, [cancelDwell]);
+
+
   // Prices that changed since the last load — whoever moved them — get the
   // confirming green pulse the moment the new number reaches the grid.
   const prevPublished = useRef<Map<string, number> | null>(null);
