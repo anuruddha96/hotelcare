@@ -1888,11 +1888,19 @@ Deno.serve(async (req) => {
         if (rule.maximum_increase) increase = Math.min(increase, Number(rule.maximum_increase));
         if (increase <= 0) { noteSkip(ev.stay_date, "no_tier_increase"); continue; }
 
+        const wholePrices = rule.whole_number_prices !== false;
         const already = raisedToday.get(ev.stay_date) ?? 0;
-        const room = Math.max(0, Number(rule.max_daily_increase_per_date || 0) - already);
+        // The remaining daily room is what used to turn a clean 25 EUR tier
+        // into "19.55 EUR": clamp it to whole units first.
+        const room = roundStep(
+          Math.max(0, Number(rule.max_daily_increase_per_date || 0) - already),
+          wholePrices, "down",
+        );
         if (room <= 0) { noteSkip(ev.stay_date, "daily_cap"); continue; }
-        increase = Math.min(increase, room);
+        increase = roundStep(Math.min(increase, room), wholePrices, "down");
+        if (increase <= 0) { noteSkip(ev.stay_date, "rounding_no_change"); continue; }
         raisedToday.set(ev.stay_date, already + increase);
+
         if (isFarOut) {
           const seen = farOutLifts.get(ev.stay_date);
           farOutLifts.set(ev.stay_date, {
