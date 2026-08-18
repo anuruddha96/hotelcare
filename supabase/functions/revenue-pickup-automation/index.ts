@@ -1360,10 +1360,13 @@ Deno.serve(async (req) => {
               });
             }
 
-            stepByDate.set(rate.stay_date, base);
+            // Whole-unit steps only: an event/spike scaled step of 4.5 becomes
+            // 4 rather than a decimal amount in the trail.
+            stepByDate.set(rate.stay_date, roundStep(base, rule.whole_number_prices !== false, "down"));
           }
           const step = stepByDate.get(rate.stay_date) ?? 0;
           if (step <= 0) continue;
+
 
           // Nothing left to sell on that date: a higher price cannot win a
           // booking, it can only look wrong after a cancellation.
