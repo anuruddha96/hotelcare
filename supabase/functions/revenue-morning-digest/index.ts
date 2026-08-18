@@ -155,87 +155,133 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
   };
 }
 
-function renderHtml(hotelName: string, today: string, d: Awaited<ReturnType<typeof buildDigest>>) {
+interface Meta { asOf: string; syncedAt: string | null; stale: boolean }
+
+function renderHtml(
+  hotelName: string,
+  today: string,
+  d: Awaited<ReturnType<typeof buildDigest>>,
+  meta: Meta,
+) {
   const money = (n: number | null) => (n == null ? "—" : `€${Math.round(n).toLocaleString("en-US")}`);
+  const BLUE = "#1d4ed8";
+  const INK = "#0f172a";
+  const MUTED = "#64748b";
+  const LINE = "#e2e8f0";
 
   const rows = d.attention.length
     ? d.attention.map((a) =>
-        `<tr><td style="padding:6px 0;border-bottom:1px solid #eee">${a.date}</td>
-             <td style="padding:6px 0;border-bottom:1px solid #eee;color:#64748b">${a.left != null ? `${a.left} left` : ""}${a.adr != null ? ` · ADR ${money(a.adr)}` : ""}</td>
-             <td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;font-weight:600;color:${(a.occ ?? 0) < 40 ? "#b91c1c" : "#b45309"}">${a.occ}%</td></tr>`).join("")
-    : `<tr><td style="padding:6px 0;color:#64748b">Nothing under 60% in the next 14 days — good shape.</td></tr>`;
+        `<tr><td style="padding:8px 0;border-bottom:1px solid ${LINE};color:${INK}">${a.date}</td>
+             <td style="padding:8px 0;border-bottom:1px solid ${LINE};color:${MUTED}">${a.left != null ? `${a.left} left` : ""}${a.adr != null ? ` · ADR ${money(a.adr)}` : ""}</td>
+             <td style="padding:8px 0;border-bottom:1px solid ${LINE};text-align:right;font-weight:700;color:${(a.occ ?? 0) < 40 ? "#b91c1c" : "#b45309"}">${a.occ}%</td></tr>`).join("")
+    : `<tr><td style="padding:8px 0;color:${MUTED}">Nothing under 60% in the next 14 days — good shape.</td></tr>`;
+
+  const li = (inner: string) => `<li style="margin:6px 0;color:${INK}">${inner}</li>`;
+  const none = (t: string) => `<li style="margin:6px 0;color:${MUTED}">${t}</li>`;
 
   const movers = d.topPickup.length
-    ? d.topPickup.map((p) =>
-        `<li style="margin:4px 0"><strong>${p.date}</strong> +${p.nights} night${p.nights === 1 ? "" : "s"} <span style="color:#64748b">${money(p.revenue)}</span></li>`).join("")
-    : `<li style="margin:4px 0;color:#64748b">No new bookings in the last 24 hours.</li>`;
+    ? d.topPickup.map((p) => li(`<strong>${p.date}</strong> +${p.nights} night${p.nights === 1 ? "" : "s"} <span style="color:${MUTED}">${money(p.revenue)}</span>`)).join("")
+    : none("No new bookings in the last 24 hours.");
 
   const events = d.upcoming.length
     ? d.upcoming.map((e) => {
         const span = e.end_date && e.end_date !== e.event_date ? `${e.event_date} → ${e.end_date}` : e.event_date;
-        const meta = [e.category, e.venue, e.expected_impact].filter(Boolean).join(" · ");
-        return `<li style="margin:4px 0"><strong>${span}</strong> ${e.title}${meta ? ` <span style="color:#64748b">${meta}</span>` : ""}</li>`;
+        const meta2 = [e.category, e.venue, e.expected_impact].filter(Boolean).join(" · ");
+        return li(`<strong>${span}</strong> ${e.title}${meta2 ? ` <span style="color:${MUTED}">${meta2}</span>` : ""}`);
       }).join("")
-    : `<li style="margin:4px 0;color:#64748b">No events recorded for the next 45 days.</li>`;
+    : none("No events recorded for the next 45 days.");
 
   const changes = d.changes.length
     ? d.changes.slice(0, 15).map((c) =>
-        `<li style="margin:4px 0"><strong>${c.stay_date}</strong>${c.room_type_name ? ` · ${c.room_type_name}` : ""} ${money(c.old_price)} → ${money(c.new_price)} <span style="color:#64748b">${c.decision_reason ?? ""}</span></li>`).join("")
-    : `<li style="margin:4px 0;color:#64748b">The automation made no change overnight.</li>`;
+        li(`<strong>${c.stay_date}</strong>${c.room_type_name ? ` · ${c.room_type_name}` : ""} ${money(c.old_price)} → ${money(c.new_price)} <span style="color:${MUTED}">${c.decision_reason ?? ""}</span>`)).join("")
+    : none("The automation made no change overnight.");
 
   const card = (label: string, value: string, sub = "") =>
-    `<td style="padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;width:33%;vertical-align:top">
-       <div style="font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#64748b">${label}</div>
-       <div style="font-size:20px;font-weight:700;color:#0f172a;margin-top:2px">${value}</div>
-       ${sub ? `<div style="font-size:12px;color:#64748b;margin-top:2px">${sub}</div>` : ""}
+    `<td style="padding:14px;background:#ffffff;border:1px solid #dbeafe;border-radius:12px;width:33%;vertical-align:top">
+       <div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:${MUTED}">${label}</div>
+       <div style="font-size:22px;font-weight:700;color:${BLUE};margin-top:4px">${value}</div>
+       ${sub ? `<div style="font-size:12px;color:${MUTED};margin-top:3px">${sub}</div>` : ""}
      </td>`;
 
+  const h3 = (t: string) =>
+    `<h3 style="margin:26px 0 8px;font-size:14px;font-weight:700;color:${INK};letter-spacing:.01em">${t}</h3>`;
+
+  const freshness = meta.stale
+    ? `<div style="margin:0 0 14px;padding:10px 12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;color:#9a3412;font-size:12px">
+         Live data could not be refreshed just now — these figures are from the last successful sync${meta.syncedAt ? ` at ${meta.syncedAt}` : ""}.
+       </div>`
+    : "";
+
   return `
-  <div style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:#f1f5f9;padding:20px">
-    <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e2e8f0">
-      <div style="background:linear-gradient(135deg,#0f172a,#1d4ed8);padding:20px 24px;color:#fff">
-        <div style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;opacity:.8">Hotel Care</div>
-        <div style="font-size:20px;font-weight:700;margin-top:4px">${hotelName}</div>
-        <div style="font-size:13px;opacity:.85">Morning revenue summary · ${today} · Budapest time</div>
+  <div style="color-scheme:light only;supported-color-schemes:light only;font-family:system-ui,-apple-system,'Segoe UI',Arial,sans-serif;background:#ffffff;padding:20px">
+    <div style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid ${LINE}">
+      <div style="background:#eff6ff;padding:22px 24px;border-bottom:1px solid #dbeafe">
+        <div style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:${BLUE};font-weight:700">Hotel Care</div>
+        <div style="font-size:21px;font-weight:700;margin-top:6px;color:${INK}">${hotelName}</div>
+        <div style="font-size:13px;color:${MUTED};margin-top:2px">Morning revenue summary · ${today} · ${meta.asOf} Budapest time</div>
       </div>
-      <div style="padding:20px 24px">
-        <h3 style="margin:0 0 8px;font-size:15px;color:#0f172a">Last 24 hours</h3>
+      <div style="padding:20px 24px;background:#ffffff">
+        ${freshness}
+        ${h3("Last 24 hours")}
         <table style="width:100%;border-spacing:8px 0"><tr>
           ${card("Pickup", `${d.pickupNights} nights`, `${d.pickupRes} reservation${d.pickupRes === 1 ? "" : "s"}`)}
           ${card("Room revenue", money(d.pickupRevenue), "new bookings")}
           ${card("Automation", `${d.raised}↑ ${d.lowered}↓`, `${d.changes.length} price move${d.changes.length === 1 ? "" : "s"}`)}
         </tr></table>
 
-        <h3 style="margin:22px 0 8px;font-size:15px;color:#0f172a">Tonight</h3>
+        ${h3("Tonight")}
         <table style="width:100%;border-spacing:8px 0"><tr>
           ${card("Occupancy", d.occTonight != null ? `${d.occTonight}%` : "—", `${d.soldToday}${d.availTonight ? ` / ${d.availTonight}` : ""} rooms`)}
           ${card("ADR", money(d.adrTonight))}
           ${card("RevPAR", money(d.revparTonight))}
         </tr></table>
 
-        <h3 style="margin:22px 0 8px;font-size:15px;color:#0f172a">Next 14 nights</h3>
-        <p style="margin:0;color:#334155;font-size:14px">
-          On the books: <strong>${d.occ14 != null ? `${d.occ14}%` : "—"}</strong> occupancy ·
-          ADR <strong>${money(d.adr14)}</strong> · revenue <strong>${money(d.rev14)}</strong>
+        ${h3("Next 14 nights")}
+        <p style="margin:0;color:${INK};font-size:14px">
+          On the books: <strong style="color:${BLUE}">${d.occ14 != null ? `${d.occ14}%` : "—"}</strong> occupancy ·
+          ADR <strong style="color:${BLUE}">${money(d.adr14)}</strong> · revenue <strong style="color:${BLUE}">${money(d.rev14)}</strong>
         </p>
 
-        <h3 style="margin:22px 0 6px;font-size:15px;color:#0f172a">Biggest movers</h3>
-        <ul style="margin:0;padding-left:18px;font-size:14px;color:#334155">${movers}</ul>
+        ${h3("Biggest movers")}
+        <ul style="margin:0;padding-left:18px;font-size:14px">${movers}</ul>
 
-        <h3 style="margin:22px 0 6px;font-size:15px;color:#0f172a">Dates that need attention</h3>
-        <table style="width:100%;font-size:14px;color:#334155">${rows}</table>
+        ${h3("Dates that need attention")}
+        <table style="width:100%;font-size:14px">${rows}</table>
 
-        <h3 style="margin:22px 0 6px;font-size:15px;color:#0f172a">Events coming up</h3>
-        <ul style="margin:0;padding-left:18px;font-size:14px;color:#334155">${events}</ul>
+        ${h3("Events coming up")}
+        <ul style="margin:0;padding-left:18px;font-size:14px">${events}</ul>
 
-        <h3 style="margin:22px 0 6px;font-size:15px;color:#0f172a">What the automation changed</h3>
-        <ul style="margin:0;padding-left:18px;font-size:14px;color:#334155">${changes}</ul>
+        ${h3("What the automation changed")}
+        <ul style="margin:0;padding-left:18px;font-size:14px">${changes}</ul>
       </div>
-      <div style="padding:14px 24px;background:#f8fafc;border-top:1px solid #e2e8f0;color:#94a3b8;font-size:12px">
-        Sent by Hotel Care · switch this off in Revenue → Morning e-mail.
+      <div style="padding:16px 24px;background:#f8fafc;border-top:1px solid ${LINE};color:${MUTED};font-size:12px;line-height:1.5">
+        Figures as of ${meta.asOf} Budapest time${meta.syncedAt ? `, data last synced ${meta.syncedAt}` : ""}.<br />
+        Confidential commercial data — sent only to the addresses configured in Revenue → Morning e-mail.
       </div>
     </div>
   </div>`;
+}
+
+function renderText(hotelName: string, today: string, d: Awaited<ReturnType<typeof buildDigest>>, meta: Meta) {
+  const money = (n: number | null) => (n == null ? "-" : `EUR ${Math.round(n).toLocaleString("en-US")}`);
+  const lines = [
+    `${hotelName} — morning revenue summary (${today}, ${meta.asOf} Budapest time)`,
+    "",
+    `Last 24 hours: ${d.pickupNights} nights / ${d.pickupRes} reservations / ${money(d.pickupRevenue)}`,
+    `Automation: ${d.raised} up, ${d.lowered} down (${d.changes.length} price moves)`,
+    `Tonight: ${d.occTonight != null ? `${d.occTonight}%` : "-"} occupancy, ADR ${money(d.adrTonight)}, RevPAR ${money(d.revparTonight)}`,
+    `Next 14 nights: ${d.occ14 != null ? `${d.occ14}%` : "-"} occupancy, ADR ${money(d.adr14)}, revenue ${money(d.rev14)}`,
+    "",
+    "Biggest movers:",
+    ...(d.topPickup.length ? d.topPickup.map((p) => `  ${p.date}  +${p.nights} nights  ${money(p.revenue)}`) : ["  none"]),
+    "",
+    "Dates under 60% in the next 14 nights:",
+    ...(d.attention.length ? d.attention.map((a) => `  ${a.date}  ${a.occ}%  ${a.left ?? "-"} left`) : ["  none"]),
+    "",
+    `Figures as of ${meta.asOf} Budapest time${meta.syncedAt ? `, data last synced ${meta.syncedAt}` : ""}.`,
+    "Confidential — sent only to the configured recipients.",
+  ];
+  return lines.join("\n");
 }
 
 
