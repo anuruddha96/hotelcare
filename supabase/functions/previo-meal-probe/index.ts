@@ -47,7 +47,7 @@ serve(async (req) => {
           method: m, creds, pmsHotelId: String(cfg.pms_hotel_id || ""),
           extraXml: body.extraXml ?? `<term><from>${from}</from><to>${to}</to></term>`,
         });
-        out.push({ method: m, ok: rr.ok, status: rr.status, snippet: (rr.text || "").slice(0, 400) });
+        out.push({ method: m, ok: rr.ok, status: rr.status, snippet: (rr.text || "").slice(0, Number(body.snippetLen) || 400) });
       } catch (e: any) {
         out.push({ method: m, error: e?.message || String(e) });
       }
