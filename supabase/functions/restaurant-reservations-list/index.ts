@@ -2,12 +2,8 @@
 // for one hotel. Mirrors the access model of breakfast-public-lookup — the BB page
 // is used by restaurant staff on shared devices without a login.
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { createClient } from "npm:@supabase/supabase-js@2";
+import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 
 const ipHits = new Map<string, { count: number; reset: number }>();
 function rateLimit(ip: string, limit = 60, windowMs = 60_000): boolean {
@@ -26,23 +22,60 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Too many requests" }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const { hotel_id, date } = await req.json();
-    if (!hotel_id) throw new Error("Missing hotel_id");
-    const serviceDate = (date as string) || new Date().toISOString().slice(0, 10);
+    const body = await req.json();
+    const hotelId = typeof body?.hotel_id === "string" ? body.hotel_id.trim() : "";
+    const serviceDate = typeof body?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date)
+      ? body.date
+      : new Date().toISOString().slice(0, 10);
+    if (!hotelId || hotelId.length > 100) throw new Error("Missing or invalid hotel_id");
 
-    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceRoleKey) throw new Error("Server configuration unavailable");
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    const { data: source } = await supabase
+    // The public BB picker uses hotel_configurations.hotel_id (for example
+    // "memories-budapest"), while website webhooks use the canonical UUID from
+    // public.hotels. Resolve both forms before reading restaurant reservations.
+    let reservationHotelId = hotelId;
+    const { data: directSource } = await supabase
       .from("restaurant_webhook_sources")
-      .select("property_slug")
-      .eq("hotel_id", hotel_id)
+      .select("hotel_id, property_slug")
+      .eq("hotel_id", hotelId)
       .eq("is_active", true)
       .maybeSingle();
+
+    let source = directSource;
+    if (!source) {
+      const { data: config } = await supabase
+        .from("hotel_configurations")
+        .select("hotel_name")
+        .eq("hotel_id", hotelId)
+        .eq("is_active", true)
+        .maybeSingle();
+
+      if (config?.hotel_name) {
+        const { data: canonicalHotel } = await supabase
+          .from("hotels")
+          .select("id")
+          .ilike("name", config.hotel_name)
+          .maybeSingle();
+        if (canonicalHotel?.id) reservationHotelId = canonicalHotel.id;
+      }
+
+      const { data: resolvedSource } = await supabase
+        .from("restaurant_webhook_sources")
+        .select("hotel_id, property_slug")
+        .eq("hotel_id", reservationHotelId)
+        .eq("is_active", true)
+        .maybeSingle();
+      source = resolvedSource;
+    }
 
     const { data, error } = await supabase
       .from("restaurant_reservations")
       .select("id, guest_name, guest_phone, party_size, starts_at, ends_at, status, occasion, special_requests, notes, outlet_slug")
-      .eq("hotel_id", hotel_id)
+      .eq("hotel_id", reservationHotelId)
       .eq("service_date", serviceDate)
       .order("starts_at", { ascending: true });
 
