@@ -2438,7 +2438,7 @@ export default function RateStrategyGrid({
                         Pickup
                         <MetricInfo
                           title="Net pickup"
-                          body="New room-nights booked in the selected window minus room-nights cancelled in the same window. Negative means the date lost rooms. Source: Previo reservations."
+                          body={`Reservations gained in the selected window minus reservations lost in the same window. Negative means the date lost rooms. Source: Previo reservations.\n\nThe pricing automation reacts to a rolling 48 hours of bookings, so pick "Last 48 hours (automation)" if you want this row to explain the purple dots. On any other window a price can move with an empty pickup cell — the booking landed just outside what you are looking at.`}
                         />
                       </>
                     )}
@@ -2459,7 +2459,7 @@ export default function RateStrategyGrid({
                         key={d}
                         title={pickup === null
                           ? `${d} · pickup not available yet`
-                          : `${d} · ${pickup > 0 ? "+" : ""}${pickup} (${tone.label}) — ${m?.newBookings ?? 0} new, ${lost} lost${latestLabel ? ` · last pickup ${latestLabel}` : ""}`}
+                          : `${d} · net ${pickup > 0 ? "+" : ""}${pickup} (${tone.label}) — ${m?.newBookings ?? 0} in, ${lost} out, counted over ${pickupWindowLabel(pickupWindowDays).toLowerCase()}${latestLabel ? ` · last movement ${latestLabel}` : ""}${isAutomationWindow ? "" : " · the automation reacts to the last 48 hours, so this window can disagree with the purple dots"}`}
                         className={`flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)}`}
                         style={{ width: CELL_W, contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
                       >
