@@ -59,6 +59,10 @@ export const AdminTabs = () => {
                 Venues &amp; Access
               </TabsTrigger>
             )}
+            <TabsTrigger value="email" className="gap-2">
+              <Mail className="w-4 h-4" />
+              E-mail
+            </TabsTrigger>
             <TabsTrigger value="system" className="gap-2">
               <HardDrive className="w-4 h-4" />
               System
@@ -100,6 +104,10 @@ export const AdminTabs = () => {
 
         <TabsContent value="translations">
           <TranslationManagement />
+        </TabsContent>
+
+        <TabsContent value="email">
+          <EmailSettingsPanel />
         </TabsContent>
 
         <TabsContent value="system">
