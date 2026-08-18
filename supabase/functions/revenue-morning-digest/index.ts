@@ -287,7 +287,7 @@ Deno.serve(async (req) => {
     const failures: { hotel_id: string; error: string }[] = [];
 
     for (const s of due) {
-      const digest = await buildDigest(admin, s.hotel_id, now.date);
+      const digest = await buildDigest(admin, s.hotel_id, (s.organization_slug as string | null) ?? null, now.date);
       const { data: hotel } = await admin.from("hotels").select("name").eq("id", s.hotel_id).maybeSingle();
       const hotelName = (hotel?.name as string | undefined) ?? "Your hotel";
 
