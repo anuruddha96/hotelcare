@@ -1655,15 +1655,21 @@ Deno.serve(async (req) => {
           .limit(20000),
         admin
           .from("revenue_pickup_automation_actions")
-          .select("stay_date, reservation_id")
+          .select("stay_date, reservation_id, status")
           .eq("hotel_id", rule.hotel_id)
           .in("stay_date", stayDates)
           .in("decision_type", ["positive_pickup", "far_out_booking"])
           .gte("created_at", freshFrom)
           .limit(20000),
       ]);
+      // A booking may lift its dates once — but only if that lift actually
+      // reached Previo. A refused, failed or expired push must not spend the
+      // booking's single chance, otherwise the price silently never moves.
+      const RAISE_SPENT = new Set(["queued", "sending", "pushed", "confirmed", "suggested"]);
       const alreadyRaisedRes = new Set(
-        ((windowRaises ?? []) as any[]).map((a) => `${a.stay_date}|${a.reservation_id ?? ""}`),
+        ((windowRaises ?? []) as any[])
+          .filter((a) => RAISE_SPENT.has(String(a.status ?? "")))
+          .map((a) => `${a.stay_date}|${a.reservation_id ?? ""}`),
       );
       const raisedByEvent = new Map<string, number>();
       for (const a of (todaysActions ?? []) as any[]) {
