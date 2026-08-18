@@ -961,7 +961,10 @@ Deno.serve(async (req) => {
               step: immediate.step,
               baseStep: Number(rule.no_pickup_decrease ?? 0.5),
             });
-          if (bandStep <= 0) continue;
+          if (bandStep <= 0) {
+            noteBlock(rate.stay_date, "band_step_zero");
+            continue;
+          }
 
           if (!allowedStepByDate.has(rate.stay_date)) {
             allowedStepByDate.set(rate.stay_date, dateAllowedStep({
@@ -973,36 +976,58 @@ Deno.serve(async (req) => {
 
           const allowed = allowedStepByDate.get(rate.stay_date) ?? 0;
           if (allowed <= 0) {
-            if (!blockedDates.has(rate.stay_date)) {
-              blockedDates.set(rate.stay_date, "daily_cap");
-              markdownBlocks["daily_cap"] = (markdownBlocks["daily_cap"] ?? 0) + 1;
-            }
+            noteBlock(rate.stay_date, "daily_cap");
             continue;
           }
 
           const pending = pendingByCell.get(cellKey) ?? [];
           const current = effectivePrice(Number(rate.price), pending);
-          if (current === null) continue;
+          if (current === null) {
+            noteBlock(rate.stay_date, "no_price");
+            continue;
+          }
+
+          // Beyond the far-out window the floor is whatever the property asked
+          // the top-up to protect: a December date must never be walked below
+          // the threshold that the top-up pass would immediately lift again.
+          const daysOutCell = dayDiff(local.date, rate.stay_date);
+          const topUpActive = rule.far_out_floor_topup_enabled !== false
+            && Number(rule.far_out_floor_topup_amount ?? 0) > 0;
+          const topUpFloor = topUpActive && daysOutCell >= Math.max(0, Number(rule.far_out_floor_topup_days ?? 90))
+            ? Number(rule.far_out_floor_topup_threshold ?? 100)
+            : null;
+          const adrFloor = rule.minimum_adr === null || rule.minimum_adr === undefined
+            ? null
+            : Number(rule.minimum_adr);
+          const effectiveFloor = [adrFloor, topUpFloor]
+            .filter((v): v is number => v !== null && Number.isFinite(v))
+            .reduce<number | null>((max, v) => (max === null ? v : Math.max(max, v)), null);
 
           // The cap is already honoured by `allowed`; per cell only the ADR
           // floor can shrink the step further.
           const step = computeMarkdown({
             effectivePrice: current,
             decreasePerEvaluation: allowed,
-            floorPrice: rule.minimum_adr === null ? null : Number(rule.minimum_adr),
+            floorPrice: effectiveFloor,
             stayDateMovedToday: 0,
             maxDailyDecreasePerDate: 0,
           });
-          if (!step) continue;
+          if (!step) {
+            noteBlock(rate.stay_date, "at_floor");
+            continue;
+          }
 
           // Whole prices only (when the property asked for it): a markdown
           // rounds DOWN so it can never round itself back up over the floor.
           const wholeNumbers = rule.whole_number_prices !== false;
           const targetPrice = applyRounding(
-            step.newPrice, "decrease", wholeNumbers,
-            rule.minimum_adr === null ? null : Number(rule.minimum_adr),
+            step.newPrice, "decrease", wholeNumbers, effectiveFloor,
           );
-          if (!(targetPrice > 0) || targetPrice >= current) continue;
+          if (!(targetPrice > 0) || targetPrice >= current) {
+            noteBlock(rate.stay_date, "rounding_no_change");
+            continue;
+          }
+
           step.newPrice = targetPrice;
           step.applied = roundMoney(current - targetPrice);
 
