@@ -1568,6 +1568,12 @@ Deno.serve(async (req) => {
             const payload = topDrafts.filter((row) => accepted.has(`${row.stay_date}|${row.obk_id}|${row.occupancy}`));
             topUpActions = payload.length;
             if (payload.length > 0) {
+              for (let i = 0; i < topSupersede.length; i += 200) {
+                await admin.from("revenue_rate_drafts")
+                  .update({ superseded_at: new Date().toISOString(), status: "superseded" })
+                  .in("id", topSupersede.slice(i, i + 200));
+              }
+
               const runId = await queueIntents(admin, rule, payload, priorityOf("pickup"));
               if (runId) {
                 await admin.from("revenue_pickup_automation_actions")
