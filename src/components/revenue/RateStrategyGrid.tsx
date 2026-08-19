@@ -1076,6 +1076,75 @@ export default function RateStrategyGrid({
     void sendRestriction({ key: `min|${date}`, date, minStay: nights });
   };
 
+  /* ---- Min-stay range: drag left or right across the row ---------------- */
+  const [minDrag, setMinDrag] = useState<{ a: number; b: number } | null>(null);
+  const minDragRef = useRef<{ a: number; b: number } | null>(null);
+  const [minRange, setMinRange] = useState<{ dates: string[] } | null>(null);
+  const [minRangeValue, setMinRangeValue] = useState("2");
+  const [minRangeBusy, setMinRangeBusy] = useState(false);
+
+  const beginMinDrag = (i: number) => {
+    if (!canEditRates) return;
+    minDragRef.current = { a: i, b: i };
+    setMinDrag({ a: i, b: i });
+  };
+  const extendMinDrag = (i: number) => {
+    if (!minDragRef.current) return;
+    minDragRef.current = { ...minDragRef.current, b: i };
+    setMinDrag({ ...minDragRef.current });
+  };
+
+  // A drag can end anywhere on the page, so finish it at window level.
+  useEffect(() => {
+    if (!minDrag) return;
+    const end = () => {
+      const sel = minDragRef.current;
+      minDragRef.current = null;
+      setMinDrag(null);
+      if (!sel) return;
+      const lo = Math.min(sel.a, sel.b);
+      const hi = Math.max(sel.a, sel.b);
+      if (hi === lo) return; // a plain tap keeps the single-cell editor
+      const picked = dates.slice(lo, hi + 1);
+      setMinRangeValue(String(minStayByDate.get(picked[0]) ?? 2));
+      setMinRange({ dates: picked });
+    };
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    return () => {
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
+  }, [minDrag, dates, minStayByDate]);
+
+  /** Apply one minimum stay to many dates at once. */
+  const applyMinStayRange = useCallback(async (picked: string[], raw: string) => {
+    if (!hotelId) { toast.error("Pick a property first."); return; }
+    const nights = Math.round(Number(raw));
+    if (!Number.isFinite(nights) || nights < 1 || nights > 30) {
+      toast.error("Minimum stay must be between 1 and 30 nights.");
+      return;
+    }
+    setMinRangeBusy(true);
+    setMinStayByDate((prev) => {
+      const next = new Map(prev);
+      for (const d of picked) next.set(d, nights);
+      return next;
+    });
+    try {
+      const res = await pushMinStay(hotelId, picked, nights);
+      toast.success(res.message);
+      setMinRange(null);
+    } catch (e) {
+      toast.error((e as Error).message);
+      void loadMinStay();
+    } finally {
+      setMinRangeBusy(false);
+    }
+  }, [hotelId, loadMinStay]);
+
+
+
   const commitInventory = (date: string, rawName: string, obkId: string | null, label: string, raw: string) => {
     setRestrictionEdit(null);
     const rooms = Math.round(Number(raw));
