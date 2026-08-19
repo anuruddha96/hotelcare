@@ -1763,13 +1763,14 @@ Deno.serve(async (req) => {
       let heldShortWindow = 0;
 
       // 3. Current prices per stay date / room type / occupancy (newest wins).
-      const { data: rateRows } = await admin
+      const { data: rateRows } = await pagedAll((f, t) => admin
         .from("revenue_room_type_rates")
         .select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at")
         .eq("hotel_id", rule.hotel_id)
         .in("stay_date", stayDates)
         .order("captured_at", { ascending: false })
-        .limit(20000);
+        .order("stay_date")
+        .range(f, t));
       const latestRate = new Map<string, any>();
       for (const r of (rateRows ?? []) as any[]) {
         const key = `${r.stay_date}|${r.obk_id}|${r.occupancy}`;
@@ -1782,21 +1783,23 @@ Deno.serve(async (req) => {
       //    how many hourly runs still see it as fresh.
       const dayStart = `${today}T00:00:00Z`;
       const [{ data: todaysActions }, { data: windowRaises }] = await Promise.all([
-        admin
+        pagedAll((f, t) => admin
           .from("revenue_pickup_automation_actions")
           .select("stay_date, reservation_id, increase_amount")
           .eq("hotel_id", rule.hotel_id)
           .in("stay_date", stayDates)
           .gte("created_at", dayStart)
-          .limit(20000),
-        admin
+          .order("stay_date")
+          .range(f, t)),
+        pagedAll((f, t) => admin
           .from("revenue_pickup_automation_actions")
           .select("stay_date, reservation_id, status")
           .eq("hotel_id", rule.hotel_id)
           .in("stay_date", stayDates)
           .in("decision_type", ["positive_pickup", "far_out_booking"])
           .gte("created_at", freshFrom)
-          .limit(20000),
+          .order("stay_date")
+          .range(f, t)),
       ]);
       // A booking may lift its dates once — but only if that lift actually
       // reached Previo. A refused, failed or expired push must not spend the
