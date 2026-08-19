@@ -792,12 +792,12 @@ export default function RevenueHotelDetail() {
   }
 
   // First load for this property: show the shape of the page, never blanks.
-  // Only the cached read blocks the page. A Previo sync keeps running behind
-  // the numbers (thin bar at the top), so nobody waits on Previo to see the
-  // property they just opened.
-  // The exception is a property with nothing cached yet: there is literally
-  // nothing to render, so the first sync is worth waiting for.
-  if ((live.loading || syncError || syncing || syncWaiting) && live.roomTypes.length === 0) {
+  // Only the very first cached read blocks the page, and only while there is
+  // literally nothing to render. A Previo sync — ours or another user's — keeps
+  // running behind the numbers (thin bar at the top), and the cover gives up
+  // after a few seconds rather than holding the property hostage.
+  if ((live.loading || syncError) && live.roomTypes.length === 0 && !coverTimedOut) {
+
     return (
       <div className="min-h-screen bg-background">
         <WelcomeBackOverlay
