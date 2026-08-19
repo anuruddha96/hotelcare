@@ -427,6 +427,16 @@ export default function RevenueHotelDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hotelId]);
 
+  // Hard ceiling on the opening cover: after 6 seconds show the page (with its
+  // skeletons) instead of a spinner, whatever the network is doing.
+  const [coverTimedOut, setCoverTimedOut] = useState(false);
+  useEffect(() => {
+    setCoverTimedOut(false);
+    const id = window.setTimeout(() => setCoverTimedOut(true), 6000);
+    return () => window.clearTimeout(id);
+  }, [hotelId]);
+
+
 
 
   function load(): Promise<void> {
