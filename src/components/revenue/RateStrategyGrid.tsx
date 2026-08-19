@@ -459,6 +459,23 @@ export default function RateStrategyGrid({
   const [rangeCalc, setRangeCalc] = useState<"amount" | "percent" | "set">("amount");
   const [rangeValue, setRangeValue] = useState("2");
 
+  /**
+   * A hover card or tooltip that was still open on a price cell when the
+   * pricing dialog appeared leaves `pointer-events: none` on <body>. The dialog
+   * then looks perfectly normal but swallows every tap — which is exactly the
+   * "I pressed Update and nothing happened, even after two minutes" report.
+   * While a pricing dialog is open we keep the page clickable ourselves.
+   */
+  useEffect(() => {
+    if (!dayTool && !rangeToolOpen) return;
+    const unlock = () => {
+      if (document.body.style.pointerEvents === "none") document.body.style.pointerEvents = "";
+    };
+    unlock();
+    const raf = requestAnimationFrame(unlock);
+    const timer = window.setInterval(unlock, 300);
+    return () => { cancelAnimationFrame(raf); window.clearInterval(timer); unlock(); };
+  }, [dayTool, rangeToolOpen]);
 
 
   const [saving, setSaving] = useState(false);
@@ -1586,7 +1603,9 @@ export default function RateStrategyGrid({
 
   /** Publish every change the day tool previews. */
   async function applyDayTool(_mode: "draft" | "push" = "push") {
-    if (!hotelId || dayToolChanges.length === 0) return;
+    if (!hotelId) { toast.error("No property selected — reopen the calendar and try again."); return; }
+    if (dayToolChanges.length === 0) return;
+
     setDayResult(null);
     const { data: auth } = await supabase.auth.getUser();
     const rowsToSave = dayToolChanges.map((c) => ({
@@ -3124,7 +3143,7 @@ export default function RateStrategyGrid({
 
       {/* Price the selected block */}
       <Dialog open={rangeToolOpen} onOpenChange={(o) => { setRangeToolOpen(o); if (!o) clearRange(); }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md" style={{ pointerEvents: "auto" }}>
           <DialogHeader>
             <DialogTitle className="text-base">
               Change {rangeCells.length} selected price{rangeCells.length === 1 ? "" : "s"}
@@ -3384,7 +3403,7 @@ export default function RateStrategyGrid({
 
       <Dialog open={!!dayTool} onOpenChange={(o) => !o && setDayTool(null)}>
 
-        <DialogContent className="flex h-[90dvh] max-h-[90dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl p-4 sm:h-auto sm:max-h-[85dvh] sm:w-full sm:max-w-lg sm:p-6">
+        <DialogContent style={{ pointerEvents: "auto" }} className="flex h-[90dvh] max-h-[90dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl p-4 sm:h-auto sm:max-h-[85dvh] sm:w-full sm:max-w-lg sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-base">
               {selDates.size > 1
