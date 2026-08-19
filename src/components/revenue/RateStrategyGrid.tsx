@@ -928,7 +928,9 @@ export default function RateStrategyGrid({
     }
     for (const [key, o] of cellOriginByCell) {
       if (!o?.at) continue;
-      add(key.split("|")[0], { origin: o.origin, at: o.at });
+      const origin: ChangeOrigin =
+        o.origin === "hotelcare" ? "team" : o.origin === "different" ? "failed" : o.origin;
+      add(key.split("|")[0], { origin, at: o.at });
     }
     for (const [key, at] of optimisticOrigin) add(key.split("|")[0], { origin: "team", at });
 
