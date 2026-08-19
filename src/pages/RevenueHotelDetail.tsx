@@ -274,20 +274,25 @@ export default function RevenueHotelDetail() {
       return;
     }
     if (claim === "already_running") {
-      setSyncWaiting(true);
-      setSyncStep("Another user is refreshing this property…");
-      const started = Date.now();
-      while (Date.now() - started < 2 * 60 * 1000) {
-        await new Promise((resolve) => window.setTimeout(resolve, 3000));
-        const info = await fetchRevenueSyncInfo(hotelId);
-        if (!info.stale) {
-          await Promise.all([load(), live.reload()]);
-          break;
+      // Never hold the screen for someone else's refresh. Whatever is cached
+      // stays visible; we quietly re-read the data once their sync lands.
+      const targetHotelId = hotelId;
+      void (async () => {
+        const started = Date.now();
+        while (Date.now() - started < 2 * 60 * 1000) {
+          await new Promise((resolve) => window.setTimeout(resolve, 5000));
+          if (activeHotelRef.current !== targetHotelId) return;
+          const info = await fetchRevenueSyncInfo(targetHotelId);
+          if (!info.stale) {
+            if (activeHotelRef.current !== targetHotelId) return;
+            await Promise.all([load(), live.reload()]);
+            return;
+          }
         }
-      }
-      setSyncWaiting(false);
+      })();
       return;
     }
+
     syncingRef.current = true;
     setSyncError(null);
     setSyncing(true);
@@ -381,16 +386,18 @@ export default function RevenueHotelDetail() {
 
   // Executives land straight on the Rate Grid. The property-wide history is
   // authoritative: data pulled by any user in the last 30 minutes is reused.
+  // The freshness check runs *after* the cached screen is painted so opening a
+  // property never waits on Previo.
   useEffect(() => {
     if (loading || !profile || !hotelId || contextMismatch) return;
     if (autoSyncedHotelRef.current === hotelId) return;
     autoSyncedHotelRef.current = hotelId;
     if (!isRevenueAdmin(profile.role)) setTab("grid");
-    void (async () => {
-      await runSync();
-    })();
+    const id = window.setTimeout(() => { void runSync(); }, 1200);
+    return () => window.clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, profile?.role, hotelId, contextMismatch]);
+
 
 
   // Keep the page honest while it stays open without making every tab pull.
@@ -420,6 +427,16 @@ export default function RevenueHotelDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hotelId]);
 
+  // Hard ceiling on the opening cover: after 6 seconds show the page (with its
+  // skeletons) instead of a spinner, whatever the network is doing.
+  const [coverTimedOut, setCoverTimedOut] = useState(false);
+  useEffect(() => {
+    setCoverTimedOut(false);
+    const id = window.setTimeout(() => setCoverTimedOut(true), 6000);
+    return () => window.clearTimeout(id);
+  }, [hotelId]);
+
+
 
 
   function load(): Promise<void> {
@@ -433,44 +450,51 @@ export default function RevenueHotelDetail() {
     return promise;
   }
 
+  /** Newest occupancy snapshot per date (rows arrive ordered desc by capture). */
+  function latestOccByDate(rows: any[] | null) {
+    const out = new Map<string, { occupancy_pct: number; rooms_sold: number }>();
+    for (const o of (rows ?? []) as any[]) {
+      if (!out.has(o.stay_date)) {
+        out.set(o.stay_date, { occupancy_pct: Number(o.occupancy_pct) || 0, rooms_sold: o.rooms_sold ?? 0 });
+      }
+    }
+    return out;
+  }
+
   async function loadForHotel(targetHotelId: string) {
-    // Pull a full ±395d window so we can show historical months plus YoY / MoM
-    // comparisons for any day the user navigates to.
-    const past = iso(addDays(new Date(), -395));
+    // First paint only needs what the visible calendar renders. The long
+    // ±395d history (YoY / MoM, recommendations, adjustments) is pulled right
+    // after, so nobody waits on 20k history rows to see today's prices.
+    await loadEssentials(targetHotelId);
+    void loadDeferred(targetHotelId);
+  }
+
+  /** Narrow, fast read: everything the rate grid needs to render. */
+  async function loadEssentials(targetHotelId: string) {
+    const near = iso(addDays(new Date(), -14));
     const horizon = iso(addDays(new Date(), 395));
-    const [{ data: h }, { data: s }, { data: r }, { data: dr }, { data: ev }, { data: ms }, { data: alerts }, { data: st }, { data: rooms }, { data: dow }, { data: mon }, { data: lead }, { data: occT }, { data: occS }, { data: occSnaps }] = await Promise.all([
+    const [{ data: h }, { data: s }, { data: dr }, { data: ms }, { data: alerts }, { data: st }, { data: rooms }, { data: occSnaps }] = await Promise.all([
       supabase.from("hotel_configurations").select("hotel_name").eq("hotel_id", targetHotelId).maybeSingle(),
       supabase.from("pickup_snapshots").select("stay_date,bookings_current,bookings_last_year,delta,captured_at")
-        .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon)
-        .order("captured_at", { ascending: false }).limit(10000),
-      supabase.from("rate_recommendations").select("*")
-        .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon).limit(2000),
+        .eq("hotel_id", targetHotelId).gte("stay_date", near).lte("stay_date", horizon)
+        .order("captured_at", { ascending: false }).limit(4000),
       (supabase as any).from("daily_rates").select("stay_date,rate_eur,occupancy_pct,source")
-        .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon).limit(2000),
-      (supabase as any).from("hotel_events").select("*").eq("hotel_id", targetHotelId)
-        .gte("event_date", past).lte("event_date", horizon).limit(500),
+        .eq("hotel_id", targetHotelId).gte("stay_date", near).lte("stay_date", horizon).limit(2000),
       (supabase as any).from("min_stay_rules").select("stay_date,min_nights")
-        .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon).limit(2000),
+        .eq("hotel_id", targetHotelId).gte("stay_date", near).lte("stay_date", horizon).limit(2000),
       supabase.from("revenue_alerts").select("stay_date").eq("hotel_id", targetHotelId).is("acknowledged_at", null).eq("alert_type", "abnormal_pickup"),
       supabase.from("hotel_revenue_settings").select("*").eq("hotel_id", targetHotelId).maybeSingle(),
       (supabase as any).from("room_types").select("name,base_price_eur,min_price_eur,max_price_eur,is_reference,num_rooms").eq("hotel_id", targetHotelId),
-      (supabase as any).from("dow_adjustments").select("dow,percent").eq("hotel_id", targetHotelId),
-      (supabase as any).from("monthly_adjustments").select("month,percent").eq("hotel_id", targetHotelId),
-      (supabase as any).from("lead_time_adjustments").select("bucket,percent").eq("hotel_id", targetHotelId),
-      (supabase as any).from("occupancy_targets").select("month,target_pct").eq("hotel_id", targetHotelId),
-      (supabase as any).from("occupancy_strategy").select("aggressiveness").eq("hotel_id", targetHotelId).maybeSingle(),
       (supabase as any).from("occupancy_snapshots")
         .select("stay_date,occupancy_pct,rooms_sold,captured_at")
-        .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon)
-        .order("captured_at", { ascending: false }).limit(10000),
+        .eq("hotel_id", targetHotelId).gte("stay_date", near).lte("stay_date", horizon)
+        .order("captured_at", { ascending: false }).limit(4000),
     ]);
 
     if (activeHotelRef.current !== targetHotelId) return;
     setHotelName(h?.hotel_name ?? targetHotelId);
     setSnapshots((s ?? []) as Snap[]);
-    setRecs((r ?? []) as Rec[]);
     setRates((dr ?? []) as any);
-    setEvents((ev ?? []) as Event[]);
     setMinStays((ms ?? []) as MinStay[]);
     setAbnormalDates(new Set((alerts ?? []).map((a: any) => a.stay_date)));
     setSettings(st as any);
@@ -482,25 +506,7 @@ export default function RevenueHotelDetail() {
       eurRate: (st as any)?.eur_conversion_rate ?? null,
       eurRateSource: (st as any)?.eur_rate_source ?? null,
     });
-
-    // Latest occupancy snapshot per date (occSnaps already ordered desc by captured_at).
-    const occMap = new Map<string, { occupancy_pct: number; rooms_sold: number }>();
-    for (const o of (occSnaps ?? []) as any[]) {
-      if (!occMap.has(o.stay_date)) occMap.set(o.stay_date, { occupancy_pct: Number(o.occupancy_pct) || 0, rooms_sold: o.rooms_sold ?? 0 });
-    }
-    setOccByDate(occMap);
-
-    // Autopilot decisions + last push timestamp (best-effort, errors ignored)
-    const [{ data: dec }, { data: lp }] = await Promise.all([
-      (supabase as any).from("autopilot_decisions").select("stay_date,decision_type,reason")
-        .eq("hotel_id", targetHotelId).order("created_at", { ascending: false }).limit(500),
-      (supabase as any).from("pms_sync_history").select("created_at,sync_status")
-        .eq("hotel_id", targetHotelId).eq("sync_type", "rate_push").eq("sync_status", "success")
-        .order("created_at", { ascending: false }).limit(1).maybeSingle(),
-    ]);
-    if (activeHotelRef.current !== targetHotelId) return;
-    setDecisions((dec ?? []) as any);
-    setLastPushAt(lp?.created_at ?? null);
+    setOccByDate(latestOccByDate(occSnaps));
 
     const refRoom = (rooms ?? []).find((rt: any) => rt.is_reference) ?? (rooms ?? [])[0];
     if (refRoom) setRefRoomInfo({
@@ -508,23 +514,69 @@ export default function RevenueHotelDetail() {
       base_price_eur: Number(refRoom.base_price_eur) || 0,
       num_rooms: refRoom.num_rooms ?? 0,
     });
-    const dowMap: Record<number, number> = {};
-    for (const d of dow ?? []) dowMap[d.dow] = Number(d.percent) || 0;
-    const monMap: Record<number, number> = {};
-    for (const m of mon ?? []) monMap[m.month] = Number(m.percent) || 0;
-    const leadMap: Record<string, number> = {};
-    for (const l of lead ?? []) leadMap[l.bucket] = Number(l.percent) || 0;
-    const currentMonth = new Date().getMonth() + 1;
-    const occT0 = (occT ?? []).find((x: any) => x.month === currentMonth);
-    setMultipliers({
+    setMultipliers((cur) => ({
+      ...cur,
       basePriceEur: refRoom?.base_price_eur ? Number(refRoom.base_price_eur) : undefined,
       minPriceEur: refRoom?.min_price_eur ? Number(refRoom.min_price_eur) : undefined,
       maxPriceEur: refRoom?.max_price_eur ? Number(refRoom.max_price_eur) : undefined,
-      dowPercent: dowMap, monthlyPercent: monMap, leadTimePercent: leadMap,
-      occupancyTargetPct: occT0?.target_pct ?? undefined,
-      occupancyAggressiveness: (occS as any)?.aggressiveness ?? "medium",
-    });
+    }));
   }
+
+  /** Everything that only matters once the page is already on screen. */
+  async function loadDeferred(targetHotelId: string) {
+    const past = iso(addDays(new Date(), -395));
+    const horizon = iso(addDays(new Date(), 395));
+    try {
+      const [{ data: s }, { data: r }, { data: ev }, { data: dow }, { data: mon }, { data: lead }, { data: occT }, { data: occS }, { data: occSnaps }, { data: dec }, { data: lp }] = await Promise.all([
+        supabase.from("pickup_snapshots").select("stay_date,bookings_current,bookings_last_year,delta,captured_at")
+          .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon)
+          .order("captured_at", { ascending: false }).limit(10000),
+        supabase.from("rate_recommendations").select("*")
+          .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon).limit(2000),
+        (supabase as any).from("hotel_events").select("*").eq("hotel_id", targetHotelId)
+          .gte("event_date", past).lte("event_date", horizon).limit(500),
+        (supabase as any).from("dow_adjustments").select("dow,percent").eq("hotel_id", targetHotelId),
+        (supabase as any).from("monthly_adjustments").select("month,percent").eq("hotel_id", targetHotelId),
+        (supabase as any).from("lead_time_adjustments").select("bucket,percent").eq("hotel_id", targetHotelId),
+        (supabase as any).from("occupancy_targets").select("month,target_pct").eq("hotel_id", targetHotelId),
+        (supabase as any).from("occupancy_strategy").select("aggressiveness").eq("hotel_id", targetHotelId).maybeSingle(),
+        (supabase as any).from("occupancy_snapshots")
+          .select("stay_date,occupancy_pct,rooms_sold,captured_at")
+          .eq("hotel_id", targetHotelId).gte("stay_date", past).lte("stay_date", horizon)
+          .order("captured_at", { ascending: false }).limit(10000),
+        (supabase as any).from("autopilot_decisions").select("stay_date,decision_type,reason")
+          .eq("hotel_id", targetHotelId).order("created_at", { ascending: false }).limit(500),
+        (supabase as any).from("pms_sync_history").select("created_at,sync_status")
+          .eq("hotel_id", targetHotelId).eq("sync_type", "rate_push").eq("sync_status", "success")
+          .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      ]);
+      if (activeHotelRef.current !== targetHotelId) return;
+      setSnapshots((s ?? []) as Snap[]);
+      setRecs((r ?? []) as Rec[]);
+      setEvents((ev ?? []) as Event[]);
+      setOccByDate(latestOccByDate(occSnaps));
+      setDecisions((dec ?? []) as any);
+      setLastPushAt(lp?.created_at ?? null);
+
+      const dowMap: Record<number, number> = {};
+      for (const d of dow ?? []) dowMap[d.dow] = Number(d.percent) || 0;
+      const monMap: Record<number, number> = {};
+      for (const m of mon ?? []) monMap[m.month] = Number(m.percent) || 0;
+      const leadMap: Record<string, number> = {};
+      for (const l of lead ?? []) leadMap[l.bucket] = Number(l.percent) || 0;
+      const currentMonth = new Date().getMonth() + 1;
+      const occT0 = (occT ?? []).find((x: any) => x.month === currentMonth);
+      setMultipliers((cur) => ({
+        ...cur,
+        dowPercent: dowMap, monthlyPercent: monMap, leadTimePercent: leadMap,
+        occupancyTargetPct: occT0?.target_pct ?? undefined,
+        occupancyAggressiveness: (occS as any)?.aggressiveness ?? "medium",
+      }));
+    } catch {
+      /* history is best-effort; the visible calendar is already rendered */
+    }
+  }
+
 
   // --- Build rows: for visible window (current month +/- buffer up to 365 days) ---
   const rowsByDate = useMemo(() => {
@@ -750,12 +802,12 @@ export default function RevenueHotelDetail() {
   }
 
   // First load for this property: show the shape of the page, never blanks.
-  // Only the cached read blocks the page. A Previo sync keeps running behind
-  // the numbers (thin bar at the top), so nobody waits on Previo to see the
-  // property they just opened.
-  // The exception is a property with nothing cached yet: there is literally
-  // nothing to render, so the first sync is worth waiting for.
-  if ((live.loading || syncError || syncing || syncWaiting) && live.roomTypes.length === 0) {
+  // Only the very first cached read blocks the page, and only while there is
+  // literally nothing to render. A Previo sync — ours or another user's — keeps
+  // running behind the numbers (thin bar at the top), and the cover gives up
+  // after a few seconds rather than holding the property hostage.
+  if ((live.loading || syncError) && live.roomTypes.length === 0 && !coverTimedOut) {
+
     return (
       <div className="min-h-screen bg-background">
         <WelcomeBackOverlay
