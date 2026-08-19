@@ -327,10 +327,14 @@ export function buildDayMetrics(params: {
     const snapDelta = base === undefined ? null : rs - base.sold;
     let net: number | null;
     const durableMovement = syncedMovement.get(d);
+    // The movement feed only stores non-zero changes, so "no row" inside a
+    // window that has movements at all means this date simply did not move.
     if (durableMovement !== undefined) net = durableMovement;
+    else if (movements.length > 0) net = 0;
     else if (!hasBookings) net = null;
     else if (snapDelta !== null) net = snapDelta;
     else net = bookingDelta;
+
 
     const adr = rs ? rev / rs : null;
     // Rooms lost: explicit cancellations, or whatever the snapshot says went
