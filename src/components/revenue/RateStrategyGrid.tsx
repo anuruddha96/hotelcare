@@ -280,7 +280,7 @@ interface PendingDraft {
 export default function RateStrategyGrid({
   loading, today, hotelId, organizationSlug, roomTypes, rates, metrics, nights = [],
   pickupWindowDays, onPickupWindowChange, thresholds = DEFAULT_THRESHOLDS, canEditRates = false,
-  demandByDate, eventsByDate, leftByTypeDate, onRatesUpdated,
+  demandByDate, eventsByDate, leftByTypeDate, onRatesUpdated, onHorizonDaysChange,
 }: Props) {
   const { language } = useTranslation();
   useRevenueCurrency(); // re-render when the Ft/€ switch flips
@@ -391,6 +391,12 @@ export default function RateStrategyGrid({
       return value;
     });
   }, []);
+
+  // Ask the page to keep data loaded a little beyond what the calendar shows,
+  // so scrolling further out never lands on empty columns.
+  useEffect(() => {
+    onHorizonDaysChange?.(Math.min(365, days + 20));
+  }, [days, onHorizonDaysChange]);
 
   // Cell dots are on by default, so a purple cell dot and the dot on its date
   // header always appear together. The user can switch them off and we
@@ -1370,6 +1376,13 @@ export default function RateStrategyGrid({
       const canLeft = el.scrollLeft > 4;
       const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
       setEdges((prev) => (prev.left === canLeft && prev.right === canRight ? prev : { left: canLeft, right: canRight }));
+      // Approaching the right edge: widen the horizon automatically (up to a
+      // full year) so the reader can keep scrolling without touching the
+      // range buttons.
+      const remaining = el.scrollWidth - (el.scrollLeft + el.clientWidth);
+      if (remaining < CELL_W * 10) {
+        setDays((current) => (current >= 365 ? current : Math.min(365, current + 60)));
+      }
     });
   }
   useEffect(() => () => { if (scrollRaf.current !== null) cancelAnimationFrame(scrollRaf.current); }, []);
