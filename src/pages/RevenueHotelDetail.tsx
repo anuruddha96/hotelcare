@@ -386,16 +386,18 @@ export default function RevenueHotelDetail() {
 
   // Executives land straight on the Rate Grid. The property-wide history is
   // authoritative: data pulled by any user in the last 30 minutes is reused.
+  // The freshness check runs *after* the cached screen is painted so opening a
+  // property never waits on Previo.
   useEffect(() => {
     if (loading || !profile || !hotelId || contextMismatch) return;
     if (autoSyncedHotelRef.current === hotelId) return;
     autoSyncedHotelRef.current = hotelId;
     if (!isRevenueAdmin(profile.role)) setTab("grid");
-    void (async () => {
-      await runSync();
-    })();
+    const id = window.setTimeout(() => { void runSync(); }, 1200);
+    return () => window.clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, profile?.role, hotelId, contextMismatch]);
+
 
 
   // Keep the page honest while it stays open without making every tab pull.
