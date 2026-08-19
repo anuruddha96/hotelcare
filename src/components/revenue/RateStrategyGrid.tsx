@@ -1079,8 +1079,6 @@ export default function RateStrategyGrid({
   /* ---- Min-stay range: drag left or right across the row ---------------- */
   const [minDrag, setMinDrag] = useState<{ a: number; b: number } | null>(null);
   const minDragRef = useRef<{ a: number; b: number } | null>(null);
-  /** Latest visible dates, so the window-level drag end can read them. */
-  const datesRef = useRef<string[]>([]);
 
   const [minRange, setMinRange] = useState<{ dates: string[] } | null>(null);
   const [minRangeValue, setMinRangeValue] = useState("2");
@@ -1108,7 +1106,7 @@ export default function RateStrategyGrid({
       const lo = Math.min(sel.a, sel.b);
       const hi = Math.max(sel.a, sel.b);
       if (hi === lo) return; // a plain tap keeps the single-cell editor
-      const picked = datesRef.current.slice(lo, hi + 1);
+      const picked = visibleDatesRef.current.slice(lo, hi + 1);
       if (picked.length < 2) return;
       setMinRangeValue(String(minStayByDate.get(picked[0]) ?? 2));
       setMinRange({ dates: picked });
