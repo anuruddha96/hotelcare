@@ -260,6 +260,7 @@ export function useRevenueHotelData(
       setLastSyncAt(syncRow?.last_success_at ?? null);
       setLastSyncBy(syncRow?.last_success_by_name ?? null);
       hasPayloadRef.current = true;
+      setPayloadTick((t) => t + 1);
     } catch (e) {
       if (requestVersion !== requestVersionRef.current) return;
       setError(e instanceof Error ? e.message : String(e));
@@ -271,13 +272,16 @@ export function useRevenueHotelData(
     try { await request; } finally {
       if (inFlightRef.current === request) inFlightRef.current = null;
     }
-  }, [hotelId, horizonDays, today, horizonEnd]);
+  }, [hotelId, activeHorizon, today, horizonEnd]);
 
   useEffect(() => {
+    // Only a property switch invalidates what is on screen. Growing the horizon
+    // must keep the current calendar mounted (no blocking spinner).
     requestVersionRef.current += 1;
     inFlightRef.current = null;
     hasPayloadRef.current = false;
-  }, [hotelId, horizonDays]);
+  }, [hotelId]);
+
 
   useEffect(() => { void reload(); }, [reload]);
 
