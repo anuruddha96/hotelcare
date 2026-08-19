@@ -1229,11 +1229,11 @@ Deno.serve(async (req) => {
           { data: strongManual },
           { data: strongPending },
         ] = await Promise.all([
-          admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).limit(50000),
-          admin.from("revenue_daily_snapshots").select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_date", { ascending: false }).limit(20000),
-          admin.from("revenue_pickup_automation_actions").select("stay_date, increase_amount").eq("hotel_id", rule.hotel_id).eq("local_business_date", local.date).gt("increase_amount", 0).limit(50000),
-          admin.from("rate_change_audit").select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).gte("performed_at", new Date(Date.now() - Math.max(0, Number(rule.manual_markdown_hold_hours || 0)) * 3_600_000).toISOString()).limit(20000),
-          admin.from("revenue_rate_drafts").select("id, stay_date, obk_id, occupancy, new_price, status, created_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).in("status", ["draft", "sending", "pushed"]).is("superseded_at", null).limit(50000),
+          pagedAll((f, t) => admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("revenue_daily_snapshots").select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_date", { ascending: false }).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("revenue_pickup_automation_actions").select("stay_date, increase_amount").eq("hotel_id", rule.hotel_id).eq("local_business_date", local.date).gt("increase_amount", 0).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("rate_change_audit").select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).gte("performed_at", new Date(Date.now() - Math.max(0, Number(rule.manual_markdown_hold_hours || 0)) * 3_600_000).toISOString()).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("revenue_rate_drafts").select("id, stay_date, obk_id, occupancy, new_price, status, created_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).in("status", ["draft", "sending", "pushed"]).is("superseded_at", null).order("stay_date").range(f, t)),
         ]);
 
         const occByDate = new Map<string, number | null>();
