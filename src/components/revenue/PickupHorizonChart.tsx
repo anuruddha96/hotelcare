@@ -535,9 +535,12 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   ...(compare ? hotels.map((h, i) => ({ value: h.hotel_name, type: "line" as const, color: hiddenHotels.has(h.hotel_id) ? "hsl(var(--muted-foreground) / 0.4)" : colorFor(h.hotel_id, i), id: h.hotel_id })) : []),
                 ]}
               />
-              <Bar yAxisId="pickup" dataKey="pickup" name="Pickup" radius={[2, 2, 0, 0]} maxBarSize={18} minPointSize={3}
-                fill={PICKUP_LEGEND_COLOR} isAnimationActive animationDuration={550}>
-                {data.map((d) => <Cell key={d.date} fill={barColor(d.pickup)} />)}
+              {/* Rooms booked and rooms given back are stacked around zero, so
+                  a date that gained and lost the same number of rooms still
+                  shows both movements instead of an empty column. */}
+              <Bar yAxisId="pickup" dataKey="gained" name="Booked" stackId="pickup" radius={[2, 2, 0, 0]}
+                maxBarSize={18} minPointSize={2} fill={PICKUP_LEGEND_COLOR} isAnimationActive animationDuration={550}>
+                {data.map((d) => <Cell key={d.date} fill={barColor(d.gained)} />)}
                 {showLabels && (
                   <LabelList
                     dataKey="pickup"
@@ -548,6 +551,8 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   />
                 )}
               </Bar>
+              <Bar yAxisId="pickup" dataKey="lost" name="Cancelled" stackId="pickup" radius={[0, 0, 2, 2]}
+                maxBarSize={18} minPointSize={2} fill="hsl(199 89% 60%)" isAnimationActive animationDuration={550} />
 
               {showOcc && (
                 <Line yAxisId="right" type="monotone" dataKey="occ" name="Occupancy" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} opacity={0.85} />
