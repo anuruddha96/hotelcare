@@ -227,6 +227,10 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
       date: m.stay_date,
       label: new Date(`${m.stay_date}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: "UTC", day: "numeric", month: "short" }),
       pickup: m.netPickup ?? 0,
+      // Gains and give-backs are drawn separately so a day that booked one room
+      // and lost another is still visible instead of vanishing at net zero.
+      gained: m.pickupGained || 0,
+      lost: m.pickupLost ? -m.pickupLost : 0,
       occ: Math.round(m.occupancyPct),
       adr: m.adrEur ? Math.round(m.adrEur) : null,
       demand: actual ?? null,
@@ -241,7 +245,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
       }
     }
     return point as {
-      date: string; label: string; pickup: number; occ: number; adr: number | null;
+      date: string; label: string; pickup: number; gained: number; lost: number; occ: number; adr: number | null;
       demand: number | null; demandForecast: number | null; monthStart: boolean; month: string;
       [key: string]: unknown;
     };
@@ -291,6 +295,8 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
   }, [data]);
 
   const totalPickup = useMemo(() => data.reduce((s, d) => s + (d.pickup || 0), 0), [data]);
+  const totalGained = useMemo(() => data.reduce((s, d) => s + (d.gained || 0), 0), [data]);
+  const totalLost = useMemo(() => data.reduce((s, d) => s - (d.lost || 0), 0), [data]);
   const peak = useMemo(() => data.reduce((best, d) => (d.pickup > (best?.pickup ?? -99) ? d : best), data[0]), [data]);
 
   /** Occupancy scale is on screen whenever anything uses it. */
@@ -314,7 +320,13 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
           </CardTitle>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={totalPickup > 0 ? "secondary" : "outline"} className="font-normal">
-              {totalPickup > 0 ? "+" : ""}{totalPickup} rooms in view
+              {totalPickup > 0 ? "+" : ""}{totalPickup} net rooms
+              {(totalGained > 0 || totalLost > 0) && (
+                <span className="ml-1 text-muted-foreground">
+                  ({totalGained > 0 ? `+${totalGained} booked` : "no bookings"}
+                  {totalLost > 0 ? ` · −${totalLost} lost` : ""})
+                </span>
+              )}
             </Badge>
             {peak && peak.pickup > 0 && (
               <Badge variant={peak.pickup >= 3 ? "destructive" : "secondary"}>
@@ -497,9 +509,11 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
 
                 formatter={(value: unknown, name: string) => {
                   if (name === "ADR") return [money(Number(value)), name];
-                  if (name === "Pickup") {
-                    const n = value as number;
-                    return [`${n > 0 ? "+" : ""}${n} room${Math.abs(n) === 1 ? "" : "s"}`, name];
+                  if (name === "Pickup" || name === "Booked" || name === "Cancelled") {
+                    const n = Math.abs(value as number);
+                    if (!n) return null as unknown as [string, string];
+                    const sign = name === "Cancelled" ? "−" : "+";
+                    return [`${sign}${n} room${n === 1 ? "" : "s"}`, name];
                   }
                   return [`${value}%`, name];
                 }}
@@ -516,16 +530,20 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   if (hotel) toggleHotel(hotel.hotel_id);
                 }}
                 payload={[
-                  { value: "Pickup", type: "square", color: PICKUP_LEGEND_COLOR, id: "pickup" },
+                  { value: "Booked", type: "square", color: PICKUP_LEGEND_COLOR, id: "gained" },
+                  { value: "Cancelled", type: "square", color: "hsl(199 89% 60%)", id: "lost" },
                   { value: "Occupancy", type: "line", color: showOcc ? "hsl(var(--primary))" : "hsl(var(--muted-foreground) / 0.4)", id: "occ" },
                   { value: "ADR", type: "line", color: showAdr ? ADR_COLOR : "hsl(var(--muted-foreground) / 0.4)", id: "adr" },
                   ...(hasDemand ? [{ value: "City demand", type: "line" as const, color: showDemand ? DEMAND_COLOR : "hsl(var(--muted-foreground) / 0.4)", id: "demand" }] : []),
                   ...(compare ? hotels.map((h, i) => ({ value: h.hotel_name, type: "line" as const, color: hiddenHotels.has(h.hotel_id) ? "hsl(var(--muted-foreground) / 0.4)" : colorFor(h.hotel_id, i), id: h.hotel_id })) : []),
                 ]}
               />
-              <Bar yAxisId="pickup" dataKey="pickup" name="Pickup" radius={[2, 2, 0, 0]} maxBarSize={18} minPointSize={3}
-                fill={PICKUP_LEGEND_COLOR} isAnimationActive animationDuration={550}>
-                {data.map((d) => <Cell key={d.date} fill={barColor(d.pickup)} />)}
+              {/* Rooms booked and rooms given back are stacked around zero, so
+                  a date that gained and lost the same number of rooms still
+                  shows both movements instead of an empty column. */}
+              <Bar yAxisId="pickup" dataKey="gained" name="Booked" stackId="pickup" radius={[2, 2, 0, 0]}
+                maxBarSize={18} minPointSize={2} fill={PICKUP_LEGEND_COLOR} isAnimationActive animationDuration={550}>
+                {data.map((d) => <Cell key={d.date} fill={barColor(d.gained)} />)}
                 {showLabels && (
                   <LabelList
                     dataKey="pickup"
@@ -536,6 +554,8 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   />
                 )}
               </Bar>
+              <Bar yAxisId="pickup" dataKey="lost" name="Cancelled" stackId="pickup" radius={[0, 0, 2, 2]}
+                maxBarSize={18} minPointSize={2} fill="hsl(199 89% 60%)" isAnimationActive animationDuration={550} />
 
               {showOcc && (
                 <Line yAxisId="right" type="monotone" dataKey="occ" name="Occupancy" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} opacity={0.85} />

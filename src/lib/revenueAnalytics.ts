@@ -194,6 +194,14 @@ export interface DayMetrics {
    * have no way to tell (no creation timestamps and no baseline snapshot).
    */
   netPickup: number | null;
+  /**
+   * Rooms GAINED inside the window (always >= 0). Kept separate from the net so
+   * a date that gained one room and gave one back is still visible instead of
+   * disappearing behind a net of zero.
+   */
+  pickupGained: number;
+  /** Rooms GIVEN BACK inside the window (always >= 0). */
+  pickupLost: number;
 }
 
 /**
@@ -279,6 +287,11 @@ export function buildDayMetrics(params: {
   // back by half a sync interval puts each movement on the day it happened.
   const MOVEMENT_LAG_MS = 30 * 60 * 1000;
   const syncedMovement = new Map<string, number>();
+  // Gains and losses are also kept apart: a date that booked one room and gave
+  // one back nets to zero, and reporting only the net made real movement (and
+  // the booking the user can see in the PMS) invisible on the chart.
+  const syncedGained = new Map<string, number>();
+  const syncedLost = new Map<string, number>();
   for (const movement of movements) {
     const parsed = Date.parse(movement.captured_at);
     const happenedAt = Number.isFinite(parsed) ? parsed - MOVEMENT_LAG_MS : NaN;
@@ -287,10 +300,10 @@ export function buildDayMetrics(params: {
       : inWindow(movement.captured_at);
     if (!inside) continue;
 
-    syncedMovement.set(
-      movement.stay_date,
-      (syncedMovement.get(movement.stay_date) ?? 0) + Number(movement.delta || 0),
-    );
+    const delta = Number(movement.delta || 0);
+    syncedMovement.set(movement.stay_date, (syncedMovement.get(movement.stay_date) ?? 0) + delta);
+    if (delta > 0) syncedGained.set(movement.stay_date, (syncedGained.get(movement.stay_date) ?? 0) + delta);
+    if (delta < 0) syncedLost.set(movement.stay_date, (syncedLost.get(movement.stay_date) ?? 0) - delta);
   }
 
   // Baseline = the NEWEST capture before the day the window opened.
@@ -356,6 +369,10 @@ export function buildDayMetrics(params: {
       newRevenueEur: Math.round((createdRevenue.get(d) ?? 0) * 100) / 100,
       lostRevenueEur: adr ? Math.round(roomsLost * adr * 100) / 100 : 0,
       roomsLost,
+      // Prefer the sync feed (matches the PMS pick-up report); fall back to the
+      // booking/cancellation timestamps we can see for the same window.
+      pickupGained: syncedGained.get(d) ?? (durableMovement !== undefined || movements.length > 0 ? 0 : Math.max(0, createdN)),
+      pickupLost: syncedLost.get(d) ?? (durableMovement !== undefined || movements.length > 0 ? 0 : Math.max(0, cancelledN)),
       baselineAvailable: base !== undefined,
       netPickup: net,
     };
