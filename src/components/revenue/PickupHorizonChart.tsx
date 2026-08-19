@@ -140,7 +140,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
-  const [period, setPeriod] = useState<PeriodKey>("today");
+  const activeWindow = pickupWindowDays ?? PICKUP_WINDOW_48H;
   const [customDays, setCustomDays] = useState(7);
   const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
 
