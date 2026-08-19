@@ -1694,12 +1694,13 @@ Deno.serve(async (req) => {
 
       // 2. All bookings for those stay dates, so pickup sequence inside the
       //    same window can be counted honestly (not just this batch).
-      const { data: historyRows } = await admin
+      const { data: historyRows } = await pagedAll((f, t) => admin
         .from("revenue_booking_nights")
         .select("stay_date, res_id, created_at_pms")
         .eq("hotel_id", rule.hotel_id)
         .in("stay_date", stayDates)
-        .limit(20000);
+        .order("stay_date")
+        .range(f, t));
       const history = (historyRows ?? []) as Array<{ stay_date: string; res_id: string; created_at_pms: string }>;
 
       // 2b. Net pickup per stay date over the last 48 hours. A re-sync of an
