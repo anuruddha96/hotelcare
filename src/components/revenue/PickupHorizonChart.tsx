@@ -320,7 +320,13 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
           </CardTitle>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={totalPickup > 0 ? "secondary" : "outline"} className="font-normal">
-              {totalPickup > 0 ? "+" : ""}{totalPickup} rooms in view
+              {totalPickup > 0 ? "+" : ""}{totalPickup} net rooms
+              {(totalGained > 0 || totalLost > 0) && (
+                <span className="ml-1 text-muted-foreground">
+                  ({totalGained > 0 ? `+${totalGained} booked` : "no bookings"}
+                  {totalLost > 0 ? ` · −${totalLost} lost` : ""})
+                </span>
+              )}
             </Badge>
             {peak && peak.pickup > 0 && (
               <Badge variant={peak.pickup >= 3 ? "destructive" : "secondary"}>
