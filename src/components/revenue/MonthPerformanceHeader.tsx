@@ -42,22 +42,34 @@ function Explain({ title, body }: { title: string; body: string }) {
   );
 }
 
-function Tile({ label, value, sub, icon, tone, surface, explain }: {
+function Tile({ label, value, sub, icon, tone, surface, explain, loading }: {
   label: string; value: string; sub?: string; icon: React.ReactNode; tone?: string;
   surface?: string;
   explain?: { title: string; body: string };
+  /** While a new property's data lands, show a shimmer instead of stale numbers. */
+  loading?: boolean;
 }) {
   return (
     <div className={`snap-start shrink-0 w-[76%] xs:w-[60%] sm:w-auto sm:flex-1 rounded-lg border border-l-4 p-3 min-w-0 sm:min-w-[128px] ${surface ?? "border-l-border"}`}>
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         {icon}<span className="truncate">{label}</span>
-        {explain && <Explain {...explain} />}
+        {explain && !loading && <Explain {...explain} />}
       </div>
-      <div className={`mt-1 text-xl font-semibold tabular-nums truncate ${tone ?? ""}`}>{value}</div>
-      {sub && <div className="text-[11px] text-muted-foreground truncate">{sub}</div>}
+      {loading ? (
+        <div className="animate-pulse">
+          <div className="mt-2 h-5 w-2/3 rounded bg-muted-foreground/20" />
+          <div className="mt-2 h-2.5 w-4/5 rounded bg-muted-foreground/10" />
+        </div>
+      ) : (
+        <>
+          <div className={`mt-1 text-xl font-semibold tabular-nums truncate ${tone ?? ""}`}>{value}</div>
+          {sub && <div className="text-[11px] text-muted-foreground truncate">{sub}</div>}
+        </>
+      )}
     </div>
   );
 }
+
 
 function monthKey(iso: string) { return iso.slice(0, 7); }
 function shiftMonth(key: string, delta: number) {
