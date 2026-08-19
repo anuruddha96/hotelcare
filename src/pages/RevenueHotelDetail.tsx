@@ -440,6 +440,17 @@ export default function RevenueHotelDetail() {
     return promise;
   }
 
+  /** Newest occupancy snapshot per date (rows arrive ordered desc by capture). */
+  function latestOccByDate(rows: any[] | null) {
+    const out = new Map<string, { occupancy_pct: number; rooms_sold: number }>();
+    for (const o of (rows ?? []) as any[]) {
+      if (!out.has(o.stay_date)) {
+        out.set(o.stay_date, { occupancy_pct: Number(o.occupancy_pct) || 0, rooms_sold: o.rooms_sold ?? 0 });
+      }
+    }
+    return out;
+  }
+
   async function loadForHotel(targetHotelId: string) {
     // First paint only needs what the visible calendar renders. The long
     // ±395d history (YoY / MoM, recommendations, adjustments) is pulled right
