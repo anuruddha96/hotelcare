@@ -2681,7 +2681,7 @@ export default function RateStrategyGrid({
                         Min stay
                         <MetricInfo
                           title="Minimum stay"
-                          body="The shortest booking accepted for that arrival date. Tap a cell to change it: the new rule is saved here and sent to Previo straight away, for every mapped room type. 1 night means no restriction."
+                          body="The shortest booking accepted for that arrival date. Tap a cell to change one date, or drag left or right across the row to set the same minimum stay for a whole range. Changes are saved here and sent to Previo straight away, for every mapped room type. 1 night means no restriction."
                         />
                       </>
                     )}
@@ -2691,6 +2691,7 @@ export default function RateStrategyGrid({
                     const nights = minStayByDate.get(d) ?? null;
                     const editing = restrictionEdit?.key === key;
                     const busy = restrictionBusy === key;
+                    const inDrag = !!minDrag && i >= Math.min(minDrag.a, minDrag.b) && i <= Math.max(minDrag.a, minDrag.b);
                     if (editing) {
                       return (
                         <div key={d} className={`flex items-center justify-center shrink-0 ${dayBg(d, i)} ${dayEdge(d)}`} style={{ width: CELL_W }}>
@@ -2717,17 +2718,30 @@ export default function RateStrategyGrid({
                         key={d}
                         type="button"
                         disabled={!canEditRates || busy}
-                        onClick={() => canEditRates && setRestrictionEdit({ key, value: String(nights ?? 1) })}
+                        onPointerDown={(e) => {
+                          if (!canEditRates) return;
+                          e.currentTarget.releasePointerCapture?.(e.pointerId);
+                          beginMinDrag(i);
+                        }}
+                        onPointerEnter={() => extendMinDrag(i)}
+                        onClick={() => {
+                          // A drag that covered more than one date opens the range tool instead.
+                          if (minRange) return;
+                          if (canEditRates) setRestrictionEdit({ key, value: String(nights ?? 1) });
+                        }}
                         title={nights && nights > 1
-                          ? `${d} · minimum ${nights} nights${canEditRates ? " — tap to change" : ""}`
-                          : `${d} · no minimum stay${canEditRates ? " — tap to set one" : ""}`}
+                          ? `${d} · minimum ${nights} nights${canEditRates ? " — tap to change, drag for a range" : ""}`
+                          : `${d} · no minimum stay${canEditRates ? " — tap to set one, drag for a range" : ""}`}
                         className={`flex items-center justify-center shrink-0 tabular-nums text-[10px] ${
                           nights && nights > 1 ? "font-semibold text-amber-700 dark:text-amber-400" : "text-muted-foreground"
-                        } ${dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:bg-accent/60" : ""}`}
-                        style={{ width: CELL_W }}
+                        } ${dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:bg-accent/60" : ""} ${
+                          inDrag ? "ring-1 ring-inset ring-primary bg-primary/15" : ""
+                        }`}
+                        style={{ width: CELL_W, touchAction: canEditRates ? "pan-y" : undefined }}
                       >
                         {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : nights && nights > 1 ? `${nights}N` : "·"}
                       </button>
+
                     );
                   })}
                 </div>
