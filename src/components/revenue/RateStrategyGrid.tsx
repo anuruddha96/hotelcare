@@ -2382,9 +2382,9 @@ export default function RateStrategyGrid({
                           {formatWeekday(d)}
                         </span>
                         <span className="font-medium">{formatDay(d)}</span>
-                        {dayLatest && (
+                        {dayOrigins.length > 0 && (
                           <span
-                            className="absolute bottom-0 left-1/2 flex h-3 w-4 -translate-x-1/2 cursor-pointer items-end justify-center"
+                            className="absolute bottom-0 left-1/2 flex h-3 w-6 -translate-x-1/2 cursor-pointer items-end justify-center gap-[2px]"
                             role="button"
                             tabIndex={-1}
                             aria-label={`See every price change on ${d}`}
@@ -2394,13 +2394,17 @@ export default function RateStrategyGrid({
                             onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); suppressDayClick.current = true; setDayChangesDate(d); }}
                             onClick={(e) => { e.stopPropagation(); e.preventDefault(); setDayChangesDate(d); }}
                           >
-                            {/* Secondary by design: it sits under the date and
-                                shrinks with the calendar's own zoom instead of
+                            {/* Secondary by design: they sit under the date and
+                                shrink with the calendar's own zoom instead of
                                 covering the day number on a phone. */}
-                            <i
-                              className={`mb-[1px] block rounded-full ${ORIGIN_DOT_CLASS[dayLatest.origin]}`}
-                              style={{ width: DAY_DOT, height: DAY_DOT }}
-                            />
+                            {dayOrigins.map((o) => (
+                              <i
+                                key={o}
+                                className={`mb-[1px] block rounded-full ${ORIGIN_DOT_CLASS[o]}`}
+                                style={{ width: DAY_DOT, height: DAY_DOT }}
+                              />
+                            ))}
+
                           </span>
                         )}
 
