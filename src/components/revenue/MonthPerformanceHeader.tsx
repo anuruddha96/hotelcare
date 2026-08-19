@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ChevronLeft, ChevronRight, BedDouble, Coins, Gauge, DoorOpen, TrendingUp, TrendingDown, Info, CalendarPlus } from "lucide-react";
-import { budapestDayOf, formatMonth, pickupWindowLabel, PICKUP_WINDOW_48H, type BookingNight, type CancelledNight, type DayMetrics } from "@/lib/revenueAnalytics";
+import { budapestDayOf, formatMonth, pickupWindowLabel, pickupWindowStartMs, PICKUP_WINDOW_48H, type BookingNight, type CancelledNight, type DayMetrics } from "@/lib/revenueAnalytics";
 import { money, eurEquivalent, setRevenueCurrency, setDisplayCurrency, currencySymbol, useRevenueCurrency, isForeignCurrency } from "@/lib/revenueCurrency";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -144,15 +144,30 @@ export default function MonthPerformanceHeader({
   const agg = useMemo(() => aggregate(month), [metrics, month]);
 
   /**
-   * What today actually produced: reservations created today (Budapest),
-   * how many room-nights they carry, and what was cancelled the same day.
+   * What the selected booking window actually produced: reservations created
+   * inside it, the room-nights they carry, and what was cancelled in the same
+   * stretch. The calendar-day figure is kept alongside so a quiet morning
+   * after a busy 48 hours is obvious rather than contradictory.
    */
-  const bookedToday = useMemo(() => {
+  const booked = useMemo(() => {
+    const startMs = pickupWindowStartMs(pickupWindowDays);
+    const inWindow = (iso?: string | null) => {
+      if (!iso) return false;
+      const t = Date.parse(iso);
+      return Number.isFinite(t) ? t >= startMs : false;
+    };
     const reservations = new Set<string>();
     let roomNights = 0;
     let revenue = 0;
+    let todayRoomNights = 0;
+    const todayRes = new Set<string>();
     for (const n of nights) {
-      if (!n.created_at_pms || budapestDayOf(n.created_at_pms) !== today) continue;
+      if (!n.created_at_pms) continue;
+      if (budapestDayOf(n.created_at_pms) === today) {
+        todayRoomNights += 1;
+        todayRes.add(n.res_id);
+      }
+      if (!inWindow(n.created_at_pms)) continue;
       reservations.add(n.res_id);
       roomNights += 1;
       revenue += n.nightly_price_eur ?? 0;
@@ -160,7 +175,7 @@ export default function MonthPerformanceHeader({
     const cancelledRes = new Set<string>();
     let cancelledNights = 0;
     for (const c of cancellations) {
-      if (!c.cancelled_at || budapestDayOf(c.cancelled_at) !== today) continue;
+      if (!inWindow(c.cancelled_at)) continue;
       cancelledRes.add(c.res_id);
       cancelledNights += 1;
     }
@@ -170,8 +185,11 @@ export default function MonthPerformanceHeader({
       revenue,
       cancelledRes: cancelledRes.size,
       cancelledNights,
+      todayRoomNights,
+      todayReservations: todayRes.size,
     };
-  }, [nights, cancellations, today]);
+  }, [nights, cancellations, today, pickupWindowDays]);
+
 
   /** Six-month outlook strip: occupancy, ADR and RevPAR month by month. */
   const outlook = useMemo(() => {
@@ -340,19 +358,20 @@ export default function MonthPerformanceHeader({
         >
 
           <Tile
-            label="Bookings created today"
-            value={`${bookedToday.roomNights} room-night${bookedToday.roomNights === 1 ? "" : "s"}`}
-            sub={`across ${bookedToday.reservations} reservation${bookedToday.reservations === 1 ? "" : "s"}${
-              bookedToday.cancelledNights ? ` · ${bookedToday.cancelledNights} cancelled` : ""
-            }`}
+            label={pickupWindowDays === 1 ? "Bookings created today" : `Bookings created · ${windowLabel(pickupWindowDays).toLowerCase()}`}
+            value={`${booked.roomNights} room-night${booked.roomNights === 1 ? "" : "s"}`}
+            sub={`${booked.reservations} reservation${booked.reservations === 1 ? "" : "s"}${
+              booked.cancelledNights ? ` · ${booked.cancelledNights} cancelled` : ""
+            }${pickupWindowDays === 1 ? "" : ` · ${booked.todayRoomNights} today`}`}
             icon={<CalendarPlus className="h-3.5 w-3.5" />}
-            surface={bookedToday.roomNights > 0 ? "border-l-primary bg-primary/5" : "border-l-border"}
-            tone={bookedToday.roomNights > 0 ? "text-primary" : ""}
+            surface={booked.roomNights > 0 ? "border-l-primary bg-primary/5" : "border-l-border"}
+            tone={booked.roomNights > 0 ? "text-primary" : ""}
             explain={{
-              title: "Bookings created today",
-              body: `Reservations entered in Previo today (Budapest time), whatever their stay date:\n\n• ${bookedToday.reservations} reservation${bookedToday.reservations === 1 ? "" : "s"} created\n• ${bookedToday.roomNights} room-night${bookedToday.roomNights === 1 ? "" : "s"} booked\n• ${money(bookedToday.revenue)} of room revenue\n• ${bookedToday.cancelledNights} room-night${bookedToday.cancelledNights === 1 ? "" : "s"} cancelled today (${bookedToday.cancelledRes} reservation${bookedToday.cancelledRes === 1 ? "" : "s"})\n\nThis tile always shows today, not the month or the pickup window.`,
+              title: `Bookings created — ${windowLabel(pickupWindowDays).toLowerCase()}`,
+              body: `Reservations entered in Previo inside the selected booking window (Budapest time), whatever their stay date:\n\n• ${booked.reservations} reservation${booked.reservations === 1 ? "" : "s"} created\n• ${booked.roomNights} room-night${booked.roomNights === 1 ? "" : "s"} booked\n• ${money(booked.revenue)} of room revenue\n• ${booked.cancelledNights} room-night${booked.cancelledNights === 1 ? "" : "s"} cancelled (${booked.cancelledRes} reservation${booked.cancelledRes === 1 ? "" : "s"})\n• ${booked.todayRoomNights} room-night${booked.todayRoomNights === 1 ? "" : "s"} were created today (${booked.todayReservations} reservation${booked.todayReservations === 1 ? "" : "s"})\n\nA busy 48 hours with a quiet morning is normal: the pickup row uses this same window, so the two always agree.`,
             }}
           />
+
           <Tile
             label="Occupancy"
             value={agg.capacity ? `${Math.round(agg.occupancyPct)}%` : "—"}

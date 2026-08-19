@@ -2435,15 +2435,22 @@ export default function RateStrategyGrid({
                 {/* Pickup */}
                 <div className="flex border-b bg-card" style={{ height: ROW_H }}>
                   <div className="sticky left-0 z-40 flex items-center border-r bg-card px-2 font-medium" style={{ width: LEFT_W }}>
-                    {railed ? <span title="Net pickup">PU</span> : (
+                    {railed ? (
+                      <span title={`Net pickup · ${pickupWindowLabel(pickupWindowDays)}`}>
+                        PU · {isAutomationWindow ? "48h" : pickupWindowDays <= 1 ? "today" : `${pickupWindowDays}d`}
+                      </span>
+                    ) : (
                       <>
-                        Pickup
+                        <span className="truncate">
+                          Pickup · {isAutomationWindow ? "last 48h" : pickupWindowLabel(pickupWindowDays).toLowerCase()}
+                        </span>
                         <MetricInfo
                           title="Net pickup"
                           body={`Reservations gained in the selected window minus reservations lost in the same window. Negative means the date lost rooms. Source: Previo reservations.\n\nThe pricing automation reacts to a rolling 48 hours of bookings, so pick "Last 48 hours (automation)" if you want this row to explain the purple dots. On any other window a price can move with an empty pickup cell — the booking landed just outside what you are looking at.`}
                         />
                       </>
                     )}
+
                   </div>
                   {dates.map((d, i) => {
                     const m = metricByDate.get(d);
