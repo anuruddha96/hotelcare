@@ -386,10 +386,11 @@ export default function RateStrategyGrid({
     });
   }, []);
 
-  // Cell dots are off by default: the date row already says which days moved
-  // and by whom. The user can switch the per-cell dots on and we remember it.
+  // Cell dots are on by default, so a purple cell dot and the dot on its date
+  // header always appear together. The user can switch them off and we
+  // remember that choice.
   const [showMarkers, setShowMarkers] = useState(() => {
-    try { return localStorage.getItem("rate-grid-change-dots") === "1"; } catch { return false; }
+    try { return localStorage.getItem("rate-grid-change-dots") !== "0"; } catch { return true; }
   });
   useEffect(() => {
     try { localStorage.setItem("rate-grid-change-dots", showMarkers ? "1" : "0"); } catch { /* private mode */ }
