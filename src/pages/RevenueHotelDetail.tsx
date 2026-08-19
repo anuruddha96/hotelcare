@@ -131,18 +131,25 @@ export default function RevenueHotelDetail() {
   // the purple dots always describe the same stretch of time.
   const [pickupWindow, setPickupWindow] = useState<number>(PICKUP_WINDOW_48H);
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
-  const live = useRevenueHotelData(hotelId ?? null, 190, pickupWindow);
+  // The calendar tells us how far it is scrolled; data is loaded to match so a
+  // 9- or 12-month view is never blank at the far end. It only ever grows
+  // within a session to avoid re-fetching when scrolling back.
+  const [horizonDays, setHorizonDays] = useState(190);
+  const growHorizon = useCallback((days: number) => {
+    setHorizonDays((current) => (days > current ? Math.min(365, days) : current));
+  }, []);
+  const live = useRevenueHotelData(hotelId ?? null, horizonDays, pickupWindow);
 
   // Internal demand grade per date (booking pace, pickup, pressure, lead time).
   const demandByDate = useMemo(() => {
     const board = buildDemandBoard({
       nights: live.nights.map((n) => ({ stay_date: n.stay_date, created_at_pms: n.created_at_pms })),
       today: live.today,
-      days: 190,
+      days: horizonDays,
       roomsAvailable: live.roomsAvailable,
     });
     return new Map(board.map((d) => [d.date, { score: d.score, band: d.band, drivers: d.drivers }]));
-  }, [live.nights, live.today, live.roomsAvailable]);
+  }, [live.nights, live.today, live.roomsAvailable, horizonDays]);
 
   // Approved demand events (manual + AI) shown on the calendar's demand row.
   const [demandEvents, setDemandEvents] = useState<
@@ -919,6 +926,7 @@ export default function RevenueHotelDetail() {
             eventsByDate={eventsByDate}
             leftByTypeDate={leftByTypeDate}
             onRatesUpdated={live.reload}
+            onHorizonDaysChange={growHorizon}
           />
 
           {/* The demand events calendar sits right under the rate & pickup
