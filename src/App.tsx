@@ -173,7 +173,9 @@ const MainApp = () => (
       <AuthProvider>
         <TooltipProvider>
           <Toaster />
+          <PointerEventsGuard />
           <BrowserRouter>
+
             <AuthenticatedShell>
               <Suspense fallback={<PageLoader />}>
                 <Routes>
