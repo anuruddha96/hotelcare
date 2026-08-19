@@ -15,6 +15,7 @@ import { getRevenueCurrency, moneyBase } from "@/lib/revenueCurrency";
 import { logRateChanges } from "@/lib/rateAudit";
 import type { DraftChange } from "@/lib/rateDrafts";
 import { publishRates } from "@/lib/ratePublishing";
+import { pushMinStay, expandRange } from "@/lib/minStay";
 
 type Mode = "amount" | "percent" | "set" | "round";
 type Rounding = "1" | "5" | "90";
@@ -69,6 +70,8 @@ export default function BulkPriceEditor({
   const [maxPrice, setMaxPrice] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [minNights, setMinNights] = useState("2");
+  const [minBusy, setMinBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -197,6 +200,32 @@ export default function BulkPriceEditor({
   }
 
 
+
+  /** Dates covered by the range + weekday filter — what a min-stay change hits. */
+  const minStayDates = useMemo(
+    () => expandRange(from, to).filter((d) => dows.has(dowOf(d))),
+    [from, to, dows],
+  );
+
+  /** Push one minimum stay to every selected date. */
+  async function applyMinStay() {
+    if (!hotelId || minStayDates.length === 0) return;
+    const nights = Math.round(Number(minNights));
+    if (!Number.isFinite(nights) || nights < 1 || nights > 30) {
+      toast.error("Minimum stay must be between 1 and 30 nights.");
+      return;
+    }
+    setMinBusy(true);
+    try {
+      const res = await pushMinStay(hotelId, minStayDates, nights);
+      toast.success(res.message);
+      await onSaved?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update the minimum stay");
+    } finally {
+      setMinBusy(false);
+    }
+  }
 
   const toggle = <T,>(set: Set<T>, v: T, apply: (s: Set<T>) => void) => {
     const next = new Set(set);
@@ -353,6 +382,50 @@ export default function BulkPriceEditor({
                 onClick={() => setRounding(r)}>{label}</Button>
             ))}
           </div>
+
+          {/* --- minimum stay --- */}
+          {canPush && (
+            <div className="space-y-1.5 rounded border p-2">
+              <Label className="text-xs text-muted-foreground">
+                Minimum stay · {minStayDates.length} date{minStayDates.length === 1 ? "" : "s"} in this selection
+              </Label>
+              <div className="flex flex-wrap items-center gap-1">
+                {[1, 2, 3, 4, 5, 7].map((n) => (
+                  <Button
+                    key={n}
+                    size="sm"
+                    variant={minNights === String(n) ? "default" : "outline"}
+                    className="h-8 px-2 text-[11px]"
+                    onClick={() => setMinNights(String(n))}
+                  >
+                    {n === 1 ? "No min" : `${n}N`}
+                  </Button>
+                ))}
+                <Input
+                  type="number"
+                  min={1}
+                  max={30}
+                  inputMode="numeric"
+                  value={minNights}
+                  onChange={(e) => setMinNights(e.target.value)}
+                  className="h-8 w-16 text-xs"
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="h-8 px-2 text-[11px]"
+                  disabled={minBusy || minStayDates.length === 0 || !hotelId}
+                  onClick={() => void applyMinStay()}
+                >
+                  {minBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                  Apply min stay
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Sent to Previo for every mapped room type on the dates and weekdays chosen above. Prices are not touched.
+              </p>
+            </div>
+          )}
 
           {/* --- preview --- */}
           <div className="rounded border">
