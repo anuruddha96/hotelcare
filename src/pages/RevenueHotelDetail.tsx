@@ -274,20 +274,25 @@ export default function RevenueHotelDetail() {
       return;
     }
     if (claim === "already_running") {
-      setSyncWaiting(true);
-      setSyncStep("Another user is refreshing this property…");
-      const started = Date.now();
-      while (Date.now() - started < 2 * 60 * 1000) {
-        await new Promise((resolve) => window.setTimeout(resolve, 3000));
-        const info = await fetchRevenueSyncInfo(hotelId);
-        if (!info.stale) {
-          await Promise.all([load(), live.reload()]);
-          break;
+      // Never hold the screen for someone else's refresh. Whatever is cached
+      // stays visible; we quietly re-read the data once their sync lands.
+      const targetHotelId = hotelId;
+      void (async () => {
+        const started = Date.now();
+        while (Date.now() - started < 2 * 60 * 1000) {
+          await new Promise((resolve) => window.setTimeout(resolve, 5000));
+          if (activeHotelRef.current !== targetHotelId) return;
+          const info = await fetchRevenueSyncInfo(targetHotelId);
+          if (!info.stale) {
+            if (activeHotelRef.current !== targetHotelId) return;
+            await Promise.all([load(), live.reload()]);
+            return;
+          }
         }
-      }
-      setSyncWaiting(false);
+      })();
       return;
     }
+
     syncingRef.current = true;
     setSyncError(null);
     setSyncing(true);
