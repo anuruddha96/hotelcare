@@ -1105,7 +1105,8 @@ export default function RateStrategyGrid({
       const lo = Math.min(sel.a, sel.b);
       const hi = Math.max(sel.a, sel.b);
       if (hi === lo) return; // a plain tap keeps the single-cell editor
-      const picked = dates.slice(lo, hi + 1);
+      const picked = datesRef.current.slice(lo, hi + 1);
+      if (picked.length < 2) return;
       setMinRangeValue(String(minStayByDate.get(picked[0]) ?? 2));
       setMinRange({ dates: picked });
     };
@@ -1115,7 +1116,8 @@ export default function RateStrategyGrid({
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
     };
-  }, [minDrag, dates, minStayByDate]);
+  }, [minDrag, minStayByDate]);
+
 
   /** Apply one minimum stay to many dates at once. */
   const applyMinStayRange = useCallback(async (picked: string[], raw: string) => {
