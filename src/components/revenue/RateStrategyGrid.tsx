@@ -3454,7 +3454,59 @@ export default function RateStrategyGrid({
         </DialogContent>
       </Dialog>
 
+      {/* ---- Minimum stay for a dragged range of dates ---- */}
+      <Dialog open={!!minRange} onOpenChange={(o) => { if (!o && !minRangeBusy) setMinRange(null); }}>
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-sm rounded-2xl p-4 sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="text-base">
+              Minimum stay for {minRange?.dates.length ?? 0} date{(minRange?.dates.length ?? 0) === 1 ? "" : "s"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p className="text-xs text-muted-foreground">
+              {minRange ? `${minRange.dates[0]} → ${minRange.dates[minRange.dates.length - 1]}` : ""} · applies to every mapped room type in Previo.
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {[1, 2, 3, 4, 5, 7].map((n) => (
+                <Button
+                  key={n}
+                  size="sm"
+                  variant={minRangeValue === String(n) ? "default" : "outline"}
+                  className="h-8 px-3 text-xs"
+                  onClick={() => setMinRangeValue(String(n))}
+                >
+                  {n === 1 ? "No minimum" : `${n} nights`}
+                </Button>
+              ))}
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Nights (1–30)</label>
+              <Input
+                type="number"
+                min={1}
+                max={30}
+                inputMode="numeric"
+                value={minRangeValue}
+                onChange={(e) => setMinRangeValue(e.target.value)}
+                className="h-9 text-sm"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button variant="ghost" disabled={minRangeBusy} onClick={() => setMinRange(null)}>Cancel</Button>
+            <Button
+              disabled={minRangeBusy || !minRange}
+              onClick={() => minRange && void applyMinStayRange(minRange.dates, minRangeValue)}
+            >
+              {minRangeBusy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Apply to {minRange?.dates.length ?? 0} date{(minRange?.dates.length ?? 0) === 1 ? "" : "s"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ---- Whole-day price tool: tap a date in the header ---- */}
+
       <BulkPriceEditor
         open={bulkOpen}
         onOpenChange={setBulkOpen}
