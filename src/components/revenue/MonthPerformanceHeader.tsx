@@ -144,15 +144,30 @@ export default function MonthPerformanceHeader({
   const agg = useMemo(() => aggregate(month), [metrics, month]);
 
   /**
-   * What today actually produced: reservations created today (Budapest),
-   * how many room-nights they carry, and what was cancelled the same day.
+   * What the selected booking window actually produced: reservations created
+   * inside it, the room-nights they carry, and what was cancelled in the same
+   * stretch. The calendar-day figure is kept alongside so a quiet morning
+   * after a busy 48 hours is obvious rather than contradictory.
    */
-  const bookedToday = useMemo(() => {
+  const booked = useMemo(() => {
+    const startMs = pickupWindowStartMs(pickupWindowDays);
+    const inWindow = (iso?: string | null) => {
+      if (!iso) return false;
+      const t = Date.parse(iso);
+      return Number.isFinite(t) ? t >= startMs : false;
+    };
     const reservations = new Set<string>();
     let roomNights = 0;
     let revenue = 0;
+    let todayRoomNights = 0;
+    const todayRes = new Set<string>();
     for (const n of nights) {
-      if (!n.created_at_pms || budapestDayOf(n.created_at_pms) !== today) continue;
+      if (!n.created_at_pms) continue;
+      if (budapestDayOf(n.created_at_pms) === today) {
+        todayRoomNights += 1;
+        todayRes.add(n.res_id);
+      }
+      if (!inWindow(n.created_at_pms)) continue;
       reservations.add(n.res_id);
       roomNights += 1;
       revenue += n.nightly_price_eur ?? 0;
@@ -160,7 +175,7 @@ export default function MonthPerformanceHeader({
     const cancelledRes = new Set<string>();
     let cancelledNights = 0;
     for (const c of cancellations) {
-      if (!c.cancelled_at || budapestDayOf(c.cancelled_at) !== today) continue;
+      if (!inWindow(c.cancelled_at)) continue;
       cancelledRes.add(c.res_id);
       cancelledNights += 1;
     }
@@ -170,8 +185,11 @@ export default function MonthPerformanceHeader({
       revenue,
       cancelledRes: cancelledRes.size,
       cancelledNights,
+      todayRoomNights,
+      todayReservations: todayRes.size,
     };
-  }, [nights, cancellations, today]);
+  }, [nights, cancellations, today, pickupWindowDays]);
+
 
   /** Six-month outlook strip: occupancy, ADR and RevPAR month by month. */
   const outlook = useMemo(() => {
