@@ -448,6 +448,22 @@ export default function MonthPerformanceHeader({
           ))}
         </div>
 
+        {/* One place to choose the pickup window, right next to the numbers it drives. */}
+        <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-2 py-1.5">
+          <span className="text-[11px] font-medium">Pickup window</span>
+          <Select value={String(pickupWindowDays)} onValueChange={(v) => onPickupWindowChange(Number(v))}>
+            <SelectTrigger className="h-8 w-[180px] text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {PICKUP_WINDOWS.map((p) => (
+                <SelectItem key={p.value} value={String(p.value)}>{p.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <span className="text-[11px] text-muted-foreground">
+            drives the pickup tile, the calendar PU row and the demand horizon — the “bookings created today” tile always stays on today
+          </span>
+        </div>
+
 
 
 
