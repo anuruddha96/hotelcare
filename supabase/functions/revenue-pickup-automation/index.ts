@@ -390,6 +390,35 @@ function normTypeName(value: unknown): string {
 }
 
 /**
+ * PostgREST answers with at most 1000 rows no matter what `.limit()` asks for.
+ * Ottofiori alone holds ~2500 price rows in the automation horizon, so every
+ * unpaged read handed the engine a truncated slice of the calendar: whole
+ * stay dates — and the lower cells of a date — were never evaluated, which is
+ * exactly why one room type moved on a date and the rest stood still.
+ *
+ * `pagedAll` re-issues the same query with `.range()` until a short page comes
+ * back, so the engine always sees the complete set.
+ */
+async function pagedAll<T = any>(
+  build: (from: number, to: number) => any,
+  pageSize = 1000,
+  maxPages = 80,
+): Promise<{ data: T[] }> {
+  const out: T[] = [];
+  for (let page = 0; page < maxPages; page++) {
+    const from = page * pageSize;
+    const { data, error } = await build(from, from + pageSize - 1);
+    if (error) throw error;
+    const batch = (data ?? []) as T[];
+    out.push(...batch);
+    if (batch.length < pageSize) break;
+  }
+  return { data: out };
+}
+
+
+
+/**
  * Per ROOM TYPE availability, the same arithmetic the price grid shows:
  * physical rooms of that type minus booked nights of that type for the date.
  * The hotel-level sold-out guard cannot see this — a 1-room type can be gone
