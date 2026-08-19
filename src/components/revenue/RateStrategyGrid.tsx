@@ -83,6 +83,8 @@ interface Props {
   leftByTypeDate?: Map<string, number>;
   /** Reload the hotel's rates after Previo confirms a price push. */
   onRatesUpdated?: () => void | Promise<void>;
+  /** Tell the page how far ahead the calendar needs data loaded. */
+  onHorizonDaysChange?: (days: number) => void;
 }
 
 
