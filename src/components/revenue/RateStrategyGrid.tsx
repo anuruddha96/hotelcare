@@ -1603,7 +1603,9 @@ export default function RateStrategyGrid({
 
   /** Publish every change the day tool previews. */
   async function applyDayTool(_mode: "draft" | "push" = "push") {
-    if (!hotelId || dayToolChanges.length === 0) return;
+    if (!hotelId) { toast.error("No property selected — reopen the calendar and try again."); return; }
+    if (dayToolChanges.length === 0) return;
+
     setDayResult(null);
     const { data: auth } = await supabase.auth.getUser();
     const rowsToSave = dayToolChanges.map((c) => ({
