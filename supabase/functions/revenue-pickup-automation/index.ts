@@ -1715,13 +1715,14 @@ Deno.serve(async (req) => {
           netPickup.set(h.stay_date, (netPickup.get(h.stay_date) ?? 0) + 1);
         }
       }
-      const { data: cancelRows } = await admin
+      const { data: cancelRows } = await pagedAll((f, t) => admin
         .from("revenue_cancelled_nights")
         .select("stay_date, cancelled_at")
         .eq("hotel_id", rule.hotel_id)
         .in("stay_date", stayDates)
         .gte("cancelled_at", freshFrom)
-        .limit(20000);
+        .order("stay_date")
+        .range(f, t));
       for (const c of (cancelRows ?? []) as Array<{ stay_date: string; cancelled_at: string }>) {
         netPickup.set(c.stay_date, (netPickup.get(c.stay_date) ?? 0) - 1);
       }
