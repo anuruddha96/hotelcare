@@ -114,9 +114,26 @@ export function useRevenueHotelData(
   const hasPayloadRef = useRef(false);
   const requestVersionRef = useRef(0);
   const inFlightRef = useRef<Promise<void> | null>(null);
+  const [payloadTick, setPayloadTick] = useState(0);
+
+  // First paint only needs the dates the calendar actually shows. The full
+  // horizon is fetched right after, without clearing the screen, so opening a
+  // property no longer waits on six months of nights, rates and snapshots.
+  const FIRST_PAINT_DAYS = 60;
+  const [activeHorizon, setActiveHorizon] = useState(() => Math.min(FIRST_PAINT_DAYS, horizonDays));
+  useEffect(() => {
+    // A shrinking request (rare) applies immediately; growth is staged below.
+    setActiveHorizon((cur) => (horizonDays < cur ? horizonDays : cur));
+  }, [horizonDays]);
+  useEffect(() => {
+    if (!payloadTick || activeHorizon >= horizonDays) return;
+    const id = window.setTimeout(() => setActiveHorizon(horizonDays), 250);
+    return () => window.clearTimeout(id);
+  }, [payloadTick, activeHorizon, horizonDays]);
 
   const today = budapestToday();
-  const horizonEnd = addDays(today, horizonDays);
+  const horizonEnd = addDays(today, activeHorizon);
+
   // Sync movements are hourly per stay date, so a 90-day fetch runs into tens of
   // thousands of rows and gets truncated — dropping exactly the newest captures
   // the pickup window needs. Only load as far back as the window can reach.
