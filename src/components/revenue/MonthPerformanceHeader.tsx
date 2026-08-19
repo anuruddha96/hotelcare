@@ -506,15 +506,25 @@ export default function MonthPerformanceHeader({
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground truncate">
                     {formatMonth(`${o.key}-01`)}{i === 0 ? " · now" : ""}
                   </div>
-                  <div className="text-base font-semibold tabular-nums">
-                    {o.capacity ? `${Math.round(o.occupancyPct)}%` : "—"}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground tabular-nums truncate">
-                    ADR {money(o.adr)}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground tabular-nums truncate">
-                    RevPAR {money(o.revpar)}
-                  </div>
+                  {loading ? (
+                    <div className="animate-pulse space-y-1.5 mt-1">
+                      <div className="h-4 w-12 rounded bg-muted-foreground/20" />
+                      <div className="h-2 w-16 rounded bg-muted-foreground/10" />
+                      <div className="h-2 w-14 rounded bg-muted-foreground/10" />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="text-base font-semibold tabular-nums">
+                        {o.capacity ? `${Math.round(o.occupancyPct)}%` : "—"}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground tabular-nums truncate">
+                        ADR {money(o.adr)}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground tabular-nums truncate">
+                        RevPAR {money(o.revpar)}
+                      </div>
+                    </>
+                  )}
                 </button>
               );
             })}
