@@ -227,6 +227,10 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
       date: m.stay_date,
       label: new Date(`${m.stay_date}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: "UTC", day: "numeric", month: "short" }),
       pickup: m.netPickup ?? 0,
+      // Gains and give-backs are drawn separately so a day that booked one room
+      // and lost another is still visible instead of vanishing at net zero.
+      gained: m.pickupGained || 0,
+      lost: m.pickupLost ? -m.pickupLost : 0,
       occ: Math.round(m.occupancyPct),
       adr: m.adrEur ? Math.round(m.adrEur) : null,
       demand: actual ?? null,
