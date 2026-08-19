@@ -160,11 +160,13 @@ export default function MonthPerformanceHeader({
     let roomNights = 0;
     let revenue = 0;
     let todayRoomNights = 0;
+    let todayRevenue = 0;
     const todayRes = new Set<string>();
     for (const n of nights) {
       if (!n.created_at_pms) continue;
       if (budapestDayOf(n.created_at_pms) === today) {
         todayRoomNights += 1;
+        todayRevenue += n.nightly_price_eur ?? 0;
         todayRes.add(n.res_id);
       }
       if (!inWindow(n.created_at_pms)) continue;
@@ -174,7 +176,13 @@ export default function MonthPerformanceHeader({
     }
     const cancelledRes = new Set<string>();
     let cancelledNights = 0;
+    const todayCancelledRes = new Set<string>();
+    let todayCancelledNights = 0;
     for (const c of cancellations) {
+      if (c.cancelled_at && budapestDayOf(c.cancelled_at) === today) {
+        todayCancelledNights += 1;
+        todayCancelledRes.add(c.res_id);
+      }
       if (!inWindow(c.cancelled_at)) continue;
       cancelledRes.add(c.res_id);
       cancelledNights += 1;
@@ -187,8 +195,12 @@ export default function MonthPerformanceHeader({
       cancelledNights,
       todayRoomNights,
       todayReservations: todayRes.size,
+      todayRevenue,
+      todayCancelledNights,
+      todayCancelledRes: todayCancelledRes.size,
     };
   }, [nights, cancellations, today, pickupWindowDays]);
+
 
 
   /** Six-month outlook strip: occupancy, ADR and RevPAR month by month. */
