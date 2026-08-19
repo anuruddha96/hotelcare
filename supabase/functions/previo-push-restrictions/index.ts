@@ -22,8 +22,11 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
 interface Item {
-  /** Stay date. */
+  /** Stay date (start of the range when `to` is given). */
   date: string;
+  /** Optional last date of an inclusive range — bulk min-stay changes use it. */
+  to?: string | null;
+
   /** Minimum nights for that date (house-wide when no room type is given). */
   minStay?: number | null;
   /** Rooms to sell for one room type on that date. */
