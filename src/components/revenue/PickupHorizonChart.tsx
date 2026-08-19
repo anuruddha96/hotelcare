@@ -340,7 +340,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                     type="number"
                     min={1}
                     max={90}
-                    value={customDays}
+                    value={activeWindow > 0 ? activeWindow : customDays}
                     className="h-8 w-16"
                     onChange={(e) => {
                       const n = Math.max(1, Math.min(90, Number(e.target.value) || 1));
