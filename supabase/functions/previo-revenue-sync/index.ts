@@ -1357,6 +1357,10 @@ serve(async (req) => {
     const presentCounts = countByStayKey(nights);
     const cancelledCounts = countByStayKey(cancelledNights);
     const previousByStayKey = new Map<string, any[]>();
+    // A partial read of the previous book makes every unread reservation look
+    // brand new — that is how a large property printed +40 pickup on dates that
+    // never moved. If any page fails, the movement pass is skipped entirely.
+    let previousReadComplete = true;
 
     try {
       const pageSize = 1000;
@@ -1364,14 +1368,22 @@ serve(async (req) => {
         const { data: prevRows, error: prevErr } = await service
           .from("revenue_booking_nights")
           .select(
-            "stay_date,res_id,room_key,obk_id,obj_id,room_type_name,nightly_price_eur,total_price_eur,source_currency,original_nightly_price,original_total_price,created_at_pms,guests,source_name,status_id,stay_from,stay_to",
+            "id,stay_date,res_id,room_key,obk_id,obj_id,room_type_name,nightly_price_eur,total_price_eur,source_currency,original_nightly_price,original_total_price,created_at_pms,guests,source_name,status_id,stay_from,stay_to",
           )
           .eq("hotel_id", hotelId)
           .gte("stay_date", from)
           .lte("stay_date", replaceTo)
-          .order("stay_date", { ascending: true })
+          // Paging needs a UNIQUE total order. Ordering by stay_date alone lets
+          // Postgres return tied rows in a different order per page, so rows are
+          // skipped or repeated — the root cause of phantom pickup on the
+          // properties with the most reservations.
+          .order("id", { ascending: true })
           .range(offset, offset + pageSize - 1);
-        if (prevErr) { errors.push(`loss diff read: ${prevErr.message}`); break; }
+        if (prevErr) {
+          errors.push(`loss diff read: ${prevErr.message}`);
+          previousReadComplete = false;
+          break;
+        }
         if (!prevRows?.length) break;
         for (const row of prevRows) {
           const key = stayKeyOf(row as any);
@@ -1380,12 +1392,16 @@ serve(async (req) => {
           previousByStayKey.set(key, rows);
         }
         if (prevRows.length < pageSize) break;
+        if (offset + pageSize >= 100000) { previousReadComplete = false; break; }
       }
-      for (const [key, previousRows] of previousByStayKey) {
-        const accountedFor = (presentCounts.get(key) ?? 0) + (cancelledCounts.get(key) ?? 0);
-        const missingCount = Math.max(0, previousRows.length - accountedFor);
-        if (missingCount > 0) lostNights.push(...previousRows.slice(0, missingCount));
+      if (previousReadComplete) {
+        for (const [key, previousRows] of previousByStayKey) {
+          const accountedFor = (presentCounts.get(key) ?? 0) + (cancelledCounts.get(key) ?? 0);
+          const missingCount = Math.max(0, previousRows.length - accountedFor);
+          if (missingCount > 0) lostNights.push(...previousRows.slice(0, missingCount));
+        }
       }
+
       // Report-equivalent movement: one gain/loss per reservation + stay date.
       // Physical room-key changes therefore remain neutral.
       // An empty previous set means this is the first capture, not that every
