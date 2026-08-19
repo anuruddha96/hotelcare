@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { claimRevenueSync, fetchRevenueSyncInfo, REVENUE_STALE_MS } from "@/lib/revenueFreshness";
