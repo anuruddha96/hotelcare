@@ -509,9 +509,11 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
 
                 formatter={(value: unknown, name: string) => {
                   if (name === "ADR") return [money(Number(value)), name];
-                  if (name === "Pickup") {
-                    const n = value as number;
-                    return [`${n > 0 ? "+" : ""}${n} room${Math.abs(n) === 1 ? "" : "s"}`, name];
+                  if (name === "Pickup" || name === "Booked" || name === "Cancelled") {
+                    const n = Math.abs(value as number);
+                    if (!n) return null as unknown as [string, string];
+                    const sign = name === "Cancelled" ? "−" : "+";
+                    return [`${sign}${n} room${n === 1 ? "" : "s"}`, name];
                   }
                   return [`${value}%`, name];
                 }}
