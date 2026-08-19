@@ -20,10 +20,11 @@ const RANGES = [
   { value: 180, label: "6m" },
 ];
 
-/** How far back the "pickup" measurement window reaches, in days. */
-type PeriodKey = "today" | "yesterday" | "week" | "month" | "custom";
+/** How far back the "pickup" measurement window reaches. */
+type PeriodKey = "auto48" | "today" | "yesterday" | "week" | "month" | "custom";
 
 const PERIODS: Array<{ key: PeriodKey; label: string }> = [
+  { key: "auto48", label: "Last 48 hours (automation)" },
   { key: "today", label: "Today" },
   { key: "yesterday", label: "Yesterday + today" },
   { key: "week", label: "This week (Mon–Sun)" },
@@ -36,6 +37,7 @@ function windowForPeriod(key: PeriodKey, customDays: number): number {
   const today = budapestToday();
   const d = new Date(`${today}T00:00:00Z`);
   switch (key) {
+    case "auto48": return PICKUP_WINDOW_48H;
     case "today": return 1;
     case "yesterday": return 2;
     case "week": {
@@ -48,6 +50,19 @@ function windowForPeriod(key: PeriodKey, customDays: number): number {
     }
     default: return Math.max(1, customDays);
   }
+}
+
+/**
+ * Which preset the shared window currently matches. The dropdown used to keep
+ * its own state, so it read "Today" while the chart plotted the 48-hour
+ * automation window — label and data now come from the same number.
+ */
+function periodForWindow(windowDays: number, customDays: number): PeriodKey {
+  for (const p of PERIODS) {
+    if (p.key === "custom") continue;
+    if (windowForPeriod(p.key, customDays) === windowDays) return p.key;
+  }
+  return "custom";
 }
 
 /** Legend swatch for pickup — matches the typical positive-pickup bar. */
@@ -125,7 +140,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
-  const [period, setPeriod] = useState<PeriodKey>("today");
+  const activeWindow = pickupWindowDays ?? PICKUP_WINDOW_48H;
   const [customDays, setCustomDays] = useState(7);
   const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
 
@@ -282,8 +297,10 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
   const usesPercentAxis = showOcc || showDemand || compare;
   const hasDemand = demandByDate.actual.size > 0;
 
+  /** The dropdown mirrors the shared window instead of holding its own state. */
+  const period = periodForWindow(activeWindow, customDays);
+
   function applyPeriod(key: PeriodKey, custom = customDays) {
-    setPeriod(key);
     onPickupWindowChange?.(windowForPeriod(key, custom));
   }
 
@@ -323,7 +340,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                     type="number"
                     min={1}
                     max={90}
-                    value={customDays}
+                    value={activeWindow > 0 ? activeWindow : customDays}
                     className="h-8 w-16"
                     onChange={(e) => {
                       const n = Math.max(1, Math.min(90, Number(e.target.value) || 1));
