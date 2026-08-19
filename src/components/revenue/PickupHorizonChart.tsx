@@ -297,8 +297,10 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
   const usesPercentAxis = showOcc || showDemand || compare;
   const hasDemand = demandByDate.actual.size > 0;
 
+  /** The dropdown mirrors the shared window instead of holding its own state. */
+  const period = periodForWindow(activeWindow, customDays);
+
   function applyPeriod(key: PeriodKey, custom = customDays) {
-    setPeriod(key);
     onPickupWindowChange?.(windowForPeriod(key, custom));
   }
 
