@@ -299,14 +299,6 @@ export default function MonthPerformanceHeader({
             </Button>
           </div>
           <div className="flex-1" />
-          <Select value={String(pickupWindowDays)} onValueChange={(v) => onPickupWindowChange(Number(v))}>
-            <SelectTrigger className="h-8 w-[175px] text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {PICKUP_WINDOWS.map((p) => (
-                <SelectItem key={p.value} value={String(p.value)}>Booked in: {p.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
 
         {isForeignCurrency() && (
