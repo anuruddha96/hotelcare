@@ -390,6 +390,35 @@ function normTypeName(value: unknown): string {
 }
 
 /**
+ * PostgREST answers with at most 1000 rows no matter what `.limit()` asks for.
+ * Ottofiori alone holds ~2500 price rows in the automation horizon, so every
+ * unpaged read handed the engine a truncated slice of the calendar: whole
+ * stay dates — and the lower cells of a date — were never evaluated, which is
+ * exactly why one room type moved on a date and the rest stood still.
+ *
+ * `pagedAll` re-issues the same query with `.range()` until a short page comes
+ * back, so the engine always sees the complete set.
+ */
+async function pagedAll<T = any>(
+  build: (from: number, to: number) => any,
+  pageSize = 1000,
+  maxPages = 80,
+): Promise<{ data: T[] }> {
+  const out: T[] = [];
+  for (let page = 0; page < maxPages; page++) {
+    const from = page * pageSize;
+    const { data, error } = await build(from, from + pageSize - 1);
+    if (error) throw error;
+    const batch = (data ?? []) as T[];
+    out.push(...batch);
+    if (batch.length < pageSize) break;
+  }
+  return { data: out };
+}
+
+
+
+/**
  * Per ROOM TYPE availability, the same arithmetic the price grid shows:
  * physical rooms of that type minus booked nights of that type for the date.
  * The hotel-level sold-out guard cannot see this — a 1-room type can be gone
@@ -404,8 +433,8 @@ async function loadTypeAvailability(
 ): Promise<{ left: (roomTypeName: unknown, obkId: unknown, stayDate: string) => number | null }> {
   const [{ data: types }, { data: nights }] = await Promise.all([
     admin.from("room_types").select("name, num_rooms, is_sellable, pms_room_id").eq("hotel_id", hotelId).limit(500),
-    admin.from("revenue_booking_nights").select("stay_date, room_type_name, obk_id")
-      .eq("hotel_id", hotelId).gte("stay_date", fromDate).lte("stay_date", toDate).limit(100000),
+    pagedAll((f, t) => admin.from("revenue_booking_nights").select("stay_date, room_type_name, obk_id")
+      .eq("hotel_id", hotelId).gte("stay_date", fromDate).lte("stay_date", toDate).order("stay_date").range(f, t)),
   ]);
 
   const capacityByName = new Map<string, number>();
@@ -682,14 +711,14 @@ Deno.serve(async (req) => {
       // 1. New booking nights Hotel Care captured since the cursor. The cursor
       //    follows capture time, not Previo's creation time: a booking made at
       //    16:27 but only synced at 18:21 must still be priced.
-      const { data: nightRows, error: nightErr } = await admin
+      const { data: nightRows } = await pagedAll((f, t) => admin
         .from("revenue_booking_nights")
         .select("stay_date, res_id, created_at_pms, captured_at, obk_id, room_type_name, guests")
         .eq("hotel_id", rule.hotel_id)
         .gte("stay_date", today)
         .gte("captured_at", lookbackFrom)
-        .limit(5000);
-      if (nightErr) throw nightErr;
+        .order("stay_date")
+        .range(f, t));
 
       const pickups = (nightRows ?? []) as Array<{
         stay_date: string; res_id: string; created_at_pms: string;
@@ -743,13 +772,13 @@ Deno.serve(async (req) => {
           { data: pendingDrafts },
           { data: manualEdits },
         ] = await Promise.all([
-          admin.from("revenue_booking_nights").select("stay_date, created_at_pms").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("created_at_pms", bookingsFrom).limit(20000),
-          admin.from("revenue_cancelled_nights").select("stay_date, cancelled_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("cancelled_at", cancellationsFrom).limit(20000),
-          admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).limit(50000),
-          admin.from("revenue_pickup_automation_actions").select("stay_date, obk_id, occupancy, increase_amount").eq("hotel_id", rule.hotel_id).eq("decision_type", "no_pickup_markdown").eq("local_business_date", local.date).limit(50000),
-          admin.from("revenue_daily_snapshots").select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_date", { ascending: false }).limit(20000),
-          admin.from("revenue_rate_drafts").select("id, stay_date, room_type_name, obk_id, occupancy, new_price, old_price, status, created_at, push_run_id").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).in("status", ["draft", "sending", "pushed"]).is("superseded_at", null).limit(50000),
-          admin.from("rate_change_audit").select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).gte("performed_at", new Date(Date.now() - Math.max(0, Number(rule.manual_markdown_hold_hours || 0)) * 3_600_000).toISOString()).limit(20000),
+          pagedAll((f, t) => admin.from("revenue_booking_nights").select("stay_date, created_at_pms").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("created_at_pms", bookingsFrom).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("revenue_cancelled_nights").select("stay_date, cancelled_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("cancelled_at", cancellationsFrom).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("revenue_pickup_automation_actions").select("stay_date, obk_id, occupancy, increase_amount").eq("hotel_id", rule.hotel_id).eq("decision_type", "no_pickup_markdown").eq("local_business_date", local.date).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("revenue_daily_snapshots").select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_date", { ascending: false }).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("revenue_rate_drafts").select("id, stay_date, room_type_name, obk_id, occupancy, new_price, old_price, status, created_at, push_run_id").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).in("status", ["draft", "sending", "pushed"]).is("superseded_at", null).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("rate_change_audit").select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).gte("performed_at", new Date(Date.now() - Math.max(0, Number(rule.manual_markdown_hold_hours || 0)) * 3_600_000).toISOString()).order("stay_date").range(f, t)),
         ]);
 
         // NET pickup for the observation window: genuinely NEW booking nights
@@ -966,6 +995,9 @@ Deno.serve(async (req) => {
               lowOccupancyPct: Number(rule.low_occupancy_pct ?? 50),
               healthyOccupancyPct: Number(rule.high_occupancy_pct ?? 75),
               longLeadDays: Math.max(0, Number(rule.long_lead_days ?? 30)),
+              // Inside the selling window the last rooms still move.
+              immediateWindowDays: Math.max(0, Number(rule.immediate_window_days ?? 14)),
+              roomsLeft: guardsFor?.left ?? null,
             });
 
             if (!allowed) {
@@ -1200,11 +1232,11 @@ Deno.serve(async (req) => {
           { data: strongManual },
           { data: strongPending },
         ] = await Promise.all([
-          admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).limit(50000),
-          admin.from("revenue_daily_snapshots").select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_date", { ascending: false }).limit(20000),
-          admin.from("revenue_pickup_automation_actions").select("stay_date, increase_amount").eq("hotel_id", rule.hotel_id).eq("local_business_date", local.date).gt("increase_amount", 0).limit(50000),
-          admin.from("rate_change_audit").select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).gte("performed_at", new Date(Date.now() - Math.max(0, Number(rule.manual_markdown_hold_hours || 0)) * 3_600_000).toISOString()).limit(20000),
-          admin.from("revenue_rate_drafts").select("id, stay_date, obk_id, occupancy, new_price, status, created_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).in("status", ["draft", "sending", "pushed"]).is("superseded_at", null).limit(50000),
+          pagedAll((f, t) => admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("revenue_daily_snapshots").select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_date", { ascending: false }).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("revenue_pickup_automation_actions").select("stay_date, increase_amount").eq("hotel_id", rule.hotel_id).eq("local_business_date", local.date).gt("increase_amount", 0).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("rate_change_audit").select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).gte("performed_at", new Date(Date.now() - Math.max(0, Number(rule.manual_markdown_hold_hours || 0)) * 3_600_000).toISOString()).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("revenue_rate_drafts").select("id, stay_date, obk_id, occupancy, new_price, status, created_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).in("status", ["draft", "sending", "pushed"]).is("superseded_at", null).order("stay_date").range(f, t)),
         ]);
 
         const occByDate = new Map<string, number | null>();
@@ -1228,7 +1260,7 @@ Deno.serve(async (req) => {
           const thenDate = new Date(`${local.date}T00:00:00Z`);
           thenDate.setUTCDate(thenDate.getUTCDate() - lookbackDays);
           const thenIso = thenDate.toISOString().slice(0, 10);
-          const { data: pastSnapshots } = await admin
+          const { data: pastSnapshots } = await pagedAll((f, t) => admin
             .from("revenue_daily_snapshots")
             .select("stay_date, occupancy_pct, captured_date")
             .eq("hotel_id", rule.hotel_id)
@@ -1236,7 +1268,8 @@ Deno.serve(async (req) => {
             .lte("stay_date", horizonDate)
             .lte("captured_date", thenIso)
             .order("captured_date", { ascending: false })
-            .limit(20000);
+            .order("stay_date")
+            .range(f, t));
           const thenOcc = new Map<string, number>();
           for (const row of (pastSnapshots ?? []) as any[]) {
             if (thenOcc.has(row.stay_date)) continue;
@@ -1510,9 +1543,9 @@ Deno.serve(async (req) => {
             { data: topSnapshots },
             { data: topPending },
           ] = await Promise.all([
-            admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", startDate).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).limit(50000),
-            admin.from("revenue_daily_snapshots").select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date").eq("hotel_id", rule.hotel_id).gte("stay_date", startDate).lte("stay_date", horizonDate).order("captured_date", { ascending: false }).limit(20000),
-            admin.from("revenue_rate_drafts").select("id, stay_date, obk_id, occupancy, new_price, status, created_at").eq("hotel_id", rule.hotel_id).gte("stay_date", startDate).in("status", ["draft", "sending", "pushed"]).is("superseded_at", null).limit(50000),
+            pagedAll((f, t) => admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", startDate).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).order("stay_date").range(f, t)),
+            pagedAll((f, t) => admin.from("revenue_daily_snapshots").select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date").eq("hotel_id", rule.hotel_id).gte("stay_date", startDate).lte("stay_date", horizonDate).order("captured_date", { ascending: false }).order("stay_date").range(f, t)),
+            pagedAll((f, t) => admin.from("revenue_rate_drafts").select("id, stay_date, obk_id, occupancy, new_price, status, created_at").eq("hotel_id", rule.hotel_id).gte("stay_date", startDate).in("status", ["draft", "sending", "pushed"]).is("superseded_at", null).order("stay_date").range(f, t)),
           ]);
 
           const topOcc = new Map<string, number | null>();
@@ -1664,12 +1697,13 @@ Deno.serve(async (req) => {
 
       // 2. All bookings for those stay dates, so pickup sequence inside the
       //    same window can be counted honestly (not just this batch).
-      const { data: historyRows } = await admin
+      const { data: historyRows } = await pagedAll((f, t) => admin
         .from("revenue_booking_nights")
         .select("stay_date, res_id, created_at_pms")
         .eq("hotel_id", rule.hotel_id)
         .in("stay_date", stayDates)
-        .limit(20000);
+        .order("stay_date")
+        .range(f, t));
       const history = (historyRows ?? []) as Array<{ stay_date: string; res_id: string; created_at_pms: string }>;
 
       // 2b. Net pickup per stay date over the last 48 hours. A re-sync of an
@@ -1684,13 +1718,14 @@ Deno.serve(async (req) => {
           netPickup.set(h.stay_date, (netPickup.get(h.stay_date) ?? 0) + 1);
         }
       }
-      const { data: cancelRows } = await admin
+      const { data: cancelRows } = await pagedAll((f, t) => admin
         .from("revenue_cancelled_nights")
         .select("stay_date, cancelled_at")
         .eq("hotel_id", rule.hotel_id)
         .in("stay_date", stayDates)
         .gte("cancelled_at", freshFrom)
-        .limit(20000);
+        .order("stay_date")
+        .range(f, t));
       for (const c of (cancelRows ?? []) as Array<{ stay_date: string; cancelled_at: string }>) {
         netPickup.set(c.stay_date, (netPickup.get(c.stay_date) ?? 0) - 1);
       }
@@ -1708,13 +1743,14 @@ Deno.serve(async (req) => {
 
       // 2d. Occupancy per stay date, so the short-booking-window guard can tell
       //     a genuinely busy near date from a near date that is still empty.
-      const { data: pickupSnapshots } = await admin
+      const { data: pickupSnapshots } = await pagedAll((f, t) => admin
         .from("revenue_daily_snapshots")
         .select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date")
         .eq("hotel_id", rule.hotel_id)
         .in("stay_date", stayDates)
         .order("captured_date", { ascending: false })
-        .limit(20000);
+        .order("stay_date")
+        .range(f, t));
       const occByStayDate = new Map<string, number | null>();
       const leftByStayDate = new Map<string, number | null>();
       for (const row of (pickupSnapshots ?? []) as any[]) {
@@ -1730,13 +1766,14 @@ Deno.serve(async (req) => {
       let heldShortWindow = 0;
 
       // 3. Current prices per stay date / room type / occupancy (newest wins).
-      const { data: rateRows } = await admin
+      const { data: rateRows } = await pagedAll((f, t) => admin
         .from("revenue_room_type_rates")
         .select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at")
         .eq("hotel_id", rule.hotel_id)
         .in("stay_date", stayDates)
         .order("captured_at", { ascending: false })
-        .limit(20000);
+        .order("stay_date")
+        .range(f, t));
       const latestRate = new Map<string, any>();
       for (const r of (rateRows ?? []) as any[]) {
         const key = `${r.stay_date}|${r.obk_id}|${r.occupancy}`;
@@ -1749,21 +1786,23 @@ Deno.serve(async (req) => {
       //    how many hourly runs still see it as fresh.
       const dayStart = `${today}T00:00:00Z`;
       const [{ data: todaysActions }, { data: windowRaises }] = await Promise.all([
-        admin
+        pagedAll((f, t) => admin
           .from("revenue_pickup_automation_actions")
           .select("stay_date, reservation_id, increase_amount")
           .eq("hotel_id", rule.hotel_id)
           .in("stay_date", stayDates)
           .gte("created_at", dayStart)
-          .limit(20000),
-        admin
+          .order("stay_date")
+          .range(f, t)),
+        pagedAll((f, t) => admin
           .from("revenue_pickup_automation_actions")
           .select("stay_date, reservation_id, status")
           .eq("hotel_id", rule.hotel_id)
           .in("stay_date", stayDates)
           .in("decision_type", ["positive_pickup", "far_out_booking"])
           .gte("created_at", freshFrom)
-          .limit(20000),
+          .order("stay_date")
+          .range(f, t)),
       ]);
       // A booking may lift its dates once — but only if that lift actually
       // reached Previo. A refused, failed or expired push must not spend the

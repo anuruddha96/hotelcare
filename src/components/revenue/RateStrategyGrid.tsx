@@ -386,10 +386,11 @@ export default function RateStrategyGrid({
     });
   }, []);
 
-  // Cell dots are off by default: the date row already says which days moved
-  // and by whom. The user can switch the per-cell dots on and we remember it.
+  // Cell dots are on by default, so a purple cell dot and the dot on its date
+  // header always appear together. The user can switch them off and we
+  // remember that choice.
   const [showMarkers, setShowMarkers] = useState(() => {
-    try { return localStorage.getItem("rate-grid-change-dots") === "1"; } catch { return false; }
+    try { return localStorage.getItem("rate-grid-change-dots") !== "0"; } catch { return true; }
   });
   useEffect(() => {
     try { localStorage.setItem("rate-grid-change-dots", showMarkers ? "1" : "0"); } catch { /* private mode */ }
@@ -897,6 +898,49 @@ export default function RateStrategyGrid({
     }
     return map;
   }, [optimisticOrigin]);
+
+  /**
+   * Every origin that moved ANY price on a stay date, newest first.
+   *
+   * The date row used to read only the database markers, while the cells also
+   * read automation actions and just-published edits — so a cell could carry a
+   * purple dot while its date header stayed blank. Both now come from the same
+   * merged set over the same time window, so header and cells can never
+   * disagree.
+   */
+  const headerOriginsByDate = useMemo(() => {
+    const since = Math.min(dayStart, markerSinceMs);
+    const events = new Map<string, OriginEvent[]>();
+    const add = (date: string, ev: OriginEvent) => {
+      if (!date) return;
+      const t = Date.parse(ev.at);
+      if (!Number.isFinite(t) || t < since) return;
+      const list = events.get(date);
+      if (list) list.push(ev); else events.set(date, [ev]);
+    };
+    for (const [key, m] of markerByCell) add(key.split("|")[0], { origin: m.origin, at: m.at });
+    for (const [key, list] of automationByCell) {
+      const date = key.split("|")[0];
+      for (const a of list) {
+        if (a.status === "failed") continue;
+        add(date, { origin: "automation", at: a.created_at });
+      }
+    }
+    for (const [key, o] of cellOriginByCell) {
+      if (!o?.at) continue;
+      const origin: ChangeOrigin =
+        o.origin === "hotelcare" ? "team" : o.origin === "different" ? "failed" : o.origin;
+      add(key.split("|")[0], { origin, at: o.at });
+    }
+    for (const [key, at] of optimisticOrigin) add(key.split("|")[0], { origin: "team", at });
+
+    const out = new Map<string, ChangeOrigin[]>();
+    for (const [date, list] of events) {
+      list.sort((a, b) => b.at.localeCompare(a.at));
+      out.set(date, distinctOrigins(list, 3));
+    }
+    return out;
+  }, [markerByCell, automationByCell, cellOriginByCell, optimisticOrigin, dayStart, markerSinceMs]);
 
 
 
@@ -2290,15 +2334,10 @@ export default function RateStrategyGrid({
                     const windowChanges = dayChangesByDate.get(d) ?? [];
                     const dayChanges = windowChanges.length > 0 ? windowChanges : (markerChangesByDate.get(d) ?? []);
 
-                    // The date dot is reconstructed from persisted markers, so
-                    // it looks the same before and after a browser reload.
-                    const recorded = markerByDate.get(d);
-                    // A price the user just published shows its blue dot at
-                    // once, before the marker query has caught up.
-                    const justChangedAt = optimisticDayOrigin.get(d);
-                    const dayLatest = justChangedAt && (!recorded || Date.parse(justChangedAt) > Date.parse(recorded.at))
-                      ? { origin: "team" as ChangeOrigin }
-                      : recorded;
+                    // The date dots come from the same merged set as the cell
+                    // dots, so every origin that moved a price on this date is
+                    // represented here — automation included.
+                    const dayOrigins = headerOriginsByDate.get(d) ?? [];
 
                     const dayButton = (
                       <button
@@ -2343,9 +2382,9 @@ export default function RateStrategyGrid({
                           {formatWeekday(d)}
                         </span>
                         <span className="font-medium">{formatDay(d)}</span>
-                        {dayLatest && (
+                        {dayOrigins.length > 0 && (
                           <span
-                            className="absolute bottom-0 left-1/2 flex h-3 w-4 -translate-x-1/2 cursor-pointer items-end justify-center"
+                            className="absolute bottom-0 left-1/2 flex h-3 w-6 -translate-x-1/2 cursor-pointer items-end justify-center gap-[2px]"
                             role="button"
                             tabIndex={-1}
                             aria-label={`See every price change on ${d}`}
@@ -2355,13 +2394,17 @@ export default function RateStrategyGrid({
                             onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); suppressDayClick.current = true; setDayChangesDate(d); }}
                             onClick={(e) => { e.stopPropagation(); e.preventDefault(); setDayChangesDate(d); }}
                           >
-                            {/* Secondary by design: it sits under the date and
-                                shrinks with the calendar's own zoom instead of
+                            {/* Secondary by design: they sit under the date and
+                                shrink with the calendar's own zoom instead of
                                 covering the day number on a phone. */}
-                            <i
-                              className={`mb-[1px] block rounded-full ${ORIGIN_DOT_CLASS[dayLatest.origin]}`}
-                              style={{ width: DAY_DOT, height: DAY_DOT }}
-                            />
+                            {dayOrigins.map((o) => (
+                              <i
+                                key={o}
+                                className={`mb-[1px] block rounded-full ${ORIGIN_DOT_CLASS[o]}`}
+                                style={{ width: DAY_DOT, height: DAY_DOT }}
+                              />
+                            ))}
+
                           </span>
                         )}
 

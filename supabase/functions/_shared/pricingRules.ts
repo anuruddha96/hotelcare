@@ -311,6 +311,10 @@ export interface SmartWindow {
   healthyOccupancyPct?: number | null;
   /** Beyond this lead time the softer "low occupancy" threshold applies. */
   longLeadDays?: number | null;
+  /** Length of the immediate selling window, in days. */
+  immediateWindowDays?: number | null;
+  /** Physical rooms still to sell on that date, when known. */
+  roomsLeft?: number | null;
 }
 
 /**
@@ -336,12 +340,22 @@ export function healthyOccupancyForLead(input: SmartWindow): number {
  * Smart mode only marks down genuinely weak demand — weak *for the lead time*.
  * A date with no occupancy reading at all is treated as unknown and may still
  * move, exactly as before smart mode existed.
+ *
+ * One exception: inside the immediate selling window a date that still has a
+ * room to sell always stays eligible. A date two days out at 90% with two
+ * rooms left used to read as "demand is healthy" and then sat untouched until
+ * arrival; the last rooms are worth a small step, not silence.
  */
 export function smartMarkdownAllowed(input: SmartWindow): boolean {
+  const immediateDays = Math.max(0, Number(input.immediateWindowDays ?? 0) || 0);
+  const roomsLeft = input.roomsLeft;
+  const hasRoomsToSell = roomsLeft === null || roomsLeft === undefined || Number(roomsLeft) > 0;
+  if (immediateDays > 0 && Number(input.daysOut) <= immediateDays && hasRoomsToSell) return true;
   const occ = input.occupancyPct;
   if (occ === null || occ === undefined) return true;
   return Number(occ) < healthyOccupancyForLead(input);
 }
+
 
 
 export interface StrongDemandInput {
