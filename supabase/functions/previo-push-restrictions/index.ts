@@ -22,8 +22,11 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
 interface Item {
-  /** Stay date. */
+  /** Stay date (start of the range when `to` is given). */
   date: string;
+  /** Optional last date of an inclusive range — bulk min-stay changes use it. */
+  to?: string | null;
+
   /** Minimum nights for that date (house-wide when no room type is given). */
   minStay?: number | null;
   /** Rooms to sell for one room type on that date. */
@@ -140,6 +143,11 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      // A bulk change arrives as an inclusive date range; a single cell edit is
+      // simply a range of one day.
+      const rangeTo = isDate(item.to) && String(item.to) >= item.date ? String(item.to) : item.date;
+      const nights = Math.max(1, Math.min(30, Math.round(Number(item.minStay))));
+
       // Previo keeps the minimum stay on the date (rate plan season), not on a
       // single room type, so a change is written to every mapped room type.
       const obkList = Array.from(new Set(maps.map((m: any) => String(m.previo_room_type_id))));
@@ -155,8 +163,8 @@ Deno.serve(async (req) => {
             obkId,
             prlId,
             from: item.date,
-            to: item.date,
-            minStay: Number(item.minStay),
+            to: rangeTo,
+            minStay: nights,
             roomsToSell: null,
           },
         });
@@ -168,19 +176,29 @@ Deno.serve(async (req) => {
 
       if (allOk && orgSlug) {
         // Keep the calendar honest even before the next PMS sync.
-        await admin.from("min_stay_rules").upsert({
-          hotel_id: hotelId,
-          organization_slug: orgSlug,
-          stay_date: item.date,
-          min_nights: Math.max(1, Math.round(Number(item.minStay))),
-          updated_by: user.id,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "hotel_id,stay_date" });
+        const rows: any[] = [];
+        const dayMs = 86_400_000;
+        const start = Date.parse(`${item.date}T00:00:00Z`);
+        const end = Date.parse(`${rangeTo}T00:00:00Z`);
+        for (let t = start; t <= end && rows.length < 800; t += dayMs) {
+          rows.push({
+            hotel_id: hotelId,
+            organization_slug: orgSlug,
+            stay_date: new Date(t).toISOString().slice(0, 10),
+            min_nights: nights,
+            updated_by: user.id,
+            updated_at: new Date().toISOString(),
+          });
+        }
+        for (let i = 0; i < rows.length; i += 200) {
+          await admin.from("min_stay_rules").upsert(rows.slice(i, i + 200), { onConflict: "hotel_id,stay_date" });
+        }
       }
 
       if (allOk) sent += 1; else failed += 1;
       results.push({ date: item.date, roomTypeName: item.roomTypeName ?? null, ok: allOk, message: lastMessage });
     }
+
 
 
     return json({ ok: failed === 0, sent, failed, results });

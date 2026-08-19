@@ -40,6 +40,8 @@ import DayChangesSheet from "@/components/revenue/DayChangesSheet";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
 import PickupAutomationRules from "@/components/revenue/PickupAutomationRules";
 import { publishRates } from "@/lib/ratePublishing";
+import { pushMinStay } from "@/lib/minStay";
+
 import { rememberedRange, writeNumberPref } from "@/lib/revenuePrefs";
 
 
@@ -1073,6 +1075,78 @@ export default function RateStrategyGrid({
     setMinStayByDate((prev) => new Map(prev).set(date, nights));
     void sendRestriction({ key: `min|${date}`, date, minStay: nights });
   };
+
+  /* ---- Min-stay range: drag left or right across the row ---------------- */
+  const [minDrag, setMinDrag] = useState<{ a: number; b: number } | null>(null);
+  const minDragRef = useRef<{ a: number; b: number } | null>(null);
+
+  const [minRange, setMinRange] = useState<{ dates: string[] } | null>(null);
+  const [minRangeValue, setMinRangeValue] = useState("2");
+  const [minRangeBusy, setMinRangeBusy] = useState(false);
+
+  const beginMinDrag = (i: number) => {
+    if (!canEditRates) return;
+    minDragRef.current = { a: i, b: i };
+    setMinDrag({ a: i, b: i });
+  };
+  const extendMinDrag = (i: number) => {
+    if (!minDragRef.current) return;
+    minDragRef.current = { ...minDragRef.current, b: i };
+    setMinDrag({ ...minDragRef.current });
+  };
+
+  // A drag can end anywhere on the page, so finish it at window level.
+  useEffect(() => {
+    if (!minDrag) return;
+    const end = () => {
+      const sel = minDragRef.current;
+      minDragRef.current = null;
+      setMinDrag(null);
+      if (!sel) return;
+      const lo = Math.min(sel.a, sel.b);
+      const hi = Math.max(sel.a, sel.b);
+      if (hi === lo) return; // a plain tap keeps the single-cell editor
+      const picked = visibleDatesRef.current.slice(lo, hi + 1);
+      if (picked.length < 2) return;
+      setMinRangeValue(String(minStayByDate.get(picked[0]) ?? 2));
+      setMinRange({ dates: picked });
+    };
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    return () => {
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
+  }, [minDrag, minStayByDate]);
+
+
+  /** Apply one minimum stay to many dates at once. */
+  const applyMinStayRange = useCallback(async (picked: string[], raw: string) => {
+    if (!hotelId) { toast.error("Pick a property first."); return; }
+    const nights = Math.round(Number(raw));
+    if (!Number.isFinite(nights) || nights < 1 || nights > 30) {
+      toast.error("Minimum stay must be between 1 and 30 nights.");
+      return;
+    }
+    setMinRangeBusy(true);
+    setMinStayByDate((prev) => {
+      const next = new Map(prev);
+      for (const d of picked) next.set(d, nights);
+      return next;
+    });
+    try {
+      const res = await pushMinStay(hotelId, picked, nights);
+      toast.success(res.message);
+      setMinRange(null);
+    } catch (e) {
+      toast.error((e as Error).message);
+      void loadMinStay();
+    } finally {
+      setMinRangeBusy(false);
+    }
+  }, [hotelId, loadMinStay]);
+
+
 
   const commitInventory = (date: string, rawName: string, obkId: string | null, label: string, raw: string) => {
     setRestrictionEdit(null);
@@ -2607,7 +2681,7 @@ export default function RateStrategyGrid({
                         Min stay
                         <MetricInfo
                           title="Minimum stay"
-                          body="The shortest booking accepted for that arrival date. Tap a cell to change it: the new rule is saved here and sent to Previo straight away, for every mapped room type. 1 night means no restriction."
+                          body="The shortest booking accepted for that arrival date. Tap a cell to change one date, or drag left or right across the row to set the same minimum stay for a whole range. Changes are saved here and sent to Previo straight away, for every mapped room type. 1 night means no restriction."
                         />
                       </>
                     )}
@@ -2617,6 +2691,7 @@ export default function RateStrategyGrid({
                     const nights = minStayByDate.get(d) ?? null;
                     const editing = restrictionEdit?.key === key;
                     const busy = restrictionBusy === key;
+                    const inDrag = !!minDrag && i >= Math.min(minDrag.a, minDrag.b) && i <= Math.max(minDrag.a, minDrag.b);
                     if (editing) {
                       return (
                         <div key={d} className={`flex items-center justify-center shrink-0 ${dayBg(d, i)} ${dayEdge(d)}`} style={{ width: CELL_W }}>
@@ -2643,17 +2718,30 @@ export default function RateStrategyGrid({
                         key={d}
                         type="button"
                         disabled={!canEditRates || busy}
-                        onClick={() => canEditRates && setRestrictionEdit({ key, value: String(nights ?? 1) })}
+                        onPointerDown={(e) => {
+                          if (!canEditRates) return;
+                          e.currentTarget.releasePointerCapture?.(e.pointerId);
+                          beginMinDrag(i);
+                        }}
+                        onPointerEnter={() => extendMinDrag(i)}
+                        onClick={() => {
+                          // A drag that covered more than one date opens the range tool instead.
+                          if (minRange) return;
+                          if (canEditRates) setRestrictionEdit({ key, value: String(nights ?? 1) });
+                        }}
                         title={nights && nights > 1
-                          ? `${d} · minimum ${nights} nights${canEditRates ? " — tap to change" : ""}`
-                          : `${d} · no minimum stay${canEditRates ? " — tap to set one" : ""}`}
+                          ? `${d} · minimum ${nights} nights${canEditRates ? " — tap to change, drag for a range" : ""}`
+                          : `${d} · no minimum stay${canEditRates ? " — tap to set one, drag for a range" : ""}`}
                         className={`flex items-center justify-center shrink-0 tabular-nums text-[10px] ${
                           nights && nights > 1 ? "font-semibold text-amber-700 dark:text-amber-400" : "text-muted-foreground"
-                        } ${dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:bg-accent/60" : ""}`}
-                        style={{ width: CELL_W }}
+                        } ${dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:bg-accent/60" : ""} ${
+                          inDrag ? "ring-1 ring-inset ring-primary bg-primary/15" : ""
+                        }`}
+                        style={{ width: CELL_W, touchAction: canEditRates ? "pan-y" : undefined }}
                       >
                         {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : nights && nights > 1 ? `${nights}N` : "·"}
                       </button>
+
                     );
                   })}
                 </div>
@@ -3366,7 +3454,59 @@ export default function RateStrategyGrid({
         </DialogContent>
       </Dialog>
 
+      {/* ---- Minimum stay for a dragged range of dates ---- */}
+      <Dialog open={!!minRange} onOpenChange={(o) => { if (!o && !minRangeBusy) setMinRange(null); }}>
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-sm rounded-2xl p-4 sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="text-base">
+              Minimum stay for {minRange?.dates.length ?? 0} date{(minRange?.dates.length ?? 0) === 1 ? "" : "s"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p className="text-xs text-muted-foreground">
+              {minRange ? `${minRange.dates[0]} → ${minRange.dates[minRange.dates.length - 1]}` : ""} · applies to every mapped room type in Previo.
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {[1, 2, 3, 4, 5, 7].map((n) => (
+                <Button
+                  key={n}
+                  size="sm"
+                  variant={minRangeValue === String(n) ? "default" : "outline"}
+                  className="h-8 px-3 text-xs"
+                  onClick={() => setMinRangeValue(String(n))}
+                >
+                  {n === 1 ? "No minimum" : `${n} nights`}
+                </Button>
+              ))}
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Nights (1–30)</label>
+              <Input
+                type="number"
+                min={1}
+                max={30}
+                inputMode="numeric"
+                value={minRangeValue}
+                onChange={(e) => setMinRangeValue(e.target.value)}
+                className="h-9 text-sm"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button variant="ghost" disabled={minRangeBusy} onClick={() => setMinRange(null)}>Cancel</Button>
+            <Button
+              disabled={minRangeBusy || !minRange}
+              onClick={() => minRange && void applyMinStayRange(minRange.dates, minRangeValue)}
+            >
+              {minRangeBusy && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Apply to {minRange?.dates.length ?? 0} date{(minRange?.dates.length ?? 0) === 1 ? "" : "s"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ---- Whole-day price tool: tap a date in the header ---- */}
+
       <BulkPriceEditor
         open={bulkOpen}
         onOpenChange={setBulkOpen}
