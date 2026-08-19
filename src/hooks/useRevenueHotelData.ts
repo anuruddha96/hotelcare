@@ -117,6 +117,15 @@ export function useRevenueHotelData(
 
   const today = budapestToday();
   const horizonEnd = addDays(today, horizonDays);
+  // Sync movements are hourly per stay date, so a 90-day fetch runs into tens of
+  // thousands of rows and gets truncated — dropping exactly the newest captures
+  // the pickup window needs. Only load as far back as the window can reach.
+  const movementLookbackDays = Math.max(
+    7,
+    (pickupWindowDays < 0 ? Math.ceil(Math.abs(pickupWindowDays) / 24) : pickupWindowDays) + 2,
+  );
+  const movementSince = addDays(today, -movementLookbackDays);
+
 
   const reload = useCallback(async () => {
     if (!hotelId) { setLoading(false); return; }
