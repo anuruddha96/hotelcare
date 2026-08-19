@@ -433,8 +433,8 @@ async function loadTypeAvailability(
 ): Promise<{ left: (roomTypeName: unknown, obkId: unknown, stayDate: string) => number | null }> {
   const [{ data: types }, { data: nights }] = await Promise.all([
     admin.from("room_types").select("name, num_rooms, is_sellable, pms_room_id").eq("hotel_id", hotelId).limit(500),
-    admin.from("revenue_booking_nights").select("stay_date, room_type_name, obk_id")
-      .eq("hotel_id", hotelId).gte("stay_date", fromDate).lte("stay_date", toDate).limit(100000),
+    pagedAll((f, t) => admin.from("revenue_booking_nights").select("stay_date, room_type_name, obk_id")
+      .eq("hotel_id", hotelId).gte("stay_date", fromDate).lte("stay_date", toDate).order("stay_date").range(f, t)),
   ]);
 
   const capacityByName = new Map<string, number>();
