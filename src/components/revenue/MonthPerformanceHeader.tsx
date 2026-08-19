@@ -358,19 +358,20 @@ export default function MonthPerformanceHeader({
         >
 
           <Tile
-            label="Bookings created today"
-            value={`${bookedToday.roomNights} room-night${bookedToday.roomNights === 1 ? "" : "s"}`}
-            sub={`across ${bookedToday.reservations} reservation${bookedToday.reservations === 1 ? "" : "s"}${
-              bookedToday.cancelledNights ? ` · ${bookedToday.cancelledNights} cancelled` : ""
-            }`}
+            label={pickupWindowDays === 1 ? "Bookings created today" : `Bookings created · ${windowLabel(pickupWindowDays).toLowerCase()}`}
+            value={`${booked.roomNights} room-night${booked.roomNights === 1 ? "" : "s"}`}
+            sub={`${booked.reservations} reservation${booked.reservations === 1 ? "" : "s"}${
+              booked.cancelledNights ? ` · ${booked.cancelledNights} cancelled` : ""
+            }${pickupWindowDays === 1 ? "" : ` · ${booked.todayRoomNights} today`}`}
             icon={<CalendarPlus className="h-3.5 w-3.5" />}
-            surface={bookedToday.roomNights > 0 ? "border-l-primary bg-primary/5" : "border-l-border"}
-            tone={bookedToday.roomNights > 0 ? "text-primary" : ""}
+            surface={booked.roomNights > 0 ? "border-l-primary bg-primary/5" : "border-l-border"}
+            tone={booked.roomNights > 0 ? "text-primary" : ""}
             explain={{
-              title: "Bookings created today",
-              body: `Reservations entered in Previo today (Budapest time), whatever their stay date:\n\n• ${bookedToday.reservations} reservation${bookedToday.reservations === 1 ? "" : "s"} created\n• ${bookedToday.roomNights} room-night${bookedToday.roomNights === 1 ? "" : "s"} booked\n• ${money(bookedToday.revenue)} of room revenue\n• ${bookedToday.cancelledNights} room-night${bookedToday.cancelledNights === 1 ? "" : "s"} cancelled today (${bookedToday.cancelledRes} reservation${bookedToday.cancelledRes === 1 ? "" : "s"})\n\nThis tile always shows today, not the month or the pickup window.`,
+              title: `Bookings created — ${windowLabel(pickupWindowDays).toLowerCase()}`,
+              body: `Reservations entered in Previo inside the selected booking window (Budapest time), whatever their stay date:\n\n• ${booked.reservations} reservation${booked.reservations === 1 ? "" : "s"} created\n• ${booked.roomNights} room-night${booked.roomNights === 1 ? "" : "s"} booked\n• ${money(booked.revenue)} of room revenue\n• ${booked.cancelledNights} room-night${booked.cancelledNights === 1 ? "" : "s"} cancelled (${booked.cancelledRes} reservation${booked.cancelledRes === 1 ? "" : "s"})\n• ${booked.todayRoomNights} room-night${booked.todayRoomNights === 1 ? "" : "s"} were created today (${booked.todayReservations} reservation${booked.todayReservations === 1 ? "" : "s"})\n\nA busy 48 hours with a quiet morning is normal: the pickup row uses this same window, so the two always agree.`,
             }}
           />
+
           <Tile
             label="Occupancy"
             value={agg.capacity ? `${Math.round(agg.occupancyPct)}%` : "—"}
