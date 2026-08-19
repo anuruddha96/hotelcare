@@ -295,6 +295,8 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
   }, [data]);
 
   const totalPickup = useMemo(() => data.reduce((s, d) => s + (d.pickup || 0), 0), [data]);
+  const totalGained = useMemo(() => data.reduce((s, d) => s + (d.gained || 0), 0), [data]);
+  const totalLost = useMemo(() => data.reduce((s, d) => s - (d.lost || 0), 0), [data]);
   const peak = useMemo(() => data.reduce((best, d) => (d.pickup > (best?.pickup ?? -99) ? d : best), data[0]), [data]);
 
   /** Occupancy scale is on screen whenever anything uses it. */
