@@ -3401,7 +3401,7 @@ export default function RateStrategyGrid({
 
       <Dialog open={!!dayTool} onOpenChange={(o) => !o && setDayTool(null)}>
 
-        <DialogContent className="flex h-[90dvh] max-h-[90dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl p-4 sm:h-auto sm:max-h-[85dvh] sm:w-full sm:max-w-lg sm:p-6">
+        <DialogContent style={{ pointerEvents: "auto" }} className="flex h-[90dvh] max-h-[90dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl p-4 sm:h-auto sm:max-h-[85dvh] sm:w-full sm:max-w-lg sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-base">
               {selDates.size > 1
