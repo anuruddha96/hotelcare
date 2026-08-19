@@ -369,6 +369,10 @@ export function buildDayMetrics(params: {
       newRevenueEur: Math.round((createdRevenue.get(d) ?? 0) * 100) / 100,
       lostRevenueEur: adr ? Math.round(roomsLost * adr * 100) / 100 : 0,
       roomsLost,
+      // Prefer the sync feed (matches the PMS pick-up report); fall back to the
+      // booking/cancellation timestamps we can see for the same window.
+      pickupGained: syncedGained.get(d) ?? (durableMovement !== undefined || movements.length > 0 ? 0 : Math.max(0, createdN)),
+      pickupLost: syncedLost.get(d) ?? (durableMovement !== undefined || movements.length > 0 ? 0 : Math.max(0, cancelledN)),
       baselineAvailable: base !== undefined,
       netPickup: net,
     };
