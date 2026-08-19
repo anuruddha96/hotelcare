@@ -1357,6 +1357,10 @@ serve(async (req) => {
     const presentCounts = countByStayKey(nights);
     const cancelledCounts = countByStayKey(cancelledNights);
     const previousByStayKey = new Map<string, any[]>();
+    // A partial read of the previous book makes every unread reservation look
+    // brand new — that is how a large property printed +40 pickup on dates that
+    // never moved. If any page fails, the movement pass is skipped entirely.
+    let previousReadComplete = true;
 
     try {
       const pageSize = 1000;
@@ -1364,14 +1368,22 @@ serve(async (req) => {
         const { data: prevRows, error: prevErr } = await service
           .from("revenue_booking_nights")
           .select(
-            "stay_date,res_id,room_key,obk_id,obj_id,room_type_name,nightly_price_eur,total_price_eur,source_currency,original_nightly_price,original_total_price,created_at_pms,guests,source_name,status_id,stay_from,stay_to",
+            "id,stay_date,res_id,room_key,obk_id,obj_id,room_type_name,nightly_price_eur,total_price_eur,source_currency,original_nightly_price,original_total_price,created_at_pms,guests,source_name,status_id,stay_from,stay_to",
           )
           .eq("hotel_id", hotelId)
           .gte("stay_date", from)
           .lte("stay_date", replaceTo)
-          .order("stay_date", { ascending: true })
+          // Paging needs a UNIQUE total order. Ordering by stay_date alone lets
+          // Postgres return tied rows in a different order per page, so rows are
+          // skipped or repeated — the root cause of phantom pickup on the
+          // properties with the most reservations.
+          .order("id", { ascending: true })
           .range(offset, offset + pageSize - 1);
-        if (prevErr) { errors.push(`loss diff read: ${prevErr.message}`); break; }
+        if (prevErr) {
+          errors.push(`loss diff read: ${prevErr.message}`);
+          previousReadComplete = false;
+          break;
+        }
         if (!prevRows?.length) break;
         for (const row of prevRows) {
           const key = stayKeyOf(row as any);
@@ -1380,17 +1392,21 @@ serve(async (req) => {
           previousByStayKey.set(key, rows);
         }
         if (prevRows.length < pageSize) break;
+        if (offset + pageSize >= 100000) { previousReadComplete = false; break; }
       }
-      for (const [key, previousRows] of previousByStayKey) {
-        const accountedFor = (presentCounts.get(key) ?? 0) + (cancelledCounts.get(key) ?? 0);
-        const missingCount = Math.max(0, previousRows.length - accountedFor);
-        if (missingCount > 0) lostNights.push(...previousRows.slice(0, missingCount));
+      if (previousReadComplete) {
+        for (const [key, previousRows] of previousByStayKey) {
+          const accountedFor = (presentCounts.get(key) ?? 0) + (cancelledCounts.get(key) ?? 0);
+          const missingCount = Math.max(0, previousRows.length - accountedFor);
+          if (missingCount > 0) lostNights.push(...previousRows.slice(0, missingCount));
+        }
       }
+
       // Report-equivalent movement: one gain/loss per reservation + stay date.
       // Physical room-key changes therefore remain neutral.
       // An empty previous set means this is the first capture, not that every
       // booking was made moments ago.
-      if (previousByStayKey.size > 0) {
+      if (previousReadComplete && previousByStayKey.size > 0) {
         const previousKeys = new Set(previousByStayKey.keys());
         const currentKeys = new Set(nights.map((row) => stayKeyOf(row)));
         // When the horizon grows (90d -> 6m), every stay date past the old end
@@ -1419,7 +1435,20 @@ serve(async (req) => {
           slot.lost += 1;
           movementByDate.set(stayDate, slot);
         }
+
+        // Final plausibility net: one sync interval cannot turn over a large
+        // share of the whole book. If it appears to, the comparison base was
+        // unreliable — publish no movement rather than a fictional spike.
+        const churn = Array.from(movementByDate.values())
+          .reduce((s, m) => s + m.gained + m.lost, 0);
+        if (churn > Math.max(60, previousKeys.size * 0.25)) {
+          movementByDate.clear();
+          softNotes.push(
+            `pickup movement skipped: ${churn} changes against ${previousKeys.size} known reservation-nights looks like a re-read, not real pickup`,
+          );
+        }
       }
+
     } catch (e) {
       errors.push(`loss diff: ${(e as Error).message}`);
     }

@@ -42,22 +42,34 @@ function Explain({ title, body }: { title: string; body: string }) {
   );
 }
 
-function Tile({ label, value, sub, icon, tone, surface, explain }: {
+function Tile({ label, value, sub, icon, tone, surface, explain, loading }: {
   label: string; value: string; sub?: string; icon: React.ReactNode; tone?: string;
   surface?: string;
   explain?: { title: string; body: string };
+  /** While a new property's data lands, show a shimmer instead of stale numbers. */
+  loading?: boolean;
 }) {
   return (
     <div className={`snap-start shrink-0 w-[76%] xs:w-[60%] sm:w-auto sm:flex-1 rounded-lg border border-l-4 p-3 min-w-0 sm:min-w-[128px] ${surface ?? "border-l-border"}`}>
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
         {icon}<span className="truncate">{label}</span>
-        {explain && <Explain {...explain} />}
+        {explain && !loading && <Explain {...explain} />}
       </div>
-      <div className={`mt-1 text-xl font-semibold tabular-nums truncate ${tone ?? ""}`}>{value}</div>
-      {sub && <div className="text-[11px] text-muted-foreground truncate">{sub}</div>}
+      {loading ? (
+        <div className="animate-pulse">
+          <div className="mt-2 h-5 w-2/3 rounded bg-muted-foreground/20" />
+          <div className="mt-2 h-2.5 w-4/5 rounded bg-muted-foreground/10" />
+        </div>
+      ) : (
+        <>
+          <div className={`mt-1 text-xl font-semibold tabular-nums truncate ${tone ?? ""}`}>{value}</div>
+          {sub && <div className="text-[11px] text-muted-foreground truncate">{sub}</div>}
+        </>
+      )}
     </div>
   );
 }
+
 
 function monthKey(iso: string) { return iso.slice(0, 7); }
 function shiftMonth(key: string, delta: number) {
@@ -76,7 +88,7 @@ function shiftMonth(key: string, delta: number) {
  */
 export default function MonthPerformanceHeader({
   today, metrics, pickupWindowDays, onPickupWindowChange, hotelId, canEdit, roomsAvailable,
-  selectedMonth, onSelectedMonthChange, nights = [], cancellations = [],
+  selectedMonth, onSelectedMonthChange, nights = [], cancellations = [], loading = false,
 }: {
   today: string;
   metrics: DayMetrics[];
@@ -91,7 +103,10 @@ export default function MonthPerformanceHeader({
   roomsAvailable?: number;
   selectedMonth?: string;
   onSelectedMonthChange?: (month: string) => void;
+  /** True while another property's figures are still loading. */
+  loading?: boolean;
 }) {
+
   const [internalMonth, setInternalMonth] = useState(() => monthKey(today));
   const month = selectedMonth ?? internalMonth;
   const setMonth = (value: string) => {
@@ -362,6 +377,7 @@ export default function MonthPerformanceHeader({
         >
 
           <Tile
+            loading={loading}
             label="Bookings created today"
             value={`${booked.todayRoomNights} room-night${booked.todayRoomNights === 1 ? "" : "s"}`}
             sub={`${booked.todayReservations} reservation${booked.todayReservations === 1 ? "" : "s"}${
@@ -378,6 +394,7 @@ export default function MonthPerformanceHeader({
 
 
           <Tile
+            loading={loading}
             label="Occupancy"
             value={agg.capacity ? `${Math.round(agg.occupancyPct)}%` : "—"}
             sub={`${agg.sold} of ${agg.capacity} room-nights · ${monthLabel}`}
@@ -386,6 +403,7 @@ export default function MonthPerformanceHeader({
             explain={{ title: `Occupancy — ${monthLabel}`, body: "Room-nights sold in this month ÷ sellable room-nights in this month (units × days). Source: Previo reservations." }}
           />
           <Tile
+            loading={loading}
             label="ADR — average price per sold night"
             value={money(agg.adr)}
             sub={eurEquivalent(agg.adr) || `${monthLabel} · revenue ÷ nights sold`}
@@ -394,6 +412,7 @@ export default function MonthPerformanceHeader({
             explain={{ title: "ADR = Average Daily Rate", body: `Room revenue ÷ room-nights sold for ${monthLabel}. Shown in ${currency.code}.` }}
           />
           <Tile
+            loading={loading}
             label="RevPAR — earned per available unit"
             value={money(agg.revpar)}
             sub={eurEquivalent(agg.revpar) || `${monthLabel} · ADR × occupancy`}
@@ -402,6 +421,7 @@ export default function MonthPerformanceHeader({
             explain={{ title: "RevPAR = ADR × Occupancy", body: `Room revenue ÷ all sellable room-nights in ${monthLabel}. What every unit earns on average, sold or not.` }}
           />
           <Tile
+            loading={loading}
             label="Revenue on the books"
             value={money(agg.revenue)}
             sub={eurEquivalent(agg.revenue) || `${monthLabel} · ${agg.days} day${agg.days === 1 ? "" : "s"}`}
@@ -413,6 +433,7 @@ export default function MonthPerformanceHeader({
             }}
           />
           <Tile
+            loading={loading}
             label="Rooms left to sell"
             value={agg.capacity ? String(agg.left) : "—"}
             sub={`${monthLabel} · whole month`}
@@ -421,6 +442,7 @@ export default function MonthPerformanceHeader({
             explain={{ title: `Rooms left to sell — ${monthLabel}`, body: `Sellable room-nights still open across every date in ${monthLabel}: capacity (${agg.capacity}) − sold (${agg.sold}). It counts nights, not units.` }}
           />
           <Tile
+            loading={loading}
             label="Pickup in window"
             value={`${agg.pickup > 0 ? "+" : ""}${agg.pickup}`}
             sub={`${agg.gained} in · ${agg.lost} out · booked in: ${windowLabel(pickupWindowDays).toLowerCase()}`}
@@ -484,15 +506,25 @@ export default function MonthPerformanceHeader({
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground truncate">
                     {formatMonth(`${o.key}-01`)}{i === 0 ? " · now" : ""}
                   </div>
-                  <div className="text-base font-semibold tabular-nums">
-                    {o.capacity ? `${Math.round(o.occupancyPct)}%` : "—"}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground tabular-nums truncate">
-                    ADR {money(o.adr)}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground tabular-nums truncate">
-                    RevPAR {money(o.revpar)}
-                  </div>
+                  {loading ? (
+                    <div className="animate-pulse space-y-1.5 mt-1">
+                      <div className="h-4 w-12 rounded bg-muted-foreground/20" />
+                      <div className="h-2 w-16 rounded bg-muted-foreground/10" />
+                      <div className="h-2 w-14 rounded bg-muted-foreground/10" />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="text-base font-semibold tabular-nums">
+                        {o.capacity ? `${Math.round(o.occupancyPct)}%` : "—"}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground tabular-nums truncate">
+                        ADR {money(o.adr)}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground tabular-nums truncate">
+                        RevPAR {money(o.revpar)}
+                      </div>
+                    </>
+                  )}
                 </button>
               );
             })}

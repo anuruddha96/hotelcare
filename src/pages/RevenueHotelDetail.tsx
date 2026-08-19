@@ -958,6 +958,7 @@ export default function RevenueHotelDetail() {
             onSelectedMonthChange={setSelectedMonth}
             nights={live.nights}
             cancellations={live.cancellations}
+            loading={live.loading}
           />
 
 
