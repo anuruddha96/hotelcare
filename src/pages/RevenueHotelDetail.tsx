@@ -289,7 +289,7 @@ export default function RevenueHotelDetail() {
     try {
       setSyncPct(25);
       setSyncStep("Pulling rates, reservations and room types…");
-      const revRes = await supabase.functions.invoke("previo-revenue-sync", { body: { hotelId } });
+      const revRes = await supabase.functions.invoke("previo-revenue-sync", { body: { hotelId, horizonDays: 365 } });
       if (revRes.error) throw new Error(revRes.error.message);
       if (revRes.data?.success === false) {
         throw new Error(revRes.data?.errors?.[0] || "Revenue sync was incomplete");
