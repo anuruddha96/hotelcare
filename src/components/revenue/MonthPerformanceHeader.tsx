@@ -377,6 +377,7 @@ export default function MonthPerformanceHeader({
         >
 
           <Tile
+            loading={loading}
             label="Bookings created today"
             value={`${booked.todayRoomNights} room-night${booked.todayRoomNights === 1 ? "" : "s"}`}
             sub={`${booked.todayReservations} reservation${booked.todayReservations === 1 ? "" : "s"}${
@@ -393,6 +394,7 @@ export default function MonthPerformanceHeader({
 
 
           <Tile
+            loading={loading}
             label="Occupancy"
             value={agg.capacity ? `${Math.round(agg.occupancyPct)}%` : "—"}
             sub={`${agg.sold} of ${agg.capacity} room-nights · ${monthLabel}`}
@@ -401,6 +403,7 @@ export default function MonthPerformanceHeader({
             explain={{ title: `Occupancy — ${monthLabel}`, body: "Room-nights sold in this month ÷ sellable room-nights in this month (units × days). Source: Previo reservations." }}
           />
           <Tile
+            loading={loading}
             label="ADR — average price per sold night"
             value={money(agg.adr)}
             sub={eurEquivalent(agg.adr) || `${monthLabel} · revenue ÷ nights sold`}
@@ -409,6 +412,7 @@ export default function MonthPerformanceHeader({
             explain={{ title: "ADR = Average Daily Rate", body: `Room revenue ÷ room-nights sold for ${monthLabel}. Shown in ${currency.code}.` }}
           />
           <Tile
+            loading={loading}
             label="RevPAR — earned per available unit"
             value={money(agg.revpar)}
             sub={eurEquivalent(agg.revpar) || `${monthLabel} · ADR × occupancy`}
@@ -417,6 +421,7 @@ export default function MonthPerformanceHeader({
             explain={{ title: "RevPAR = ADR × Occupancy", body: `Room revenue ÷ all sellable room-nights in ${monthLabel}. What every unit earns on average, sold or not.` }}
           />
           <Tile
+            loading={loading}
             label="Revenue on the books"
             value={money(agg.revenue)}
             sub={eurEquivalent(agg.revenue) || `${monthLabel} · ${agg.days} day${agg.days === 1 ? "" : "s"}`}
@@ -428,6 +433,7 @@ export default function MonthPerformanceHeader({
             }}
           />
           <Tile
+            loading={loading}
             label="Rooms left to sell"
             value={agg.capacity ? String(agg.left) : "—"}
             sub={`${monthLabel} · whole month`}
@@ -436,6 +442,7 @@ export default function MonthPerformanceHeader({
             explain={{ title: `Rooms left to sell — ${monthLabel}`, body: `Sellable room-nights still open across every date in ${monthLabel}: capacity (${agg.capacity}) − sold (${agg.sold}). It counts nights, not units.` }}
           />
           <Tile
+            loading={loading}
             label="Pickup in window"
             value={`${agg.pickup > 0 ? "+" : ""}${agg.pickup}`}
             sub={`${agg.gained} in · ${agg.lost} out · booked in: ${windowLabel(pickupWindowDays).toLowerCase()}`}
