@@ -174,13 +174,18 @@ export function useRevenueHotelData(
         ),
         fetchAll<PickupMovement>(
           () => supabase.from("pickup_snapshots") as any,
+          // Newest captures first and only the dates on screen: if the page
+          // budget is ever hit we lose old history, never the current window.
           (q) => q.select("stay_date, delta, captured_at")
             .eq("hotel_id", hotelId)
             .eq("source", "previo_sync_diff")
-            .gte("captured_at", `${addDays(today, -90)}T00:00:00Z`)
-            .order("captured_at", { ascending: true })
+            .gte("captured_at", `${movementSince}T00:00:00Z`)
+            .gte("stay_date", today).lte("stay_date", horizonEnd)
+            .neq("delta", 0)
+            .order("captured_at", { ascending: false })
             .order("stay_date"),
         ),
+
         supabase.from("hotel_revenue_settings")
           .select("sellable_rooms, rate_warn_below_eur, rate_critical_below_eur, rate_max_sane_eur, occupancy_low_pct, occupancy_high_pct, pickup_strong_threshold, base_currency, eur_conversion_rate")
           .eq("hotel_id", hotelId).maybeSingle(),
