@@ -1406,7 +1406,7 @@ serve(async (req) => {
       // Physical room-key changes therefore remain neutral.
       // An empty previous set means this is the first capture, not that every
       // booking was made moments ago.
-      if (previousByStayKey.size > 0) {
+      if (previousReadComplete && previousByStayKey.size > 0) {
         const previousKeys = new Set(previousByStayKey.keys());
         const currentKeys = new Set(nights.map((row) => stayKeyOf(row)));
         // When the horizon grows (90d -> 6m), every stay date past the old end
@@ -1435,7 +1435,20 @@ serve(async (req) => {
           slot.lost += 1;
           movementByDate.set(stayDate, slot);
         }
+
+        // Final plausibility net: one sync interval cannot turn over a large
+        // share of the whole book. If it appears to, the comparison base was
+        // unreliable — publish no movement rather than a fictional spike.
+        const churn = Array.from(movementByDate.values())
+          .reduce((s, m) => s + m.gained + m.lost, 0);
+        if (churn > Math.max(60, previousKeys.size * 0.25)) {
+          movementByDate.clear();
+          softNotes.push(
+            `pickup movement skipped: ${churn} changes against ${previousKeys.size} known reservation-nights looks like a re-read, not real pickup`,
+          );
+        }
       }
+
     } catch (e) {
       errors.push(`loss diff: ${(e as Error).message}`);
     }
