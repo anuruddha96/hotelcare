@@ -96,7 +96,7 @@ export interface RevenueHotelData {
  */
 export function useRevenueHotelData(
   hotelId: string | null,
-  horizonDays = 190,
+  horizonDays = 365,
   pickupWindowDays = 1,
 ): RevenueHotelData {
   const [loading, setLoading] = useState(true);

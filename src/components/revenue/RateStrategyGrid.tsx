@@ -94,6 +94,8 @@ const RANGE_OPTIONS = [
   { value: 90, label: "90d" },
   { value: 120, label: "120d" },
   { value: 180, label: "6m" },
+  { value: 270, label: "9m" },
+  { value: 365, label: "12m" },
 ];
 
 
@@ -941,7 +943,9 @@ export default function RateStrategyGrid({
     const out = new Map<string, ChangeOrigin[]>();
     for (const [date, list] of events) {
       list.sort((a, b) => b.at.localeCompare(a.at));
-      out.set(date, distinctOrigins(list, 3));
+      // Only the newest change is shown on the date row — the per-cell dots
+      // and cell history already carry the full trail for that day.
+      out.set(date, distinctOrigins(list, 1));
     }
     return out;
   }, [markerByCell, automationByCell, cellOriginByCell, optimisticOrigin, dayStart, markerSinceMs]);
@@ -2279,7 +2283,7 @@ export default function RateStrategyGrid({
               </div>
             </div>
             <div className="sm:flex sm:items-center sm:gap-1.5">
-              <span className="mb-1 block font-medium text-foreground sm:mb-0">Changed today:</span>
+              <span className="mb-1 block font-medium text-foreground sm:mb-0">Changed today (date row shows the latest change):</span>
               <div className="grid grid-cols-2 gap-x-3 gap-y-1 sm:flex sm:items-center sm:gap-3">
                 <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-2 w-2 shrink-0 rounded-full bg-primary" />by your team</span>
                 <span className="flex items-center gap-1 whitespace-nowrap"><i className="h-2 w-2 shrink-0 rounded-full bg-purple-500" />by the automation tool</span>

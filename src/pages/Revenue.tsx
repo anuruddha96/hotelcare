@@ -298,7 +298,7 @@ export default function Revenue() {
       return;
     }
     const [revRes, overviewRes] = await Promise.all([
-      supabase.functions.invoke("previo-revenue-sync", { body: { hotelId } }),
+      supabase.functions.invoke("previo-revenue-sync", { body: { hotelId, horizonDays: 365 } }),
       supabase.functions.invoke("previo-sync-daily-overview", { body: { hotelId, days: 90 } }),
     ]);
     if (revRes.error || (revRes.data && (revRes.data as any).success === false)) {
