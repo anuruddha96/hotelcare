@@ -10,6 +10,8 @@ import { LiveSyncProvider } from "@/contexts/LiveSyncContext";
 import { RealtimeNotificationProvider } from "@/components/dashboard/RealtimeNotificationProvider";
 import { LocationPermissionBoot } from "@/components/dashboard/LocationPermissionBoot";
 import { WelcomeBackOverlay } from "@/components/revenue/WelcomeBackOverlay";
+import { PointerEventsGuard } from "@/components/system/PointerEventsGuard";
+
 
 // Lazy load all pages to keep initial bundle small
 const Index = lazy(() => import("./pages/Index"));
@@ -171,7 +173,9 @@ const MainApp = () => (
       <AuthProvider>
         <TooltipProvider>
           <Toaster />
+          <PointerEventsGuard />
           <BrowserRouter>
+
             <AuthenticatedShell>
               <Suspense fallback={<PageLoader />}>
                 <Routes>
