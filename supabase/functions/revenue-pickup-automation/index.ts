@@ -995,6 +995,9 @@ Deno.serve(async (req) => {
               lowOccupancyPct: Number(rule.low_occupancy_pct ?? 50),
               healthyOccupancyPct: Number(rule.high_occupancy_pct ?? 75),
               longLeadDays: Math.max(0, Number(rule.long_lead_days ?? 30)),
+              // Inside the selling window the last rooms still move.
+              immediateWindowDays: Math.max(0, Number(rule.immediate_window_days ?? 14)),
+              roomsLeft: guardsFor?.left ?? null,
             });
 
             if (!allowed) {
