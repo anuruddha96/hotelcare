@@ -528,7 +528,8 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   if (hotel) toggleHotel(hotel.hotel_id);
                 }}
                 payload={[
-                  { value: "Pickup", type: "square", color: PICKUP_LEGEND_COLOR, id: "pickup" },
+                  { value: "Booked", type: "square", color: PICKUP_LEGEND_COLOR, id: "gained" },
+                  { value: "Cancelled", type: "square", color: "hsl(199 89% 60%)", id: "lost" },
                   { value: "Occupancy", type: "line", color: showOcc ? "hsl(var(--primary))" : "hsl(var(--muted-foreground) / 0.4)", id: "occ" },
                   { value: "ADR", type: "line", color: showAdr ? ADR_COLOR : "hsl(var(--muted-foreground) / 0.4)", id: "adr" },
                   ...(hasDemand ? [{ value: "City demand", type: "line" as const, color: showDemand ? DEMAND_COLOR : "hsl(var(--muted-foreground) / 0.4)", id: "demand" }] : []),
