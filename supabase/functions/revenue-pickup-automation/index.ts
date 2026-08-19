@@ -1740,13 +1740,14 @@ Deno.serve(async (req) => {
 
       // 2d. Occupancy per stay date, so the short-booking-window guard can tell
       //     a genuinely busy near date from a near date that is still empty.
-      const { data: pickupSnapshots } = await admin
+      const { data: pickupSnapshots } = await pagedAll((f, t) => admin
         .from("revenue_daily_snapshots")
         .select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date")
         .eq("hotel_id", rule.hotel_id)
         .in("stay_date", stayDates)
         .order("captured_date", { ascending: false })
-        .limit(20000);
+        .order("stay_date")
+        .range(f, t));
       const occByStayDate = new Map<string, number | null>();
       const leftByStayDate = new Map<string, number | null>();
       for (const row of (pickupSnapshots ?? []) as any[]) {
