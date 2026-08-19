@@ -1257,7 +1257,7 @@ Deno.serve(async (req) => {
           const thenDate = new Date(`${local.date}T00:00:00Z`);
           thenDate.setUTCDate(thenDate.getUTCDate() - lookbackDays);
           const thenIso = thenDate.toISOString().slice(0, 10);
-          const { data: pastSnapshots } = await admin
+          const { data: pastSnapshots } = await pagedAll((f, t) => admin
             .from("revenue_daily_snapshots")
             .select("stay_date, occupancy_pct, captured_date")
             .eq("hotel_id", rule.hotel_id)
@@ -1265,7 +1265,8 @@ Deno.serve(async (req) => {
             .lte("stay_date", horizonDate)
             .lte("captured_date", thenIso)
             .order("captured_date", { ascending: false })
-            .limit(20000);
+            .order("stay_date")
+            .range(f, t));
           const thenOcc = new Map<string, number>();
           for (const row of (pastSnapshots ?? []) as any[]) {
             if (thenOcc.has(row.stay_date)) continue;
