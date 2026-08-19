@@ -899,6 +899,47 @@ export default function RateStrategyGrid({
     return map;
   }, [optimisticOrigin]);
 
+  /**
+   * Every origin that moved ANY price on a stay date, newest first.
+   *
+   * The date row used to read only the database markers, while the cells also
+   * read automation actions and just-published edits — so a cell could carry a
+   * purple dot while its date header stayed blank. Both now come from the same
+   * merged set over the same time window, so header and cells can never
+   * disagree.
+   */
+  const headerOriginsByDate = useMemo(() => {
+    const since = Math.min(dayStart, markerSinceMs);
+    const events = new Map<string, OriginEvent[]>();
+    const add = (date: string, ev: OriginEvent) => {
+      if (!date) return;
+      const t = Date.parse(ev.at);
+      if (!Number.isFinite(t) || t < since) return;
+      const list = events.get(date);
+      if (list) list.push(ev); else events.set(date, [ev]);
+    };
+    for (const [key, m] of markerByCell) add(key.split("|")[0], { origin: m.origin, at: m.at });
+    for (const [key, list] of automationByCell) {
+      const date = key.split("|")[0];
+      for (const a of list) {
+        if (a.status === "failed") continue;
+        add(date, { origin: "automation", at: a.created_at });
+      }
+    }
+    for (const [key, o] of cellOriginByCell) {
+      if (!o?.at) continue;
+      add(key.split("|")[0], { origin: o.origin, at: o.at });
+    }
+    for (const [key, at] of optimisticOrigin) add(key.split("|")[0], { origin: "team", at });
+
+    const out = new Map<string, ChangeOrigin[]>();
+    for (const [date, list] of events) {
+      list.sort((a, b) => b.at.localeCompare(a.at));
+      out.set(date, distinctOrigins(list, 3));
+    }
+    return out;
+  }, [markerByCell, automationByCell, cellOriginByCell, optimisticOrigin, dayStart, markerSinceMs]);
+
 
 
   // obk_id -> occupancy -> stay_date -> price
