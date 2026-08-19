@@ -2334,15 +2334,10 @@ export default function RateStrategyGrid({
                     const windowChanges = dayChangesByDate.get(d) ?? [];
                     const dayChanges = windowChanges.length > 0 ? windowChanges : (markerChangesByDate.get(d) ?? []);
 
-                    // The date dot is reconstructed from persisted markers, so
-                    // it looks the same before and after a browser reload.
-                    const recorded = markerByDate.get(d);
-                    // A price the user just published shows its blue dot at
-                    // once, before the marker query has caught up.
-                    const justChangedAt = optimisticDayOrigin.get(d);
-                    const dayLatest = justChangedAt && (!recorded || Date.parse(justChangedAt) > Date.parse(recorded.at))
-                      ? { origin: "team" as ChangeOrigin }
-                      : recorded;
+                    // The date dots come from the same merged set as the cell
+                    // dots, so every origin that moved a price on this date is
+                    // represented here — automation included.
+                    const dayOrigins = headerOriginsByDate.get(d) ?? [];
 
                     const dayButton = (
                       <button
