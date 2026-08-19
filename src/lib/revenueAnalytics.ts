@@ -194,6 +194,14 @@ export interface DayMetrics {
    * have no way to tell (no creation timestamps and no baseline snapshot).
    */
   netPickup: number | null;
+  /**
+   * Rooms GAINED inside the window (always >= 0). Kept separate from the net so
+   * a date that gained one room and gave one back is still visible instead of
+   * disappearing behind a net of zero.
+   */
+  pickupGained: number;
+  /** Rooms GIVEN BACK inside the window (always >= 0). */
+  pickupLost: number;
 }
 
 /**
