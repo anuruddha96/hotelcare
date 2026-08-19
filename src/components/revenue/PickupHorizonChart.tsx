@@ -245,7 +245,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
       }
     }
     return point as {
-      date: string; label: string; pickup: number; occ: number; adr: number | null;
+      date: string; label: string; pickup: number; gained: number; lost: number; occ: number; adr: number | null;
       demand: number | null; demandForecast: number | null; monthStart: boolean; month: string;
       [key: string]: unknown;
     };
