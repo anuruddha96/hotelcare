@@ -1079,6 +1079,9 @@ export default function RateStrategyGrid({
   /* ---- Min-stay range: drag left or right across the row ---------------- */
   const [minDrag, setMinDrag] = useState<{ a: number; b: number } | null>(null);
   const minDragRef = useRef<{ a: number; b: number } | null>(null);
+  /** Latest visible dates, so the window-level drag end can read them. */
+  const datesRef = useRef<string[]>([]);
+
   const [minRange, setMinRange] = useState<{ dates: string[] } | null>(null);
   const [minRangeValue, setMinRangeValue] = useState("2");
   const [minRangeBusy, setMinRangeBusy] = useState(false);
