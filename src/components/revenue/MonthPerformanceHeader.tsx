@@ -160,11 +160,13 @@ export default function MonthPerformanceHeader({
     let roomNights = 0;
     let revenue = 0;
     let todayRoomNights = 0;
+    let todayRevenue = 0;
     const todayRes = new Set<string>();
     for (const n of nights) {
       if (!n.created_at_pms) continue;
       if (budapestDayOf(n.created_at_pms) === today) {
         todayRoomNights += 1;
+        todayRevenue += n.nightly_price_eur ?? 0;
         todayRes.add(n.res_id);
       }
       if (!inWindow(n.created_at_pms)) continue;
@@ -174,7 +176,13 @@ export default function MonthPerformanceHeader({
     }
     const cancelledRes = new Set<string>();
     let cancelledNights = 0;
+    const todayCancelledRes = new Set<string>();
+    let todayCancelledNights = 0;
     for (const c of cancellations) {
+      if (c.cancelled_at && budapestDayOf(c.cancelled_at) === today) {
+        todayCancelledNights += 1;
+        todayCancelledRes.add(c.res_id);
+      }
       if (!inWindow(c.cancelled_at)) continue;
       cancelledRes.add(c.res_id);
       cancelledNights += 1;
@@ -187,8 +195,12 @@ export default function MonthPerformanceHeader({
       cancelledNights,
       todayRoomNights,
       todayReservations: todayRes.size,
+      todayRevenue,
+      todayCancelledNights,
+      todayCancelledRes: todayCancelledRes.size,
     };
   }, [nights, cancellations, today, pickupWindowDays]);
+
 
 
   /** Six-month outlook strip: occupancy, ADR and RevPAR month by month. */
@@ -358,19 +370,20 @@ export default function MonthPerformanceHeader({
         >
 
           <Tile
-            label={pickupWindowDays === 1 ? "Bookings created today" : `Bookings created · ${windowLabel(pickupWindowDays).toLowerCase()}`}
-            value={`${booked.roomNights} room-night${booked.roomNights === 1 ? "" : "s"}`}
-            sub={`${booked.reservations} reservation${booked.reservations === 1 ? "" : "s"}${
-              booked.cancelledNights ? ` · ${booked.cancelledNights} cancelled` : ""
-            }${pickupWindowDays === 1 ? "" : ` · ${booked.todayRoomNights} today`}`}
+            label="Bookings created today"
+            value={`${booked.todayRoomNights} room-night${booked.todayRoomNights === 1 ? "" : "s"}`}
+            sub={`${booked.todayReservations} reservation${booked.todayReservations === 1 ? "" : "s"}${
+              booked.todayCancelledNights ? ` · ${booked.todayCancelledNights} cancelled` : ""
+            }`}
             icon={<CalendarPlus className="h-3.5 w-3.5" />}
-            surface={booked.roomNights > 0 ? "border-l-primary bg-primary/5" : "border-l-border"}
-            tone={booked.roomNights > 0 ? "text-primary" : ""}
+            surface={booked.todayRoomNights > 0 ? "border-l-primary bg-primary/5" : "border-l-border"}
+            tone={booked.todayRoomNights > 0 ? "text-primary" : ""}
             explain={{
-              title: `Bookings created — ${windowLabel(pickupWindowDays).toLowerCase()}`,
-              body: `Reservations entered in Previo inside the selected booking window (Budapest time), whatever their stay date:\n\n• ${booked.reservations} reservation${booked.reservations === 1 ? "" : "s"} created\n• ${booked.roomNights} room-night${booked.roomNights === 1 ? "" : "s"} booked\n• ${money(booked.revenue)} of room revenue\n• ${booked.cancelledNights} room-night${booked.cancelledNights === 1 ? "" : "s"} cancelled (${booked.cancelledRes} reservation${booked.cancelledRes === 1 ? "" : "s"})\n• ${booked.todayRoomNights} room-night${booked.todayRoomNights === 1 ? "" : "s"} were created today (${booked.todayReservations} reservation${booked.todayReservations === 1 ? "" : "s"})\n\nA busy 48 hours with a quiet morning is normal: the pickup row uses this same window, so the two always agree.`,
+              title: "Bookings created today",
+              body: `Reservations entered in Previo today (Budapest time), whatever their stay date:\n\n• ${booked.todayReservations} reservation${booked.todayReservations === 1 ? "" : "s"} created\n• ${booked.todayRoomNights} room-night${booked.todayRoomNights === 1 ? "" : "s"} booked\n• ${money(booked.todayRevenue)} of room revenue\n• ${booked.todayCancelledNights} room-night${booked.todayCancelledNights === 1 ? "" : "s"} cancelled (${booked.todayCancelledRes} reservation${booked.todayCancelledRes === 1 ? "" : "s"})\n\nThe pickup row in the calendar below uses the booking window you selected (${windowLabel(pickupWindowDays).toLowerCase()}), so it can show movement even on a quiet morning.`,
             }}
           />
+
 
           <Tile
             label="Occupancy"
