@@ -88,7 +88,7 @@ function shiftMonth(key: string, delta: number) {
  */
 export default function MonthPerformanceHeader({
   today, metrics, pickupWindowDays, onPickupWindowChange, hotelId, canEdit, roomsAvailable,
-  selectedMonth, onSelectedMonthChange, nights = [], cancellations = [],
+  selectedMonth, onSelectedMonthChange, nights = [], cancellations = [], loading = false,
 }: {
   today: string;
   metrics: DayMetrics[];
@@ -103,7 +103,10 @@ export default function MonthPerformanceHeader({
   roomsAvailable?: number;
   selectedMonth?: string;
   onSelectedMonthChange?: (month: string) => void;
+  /** True while another property's figures are still loading. */
+  loading?: boolean;
 }) {
+
   const [internalMonth, setInternalMonth] = useState(() => monthKey(today));
   const month = selectedMonth ?? internalMonth;
   const setMonth = (value: string) => {
