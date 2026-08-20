@@ -963,6 +963,7 @@ export default function RevenueHotelDetail() {
             nights={live.nights}
             cancellations={live.cancellations}
             loading={live.loading}
+            loadedThrough={live.horizonEnd}
           />
 
 

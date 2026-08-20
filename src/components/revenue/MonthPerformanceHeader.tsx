@@ -398,7 +398,7 @@ export default function MonthPerformanceHeader({
         >
 
           <Tile
-            loading={tilesLoading}
+            loading={loading}
             label="Bookings created today"
             value={`${booked.todayRoomNights} room-night${booked.todayRoomNights === 1 ? "" : "s"}`}
             sub={`${booked.todayReservations} reservation${booked.todayReservations === 1 ? "" : "s"}${
