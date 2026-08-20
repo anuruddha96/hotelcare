@@ -247,7 +247,7 @@ export default function PickupMovementBoard({
                         {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </Button>
                       <div className="col-span-2 flex gap-3 text-[11px] text-muted-foreground md:hidden">
-                        <span>{row.nights} nights</span><span>{row.rooms.length} rooms</span><span>{row.guests} guests</span><span className="font-medium text-foreground">{eur(row.value)}</span>
+                        <span>{row.nights} nights</span><span>{row.rooms.length} rooms</span><span>{row.guests} guests</span><span className="font-medium text-foreground"><Value amount={row.value} grouped={row.rooms.length > 1} /></span>
                       </div>
                     </div>
                     {expanded && (
