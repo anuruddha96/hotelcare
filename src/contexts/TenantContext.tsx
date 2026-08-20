@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { retryTransient } from '@/lib/transientRetry';
+import { isTransientBackendError, retryTransient } from '@/lib/transientRetry';
 
 interface Organization {
   id: string;
@@ -52,7 +52,7 @@ export const TenantProvider: React.FC<{
           .eq('slug', organizationSlug)
           .eq('is_active', true)
           .single();
-        if (result.error && result.error.code !== 'PGRST116') throw result.error;
+        if (result.error && result.error.code !== 'PGRST116' && isTransientBackendError(result.error)) throw result.error;
         return result;
       }, { attempts: 4 });
 
