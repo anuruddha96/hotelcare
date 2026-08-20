@@ -11,6 +11,7 @@ import { RealtimeNotificationProvider } from "@/components/dashboard/RealtimeNot
 import { LocationPermissionBoot } from "@/components/dashboard/LocationPermissionBoot";
 import { WelcomeBackOverlay } from "@/components/revenue/WelcomeBackOverlay";
 import { PointerEventsGuard } from "@/components/system/PointerEventsGuard";
+import { ServiceOutageBanner } from "@/components/system/ServiceOutageBanner";
 
 
 // Lazy load all pages to keep initial bundle small
@@ -117,6 +118,7 @@ const PublicBreakfastApp = () => (
   <TranslationProvider>
     <TooltipProvider>
       <Toaster />
+      <ServiceOutageBanner />
       <BrowserRouter>
         <Suspense fallback={<PageLoader />}>
           <Routes>
@@ -174,6 +176,7 @@ const MainApp = () => (
         <TooltipProvider>
           <Toaster />
           <PointerEventsGuard />
+          <ServiceOutageBanner />
           <BrowserRouter>
 
             <AuthenticatedShell>
