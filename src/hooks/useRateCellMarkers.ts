@@ -23,27 +23,21 @@ export function useRateCellMarkers(hotelId?: string | null, from?: string, to?: 
     setLoading(true);
     try {
       const since = new Date(Date.now() - RECENT_WINDOW_MS).toISOString();
-      // PostgREST caps every response at 1000 rows. A six-month range holds
-      // roughly three thousand cells, so an unpaged read silently stopped
-      // somewhere in the third month — which is exactly why October onwards
-      // lost its dots while August and September kept theirs.
-      const PAGE = 1000;
-      const collected: CellMarkerRow[] = [];
-      for (let page = 0; page < 25; page++) {
-        const { data, error } = await supabase.rpc("rate_cell_markers", {
-          p_hotel_id: hotelId,
-          p_from: from,
-          p_to: to,
-          p_since: since,
-          p_limit: PAGE,
-          p_offset: page * PAGE,
-        } as never);
-        if (error) throw error;
-        const batch = (data ?? []) as unknown as CellMarkerRow[];
-        collected.push(...batch);
-        if (batch.length < PAGE) break;
-      }
-      setRows(collected);
+      // ONE call. This read collapses a week of audit rows per cell, which on a
+      // busy property costs several seconds — paging it in 1000-row chunks re-ran
+      // that whole scan for every page, so the dots arrived far too late (or not
+      // at all) and only a hovered cell's own history could colour them.
+      const { data, error } = await supabase.rpc("rate_cell_markers", {
+        p_hotel_id: hotelId,
+        p_from: from,
+        p_to: to,
+        p_since: since,
+        p_limit: 20000,
+        p_offset: 0,
+      } as never);
+      if (error) throw error;
+      setRows((data ?? []) as unknown as CellMarkerRow[]);
+
     } catch (err) {
       // A failed refresh must never erase markers we already have on screen —
       // that is exactly how a reload used to lose every change dot.
