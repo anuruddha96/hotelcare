@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { isTransientBackendError, retryTransient } from '@/lib/transientRetry';
 
 interface Organization {
   id: string;
@@ -44,19 +45,26 @@ export const TenantProvider: React.FC<{
       setError(null);
 
       // Try to fetch organization - may fail for managers due to RLS
-      const { data: orgData, error: orgError } = await supabase
-        .from('organizations')
-        .select('*')
-        .eq('slug', organizationSlug)
-        .eq('is_active', true)
-        .single();
+      const { data: orgData, error: orgError } = await retryTransient(async () => {
+        const result = await supabase
+          .from('organizations')
+          .select('*')
+          .eq('slug', organizationSlug)
+          .eq('is_active', true)
+          .single();
+        if (result.error && result.error.code !== 'PGRST116' && isTransientBackendError(result.error)) throw result.error;
+        return result;
+      }, { attempts: 4 });
 
       if (orgError) {
         console.log('Could not fetch organization directly, using RPC function');
         
         // Use the secure RPC function to get hotels for user's organization
-        const { data: hotelsData, error: hotelsError } = await supabase
-          .rpc('get_user_organization_hotels');
+        const { data: hotelsData, error: hotelsError } = await retryTransient(async () => {
+          const result = await supabase.rpc('get_user_organization_hotels');
+          if (result.error) throw result.error;
+          return result;
+        }, { attempts: 4 });
 
         if (!hotelsError && hotelsData) {
           setHotels(hotelsData as HotelConfig[]);
@@ -69,12 +77,16 @@ export const TenantProvider: React.FC<{
       setOrganization(orgData);
 
       // Fetch hotels for this organization
-      const { data: hotelsData, error: hotelsError } = await supabase
-        .from('hotel_configurations')
-        .select('*')
-        .eq('organization_id', orgData.id)
-        .eq('is_active', true)
-        .order('hotel_name');
+      const { data: hotelsData, error: hotelsError } = await retryTransient(async () => {
+        const result = await supabase
+          .from('hotel_configurations')
+          .select('*')
+          .eq('organization_id', orgData.id)
+          .eq('is_active', true)
+          .order('hotel_name');
+        if (result.error) throw result.error;
+        return result;
+      }, { attempts: 4 });
 
       if (hotelsError) {
         console.error('Error fetching hotels:', hotelsError);
