@@ -272,15 +272,16 @@ export function buildDayMetrics(params: {
   for (const [date, set] of createdRes) created.set(date, set.size);
 
   // Cancellations that happened inside the same window pull pickup negative,
-  // again counted per reservation.
+  // again counted in rooms per reservation.
   const cancelledRes = new Map<string, Set<string>>();
   for (const c of cancellations) {
     if (!c.cancelled_at) continue;
     if (!inWindow(c.cancelled_at)) continue;
     const set = cancelledRes.get(c.stay_date) ?? new Set<string>();
-    set.add(String(c.res_id));
+    set.add(`${c.res_id}|${(c as { room_key?: string | null }).room_key ?? ""}`);
     cancelledRes.set(c.stay_date, set);
   }
+
   const cancelled = new Map<string, number>();
   for (const [date, set] of cancelledRes) cancelled.set(date, set.size);
 
