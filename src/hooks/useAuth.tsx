@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { getTabHotel, setTabHotel, withTabHotel } from '@/lib/tabHotel';
+import { retryTransient } from '@/lib/transientRetry';
 
 interface Profile {
   id: string;
@@ -26,6 +27,8 @@ interface AuthContextType {
   session: Session | null;
   profile: Profile | null;
   loading: boolean;
+  profileStatus: 'idle' | 'loading' | 'retrying' | 'ready' | 'missing' | 'failed';
+  retryProfile: () => Promise<void>;
   signIn: (emailOrUsername: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
@@ -41,45 +44,70 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [profileStatus, setProfileStatus] = useState<AuthContextType['profileStatus']>('idle');
   const lastVisibilityCheckRef = useRef(0);
+  const activeUserIdRef = useRef<string | null>(null);
+  const profileRequestRef = useRef<{ userId: string; promise: Promise<Profile | null> } | null>(null);
 
-  const fetchProfile = async (userId: string, userEmail?: string, userMetadata?: any) => {
-    try {
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
+  const fetchProfile = (userId: string): Promise<Profile | null> => {
+    if (profileRequestRef.current?.userId === userId) return profileRequestRef.current.promise;
 
-      if (profileData && !profileError) {
+    activeUserIdRef.current = userId;
+    setProfileStatus('loading');
+    const promise = retryTransient(async () => {
+      const result = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+      if (result.error) throw result.error;
+      return result.data;
+    }, {
+      attempts: 5,
+      onRetry: (attempt, error) => {
+        if (activeUserIdRef.current !== userId) return;
+        setProfileStatus('retrying');
+        console.warn(`Profile request temporarily unavailable; retrying (${attempt}/4).`, error);
+      },
+    }).then((profileData) => {
+      if (activeUserIdRef.current !== userId) return null;
+      if (profileData) {
         console.log('Profile fetched:', profileData);
         const tabHotel = getTabHotel();
         if (tabHotel) {
-          const { data: allowedHotel } = await supabase
+          void supabase
             .from('hotel_configurations')
             .select('hotel_id')
             .or(`hotel_id.eq.${tabHotel},hotel_name.eq.${tabHotel}`)
-            .maybeSingle();
-          if (!allowedHotel) setTabHotel(null);
+            .maybeSingle()
+            .then(({ data: allowedHotel, error }) => {
+              if (!error && !allowedHotel) setTabHotel(null);
+            });
         }
         setProfile(withTabHotel(profileData as any) as any);
-        return profileData;
-      } else {
-        // Tenant membership is privileged data. Never invent an organization
-        // from the URL or silently place an unknown account into RD Hotels.
-        console.warn('Profile not available; refusing to create an unscoped profile.', {
-          userId,
-          profileError,
-          timestamp: new Date().toISOString()
-        });
-        setProfile(null);
-        return null;
+        setProfileStatus('ready');
+        return profileData as Profile;
       }
-    } catch (error) {
-      console.error('Profile fetch error:', error);
+
+      console.warn('Authenticated user has no profile; refusing to create an unscoped profile.', { userId });
       setProfile(null);
+      setProfileStatus('missing');
       return null;
-    }
+    }).catch((error) => {
+      if (activeUserIdRef.current === userId) {
+        console.error('Profile fetch failed after automatic retries:', error);
+        setProfile(null);
+        setProfileStatus('failed');
+      }
+      return null;
+    }).finally(() => {
+      if (profileRequestRef.current?.promise === promise) profileRequestRef.current = null;
+    });
+
+    profileRequestRef.current = { userId, promise };
+    return promise;
+  };
+
+  const retryProfile = async () => {
+    if (!user) return;
+    profileRequestRef.current = null;
+    await fetchProfile(user.id);
   };
 
   useEffect(() => {
@@ -93,15 +121,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('Auth state changed:', event, session?.user?.email);
         setSession(session);
         setUser(session?.user ?? null);
+        activeUserIdRef.current = session?.user?.id ?? null;
         
         if (session?.user) {
           setTimeout(() => {
             if (isMounted) {
-              fetchProfile(session.user.id, session.user.email, session.user.user_metadata);
+              void fetchProfile(session.user.id);
             }
           }, 0);
         } else {
           setProfile(null);
+          setProfileStatus('idle');
         }
       }
     );
@@ -114,7 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(session?.user ?? null);
       
       if (session?.user) {
-        fetchProfile(session.user.id, session.user.email, session.user.user_metadata).finally(() => {
+        fetchProfile(session.user.id).finally(() => {
           if (isMounted) setLoading(false);
         });
       } else {
@@ -140,6 +170,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(null);
             setSession(null);
             setProfile(null);
+            setProfileStatus('idle');
           }
         });
       }
@@ -272,6 +303,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       session,
       profile,
       loading,
+      profileStatus,
+      retryProfile,
       signIn,
       signUp,
       signOut,
