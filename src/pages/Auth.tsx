@@ -42,7 +42,7 @@ export default function Auth() {
         step={profileStatus === 'retrying' || profileStatus === 'failed' ? 'Reconnecting securely…' : 'Loading your account and property access…'}
         progress={bootstrapProgress}
         error={profileStatus === 'missing' ? 'This account does not have an assigned workspace.' : null}
-        onRetry={() => void retryProfile()}
+        onRetry={profileStatus === 'failed' || profileStatus === 'missing' ? () => void retryProfile() : undefined}
         onSignOut={() => void signOut()}
       />;
     }
