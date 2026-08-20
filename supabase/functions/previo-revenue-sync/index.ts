@@ -1402,13 +1402,14 @@ serve(async (req) => {
         }
       }
 
-      // Report-equivalent movement: one gain/loss per reservation + stay date.
-      // Physical room-key changes therefore remain neutral.
+      // Report-equivalent movement: gains and losses are counted in ROOMS per
+      // reservation + stay date. Counting only whether the reservation exists
+      // hid a second room added to a booking that already covered that night.
+      // Physical room-key changes stay neutral, because the count is unchanged.
       // An empty previous set means this is the first capture, not that every
       // booking was made moments ago.
       if (previousReadComplete && previousByStayKey.size > 0) {
         const previousKeys = new Set(previousByStayKey.keys());
-        const currentKeys = new Set(nights.map((row) => stayKeyOf(row)));
         // When the horizon grows (90d -> 6m), every stay date past the old end
         // is seen for the first time. Its existing reservations are NOT pickup,
         // so gains are only counted up to the furthest date a previous sync
@@ -1419,22 +1420,24 @@ serve(async (req) => {
           const d = key.slice(key.lastIndexOf("|") + 1);
           if (d > coveredTo) coveredTo = d;
         }
-        for (const key of currentKeys) {
-          if (previousKeys.has(key)) continue;
+        const allKeys = new Set<string>([...previousKeys, ...presentCounts.keys()]);
+        for (const key of allKeys) {
           const stayDate = key.slice(key.lastIndexOf("|") + 1);
-          if (coveredTo && stayDate > coveredTo) continue;
+          const before = previousByStayKey.get(key)?.length ?? 0;
+          const now = presentCounts.get(key) ?? 0;
+          if (now === before) continue;
           const slot = movementByDate.get(stayDate) ?? { gained: 0, lost: 0 };
-          slot.gained += 1;
+          if (now > before) {
+            // A brand-new stay date beyond what any previous sync covered is
+            // backfill, not pickup.
+            if (before === 0 && coveredTo && stayDate > coveredTo) continue;
+            slot.gained += now - before;
+          } else {
+            slot.lost += before - now;
+          }
           movementByDate.set(stayDate, slot);
         }
 
-        for (const key of previousKeys) {
-          if (currentKeys.has(key)) continue;
-          const stayDate = key.slice(key.lastIndexOf("|") + 1);
-          const slot = movementByDate.get(stayDate) ?? { gained: 0, lost: 0 };
-          slot.lost += 1;
-          movementByDate.set(stayDate, slot);
-        }
 
         // Final plausibility net: one sync interval cannot turn over a large
         // share of the whole book. If it appears to, the comparison base was
