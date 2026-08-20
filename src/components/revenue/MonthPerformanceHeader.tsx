@@ -216,6 +216,8 @@ export default function MonthPerformanceHeader({
       todayRoomNights,
       todayReservations: todayRes.size,
       todayRevenue,
+      todayUnpricedNights,
+
       todayCancelledNights,
       todayCancelledRes: todayCancelledRes.size,
     };
