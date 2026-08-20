@@ -31,6 +31,14 @@ export default function Auth() {
   const [otpCode, setOtpCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
+  // Ceiling for the "loading your account" card when the backend is unreachable.
+  const [profileStalled, setProfileStalled] = useState(false);
+  const waitingForProfile = !!user && !profile?.organization_slug;
+  useEffect(() => {
+    if (!waitingForProfile) { setProfileStalled(false); return; }
+    const id = window.setTimeout(() => setProfileStalled(true), 12000);
+    return () => window.clearTimeout(id);
+  }, [waitingForProfile]);
 
   if (loading) {
     return <WelcomeBackOverlay step="Checking your secure session…" progress={18} />;
