@@ -176,12 +176,16 @@ export default function MonthPerformanceHeader({
     let revenue = 0;
     let todayRoomNights = 0;
     let todayRevenue = 0;
+    // Rooms a group booking carries at zero: their money sits on another room
+    // of the same reservation, so they are worth calling out.
+    let todayUnpricedNights = 0;
     const todayRes = new Set<string>();
     for (const n of nights) {
       if (!n.created_at_pms) continue;
       if (budapestDayOf(n.created_at_pms) === today) {
         todayRoomNights += 1;
         todayRevenue += n.nightly_price_eur ?? 0;
+        if (!(n.nightly_price_eur ?? 0)) todayUnpricedNights += 1;
         todayRes.add(n.res_id);
       }
       if (!inWindow(n.created_at_pms)) continue;
@@ -189,6 +193,7 @@ export default function MonthPerformanceHeader({
       roomNights += 1;
       revenue += n.nightly_price_eur ?? 0;
     }
+
     const cancelledRes = new Set<string>();
     let cancelledNights = 0;
     const todayCancelledRes = new Set<string>();
@@ -211,6 +216,8 @@ export default function MonthPerformanceHeader({
       todayRoomNights,
       todayReservations: todayRes.size,
       todayRevenue,
+      todayUnpricedNights,
+
       todayCancelledNights,
       todayCancelledRes: todayCancelledRes.size,
     };
@@ -388,7 +395,7 @@ export default function MonthPerformanceHeader({
             tone={booked.todayRoomNights > 0 ? "text-primary" : ""}
             explain={{
               title: "Bookings created today",
-              body: `Reservations entered in Previo today (Budapest time), whatever their stay date:\n\n• ${booked.todayReservations} reservation${booked.todayReservations === 1 ? "" : "s"} created\n• ${booked.todayRoomNights} room-night${booked.todayRoomNights === 1 ? "" : "s"} booked\n• ${money(booked.todayRevenue)} of room revenue\n• ${booked.todayCancelledNights} room-night${booked.todayCancelledNights === 1 ? "" : "s"} cancelled (${booked.todayCancelledRes} reservation${booked.todayCancelledRes === 1 ? "" : "s"})\n\nThe pickup row in the calendar below uses the booking window you selected (${windowLabel(pickupWindowDays).toLowerCase()}), so it can show movement even on a quiet morning.`,
+              body: `Reservations entered in Previo today (Budapest time), whatever their stay date:\n\n• ${booked.todayReservations} reservation${booked.todayReservations === 1 ? "" : "s"} created\n• ${booked.todayRoomNights} room-night${booked.todayRoomNights === 1 ? "" : "s"} booked\n• ${money(booked.todayRevenue)} of room revenue\n• ${booked.todayCancelledNights} room-night${booked.todayCancelledNights === 1 ? "" : "s"} cancelled (${booked.todayCancelledRes} reservation${booked.todayCancelledRes === 1 ? "" : "s"})${booked.todayUnpricedNights ? `\n• ${booked.todayUnpricedNights} room-night${booked.todayUnpricedNights === 1 ? "" : "s"} came in at €0 because the amount sits on another room of the same group booking; they are counted as sold but left out of ADR.` : ""}\n\nThe pickup row in the calendar below uses the booking window you selected (${windowLabel(pickupWindowDays).toLowerCase()}), so it can show movement even on a quiet morning.`,
             }}
           />
 

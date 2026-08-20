@@ -242,37 +242,46 @@ export function buildDayMetrics(params: {
 
   const sold = new Map<string, number>();
   const revenue = new Map<string, number>();
-  // Pickup is counted in RESERVATIONS, not room-nights, so it reads exactly
-  // like Previo's pick-up report: one booking that takes two rooms on the same
-  // night is one pickup, not two.
+  // Rooms that actually carry a price. A group booking often puts the whole
+  // amount on one room and sends the others at 0, so those must not drag the
+  // ADR average down.
+  const pricedRooms = new Map<string, number>();
+  // Pickup is counted in ROOMS per reservation, so a second room added to a
+  // booking that already covered that night still reads as one pickup, while a
+  // physical room-key change on the same room does not.
   const createdRes = new Map<string, Set<string>>();
   const createdRevenue = new Map<string, number>();
   for (const n of nights) {
     sold.set(n.stay_date, (sold.get(n.stay_date) ?? 0) + 1);
     revenue.set(n.stay_date, (revenue.get(n.stay_date) ?? 0) + (n.nightly_price_eur ?? 0));
+    if ((n.nightly_price_eur ?? 0) > 0) {
+      pricedRooms.set(n.stay_date, (pricedRooms.get(n.stay_date) ?? 0) + 1);
+    }
     if (n.created_at_pms) {
       if (inWindow(n.created_at_pms)) {
 
         const set = createdRes.get(n.stay_date) ?? new Set<string>();
-        set.add(String(n.res_id));
+        set.add(`${n.res_id}|${(n as { room_key?: string | null }).room_key ?? ""}`);
         createdRes.set(n.stay_date, set);
         createdRevenue.set(n.stay_date, (createdRevenue.get(n.stay_date) ?? 0) + (n.nightly_price_eur ?? 0));
       }
     }
   }
+
   const created = new Map<string, number>();
   for (const [date, set] of createdRes) created.set(date, set.size);
 
   // Cancellations that happened inside the same window pull pickup negative,
-  // again counted per reservation.
+  // again counted in rooms per reservation.
   const cancelledRes = new Map<string, Set<string>>();
   for (const c of cancellations) {
     if (!c.cancelled_at) continue;
     if (!inWindow(c.cancelled_at)) continue;
     const set = cancelledRes.get(c.stay_date) ?? new Set<string>();
-    set.add(String(c.res_id));
+    set.add(`${c.res_id}|${(c as { room_key?: string | null }).room_key ?? ""}`);
     cancelledRes.set(c.stay_date, set);
   }
+
   const cancelled = new Map<string, number>();
   for (const [date, set] of cancelledRes) cancelled.set(date, set.size);
 
@@ -349,7 +358,10 @@ export function buildDayMetrics(params: {
     else net = bookingDelta;
 
 
-    const adr = rs ? rev / rs : null;
+    // ADR averages only the rooms that carry a price: a group booking's €0
+    // companion rooms have no rate and must not dilute it.
+    const priced = pricedRooms.get(d) ?? 0;
+    const adr = priced ? rev / priced : null;
     // Rooms lost: explicit cancellations, or whatever the snapshot says went
     // missing beyond the bookings we can see.
     const impliedLost = snapDelta !== null ? Math.max(0, -snapDelta) : 0;
@@ -361,7 +373,8 @@ export function buildDayMetrics(params: {
       roomsAvailable: avail,
       occupancyPct: avail ? Math.round((rs / avail) * 1000) / 10 : 0,
       revenueEur: rev,
-      adrEur: rs ? Math.round((rev / rs) * 100) / 100 : null,
+      adrEur: adr !== null ? Math.round(adr * 100) / 100 : null,
+
       revparEur: avail ? Math.round((rev / avail) * 100) / 100 : null,
       roomsLeft: Math.max(0, avail - rs),
       newBookings: createdN,
