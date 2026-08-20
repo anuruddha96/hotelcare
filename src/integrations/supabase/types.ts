@@ -1027,6 +1027,54 @@ export type Database = {
         }
         Relationships: []
       }
+      demand_event_search_runs: {
+        Row: {
+          city: string | null
+          country: string | null
+          created_at: string
+          error: string | null
+          events_added: number
+          events_found: number
+          hotel_id: string | null
+          id: string
+          months_scanned: number
+          organization_slug: string
+          run_by: string | null
+          run_by_name: string | null
+          source: string
+        }
+        Insert: {
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          error?: string | null
+          events_added?: number
+          events_found?: number
+          hotel_id?: string | null
+          id?: string
+          months_scanned?: number
+          organization_slug: string
+          run_by?: string | null
+          run_by_name?: string | null
+          source?: string
+        }
+        Update: {
+          city?: string | null
+          country?: string | null
+          created_at?: string
+          error?: string | null
+          events_added?: number
+          events_found?: number
+          hotel_id?: string | null
+          id?: string
+          months_scanned?: number
+          organization_slug?: string
+          run_by?: string | null
+          run_by_name?: string | null
+          source?: string
+        }
+        Relationships: []
+      }
       demand_events: {
         Row: {
           approved: boolean
