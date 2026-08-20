@@ -176,6 +176,7 @@ const MainApp = () => (
         <TooltipProvider>
           <Toaster />
           <PointerEventsGuard />
+          <ServiceOutageBanner />
           <BrowserRouter>
 
             <AuthenticatedShell>
