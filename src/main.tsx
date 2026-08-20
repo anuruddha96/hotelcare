@@ -36,7 +36,7 @@ window.addEventListener("unhandledrejection", (event) => {
 
 const recoveredDocument = new URL(window.location.href).searchParams.has(RECOVERY_PARAM);
 const loadApplication = recoveredDocument
-  ? import("./app-entry.tsx?recovered")
+  ? import("./recovered-entry.ts")
   : import("./app-entry.tsx");
 
 void loadApplication.catch((error: unknown) => {
