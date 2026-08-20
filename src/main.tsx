@@ -34,7 +34,12 @@ window.addEventListener("unhandledrejection", (event) => {
   recoverFromStaleChunk(reason instanceof Error ? reason.message : String(reason ?? ""));
 });
 
-void import("./app-entry.tsx").catch((error: unknown) => {
+const recoveredDocument = new URL(window.location.href).searchParams.has(RECOVERY_PARAM);
+const loadApplication = recoveredDocument
+  ? import("./app-entry.tsx?recovered")
+  : import("./app-entry.tsx");
+
+void loadApplication.catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error ?? "");
   recoverFromStaleChunk(message);
   if (!isModuleLoadFailure(message)) throw error;
