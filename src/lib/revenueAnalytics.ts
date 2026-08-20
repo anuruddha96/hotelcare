@@ -358,7 +358,10 @@ export function buildDayMetrics(params: {
     else net = bookingDelta;
 
 
-    const adr = rs ? rev / rs : null;
+    // ADR averages only the rooms that carry a price: a group booking's €0
+    // companion rooms have no rate and must not dilute it.
+    const priced = pricedRooms.get(d) ?? 0;
+    const adr = priced ? rev / priced : null;
     // Rooms lost: explicit cancellations, or whatever the snapshot says went
     // missing beyond the bookings we can see.
     const impliedLost = snapDelta !== null ? Math.max(0, -snapDelta) : 0;
@@ -370,7 +373,8 @@ export function buildDayMetrics(params: {
       roomsAvailable: avail,
       occupancyPct: avail ? Math.round((rs / avail) * 1000) / 10 : 0,
       revenueEur: rev,
-      adrEur: rs ? Math.round((rev / rs) * 100) / 100 : null,
+      adrEur: adr !== null ? Math.round(adr * 100) / 100 : null,
+
       revparEur: avail ? Math.round((rev / avail) * 100) / 100 : null,
       roomsLeft: Math.max(0, avail - rs),
       newBookings: createdN,
