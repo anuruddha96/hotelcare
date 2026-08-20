@@ -242,7 +242,7 @@ export default function PickupMovementBoard({
                       <span className="hidden text-xs tabular-nums md:block">{row.nights}</span>
                       <span className="hidden text-xs tabular-nums md:block">{row.rooms.length}</span>
                       <span className="hidden text-xs tabular-nums md:block">{row.guests}</span>
-                      <span className="hidden text-right text-xs font-semibold tabular-nums md:block">{eur(row.value)}</span>
+                      <span className="hidden text-right text-xs font-semibold tabular-nums md:block"><Value amount={row.value} grouped={row.rooms.length > 1} /></span>
                       <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setOpen(expanded ? null : row.key)} aria-label={`${expanded ? "Hide" : "Show"} reservation details`}>
                         {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </Button>
