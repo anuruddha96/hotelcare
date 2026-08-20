@@ -18,7 +18,22 @@ function fmtDay(iso: string) {
   });
 }
 
+/**
+ * Previo puts a group booking's whole amount on one room and sends the other
+ * rooms at zero, so a bare "€0" reads like a free stay. Say where the money is.
+ */
+function Value({ amount, grouped }: { amount: number; grouped?: boolean }) {
+  if (amount > 0) return <>{eur(amount)}</>;
+  return (
+    <span className="text-muted-foreground">
+      {eur(0)}
+      <span className="ml-1 text-[10px] font-normal">{grouped ? "· priced on the group booking" : "· no rate"}</span>
+    </span>
+  );
+}
+
 function fmtStamp(iso: string | null) {
+
   if (!iso) return "Unknown time";
   return new Date(iso).toLocaleString(undefined, {
     timeZone: "Europe/Budapest", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
