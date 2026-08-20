@@ -1037,6 +1037,7 @@ export type Database = {
           events_found: number
           hotel_id: string | null
           id: string
+          month: string | null
           months_scanned: number
           organization_slug: string
           run_by: string | null
@@ -1052,6 +1053,7 @@ export type Database = {
           events_found?: number
           hotel_id?: string | null
           id?: string
+          month?: string | null
           months_scanned?: number
           organization_slug: string
           run_by?: string | null
@@ -1067,6 +1069,7 @@ export type Database = {
           events_found?: number
           hotel_id?: string | null
           id?: string
+          month?: string | null
           months_scanned?: number
           organization_slug?: string
           run_by?: string | null
