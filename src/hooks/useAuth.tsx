@@ -136,20 +136,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
-    // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // THEN check for an existing session. Bound this call too: an expired
+    // token may trigger a network refresh, and that must never hold the app's
+    // initial loading screen indefinitely.
+    void retryTransient(async () => {
+      const result = await supabase.auth.getSession();
+      if (result.error) throw result.error;
+      return result.data.session;
+    }, { attempts: 3, timeoutMs: 6000 }).then((session) => {
       if (!isMounted) return;
-      
+
       setSession(session);
       setUser(session?.user ?? null);
-      
+      activeUserIdRef.current = session?.user?.id ?? null;
+
       if (session?.user) {
-        fetchProfile(session.user.id).finally(() => {
-          if (isMounted) setLoading(false);
-        });
-      } else {
-        setLoading(false);
+        return fetchProfile(session.user.id);
       }
+      setProfileStatus('idle');
+      return null;
+    }).catch((error) => {
+      if (!isMounted) return;
+      console.error('Session restoration failed after automatic retries:', error);
+      setProfileStatus('failed');
+    }).finally(() => {
+      if (isMounted) setLoading(false);
     });
 
     // Re-validate an old session when the tab returns, but do not refetch the
@@ -160,7 +171,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const now = Date.now();
         if (now - lastVisibilityCheckRef.current < 30 * 60 * 1000) return;
         lastVisibilityCheckRef.current = now;
-        supabase.auth.getSession().then(({ data: { session } }) => {
+        void retryTransient(async () => {
+          const result = await supabase.auth.getSession();
+          if (result.error) throw result.error;
+          return result.data.session;
+        }, { attempts: 2, timeoutMs: 6000 }).then((session) => {
           if (!isMounted) return;
           if (session?.user) {
             setSession(session);
@@ -172,6 +187,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setProfile(null);
             setProfileStatus('idle');
           }
+        }).catch((error) => {
+          console.warn('Could not revalidate the session after returning to the tab.', error);
         });
       }
     };
