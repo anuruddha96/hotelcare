@@ -59,6 +59,7 @@ serve(async (req) => {
       hotel_id: hotelId,
       city,
       country,
+      month,
       months_scanned: 1,
       events_found: result.all.length,
       events_added: 0,
