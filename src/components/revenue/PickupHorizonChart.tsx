@@ -155,34 +155,38 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
     void (async () => {
       const today = budapestToday();
       const end = horizonEnd ?? today;
-      // Snapshots are captured several times a day, so an unfiltered page walk
-      // fills up with old captures of one hotel and the sister properties fall
-      // off the end (they then render as 0% / 0 EUR). Only the last few days of
-      // captures are needed to find the newest row per hotel and stay date.
-      const capturedFrom = new Date(`${today}T00:00:00Z`);
-      capturedFrom.setUTCDate(capturedFrom.getUTCDate() - 3);
-      const capturedSince = capturedFrom.toISOString().slice(0, 10);
-      const out: SnapshotRow[] = [];
-      for (let offset = 0; offset < 40000; offset += 1000) {
-        const { data, error } = await supabase
-          .from("revenue_daily_snapshots")
-          .select("hotel_id, stay_date, rooms_sold, occupancy_pct, adr_eur, revenue_eur, rooms_available, captured_date")
-          .in("hotel_id", hotelIds)
-          .gte("stay_date", today)
-          .lte("stay_date", end)
-          .gte("captured_date", capturedSince)
-          .order("captured_date", { ascending: false })
-          .order("hotel_id", { ascending: true })
-          .order("stay_date", { ascending: true })
-          .range(offset, offset + 999);
-        if (error) break;
-        const page = (data ?? []) as SnapshotRow[];
-        out.push(...page);
-        if (page.length < 1000) break;
-      }
+      // Snapshots are captured several times a day, and the largest property
+      // produces far more rows than the others. A single paged query therefore
+      // filled up with that one hotel and the sister properties dropped out of
+      // the result (they then rendered as 0% / 0 EUR). Fetch each hotel on its
+      // own, newest captures first, so every property is represented.
+      const yesterday = new Date(`${today}T00:00:00Z`);
+      yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+      const capturedSince = yesterday.toISOString().slice(0, 10);
 
-      if (!cancelled) setSnapshots(out);
+      const perHotel = await Promise.all(hotelIds.map(async (hotelId) => {
+        const rows: SnapshotRow[] = [];
+        for (let offset = 0; offset < 20000; offset += 1000) {
+          const { data, error } = await supabase
+            .from("revenue_daily_snapshots")
+            .select("hotel_id, stay_date, rooms_sold, occupancy_pct, adr_eur, revenue_eur, rooms_available")
+            .eq("hotel_id", hotelId)
+            .gte("stay_date", today)
+            .lte("stay_date", end)
+            .gte("captured_date", capturedSince)
+            .order("captured_date", { ascending: false })
+            .range(offset, offset + 999);
+          if (error) break;
+          const page = (data ?? []) as SnapshotRow[];
+          rows.push(...page);
+          if (page.length < 1000) break;
+        }
+        return rows;
+      }));
+
+      if (!cancelled) setSnapshots(perHotel.flat());
     })();
+
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey, horizonEnd]);
