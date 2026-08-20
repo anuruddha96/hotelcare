@@ -176,12 +176,16 @@ export default function MonthPerformanceHeader({
     let revenue = 0;
     let todayRoomNights = 0;
     let todayRevenue = 0;
+    // Rooms a group booking carries at zero: their money sits on another room
+    // of the same reservation, so they are worth calling out.
+    let todayUnpricedNights = 0;
     const todayRes = new Set<string>();
     for (const n of nights) {
       if (!n.created_at_pms) continue;
       if (budapestDayOf(n.created_at_pms) === today) {
         todayRoomNights += 1;
         todayRevenue += n.nightly_price_eur ?? 0;
+        if (!(n.nightly_price_eur ?? 0)) todayUnpricedNights += 1;
         todayRes.add(n.res_id);
       }
       if (!inWindow(n.created_at_pms)) continue;
@@ -189,6 +193,7 @@ export default function MonthPerformanceHeader({
       roomNights += 1;
       revenue += n.nightly_price_eur ?? 0;
     }
+
     const cancelledRes = new Set<string>();
     let cancelledNights = 0;
     const todayCancelledRes = new Set<string>();
