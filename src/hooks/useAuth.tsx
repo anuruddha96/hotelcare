@@ -272,6 +272,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    activeUserIdRef.current = null;
+    profileRequestRef.current = null;
+    setProfileStatus('idle');
     try {
       // Use 'local' scope to ensure complete sign out
       const { error } = await supabase.auth.signOut({ scope: 'local' });
