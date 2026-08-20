@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useParams, Navigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
