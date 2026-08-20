@@ -40,7 +40,7 @@ export default function Auth() {
       return <WelcomeBackOverlay
         step={profileStatus === 'retrying' ? 'Reconnecting securely…' : 'Loading your account and property access…'}
         progress={profileStatus === 'retrying' ? 52 : 36}
-        error={profileStatus === 'failed' || profileStatus === 'missing'}
+        error={profileStatus === 'failed' || profileStatus === 'missing' ? 'Account access could not be verified.' : null}
         onRetry={() => void retryProfile()}
       />;
     }
