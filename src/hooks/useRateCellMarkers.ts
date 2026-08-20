@@ -49,15 +49,28 @@ export function useRateCellMarkers(hotelId?: string | null, from?: string, to?: 
 
 
 
-  useEffect(() => { void load(); }, [load]);
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
+  // The calendar extends its range while you scroll, so a bare effect fired this
+  // heavy read once per extension. Coalesce those into one.
+  useEffect(() => {
+    const t = window.setTimeout(() => { void loadRef.current(); }, 250);
+    return () => window.clearTimeout(t);
+  }, [load]);
 
   /** Never show one property's markers on another's calendar. */
   useEffect(() => { setRows([]); }, [hotelId]);
 
-  const loadRef = useRef(load);
-
-  loadRef.current = load;
+  // Automation moves prices in the background: pick those dots up on their own
+  // rather than waiting for the user to touch a cell.
   useEffect(() => {
+    const t = window.setInterval(() => { void loadRef.current(); }, 120_000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+
     const timer = window.setInterval(() => setTick(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
