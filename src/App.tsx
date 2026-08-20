@@ -52,8 +52,8 @@ const PageLoader = () => (
 );
 
 const RootRedirect = () => {
-  const { user, profile, loading } = useAuth();
-  if (loading) return <WelcomeBackOverlay step="Checking your secure session…" progress={18} />;
+  const { user, profile, loading, bootstrapProgress } = useAuth();
+  if (loading) return <WelcomeBackOverlay context="account" step="Checking your secure session…" progress={bootstrapProgress} />;
   if (!user) return <Navigate to="/auth" replace />;
   if (!profile?.organization_slug) return <Navigate to="/auth" replace />;
   if ((profile.role === "top_management" || profile.role === "top_management_manager") && profile.assigned_hotel) {
@@ -64,13 +64,13 @@ const RootRedirect = () => {
 
 const TenantRouter = () => {
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, bootstrapProgress } = useAuth();
   
   if (!organizationSlug) {
     return <Navigate to="/auth" replace />;
   }
 
-  if (loading) return <WelcomeBackOverlay step="Opening your workspace…" progress={28} />;
+  if (loading) return <WelcomeBackOverlay context="account" step="Opening your workspace…" progress={bootstrapProgress} />;
 
   if (user && !profile?.organization_slug) {
     return <Navigate to="/auth" replace />;

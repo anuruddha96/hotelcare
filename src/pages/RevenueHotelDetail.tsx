@@ -296,6 +296,8 @@ export default function RevenueHotelDetail() {
     syncingRef.current = true;
     setSyncError(null);
     setSyncing(true);
+    // A new attempt starts a new progress session. During an attempt the value
+    // only moves forward, including when an error leaves the cover visible.
     setSyncPct(8);
     setSyncStep("Connecting to Previo…");
     try {
@@ -325,6 +327,9 @@ export default function RevenueHotelDetail() {
       setSyncStep("Up to date");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Sync failed";
+      // Release the local guard immediately so the visible retry action cannot
+      // be swallowed during the short completion animation below.
+      syncingRef.current = false;
       try { await (supabase as any).rpc("release_own_revenue_sync", {
         _hotel_id: hotelId,
         _error: message,
@@ -335,7 +340,6 @@ export default function RevenueHotelDetail() {
       setTimeout(() => {
         syncingRef.current = false;
         setSyncing(false);
-        setSyncPct(0);
       }, 600);
     }
   }
@@ -813,7 +817,7 @@ export default function RevenueHotelDetail() {
         <WelcomeBackOverlay
           name={profile?.full_name}
           step={syncError ? `Refresh paused: ${syncError}` : syncStep || `Opening ${hotelName || "your property"}…`}
-          progress={syncPct || (live.loading ? 42 : 18)}
+          progress={Math.max(syncPct, live.loading ? 42 : 18)}
           error={syncError}
           onRetry={() => void runSync(true)}
         />
