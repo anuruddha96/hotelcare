@@ -256,7 +256,7 @@ export default function PickupMovementBoard({
                           {row.rooms.map((room) => (
                             <div key={room.key} className="flex flex-wrap items-center justify-between gap-2 text-xs">
                               <span>{room.roomType} · {room.nights} night{room.nights === 1 ? "" : "s"}</span>
-                              <span className="font-medium tabular-nums">{eur(room.value)}</span>
+                              <span className="font-medium tabular-nums"><Value amount={room.value} grouped={row.rooms.length > 1 || row.value > 0} /></span>
                             </div>
                           ))}
                         </div>
