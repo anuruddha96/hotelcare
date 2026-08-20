@@ -140,7 +140,17 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
       if (settings?.market_country) setCountry(settings.market_country);
     }
 
-    if (!slug) { setEvents([]); setLoading(false); return; }
+    if (!slug) { setEvents([]); setLastRun(null); setLoading(false); return; }
+
+    // Who last refreshed the calendar — a person, or the weekly automatic sweep.
+    const { data: runs } = await (supabase as any)
+      .from("demand_event_search_runs")
+      .select("source, run_by_name, events_found, events_added, created_at, month")
+      .eq("organization_slug", slug)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    setLastRun(((runs ?? [])[0] as SearchRun | undefined) ?? null);
+
     const { data } = await (supabase as any)
       .from("demand_events")
       .select("*")
@@ -156,6 +166,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     setEvents(rows);
     setLoading(false);
   }, [hotelId, month, range.start, range.end]);
+
 
   useEffect(() => { void load(); }, [load]);
 
