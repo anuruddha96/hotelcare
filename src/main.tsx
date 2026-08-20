@@ -1,37 +1,46 @@
-import { createRoot } from 'react-dom/client'
-import App from './App.tsx'
-import './index.css'
-import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { installGlobalErrorReporting } from '@/lib/clientErrorReporter'
+// This file deliberately has no static imports. It must execute before React or
+// any optimized dependency so it can recover when one of those module files was
+// replaced while a mobile tab remained open.
+const RELOAD_FLAG = "chunk_reload_at";
+const RECOVERY_PARAM = "chunk-recovery";
+const isModuleLoadFailure = (message: string) =>
+  /dynamically imported module|Importing a module script failed|error loading dynamically|Failed to fetch dynamically|module script/i.test(message);
 
-installGlobalErrorReporting();
-
-// A tab left open across a deploy keeps pointing at code chunks that no longer
-// exist, so the next lazy route fails with "Importing a module script failed"
-// and the app appears stuck on the loading card. Recover automatically by
-// reloading once (guarded so a genuine failure can never loop).
-const RELOAD_FLAG = 'chunk_reload_at';
 const recoverFromStaleChunk = (message: string) => {
-  if (!/dynamically imported module|Importing a module script failed|error loading dynamically|Failed to fetch dynamically/i.test(message)) return;
+  if (!isModuleLoadFailure(message)) return;
+
   try {
     const last = Number(sessionStorage.getItem(RELOAD_FLAG) || 0);
     if (Date.now() - last < 30000) return;
     sessionStorage.setItem(RELOAD_FLAG, String(Date.now()));
   } catch { /* storage blocked — still worth one reload */ }
-  window.location.reload();
+
+  // A plain reload can reuse the same stale module response on mobile Safari.
+  // A one-time URL nonce forces a fresh document and dependency graph while
+  // preserving the current path, tenant route and all other query parameters.
+  const next = new URL(window.location.href);
+  next.searchParams.set(RECOVERY_PARAM, String(Date.now()));
+  window.location.replace(next.toString());
 };
 
-window.addEventListener('vite:preloadError', (e) => recoverFromStaleChunk(String((e as any)?.payload?.message ?? 'dynamically imported module')));
-window.addEventListener('error', (e) => recoverFromStaleChunk(String(e?.message ?? '')));
-window.addEventListener('unhandledrejection', (e) => recoverFromStaleChunk(String((e as PromiseRejectionEvent)?.reason?.message ?? '')));
+window.addEventListener("vite:preloadError", (event) => {
+  event.preventDefault();
+  const payload = (event as Event & { payload?: { message?: string } }).payload;
+  recoverFromStaleChunk(payload?.message ?? "dynamically imported module");
+});
+window.addEventListener("error", (event) => recoverFromStaleChunk(event.message ?? ""));
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  recoverFromStaleChunk(reason instanceof Error ? reason.message : String(reason ?? ""));
+});
 
-createRoot(document.getElementById("root")!).render(
-  <ErrorBoundary
-    variant="fullscreen"
-    context="app-root"
-    fallbackTitle="The app hit an unexpected problem"
-    fallbackMessage="Your work is saved. Tap Reload to continue."
-  >
-    <App />
-  </ErrorBoundary>
-);
+const recoveredDocument = new URL(window.location.href).searchParams.has(RECOVERY_PARAM);
+const loadApplication = recoveredDocument
+  ? import("./recovered-entry.ts")
+  : import("./app-entry.tsx");
+
+void loadApplication.catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  recoverFromStaleChunk(message);
+  if (!isModuleLoadFailure(message)) throw error;
+});
