@@ -37,7 +37,31 @@ export default function Auth() {
   }
 
   if (user) {
-    if (!profile?.organization_slug) return <WelcomeBackOverlay step="Loading your account and property access…" progress={36} />;
+    if (!profile?.organization_slug) {
+      // The profile lookup can fail outright (database unreachable). Without a
+      // ceiling the greeting card spins forever and looks like a frozen app.
+      if (profileStalled) {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-6 bg-background">
+            <Card className="max-w-md w-full">
+              <CardHeader>
+                <CardTitle>We can't reach your account right now</CardTitle>
+                <CardDescription>
+                  The service is temporarily unavailable. Your data is safe — please try again in a moment.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex gap-2">
+                <Button onClick={() => window.location.reload()}>Try again</Button>
+                <Button variant="outline" onClick={() => void supabase.auth.signOut().then(() => window.location.reload())}>
+                  Sign out
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        );
+      }
+      return <WelcomeBackOverlay step="Loading your account and property access…" progress={36} />;
+    }
     if ((profile.role === 'top_management' || profile.role === 'top_management_manager') && profile.assigned_hotel) {
       return <Navigate to={`/${profile.organization_slug}/revenue/${profile.assigned_hotel}`} replace />;
     }
