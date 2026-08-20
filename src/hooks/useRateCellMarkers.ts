@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { indexCellMarkers, dayMarkers, type CellMarkerRow } from "@/lib/rateMarkers";
-import { RECENT_WINDOW_MS } from "@/lib/rateOrigin";
+/**
+ * How far back the dots look. Cell dots only colour changes made today and the
+ * date row uses the 48-hour pickup window, so reading a full week of a busy
+ * property's audit trail was three times the work for no visible difference.
+ */
+const MARKER_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 
 /**
  * One bounded fetch per visible calendar range: the newest change on every
@@ -22,7 +27,7 @@ export function useRateCellMarkers(hotelId?: string | null, from?: string, to?: 
     if (!hotelId || !from || !to) { setRows([]); return; }
     setLoading(true);
     try {
-      const since = new Date(Date.now() - RECENT_WINDOW_MS).toISOString();
+      const since = new Date(Date.now() - MARKER_WINDOW_MS).toISOString();
       // ONE call. This read collapses a week of audit rows per cell, which on a
       // busy property costs several seconds — paging it in 1000-row chunks re-ran
       // that whole scan for every page, so the dots arrived far too late (or not
