@@ -118,6 +118,7 @@ const PublicBreakfastApp = () => (
   <TranslationProvider>
     <TooltipProvider>
       <Toaster />
+      <ServiceOutageBanner />
       <BrowserRouter>
         <Suspense fallback={<PageLoader />}>
           <Routes>
