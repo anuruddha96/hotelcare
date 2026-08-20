@@ -88,6 +88,8 @@ export function WelcomeBackOverlay({
   progress,
   error,
   onRetry,
+  onSignOut,
+  context = "revenue",
 }: {
   /** First name of the person returning, when we know it. */
   name?: string | null;
@@ -97,6 +99,8 @@ export function WelcomeBackOverlay({
   progress?: number;
   error?: string | null;
   onRetry?: () => void;
+  onSignOut?: () => void;
+  context?: "account" | "revenue";
 }) {
   // Start on a fallback line immediately, then upgrade once the shared pool
   // arrives — the overlay never waits on the network to show something.
@@ -144,7 +148,11 @@ export function WelcomeBackOverlay({
           </h2>
         </div>
         <p className="mt-2 text-sm text-muted-foreground">
-          {error ? "The latest refresh did not finish." : `Fetching the latest prices, pickup and occupancy for you${".".repeat(dots)}`}
+          {error
+            ? error
+            : context === "account"
+              ? `Securely preparing your workspace${".".repeat(dots)}`
+              : `Fetching the latest prices, pickup and occupancy for you${".".repeat(dots)}`}
         </p>
         <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-primary/15">
           <div
@@ -153,8 +161,11 @@ export function WelcomeBackOverlay({
           />
         </div>
         {step && <p className="mt-2 text-xs text-muted-foreground">{step}</p>}
-        {error && onRetry && (
-          <Button className="mt-4 w-full" onClick={onRetry}>Try again</Button>
+        {(onRetry || onSignOut) && (
+          <div className="mt-4 flex gap-2">
+            {onRetry && <Button className="flex-1" onClick={onRetry}>Try again</Button>}
+            {onSignOut && <Button className="flex-1" variant="outline" onClick={onSignOut}>Sign out</Button>}
+          </div>
         )}
         <figure className="mt-5 border-t pt-4">
           <blockquote className="text-sm italic">“{line.quote}”</blockquote>

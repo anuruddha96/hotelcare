@@ -18,7 +18,7 @@ import hotelcareLogoAuth from '@/assets/hotelcare-logo-auth.png';
 import { WelcomeBackOverlay } from '@/components/revenue/WelcomeBackOverlay';
 
 export default function Auth() {
- const { signIn, signUp, user, profile, loading, profileStatus, retryProfile } = useAuth();
+ const { signIn, signUp, signOut, user, profile, loading, profileStatus, retryProfile, bootstrapProgress } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { t } = useTranslation();
   const [isLoading, setIsLoading] = useState(false);
@@ -32,16 +32,18 @@ export default function Auth() {
   const [newPassword, setNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   if (loading) {
-    return <WelcomeBackOverlay step="Checking your secure session…" progress={18} />;
+    return <WelcomeBackOverlay context="account" step="Checking your secure session…" progress={bootstrapProgress} />;
   }
 
   if (user) {
     if (!profile?.organization_slug) {
       return <WelcomeBackOverlay
-        step={profileStatus === 'retrying' ? 'Reconnecting securely…' : 'Loading your account and property access…'}
-        progress={profileStatus === 'retrying' ? 52 : 36}
-        error={profileStatus === 'failed' || profileStatus === 'missing' ? 'Account access could not be verified.' : null}
+        context="account"
+        step={profileStatus === 'retrying' || profileStatus === 'failed' ? 'Reconnecting securely…' : 'Loading your account and property access…'}
+        progress={bootstrapProgress}
+        error={profileStatus === 'missing' ? 'This account does not have an assigned workspace.' : null}
         onRetry={() => void retryProfile()}
+        onSignOut={() => void signOut()}
       />;
     }
     if ((profile.role === 'top_management' || profile.role === 'top_management_manager') && profile.assigned_hotel) {

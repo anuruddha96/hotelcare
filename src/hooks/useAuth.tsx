@@ -28,6 +28,7 @@ interface AuthContextType {
   profile: Profile | null;
   loading: boolean;
   profileStatus: 'idle' | 'loading' | 'retrying' | 'ready' | 'missing' | 'failed';
+  bootstrapProgress: number;
   retryProfile: () => Promise<void>;
   signIn: (emailOrUsername: string, password: string) => Promise<{ error: any }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error: any }>;
@@ -45,15 +46,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [profileStatus, setProfileStatus] = useState<AuthContextType['profileStatus']>('idle');
+  const [bootstrapProgress, setBootstrapProgress] = useState(18);
   const lastVisibilityCheckRef = useRef(0);
   const activeUserIdRef = useRef<string | null>(null);
   const profileRequestRef = useRef<{ userId: string; promise: Promise<Profile | null> } | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectAttemptRef = useRef(0);
+
+  const advanceBootstrap = (next: number) => {
+    setBootstrapProgress((current) => Math.max(current, next));
+  };
+
+  const clearReconnectTimer = () => {
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  };
 
   const fetchProfile = (userId: string): Promise<Profile | null> => {
     if (profileRequestRef.current?.userId === userId) return profileRequestRef.current.promise;
 
     activeUserIdRef.current = userId;
     setProfileStatus('loading');
+    advanceBootstrap(36);
     const promise = retryTransient(async () => {
       const result = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
       if (result.error) throw result.error;
@@ -63,6 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       onRetry: (attempt, error) => {
         if (activeUserIdRef.current !== userId) return;
         setProfileStatus('retrying');
+        advanceBootstrap(52);
         console.warn(`Profile request temporarily unavailable; retrying (${attempt}/4).`, error);
       },
     }).then((profileData) => {
@@ -82,6 +99,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         setProfile(withTabHotel(profileData as any) as any);
         setProfileStatus('ready');
+        reconnectAttemptRef.current = 0;
+        clearReconnectTimer();
+        advanceBootstrap(86);
         return profileData as Profile;
       }
 
@@ -92,8 +112,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }).catch((error) => {
       if (activeUserIdRef.current === userId) {
         console.error('Profile fetch failed after automatic retries:', error);
-        setProfile(null);
         setProfileStatus('failed');
+        advanceBootstrap(52);
+        if (reconnectTimerRef.current === null) {
+          const reconnectDelay = Math.min(30000, 3000 * 2 ** Math.min(reconnectAttemptRef.current, 3));
+          reconnectAttemptRef.current += 1;
+          reconnectTimerRef.current = window.setTimeout(() => {
+            reconnectTimerRef.current = null;
+            if (activeUserIdRef.current === userId) void fetchProfile(userId);
+          }, reconnectDelay);
+        }
       }
       return null;
     }).finally(() => {
@@ -106,6 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const retryProfile = async () => {
     if (!user) return;
+    clearReconnectTimer();
     profileRequestRef.current = null;
     await fetchProfile(user.id);
   };
@@ -121,17 +150,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('Auth state changed:', event, session?.user?.email);
         setSession(session);
         setUser(session?.user ?? null);
+        const previousUserId = activeUserIdRef.current;
         activeUserIdRef.current = session?.user?.id ?? null;
         
         if (session?.user) {
+          if (previousUserId && previousUserId !== session.user.id) setProfile(null);
+          advanceBootstrap(28);
           setTimeout(() => {
             if (isMounted) {
               void fetchProfile(session.user.id);
             }
           }, 0);
         } else {
+          clearReconnectTimer();
           setProfile(null);
           setProfileStatus('idle');
+          setBootstrapProgress(18);
         }
       }
     );
@@ -151,6 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       activeUserIdRef.current = session?.user?.id ?? null;
 
       if (session?.user) {
+        advanceBootstrap(28);
         return fetchProfile(session.user.id);
       }
       setProfileStatus('idle');
@@ -168,6 +203,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // profile when identity/claims actually change.
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && isMounted) {
+        if (activeUserIdRef.current && profileStatus !== 'ready') {
+          clearReconnectTimer();
+          profileRequestRef.current = null;
+          void fetchProfile(activeUserIdRef.current);
+        }
         const now = Date.now();
         if (now - lastVisibilityCheckRef.current < 30 * 60 * 1000) return;
         lastVisibilityCheckRef.current = now;
@@ -193,12 +233,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
+    const handleOnline = () => {
+      const userId = activeUserIdRef.current;
+      if (!userId) return;
+      clearReconnectTimer();
+      profileRequestRef.current = null;
+      void fetchProfile(userId);
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
 
     return () => {
       isMounted = false;
       subscription.unsubscribe();
+      clearReconnectTimer();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
     };
   }, []);
 
@@ -289,9 +340,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    clearReconnectTimer();
     activeUserIdRef.current = null;
     profileRequestRef.current = null;
     setProfileStatus('idle');
+    setBootstrapProgress(18);
     try {
       // Use 'local' scope to ensure complete sign out
       const { error } = await supabase.auth.signOut({ scope: 'local' });
@@ -324,6 +377,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       profile,
       loading,
       profileStatus,
+      bootstrapProgress,
       retryProfile,
       signIn,
       signUp,
