@@ -219,6 +219,105 @@ interface RunResult {
   pushError?: string | null; changed: ChangedRow[];
 }
 
+/** A tap-friendly "what does this mean?" hint — works on mobile, unlike hover tooltips. */
+function Hint({ children }: { children: ReactNode }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="What does this setting do?"
+          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <HelpCircle className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="top" align="start" className="w-72 text-xs leading-relaxed">
+        {children}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** One collapsible group of settings, presented as a card with an icon and a live summary. */
+function Section({
+  value, icon: Icon, title, summary, children,
+}: {
+  value: string;
+  icon: typeof Clock;
+  title: string;
+  summary: string;
+  children: ReactNode;
+}) {
+  return (
+    <AccordionItem value={value} className="rounded-xl border bg-card px-3 shadow-sm">
+      <AccordionTrigger className="py-3 text-left hover:no-underline">
+        <div className="flex items-center gap-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Icon className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{title}</p>
+            <p className="truncate text-xs font-normal text-muted-foreground">{summary}</p>
+          </div>
+        </div>
+      </AccordionTrigger>
+      <AccordionContent className="space-y-3 pb-4">{children}</AccordionContent>
+    </AccordionItem>
+  );
+}
+
+function ToggleRow({
+  title, hint, desc, checked, disabled, onChange,
+}: {
+  title: string;
+  hint?: ReactNode;
+  desc?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-lg border bg-muted/30 p-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-1">
+          <Label className="text-sm">{title}</Label>
+          {hint && <Hint>{hint}</Hint>}
+        </div>
+        {desc && <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>}
+      </div>
+      <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} />
+    </div>
+  );
+}
+
+function NumField({
+  label, hint, suffix, note, ...input
+}: {
+  label: string;
+  hint?: ReactNode;
+  suffix?: string;
+  note?: string;
+} & React.ComponentProps<typeof Input>) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <Label className="text-xs">{label}</Label>
+        {hint && <Hint>{hint}</Hint>}
+      </div>
+      <div className="relative">
+        <Input type="number" className={suffix ? "pr-12" : undefined} {...input} />
+        {suffix && (
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+            {suffix}
+          </span>
+        )}
+      </div>
+      {note && <p className="text-[11px] text-muted-foreground">{note}</p>}
+    </div>
+  );
+}
+
 export default function PickupAutomationRules({ hotelId, organizationSlug }: Props) {
   const [rule, setRule] = useState<Rule>(DEFAULT_RULE);
   const [hasSavedRule, setHasSavedRule] = useState(false);
