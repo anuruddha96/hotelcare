@@ -95,6 +95,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
   const [editingId, setEditingId] = useState<string | null>(null);
   const [edit, setEdit] = useState<EventEdit | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [lastRun, setLastRun] = useState<SearchRun | null>(null);
 
 
   // manual form
