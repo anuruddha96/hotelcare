@@ -1,5 +1,9 @@
-import { useEffect, useState } from "react";
-import { Bot, Loader2 } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import {
+  Bot, Loader2, HelpCircle, Clock, TrendingUp, TrendingDown,
+  ShieldCheck, CalendarRange, FileText,
+} from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -213,6 +217,105 @@ interface RunResult {
   hotelName: string; actor: string; pickups: number; actions: number;
   queued: number; pushed: number; failed: number; autoPublish: boolean;
   pushError?: string | null; changed: ChangedRow[];
+}
+
+/** A tap-friendly "what does this mean?" hint — works on mobile, unlike hover tooltips. */
+function Hint({ children }: { children: ReactNode }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="What does this setting do?"
+          className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <HelpCircle className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="top" align="start" className="w-72 text-xs leading-relaxed">
+        {children}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** One collapsible group of settings, presented as a card with an icon and a live summary. */
+function Section({
+  value, icon: Icon, title, summary, children,
+}: {
+  value: string;
+  icon: typeof Clock;
+  title: string;
+  summary: string;
+  children: ReactNode;
+}) {
+  return (
+    <AccordionItem value={value} className="rounded-xl border bg-card px-3 shadow-sm">
+      <AccordionTrigger className="py-3 text-left hover:no-underline">
+        <div className="flex items-center gap-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Icon className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{title}</p>
+            <p className="truncate text-xs font-normal text-muted-foreground">{summary}</p>
+          </div>
+        </div>
+      </AccordionTrigger>
+      <AccordionContent className="space-y-3 pb-4">{children}</AccordionContent>
+    </AccordionItem>
+  );
+}
+
+function ToggleRow({
+  title, hint, desc, checked, disabled, onChange,
+}: {
+  title: string;
+  hint?: ReactNode;
+  desc?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-lg border bg-muted/30 p-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-1">
+          <Label className="text-sm">{title}</Label>
+          {hint && <Hint>{hint}</Hint>}
+        </div>
+        {desc && <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>}
+      </div>
+      <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} />
+    </div>
+  );
+}
+
+function NumField({
+  label, hint, suffix, note, ...input
+}: {
+  label: string;
+  hint?: ReactNode;
+  suffix?: string;
+  note?: string;
+} & React.ComponentProps<typeof Input>) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <Label className="text-xs">{label}</Label>
+        {hint && <Hint>{hint}</Hint>}
+      </div>
+      <div className="relative">
+        <Input type="number" className={suffix ? "pr-12" : undefined} {...input} />
+        {suffix && (
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+            {suffix}
+          </span>
+        )}
+      </div>
+      {note && <p className="text-[11px] text-muted-foreground">{note}</p>}
+    </div>
+  );
 }
 
 export default function PickupAutomationRules({ hotelId, organizationSlug }: Props) {
@@ -515,6 +618,8 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
     }
   }
 
+  const cur = rule.currency;
+
   return (
     <Sheet>
       <SheetTrigger asChild>
@@ -532,216 +637,174 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
           </span>
         </Button>
       </SheetTrigger>
-      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-lg">
-        <SheetHeader className="border-b p-4">
-          <SheetTitle>Pickup price automation</SheetTitle>
-          <p className="text-sm text-muted-foreground">{hotelName} — settings apply to this hotel only.</p>
+      <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-xl">
+        <SheetHeader className="border-b p-4 text-left">
+          <SheetTitle className="flex items-center gap-2 text-base">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Bot className="h-4 w-4" />
+            </span>
+            Price automation
+          </SheetTitle>
+          <p className="text-sm text-muted-foreground">
+            {hotelName} — these settings apply to this property only.
+          </p>
         </SheetHeader>
-        {loading ? <div className="flex flex-1 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div> : (
-          <div className="flex-1 min-h-0 space-y-4 overflow-y-auto p-4">
-            {!hasSavedRule && (
-              <div className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
-                Automation has never been set up for {hotelName}. It is <span className="font-semibold">off</span>. The numbers below are
-                suggested starting values — nothing runs until you turn the switch on and save.
-              </div>
-            )}
 
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <div>
-                <p className="font-medium">Automation for {hotelName}</p>
-                <p className="text-xs text-muted-foreground">
-                  {rule.is_enabled ? "Checked automatically and allowed to change prices." : "Off — nothing changes automatically."}
-                </p>
+        {loading ? <div className="flex flex-1 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div> : (
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {/* Master switch and the three numbers that answer "is it working?" */}
+            <div className="space-y-3 border-b bg-muted/30 p-4">
+              <div className="flex items-start justify-between gap-3 rounded-xl border bg-card p-3 shadow-sm">
+                <div className="min-w-0">
+                  <p className="font-semibold">
+                    {rule.is_enabled ? `Automation is on for ${hotelName}` : `Automation is off for ${hotelName}`}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {rule.is_enabled
+                      ? "Prices are checked on a schedule and may change automatically."
+                      : "Nothing changes automatically. Turn this on and save to start."}
+                  </p>
+                </div>
+                <Switch checked={rule.is_enabled} onCheckedChange={(is_enabled) => setRule({ ...rule, is_enabled })} />
               </div>
-              <Switch checked={rule.is_enabled} onCheckedChange={(is_enabled) => setRule({ ...rule, is_enabled })} />
+
+              {!hasSavedRule && (
+                <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+                  Automation has never been set up here. The values below are safe starting suggestions — nothing runs
+                  until you turn the switch on and save.
+                </p>
+              )}
+
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  {
+                    label: "Next check",
+                    value: savedEnabled && rule.next_run_at
+                      ? new Date(rule.next_run_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                      : "—",
+                  },
+                  { label: "Runs every", value: `${rule.evaluation_interval_minutes} min` },
+                  { label: "Recent changes", value: `${stats.pushed} sent` },
+                ].map((tile) => (
+                  <div key={tile.label} className="rounded-lg border bg-card p-2 text-center">
+                    <p className="text-sm font-semibold tabular-nums">{tile.value}</p>
+                    <p className="text-[10px] leading-tight text-muted-foreground">{tile.label}</p>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <Accordion type="multiple" defaultValue={["schedule", "short"]} className="w-full">
-              <AccordionItem value="schedule">
-                <AccordionTrigger className="py-3 text-left">
-                  <div>
-                    <p className="text-sm font-medium">Schedule &amp; checks</p>
-                    <p className="text-xs font-normal text-muted-foreground">
-                      Every {rule.evaluation_interval_minutes} minutes
-                      {savedEnabled && rule.next_run_at ? ` · next ${untilLabel(rule.next_run_at)}` : " · not scheduled"}
-                    </p>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="space-y-3 pb-4">
-                  <div>
+            <Accordion type="multiple" defaultValue={["schedule"]} className="w-full space-y-2 p-3">
+              {/* 1 — Schedule & publishing */}
+              <Section
+                value="schedule"
+                icon={Clock}
+                title="Schedule & publishing"
+                summary={`Every ${rule.evaluation_interval_minutes} min · ${rule.auto_publish ? "published to Previo" : "suggestions only"}`}
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1">
                     <Label className="text-xs">How often this property is checked</Label>
-                    <Select
-                      value={String(rule.evaluation_interval_minutes)}
-                      onValueChange={(value) => setRule({ ...rule, evaluation_interval_minutes: Number(value) })}
-                    >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                    <Hint>
+                      Each check first refreshes bookings from Previo, then raises dates that picked up and lowers dates
+                      that did not. <strong>Example:</strong> every hour means up to 24 small moves a day per date, always
+                      inside your daily caps.
+                    </Hint>
+                  </div>
+                  <Select
+                    value={String(rule.evaluation_interval_minutes)}
+                    onValueChange={(value) => setRule({ ...rule, evaluation_interval_minutes: Number(value) })}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="60">Every hour</SelectItem>
+                      <SelectItem value="120">Every 2 hours</SelectItem>
+                      <SelectItem value="180">Every 3 hours</SelectItem>
+                      <SelectItem value="360">Every 6 hours</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="rounded-lg border bg-muted/40 p-3">
+                  <p className="text-xs font-medium">Next automatic check</p>
+                  {savedEnabled && rule.next_run_at ? (
+                    <>
+                      <p className="text-sm font-semibold tabular-nums">{new Date(rule.next_run_at).toLocaleString()}</p>
+                      <p className="text-[11px] text-muted-foreground">{untilLabel(rule.next_run_at)}</p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {savedEnabled ? "Scheduling on the next cycle." : "Nothing is scheduled — automation is off."}
+                    </p>
+                  )}
+                  {rule.last_run_at && (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Last check {new Date(rule.last_run_at).toLocaleString()}.
+                    </p>
+                  )}
+                </div>
+
+                <ToggleRow
+                  title="Publish changes to Previo"
+                  desc={rule.auto_publish ? "Matched changes go live automatically." : "Changes are only suggested — you publish them."}
+                  hint={<>Off is the safe way to trial automation: you see every proposed price in the calendar and send it yourself.</>}
+                  checked={rule.auto_publish}
+                  onChange={(auto_publish) => setRule({ ...rule, auto_publish })}
+                />
+
+                {otherRules.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1">
+                      <Label className="text-xs">Copy settings from another property</Label>
+                      <Hint>Copies every number and guard, but never the on/off switch — turning a property on is always deliberate.</Hint>
+                    </div>
+                    <Select onValueChange={copyFrom}>
+                      <SelectTrigger><SelectValue placeholder="Choose a property…" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="60">Every hour</SelectItem>
-                        <SelectItem value="120">Every 2 hours</SelectItem>
-                        <SelectItem value="180">Every 3 hours</SelectItem>
-                        <SelectItem value="360">Every 6 hours</SelectItem>
+                        {otherRules.map((o) => (
+                          <SelectItem key={o.hotel_id} value={o.hotel_id}>
+                            {o.label}{o.rule.is_enabled ? " (on)" : " (off)"}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Each check refreshes bookings from the PMS first, then either raises dates that picked up or lowers dates that did not.
-                    </p>
                   </div>
-                  <div className="rounded-md border bg-muted/40 p-3">
-                    <p className="text-xs font-medium">Next automatic check</p>
-                    {savedEnabled && rule.next_run_at ? (
-                      <>
-                        <p className="text-sm font-semibold tabular-nums">
-                          {new Date(rule.next_run_at).toLocaleString()}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground">{untilLabel(rule.next_run_at)}</p>
-                      </>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        {savedEnabled ? "Scheduling on the next cycle." : "Nothing is scheduled — automation is off."}
-                      </p>
-                    )}
-                    {rule.last_run_at && (
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        Last check {new Date(rule.last_run_at).toLocaleString()}.
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div><Label>Publish matched changes to Previo</Label><p className="text-xs text-muted-foreground">Off means changes are only suggested.</p></div>
-                    <Switch checked={rule.auto_publish} onCheckedChange={(auto_publish) => setRule({ ...rule, auto_publish })} />
-                  </div>
-                  {otherRules.length > 0 && (
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Copy settings from another hotel</Label>
-                      <Select onValueChange={copyFrom}>
-                        <SelectTrigger><SelectValue placeholder="Choose a hotel…" /></SelectTrigger>
-                        <SelectContent>
-                          {otherRules.map((o) => (
-                            <SelectItem key={o.hotel_id} value={o.hotel_id}>
-                              {o.label}{o.rule.is_enabled ? " (on)" : " (off)"}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                </AccordionContent>
-              </AccordionItem>
+                )}
+              </Section>
 
-              <AccordionItem value="short">
-                <AccordionTrigger className="py-3 text-left">
-                  <div>
-                    <p className="text-sm font-medium">Immediate booking window</p>
-                    <p className="text-xs font-normal text-muted-foreground">
-                      {rule.short_window_guard_enabled
-                        ? `Next ${rule.short_window_days} days: only raise above ${rule.short_window_min_occupancy_pct}% full`
-                        : "Last-minute guard off"}
-                      {rule.sold_out_guard_enabled ? " · sold-out protected" : ""}
-                      {rule.whole_number_prices ? " · whole prices" : ""}
-                    </p>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="space-y-3 pb-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <Label>Short booking window guard</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Close to arrival an empty date must not price itself out of the market just because one booking arrived.
-                        Inside this window a rise needs the date to be selling well already.
-                      </p>
-                    </div>
-                    <Switch
-                      checked={rule.short_window_guard_enabled}
-                      onCheckedChange={(short_window_guard_enabled) => setRule({ ...rule, short_window_guard_enabled })}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label className="text-xs">Protected window (days before arrival)</Label>
-                      <Input type="number" min={0} max={90} disabled={!rule.short_window_guard_enabled}
-                        value={rule.short_window_days}
-                        onChange={(e) => setRule({ ...rule, short_window_days: Number(e.target.value) })} />
-                      <p className="text-[11px] text-muted-foreground mt-1">Dates this close are treated as last-minute.</p>
-                    </div>
-                    <div>
-                      <Label className="text-xs">Only raise above occupancy (%)</Label>
-                      <Input type="number" min={0} max={100} disabled={!rule.short_window_guard_enabled}
-                        value={rule.short_window_min_occupancy_pct}
-                        onChange={(e) => setRule({ ...rule, short_window_min_occupancy_pct: Number(e.target.value) })} />
-                      <p className="text-[11px] text-muted-foreground mt-1">Below this, the price is held — markdowns still work.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <Label>Stop raising a sold-out date</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Nothing left to sell means a higher price wins nothing. Markdowns are unaffected, and the date becomes
-                        eligible again the moment occupancy drops.
-                      </p>
-                    </div>
-                    <Switch
-                      checked={rule.sold_out_guard_enabled}
-                      onCheckedChange={(sold_out_guard_enabled) => setRule({ ...rule, sold_out_guard_enabled })}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label className="text-xs">Counts as sold out above (%)</Label>
-                      <Input type="number" min={50} max={100} disabled={!rule.sold_out_guard_enabled}
-                        value={rule.sold_out_occupancy_pct}
-                        onChange={(e) => setRule({ ...rule, sold_out_occupancy_pct: Number(e.target.value) })} />
-                      <p className="text-[11px] text-muted-foreground mt-1">100% means only a truly full date is protected.</p>
-                    </div>
-                    <div>
-                      <Label className="text-xs">Wait before lowering (minutes)</Label>
-                      <Input type="number" min={0} max={1440} step={15} disabled={!rule.cancellation_markdown_enabled}
-                        value={rule.cancellation_wait_minutes}
-                        onChange={(e) => setRule({ ...rule, cancellation_wait_minutes: Number(e.target.value) })} />
-                      <p className="text-[11px] text-muted-foreground mt-1">0 lowers straight away on the next check.</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <Label>Wait after a cancellation</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Give the room a chance to sell again before lowering the price — the cell history explains the wait and when it ends.
-                      </p>
-                    </div>
-                    <Switch
-                      checked={rule.cancellation_markdown_enabled}
-                      onCheckedChange={(cancellation_markdown_enabled) => setRule({ ...rule, cancellation_markdown_enabled })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <Label>Whole prices only</Label>
-                      <p className="text-xs text-muted-foreground">Never send cents to Previo — markdowns round down, rises round up.</p>
-                    </div>
-                    <Switch
-                      checked={rule.whole_number_prices}
-                      onCheckedChange={(whole_number_prices) => setRule({ ...rule, whole_number_prices })}
-                    />
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
+              {/* 2 — Raising prices */}
+              <Section
+                value="raise"
+                icon={TrendingUp}
+                title="Raising prices"
+                summary={
+                  rule.positive_pickup_enabled
+                    ? `+${cur} ${rule.booking_window_tiers[0]?.increase ?? 0}–${rule.booking_window_tiers[rule.booking_window_tiers.length - 1]?.increase ?? 0} per booking · max ${cur} ${rule.max_daily_increase_per_date}/date/day`
+                    : "Off — bookings never raise a price"
+                }
+              >
+                <ToggleRow
+                  title="Raise a date when a booking arrives"
+                  desc="The core pickup rule."
+                  hint={<><strong>Example:</strong> a booking lands for 14 September, that date is 40 days out, so the 2–3 month step is added to 14 September only.</>}
+                  checked={rule.positive_pickup_enabled}
+                  onChange={(positive_pickup_enabled) => setRule({ ...rule, positive_pickup_enabled })}
+                />
 
-              <AccordionItem value="pickup">
-                <AccordionTrigger className="py-3 text-left">
-                  <div>
-                    <p className="text-sm font-medium">When a booking arrives</p>
-                    <p className="text-xs font-normal text-muted-foreground">
-                      {rule.positive_pickup_enabled ? "Raises" : "Does not raise"} ·{" "}
-                      {rule.application_scope === "all_room_types" ? "all room types" : "booked room type"} · max €{rule.max_daily_increase_per_date}/date/day
-                    </p>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="space-y-3 pb-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><Label className="text-xs">New-booking lookback (hours)</Label><Input type="number" min={1} max={168} value={rule.pickup_lookback_hours} onChange={(e) => setRule({ ...rule, pickup_lookback_hours: Number(e.target.value) })} /></div>
-                    <div className="flex items-end justify-between rounded-md border px-3 py-2"><Label>Positive pickup</Label><Switch checked={rule.positive_pickup_enabled} onCheckedChange={(positive_pickup_enabled) => setRule({ ...rule, positive_pickup_enabled })} /></div>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">When a booking arrives, change</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <NumField
+                    label="New-booking lookback"
+                    suffix="h"
+                    min={1} max={168}
+                    hint={<>How far back each check looks for new bookings. 48 hours catches reservations that reached the PMS late. <strong>Example:</strong> a booking made yesterday evening still counts this morning.</>}
+                    value={rule.pickup_lookback_hours}
+                    onChange={(e) => setRule({ ...rule, pickup_lookback_hours: Number(e.target.value) })}
+                  />
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1">
+                      <Label className="text-xs">Apply the rise to</Label>
+                      <Hint>“Only the booked room type” is the careful option. “All room types” moves the whole date up together.</Hint>
+                    </div>
                     <Select
                       value={rule.application_scope}
                       onValueChange={(value: "booked_room_type" | "all_room_types") => setRule({ ...rule, application_scope: value })}
@@ -749,330 +812,466 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="booked_room_type">Only the booked room type</SelectItem>
-                        <SelectItem value="all_room_types">All room types on that stay date</SelectItem>
+                        <SelectItem value="all_room_types">All room types that date</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-3">
-                    <p className="text-sm font-medium">First pickup increase</p>
+                </div>
+
+                <div className="rounded-lg border p-3">
+                  <div className="mb-2 flex items-center gap-1">
+                    <p className="text-sm font-medium">How much one booking adds</p>
+                    <Hint>Bookings far in the future are worth more: the date still has months to sell, so it can carry a bigger step.</Hint>
+                  </div>
+                  <div className="space-y-2">
                     {rule.booking_window_tiers.map((tier, index) => (
-                      <div key={index} className="grid grid-cols-[1fr_110px] items-center gap-3">
-                        <Label className="text-xs">{tier.max_days === null ? "More than 3 months" : index === 0 ? "Within 1 month" : "2–3 months"}</Label>
-                        <div className="flex items-center gap-1"><span className="text-sm">+€</span><Input type="number" value={tier.increase} onChange={(e) => updateTier(index, Number(e.target.value))} /></div>
+                      <div key={index} className="grid grid-cols-[1fr_120px] items-center gap-3">
+                        <Label className="text-xs">
+                          {tier.max_days === null ? "More than 3 months away" : index === 0 ? "Within 1 month" : "2–3 months away"}
+                        </Label>
+                        <div className="relative">
+                          <Input
+                            type="number"
+                            className="pr-12"
+                            value={tier.increase}
+                            onChange={(e) => updateTier(index, Number(e.target.value))}
+                          />
+                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">{cur}</span>
+                        </div>
                       </div>
                     ))}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><Label className="text-xs">Same window (minutes)</Label><Input type="number" value={rule.same_hour_window_minutes} onChange={(e) => setRule({ ...rule, same_hour_window_minutes: Number(e.target.value) })} /></div>
-                    <div><Label className="text-xs">Second pickup adds (€)</Label><Input type="number" value={rule.second_pickup_surcharge} onChange={(e) => setRule({ ...rule, second_pickup_surcharge: Number(e.target.value) })} /></div>
-                  </div>
-                  <div><Label className="text-xs">Maximum increase from one pickup (€)</Label><Input type="number" value={rule.maximum_increase ?? ""} onChange={(e) => setRule({ ...rule, maximum_increase: e.target.value ? Number(e.target.value) : null })} /></div>
-                </AccordionContent>
-              </AccordionItem>
+                </div>
 
-              <AccordionItem value="weak">
-                <AccordionTrigger className="py-3 text-left">
-                  <div>
-                    <p className="text-sm font-medium">When demand is weak</p>
-                    <p className="text-xs font-normal text-muted-foreground">
-                      {rule.no_pickup_enabled
-                        ? `−${rule.currency} ${money(rule.no_pickup_decrease)} per check · cap ${rule.currency} ${money(rule.max_daily_decrease_per_date)}/day`
-                        : "Markdowns off"}
-                    </p>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="space-y-3 pb-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div><p className="text-sm font-medium">Lower quiet dates</p><p className="text-xs text-muted-foreground">Dates that picked up nothing since the last check. Never a date that just picked up.</p></div>
-                    <Switch checked={rule.no_pickup_enabled} onCheckedChange={(no_pickup_enabled) => setRule({ ...rule, no_pickup_enabled })} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><Label className="text-xs">Manage future dates (days)</Label><Input type="number" min={1} max={730} value={rule.future_booking_window_days} onChange={(e) => setRule({ ...rule, future_booking_window_days: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">How far ahead automation is allowed to look.</p></div>
-                    <div><Label className="text-xs">Decrease per check ({rule.currency})</Label><Input type="number" step={rule.currency === "EUR" ? 0.01 : 1} min={0.01} max={rule.currency === "EUR" ? 50 : 50000} value={rule.no_pickup_decrease} onChange={(e) => setRule({ ...rule, no_pickup_decrease: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">One step per date per check, however many room types it has.{rule.currency !== "EUR" ? ` Use ${rule.currency}-sized steps (e.g. 1000–3000 HUF), not 1–3.` : ""}</p></div>
-                    <div><Label className="text-xs">Daily decrease cap per date ({rule.currency})</Label><Input type="number" step={0.01} min={0.01} value={rule.max_daily_decrease_per_date} onChange={(e) => setRule({ ...rule, max_daily_decrease_per_date: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">The most one date can fall in a single day.</p></div>
-                    <div><Label className="text-xs">Leave manual changes alone (hours)</Label><Input type="number" min={0} max={72} value={rule.manual_markdown_hold_hours} onChange={(e) => setRule({ ...rule, manual_markdown_hold_hours: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">After someone edits a price by hand, automation waits.</p></div>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
+                <div className="grid grid-cols-2 gap-3">
+                  <NumField
+                    label="Burst window"
+                    suffix="min"
+                    hint={<>Two bookings for the same date inside this window means demand is spiking. <strong>Example:</strong> 60 minutes — two bookings for 3 May within the hour.</>}
+                    value={rule.same_hour_window_minutes}
+                    onChange={(e) => setRule({ ...rule, same_hour_window_minutes: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Second booking adds"
+                    suffix={cur}
+                    hint={<>The bigger step used instead of the normal one when a second booking lands inside the burst window.</>}
+                    value={rule.second_pickup_surcharge}
+                    onChange={(e) => setRule({ ...rule, second_pickup_surcharge: Number(e.target.value) })}
+                  />
+                </div>
 
-              <AccordionItem value="smart">
-                <AccordionTrigger className="py-3 text-left">
-                  <div>
-                    <p className="text-sm font-medium">Smart pricing</p>
-                    <p className="text-xs font-normal text-muted-foreground">
-                      {rule.smart_pricing_enabled
-                        ? `Near ${rule.near_term_days}d under ${rule.low_occupancy_pct}% · strong after ${rule.long_lead_days}d over ${rule.high_occupancy_pct}%${rule.ai_assist_enabled ? " · AI review on" : ""}`
-                        : "Off"}
-                    </p>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="space-y-3 pb-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <Label>Use occupancy and lead time</Label>
-                      <p className="text-xs text-muted-foreground">Not only the last hour's bookings.</p>
-                    </div>
-                    <Switch checked={rule.smart_pricing_enabled} onCheckedChange={(smart_pricing_enabled) => setRule({ ...rule, smart_pricing_enabled })} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><Label className="text-xs">Near-term window (days)</Label><Input type="number" min={1} max={365} disabled={!rule.smart_pricing_enabled} value={rule.near_term_days} onChange={(e) => setRule({ ...rule, near_term_days: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">Dates this close are the ones worth stimulating.</p></div>
-                    <div><Label className="text-xs">Weak occupancy below (%)</Label><Input type="number" min={1} max={100} disabled={!rule.smart_pricing_enabled} value={rule.low_occupancy_pct} onChange={(e) => setRule({ ...rule, low_occupancy_pct: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">Only dates below this are marked down.</p></div>
-                    <div><Label className="text-xs">Strong demand starts after (days)</Label><Input type="number" min={1} max={365} disabled={!rule.smart_pricing_enabled} value={rule.long_lead_days} onChange={(e) => setRule({ ...rule, long_lead_days: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">Early demand counts from this lead time onwards.</p></div>
-                    <div><Label className="text-xs">Strong occupancy above (%)</Label><Input type="number" min={1} max={100} disabled={!rule.smart_pricing_enabled} value={rule.high_occupancy_pct} onChange={(e) => setRule({ ...rule, high_occupancy_pct: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">A far date this full is treated as strong demand.</p></div>
-                    <div><Label className="text-xs">Strong demand increase ({rule.currency})</Label><Input type="number" step={0.01} min={0} disabled={!rule.smart_pricing_enabled} value={rule.strong_demand_increase} onChange={(e) => setRule({ ...rule, strong_demand_increase: Number(e.target.value) })} /><p className="text-[11px] text-muted-foreground mt-1">0 means never raise on strength alone.</p></div>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div><Label>AI-assisted pricing</Label><p className="text-xs text-muted-foreground">Asks your own OpenAI account to review each check. It can soften or cancel a move, never make one bigger.</p></div>
-                    <Switch checked={rule.ai_assist_enabled} disabled={!rule.smart_pricing_enabled} onCheckedChange={(ai_assist_enabled) => setRule({ ...rule, ai_assist_enabled })} />
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
+                <NumField
+                  label="Most one booking may add"
+                  suffix={cur}
+                  hint={<>A hard ceiling on a single move, whichever rule triggered it.</>}
+                  value={rule.maximum_increase ?? ""}
+                  onChange={(e) => setRule({ ...rule, maximum_increase: e.target.value ? Number(e.target.value) : null })}
+                />
 
-              <AccordionItem value="demand">
-                <AccordionTrigger className="py-3 text-left">
-                  <div>
-                    <p className="text-sm font-medium">Immediate window, demand spikes &amp; events</p>
-                    <p className="text-xs font-normal text-muted-foreground">
-                      {rule.immediate_sell_mode_enabled
-                        ? `Sell-now inside ${rule.immediate_window_days}d, step ${rule.currency} ${rule.immediate_markdown_step}`
-                        : "Sell-now window off"}
-                      {rule.spike_detection_enabled ? ` · spike at +${rule.spike_threshold_pct}% in ${rule.spike_lookback_days}d` : ""}
-                      {rule.event_surcharge_auto ? ` · events +${rule.currency} ${rule.event_surcharge_eur}` : ""}
-                    </p>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="space-y-3 pb-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <Label>Sell the next days fast</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Inside this window a quiet date is lowered even when occupancy still looks acceptable — an empty room tonight earns nothing.
-                      </p>
-                    </div>
-                    <Switch checked={rule.immediate_sell_mode_enabled} onCheckedChange={(immediate_sell_mode_enabled) => setRule({ ...rule, immediate_sell_mode_enabled })} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label className="text-xs">Immediate window (days)</Label>
-                      <Input type="number" min={1} max={60} disabled={!rule.immediate_sell_mode_enabled}
-                        value={rule.immediate_window_days}
-                        onChange={(e) => setRule({ ...rule, immediate_window_days: Number(e.target.value) })} />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Markdown step inside the window ({rule.currency})</Label>
-                      <Input type="number" step={0.5} min={0} disabled={!rule.immediate_sell_mode_enabled}
-                        value={rule.immediate_markdown_step}
-                        onChange={(e) => setRule({ ...rule, immediate_markdown_step: Number(e.target.value) })} />
-                    </div>
-                  </div>
+                <ToggleRow
+                  title="Detect demand spikes"
+                  desc="A far date filling faster than usual is raised before it sells out too cheaply."
+                  hint={<><strong>Example:</strong> a date gains {rule.spike_threshold_pct}% occupancy compared with {rule.spike_lookback_days} days ago — that is treated as a spike.</>}
+                  checked={rule.spike_detection_enabled}
+                  onChange={(spike_detection_enabled) => setRule({ ...rule, spike_detection_enabled })}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <NumField
+                    label="Spike threshold" suffix="%" min={1} max={50}
+                    disabled={!rule.spike_detection_enabled}
+                    value={rule.spike_threshold_pct}
+                    onChange={(e) => setRule({ ...rule, spike_threshold_pct: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Compared with" suffix="days" min={1} max={30}
+                    disabled={!rule.spike_detection_enabled}
+                    value={rule.spike_lookback_days}
+                    onChange={(e) => setRule({ ...rule, spike_lookback_days: Number(e.target.value) })}
+                  />
+                </div>
 
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <Label>Detect demand spikes</Label>
-                      <p className="text-xs text-muted-foreground">
-                        A far date filling faster than usual is raised before it sells out too cheaply.
-                      </p>
-                    </div>
-                    <Switch checked={rule.spike_detection_enabled} onCheckedChange={(spike_detection_enabled) => setRule({ ...rule, spike_detection_enabled })} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label className="text-xs">Spike threshold (% occupancy gain)</Label>
-                      <Input type="number" min={1} max={50} disabled={!rule.spike_detection_enabled}
-                        value={rule.spike_threshold_pct}
-                        onChange={(e) => setRule({ ...rule, spike_threshold_pct: Number(e.target.value) })} />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Compared with (days ago)</Label>
-                      <Input type="number" min={1} max={30} disabled={!rule.spike_detection_enabled}
-                        value={rule.spike_lookback_days}
-                        onChange={(e) => setRule({ ...rule, spike_lookback_days: Number(e.target.value) })} />
-                    </div>
-                  </div>
+                <ToggleRow
+                  title="Charge more on event dates"
+                  desc="Uses the approved events calendar — high impact gets the full surcharge, medium half."
+                  hint={<><strong>Example:</strong> a concert weekend marked high impact adds {cur} {rule.event_surcharge_eur} on top, still inside the daily rise limit.</>}
+                  checked={rule.event_surcharge_auto}
+                  onChange={(event_surcharge_auto) => setRule({ ...rule, event_surcharge_auto })}
+                />
+                <NumField
+                  label="Event surcharge" suffix={cur} step={0.5} min={0}
+                  disabled={!rule.event_surcharge_auto}
+                  value={rule.event_surcharge_eur}
+                  onChange={(e) => setRule({ ...rule, event_surcharge_eur: Number(e.target.value) })}
+                />
+              </Section>
 
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <Label>Charge more on event dates</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Uses the approved events calendar. High-impact dates get the full surcharge, medium half of it.
-                      </p>
-                    </div>
-                    <Switch checked={rule.event_surcharge_auto} onCheckedChange={(event_surcharge_auto) => setRule({ ...rule, event_surcharge_auto })} />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Event surcharge ({rule.currency})</Label>
-                    <Input type="number" step={0.5} min={0} disabled={!rule.event_surcharge_auto}
-                      value={rule.event_surcharge_eur}
-                      onChange={(e) => setRule({ ...rule, event_surcharge_eur: Number(e.target.value) })} />
-                    <p className="text-[11px] text-muted-foreground mt-1">
-                      Always kept inside the daily rise limit for that date.
-                    </p>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
+              {/* 3 — Lowering prices */}
+              <Section
+                value="lower"
+                icon={TrendingDown}
+                title="Lowering prices"
+                summary={
+                  rule.no_pickup_enabled
+                    ? `−${cur} ${money(rule.no_pickup_decrease)} per quiet check · cap ${cur} ${money(rule.max_daily_decrease_per_date)}/day`
+                    : "Off — prices never drop automatically"
+                }
+              >
+                <ToggleRow
+                  title="Lower dates that are not selling"
+                  desc="Only dates that picked up nothing since the previous check."
+                  hint={<><strong>Example:</strong> 12 October got no booking in the last hour, so it loses {cur} {money(rule.no_pickup_decrease)} — one step per date, however many room types it has.</>}
+                  checked={rule.no_pickup_enabled}
+                  onChange={(no_pickup_enabled) => setRule({ ...rule, no_pickup_enabled })}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <NumField
+                    label="Drop per check" suffix={cur}
+                    step={cur === "EUR" ? 0.01 : 1} min={0.01}
+                    disabled={!rule.no_pickup_enabled}
+                    hint={<>Keep it small — this can run many times a day.{cur !== "EUR" ? ` In ${cur} use realistic steps (1000–3000), not 1–3.` : ""}</>}
+                    value={rule.no_pickup_decrease}
+                    onChange={(e) => setRule({ ...rule, no_pickup_decrease: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Most a date may fall in a day" suffix={cur}
+                    step={0.01} min={0.01}
+                    disabled={!rule.no_pickup_enabled}
+                    hint={<>The safety brake on markdowns: no date can lose more than this in 24 hours.</>}
+                    value={rule.max_daily_decrease_per_date}
+                    onChange={(e) => setRule({ ...rule, max_daily_decrease_per_date: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Manage dates up to" suffix="days"
+                    min={1} max={730}
+                    hint={<>How far ahead automation is allowed to look. 365 covers a full year of the calendar.</>}
+                    value={rule.future_booking_window_days}
+                    onChange={(e) => setRule({ ...rule, future_booking_window_days: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Leave manual edits alone" suffix="h"
+                    min={0} max={72}
+                    hint={<>After someone types a price by hand, automation stays off that date for this long.</>}
+                    value={rule.manual_markdown_hold_hours}
+                    onChange={(e) => setRule({ ...rule, manual_markdown_hold_hours: Number(e.target.value) })}
+                  />
+                </div>
 
-              <AccordionItem value="leadbands">
-                <AccordionTrigger className="py-3 text-left">
-                  <div>
-                    <p className="text-sm font-medium">Lead-time bands &amp; far-out bookings</p>
-                    <p className="text-xs font-normal text-muted-foreground">
-                      {rule.lead_bands_enabled
-                        ? `Sell 0–${rule.immediate_window_days}d · react ${rule.immediate_window_days + 1}–${rule.near_term_days}d · protect ${rule.near_term_days + 1}–${rule.far_out_days}d · lift beyond ${rule.far_out_days}d`
-                        : "One flat rule across the whole calendar"}
-                    </p>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="space-y-3 pb-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <Label>Price by how far away the stay date is</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Close to arrival the price is a selling tool; further out it is protected. Without this, one flat rule walks distant dates down hour after hour.
-                      </p>
-                    </div>
-                    <Switch checked={rule.lead_bands_enabled} onCheckedChange={(lead_bands_enabled) => setRule({ ...rule, lead_bands_enabled })} />
-                  </div>
+                <ToggleRow
+                  title="Sell the next days fast"
+                  desc="Very close to arrival, a quiet date is lowered even if occupancy still looks acceptable."
+                  hint={<><strong>Example:</strong> inside {rule.immediate_window_days} days an empty room tonight earns nothing, so the price steps down by {cur} {rule.immediate_markdown_step}.</>}
+                  checked={rule.immediate_sell_mode_enabled}
+                  onChange={(immediate_sell_mode_enabled) => setRule({ ...rule, immediate_sell_mode_enabled })}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <NumField
+                    label="Sell-now window" suffix="days" min={1} max={60}
+                    disabled={!rule.immediate_sell_mode_enabled}
+                    value={rule.immediate_window_days}
+                    onChange={(e) => setRule({ ...rule, immediate_window_days: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Step inside the window" suffix={cur} step={0.5} min={0}
+                    disabled={!rule.immediate_sell_mode_enabled}
+                    value={rule.immediate_markdown_step}
+                    onChange={(e) => setRule({ ...rule, immediate_markdown_step: Number(e.target.value) })}
+                  />
+                </div>
 
-                  <div className="rounded-md border bg-muted/40 p-3 text-xs space-y-1">
-                    <p><span className="font-medium">0–{rule.immediate_window_days} days</span> — sell: quiet dates are lowered by the full sell-now step.</p>
-                    <p><span className="font-medium">{rule.immediate_window_days + 1}–{rule.near_term_days} days</span> — react to pickup: new bookings raise the price, a quiet check takes off {rule.currency} {rule.no_pickup_decrease}.</p>
-                    <p><span className="font-medium">{rule.near_term_days + 1}–{rule.far_out_days} days</span> — protect: rises on pickup, only the small step down when demand is clearly weak.</p>
-                    <p><span className="font-medium">Beyond {rule.far_out_days} days</span> — lift: any booking earns the far-out surcharge, markdowns stay token-sized.</p>
-                    <p className="text-muted-foreground">Band edges come from the sell-now window, “near-term days” and the far-out setting below.</p>
-                  </div>
+                <ToggleRow
+                  title="Wait after a cancellation"
+                  desc="Give the room a chance to sell again before lowering the price."
+                  hint={<>The cell history explains the wait and when it ends. 0 minutes lowers on the very next check.</>}
+                  checked={rule.cancellation_markdown_enabled}
+                  onChange={(cancellation_markdown_enabled) => setRule({ ...rule, cancellation_markdown_enabled })}
+                />
+                <NumField
+                  label="Wait before lowering" suffix="min" min={0} max={1440} step={15}
+                  disabled={!rule.cancellation_markdown_enabled}
+                  value={rule.cancellation_wait_minutes}
+                  onChange={(e) => setRule({ ...rule, cancellation_wait_minutes: Number(e.target.value) })}
+                />
+              </Section>
 
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <Label>Lift the price on far-out bookings</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Someone booking months ahead is planning, not bargain hunting — the date still has months to sell.
-                      </p>
+              {/* 4 — Guardrails */}
+              <Section
+                value="guards"
+                icon={ShieldCheck}
+                title="Guardrails & limits"
+                summary={`Never below ${cur} ${rule.minimum_adr ?? "—"} · max +${cur} ${rule.max_daily_increase_per_date}/date/day${rule.whole_number_prices ? " · whole prices" : ""}`}
+              >
+                <div className="grid grid-cols-2 gap-3">
+                  <NumField
+                    label="Never price below" suffix={cur}
+                    hint={<>Your floor. No automatic move may publish a price under this, whatever the demand.</>}
+                    value={rule.minimum_adr ?? ""}
+                    onChange={(e) => setRule({ ...rule, minimum_adr: e.target.value ? Number(e.target.value) : null })}
+                  />
+                  <NumField
+                    label="Most a date may rise in a day" suffix={cur}
+                    hint={<><strong>Example:</strong> five bookings arrive for one date — the date still rises by at most this much that day.</>}
+                    value={rule.max_daily_increase_per_date}
+                    onChange={(e) => setRule({ ...rule, max_daily_increase_per_date: Number(e.target.value) })}
+                  />
+                </div>
+
+                <ToggleRow
+                  title="Last-minute guard"
+                  desc={`Inside ${rule.short_window_days} days a rise needs the date to be selling well already.`}
+                  hint={<>Close to arrival an empty date must not price itself out of the market just because one booking arrived. Markdowns still work.</>}
+                  checked={rule.short_window_guard_enabled}
+                  onChange={(short_window_guard_enabled) => setRule({ ...rule, short_window_guard_enabled })}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <NumField
+                    label="Protected window" suffix="days" min={0} max={90}
+                    disabled={!rule.short_window_guard_enabled}
+                    value={rule.short_window_days}
+                    onChange={(e) => setRule({ ...rule, short_window_days: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Only raise above" suffix="%" min={0} max={100}
+                    disabled={!rule.short_window_guard_enabled}
+                    value={rule.short_window_min_occupancy_pct}
+                    onChange={(e) => setRule({ ...rule, short_window_min_occupancy_pct: Number(e.target.value) })}
+                  />
+                </div>
+
+                <ToggleRow
+                  title="Stop raising a sold-out date"
+                  desc="Nothing left to sell means a higher price wins nothing."
+                  hint={<>The date becomes eligible again the moment occupancy drops after a cancellation.</>}
+                  checked={rule.sold_out_guard_enabled}
+                  onChange={(sold_out_guard_enabled) => setRule({ ...rule, sold_out_guard_enabled })}
+                />
+                <ToggleRow
+                  title="Protect nearly full dates"
+                  desc="Never mark down a date above the occupancy below."
+                  hint={<><strong>Example:</strong> a date at {rule.markdown_max_occupancy_pct}% is close to selling out — dropping its price gives money away.</>}
+                  checked={rule.protect_high_occupancy}
+                  onChange={(protect_high_occupancy) => setRule({ ...rule, protect_high_occupancy })}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <NumField
+                    label="Counts as sold out above" suffix="%" min={50} max={100}
+                    disabled={!rule.sold_out_guard_enabled}
+                    value={rule.sold_out_occupancy_pct}
+                    onChange={(e) => setRule({ ...rule, sold_out_occupancy_pct: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Protect above occupancy" suffix="%" min={1} max={100}
+                    disabled={!rule.protect_high_occupancy}
+                    value={rule.markdown_max_occupancy_pct}
+                    onChange={(e) => setRule({ ...rule, markdown_max_occupancy_pct: Number(e.target.value) })}
+                  />
+                </div>
+
+                <ToggleRow
+                  title="Whole prices only"
+                  desc="Never send cents to Previo — rises round up, markdowns round down."
+                  checked={rule.whole_number_prices}
+                  onChange={(whole_number_prices) => setRule({ ...rule, whole_number_prices })}
+                />
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1">
+                      <Label className="text-xs">Currency</Label>
+                      <Hint>The currency this property publishes in — three letters, e.g. EUR or HUF.</Hint>
                     </div>
-                    <Switch checked={rule.far_out_enabled} onCheckedChange={(far_out_enabled) => setRule({ ...rule, far_out_enabled })} />
+                    <Input value={rule.currency} maxLength={3} onChange={(e) => setRule({ ...rule, currency: e.target.value.toUpperCase() })} />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label className="text-xs">Far-out starts at (days before arrival)</Label>
-                      <Input type="number" min={30} max={365} disabled={!rule.far_out_enabled}
-                        value={rule.far_out_days}
-                        onChange={(e) => setRule({ ...rule, far_out_days: Number(e.target.value) })} />
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1">
+                      <Label className="text-xs">Property timezone</Label>
+                      <Hint>Used for daily caps and run times, e.g. Europe/Budapest.</Hint>
                     </div>
-                    <div>
-                      <Label className="text-xs">Surcharge per far-out booking ({rule.currency})</Label>
-                      <Input type="number" min={0} max={rule.currency === "EUR" ? 200 : 200000} disabled={!rule.far_out_enabled}
-                        value={rule.far_out_surcharge}
-                        onChange={(e) => setRule({ ...rule, far_out_surcharge: Number(e.target.value) })} />
-                    </div>
+                    <Input value={rule.run_timezone} onChange={(e) => setRule({ ...rule, run_timezone: e.target.value })} />
                   </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <Label>Notify the team about far-out bookings</Label>
-                      <p className="text-xs text-muted-foreground">
-                        A notification names the stay date, how far out it is and how much the price was lifted, so someone can review it.
-                      </p>
-                    </div>
-                    <Switch checked={rule.far_out_notify} disabled={!rule.far_out_enabled}
-                      onCheckedChange={(far_out_notify) => setRule({ ...rule, far_out_notify })} />
-                  </div>
-                  <div className="flex items-center justify-between gap-3 border-t pt-3">
-                    <div>
-                      <Label>Top up cheap far-out prices</Label>
-                      <p className="text-xs text-muted-foreground">
-                        A price still at or below the level below, that far before arrival, is lifted by a fixed amount on every automatic check.
-                      </p>
-                    </div>
-                    <Switch checked={rule.far_out_floor_topup_enabled}
-                      onCheckedChange={(far_out_floor_topup_enabled) => setRule({ ...rule, far_out_floor_topup_enabled })} />
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <Label className="text-xs">From (days out)</Label>
-                      <Input type="number" min={0} max={400} disabled={!rule.far_out_floor_topup_enabled}
-                        value={rule.far_out_floor_topup_days}
-                        onChange={(e) => setRule({ ...rule, far_out_floor_topup_days: Number(e.target.value) })} />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Price at or below ({rule.currency})</Label>
-                      <Input type="number" min={0} disabled={!rule.far_out_floor_topup_enabled}
-                        value={rule.far_out_floor_topup_threshold}
-                        onChange={(e) => setRule({ ...rule, far_out_floor_topup_threshold: Number(e.target.value) })} />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Top up by ({rule.currency})</Label>
-                      <Input type="number" min={0} disabled={!rule.far_out_floor_topup_enabled}
-                        value={rule.far_out_floor_topup_amount}
-                        onChange={(e) => setRule({ ...rule, far_out_floor_topup_amount: Number(e.target.value) })} />
-                    </div>
-                  </div>
+                </div>
+              </Section>
+
+              {/* 5 — Lead time */}
+              <Section
+                value="leadbands"
+                icon={CalendarRange}
+                title="Lead time & far-out dates"
+                summary={
+                  rule.lead_bands_enabled
+                    ? `Sell 0–${rule.immediate_window_days}d · react to ${rule.near_term_days}d · protect to ${rule.far_out_days}d · lift beyond`
+                    : "One flat rule across the whole calendar"
+                }
+              >
+                <ToggleRow
+                  title="Price by how far away the stay date is"
+                  desc="Close to arrival the price is a selling tool; further out it is protected."
+                  hint={<>Without this, one flat rule walks distant dates down hour after hour even though they have months left to sell.</>}
+                  checked={rule.lead_bands_enabled}
+                  onChange={(lead_bands_enabled) => setRule({ ...rule, lead_bands_enabled })}
+                />
+
+                <div className="space-y-1.5 rounded-lg border bg-muted/40 p-3 text-xs">
+                  <p><span className="font-medium">0–{rule.immediate_window_days} days</span> — sell: quiet dates take the full sell-now step down.</p>
+                  <p><span className="font-medium">{rule.immediate_window_days + 1}–{rule.near_term_days} days</span> — react: bookings raise the price, a quiet check takes off {cur} {money(rule.no_pickup_decrease)}.</p>
+                  <p><span className="font-medium">{rule.near_term_days + 1}–{rule.far_out_days} days</span> — protect: rises on pickup, only a small step down when demand is clearly weak.</p>
+                  <p><span className="font-medium">Beyond {rule.far_out_days} days</span> — lift: any booking earns the far-out surcharge, markdowns stay token-sized.</p>
+                </div>
+
+                <ToggleRow
+                  title="Lift the price on far-out bookings"
+                  desc="Someone booking months ahead is planning, not bargain hunting."
+                  hint={<><strong>Example:</strong> a booking {rule.far_out_days + 30} days out adds {cur} {rule.far_out_surcharge} to that date.</>}
+                  checked={rule.far_out_enabled}
+                  onChange={(far_out_enabled) => setRule({ ...rule, far_out_enabled })}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <NumField
+                    label="Far-out starts at" suffix="days" min={30} max={365}
+                    disabled={!rule.far_out_enabled}
+                    value={rule.far_out_days}
+                    onChange={(e) => setRule({ ...rule, far_out_days: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Surcharge per booking" suffix={cur} min={0} max={cur === "EUR" ? 200 : 200000}
+                    disabled={!rule.far_out_enabled}
+                    value={rule.far_out_surcharge}
+                    onChange={(e) => setRule({ ...rule, far_out_surcharge: Number(e.target.value) })}
+                  />
+                </div>
+                <ToggleRow
+                  title="Notify the team about far-out bookings"
+                  desc="A notification names the date, how far out it is and how much the price was lifted."
+                  checked={rule.far_out_notify}
+                  disabled={!rule.far_out_enabled}
+                  onChange={(far_out_notify) => setRule({ ...rule, far_out_notify })}
+                />
+
+                <ToggleRow
+                  title="Top up cheap far-out prices"
+                  desc="A distant date still sitting at a low price is lifted on every check."
+                  hint={<><strong>Example:</strong> {rule.far_out_floor_topup_days} days out and still at or below {cur} {rule.far_out_floor_topup_threshold} — add {cur} {rule.far_out_floor_topup_amount}.</>}
+                  checked={rule.far_out_floor_topup_enabled}
+                  onChange={(far_out_floor_topup_enabled) => setRule({ ...rule, far_out_floor_topup_enabled })}
+                />
+                <div className="grid grid-cols-3 gap-2">
+                  <NumField
+                    label="From" suffix="d" min={0} max={400}
+                    disabled={!rule.far_out_floor_topup_enabled}
+                    value={rule.far_out_floor_topup_days}
+                    onChange={(e) => setRule({ ...rule, far_out_floor_topup_days: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="At or below" suffix={cur} min={0}
+                    disabled={!rule.far_out_floor_topup_enabled}
+                    value={rule.far_out_floor_topup_threshold}
+                    onChange={(e) => setRule({ ...rule, far_out_floor_topup_threshold: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Top up by" suffix={cur} min={0}
+                    disabled={!rule.far_out_floor_topup_enabled}
+                    value={rule.far_out_floor_topup_amount}
+                    onChange={(e) => setRule({ ...rule, far_out_floor_topup_amount: Number(e.target.value) })}
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Every lift still respects the daily rise limit, the maximum single change and the sold-out guard.
+                </p>
+              </Section>
+
+              {/* 6 — Smart pricing */}
+              <Section
+                value="smart"
+                icon={Bot}
+                title="Smart pricing (advanced)"
+                summary={
+                  rule.smart_pricing_enabled
+                    ? `Near ${rule.near_term_days}d under ${rule.low_occupancy_pct}% · strong after ${rule.long_lead_days}d over ${rule.high_occupancy_pct}%${rule.ai_assist_enabled ? " · AI review on" : ""}`
+                    : "Off — only the rules above apply"
+                }
+              >
+                <ToggleRow
+                  title="Use occupancy and lead time, not only bookings"
+                  desc="Adds a view of how full a date already is."
+                  hint={<><strong>Example:</strong> a date 20 days out at 35% occupancy is stimulated, while the same date at 80% is left alone.</>}
+                  checked={rule.smart_pricing_enabled}
+                  onChange={(smart_pricing_enabled) => setRule({ ...rule, smart_pricing_enabled })}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <NumField
+                    label="Near-term window" suffix="days" min={1} max={365}
+                    disabled={!rule.smart_pricing_enabled}
+                    hint={<>Dates this close are the ones worth stimulating.</>}
+                    value={rule.near_term_days}
+                    onChange={(e) => setRule({ ...rule, near_term_days: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Weak occupancy below" suffix="%" min={1} max={100}
+                    disabled={!rule.smart_pricing_enabled}
+                    hint={<>Only dates below this are marked down.</>}
+                    value={rule.low_occupancy_pct}
+                    onChange={(e) => setRule({ ...rule, low_occupancy_pct: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Strong demand starts after" suffix="days" min={1} max={365}
+                    disabled={!rule.smart_pricing_enabled}
+                    value={rule.long_lead_days}
+                    onChange={(e) => setRule({ ...rule, long_lead_days: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Strong occupancy above" suffix="%" min={1} max={100}
+                    disabled={!rule.smart_pricing_enabled}
+                    value={rule.high_occupancy_pct}
+                    onChange={(e) => setRule({ ...rule, high_occupancy_pct: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Strong demand increase" suffix={cur} step={0.01} min={0}
+                    disabled={!rule.smart_pricing_enabled}
+                    hint={<>0 means never raise on strength alone.</>}
+                    value={rule.strong_demand_increase}
+                    onChange={(e) => setRule({ ...rule, strong_demand_increase: Number(e.target.value) })}
+                  />
+                </div>
+                <ToggleRow
+                  title="AI-assisted review"
+                  desc="Reviews each check and may soften or cancel a move — never make one bigger."
+                  hint={<>Uses your own OpenAI account. If it is unavailable, the ordinary rules simply continue.</>}
+                  checked={rule.ai_assist_enabled}
+                  disabled={!rule.smart_pricing_enabled}
+                  onChange={(ai_assist_enabled) => setRule({ ...rule, ai_assist_enabled })}
+                />
+              </Section>
+
+              {/* 7 — Plain words */}
+              <Section
+                value="plain"
+                icon={FileText}
+                title="What this rule does, in plain words"
+                summary={`${stats.pushed} sent · ${stats.failed} failed recently`}
+              >
+                <ul className="space-y-1.5 text-xs text-muted-foreground">
+                  {explain(rule, hotelName).map((line, index) => (
+                    <li key={index} className="flex gap-2"><span>•</span><span>{line}</span></li>
+                  ))}
+                </ul>
+                {rule.last_run_at && (
                   <p className="text-[11px] text-muted-foreground">
-                    Every lift still respects the daily rise limit, the maximum single change and the sold-out guard.
+                    Last checked {new Date(rule.last_run_at).toLocaleString()}.
                   </p>
-                </AccordionContent>
-              </AccordionItem>
-
-              <AccordionItem value="safety">
-
-                <AccordionTrigger className="py-3 text-left">
-                  <div>
-                    <p className="text-sm font-medium">Safety limits</p>
-                    <p className="text-xs font-normal text-muted-foreground">
-                      Min ADR {rule.minimum_adr ?? "—"} · protect above {rule.markdown_max_occupancy_pct}% · {rule.currency}
-                    </p>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="space-y-3 pb-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><Label className="text-xs">Minimum ADR (€)</Label><Input type="number" value={rule.minimum_adr ?? ""} onChange={(e) => setRule({ ...rule, minimum_adr: e.target.value ? Number(e.target.value) : null })} /></div>
-                    <div><Label className="text-xs">Max rise per date, per day (€)</Label><Input type="number" value={rule.max_daily_increase_per_date} onChange={(e) => setRule({ ...rule, max_daily_increase_per_date: Number(e.target.value) })} /></div>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div><Label>Protect nearly full dates</Label><p className="text-xs text-muted-foreground">Never mark down a sold-out date or one above the occupancy below.</p></div>
-                    <Switch checked={rule.protect_high_occupancy} onCheckedChange={(protect_high_occupancy) => setRule({ ...rule, protect_high_occupancy })} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><Label className="text-xs">Protect above occupancy (%)</Label><Input type="number" min={1} max={100} disabled={!rule.protect_high_occupancy} value={rule.markdown_max_occupancy_pct} onChange={(e) => setRule({ ...rule, markdown_max_occupancy_pct: Number(e.target.value) })} /></div>
-                    <div><Label className="text-xs">Currency</Label><Input value={rule.currency} maxLength={3} onChange={(e) => setRule({ ...rule, currency: e.target.value.toUpperCase() })} /></div>
-                  </div>
-                  <div><Label className="text-xs">Property timezone</Label><Input value={rule.run_timezone} onChange={(e) => setRule({ ...rule, run_timezone: e.target.value })} /></div>
-                </AccordionContent>
-              </AccordionItem>
-
-              <AccordionItem value="plain">
-                <AccordionTrigger className="py-3 text-left">
-                  <div>
-                    <p className="text-sm font-medium">What this rule does, in plain words</p>
-                    <p className="text-xs font-normal text-muted-foreground">
-                      Recent: {stats.pushed} pushed · {stats.failed} failed
-                    </p>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="pb-4">
-                  <ul className="space-y-1.5 text-xs text-muted-foreground">
-                    {explain(rule, hotelName).map((line, index) => (
-                      <li key={index} className="flex gap-2"><span>•</span><span>{line}</span></li>
-                    ))}
-                  </ul>
-                  {rule.last_run_at && (
-                    <p className="pt-2 text-[11px] text-muted-foreground">
-                      Last checked {new Date(rule.last_run_at).toLocaleString()}.
-                    </p>
-                  )}
-                  <p className="text-[11px] text-muted-foreground">
-                    Recent actions: {stats.pushed} pushed · {stats.failed} failed
-                    {stats.lastActionAt ? ` · last change ${new Date(stats.lastActionAt).toLocaleString()}` : ""}
-                  </p>
-                </AccordionContent>
-              </AccordionItem>
+                )}
+                <p className="text-[11px] text-muted-foreground">
+                  Recent actions: {stats.pushed} pushed · {stats.failed} failed
+                  {stats.lastActionAt ? ` · last change ${new Date(stats.lastActionAt).toLocaleString()}` : ""}
+                </p>
+              </Section>
             </Accordion>
           </div>
         )}
+
         <div className="flex flex-wrap gap-2 border-t bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <Button onClick={requestSave} disabled={saving || loading}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save automation rule</Button>
-          <Button
-            variant="outline"
-            disabled={running || loading}
-            onClick={() => void runNow()}
-          >
+          <Button className="flex-1" onClick={requestSave} disabled={saving || loading}>
+            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save settings
+          </Button>
+          <Button variant="outline" disabled={running || loading} onClick={() => void runNow()}>
             {running && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Run now
           </Button>
         </div>

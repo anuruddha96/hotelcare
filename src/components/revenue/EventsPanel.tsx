@@ -56,6 +56,15 @@ interface EventEdit {
   recurs_annually: boolean;
 }
 
+interface SearchRun {
+  source: string;
+  run_by_name: string | null;
+  events_found: number | null;
+  events_added: number | null;
+  created_at: string;
+  month: string | null;
+}
+
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const CATEGORIES = ["concert", "festival", "sports", "conference", "fair", "holiday", "other"];
 const IMPACTS = [
@@ -95,6 +104,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
   const [editingId, setEditingId] = useState<string | null>(null);
   const [edit, setEdit] = useState<EventEdit | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [lastRun, setLastRun] = useState<SearchRun | null>(null);
 
 
   // manual form
@@ -369,6 +379,13 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
             </Button>
           </span>
         </CardTitle>
+        {lastRun && (
+          <p className="text-xs text-muted-foreground">
+            {lastRun.source === "auto"
+              ? `We know you were busy, so we ran the automated search on ${new Date(lastRun.created_at).toLocaleDateString()} at ${new Date(lastRun.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} and found ${lastRun.events_added ?? 0} new event${(lastRun.events_added ?? 0) === 1 ? "" : "s"} for you.`
+              : `Last searched by ${lastRun.run_by_name ?? "a team member"} on ${new Date(lastRun.created_at).toLocaleDateString()} at ${new Date(lastRun.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${lastRun.events_added ?? 0} added.`}
+          </p>
+        )}
       </CardHeader>
 
       <CardContent className="space-y-3">
