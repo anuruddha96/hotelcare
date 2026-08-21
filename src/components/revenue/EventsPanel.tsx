@@ -56,6 +56,15 @@ interface EventEdit {
   recurs_annually: boolean;
 }
 
+interface SearchRun {
+  source: string;
+  run_by_name: string | null;
+  events_found: number | null;
+  events_added: number | null;
+  created_at: string;
+  month: string | null;
+}
+
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const CATEGORIES = ["concert", "festival", "sports", "conference", "fair", "holiday", "other"];
 const IMPACTS = [
