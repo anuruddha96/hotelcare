@@ -143,6 +143,12 @@ export default function Billing() {
 
   const trialActive = trialIsRunning(summary);
   const trialEnds = summary?.trial_ends_at ? new Date(summary.trial_ends_at) : null;
+  const activeSubs = (summary?.subscriptions ?? []).filter(isSubscriptionActive);
+  const nextRenewal = activeSubs
+    .map((s) => s.current_period_end)
+    .filter(Boolean)
+    .sort()[0] as string | undefined;
+  const activeMonthly = activeSubs.reduce((sum, s) => sum + s.quantity * s.unit_amount_cents, 0);
 
   return (
     <div className="min-h-screen bg-background">
@@ -162,17 +168,71 @@ export default function Billing() {
           </div>
         </div>
 
-        {trialActive && trialEnds && (
-          <Alert>
-            <Sparkles className="h-4 w-4" />
-            <AlertTitle>You're on a free trial</AlertTitle>
-            <AlertDescription>
-              Everything stays unlocked until{' '}
-              <strong>{trialEnds.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}</strong>. Set
-              up your subscription any time before then and nothing will be interrupted.
-            </AlertDescription>
-          </Alert>
+        {canSwitchOrg && orgs.length > 1 && (
+          <Card>
+            <CardContent className="pt-6 flex items-center gap-3 flex-wrap">
+              <span className="text-sm text-muted-foreground">Organization</span>
+              <Select value={orgSlug} onValueChange={setOrgSlug}>
+                <SelectTrigger className="max-w-xs">
+                  <SelectValue placeholder="Choose organization" />
+                </SelectTrigger>
+                <SelectContent>
+                  {orgs.map((o) => (
+                    <SelectItem key={o.slug} value={o.slug}>
+                      {o.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
         )}
+
+        {/* Current plan state — trial or live subscription with the renewal date. */}
+        <Card className={trialActive ? 'border-primary/40' : undefined}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              {trialActive ? <Sparkles className="h-5 w-5 text-primary" /> : <ShieldCheck className="h-5 w-5 text-primary" />}
+              Your plan
+            </CardTitle>
+            <CardDescription>
+              {trialActive
+                ? 'Everything is unlocked while your free trial runs.'
+                : activeSubs.length
+                  ? 'Your paid modules and the next renewal date.'
+                  : 'No modules are subscribed yet.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {trialActive && trialEnds ? (
+                <Badge className="text-sm py-1">Trial until {fmtDate(trialEnds.toISOString())}</Badge>
+              ) : activeSubs.length ? (
+                <Badge className="text-sm py-1">Subscription active</Badge>
+              ) : (
+                <Badge variant="secondary" className="text-sm py-1">Not subscribed</Badge>
+              )}
+              {activeSubs.length > 0 && (
+                <>
+                  <span className="text-sm text-muted-foreground">
+                    {activeSubs.length} module{activeSubs.length > 1 ? 's' : ''} · {formatMoney(activeMonthly, currency)} / month
+                    (excl. VAT)
+                  </span>
+                  {nextRenewal && (
+                    <span className="text-sm text-muted-foreground">Renews {fmtDate(nextRenewal)}</span>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={openPortal} disabled={busy}>
+                Manage payments
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+
 
         {error && (
           <Alert variant="destructive">
