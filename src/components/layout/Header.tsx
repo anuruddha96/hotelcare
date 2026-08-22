@@ -18,9 +18,10 @@ import { TrainingHelpButtonV2 as TrainingHelpButton } from '@/components/trainin
 import { InstallAppPrompt } from '@/components/InstallAppPrompt';
 import { LiveSyncIndicator } from '@/components/layout/LiveSyncIndicator';
 import { RevenueAutomationNotifications } from '@/components/revenue/RevenueAutomationNotifications';
-import { Building2, LogOut, Settings, User } from 'lucide-react';
+import { Building2, CreditCard, LogOut, Settings, User } from 'lucide-react';
 import hotelcareLogo from '@/assets/hotelcare-logo-mark.png';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
+import { isExecutiveRole } from '@/lib/roleAccess';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +33,7 @@ import {
 export function Header() {
   const { profile, user, signOut } = useAuth();
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<string | undefined>();
@@ -208,6 +210,12 @@ export function Header() {
                   <Settings className="mr-2 h-4 w-4" />
                   {t('common.settings')}
                 </DropdownMenuItem>
+                {(profile?.role === 'admin' || profile?.is_super_admin || isExecutiveRole(profile?.role)) && (
+                  <DropdownMenuItem onClick={() => navigate(`/${profile?.organization_slug ?? ''}/billing`)}>
+                    <CreditCard className="mr-2 h-4 w-4" />
+                    Payments
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => signOut()}>
                   <LogOut className="mr-2 h-4 w-4" />
