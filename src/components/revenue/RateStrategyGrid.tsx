@@ -2939,6 +2939,13 @@ export default function RateStrategyGrid({
                           </div>
                         );
                       }
+                      // When a room type closes out, show the price it closed
+                      // at — the full-occupancy rate live on that date.
+                      const byOccType = row.obkOfType ? priceMap.get(row.obkOfType) : undefined;
+                      const topOcc = byOccType ? Math.max(...Array.from(byOccType.keys())) : null;
+                      const closedAt = left === 0 && byOccType && topOcc != null
+                        ? byOccType.get(topOcc)?.get(d) ?? null
+                        : null;
                       return (
                         <button
                           key={d}
@@ -2946,13 +2953,23 @@ export default function RateStrategyGrid({
                           disabled
                           title={left === undefined
                             ? `${row.typeName} · availability not synced for ${d}`
-                            : `${row.typeName} · ${left} of ${units} left on ${d} — rooms to sell can only be changed in Previo`}
-                          className={`flex items-center justify-center shrink-0 text-[10px] tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
+                            : left === 0
+                              ? `${row.typeName} · sold out on ${d}${closedAt != null ? ` — closed at ${eur(closedAt)} for ${topOcc} ${topOcc === 1 ? "guest" : "guests"}` : ""}`
+                              : `${row.typeName} · ${left} of ${units} left on ${d} — rooms to sell can only be changed in Previo`}
+                          className={`flex flex-col items-center justify-center leading-tight shrink-0 text-[10px] tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
                           style={{ width: CELL_W }}
                         >
-                          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : left === undefined ? (canEditRates ? "·" : "") : left === 0 ? "Sold out" : `${left} left`}
+                          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : left === undefined ? (canEditRates ? "·" : "") : left === 0 ? (
+                            <>
+                              <span>Sold out</span>
+                              {closedAt != null && (
+                                <span className="text-[9px] font-semibold opacity-80">{priceLabel(closedAt)}</span>
+                              )}
+                            </>
+                          ) : `${left} left`}
                         </button>
                       );
+
                     }
                     if (row.kind !== "rate") {
                       const value = row.kind === "adr"
