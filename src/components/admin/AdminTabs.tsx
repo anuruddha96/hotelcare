@@ -64,6 +64,10 @@ export const AdminTabs = () => {
               <Mail className="w-4 h-4" />
               E-mail
             </TabsTrigger>
+            <TabsTrigger value="payments" className="gap-2">
+              <CreditCard className="w-4 h-4" />
+              Payments
+            </TabsTrigger>
             <TabsTrigger value="system" className="gap-2">
               <HardDrive className="w-4 h-4" />
               System
