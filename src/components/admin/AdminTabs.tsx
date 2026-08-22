@@ -115,6 +115,10 @@ export const AdminTabs = () => {
           <EmailSettingsPanel />
         </TabsContent>
 
+        <TabsContent value="payments">
+          <BillingSettingsPanel />
+        </TabsContent>
+
         <TabsContent value="system">
           <div className="space-y-6">
             <div>
