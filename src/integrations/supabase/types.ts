@@ -337,6 +337,114 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_events: {
+        Row: {
+          created_at: string
+          event_type: string | null
+          id: string
+          organization_slug: string | null
+          payload: Json | null
+          stripe_event_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          event_type?: string | null
+          id?: string
+          organization_slug?: string | null
+          payload?: Json | null
+          stripe_event_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_type?: string | null
+          id?: string
+          organization_slug?: string | null
+          payload?: Json | null
+          stripe_event_id?: string | null
+        }
+        Relationships: []
+      }
+      billing_hotel_overrides: {
+        Row: {
+          created_at: string
+          hotel_id: string
+          id: string
+          organization_slug: string
+          room_count: number | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          hotel_id: string
+          id?: string
+          organization_slug: string
+          room_count?: number | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          organization_slug?: string
+          room_count?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      billing_settings: {
+        Row: {
+          created_at: string
+          currency: string
+          id: string
+          operations_module_enabled: boolean
+          operations_module_label: string
+          operations_price_cents: number
+          organization_slug: string
+          payments_enabled: boolean
+          revenue_module_enabled: boolean
+          revenue_price_cents: number
+          stripe_publishable_key: string | null
+          trial_enabled: boolean
+          trial_months: number
+          trial_start: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          id?: string
+          operations_module_enabled?: boolean
+          operations_module_label?: string
+          operations_price_cents?: number
+          organization_slug: string
+          payments_enabled?: boolean
+          revenue_module_enabled?: boolean
+          revenue_price_cents?: number
+          stripe_publishable_key?: string | null
+          trial_enabled?: boolean
+          trial_months?: number
+          trial_start?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          id?: string
+          operations_module_enabled?: boolean
+          operations_module_label?: string
+          operations_price_cents?: number
+          organization_slug?: string
+          payments_enabled?: boolean
+          revenue_module_enabled?: boolean
+          revenue_price_cents?: number
+          stripe_publishable_key?: string | null
+          trial_enabled?: boolean
+          trial_months?: number
+          trial_start?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       booking_velocity_events: {
         Row: {
           acted: boolean
@@ -2787,6 +2895,60 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      module_subscriptions: {
+        Row: {
+          cancel_at_period_end: boolean
+          created_at: string
+          currency: string
+          current_period_end: string | null
+          hotel_id: string
+          id: string
+          module: string
+          organization_slug: string
+          quantity: number
+          status: string
+          stripe_customer_id: string | null
+          stripe_item_id: string | null
+          stripe_subscription_id: string | null
+          unit_amount_cents: number
+          updated_at: string
+        }
+        Insert: {
+          cancel_at_period_end?: boolean
+          created_at?: string
+          currency?: string
+          current_period_end?: string | null
+          hotel_id: string
+          id?: string
+          module: string
+          organization_slug: string
+          quantity?: number
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_item_id?: string | null
+          stripe_subscription_id?: string | null
+          unit_amount_cents?: number
+          updated_at?: string
+        }
+        Update: {
+          cancel_at_period_end?: boolean
+          created_at?: string
+          currency?: string
+          current_period_end?: string | null
+          hotel_id?: string
+          id?: string
+          module?: string
+          organization_slug?: string
+          quantity?: number
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_item_id?: string | null
+          stripe_subscription_id?: string | null
+          unit_amount_cents?: number
+          updated_at?: string
+        }
+        Relationships: []
       }
       monthly_adjustments: {
         Row: {
@@ -7789,6 +7951,7 @@ export type Database = {
       }
     }
     Functions: {
+      billable_room_count: { Args: { _hotel_id: string }; Returns: number }
       can_manage_slnt_schedule: {
         Args: { _hotel_id: string }
         Returns: boolean

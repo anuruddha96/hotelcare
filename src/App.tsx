@@ -34,6 +34,7 @@ const TrainingCenterPage = lazy(() => import("./pages/TrainingCenter"));
 const ReceptionHome = lazy(() => import("./pages/ReceptionHome"));
 const AssistantPage = lazy(() => import("./pages/AssistantPage"));
 const AssistantInsights = lazy(() => import("./pages/AssistantInsights"));
+const Billing = lazy(() => import("./pages/Billing"));
 
 // Lazy load non-critical global components
 const AssistantLauncher = lazy(() => import("@/components/assistant/AssistantLauncher"));
@@ -107,6 +108,7 @@ const TenantRouter = () => {
           <Route path="/assistant" element={<AssistantPage />} />
           <Route path="/assistant/:threadId" element={<AssistantPage />} />
           <Route path="/assistant-insights" element={<AssistantInsights />} />
+          <Route path="/billing" element={<Billing />} />
         </Routes>
         <AssistantLauncher />
       </Suspense>

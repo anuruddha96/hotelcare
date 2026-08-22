@@ -192,3 +192,9 @@ verify_jwt = false
 
 [functions.demand-events-auto]
 verify_jwt = false
+
+[functions.billing-manage]
+verify_jwt = false
+
+[functions.billing-webhook]
+verify_jwt = false
