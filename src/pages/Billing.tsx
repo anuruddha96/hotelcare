@@ -304,6 +304,15 @@ export default function Billing() {
                                 ? `${formatMoney(unit, currency)} × ${hotel.rooms} rooms = ${formatMoney(unit * hotel.rooms, currency)} / month`
                                 : 'Not available for your organization yet'}
                             </p>
+                            <p className="text-xs mt-0.5 text-muted-foreground">
+                              {active
+                                ? sub?.cancel_at_period_end
+                                  ? `Enabled — ends ${fmtDate(sub?.current_period_end)}`
+                                  : `Enabled${sub?.current_period_end ? ` — renews ${fmtDate(sub.current_period_end)}` : ''}`
+                                : trialActive
+                                  ? `Included in your trial until ${fmtDate(summary?.trial_ends_at)}`
+                                  : 'Not enabled'}
+                            </p>
                           </div>
                         </div>
                         {active ? (
@@ -313,6 +322,7 @@ export default function Billing() {
                             {formatMoney(unit * hotel.rooms, currency)}
                           </span>
                         ) : null}
+
                       </div>
                     );
                   })}
