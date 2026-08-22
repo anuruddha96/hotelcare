@@ -95,7 +95,7 @@ export default function Billing() {
     const { data, error: err } = await supabase.functions.invoke('billing-manage', {
       body: {
         action: 'checkout',
-        organizationSlug: profile?.organization_slug,
+        organizationSlug: orgSlug,
         returnUrl: window.location.href.split('?')[0],
         selections: lines.map((l) => ({ hotel_id: l.hotel_id, module: l.module })),
       },
@@ -114,7 +114,7 @@ export default function Billing() {
     const { data, error: err } = await supabase.functions.invoke('billing-manage', {
       body: {
         action: 'portal',
-        organizationSlug: profile?.organization_slug,
+        organizationSlug: orgSlug,
         returnUrl: window.location.href.split('?')[0],
       },
     });
