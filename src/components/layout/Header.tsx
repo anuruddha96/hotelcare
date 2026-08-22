@@ -211,11 +211,19 @@ export function Header() {
                   {t('common.settings')}
                 </DropdownMenuItem>
                 {(profile?.role === 'admin' || profile?.is_super_admin || isExecutiveRole(profile?.role)) && (
-                  <DropdownMenuItem onClick={() => navigate(`/${profile?.organization_slug ?? ''}/billing`)}>
-                    <CreditCard className="mr-2 h-4 w-4" />
-                    Payments
-                  </DropdownMenuItem>
+                  <>
+                    <DropdownMenuItem onClick={() => navigate(`/${profile?.organization_slug ?? ''}/billing`)}>
+                      <CreditCard className="mr-2 h-4 w-4" />
+                      Payments
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <SubscriptionStatusMenu
+                      organizationSlug={profile?.organization_slug}
+                      onManage={() => navigate(`/${profile?.organization_slug ?? ''}/billing`)}
+                    />
+                  </>
                 )}
+
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => signOut()}>
                   <LogOut className="mr-2 h-4 w-4" />
