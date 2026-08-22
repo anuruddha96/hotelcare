@@ -819,7 +819,6 @@ export default function RevenueHotelDetail() {
           step={syncError ? `Refresh paused: ${syncError}` : syncStep || `Opening ${hotelName || "your property"}…`}
           progress={Math.max(syncPct, live.loading ? 42 : 18)}
           error={syncError}
-          onRetry={() => void runSync(true)}
         />
         <Header />
         <div className="container mx-auto px-3 sm:px-4 pt-3">
