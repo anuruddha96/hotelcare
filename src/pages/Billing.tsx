@@ -23,17 +23,38 @@ import { ArrowLeft, CreditCard, ShieldCheck, Sparkles, BedDouble, Loader2 } from
 
 const MODULES: BillingModule[] = ['operations', 'revenue'];
 
+const fmtDate = (iso?: string | null) =>
+  iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : null;
+
 export default function Billing() {
   const { profile } = useAuth();
   const navigate = useNavigate();
   const canSee = profile?.role === 'admin' || profile?.is_super_admin || isExecutiveRole(profile?.role);
+  const canSwitchOrg = profile?.role === 'admin' || Boolean(profile?.is_super_admin);
 
-  const { summary, loading, error, reload } = useBilling(profile?.organization_slug);
+  const [orgs, setOrgs] = useState<{ slug: string; name: string }[]>([]);
+  const [orgSlug, setOrgSlug] = useState<string | undefined>(profile?.organization_slug ?? undefined);
+
+  useEffect(() => {
+    if (!orgSlug && profile?.organization_slug) setOrgSlug(profile.organization_slug);
+  }, [profile?.organization_slug, orgSlug]);
+
+  useEffect(() => {
+    if (!canSwitchOrg) return;
+    supabase
+      .from('organizations')
+      .select('slug, name')
+      .order('name')
+      .then(({ data }) => setOrgs((data ?? []) as { slug: string; name: string }[]));
+  }, [canSwitchOrg]);
+
+  const { summary, loading, error, reload } = useBilling(orgSlug);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
 
   const settings = summary?.settings;
   const currency = settings?.currency ?? 'EUR';
+
 
   const priceFor = (module: BillingModule) =>
     module === 'revenue' ? settings?.revenue_price_cents ?? 0 : settings?.operations_price_cents ?? 0;
