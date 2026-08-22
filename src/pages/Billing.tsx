@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -7,6 +7,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useAuth } from '@/hooks/useAuth';
 import {
@@ -23,17 +25,38 @@ import { ArrowLeft, CreditCard, ShieldCheck, Sparkles, BedDouble, Loader2 } from
 
 const MODULES: BillingModule[] = ['operations', 'revenue'];
 
+const fmtDate = (iso?: string | null) =>
+  iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : null;
+
 export default function Billing() {
   const { profile } = useAuth();
   const navigate = useNavigate();
   const canSee = profile?.role === 'admin' || profile?.is_super_admin || isExecutiveRole(profile?.role);
+  const canSwitchOrg = profile?.role === 'admin' || Boolean(profile?.is_super_admin);
 
-  const { summary, loading, error, reload } = useBilling(profile?.organization_slug);
+  const [orgs, setOrgs] = useState<{ slug: string; name: string }[]>([]);
+  const [orgSlug, setOrgSlug] = useState<string | undefined>(profile?.organization_slug ?? undefined);
+
+  useEffect(() => {
+    if (!orgSlug && profile?.organization_slug) setOrgSlug(profile.organization_slug);
+  }, [profile?.organization_slug, orgSlug]);
+
+  useEffect(() => {
+    if (!canSwitchOrg) return;
+    supabase
+      .from('organizations')
+      .select('slug, name')
+      .order('name')
+      .then(({ data }) => setOrgs((data ?? []) as { slug: string; name: string }[]));
+  }, [canSwitchOrg]);
+
+  const { summary, loading, error, reload } = useBilling(orgSlug);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
 
   const settings = summary?.settings;
   const currency = settings?.currency ?? 'EUR';
+
 
   const priceFor = (module: BillingModule) =>
     module === 'revenue' ? settings?.revenue_price_cents ?? 0 : settings?.operations_price_cents ?? 0;
@@ -74,7 +97,7 @@ export default function Billing() {
     const { data, error: err } = await supabase.functions.invoke('billing-manage', {
       body: {
         action: 'checkout',
-        organizationSlug: profile?.organization_slug,
+        organizationSlug: orgSlug,
         returnUrl: window.location.href.split('?')[0],
         selections: lines.map((l) => ({ hotel_id: l.hotel_id, module: l.module })),
       },
@@ -93,7 +116,7 @@ export default function Billing() {
     const { data, error: err } = await supabase.functions.invoke('billing-manage', {
       body: {
         action: 'portal',
-        organizationSlug: profile?.organization_slug,
+        organizationSlug: orgSlug,
         returnUrl: window.location.href.split('?')[0],
       },
     });
@@ -122,6 +145,12 @@ export default function Billing() {
 
   const trialActive = trialIsRunning(summary);
   const trialEnds = summary?.trial_ends_at ? new Date(summary.trial_ends_at) : null;
+  const activeSubs = (summary?.subscriptions ?? []).filter(isSubscriptionActive);
+  const nextRenewal = activeSubs
+    .map((s) => s.current_period_end)
+    .filter(Boolean)
+    .sort()[0] as string | undefined;
+  const activeMonthly = activeSubs.reduce((sum, s) => sum + s.quantity * s.unit_amount_cents, 0);
 
   return (
     <div className="min-h-screen bg-background">
@@ -141,17 +170,71 @@ export default function Billing() {
           </div>
         </div>
 
-        {trialActive && trialEnds && (
-          <Alert>
-            <Sparkles className="h-4 w-4" />
-            <AlertTitle>You're on a free trial</AlertTitle>
-            <AlertDescription>
-              Everything stays unlocked until{' '}
-              <strong>{trialEnds.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })}</strong>. Set
-              up your subscription any time before then and nothing will be interrupted.
-            </AlertDescription>
-          </Alert>
+        {canSwitchOrg && orgs.length > 1 && (
+          <Card>
+            <CardContent className="pt-6 flex items-center gap-3 flex-wrap">
+              <span className="text-sm text-muted-foreground">Organization</span>
+              <Select value={orgSlug} onValueChange={setOrgSlug}>
+                <SelectTrigger className="max-w-xs">
+                  <SelectValue placeholder="Choose organization" />
+                </SelectTrigger>
+                <SelectContent>
+                  {orgs.map((o) => (
+                    <SelectItem key={o.slug} value={o.slug}>
+                      {o.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
         )}
+
+        {/* Current plan state — trial or live subscription with the renewal date. */}
+        <Card className={trialActive ? 'border-primary/40' : undefined}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              {trialActive ? <Sparkles className="h-5 w-5 text-primary" /> : <ShieldCheck className="h-5 w-5 text-primary" />}
+              Your plan
+            </CardTitle>
+            <CardDescription>
+              {trialActive
+                ? 'Everything is unlocked while your free trial runs.'
+                : activeSubs.length
+                  ? 'Your paid modules and the next renewal date.'
+                  : 'No modules are subscribed yet.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {trialActive && trialEnds ? (
+                <Badge className="text-sm py-1">Trial until {fmtDate(trialEnds.toISOString())}</Badge>
+              ) : activeSubs.length ? (
+                <Badge className="text-sm py-1">Subscription active</Badge>
+              ) : (
+                <Badge variant="secondary" className="text-sm py-1">Not subscribed</Badge>
+              )}
+              {activeSubs.length > 0 && (
+                <>
+                  <span className="text-sm text-muted-foreground">
+                    {activeSubs.length} module{activeSubs.length > 1 ? 's' : ''} · {formatMoney(activeMonthly, currency)} / month
+                    (excl. VAT)
+                  </span>
+                  {nextRenewal && (
+                    <span className="text-sm text-muted-foreground">Renews {fmtDate(nextRenewal)}</span>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={openPortal} disabled={busy}>
+                Manage payments
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+
 
         {error && (
           <Alert variant="destructive">
@@ -221,6 +304,15 @@ export default function Billing() {
                                 ? `${formatMoney(unit, currency)} × ${hotel.rooms} rooms = ${formatMoney(unit * hotel.rooms, currency)} / month`
                                 : 'Not available for your organization yet'}
                             </p>
+                            <p className="text-xs mt-0.5 text-muted-foreground">
+                              {active
+                                ? sub?.cancel_at_period_end
+                                  ? `Enabled — ends ${fmtDate(sub?.current_period_end)}`
+                                  : `Enabled${sub?.current_period_end ? ` — renews ${fmtDate(sub.current_period_end)}` : ''}`
+                                : trialActive
+                                  ? `Included in your trial until ${fmtDate(summary?.trial_ends_at)}`
+                                  : 'Not enabled'}
+                            </p>
                           </div>
                         </div>
                         {active ? (
@@ -230,6 +322,7 @@ export default function Billing() {
                             {formatMoney(unit * hotel.rooms, currency)}
                           </span>
                         ) : null}
+
                       </div>
                     );
                   })}

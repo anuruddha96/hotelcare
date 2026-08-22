@@ -17,6 +17,8 @@ import { DirtyLinenCartBadge } from '@/components/dashboard/DirtyLinenCartBadge'
 import { TrainingHelpButtonV2 as TrainingHelpButton } from '@/components/training/v2/TrainingHelpButtonV2';
 import { InstallAppPrompt } from '@/components/InstallAppPrompt';
 import { LiveSyncIndicator } from '@/components/layout/LiveSyncIndicator';
+import { SubscriptionStatusMenu } from '@/components/layout/SubscriptionStatusMenu';
+
 import { RevenueAutomationNotifications } from '@/components/revenue/RevenueAutomationNotifications';
 import { Building2, CreditCard, LogOut, Settings, User } from 'lucide-react';
 import hotelcareLogo from '@/assets/hotelcare-logo-mark.png';
@@ -211,11 +213,19 @@ export function Header() {
                   {t('common.settings')}
                 </DropdownMenuItem>
                 {(profile?.role === 'admin' || profile?.is_super_admin || isExecutiveRole(profile?.role)) && (
-                  <DropdownMenuItem onClick={() => navigate(`/${profile?.organization_slug ?? ''}/billing`)}>
-                    <CreditCard className="mr-2 h-4 w-4" />
-                    Payments
-                  </DropdownMenuItem>
+                  <>
+                    <DropdownMenuItem onClick={() => navigate(`/${profile?.organization_slug ?? ''}/billing`)}>
+                      <CreditCard className="mr-2 h-4 w-4" />
+                      Payments
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <SubscriptionStatusMenu
+                      organizationSlug={profile?.organization_slug}
+                      onManage={() => navigate(`/${profile?.organization_slug ?? ''}/billing`)}
+                    />
+                  </>
                 )}
+
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => signOut()}>
                   <LogOut className="mr-2 h-4 w-4" />
