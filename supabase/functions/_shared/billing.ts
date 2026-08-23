@@ -40,13 +40,15 @@ export async function requireBillingCaller(req: Request): Promise<Caller | Respo
   const authHeader = req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) return json({ error: "Unauthorized" }, 401);
 
-  const anon = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY")!,
-    { global: { headers: { Authorization: authHeader } } },
-  );
-  const { data: userData, error } = await anon.auth.getUser();
-  if (error || !userData?.user) return json({ error: "Unauthorized" }, 401);
+  // Validate the caller's JWT with the service-role client. Using the anon
+  // client here breaks whenever the project's anon key/signing keys rotate,
+  // which surfaced as a blanket 401 on every billing call.
+  const token = authHeader.slice("Bearer ".length).trim();
+  const { data: userData, error } = await admin().auth.getUser(token);
+  if (error || !userData?.user) {
+    console.error("billing auth failed", error?.message);
+    return json({ error: "Unauthorized" }, 401);
+  }
 
   const { data: profile } = await admin()
     .from("profiles")
