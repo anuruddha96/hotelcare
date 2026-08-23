@@ -71,7 +71,15 @@ Deno.serve(async (req) => {
 
     if (action === "portal") {
       const customerId = (subs ?? []).find((s) => s.stripe_customer_id)?.stripe_customer_id;
-      if (!customerId) return json({ error: "No billing account yet" }, 400);
+      // No Stripe customer exists until the first successful checkout. This is a
+      // normal state (e.g. during the trial), not an error — tell the client so
+      // it can point the user at checkout instead of showing a failure.
+      if (!customerId) {
+        return json({
+          needs_checkout: true,
+          message: "No paid subscription yet — choose your modules and check out to create a billing account.",
+        });
+      }
       const session = await stripe.billingPortal.sessions.create({
         customer: customerId,
         return_url: String(body.returnUrl ?? req.headers.get("origin") ?? ""),
