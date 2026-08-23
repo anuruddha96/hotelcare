@@ -121,7 +121,11 @@ export default function Billing() {
       },
     });
     setBusy(false);
-    const payload = data as { url?: string; error?: string } | null;
+    const payload = data as { url?: string; error?: string; needs_checkout?: boolean; message?: string } | null;
+    if (payload?.needs_checkout) {
+      toast.info(payload.message ?? 'No paid subscription yet — select your modules below to get started.');
+      return;
+    }
     if (err || payload?.error) {
       toast.error(payload?.error ?? err?.message ?? 'Billing portal unavailable');
       return;
