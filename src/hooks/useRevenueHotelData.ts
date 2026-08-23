@@ -144,64 +144,109 @@ export function useRevenueHotelData(
   const movementSince = addDays(today, -movementLookbackDays);
 
 
-  const reload = useCallback(async () => {
+  /** Last stay date already present in state — lets growth fetch only new days. */
+  const loadedThroughRef = useRef<string | null>(null);
+
+  /** The five big per-date feeds for one date range. */
+  const fetchRange = useCallback(async (from: string, to: string) => {
+    const [nightRows, snapRows, rateRows, cancelRows, movementRows] = await Promise.all([
+      fetchAll<BookingNight>(
+        () => supabase.from("revenue_booking_nights") as any,
+        (q) => q.select("stay_date, res_id, room_key, obk_id, room_type_name, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, guests")
+          .eq("hotel_id", hotelId).gte("stay_date", from).lte("stay_date", to)
+          .order("stay_date").order("res_id").order("room_key", { nullsFirst: true }),
+      ),
+      fetchAll<DailySnapshot>(
+        () => supabase.from("revenue_daily_snapshots") as any,
+        // Paging needs a total order: thousands of rows share the same
+        // captured_date, and ties make Postgres return them in an arbitrary
+        // order per page, so rows get skipped or repeated between pages.
+        (q) => q.select("stay_date, captured_date, captured_at, rooms_sold, rooms_available, occupancy_pct, revenue_eur, adr_eur, new_bookings")
+          .eq("hotel_id", hotelId).gte("stay_date", from).lte("stay_date", to)
+          .order("stay_date").order("captured_at", { ascending: false }),
+      ),
+      fetchAll<RoomTypeRate>(
+        () => supabase.from("revenue_room_type_rates") as any,
+        // Same here — captured_at is identical across a whole sync batch,
+        // which is exactly how whole months of rates went missing.
+        (q) => q.select("stay_date, obk_id, room_type_name, occupancy, price, currency, rate_plan_id, captured_at, updated_at")
+          .eq("hotel_id", hotelId).gte("stay_date", from).lte("stay_date", to)
+          .order("stay_date").order("obk_id").order("occupancy").order("captured_at", { ascending: false }),
+      ),
+      fetchAll<CancelledNight>(
+        () => supabase.from("revenue_cancelled_nights") as any,
+        (q) => q.select("stay_date, res_id, room_key, obk_id, room_type_name, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, guests, cancelled_at")
+          .eq("hotel_id", hotelId).gte("stay_date", from).lte("stay_date", to)
+          .order("stay_date").order("res_id").order("room_key", { nullsFirst: true }),
+      ),
+      fetchAll<PickupMovement>(
+        () => supabase.from("pickup_snapshots") as any,
+        // Newest captures first and only the dates on screen: if the page
+        // budget is ever hit we lose old history, never the current window.
+        (q) => q.select("stay_date, delta, captured_at")
+          .eq("hotel_id", hotelId)
+          .eq("source", "previo_sync_diff")
+          .gte("captured_at", `${movementSince}T00:00:00Z`)
+          .gte("stay_date", from).lte("stay_date", to)
+          .neq("delta", 0)
+          .order("captured_at", { ascending: false })
+          .order("stay_date"),
+      ),
+    ]);
+    return { nightRows, snapRows, rateRows, cancelRows, movementRows };
+  }, [hotelId, movementSince]);
+
+  /** Newest capture per visible cell — stale duplicates must never win. */
+  const dedupeRates = (rows: RoomTypeRate[]): RoomTypeRate[] => {
+    const newest = new Map<string, RoomTypeRate>();
+    const sorted = [...rows].sort((a, b) => {
+      const aTime = Date.parse(a.updated_at ?? a.captured_at ?? "") || 0;
+      const bTime = Date.parse(b.updated_at ?? b.captured_at ?? "") || 0;
+      return bTime - aTime;
+    });
+    for (const rate of sorted) {
+      const key = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
+      if (!newest.has(key)) newest.set(key, rate);
+    }
+    return Array.from(newest.values());
+  };
+
+  const runLoad = useCallback(async (incremental: boolean) => {
     if (!hotelId) { setLoading(false); return; }
     // Several page-level events can ask for the same payload at once. Share the
     // active request instead of issuing another seven paginated query groups.
     if (inFlightRef.current) return inFlightRef.current;
     const requestVersion = ++requestVersionRef.current;
+    const extendFrom = incremental && loadedThroughRef.current
+      ? addDays(loadedThroughRef.current, 1)
+      : null;
     const request = (async () => {
     // Keep the last successful calendar mounted during background refreshes.
     // `loading` is only a blocking state before the first successful payload.
     if (!hasPayloadRef.current) setLoading(true);
     setError(null);
     try {
-      const [rt, nightRows, snapRows, rateRows, cancelRows, movementRows, settings, sync] = await Promise.all([
+      // Growing the horizon reads ONLY the new days and merges them in: the
+      // first 60 days are never fetched a second and third time.
+      if (extendFrom && extendFrom <= horizonEnd) {
+        const part = await fetchRange(extendFrom, horizonEnd);
+        if (requestVersion !== requestVersionRef.current) return;
+        setNights((cur) => [...cur, ...part.nightRows]);
+        setSnapshots((cur) => [...cur, ...part.snapRows]);
+        setRates((cur) => [...cur, ...dedupeRates(part.rateRows)]);
+        setCancellations((cur) => [...cur, ...part.cancelRows]);
+        setMovements((cur) => [...cur, ...part.movementRows]);
+        loadedThroughRef.current = horizonEnd;
+        setPayloadTick((t) => t + 1);
+        return;
+      }
+
+      const [rt, ranged, settings, sync] = await Promise.all([
         supabase.from("room_types")
           .select("id, name, pms_room_id, num_rooms, is_reference, derivation_mode, derivation_value, sort_order, is_sellable, counts_toward_inventory, name_translations")
           .eq("hotel_id", hotelId).order("sort_order"),
-        fetchAll<BookingNight>(
-          () => supabase.from("revenue_booking_nights") as any,
-          (q) => q.select("stay_date, res_id, room_key, obk_id, room_type_name, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, guests")
-            .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
-            .order("stay_date").order("res_id").order("room_key", { nullsFirst: true }),
-        ),
-        fetchAll<DailySnapshot>(
-          () => supabase.from("revenue_daily_snapshots") as any,
-          // Paging needs a total order: thousands of rows share the same
-          // captured_date, and ties make Postgres return them in an arbitrary
-          // order per page, so rows get skipped or repeated between pages.
-          (q) => q.select("stay_date, captured_date, captured_at, rooms_sold, rooms_available, occupancy_pct, revenue_eur, adr_eur, new_bookings")
-            .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
-            .order("stay_date").order("captured_at", { ascending: false }),
-        ),
-        fetchAll<RoomTypeRate>(
-          () => supabase.from("revenue_room_type_rates") as any,
-          // Same here — captured_at is identical across a whole sync batch,
-          // which is exactly how whole months of rates went missing.
-          (q) => q.select("stay_date, obk_id, room_type_name, occupancy, price, currency, rate_plan_id, captured_at, updated_at")
-            .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
-            .order("stay_date").order("obk_id").order("occupancy").order("captured_at", { ascending: false }),
-        ),
-        fetchAll<CancelledNight>(
-          () => supabase.from("revenue_cancelled_nights") as any,
-          (q) => q.select("stay_date, res_id, room_key, obk_id, room_type_name, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, guests, cancelled_at")
-            .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonEnd)
-            .order("stay_date").order("res_id").order("room_key", { nullsFirst: true }),
-        ),
-        fetchAll<PickupMovement>(
-          () => supabase.from("pickup_snapshots") as any,
-          // Newest captures first and only the dates on screen: if the page
-          // budget is ever hit we lose old history, never the current window.
-          (q) => q.select("stay_date, delta, captured_at")
-            .eq("hotel_id", hotelId)
-            .eq("source", "previo_sync_diff")
-            .gte("captured_at", `${movementSince}T00:00:00Z`)
-            .gte("stay_date", today).lte("stay_date", horizonEnd)
-            .neq("delta", 0)
-            .order("captured_at", { ascending: false })
-            .order("stay_date"),
-        ),
+
+        fetchRange(today, horizonEnd),
 
         supabase.from("hotel_revenue_settings")
           .select("sellable_rooms, rate_warn_below_eur, rate_critical_below_eur, rate_max_sane_eur, occupancy_low_pct, occupancy_high_pct, pickup_strong_threshold, base_currency, eur_conversion_rate")
@@ -216,29 +261,19 @@ export function useRevenueHotelData(
       // selected property's calendar.
       if (requestVersion !== requestVersionRef.current) return;
 
-      
       setRoomTypes(((rt.data ?? []) as any[]).map((r) => ({
         ...r,
         name_translations: (r.name_translations ?? {}) as Record<string, string>,
       })) as RevenueRoomType[]);
-      setNights(nightRows);
-      setSnapshots(snapRows);
+      setNights(ranged.nightRows);
+      setSnapshots(ranged.snapRows);
       // Previo can retain historical rows for an older pricelist. Keep the
       // newest capture for each visible cell so stale duplicates never win by
       // database return order after a successful push.
-      const newestRates = new Map<string, RoomTypeRate>();
-      rateRows.sort((a, b) => {
-        const aTime = Date.parse(a.updated_at ?? a.captured_at ?? "") || 0;
-        const bTime = Date.parse(b.updated_at ?? b.captured_at ?? "") || 0;
-        return bTime - aTime;
-      });
-      for (const rate of rateRows) {
-        const key = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
-        if (!newestRates.has(key)) newestRates.set(key, rate);
-      }
-      setRates(Array.from(newestRates.values()));
-      setCancellations(cancelRows);
-      setMovements(movementRows);
+      setRates(dedupeRates(ranged.rateRows));
+      setCancellations(ranged.cancelRows);
+      setMovements(ranged.movementRows);
+      loadedThroughRef.current = horizonEnd;
       const s = (settings as any)?.data ?? null;
       setSellableOverride((s?.sellable_rooms as number | null) ?? null);
       // The safety-net limits are stored as euro amounts. A property that
@@ -272,7 +307,10 @@ export function useRevenueHotelData(
     try { await request; } finally {
       if (inFlightRef.current === request) inFlightRef.current = null;
     }
-  }, [hotelId, activeHorizon, today, horizonEnd]);
+  }, [hotelId, today, horizonEnd, fetchRange]);
+
+  /** A full re-read: used after a sync or a price push. */
+  const reload = useCallback(async () => { await runLoad(false); }, [runLoad]);
 
   useEffect(() => {
     // Only a property switch invalidates what is on screen. Growing the horizon
@@ -280,10 +318,17 @@ export function useRevenueHotelData(
     requestVersionRef.current += 1;
     inFlightRef.current = null;
     hasPayloadRef.current = false;
+    loadedThroughRef.current = null;
   }, [hotelId]);
 
 
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    const grew = hasPayloadRef.current
+      && loadedThroughRef.current !== null
+      && horizonEnd > loadedThroughRef.current;
+    void runLoad(grew);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runLoad]);
 
   // Physical inventory. Previo lists the same physical rooms twice (unit groups
   // AND rate-plan room types) plus non-room products, so summing every row
