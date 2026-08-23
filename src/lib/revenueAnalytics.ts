@@ -402,6 +402,7 @@ export function buildDayMetrics(params: {
       pickupLost: syncedLost.get(d) ?? (durableMovement !== undefined || movements.length > 0 ? 0 : Math.max(0, cancelledN)),
       baselineAvailable: base !== undefined,
       netPickup: net,
+      hasData: evidence.has(d),
     };
   });
 }
