@@ -132,8 +132,9 @@ Deno.serve(async (req) => {
       const session = await stripe.checkout.sessions.create({
         mode: "subscription",
         line_items: lineItems,
+        // In subscription mode Stripe always creates the customer itself;
+        // `customer_creation` is only valid in payment mode.
         customer: existingCustomer ?? undefined,
-        customer_creation: existingCustomer ? undefined : "always",
         automatic_tax: { enabled: false },
         metadata: meta,
         subscription_data: { metadata: meta },
