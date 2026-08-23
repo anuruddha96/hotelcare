@@ -62,7 +62,9 @@ function Tile({ label, value, sub, icon, tone, surface, explain, loading }: {
         </div>
       ) : (
         <>
-          <div className={`mt-1 text-xl font-semibold tabular-nums truncate ${tone ?? ""}`}>{value}</div>
+          {/* Keyed by the value so a figure updated by a finished sync fades in
+              instead of snapping to a different number. */}
+          <div key={value} className={`mt-1 text-xl font-semibold tabular-nums truncate animate-fade-in ${tone ?? ""}`}>{value}</div>
           {sub && <div className="text-[11px] text-muted-foreground truncate">{sub}</div>}
         </>
       )}
@@ -89,6 +91,7 @@ function shiftMonth(key: string, delta: number) {
 export default function MonthPerformanceHeader({
   today, metrics, pickupWindowDays, onPickupWindowChange, hotelId, canEdit, roomsAvailable,
   selectedMonth, onSelectedMonthChange, nights = [], cancellations = [], loading = false, loadedThrough,
+  refreshing = false, lastSyncAt = null,
 }: {
   today: string;
   metrics: DayMetrics[];
@@ -107,6 +110,10 @@ export default function MonthPerformanceHeader({
   onSelectedMonthChange?: (month: string) => void;
   /** True while another property's figures are still loading. */
   loading?: boolean;
+  /** True while a Previo refresh (or a later horizon slice) is on its way. */
+  refreshing?: boolean;
+  /** When the visible figures were last pulled from Previo. */
+  lastSyncAt?: string | null;
 }) {
 
   const [internalMonth, setInternalMonth] = useState(() => monthKey(today));
