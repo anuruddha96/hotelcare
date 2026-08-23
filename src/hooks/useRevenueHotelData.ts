@@ -348,6 +348,8 @@ export function useRevenueHotelData(
     || (typesLookInflated ? snapshotRooms : inventoryFromTypes)
     || snapshotRooms;
 
+  const ratedDates = new Set(rates.map((r) => r.stay_date));
+
   const metrics = buildDayMetrics({
     from: today,
     to: horizonEnd,
@@ -357,10 +359,13 @@ export function useRevenueHotelData(
     movements,
     roomsAvailable,
     windowDays: pickupWindowDays,
+    ratedDates,
   });
 
   return {
     loading, error, today, horizonEnd, roomTypes, roomsAvailable,
     nights, snapshots, rates, cancellations, metrics, lastSyncAt, lastSyncBy, thresholds, reload,
+    // True while later dates are still on their way in (staged horizon).
+    extending: activeHorizon < horizonDays,
   };
 }
