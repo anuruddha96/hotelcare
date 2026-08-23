@@ -62,7 +62,9 @@ function Tile({ label, value, sub, icon, tone, surface, explain, loading }: {
         </div>
       ) : (
         <>
-          <div className={`mt-1 text-xl font-semibold tabular-nums truncate ${tone ?? ""}`}>{value}</div>
+          {/* Keyed by the value so a figure updated by a finished sync fades in
+              instead of snapping to a different number. */}
+          <div key={value} className={`mt-1 text-xl font-semibold tabular-nums truncate animate-fade-in ${tone ?? ""}`}>{value}</div>
           {sub && <div className="text-[11px] text-muted-foreground truncate">{sub}</div>}
         </>
       )}
