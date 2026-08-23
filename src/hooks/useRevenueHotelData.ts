@@ -87,6 +87,8 @@ export interface RevenueHotelData {
   /** Who triggered the last revenue sync (null = automatic / unknown). */
   lastSyncBy: string | null;
   thresholds: RevenueThresholds;
+  /** True while later dates of the horizon are still being fetched. */
+  extending: boolean;
   reload: () => Promise<void>;
 }
 
