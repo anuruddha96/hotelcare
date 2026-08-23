@@ -202,6 +202,13 @@ export interface DayMetrics {
   pickupGained: number;
   /** Rooms GIVEN BACK inside the window (always >= 0). */
   pickupLost: number;
+  /**
+   * True when this date carries real synced evidence (a snapshot, a booked
+   * room-night, a cancellation or a published rate). A date without evidence
+   * is one the sync has not reached yet — it must read as "loading", never as
+   * a genuine 0% / €0.
+   */
+  hasData: boolean;
 }
 
 /**
@@ -223,10 +230,17 @@ export function buildDayMetrics(params: {
   movements?: PickupMovement[];
   roomsAvailable: number;
   windowDays: number;
+  /** Stay dates that have a published rate — evidence the sync reached them. */
+  ratedDates?: Set<string>;
 }): DayMetrics[] {
   const { from, to, nights, snapshots, roomsAvailable, windowDays } = params;
   const cancellations = params.cancellations ?? [];
   const movements = params.movements ?? [];
+  const ratedDates = params.ratedDates ?? new Set<string>();
+  const evidence = new Set<string>(ratedDates);
+  for (const n of nights) evidence.add(n.stay_date);
+  for (const s of snapshots) evidence.add(s.stay_date);
+  for (const c of cancellations) evidence.add(c.stay_date);
   const today = budapestToday();
   const now = Date.now();
   // One rule for "is this inside the window", shared by bookings, cancellations
