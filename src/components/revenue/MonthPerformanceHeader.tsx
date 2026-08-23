@@ -91,6 +91,7 @@ function shiftMonth(key: string, delta: number) {
 export default function MonthPerformanceHeader({
   today, metrics, pickupWindowDays, onPickupWindowChange, hotelId, canEdit, roomsAvailable,
   selectedMonth, onSelectedMonthChange, nights = [], cancellations = [], loading = false, loadedThrough,
+  refreshing = false, lastSyncAt = null,
 }: {
   today: string;
   metrics: DayMetrics[];
@@ -109,6 +110,10 @@ export default function MonthPerformanceHeader({
   onSelectedMonthChange?: (month: string) => void;
   /** True while another property's figures are still loading. */
   loading?: boolean;
+  /** True while a Previo refresh (or a later horizon slice) is on its way. */
+  refreshing?: boolean;
+  /** When the visible figures were last pulled from Previo. */
+  lastSyncAt?: string | null;
 }) {
 
   const [internalMonth, setInternalMonth] = useState(() => monthKey(today));
