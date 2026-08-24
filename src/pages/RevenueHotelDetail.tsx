@@ -278,21 +278,35 @@ export default function RevenueHotelDetail() {
       // Never hold the screen for someone else's refresh. Whatever is cached
       // stays visible; we quietly re-read the data once their sync lands.
       const targetHotelId = hotelId;
+      // A refresh on *this* property may be named; anything else stays
+      // anonymous — it may belong to an organisation this user cannot see.
+      const wait = await fetchRevenueWaitState(targetHotelId).catch(() => null);
+      toast.info(
+        wait?.scope === "this_property"
+          ? "Another user is refreshing this property — your refresh will follow."
+          : "Refresh queued, starting shortly.",
+      );
+      setSyncWaiting(true);
       void (async () => {
         const started = Date.now();
-        while (Date.now() - started < 2 * 60 * 1000) {
-          await new Promise((resolve) => window.setTimeout(resolve, 5000));
-          if (activeHotelRef.current !== targetHotelId) return;
-          const info = await fetchRevenueSyncInfo(targetHotelId);
-          if (!info.stale) {
+        try {
+          while (Date.now() - started < 2 * 60 * 1000) {
+            await new Promise((resolve) => window.setTimeout(resolve, 5000));
             if (activeHotelRef.current !== targetHotelId) return;
-            await Promise.all([load(), live.reload()]);
-            return;
+            const info = await fetchRevenueSyncInfo(targetHotelId);
+            if (!info.stale) {
+              if (activeHotelRef.current !== targetHotelId) return;
+              await Promise.all([load(), live.reload()]);
+              return;
+            }
           }
+        } finally {
+          setSyncWaiting(false);
         }
       })();
       return;
     }
+
 
     syncingRef.current = true;
     setSyncError(null);
