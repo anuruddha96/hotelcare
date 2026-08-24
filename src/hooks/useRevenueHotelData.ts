@@ -12,6 +12,7 @@ import {
   type RoomTypeRate,
 } from "@/lib/revenueAnalytics";
 import { DEFAULT_THRESHOLDS, type RevenueThresholds } from "@/lib/revenueThresholds";
+import { retryTransient } from "@/lib/transientRetry";
 
 export interface RevenueRoomType {
   id: string;
@@ -90,10 +91,17 @@ export function useRevenueHotelData(
     if (!payloadRef.current) setLoading(true);
     setError(null);
     try {
-      const { data, error: rpcError } = await (supabase as any).rpc("get_revenue_published_payload", {
-        _hotel_id: hotelId,
-      });
-      if (rpcError) throw rpcError;
+      // SLNT's combined two-account payload is several megabytes. Mobile
+      // connections can occasionally drop that first response even though the
+      // completed dataset is healthy. Retry only transport/5xx failures; auth,
+      // access and missing-data errors remain terminal.
+      const { data } = await retryTransient(async () => {
+        const result = await (supabase as any).rpc("get_revenue_published_payload", {
+          _hotel_id: hotelId,
+        });
+        if (result.error) throw result.error;
+        return result;
+      }, { attempts: 3, baseDelayMs: 500, maxDelayMs: 1800, timeoutMs: 15000 });
       if (requestVersion !== requestVersionRef.current) return;
       const row = Array.isArray(data) ? data[0] : data;
       if (!row?.payload) throw new Error("No completed Revenue dataset is available yet");
