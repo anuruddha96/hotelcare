@@ -857,10 +857,10 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   // organization/isPropertyOrg computed above
 
   const availableCurricula = useMemo(() => {
-    const base = curriculaForRole(role || '');
-    // Property-style orgs (SLNT) don't use Revenue Management — hide its module.
-    return isPropertyOrg ? base.filter((c) => c.slug !== 'v2_manager_revenue') : base;
-  }, [role, isPropertyOrg]);
+    // Revenue Management training applies to every organization, including
+    // property-style tenants (SLNT).
+    return curriculaForRole(role || '');
+  }, [role]);
 
 
   // First-login prompt actions
