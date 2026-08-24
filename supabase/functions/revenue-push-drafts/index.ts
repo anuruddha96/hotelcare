@@ -220,8 +220,30 @@ Deno.serve(async (req) => {
     }
 
     // Revalidate immediately before delivery. This protects legacy callers and
-    // queued work created before the enqueue-time safety checks existed.
-    await assertRateChangesSafe(admin, hotelId, drafts as any[]);
+    // queued work created before the enqueue-time safety checks existed. A
+    // single unsafe cell must not cancel the whole run: the offenders are
+    // closed out and the rest of the batch is delivered.
+    await assertExactRateMappings(admin, hotelId, drafts as any[]);
+    {
+      const { kept, dropped } = await filterRoomHierarchy(admin, hotelId, drafts as any[]);
+      if (dropped.length > 0) {
+        const keptIds = new Set(kept.map((change: any) => change.id));
+        const blocked = (drafts as any[]).filter((draft) => !keptIds.has(draft.id));
+        console.log(`[safety] ${hotelId} dropped ${blocked.length} draft(s) that would deepen a room-order inversion`);
+        for (let i = 0; i < blocked.length; i += 300) {
+          await admin.from("revenue_rate_drafts").update({
+            status: "failed",
+            confirmation_status: "blocked",
+            push_error: dropped[0]?.reason ?? "Blocked by the room price order guard.",
+          }).in("id", blocked.slice(i, i + 300).map((draft) => draft.id));
+        }
+      }
+      drafts = kept as any[];
+    }
+    if (drafts.length === 0) {
+      return json({ ok: true, pushed: 0, failed: 0, message: "Every queued price was blocked by the price order guard." });
+    }
+
 
 
     // Sold-out room types are published as well: a cancellation can reopen the
