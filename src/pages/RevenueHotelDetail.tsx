@@ -267,7 +267,6 @@ export default function RevenueHotelDetail() {
   const [bgFailed, setBgFailed] = useState(false);
   const [freshConfirm, setFreshConfirm] = useState<{ minutes: number } | null>(null);
   const [syncStartedAt, setSyncStartedAt] = useState<number | null>(null);
-  const autoBgHotelRef = useRef<string | null>(null);
   const autoSyncedHotelRef = useRef<string | null>(null);
   const syncingRef = useRef(false);
   const activeHotelRef = useRef(hotelId);
@@ -463,7 +462,6 @@ export default function RevenueHotelDetail() {
     autoSyncedHotelRef.current = hotelId;
     if (!isRevenueAdmin(profile.role)) setTab("grid");
 
-    autoBgHotelRef.current = hotelId;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, profile?.role, hotelId, contextMismatch]);
 
