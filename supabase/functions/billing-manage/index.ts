@@ -21,10 +21,6 @@ import {
   moduleEnabled,
   moduleLabel,
   trialEndsAt,
-  trialCoversPeriod,
-  lastMonthRange,
-  realisedRevenueCents,
-  percentFeeCents,
   type ModuleKey,
 } from "../_shared/billing.ts";
 
