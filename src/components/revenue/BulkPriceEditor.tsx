@@ -70,7 +70,7 @@ export default function BulkPriceEditor({
   const [maxPrice, setMaxPrice] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [minNights, setMinNights] = useState("2");
+  const [minNights, setMinNights] = useState("");
   const [minBusy, setMinBusy] = useState(false);
 
   useEffect(() => {
