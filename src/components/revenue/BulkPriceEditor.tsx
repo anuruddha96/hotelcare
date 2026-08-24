@@ -70,7 +70,7 @@ export default function BulkPriceEditor({
   const [maxPrice, setMaxPrice] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [minNights, setMinNights] = useState("2");
+  const [minNights, setMinNights] = useState("");
   const [minBusy, setMinBusy] = useState(false);
 
   useEffect(() => {
@@ -210,11 +210,13 @@ export default function BulkPriceEditor({
   /** Push one minimum stay to every selected date. */
   async function applyMinStay() {
     if (!hotelId || minStayDates.length === 0) return;
+    if (minNights.trim() === "") return; // untouched — nothing is sent to Previo
     const nights = Math.round(Number(minNights));
     if (!Number.isFinite(nights) || nights < 1 || nights > 30) {
       toast.error("Minimum stay must be between 1 and 30 nights.");
       return;
     }
+
     setMinBusy(true);
     try {
       const res = await pushMinStay(hotelId, minStayDates, nights);
@@ -383,11 +385,11 @@ export default function BulkPriceEditor({
             ))}
           </div>
 
-          {/* --- minimum stay --- */}
+          {/* --- minimum stay (optional) --- */}
           {canPush && (
             <div className="space-y-1.5 rounded border p-2">
               <Label className="text-xs text-muted-foreground">
-                Minimum stay · {minStayDates.length} date{minStayDates.length === 1 ? "" : "s"} in this selection
+                Minimum stay · optional · {minStayDates.length} date{minStayDates.length === 1 ? "" : "s"} in this selection
               </Label>
               <div className="flex flex-wrap items-center gap-1">
                 {[1, 2, 3, 4, 5, 7].map((n) => (
@@ -396,7 +398,7 @@ export default function BulkPriceEditor({
                     size="sm"
                     variant={minNights === String(n) ? "default" : "outline"}
                     className="h-8 px-2 text-[11px]"
-                    onClick={() => setMinNights(String(n))}
+                    onClick={() => setMinNights(minNights === String(n) ? "" : String(n))}
                   >
                     {n === 1 ? "No min" : `${n}N`}
                   </Button>
@@ -406,6 +408,7 @@ export default function BulkPriceEditor({
                   min={1}
                   max={30}
                   inputMode="numeric"
+                  placeholder="—"
                   value={minNights}
                   onChange={(e) => setMinNights(e.target.value)}
                   className="h-8 w-16 text-xs"
@@ -414,7 +417,7 @@ export default function BulkPriceEditor({
                   size="sm"
                   variant="secondary"
                   className="h-8 px-2 text-[11px]"
-                  disabled={minBusy || minStayDates.length === 0 || !hotelId}
+                  disabled={minBusy || minStayDates.length === 0 || !hotelId || minNights.trim() === ""}
                   onClick={() => void applyMinStay()}
                 >
                   {minBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
@@ -422,10 +425,12 @@ export default function BulkPriceEditor({
                 </Button>
               </div>
               <p className="text-[11px] text-muted-foreground">
-                Sent to Previo for every mapped room type on the dates and weekdays chosen above. Prices are not touched.
+                Leave empty to keep the current minimum stay — publishing prices never changes it. Pick a value and press
+                Apply min stay to send it to Previo for the dates and weekdays chosen above.
               </p>
             </div>
           )}
+
 
           {/* --- preview --- */}
           <div className="rounded border">
