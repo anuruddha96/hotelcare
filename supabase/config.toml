@@ -198,3 +198,6 @@ verify_jwt = false
 
 [functions.billing-webhook]
 verify_jwt = false
+
+[functions.revenue-sync-scheduler]
+verify_jwt = false
