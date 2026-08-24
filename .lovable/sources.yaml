@@ -5,5 +5,5 @@ tokens:
       operation: js-object-path
       path: theme.extend
 components:
-    - file: src/main.tsx
+    - file: src/index.ts
       operation: ts-named-exports
