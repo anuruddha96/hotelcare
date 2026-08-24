@@ -391,9 +391,11 @@ export default function Billing() {
                         ) : available ? (
                           <span className="text-sm font-semibold shrink-0 text-right">
                             {isPercent
-                              ? usage && usage.fee_cents > 0
-                                ? `≈ ${formatMoney(usage.fee_cents, currency)}`
-                                : percentLabel
+                              ? usage?.trial_waived
+                                ? 'Free in trial'
+                                : usage && usage.fee_cents > 0
+                                  ? `≈ ${formatMoney(usage.fee_cents, currency)}`
+                                  : percentLabel
                               : formatMoney(unit * hotel.rooms, currency)}
                           </span>
                         ) : null}
