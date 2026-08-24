@@ -4,6 +4,7 @@ import {
   addDays,
   budapestToday,
   buildDayMetrics,
+  pickupWindowFirstDay,
   type BookingNight,
   type CancelledNight,
   type DailySnapshot,
@@ -151,22 +152,25 @@ export function useRevenueHotelData(
 
   /** The five big per-date feeds for one date range. */
   const fetchRange = useCallback(async (from: string, to: string) => {
-    const [nightRows, snapRows, rateRows, cancelRows, movementRows] = await Promise.all([
+    // Snapshots and pickup captures are stored per sync (hundreds of rows per
+    // stay date), so reading them raw meant tens of thousands of rows and
+    // dozens of paged round trips before the calendar could paint. Postgres
+    // collapses both feeds for us: newest capture per date (plus the pickup
+    // baseline) and hourly gain/loss buckets.
+    const windowStart = pickupWindowFirstDay(pickupWindowDays);
+    const [nightRows, snapRes, rateRows, cancelRows, movementRes] = await Promise.all([
       fetchAll<BookingNight>(
         () => supabase.from("revenue_booking_nights") as any,
         (q) => q.select("stay_date, res_id, room_key, obk_id, room_type_name, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, guests")
           .eq("hotel_id", hotelId).gte("stay_date", from).lte("stay_date", to)
           .order("stay_date").order("res_id").order("room_key", { nullsFirst: true }),
       ),
-      fetchAll<DailySnapshot>(
-        () => supabase.from("revenue_daily_snapshots") as any,
-        // Paging needs a total order: thousands of rows share the same
-        // captured_date, and ties make Postgres return them in an arbitrary
-        // order per page, so rows get skipped or repeated between pages.
-        (q) => q.select("stay_date, captured_date, captured_at, rooms_sold, rooms_available, occupancy_pct, revenue_eur, adr_eur, new_bookings")
-          .eq("hotel_id", hotelId).gte("stay_date", from).lte("stay_date", to)
-          .order("stay_date").order("captured_at", { ascending: false }),
-      ),
+      (supabase as any).rpc("revenue_calendar_snapshots", {
+        _hotel_id: hotelId,
+        _from: from,
+        _to: to,
+        _window_start: windowStart,
+      }),
       fetchAll<RoomTypeRate>(
         () => supabase.from("revenue_room_type_rates") as any,
         // Same here — captured_at is identical across a whole sync batch,
@@ -181,22 +185,24 @@ export function useRevenueHotelData(
           .eq("hotel_id", hotelId).gte("stay_date", from).lte("stay_date", to)
           .order("stay_date").order("res_id").order("room_key", { nullsFirst: true }),
       ),
-      fetchAll<PickupMovement>(
-        () => supabase.from("pickup_snapshots") as any,
-        // Newest captures first and only the dates on screen: if the page
-        // budget is ever hit we lose old history, never the current window.
-        (q) => q.select("stay_date, delta, captured_at")
-          .eq("hotel_id", hotelId)
-          .eq("source", "previo_sync_diff")
-          .gte("captured_at", `${movementSince}T00:00:00Z`)
-          .gte("stay_date", from).lte("stay_date", to)
-          .neq("delta", 0)
-          .order("captured_at", { ascending: false })
-          .order("stay_date"),
-      ),
+      (supabase as any).rpc("revenue_pickup_movements", {
+        _hotel_id: hotelId,
+        _from: from,
+        _to: to,
+        _since: `${movementSince}T00:00:00Z`,
+      }),
     ]);
-    return { nightRows, snapRows, rateRows, cancelRows, movementRows };
-  }, [hotelId, movementSince]);
+    if (snapRes.error) throw snapRes.error;
+    if (movementRes.error) throw movementRes.error;
+    return {
+      nightRows,
+      snapRows: (snapRes.data ?? []) as DailySnapshot[],
+      rateRows,
+      cancelRows,
+      movementRows: (movementRes.data ?? []) as PickupMovement[],
+    };
+  }, [hotelId, movementSince, today, pickupWindowDays]);
+
 
   /** Newest capture per visible cell — stale duplicates must never win. */
   const dedupeRates = (rows: RoomTypeRate[]): RoomTypeRate[] => {
