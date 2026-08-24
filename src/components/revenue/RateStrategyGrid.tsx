@@ -483,6 +483,7 @@ export default function RateStrategyGrid({
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
   const [retryingFailures, setRetryingFailures] = useState(false);
+  const [dismissingFailures, setDismissingFailures] = useState(false);
 
   /** Price-change trail: cell history on hover, and the activity panel below. */
   const { rows: auditRows, manualRows: auditManualRows, byCell: auditByCell, originByCell: cellOriginByCell, names: auditNames, reload: reloadAuditRows } = useRateAudit(hotelId);
