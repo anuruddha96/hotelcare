@@ -11,6 +11,7 @@ import BillingSettingsPanel from './BillingSettingsPanel';
 import { TrainingAdminPanel } from './TrainingAdminPanel';
 import AiProviderStatus from './AiProviderStatus';
 import RevenueEngineControls from './RevenueEngineControls';
+import RevenueSyncMonitor from './RevenueSyncMonitor';
 import EmailSettingsPanel from './EmailSettingsPanel';
 
 
@@ -127,6 +128,7 @@ export const AdminTabs = () => {
                 Manage system resources and storage
               </p>
             </div>
+            <RevenueSyncMonitor />
             <RevenueEngineControls />
             <AiProviderStatus />
             <PhotoCleanupManager />
