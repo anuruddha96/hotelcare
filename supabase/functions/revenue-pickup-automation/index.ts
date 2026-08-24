@@ -1789,8 +1789,9 @@ Deno.serve(async (req) => {
       // Every pass that queued a price is reported, not just the pickup pass.
       // Markdowns, ladder repairs and floor top-ups used to run silently, so
       // the activity feed looked idle for hours while the engine was working.
-      const engineWork = markdownActions + topUpActions + ladderRepairActions;
+      const engineWork = markdownActions + topUpActions + ladderRepairActions + strongActions;
       const engineParts: string[] = [];
+      if (strongActions > 0) engineParts.push(`${strongActions} strong-demand increase${strongActions === 1 ? "" : "s"}`);
       if (markdownActions > 0) engineParts.push(`${markdownActions} markdown${markdownActions === 1 ? "" : "s"}`);
       if (topUpActions > 0) engineParts.push(`${topUpActions} floor top-up${topUpActions === 1 ? "" : "s"}`);
       if (ladderRepairActions > 0) engineParts.push(`${ladderRepairActions} ladder repair${ladderRepairActions === 1 ? "" : "s"}`);
@@ -2355,7 +2356,7 @@ Deno.serve(async (req) => {
 
       // Durable history so a person who was away still learns what the engine
       // did. Routine "nothing happened" automatic checks stay silent.
-      if (changed.length > 0 || failedCount > 0) {
+      if (changed.length > 0 || failedCount > 0 || engineWork > 0) {
         const { error: notifErr } = await admin.from("revenue_automation_notifications").insert({
           hotel_id: rule.hotel_id,
           organization_slug: rule.organization_slug,
@@ -2366,12 +2367,12 @@ Deno.serve(async (req) => {
           rule_id: rule.id,
           action_ids: insertedActionIds,
           pickups_count: events.length,
-          actions_count: inserted,
+          actions_count: inserted + engineWork,
           pushed_count: 0,
           failed_count: failedCount,
           currency: rule.currency ?? "EUR",
           severity: failedCount > 0 ? "warning" : "info",
-          summary: `${queued} prices queued safely · ${failedCount} failed`,
+          summary: `${queued + engineWork} prices queued safely · ${failedCount} failed${engineParts.length > 0 ? ` · ${engineParts.join(" · ")}` : ""}`,
           changes: changed,
         });
         if (notifErr) console.error("notification insert failed", notifErr);
