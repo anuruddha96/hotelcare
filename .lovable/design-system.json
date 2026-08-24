@@ -2,7 +2,7 @@
   "meta": {
     "name": "195a2daa-26b4-42e0-8ee1-c0c157972991",
     "package": "@ws-ilhrr5tzpy4crvboqzzj/195a2daa-26b4-42e0-8ee1-c0c157972991",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "framework": "react",
     "css_framework": "tailwind",
     "starter_template": "custom_design_system_tailwind",
@@ -15,6 +15,7 @@
       ".gitignore": "d9566700e8535935d03c1583474d790c",
       ".lovable/meta.yaml": "954a981e8847ec1692669dbb04ae9ae9",
       ".lovable/plan-manager-training.md": "b0c03c4e91d9b30448ebc059d1224798",
+      ".lovable/plan.md": "f9c1f50c26ccc0fa4a0b6b96fb92f7dc",
       ".lovable/plan/1-tenant-isolation-model-today-and-its-weaknesses-2026-08-07.md": "a4677d283c947be52603d5d5899562df",
       ".lovable/plan/actionable-signals-a-real-previo-rate-write-2026-08-08.md": "52349b9b3975388605460a87445d369b",
       ".lovable/plan/automation-that-covers-the-whole-calendar-by-lead-time-2026-08-17.md": "4d0cad77057a7d6b7031bea2f11d2788",
