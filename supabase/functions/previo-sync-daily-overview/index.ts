@@ -60,13 +60,17 @@ serve(async (req) => {
     let userId: string | null = null;
     let profile: any = null;
     if (!isServiceCall) {
-      const anon = createClient(SUPABASE_URL, ANON);
-      const { data: userRes } = await anon.auth.getUser(token);
-      if (!userRes?.user) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      // Validate the caller's JWT with the service-role client: SUPABASE_ANON_KEY
+      // is not guaranteed to be present in the function environment (signing-keys
+      // projects), and an empty key made every user call fail with 401.
+      const verifier = ANON ? createClient(SUPABASE_URL, ANON) : service;
+      const { data: userRes, error: userErr } = await verifier.auth.getUser(token);
+      if (userErr || !userRes?.user) {
+        return new Response(JSON.stringify({ error: "Unauthorized", detail: userErr?.message ?? "No user for token" }), {
           status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+
       userId = userRes.user.id;
       const { data: p } = await service
         .from("profiles")
