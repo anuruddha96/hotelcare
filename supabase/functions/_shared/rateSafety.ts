@@ -206,17 +206,20 @@ export async function normalizeOccupancyLadder(
 }
 
 /**
- * Protect the configured low-to-high room order. Existing external inversions
- * stay visible — blocking every edit on an already-inverted date would freeze
- * the calendar — but an incoming Hotel Care change may not create or deepen
- * one. Only same-date, same-occupancy cells compare.
+ * Shared evaluation for the configured low-to-high room order. Existing
+ * external inversions stay visible — blocking every edit on an already-inverted
+ * date would freeze the calendar — but an incoming Hotel Care change may not
+ * create or deepen one. Only same-date, same-occupancy cells compare.
+ *
+ * Loads rooms and stored rates exactly once, then evaluates in memory: batch
+ * paths pass thousands of changes and must not issue a query per change.
  */
-export async function assertRoomHierarchy(
+async function evaluateRoomHierarchy(
   admin: any,
   hotelId: string,
   changes: RateChange[],
-): Promise<void> {
-  if (changes.length === 0) return;
+): Promise<Array<{ change: RateChange; reason: string }>> {
+  if (changes.length === 0) return [];
 
   const { data: roomData, error: roomError } = await admin
     .from("room_types")
@@ -234,23 +237,16 @@ export async function assertRoomHierarchy(
   );
   // Without a deliberate low-to-high order there is nothing to protect.
   const orders = new Set(rooms.map((room) => room.sort_order).filter((value) => value !== null && value !== undefined));
-  if (rooms.length < 2 || orders.size < 2) return;
+  if (rooms.length < 2 || orders.size < 2) return [];
 
   const roomIndex = new Map(rooms.map((room, index) => [room.name, index]));
   const relevant = changes.filter((change) => roomIndex.has(change.room_type_name));
-  if (relevant.length === 0) return;
+  if (relevant.length === 0) return [];
 
   const stored = await loadStoredRates(admin, hotelId, relevant);
   const before = new Map<string, number>();
   for (const row of stored) {
     before.set(cellKey(row.stay_date, row.room_type_name, Number(row.occupancy)), Number(row.price));
-  }
-  const after = new Map(before);
-  const touched = new Set<string>();
-  for (const change of relevant) {
-    const key = cellKey(change.stay_date, change.room_type_name, Number(change.occupancy));
-    after.set(key, Number(change.new_price));
-    touched.add(key);
   }
 
   const gap = (map: Map<string, number>, lowerKey: string, higherKey: string): number | null => {
@@ -260,26 +256,77 @@ export async function assertRoomHierarchy(
     return lower - higher;
   };
 
-  for (const change of relevant) {
-    const index = roomIndex.get(change.room_type_name);
-    if (index === undefined) continue;
-    for (const neighbourIndex of [index - 1, index + 1]) {
-      if (!rooms[neighbourIndex]) continue;
-      const lower = rooms[Math.min(index, neighbourIndex)];
-      const higher = rooms[Math.max(index, neighbourIndex)];
-      const lowerKey = cellKey(change.stay_date, lower.name, Number(change.occupancy));
-      const higherKey = cellKey(change.stay_date, higher.name, Number(change.occupancy));
-      if (!touched.has(lowerKey) && !touched.has(higherKey)) continue;
-      const afterGap = gap(after, lowerKey, higherKey);
-      if (afterGap === null || afterGap <= 0) continue;
-      const beforeGap = gap(before, lowerKey, higherKey) ?? 0;
-      if (afterGap <= beforeGap) continue; // pre-existing inversion, not deepened
-      throw new Error(
-        `Price hierarchy blocked for ${change.stay_date}: ${lower.name} (${after.get(lowerKey)}) cannot be higher than ${higher.name} (${after.get(higherKey)}) for ${change.occupancy} guest${change.occupancy === 1 ? "" : "s"}.`,
-      );
+  const violations: Array<{ change: RateChange; reason: string }> = [];
+  const dropped = new Set<RateChange>();
+
+  // A dropped change changes the picture for its neighbours, so re-evaluate
+  // until the set is stable. All of this is in-memory.
+  for (let pass = 0; pass < 5; pass += 1) {
+    const active = relevant.filter((change) => !dropped.has(change));
+    const after = new Map(before);
+    const touched = new Set<string>();
+    for (const change of active) {
+      const key = cellKey(change.stay_date, change.room_type_name, Number(change.occupancy));
+      after.set(key, Number(change.new_price));
+      touched.add(key);
+    }
+
+    const found: Array<{ change: RateChange; reason: string }> = [];
+    for (const change of active) {
+      const index = roomIndex.get(change.room_type_name);
+      if (index === undefined) continue;
+      for (const neighbourIndex of [index - 1, index + 1]) {
+        if (!rooms[neighbourIndex]) continue;
+        const lower = rooms[Math.min(index, neighbourIndex)];
+        const higher = rooms[Math.max(index, neighbourIndex)];
+        const lowerKey = cellKey(change.stay_date, lower.name, Number(change.occupancy));
+        const higherKey = cellKey(change.stay_date, higher.name, Number(change.occupancy));
+        if (!touched.has(lowerKey) && !touched.has(higherKey)) continue;
+        const afterGap = gap(after, lowerKey, higherKey);
+        if (afterGap === null || afterGap <= 0) continue;
+        const beforeGap = gap(before, lowerKey, higherKey) ?? 0;
+        if (afterGap <= beforeGap) continue; // pre-existing inversion, not deepened
+        found.push({
+          change,
+          reason: `Price hierarchy blocked for ${change.stay_date}: ${lower.name} (${after.get(lowerKey)}) cannot be higher than ${higher.name} (${after.get(higherKey)}) for ${change.occupancy} guest${change.occupancy === 1 ? "" : "s"}.`,
+        });
+        break;
+      }
+    }
+    if (found.length === 0) break;
+    for (const violation of found) {
+      dropped.add(violation.change);
+      violations.push(violation);
     }
   }
+  return violations;
 }
+
+export async function assertRoomHierarchy(
+  admin: any,
+  hotelId: string,
+  changes: RateChange[],
+): Promise<void> {
+  const violations = await evaluateRoomHierarchy(admin, hotelId, changes);
+  if (violations.length > 0) throw new Error(violations[0].reason);
+}
+
+/**
+ * Same rule as `assertRoomHierarchy`, but for batch paths (automation, bulk
+ * publishing) a single bad cell must not throw away hundreds of good ones. The
+ * offending changes are dropped and reported instead.
+ */
+export async function filterRoomHierarchy(
+  admin: any,
+  hotelId: string,
+  changes: RateChange[],
+): Promise<{ kept: RateChange[]; dropped: Array<{ change: RateChange; reason: string }> }> {
+  const dropped = await evaluateRoomHierarchy(admin, hotelId, changes);
+  const bad = new Set(dropped.map((entry) => entry.change));
+  return { kept: changes.filter((change) => !bad.has(change)), dropped };
+}
+
+
 
 export async function assertRateChangesSafe(
   admin: any,
@@ -293,17 +340,21 @@ export async function assertRateChangesSafe(
 /**
  * One safety layer for every write path: exact mappings, occupancy-ladder
  * repair, then the cross-room-type order. Returns the change list to write,
- * which may contain extra sibling cells created by the ladder repair.
+ * which may contain extra sibling cells created by the ladder repair. Changes
+ * that would create or deepen a cross-room-type inversion are dropped, so one
+ * bad cell never cancels a whole round.
  */
 export async function enforceRateSafety(
   admin: any,
   hotelId: string,
   changes: RateChange[],
-): Promise<{ changes: RateChange[]; repairs: RateChange[] }> {
-  if (changes.length === 0) return { changes, repairs: [] };
+): Promise<{ changes: RateChange[]; repairs: RateChange[]; dropped: Array<{ change: RateChange; reason: string }> }> {
+  if (changes.length === 0) return { changes, repairs: [], dropped: [] };
   await assertExactRateMappings(admin, hotelId, changes);
   const repairs = await normalizeOccupancyLadder(admin, hotelId, changes);
   const all = [...changes, ...repairs];
-  await assertRoomHierarchy(admin, hotelId, all);
-  return { changes: all, repairs };
+  const { kept, dropped } = await filterRoomHierarchy(admin, hotelId, all);
+  const repairSet = new Set(repairs);
+  return { changes: kept, repairs: kept.filter((c) => repairSet.has(c)), dropped };
 }
+
