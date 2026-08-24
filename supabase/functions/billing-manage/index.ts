@@ -192,6 +192,16 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Kept for the monthly cron / API callers. Stripe is optional here: without it
+    // the figures are still stored, just not invoiced.
+    if (action === "usage_rollup") {
+      if (settings.revenue_pricing_mode !== "percent") {
+        return json({ error: "This organization is not on percentage pricing" }, 400);
+      }
+      const rollup = await rollupLastMonth(slug, settings, hotels, subs ?? [], stripeClient());
+      return json(rollup);
+    }
+
     const stripe = stripeClient();
     if (!stripe) return json({ error: "Stripe is not configured yet" }, 400);
 
