@@ -39,7 +39,7 @@ import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import DayChangesSheet from "@/components/revenue/DayChangesSheet";
 import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
 import PickupAutomationRules from "@/components/revenue/PickupAutomationRules";
-import { publishRates } from "@/lib/ratePublishing";
+import { publishRates, queueNote } from "@/lib/ratePublishing";
 import { pushMinStay } from "@/lib/minStay";
 
 import { rememberedRange, writeNumberPref } from "@/lib/revenuePrefs";
