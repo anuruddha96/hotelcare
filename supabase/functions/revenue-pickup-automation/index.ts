@@ -325,7 +325,13 @@ async function queueIntents(
   priority: number,
 ): Promise<string | null> {
   if (payload.length === 0) return null;
-  await assertRateChangesSafe(admin, rule.hotel_id, payload as any[]);
+  {
+    const safe = await enforceRateSafety(admin, rule.hotel_id, payload as any[]);
+    if (safe.repairs.length > 0) {
+      console.log(`[ladder] ${rule.hotel_id} repaired ${safe.repairs.length} occupancy sibling(s) alongside ${payload.length} intent(s)`);
+      payload = safe.changes as Array<Record<string, unknown>>;
+    }
+  }
   const runId = crypto.randomUUID();
   const { error: runError } = await admin.from("revenue_rate_push_runs").insert({
     id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
