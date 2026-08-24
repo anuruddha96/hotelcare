@@ -6073,6 +6073,42 @@ export type Database = {
         }
         Relationships: []
       }
+      revenue_published_payloads: {
+        Row: {
+          created_at: string
+          horizon_from: string
+          horizon_to: string
+          hotel_id: string
+          organization_slug: string
+          payload: Json
+          sync_completed_at: string
+          sync_completed_by_name: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          horizon_from: string
+          horizon_to: string
+          hotel_id: string
+          organization_slug: string
+          payload: Json
+          sync_completed_at: string
+          sync_completed_by_name?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          horizon_from?: string
+          horizon_to?: string
+          hotel_id?: string
+          organization_slug?: string
+          payload?: Json
+          sync_completed_at?: string
+          sync_completed_by_name?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       revenue_rate_alerts: {
         Row: {
           created_at: string
@@ -8241,6 +8277,16 @@ export type Database = {
           organization_slug: string
         }[]
       }
+      get_revenue_published_payload: {
+        Args: { _hotel_id: string }
+        Returns: {
+          horizon_from: string
+          horizon_to: string
+          payload: Json
+          sync_completed_at: string
+          sync_completed_by_name: string
+        }[]
+      }
       get_user_access_config: {
         Args: { user_role: Database["public"]["Enums"]["user_role"] }
         Returns: {
@@ -8355,6 +8401,14 @@ export type Database = {
           source: string
           stay_date: string
         }[]
+      }
+      refresh_revenue_published_payload: {
+        Args: {
+          _actor_name?: string
+          _completed_at?: string
+          _hotel_id: string
+        }
+        Returns: undefined
       }
       release_automation_lock: { Args: { p_hotel: string }; Returns: undefined }
       release_own_revenue_sync: {
