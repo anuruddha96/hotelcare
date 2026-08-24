@@ -369,7 +369,9 @@ export default function Billing() {
                               <p className="text-xs mt-0.5 text-muted-foreground flex items-center gap-1">
                                 <TrendingUp className="h-3 w-3" />
                                 {usage && usage.revenue_cents > 0
-                                  ? `Last month: ${formatMoney(usage.revenue_cents, currency)} room revenue → about ${formatMoney(usage.fee_cents, currency)}`
+                                  ? usage.trial_waived
+                                    ? `Last month: ${formatMoney(usage.revenue_cents, currency)} room revenue — free during your trial, you saved ${formatMoney(usage.waived_fee_cents ?? 0, currency)}`
+                                    : `Last month: ${formatMoney(usage.revenue_cents, currency)} room revenue → about ${formatMoney(usage.fee_cents, currency)}`
                                   : 'Last month has no revenue data yet'}
                               </p>
                             )}
