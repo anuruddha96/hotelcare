@@ -264,11 +264,33 @@ export default function BillingSettingsPanel() {
                         />
                       </div>
                     </div>
-                    <Button variant="outline" size="sm" onClick={runRollup} disabled={rolling}>
-                      <RefreshCw className={`h-4 w-4 mr-2 ${rolling ? 'animate-spin' : ''}`} />
-                      {rolling ? 'Calculating…' : "Bill last month's usage now"}
-                    </Button>
-                    {rollupNote && <p className="text-xs text-muted-foreground whitespace-pre-line">{rollupNote}</p>}
+                    <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
+                      <p className="text-xs font-medium flex items-center gap-1.5">
+                        <RefreshCw className={`h-3.5 w-3.5 ${usageLoading ? 'animate-spin' : ''}`} />
+                        Last full month — settled automatically
+                      </p>
+                      {usageLoading && <p className="text-xs text-muted-foreground">Calculating…</p>}
+                      {!usageLoading && usage.length === 0 && (
+                        <p className="text-xs text-muted-foreground">No property revenue recorded yet.</p>
+                      )}
+                      {usage.map((u) => (
+                        <p key={u.hotel_id} className="text-xs text-muted-foreground">
+                          <span className="font-medium text-foreground">{u.hotel_name ?? u.hotel_id}</span>{' '}
+                          {u.period_start.slice(0, 7)}: {(u.revenue_cents / 100).toFixed(0)} {settings.currency} realised →{' '}
+                          {u.trial_waived
+                            ? `free during the trial (would have been ${(
+                                (u.waived_fee_cents ?? 0) / 100
+                              ).toFixed(2)} ${settings.currency})`
+                            : `${(u.fee_cents / 100).toFixed(2)} ${settings.currency}${
+                                u.invoiced ? ' — on the next invoice' : ' — saved, no paid subscription yet'
+                              }`}
+                        </p>
+                      ))}
+                      <p className="text-[11px] text-muted-foreground">
+                        Recalculated every time this page or the Payments page opens, and once a month automatically. Trial
+                        months are never charged.
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
