@@ -2995,6 +2995,23 @@ export default function RateStrategyGrid({
                     const shown = draft ?? sending ?? published;
                     const roomsLeft = leftByTypeDate?.get(`${row.roomTypeName}|${d}`);
                     const soldOut = roomsLeft !== undefined && roomsLeft <= 0;
+                    // A room type must never cost less for more guests. When
+                    // Previo hands back such a ladder we flag the cell so the
+                    // team can see it before automation's repair pass lifts it.
+                    const lowerOccPrice = (() => {
+                      if (shown === undefined || !row.obk || row.occ <= 1) return undefined;
+                      const byOcc = priceMap.get(row.obk);
+                      if (!byOcc) return undefined;
+                      let best: number | undefined;
+                      for (const [occ, byDate] of byOcc) {
+                        if (occ >= row.occ) continue;
+                        const p = byDate.get(d);
+                        if (p === undefined) continue;
+                        if (best === undefined || p > best) best = p;
+                      }
+                      return best;
+                    })();
+                    const inverted = shown !== undefined && lowerOccPrice !== undefined && shown < lowerOccPrice;
                     const tone = rateTone(shown, thresholds);
                     const ck = cellKey(d, row.roomTypeName, row.occ);
                     // The real rows for THIS exact cell, loaded per stay date.
