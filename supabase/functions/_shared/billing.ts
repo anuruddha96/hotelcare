@@ -82,7 +82,44 @@ export type BillingSettings = {
   trial_start: string;
   stripe_publishable_key: string | null;
   payments_enabled: boolean;
+  /** 'per_room' = fixed price per room, 'percent' = share of realised revenue. */
+  revenue_pricing_mode: "per_room" | "percent";
+  revenue_percent_bps: number;
+  revenue_percent_min_cents: number;
+  revenue_percent_cap_cents: number;
 };
+
+/** First day of the month that precedes `ref` (UTC), as YYYY-MM-DD. */
+export function lastMonthRange(ref = new Date()) {
+  const end = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), 1));
+  const start = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() - 1, 1));
+  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
+}
+
+/**
+ * Realised room revenue of a property for a date range, straight from the
+ * synced Previo booking nights (de-duplicated per reservation/room/night).
+ */
+export async function realisedRevenueCents(hotelId: string, from: string, to: string) {
+  const { data } = await admin().rpc("billing_realised_revenue", {
+    _hotel_id: hotelId,
+    _from: from,
+    _to: to,
+  });
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    revenueCents: Math.round(Number(row?.revenue_eur ?? 0) * 100),
+    roomNights: Number(row?.room_nights ?? 0),
+  };
+}
+
+/** Percentage fee for a realised revenue amount, respecting the min and cap. */
+export function percentFeeCents(settings: BillingSettings, revenueCents: number) {
+  let fee = Math.round((revenueCents * (settings.revenue_percent_bps || 0)) / 10000);
+  if (settings.revenue_percent_min_cents > 0) fee = Math.max(fee, settings.revenue_percent_min_cents);
+  if (settings.revenue_percent_cap_cents > 0) fee = Math.min(fee, settings.revenue_percent_cap_cents);
+  return fee;
+}
 
 export async function loadSettings(slug: string): Promise<BillingSettings> {
   const db = admin();
