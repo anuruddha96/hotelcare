@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { Save, CreditCard, KeyRound } from 'lucide-react';
+import { Save, CreditCard, KeyRound, RefreshCw } from 'lucide-react';
 
 interface Org { id: string; name: string; slug: string }
 
@@ -57,6 +57,8 @@ export default function BillingSettingsPanel() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [rolling, setRolling] = useState(false);
+  const [rollupNote, setRollupNote] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -92,6 +94,30 @@ export default function BillingSettingsPanel() {
     setSaving(false);
     if (error) toast.error(error.message);
     else toast.success('Billing settings saved');
+  };
+
+  /** Recompute last month's revenue share and place it on the next invoice. */
+  const runRollup = async () => {
+    setRolling(true);
+    setRollupNote(null);
+    const { data, error } = await supabase.functions.invoke('billing-manage', {
+      body: { action: 'usage_rollup', organizationSlug: slug },
+    });
+    setRolling(false);
+    const payload = data as
+      | { error?: string; period_start?: string; results?: { hotel: string; fee_cents?: number; revenue_cents?: number; invoiced?: boolean; skipped?: string }[] }
+      | null;
+    if (error || payload?.error) {
+      toast.error(payload?.error ?? error?.message ?? 'Could not calculate usage');
+      return;
+    }
+    const lines = (payload?.results ?? []).map((r) =>
+      r.skipped
+        ? `${r.hotel}: ${r.skipped}`
+        : `${r.hotel}: ${((r.revenue_cents ?? 0) / 100).toFixed(0)} revenue → ${((r.fee_cents ?? 0) / 100).toFixed(2)} fee${r.invoiced ? ' (added to invoice)' : ' (saved, no paid subscription yet)'}`,
+    );
+    setRollupNote([`Period ${payload?.period_start ?? ''}`, ...lines].join('\n'));
+    toast.success('Usage calculated');
   };
 
   const euros = (cents: number) => (cents / 100).toString();
