@@ -136,6 +136,27 @@ Deno.serve(async (req) => {
         if (!hotel) continue;
         if (!moduleEnabled(settings, module)) continue;
 
+        // Revenue Management can be sold as a share of realised revenue. The
+        // subscription then carries a zero-amount monthly line and the real fee
+        // is invoiced每 month from the synced revenue (billing-usage-rollup).
+        if (module === "revenue" && settings.revenue_pricing_mode === "percent") {
+          const pct = (settings.revenue_percent_bps / 100).toFixed(2).replace(/\.00$/, "");
+          lineItems.push({
+            quantity: 1,
+            price_data: {
+              currency: settings.currency.toLowerCase(),
+              unit_amount: 0,
+              recurring: { interval: "month" },
+              product_data: {
+                name: `Revenue Management — ${hotel.hotel_name}`,
+                description: `${pct}% of realised room revenue, invoiced monthly (excl. VAT)`,
+              },
+            },
+          });
+          picked.push(`${hotel.hotel_id}:${module}`);
+          continue;
+        }
+
         const unit = priceFor(settings, module);
         const qty = hotel.rooms;
         if (unit <= 0 || qty <= 0) continue;
@@ -161,6 +182,13 @@ Deno.serve(async (req) => {
       const existingCustomer = (subs ?? []).find((s) => s.stripe_customer_id)?.stripe_customer_id;
       const origin = String(body.returnUrl ?? req.headers.get("origin") ?? "");
 
+      // Subscribing during the trial is allowed and must not charge early:
+      // billing starts the day the trial ends.
+      const trialEnd = trialEndsAt(settings);
+      const trialEndSec = trialEnd ? Math.floor(new Date(trialEnd).getTime() / 1000) : 0;
+      const nowSec = Math.floor(Date.now() / 1000);
+      const useTrial = trialEndSec > nowSec + 60;
+
       const session = await stripe.checkout.sessions.create({
         mode: "subscription",
         line_items: lineItems,
@@ -169,12 +197,15 @@ Deno.serve(async (req) => {
         customer: existingCustomer ?? undefined,
         automatic_tax: { enabled: false },
         metadata: meta,
-        subscription_data: { metadata: meta },
+        subscription_data: {
+          metadata: meta,
+          ...(useTrial ? { trial_end: trialEndSec } : {}),
+        },
         success_url: `${origin}?billing=success`,
         cancel_url: `${origin}?billing=cancelled`,
       });
 
-      return json({ url: session.url });
+      return json({ url: session.url, trial_end: useTrial ? trialEnd : null });
     }
 
     return json({ error: "Unknown action" }, 400);
