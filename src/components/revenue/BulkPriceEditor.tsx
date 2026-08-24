@@ -210,11 +210,13 @@ export default function BulkPriceEditor({
   /** Push one minimum stay to every selected date. */
   async function applyMinStay() {
     if (!hotelId || minStayDates.length === 0) return;
+    if (minNights.trim() === "") return; // untouched — nothing is sent to Previo
     const nights = Math.round(Number(minNights));
     if (!Number.isFinite(nights) || nights < 1 || nights > 30) {
       toast.error("Minimum stay must be between 1 and 30 nights.");
       return;
     }
+
     setMinBusy(true);
     try {
       const res = await pushMinStay(hotelId, minStayDates, nights);
