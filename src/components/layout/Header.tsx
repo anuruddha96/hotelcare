@@ -20,6 +20,7 @@ import { LiveSyncIndicator } from '@/components/layout/LiveSyncIndicator';
 import { SubscriptionStatusMenu } from '@/components/layout/SubscriptionStatusMenu';
 
 import { RevenueAutomationNotifications } from '@/components/revenue/RevenueAutomationNotifications';
+import { AnnouncementsBell } from '@/components/system/AnnouncementsBell';
 import { Building2, CreditCard, LogOut, Settings, User } from 'lucide-react';
 import hotelcareLogo from '@/assets/hotelcare-logo-mark.png';
 import { Link, useParams, useNavigate } from 'react-router-dom';
@@ -141,6 +142,7 @@ export function Header() {
               <LiveSyncIndicator />
             )}
             <RevenueAutomationNotifications />
+            <AnnouncementsBell />
             <TrainingHelpButton />
             
             {/* Revenue moved to PMSNavigation main tab bar */}

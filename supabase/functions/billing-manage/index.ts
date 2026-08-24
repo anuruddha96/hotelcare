@@ -21,6 +21,9 @@ import {
   moduleEnabled,
   moduleLabel,
   trialEndsAt,
+  lastMonthRange,
+  realisedRevenueCents,
+  percentFeeCents,
   type ModuleKey,
 } from "../_shared/billing.ts";
 
@@ -58,11 +61,40 @@ Deno.serve(async (req) => {
       .eq("organization_slug", slug);
 
     if (action === "summary") {
+      // For percentage-based Revenue Management we show what last full month
+      // would have cost, computed from the synced Previo revenue.
+      const { start, end } = lastMonthRange();
+      let usage: {
+        hotel_id: string;
+        period_start: string;
+        period_end: string;
+        revenue_cents: number;
+        room_nights: number;
+        fee_cents: number;
+      }[] = [];
+
+      if (settings.revenue_pricing_mode === "percent") {
+        usage = await Promise.all(
+          hotels.map(async (h) => {
+            const { revenueCents, roomNights } = await realisedRevenueCents(h.hotel_id, start, end);
+            return {
+              hotel_id: h.hotel_id,
+              period_start: start,
+              period_end: end,
+              revenue_cents: revenueCents,
+              room_nights: roomNights,
+              fee_cents: percentFeeCents(settings, revenueCents),
+            };
+          }),
+        );
+      }
+
       return json({
         settings: { ...settings, stripe_secret_configured: Boolean(Deno.env.get("STRIPE_SECRET_KEY")) },
         hotels,
         subscriptions: subs ?? [],
         trial_ends_at: trialEndsAt(settings),
+        revenue_usage: usage,
       });
     }
 
@@ -104,6 +136,27 @@ Deno.serve(async (req) => {
         if (!hotel) continue;
         if (!moduleEnabled(settings, module)) continue;
 
+        // Revenue Management can be sold as a share of realised revenue. The
+        // subscription then carries a zero-amount monthly line and the real fee
+        // is invoiced monthly from the synced revenue (billing-usage-rollup).
+        if (module === "revenue" && settings.revenue_pricing_mode === "percent") {
+          const pct = (settings.revenue_percent_bps / 100).toFixed(2).replace(/\.00$/, "");
+          lineItems.push({
+            quantity: 1,
+            price_data: {
+              currency: settings.currency.toLowerCase(),
+              unit_amount: 0,
+              recurring: { interval: "month" },
+              product_data: {
+                name: `Revenue Management — ${hotel.hotel_name}`,
+                description: `${pct}% of realised room revenue, invoiced monthly (excl. VAT)`,
+              },
+            },
+          });
+          picked.push(`${hotel.hotel_id}:${module}`);
+          continue;
+        }
+
         const unit = priceFor(settings, module);
         const qty = hotel.rooms;
         if (unit <= 0 || qty <= 0) continue;
@@ -129,6 +182,13 @@ Deno.serve(async (req) => {
       const existingCustomer = (subs ?? []).find((s) => s.stripe_customer_id)?.stripe_customer_id;
       const origin = String(body.returnUrl ?? req.headers.get("origin") ?? "");
 
+      // Subscribing during the trial is allowed and must not charge early:
+      // billing starts the day the trial ends.
+      const trialEnd = trialEndsAt(settings);
+      const trialEndSec = trialEnd ? Math.floor(new Date(trialEnd).getTime() / 1000) : 0;
+      const nowSec = Math.floor(Date.now() / 1000);
+      const useTrial = trialEndSec > nowSec + 60;
+
       const session = await stripe.checkout.sessions.create({
         mode: "subscription",
         line_items: lineItems,
@@ -137,12 +197,95 @@ Deno.serve(async (req) => {
         customer: existingCustomer ?? undefined,
         automatic_tax: { enabled: false },
         metadata: meta,
-        subscription_data: { metadata: meta },
+        subscription_data: {
+          metadata: meta,
+          ...(useTrial ? { trial_end: trialEndSec } : {}),
+        },
         success_url: `${origin}?billing=success`,
         cancel_url: `${origin}?billing=cancelled`,
       });
 
-      return json({ url: session.url });
+      return json({ url: session.url, trial_end: useTrial ? trialEnd : null });
+    }
+
+    // Monthly rollup for percentage-based Revenue Management: store last full
+    // month's realised revenue and, when a paid subscription exists, put the fee
+    // on the customer's next Stripe invoice. Re-running is safe — a period that
+    // is already invoiced is skipped.
+    if (action === "usage_rollup") {
+      if (!caller.isSuperAdmin && caller.role !== "admin") return json({ error: "Forbidden" }, 403);
+      if (settings.revenue_pricing_mode !== "percent") {
+        return json({ error: "This organization is not on percentage pricing" }, 400);
+      }
+      const { start, end } = lastMonthRange();
+      const results: unknown[] = [];
+
+      for (const hotel of hotels) {
+        const { revenueCents, roomNights } = await realisedRevenueCents(hotel.hotel_id, start, end);
+        const feeCents = revenueCents > 0 ? percentFeeCents(settings, revenueCents) : 0;
+
+        const { data: existing } = await db
+          .from("billing_revenue_usage")
+          .select("id, billed_at")
+          .eq("organization_slug", slug)
+          .eq("hotel_id", hotel.hotel_id)
+          .eq("period_month", start)
+          .maybeSingle();
+
+        if (existing?.billed_at) {
+          results.push({ hotel: hotel.hotel_name, skipped: "already invoiced" });
+          continue;
+        }
+
+        const usageRow = {
+          organization_slug: slug,
+          hotel_id: hotel.hotel_id,
+          period_month: start,
+          realised_revenue_cents: revenueCents,
+          room_nights: roomNights,
+          currency: settings.currency,
+          percent_bps: settings.revenue_percent_bps,
+          fee_cents: feeCents,
+          updated_at: new Date().toISOString(),
+        };
+        if (existing?.id) await db.from("billing_revenue_usage").update(usageRow).eq("id", existing.id);
+        else await db.from("billing_revenue_usage").insert(usageRow);
+
+        const sub = (subs ?? []).find(
+          (s) => s.hotel_id === hotel.hotel_id && s.module === "revenue" && s.stripe_customer_id,
+        );
+        const chargeable = feeCents > 0 && sub && ["active", "past_due"].includes(String(sub.status));
+
+        if (chargeable) {
+          const item = await stripe.invoiceItems.create({
+            customer: String(sub!.stripe_customer_id),
+            currency: settings.currency.toLowerCase(),
+            amount: feeCents,
+            description:
+              `Revenue Management — ${hotel.hotel_name} · ${start.slice(0, 7)} · ` +
+              `${(settings.revenue_percent_bps / 100).toFixed(2).replace(/\.00$/, "")}% of ` +
+              `${(revenueCents / 100).toFixed(2)} ${settings.currency} realised revenue (excl. VAT)`,
+            metadata: { organization_slug: slug, hotel_id: hotel.hotel_id, period_month: start },
+          });
+          await db
+            .from("billing_revenue_usage")
+            .update({ billed_at: new Date().toISOString(), stripe_invoice_item_id: item.id })
+            .eq("organization_slug", slug)
+            .eq("hotel_id", hotel.hotel_id)
+            .eq("period_month", start);
+        }
+
+        results.push({
+          hotel: hotel.hotel_name,
+          period: start,
+          revenue_cents: revenueCents,
+          room_nights: roomNights,
+          fee_cents: feeCents,
+          invoiced: Boolean(chargeable),
+        });
+      }
+
+      return json({ period_start: start, period_end: end, results });
     }
 
     return json({ error: "Unknown action" }, 400);

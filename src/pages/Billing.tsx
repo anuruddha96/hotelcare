@@ -21,7 +21,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { isExecutiveRole } from '@/lib/roleAccess';
-import { ArrowLeft, CreditCard, ShieldCheck, Sparkles, BedDouble, Loader2 } from 'lucide-react';
+import { ArrowLeft, CreditCard, ShieldCheck, Sparkles, BedDouble, Loader2, Percent, TrendingUp, Building2 } from 'lucide-react';
 
 const MODULES: BillingModule[] = ['operations', 'revenue'];
 
@@ -68,6 +68,11 @@ export default function Billing() {
   const subFor = (hotelId: string, module: BillingModule) =>
     summary?.subscriptions.find((s) => s.hotel_id === hotelId && s.module === module);
 
+  const percentMode = settings?.revenue_pricing_mode === 'percent';
+  const percentLabel = `${((settings?.revenue_percent_bps ?? 0) / 100).toFixed(2).replace(/\.00$/, '')}%`;
+  /** Last full month's realised revenue + fee for a property (percentage mode). */
+  const usageFor = (hotelId: string) => summary?.revenue_usage?.find((u) => u.hotel_id === hotelId);
+
   const lines = useMemo(() => {
     if (!summary) return [];
     return Object.entries(selected)
@@ -75,7 +80,9 @@ export default function Billing() {
       .map(([key]) => {
         const [hotel_id, module] = key.split('|') as [string, BillingModule];
         const hotel = summary.hotels.find((h) => h.hotel_id === hotel_id);
+        const isPercent = module === 'revenue' && percentMode;
         const unit = priceFor(module);
+        const estimate = usageFor(hotel_id)?.fee_cents ?? 0;
         return {
           key,
           hotel_id,
@@ -83,13 +90,16 @@ export default function Billing() {
           hotelName: hotel?.hotel_name ?? hotel_id,
           rooms: hotel?.rooms ?? 0,
           unit,
-          total: (hotel?.rooms ?? 0) * unit,
+          isPercent,
+          total: isPercent ? estimate : (hotel?.rooms ?? 0) * unit,
         };
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, summary]);
 
-  const monthlyTotal = lines.reduce((sum, l) => sum + l.total, 0);
+  const fixedTotal = lines.filter((l) => !l.isPercent).reduce((sum, l) => sum + l.total, 0);
+  const variableTotal = lines.filter((l) => l.isPercent).reduce((sum, l) => sum + l.total, 0);
+  const monthlyTotal = fixedTotal + variableTotal;
 
   const startCheckout = async () => {
     if (!lines.length) return;
@@ -240,6 +250,49 @@ export default function Billing() {
 
 
 
+        {/* At-a-glance: what you have, what it costs, how it is priced. */}
+        {summary && (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Building2 className="h-3.5 w-3.5" /> Properties
+                </p>
+                <p className="text-2xl font-bold mt-1">{summary.hotels.length}</p>
+                <p className="text-xs text-muted-foreground">
+                  {summary.hotels.reduce((n, h) => n + h.rooms, 0)} rooms in total
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <CreditCard className="h-3.5 w-3.5" /> Current monthly cost
+                </p>
+                <p className="text-2xl font-bold mt-1">
+                  {activeSubs.length ? formatMoney(activeMonthly, currency) : formatMoney(0, currency)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {trialActive ? 'Free while your trial runs' : 'Excluding VAT'}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Percent className="h-3.5 w-3.5" /> Revenue Management
+                </p>
+                <p className="text-2xl font-bold mt-1">
+                  {percentMode ? percentLabel : formatMoney(settings?.revenue_price_cents ?? 0, currency)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {percentMode ? 'of realised room revenue, monthly' : 'per room, per month'}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {error && (
           <Alert variant="destructive">
             <AlertTitle>Couldn't load billing</AlertTitle>
@@ -284,7 +337,9 @@ export default function Billing() {
                     const unit = priceFor(module);
                     const sub = subFor(hotel.hotel_id, module);
                     const active = isSubscriptionActive(sub);
-                    const available = Boolean(enabledFor(module)) && unit > 0;
+                    const isPercent = module === 'revenue' && percentMode;
+                    const usage = isPercent ? usageFor(hotel.hotel_id) : undefined;
+                    const available = Boolean(enabledFor(module)) && (isPercent || unit > 0);
                     const key = `${hotel.hotel_id}|${module}`;
                     return (
                       <div
@@ -304,10 +359,20 @@ export default function Billing() {
                               {labelFor(module)}
                             </label>
                             <p className="text-sm text-muted-foreground">
-                              {available
-                                ? `${formatMoney(unit, currency)} × ${hotel.rooms} rooms = ${formatMoney(unit * hotel.rooms, currency)} / month`
-                                : 'Not available for your organization yet'}
+                              {!available
+                                ? 'Not available for your organization yet'
+                                : isPercent
+                                  ? `${percentLabel} of realised room revenue, invoiced monthly`
+                                  : `${formatMoney(unit, currency)} × ${hotel.rooms} rooms = ${formatMoney(unit * hotel.rooms, currency)} / month`}
                             </p>
+                            {isPercent && available && (
+                              <p className="text-xs mt-0.5 text-muted-foreground flex items-center gap-1">
+                                <TrendingUp className="h-3 w-3" />
+                                {usage && usage.revenue_cents > 0
+                                  ? `Last month: ${formatMoney(usage.revenue_cents, currency)} room revenue → about ${formatMoney(usage.fee_cents, currency)}`
+                                  : 'Last month has no revenue data yet'}
+                              </p>
+                            )}
                             <p className="text-xs mt-0.5 text-muted-foreground">
                               {active
                                 ? sub?.cancel_at_period_end
@@ -322,8 +387,12 @@ export default function Billing() {
                         {active ? (
                           <Badge className="shrink-0">Active</Badge>
                         ) : available ? (
-                          <span className="text-sm font-semibold shrink-0">
-                            {formatMoney(unit * hotel.rooms, currency)}
+                          <span className="text-sm font-semibold shrink-0 text-right">
+                            {isPercent
+                              ? usage && usage.fee_cents > 0
+                                ? `≈ ${formatMoney(usage.fee_cents, currency)}`
+                                : percentLabel
+                              : formatMoney(unit * hotel.rooms, currency)}
                           </span>
                         ) : null}
 
@@ -345,16 +414,31 @@ export default function Billing() {
                     {lines.map((l) => (
                       <div key={l.key} className="flex justify-between text-sm">
                         <span className="text-muted-foreground">
-                          {labelFor(l.module)} — {l.hotelName} ({l.rooms} rooms)
+                          {labelFor(l.module)} — {l.hotelName}{' '}
+                          {l.isPercent ? `(${percentLabel} of revenue)` : `(${l.rooms} rooms)`}
                         </span>
-                        <span>{formatMoney(l.total, currency)}</span>
+                        <span>{l.isPercent ? `≈ ${formatMoney(l.total, currency)}` : formatMoney(l.total, currency)}</span>
                       </div>
                     ))}
                     <Separator />
                     <div className="flex justify-between font-semibold">
                       <span>Monthly total (excl. VAT)</span>
-                      <span>{formatMoney(monthlyTotal, currency)}</span>
+                      <span>
+                        {variableTotal > 0 ? '≈ ' : ''}
+                        {formatMoney(monthlyTotal, currency)}
+                      </span>
                     </div>
+                    {variableTotal > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {formatMoney(fixedTotal, currency)} fixed + a revenue share of {percentLabel}, which varies
+                        with your actual room revenue each month.
+                      </p>
+                    )}
+                    {trialActive && trialEnds && (
+                      <p className="text-xs text-muted-foreground">
+                        You can subscribe now — nothing is charged until your trial ends on {fmtDate(trialEnds.toISOString())}.
+                      </p>
+                    )}
                   </>
                 )}
                 <div className="flex gap-2 justify-end pt-1">

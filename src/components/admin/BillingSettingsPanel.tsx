@@ -9,7 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { Save, CreditCard, KeyRound } from 'lucide-react';
+import { Save, CreditCard, KeyRound, RefreshCw } from 'lucide-react';
 
 interface Org { id: string; name: string; slug: string }
 
@@ -26,6 +26,10 @@ interface Settings {
   trial_start: string;
   stripe_publishable_key: string | null;
   payments_enabled: boolean;
+  revenue_pricing_mode: 'per_room' | 'percent';
+  revenue_percent_bps: number;
+  revenue_percent_min_cents: number;
+  revenue_percent_cap_cents: number;
 }
 
 const BLANK = (slug: string): Settings => ({
@@ -41,6 +45,10 @@ const BLANK = (slug: string): Settings => ({
   trial_start: new Date().toISOString().slice(0, 10),
   stripe_publishable_key: '',
   payments_enabled: true,
+  revenue_pricing_mode: 'per_room',
+  revenue_percent_bps: 100,
+  revenue_percent_min_cents: 0,
+  revenue_percent_cap_cents: 0,
 });
 
 export default function BillingSettingsPanel() {
@@ -49,6 +57,8 @@ export default function BillingSettingsPanel() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [rolling, setRolling] = useState(false);
+  const [rollupNote, setRollupNote] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -84,6 +94,30 @@ export default function BillingSettingsPanel() {
     setSaving(false);
     if (error) toast.error(error.message);
     else toast.success('Billing settings saved');
+  };
+
+  /** Recompute last month's revenue share and place it on the next invoice. */
+  const runRollup = async () => {
+    setRolling(true);
+    setRollupNote(null);
+    const { data, error } = await supabase.functions.invoke('billing-manage', {
+      body: { action: 'usage_rollup', organizationSlug: slug },
+    });
+    setRolling(false);
+    const payload = data as
+      | { error?: string; period_start?: string; results?: { hotel: string; fee_cents?: number; revenue_cents?: number; invoiced?: boolean; skipped?: string }[] }
+      | null;
+    if (error || payload?.error) {
+      toast.error(payload?.error ?? error?.message ?? 'Could not calculate usage');
+      return;
+    }
+    const lines = (payload?.results ?? []).map((r) =>
+      r.skipped
+        ? `${r.hotel}: ${r.skipped}`
+        : `${r.hotel}: ${((r.revenue_cents ?? 0) / 100).toFixed(0)} revenue → ${((r.fee_cents ?? 0) / 100).toFixed(2)} fee${r.invoiced ? ' (added to invoice)' : ' (saved, no paid subscription yet)'}`,
+    );
+    setRollupNote([`Period ${payload?.period_start ?? ''}`, ...lines].join('\n'));
+    toast.success('Usage calculated');
   };
 
   const euros = (cents: number) => (cents / 100).toString();
@@ -169,14 +203,74 @@ export default function BillingSettingsPanel() {
                   Turn this on once the organization is allowed to buy the revenue module.
                 </p>
                 <div className="space-y-2">
-                  <Label>Price per room / month</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={euros(settings.revenue_price_cents)}
-                    onChange={(e) => patch({ revenue_price_cents: toCents(e.target.value) })}
-                  />
+                  <Label>How it is charged</Label>
+                  <Select
+                    value={settings.revenue_pricing_mode}
+                    onValueChange={(v) => patch({ revenue_pricing_mode: v as Settings['revenue_pricing_mode'] })}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="per_room">Fixed price per room / month</SelectItem>
+                      <SelectItem value="percent">Share of realised room revenue</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
+
+                {settings.revenue_pricing_mode === 'per_room' ? (
+                  <div className="space-y-2">
+                    <Label>Price per room / month</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={euros(settings.revenue_price_cents)}
+                      onChange={(e) => patch({ revenue_price_cents: toCents(e.target.value) })}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label>Percentage of realised room revenue</Label>
+                      <Input
+                        type="number"
+                        step="0.05"
+                        min={0}
+                        value={(settings.revenue_percent_bps / 100).toString()}
+                        onChange={(e) =>
+                          patch({ revenue_percent_bps: Math.round((parseFloat(e.target.value) || 0) * 100) })
+                        }
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Charged each month from the previous calendar month's realised room revenue, taken
+                        automatically from the synced property data. 1 = 1%.
+                      </p>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Minimum / month</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={euros(settings.revenue_percent_min_cents)}
+                          onChange={(e) => patch({ revenue_percent_min_cents: toCents(e.target.value) })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Cap / month (0 = none)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={euros(settings.revenue_percent_cap_cents)}
+                          onChange={(e) => patch({ revenue_percent_cap_cents: toCents(e.target.value) })}
+                        />
+                      </div>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={runRollup} disabled={rolling}>
+                      <RefreshCw className={`h-4 w-4 mr-2 ${rolling ? 'animate-spin' : ''}`} />
+                      {rolling ? 'Calculating…' : "Bill last month's usage now"}
+                    </Button>
+                    {rollupNote && <p className="text-xs text-muted-foreground whitespace-pre-line">{rollupNote}</p>}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
