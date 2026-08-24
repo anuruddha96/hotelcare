@@ -2374,7 +2374,7 @@ export default function RateStrategyGrid({
         {canEditRates && failedCount > 0 && (
           <Button size="sm" variant="destructive" className="self-start h-7 text-xs" onClick={() => setPushOpen(true)}>
             <AlertTriangle className="mr-1 h-3.5 w-3.5" />
-            {failedCount} price{failedCount === 1 ? "" : "s"} refused
+            {failedCount} price{failedCount === 1 ? "" : "s"} not applied
           </Button>
         )}
 
