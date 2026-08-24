@@ -343,16 +343,10 @@ export default function RevenueHotelDetail() {
       setSyncPct(60);
       setSyncStep("Recalculating pickup, ADR and RevPAR…");
       setSyncPct(80);
-      setSyncStep("Refreshing occupancy and checking prices…");
-      // None of these depend on each other, so they run together:
-      // occupancy for the next 90 days, room-type name translation (Previo
-      // publishes them in the property's own language) and the price safety
-      // net that emails admins about a 2 EUR or 9000 EUR mistake.
-      await Promise.all([
-        supabase.functions.invoke("previo-sync-daily-overview", { body: { hotelId, days: 90 } }),
-        supabase.functions.invoke("translate-room-types", { body: { hotelId } }),
-        supabase.functions.invoke("revenue-rate-alerts", { body: { hotelId } }),
-      ]);
+      setSyncStep("Opening the completed dataset…");
+      // Daily overview, translations and safety alerts are server-side jobs.
+      // Calling them again from the browser caused a misleading Edge Function
+      // network toast after the actual revenue sync had already succeeded.
       setSyncPct(94);
       await Promise.all([load(), live.reload()]);
       setSyncPct(100);
