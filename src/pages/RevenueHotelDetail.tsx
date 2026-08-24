@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { claimRevenueSync, fetchRevenueSyncInfo, REVENUE_STALE_MS } from "@/lib/revenueFreshness";
+import { claimRevenueSync, fetchRevenueSyncInfo, fetchRevenueWaitState } from "@/lib/revenueFreshness";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -89,7 +89,7 @@ const SWITCHABLE_ROLES = ["admin", "manager", "housekeeping_manager", "top_manag
 
 
 /** How often the page re-checks the shared property freshness timestamp. */
-const BACKGROUND_SYNC_MS = REVENUE_STALE_MS;
+const SYNC_WATCH_MS = 60 * 1000;
 const DOW_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 function fmtMonth(d: Date) { return d.toLocaleString("en-US", { month: "long", year: "numeric" }); }
@@ -259,6 +259,7 @@ export default function RevenueHotelDetail() {
   const [syncStep, setSyncStep] = useState("Connecting to Previo…");
   const [syncPct, setSyncPct] = useState(0);
   const [syncWaiting, setSyncWaiting] = useState(false);
+  const [serverRefreshing, setServerRefreshing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const autoSyncedHotelRef = useRef<string | null>(null);
   const syncingRef = useRef(false);
