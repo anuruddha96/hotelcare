@@ -57,8 +57,8 @@ export default function BillingSettingsPanel() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [rolling, setRolling] = useState(false);
-  const [rollupNote, setRollupNote] = useState<string | null>(null);
+  const [usage, setUsage] = useState<RevenueUsage[]>([]);
+  const [usageLoading, setUsageLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
