@@ -483,6 +483,7 @@ export default function RateStrategyGrid({
   const [pending, setPending] = useState<PendingDraft[]>([]);
   const [pushOpen, setPushOpen] = useState(false);
   const [retryingFailures, setRetryingFailures] = useState(false);
+  const [dismissingFailures, setDismissingFailures] = useState(false);
 
   /** Price-change trail: cell history on hover, and the activity panel below. */
   const { rows: auditRows, manualRows: auditManualRows, byCell: auditByCell, originByCell: cellOriginByCell, names: auditNames, reload: reloadAuditRows } = useRateAudit(hotelId);
@@ -1331,6 +1332,32 @@ export default function RateStrategyGrid({
       toast.error(error instanceof Error ? error.message : "Could not retry these prices");
     } finally {
       setRetryingFailures(false);
+    }
+  }
+
+  /**
+   * Some of these rows can never succeed as-is (a price that would invert the
+   * room order is refused every retry), so there has to be a way to clear the
+   * list. Dismissing retires the draft — the live Previo price is untouched.
+   */
+  async function dismissFailedPrices() {
+    if (!hotelId || pending.length === 0) return;
+    setDismissingFailures(true);
+    try {
+      const ids = pending.map((d) => d.id);
+      const { error } = await supabase
+        .from("revenue_rate_drafts")
+        .update({ status: "cancelled" })
+        .in("id", ids);
+      if (error) throw error;
+      setPushOpen(false);
+      setPending([]);
+      toast.success(`${ids.length} price${ids.length === 1 ? "" : "s"} dismissed`);
+      void refreshDrafts();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not dismiss these prices");
+    } finally {
+      setDismissingFailures(false);
     }
   }
 
@@ -2347,7 +2374,7 @@ export default function RateStrategyGrid({
         {canEditRates && failedCount > 0 && (
           <Button size="sm" variant="destructive" className="self-start h-7 text-xs" onClick={() => setPushOpen(true)}>
             <AlertTriangle className="mr-1 h-3.5 w-3.5" />
-            {failedCount} price{failedCount === 1 ? "" : "s"} refused
+            {failedCount} price{failedCount === 1 ? "" : "s"} not applied
           </Button>
         )}
 
@@ -3832,7 +3859,7 @@ export default function RateStrategyGrid({
       <Dialog open={pushOpen} onOpenChange={setPushOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-base">Previo refused these prices</DialogTitle>
+            <DialogTitle className="text-base">These prices were not applied</DialogTitle>
           </DialogHeader>
           <div className="max-h-[50vh] overflow-y-auto">
             <table className="w-full text-xs">
@@ -3849,7 +3876,7 @@ export default function RateStrategyGrid({
                     <td className="py-2 whitespace-nowrap">{d.stay_date}</td>
                     <td className="py-2">
                       <span>{d.room_type_name} · {d.occupancy}g</span>
-                      <span className="block text-[10px] text-destructive">{d.push_error || "Previo rejected this price"}</span>
+                      <span className="block text-[10px] text-destructive">{d.push_error || "This price was rejected"}</span>
                     </td>
                     <td className="py-2 text-right font-semibold tabular-nums">{moneyBase(d.new_price)}</td>
                   </tr>
@@ -3857,10 +3884,22 @@ export default function RateStrategyGrid({
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-muted-foreground">Only persistent write failures appear here. Successful delivery and verification stay in the background.</p>
+          <p className="text-xs text-muted-foreground">
+            Most of these are stopped by Hotel Care's own price-order guard, not by Previo: a cheaper room type
+            would have ended up above a more expensive one on that date, so the write was held back. Retry after
+            fixing the higher room's price, or dismiss to clear the list — dismissing never changes a live Previo price.
+          </p>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setPushOpen(false)}>Close</Button>
-            <Button onClick={() => void retryFailedPrices()} disabled={retryingFailures || pending.length === 0}>
+            <Button
+              variant="ghost"
+              onClick={() => void dismissFailedPrices()}
+              disabled={dismissingFailures || retryingFailures || pending.length === 0}
+            >
+              {dismissingFailures && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Dismiss {pending.length}
+            </Button>
+            <Button onClick={() => void retryFailedPrices()} disabled={retryingFailures || dismissingFailures || pending.length === 0}>
               {retryingFailures && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
               Retry {pending.length} price{pending.length === 1 ? "" : "s"}
             </Button>
