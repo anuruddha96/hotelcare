@@ -1,0 +1,9 @@
+tokens:
+    - file: src/index.css
+      operation: css-variables
+    - file: tailwind.config.ts
+      operation: js-object-path
+      path: theme.extend
+components:
+    - file: src/main.tsx
+      operation: ts-named-exports
