@@ -2,18 +2,18 @@
   "meta": {
     "name": "195a2daa-26b4-42e0-8ee1-c0c157972991",
     "package": "@ws-ilhrr5tzpy4crvboqzzj/195a2daa-26b4-42e0-8ee1-c0c157972991",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "framework": "react",
     "css_framework": "tailwind",
-    "starter_template": "custom_design_system_tailwind",
+    "starter_template": "custom_design_system",
     "theme_files": [
       "src/index.css"
     ],
     "source_type": "local",
     "source_manifest": {
-      "#enrichment": "223b3e20c9d7c4ef04d6c9725f41efef76029c0e5a0256c00274316e92fb2bb6",
+      "#enrichment": "783360f145eb0e9ca2620816c127264f7dcf365098e3de1007939c395e091d8f",
       ".gitignore": "d9566700e8535935d03c1583474d790c",
-      ".lovable/meta.yaml": "954a981e8847ec1692669dbb04ae9ae9",
+      ".lovable/meta.yaml": "86a17ac0d6b10fddfde4cdc325cb93a7",
       ".lovable/plan-manager-training.md": "b0c03c4e91d9b30448ebc059d1224798",
       ".lovable/plan/1-tenant-isolation-model-today-and-its-weaknesses-2026-08-07.md": "a4677d283c947be52603d5d5899562df",
       ".lovable/plan/actionable-signals-a-real-previo-rate-write-2026-08-08.md": "52349b9b3975388605460a87445d369b",
@@ -91,6 +91,7 @@
       ".lovable/plan/revenue-write-back-room-overview-clarity-and-slnt-scheduling-2026-08-09.md": "ccec749b468462c13fa6c9b0b24e25fb",
       ".lovable/plan/safe-understandable-revenue-automation-2026-08-14.md": "bb42db46e8dcb77e390c3c7ecad2c099",
       ".lovable/plan/safer-near-term-pricing-whole-numbers-availability-moves-and-2026-08-15.md": "b3127e0f09f519d1e01ead5278770829",
+      ".lovable/plan/show-one-complete-fresh-revenue-dataset-on-first-load-2026-08-24.md": "a6460e390b2dd03413cb088406195942",
       ".lovable/plan/slnt-compact-unit-overview-real-previo-clean-rtc-status-work-2026-08-08.md": "e08a2e885a7169c86943e4296fa7f8e7",
       ".lovable/plan/slnt-correct-room-count-real-currency-huf-and-a-re-ordered-r-2026-08-08.md": "0adfc64682614b620d12cc17dd5fb1af",
       ".lovable/plan/slnt-friction-free-team-view-assignment-live-previo-api-for-2026-08-07.md": "c7c0986ee1d891aa1fa445f8d1eb41fd",
@@ -106,7 +107,7 @@
       ".lovable/plan/strict-tenant-urls-and-one-revenue-refresh-per-30-minutes-2026-08-13.md": "9b6fc321c5b4aa922d1d65cd99569264",
       ".lovable/plan/team-view-tap-to-assign-instead-of-long-drags-slnt-only-2026-08-07.md": "f9361e4fe984806852370d5bf4e8b847",
       ".lovable/plan/whole-number-pricing-everywhere-a-faster-calmer-rate-pickup-2026-08-18.md": "0a79aa5f5aa943ace0f1756e020ffb81",
-      ".lovable/sources.yaml": "85650baf848ef209adbcf704cd10bef1",
+      ".lovable/sources.yaml": "f79fc51eb7f67f51f67e941406ddb3d5",
       ".lovable/training-regression-checklist.md": "f716d24acd52ed76a82aacc67fe62294",
       "AUTOMATIC_CLEANUP_SETUP.md": "993bf6a644d77d51fe8e5a97066ebf97",
       "IMPLEMENTATION_SUMMARY.md": "9de28baca99a3bcdb58b2ba1a787c304",
@@ -114,6 +115,7 @@
       "components.json": "8374b74daf75bd47ef5e1123bccde4ad",
       "eslint.config.js": "289d6b79f2956f20f833b7b2fe6c3e9b",
       "index.html": "49c17de83ffaab95e613bb322c3ee664",
+      "lovable.toml": "b32568cbef680de9cbb176344986f1a3",
       "package.json": "ed79fcdaa5bde3c927706b97d461f946",
       "postcss.config.js": "ef3ba2a81ba19f8ea5ddf625521e96f0",
       "public/favicon.ico": "2acdbdce9f382f67fae60a690a6e7380",
@@ -154,7 +156,7 @@
       "src/components/ai-elements/conversation.tsx": "51f053cb2c206062ef0c61a819281b0f",
       "src/components/ai-elements/message.tsx": "a443a10951d73505780d2a27d3266728",
       "src/components/ai-elements/prompt-input.tsx": "d4fb4ff50ba6e3b9cbc87caf35d27e80",
-      "src/components/ai-elements/shimmer.tsx": "218f121c5cb479a8385525541830c3b8",
+      "src/components/ai-elements/shimmer.tsx": "d2ef23d66643931f27e282cbef241202",
       "src/components/ai-elements/tool.tsx": "7f13561e31f091806224f9e782dd6f78",
       "src/components/assistant/AssistantAccessRequests.tsx": "4cb7ee2ec261e21c9baa1ca750f6cac3",
       "src/components/assistant/AssistantChat.tsx": "93e260227cd8c2ea227cffc8ae65bd97",
@@ -448,7 +450,7 @@
       "src/hooks/useRateAudit.ts": "2ed9742535ccff091a477e7999005636",
       "src/hooks/useRateCellMarkers.ts": "e0b3396bed575a53e98c72aa24e14910",
       "src/hooks/useRevenueAutomationNotifications.ts": "f8b267919cb38b8445f8c9a67a6c2318",
-      "src/hooks/useRevenueHotelData.ts": "542d86df05f1260a0e28fb9d5b6819d7",
+      "src/hooks/useRevenueHotelData.ts": "df427bd5f11c3fcc78b0ec8e979b510f",
       "src/hooks/useTenantFeatures.ts": "3cfaac6f591af480df5617c6bb72338b",
       "src/hooks/useTranslation.test.tsx": "0c7322effce2ffca4f0561a6fc827288",
       "src/hooks/useTranslation.tsx": "9a55edc34e4d234edbd8209903ed6571",
@@ -456,9 +458,10 @@
       "src/hooks/useUnitMappings.ts": "2989ca20bac85bfa58d32265fb04007b",
       "src/hooks/useVenues.ts": "e286ab5685211340f4d84b5c8ebef4b8",
       "src/index.css": "862767f9dfe54e976fcb71ce56d959a2",
+      "src/index.ts": "8c96f56fc2449f847deb135f3bffc80e",
       "src/integrations/supabase/client.ts": "a3f2c54e78b8e01495036a489d79f929",
       "src/integrations/supabase/previewAuthStorage.ts": "bc45a76c9242c4b85d6d4345625c46e9",
-      "src/integrations/supabase/types.ts": "1b9760bf245c266a990cb8f7e1c4a710",
+      "src/integrations/supabase/types.ts": "1b619fba5ef4dd01d4b66ca6d596d2ec",
       "src/lib/automationPricing.test.ts": "293f88fd4179c4a1abaf7c9899e7a302",
       "src/lib/bedConfigInference.test.ts": "fa00d319fa21076d2ea0b3ee6e0cc0b7",
       "src/lib/bedConfigInference.ts": "1fb9aa7fccc133d44287f718db06ca9d",
@@ -557,7 +560,7 @@
       "src/pages/ReservationDetail.tsx": "ae1ecd3439071a9d6c59470beab30f89",
       "src/pages/Reservations.tsx": "25ad55eab6f8dd0f4b14948e9d96dd75",
       "src/pages/Revenue.tsx": "1fad972a219c3835561a7437f13b86c2",
-      "src/pages/RevenueHotelDetail.tsx": "924d734b3512aae8e5bd7096d3978db9",
+      "src/pages/RevenueHotelDetail.tsx": "0d7e5fa72358c0c88c76bbbe780be8d6",
       "src/pages/TrainingCenter.tsx": "16034070a810fe69667fb9932b215622",
       "src/recovered-entry.ts": "691d2cffcd4394c83b1c2c0af36fa767",
       "src/test/setup.ts": "5b817f42b4d0e3d6120e6965ef25fb81",
@@ -643,10 +646,10 @@
       "supabase/functions/revenue-pickup-automation/index.ts": "ef13a825f85a9b1e411185f698377c10",
       "supabase/functions/revenue-pickup-upload/index.ts": "79d79dc0dbf180b2b55acb914b00d110",
       "supabase/functions/revenue-publish-queue/index.ts": "2ae7dbe7240558922308e56cb30aa0ed",
-      "supabase/functions/revenue-push-drafts/index.ts": "67d7e4c57587af2bc8e41ecc4ca642fd",
+      "supabase/functions/revenue-push-drafts/index.ts": "4417969c7cea6fc7ef5158f84cc80ee3",
       "supabase/functions/revenue-rate-alerts/index.ts": "d3d352a04d467046d692194128d4f7ee",
       "supabase/functions/revenue-signals/index.ts": "59727adb4239e99045b1804f32277464",
-      "supabase/functions/revenue-sync-scheduler/index.ts": "8b8466e22e4b65d07d1e5169387e0b49",
+      "supabase/functions/revenue-sync-scheduler/index.ts": "bbfc983cb2270287fa18856ceb57b0b2",
       "supabase/functions/rm-measure-outcomes/index.ts": "fe9ff9663447ee6a7d885ef4990f3f88",
       "supabase/functions/send-assignment-notification/index.ts": "91432437fa0cf4dab59a4eb827d54665",
       "supabase/functions/send-email-notification/index.ts": "428ea55db67372f2d0ee2d1ea6238724",
@@ -1031,6 +1034,7 @@
       "supabase/migrations/20260824114809_e1d70388-46e0-4a7c-aeca-3adb7968a50e.sql": "2a84d7323bc78ca4cd9794c37ddc5dae",
       "supabase/migrations/20260824121809_c4e56837-1f56-4c75-9e3f-196bf9993830.sql": "d66a3fcf3e47f7f89ce3110a4b44b442",
       "supabase/migrations/20260824121913_414bdd0d-0f14-475a-9eeb-c5d598953ab3.sql": "1885801af4a8004e72d815958113a050",
+      "supabase/migrations/20260824130307_17157777-30f6-4dbb-a315-62699600c416.sql": "0fba92dcb8639368e81585a17512bf61",
       "tailwind.config.ts": "a58e20e865bdcdcc497aa6a6f0f32f47",
       "tsconfig.app.json": "9036c95ea413f9a07f9aa5c7650861a6",
       "tsconfig.json": "bb72695c901d34a52a46196ba258371d",
@@ -1208,686 +1212,2092 @@
   },
   "components": [
     {
-      "name": "AiProviderStatus",
-      "file": "src/components/admin/AiProviderStatus",
-      "import_path": "",
-      "is_default": true
+      "name": "Accordion",
+      "file": "src/components/ui/accordion.tsx",
+      "import_path": ""
     },
     {
-      "name": "BillingSettingsPanel",
-      "file": "src/components/admin/BillingSettingsPanel",
-      "import_path": "",
-      "is_default": true
+      "name": "AccordionItem",
+      "file": "src/components/ui/accordion.tsx",
+      "import_path": ""
     },
     {
-      "name": "EmailSettingsPanel",
-      "file": "src/components/admin/EmailSettingsPanel",
-      "import_path": "",
-      "is_default": true
+      "name": "AccordionTrigger",
+      "file": "src/components/ui/accordion.tsx",
+      "import_path": ""
     },
     {
-      "name": "PMSConfigurationManagement",
-      "file": "src/components/admin/PMSConfigurationManagement",
-      "import_path": "",
-      "is_default": true
+      "name": "AccordionContent",
+      "file": "src/components/ui/accordion.tsx",
+      "import_path": ""
     },
     {
-      "name": "PmsSyncStatus",
-      "file": "src/components/admin/PmsSyncStatus",
+      "name": "AlertDialog",
+      "file": "src/components/ui/alert-dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "AlertDialogPortal",
+      "file": "src/components/ui/alert-dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "AlertDialogOverlay",
+      "file": "src/components/ui/alert-dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "AlertDialogTrigger",
+      "file": "src/components/ui/alert-dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "AlertDialogContent",
+      "file": "src/components/ui/alert-dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "AlertDialogHeader",
+      "file": "src/components/ui/alert-dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "AlertDialogFooter",
+      "file": "src/components/ui/alert-dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "AlertDialogTitle",
+      "file": "src/components/ui/alert-dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "AlertDialogDescription",
+      "file": "src/components/ui/alert-dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "AlertDialogAction",
+      "file": "src/components/ui/alert-dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "AlertDialogCancel",
+      "file": "src/components/ui/alert-dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Alert",
+      "file": "src/components/ui/alert.tsx",
       "import_path": "",
-      "is_default": true,
       "props": [
         {
-          "name": "hotelId",
-          "type": "string",
-          "required": true
+          "name": "variant",
+          "type": "enum",
+          "values": [
+            "default",
+            "destructive"
+          ],
+          "default": "default"
+        }
+      ]
+    },
+    {
+      "name": "AlertTitle",
+      "file": "src/components/ui/alert.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "AlertDescription",
+      "file": "src/components/ui/alert.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "AspectRatio",
+      "file": "src/components/ui/aspect-ratio.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Avatar",
+      "file": "src/components/ui/avatar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "AvatarImage",
+      "file": "src/components/ui/avatar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "AvatarFallback",
+      "file": "src/components/ui/avatar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Badge",
+      "file": "src/components/ui/badge.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "variant",
+          "type": "enum",
+          "values": [
+            "default",
+            "secondary",
+            "destructive",
+            "outline"
+          ],
+          "default": "default"
+        }
+      ]
+    },
+    {
+      "name": "Breadcrumb",
+      "file": "src/components/ui/breadcrumb.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "BreadcrumbList",
+      "file": "src/components/ui/breadcrumb.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "BreadcrumbItem",
+      "file": "src/components/ui/breadcrumb.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "BreadcrumbLink",
+      "file": "src/components/ui/breadcrumb.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "BreadcrumbPage",
+      "file": "src/components/ui/breadcrumb.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "BreadcrumbSeparator",
+      "file": "src/components/ui/breadcrumb.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "BreadcrumbEllipsis",
+      "file": "src/components/ui/breadcrumb.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ButtonGroup",
+      "file": "src/components/ui/button-group.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "orientation",
+          "type": "enum",
+          "values": [
+            "horizontal",
+            "vertical"
+          ],
+          "default": "horizontal"
+        }
+      ]
+    },
+    {
+      "name": "ButtonGroupSeparator",
+      "file": "src/components/ui/button-group.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ButtonGroupText",
+      "file": "src/components/ui/button-group.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Button",
+      "file": "src/components/ui/button.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "variant",
+          "type": "enum",
+          "values": [
+            "default",
+            "destructive",
+            "outline",
+            "secondary",
+            "ghost",
+            "link"
+          ],
+          "default": "default"
         },
         {
-          "name": "compact",
+          "name": "size",
+          "type": "enum",
+          "values": [
+            "default",
+            "sm",
+            "icon-sm",
+            "lg",
+            "icon"
+          ],
+          "default": "default"
+        },
+        {
+          "name": "asChild",
           "type": "boolean",
           "default": "false"
         }
       ]
     },
     {
-      "name": "RevenueEngineControls",
-      "file": "src/components/admin/RevenueEngineControls",
-      "import_path": "",
-      "is_default": true
+      "name": "Calendar",
+      "file": "src/components/ui/calendar.tsx",
+      "import_path": ""
     },
     {
-      "name": "RevenueSyncMonitor",
-      "file": "src/components/admin/RevenueSyncMonitor",
-      "import_path": "",
-      "is_default": true
+      "name": "Card",
+      "file": "src/components/ui/card.tsx",
+      "import_path": ""
     },
     {
-      "name": "AssistantAccessRequests",
-      "file": "src/components/assistant/AssistantAccessRequests",
-      "import_path": "",
-      "is_default": true
+      "name": "CardHeader",
+      "file": "src/components/ui/card.tsx",
+      "import_path": ""
     },
     {
-      "name": "AssistantChat",
-      "file": "src/components/assistant/AssistantChat",
-      "import_path": "",
-      "is_default": true
+      "name": "CardFooter",
+      "file": "src/components/ui/card.tsx",
+      "import_path": ""
     },
     {
-      "name": "AssistantLauncher",
-      "file": "src/components/assistant/AssistantLauncher",
-      "import_path": "",
-      "is_default": true
+      "name": "CardTitle",
+      "file": "src/components/ui/card.tsx",
+      "import_path": ""
     },
     {
-      "name": "OccupancyPickupChart",
-      "file": "src/components/breakfast/OccupancyPickupChart",
+      "name": "CardDescription",
+      "file": "src/components/ui/card.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CardContent",
+      "file": "src/components/ui/card.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Carousel",
+      "file": "src/components/ui/carousel.tsx",
       "import_path": "",
-      "is_default": true,
       "props": [
         {
-          "name": "hotelId",
-          "type": "string",
-          "required": true
+          "name": "opts",
+          "type": "any"
         },
         {
-          "name": "days",
-          "type": "number",
-          "default": "14"
+          "name": "plugins",
+          "type": "any"
+        },
+        {
+          "name": "orientation",
+          "type": "enum",
+          "values": [
+            "horizontal",
+            "vertical"
+          ],
+          "default": "horizontal"
+        },
+        {
+          "name": "setApi",
+          "type": "function"
         }
       ]
     },
     {
-      "name": "RestaurantReservations",
-      "file": "src/components/breakfast/RestaurantReservations",
+      "name": "CarouselContent",
+      "file": "src/components/ui/carousel.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CarouselItem",
+      "file": "src/components/ui/carousel.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CarouselPrevious",
+      "file": "src/components/ui/carousel.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CarouselNext",
+      "file": "src/components/ui/carousel.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ChartContainer",
+      "file": "src/components/ui/chart.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ChartTooltip",
+      "file": "src/components/ui/chart.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ChartTooltipContent",
+      "file": "src/components/ui/chart.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ChartLegend",
+      "file": "src/components/ui/chart.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ChartLegendContent",
+      "file": "src/components/ui/chart.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ChartStyle",
+      "file": "src/components/ui/chart.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Checkbox",
+      "file": "src/components/ui/checkbox.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Collapsible",
+      "file": "src/components/ui/collapsible.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CollapsibleTrigger",
+      "file": "src/components/ui/collapsible.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CollapsibleContent",
+      "file": "src/components/ui/collapsible.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Command",
+      "file": "src/components/ui/command.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CommandDialog",
+      "file": "src/components/ui/command.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CommandInput",
+      "file": "src/components/ui/command.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CommandList",
+      "file": "src/components/ui/command.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CommandEmpty",
+      "file": "src/components/ui/command.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CommandGroup",
+      "file": "src/components/ui/command.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CommandItem",
+      "file": "src/components/ui/command.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CommandShortcut",
+      "file": "src/components/ui/command.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CommandSeparator",
+      "file": "src/components/ui/command.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ContextMenu",
+      "file": "src/components/ui/context-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ContextMenuTrigger",
+      "file": "src/components/ui/context-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ContextMenuContent",
+      "file": "src/components/ui/context-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ContextMenuItem",
+      "file": "src/components/ui/context-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ContextMenuCheckboxItem",
+      "file": "src/components/ui/context-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ContextMenuRadioItem",
+      "file": "src/components/ui/context-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ContextMenuLabel",
+      "file": "src/components/ui/context-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ContextMenuSeparator",
+      "file": "src/components/ui/context-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ContextMenuShortcut",
+      "file": "src/components/ui/context-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ContextMenuGroup",
+      "file": "src/components/ui/context-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ContextMenuPortal",
+      "file": "src/components/ui/context-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ContextMenuSub",
+      "file": "src/components/ui/context-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ContextMenuSubContent",
+      "file": "src/components/ui/context-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ContextMenuSubTrigger",
+      "file": "src/components/ui/context-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ContextMenuRadioGroup",
+      "file": "src/components/ui/context-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Dialog",
+      "file": "src/components/ui/dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DialogPortal",
+      "file": "src/components/ui/dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DialogOverlay",
+      "file": "src/components/ui/dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DialogClose",
+      "file": "src/components/ui/dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DialogTrigger",
+      "file": "src/components/ui/dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DialogContent",
+      "file": "src/components/ui/dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DialogHeader",
+      "file": "src/components/ui/dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DialogFooter",
+      "file": "src/components/ui/dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DialogTitle",
+      "file": "src/components/ui/dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DialogDescription",
+      "file": "src/components/ui/dialog.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Drawer",
+      "file": "src/components/ui/drawer.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DrawerPortal",
+      "file": "src/components/ui/drawer.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DrawerOverlay",
+      "file": "src/components/ui/drawer.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DrawerTrigger",
+      "file": "src/components/ui/drawer.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DrawerClose",
+      "file": "src/components/ui/drawer.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DrawerContent",
+      "file": "src/components/ui/drawer.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DrawerHeader",
+      "file": "src/components/ui/drawer.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DrawerFooter",
+      "file": "src/components/ui/drawer.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DrawerTitle",
+      "file": "src/components/ui/drawer.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DrawerDescription",
+      "file": "src/components/ui/drawer.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DropdownMenu",
+      "file": "src/components/ui/dropdown-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DropdownMenuTrigger",
+      "file": "src/components/ui/dropdown-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DropdownMenuContent",
+      "file": "src/components/ui/dropdown-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DropdownMenuItem",
+      "file": "src/components/ui/dropdown-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DropdownMenuCheckboxItem",
+      "file": "src/components/ui/dropdown-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DropdownMenuRadioItem",
+      "file": "src/components/ui/dropdown-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DropdownMenuLabel",
+      "file": "src/components/ui/dropdown-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DropdownMenuSeparator",
+      "file": "src/components/ui/dropdown-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DropdownMenuShortcut",
+      "file": "src/components/ui/dropdown-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DropdownMenuGroup",
+      "file": "src/components/ui/dropdown-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DropdownMenuPortal",
+      "file": "src/components/ui/dropdown-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DropdownMenuSub",
+      "file": "src/components/ui/dropdown-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DropdownMenuSubContent",
+      "file": "src/components/ui/dropdown-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DropdownMenuSubTrigger",
+      "file": "src/components/ui/dropdown-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "DropdownMenuRadioGroup",
+      "file": "src/components/ui/dropdown-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "FileUpload",
+      "file": "src/components/ui/file-upload.tsx",
       "import_path": "",
-      "is_default": true,
       "props": [
         {
-          "name": "hotelId",
+          "name": "onFileSelect",
+          "type": "function",
+          "required": true
+        },
+        {
+          "name": "maxFiles",
+          "type": "number",
+          "default": "5"
+        },
+        {
+          "name": "acceptedTypes",
+          "type": "string",
+          "default": "image/*,.pdf,.doc,.docx,.txt"
+        },
+        {
+          "name": "className",
+          "type": "string",
+          "default": "flex items-center gap-2"
+        }
+      ]
+    },
+    {
+      "name": "Form",
+      "file": "src/components/ui/form.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "FormItem",
+      "file": "src/components/ui/form.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "FormLabel",
+      "file": "src/components/ui/form.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "FormControl",
+      "file": "src/components/ui/form.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "FormDescription",
+      "file": "src/components/ui/form.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "FormMessage",
+      "file": "src/components/ui/form.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "FormField",
+      "file": "src/components/ui/form.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "HelpTooltip",
+      "file": "src/components/ui/help-tooltip.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "hint",
+          "type": "string"
+        },
+        {
+          "name": "children",
+          "type": "any",
+          "required": true
+        },
+        {
+          "name": "side",
+          "type": "enum",
+          "values": [
+            "top",
+            "bottom",
+            "left",
+            "right"
+          ],
+          "default": "bottom"
+        }
+      ]
+    },
+    {
+      "name": "HoldButton",
+      "file": "src/components/ui/hold-button.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "holdDuration",
+          "type": "number",
+          "default": "2000"
+        },
+        {
+          "name": "onHoldComplete",
+          "type": "function",
+          "required": true
+        },
+        {
+          "name": "holdText",
+          "type": "string"
+        },
+        {
+          "name": "releaseText",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "HoverCard",
+      "file": "src/components/ui/hover-card.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "HoverCardTrigger",
+      "file": "src/components/ui/hover-card.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "HoverCardContent",
+      "file": "src/components/ui/hover-card.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "InputGroup",
+      "file": "src/components/ui/input-group.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "InputGroupAddon",
+      "file": "src/components/ui/input-group.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "align",
+          "type": "enum",
+          "values": [
+            "inline-start",
+            "inline-end",
+            "block-start",
+            "block-end"
+          ],
+          "default": "inline-start"
+        }
+      ]
+    },
+    {
+      "name": "InputGroupButton",
+      "file": "src/components/ui/input-group.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "size",
+          "type": "enum",
+          "values": [
+            "xs",
+            "sm",
+            "icon-xs",
+            "icon-sm"
+          ],
+          "default": "xs"
+        }
+      ]
+    },
+    {
+      "name": "InputGroupText",
+      "file": "src/components/ui/input-group.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "InputGroupInput",
+      "file": "src/components/ui/input-group.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "InputGroupTextarea",
+      "file": "src/components/ui/input-group.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "InputOTP",
+      "file": "src/components/ui/input-otp.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "InputOTPGroup",
+      "file": "src/components/ui/input-otp.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "InputOTPSlot",
+      "file": "src/components/ui/input-otp.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "InputOTPSeparator",
+      "file": "src/components/ui/input-otp.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Input",
+      "file": "src/components/ui/input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Label",
+      "file": "src/components/ui/label.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Menubar",
+      "file": "src/components/ui/menubar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MenubarMenu",
+      "file": "src/components/ui/menubar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MenubarTrigger",
+      "file": "src/components/ui/menubar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MenubarContent",
+      "file": "src/components/ui/menubar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MenubarItem",
+      "file": "src/components/ui/menubar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MenubarSeparator",
+      "file": "src/components/ui/menubar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MenubarLabel",
+      "file": "src/components/ui/menubar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MenubarCheckboxItem",
+      "file": "src/components/ui/menubar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MenubarRadioGroup",
+      "file": "src/components/ui/menubar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MenubarRadioItem",
+      "file": "src/components/ui/menubar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MenubarPortal",
+      "file": "src/components/ui/menubar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MenubarSubContent",
+      "file": "src/components/ui/menubar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MenubarSubTrigger",
+      "file": "src/components/ui/menubar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MenubarGroup",
+      "file": "src/components/ui/menubar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MenubarSub",
+      "file": "src/components/ui/menubar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MenubarShortcut",
+      "file": "src/components/ui/menubar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "NavigationMenu",
+      "file": "src/components/ui/navigation-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "NavigationMenuList",
+      "file": "src/components/ui/navigation-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "NavigationMenuItem",
+      "file": "src/components/ui/navigation-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "NavigationMenuContent",
+      "file": "src/components/ui/navigation-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "NavigationMenuTrigger",
+      "file": "src/components/ui/navigation-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "NavigationMenuLink",
+      "file": "src/components/ui/navigation-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "NavigationMenuIndicator",
+      "file": "src/components/ui/navigation-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "NavigationMenuViewport",
+      "file": "src/components/ui/navigation-menu.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Pagination",
+      "file": "src/components/ui/pagination.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PaginationContent",
+      "file": "src/components/ui/pagination.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PaginationEllipsis",
+      "file": "src/components/ui/pagination.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PaginationItem",
+      "file": "src/components/ui/pagination.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PaginationLink",
+      "file": "src/components/ui/pagination.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "isActive",
+          "type": "boolean"
+        }
+      ]
+    },
+    {
+      "name": "PaginationNext",
+      "file": "src/components/ui/pagination.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PaginationPrevious",
+      "file": "src/components/ui/pagination.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PhotoLightbox",
+      "file": "src/components/ui/photo-lightbox.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "photos",
+          "type": "any",
+          "required": true
+        },
+        {
+          "name": "startIndex",
+          "type": "number",
+          "default": "0"
+        },
+        {
+          "name": "open",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "name": "onOpenChange",
+          "type": "function",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "Popover",
+      "file": "src/components/ui/popover.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PopoverTrigger",
+      "file": "src/components/ui/popover.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PopoverContent",
+      "file": "src/components/ui/popover.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Progress",
+      "file": "src/components/ui/progress.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "RadioGroup",
+      "file": "src/components/ui/radio-group.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "RadioGroupItem",
+      "file": "src/components/ui/radio-group.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ResizablePanelGroup",
+      "file": "src/components/ui/resizable.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ResizablePanel",
+      "file": "src/components/ui/resizable.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ResizableHandle",
+      "file": "src/components/ui/resizable.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ScrollArea",
+      "file": "src/components/ui/scroll-area.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ScrollBar",
+      "file": "src/components/ui/scroll-area.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Select",
+      "file": "src/components/ui/select.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SelectGroup",
+      "file": "src/components/ui/select.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SelectValue",
+      "file": "src/components/ui/select.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SelectTrigger",
+      "file": "src/components/ui/select.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SelectContent",
+      "file": "src/components/ui/select.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SelectLabel",
+      "file": "src/components/ui/select.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SelectItem",
+      "file": "src/components/ui/select.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SelectSeparator",
+      "file": "src/components/ui/select.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SelectScrollUpButton",
+      "file": "src/components/ui/select.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SelectScrollDownButton",
+      "file": "src/components/ui/select.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Separator",
+      "file": "src/components/ui/separator.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Sheet",
+      "file": "src/components/ui/sheet.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "side",
+          "type": "enum",
+          "values": [
+            "top",
+            "bottom",
+            "left",
+            "right"
+          ],
+          "default": "right"
+        }
+      ]
+    },
+    {
+      "name": "SheetClose",
+      "file": "src/components/ui/sheet.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SheetContent",
+      "file": "src/components/ui/sheet.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SheetDescription",
+      "file": "src/components/ui/sheet.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SheetFooter",
+      "file": "src/components/ui/sheet.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SheetHeader",
+      "file": "src/components/ui/sheet.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SheetOverlay",
+      "file": "src/components/ui/sheet.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SheetPortal",
+      "file": "src/components/ui/sheet.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SheetTitle",
+      "file": "src/components/ui/sheet.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SheetTrigger",
+      "file": "src/components/ui/sheet.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Sidebar",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarContent",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarFooter",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarGroup",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarGroupAction",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarGroupContent",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarGroupLabel",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarHeader",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarInput",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarInset",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarMenu",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarMenuAction",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarMenuBadge",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarMenuButton",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "variant",
+          "type": "enum",
+          "values": [
+            "default",
+            "outline"
+          ],
+          "default": "default"
+        },
+        {
+          "name": "size",
+          "type": "enum",
+          "values": [
+            "default",
+            "sm",
+            "lg"
+          ],
+          "default": "default"
+        }
+      ]
+    },
+    {
+      "name": "SidebarMenuItem",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarMenuSkeleton",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarMenuSub",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarMenuSubButton",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarMenuSubItem",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarProvider",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarRail",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarSeparator",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SidebarTrigger",
+      "file": "src/components/ui/sidebar.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Skeleton",
+      "file": "src/components/ui/skeleton.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Slider",
+      "file": "src/components/ui/slider.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Toaster",
+      "file": "src/components/ui/sonner.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Spinner",
+      "file": "src/components/ui/spinner.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "SwipeAction",
+      "file": "src/components/ui/swipe-action.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "label",
           "type": "string",
           "required": true
         },
         {
-          "name": "date",
+          "name": "onComplete",
+          "type": "function",
+          "required": true
+        },
+        {
+          "name": "disabled",
+          "type": "boolean",
+          "default": "false"
+        }
+      ]
+    },
+    {
+      "name": "Switch",
+      "file": "src/components/ui/switch.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Table",
+      "file": "src/components/ui/table.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "TableHeader",
+      "file": "src/components/ui/table.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "TableBody",
+      "file": "src/components/ui/table.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "TableFooter",
+      "file": "src/components/ui/table.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "TableHead",
+      "file": "src/components/ui/table.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "TableRow",
+      "file": "src/components/ui/table.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "TableCell",
+      "file": "src/components/ui/table.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "TableCaption",
+      "file": "src/components/ui/table.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Tabs",
+      "file": "src/components/ui/tabs.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "TabsList",
+      "file": "src/components/ui/tabs.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "TabsTrigger",
+      "file": "src/components/ui/tabs.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "TabsContent",
+      "file": "src/components/ui/tabs.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Textarea",
+      "file": "src/components/ui/textarea.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ToggleGroup",
+      "file": "src/components/ui/toggle-group.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ToggleGroupItem",
+      "file": "src/components/ui/toggle-group.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Toggle",
+      "file": "src/components/ui/toggle.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "variant",
+          "type": "enum",
+          "values": [
+            "default",
+            "outline"
+          ],
+          "default": "default"
+        },
+        {
+          "name": "size",
+          "type": "enum",
+          "values": [
+            "default",
+            "sm",
+            "lg"
+          ],
+          "default": "default"
+        }
+      ]
+    },
+    {
+      "name": "Tooltip",
+      "file": "src/components/ui/tooltip.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "TooltipTrigger",
+      "file": "src/components/ui/tooltip.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "TooltipContent",
+      "file": "src/components/ui/tooltip.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "TooltipProvider",
+      "file": "src/components/ui/tooltip.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CodeBlockContainer",
+      "file": "src/components/ai-elements/code-block.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CodeBlockHeader",
+      "file": "src/components/ai-elements/code-block.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CodeBlockTitle",
+      "file": "src/components/ai-elements/code-block.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CodeBlockFilename",
+      "file": "src/components/ai-elements/code-block.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CodeBlockActions",
+      "file": "src/components/ai-elements/code-block.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CodeBlockContent",
+      "file": "src/components/ai-elements/code-block.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CodeBlock",
+      "file": "src/components/ai-elements/code-block.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "code",
           "type": "string",
           "required": true
         },
         {
           "name": "language",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "name": "PhotoAdjuster",
-      "file": "src/components/dashboard/PhotoAdjuster",
-      "import_path": "",
-      "is_default": true
-    },
-    {
-      "name": "AnalystPanel",
-      "file": "src/components/revenue/AnalystPanel",
-      "import_path": "",
-      "is_default": true
-    },
-    {
-      "name": "BulkPriceEditor",
-      "file": "src/components/revenue/BulkPriceEditor",
-      "import_path": "",
-      "is_default": true
-    },
-    {
-      "name": "CompetitorRatePanel",
-      "file": "src/components/revenue/CompetitorRatePanel",
-      "import_path": "",
-      "is_default": true,
-      "props": [
-        {
-          "name": "hotelId",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "organizationSlug",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "canEdit",
-          "type": "boolean",
-          "required": true
-        },
-        {
-          "name": "ratesByDate",
           "type": "any",
           "required": true
         },
         {
-          "name": "metrics",
-          "type": "any"
-        }
-      ]
-    },
-    {
-      "name": "DayChangesSheet",
-      "file": "src/components/revenue/DayChangesSheet",
-      "import_path": "",
-      "is_default": true
-    },
-    {
-      "name": "DemandPricingPanel",
-      "file": "src/components/revenue/DemandPricingPanel",
-      "import_path": "",
-      "is_default": true,
-      "props": [
-        {
-          "name": "hotelId",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "organizationSlug",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "today",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "nights",
-          "type": "any",
-          "required": true
-        },
-        {
-          "name": "rates",
-          "type": "any",
-          "required": true
-        },
-        {
-          "name": "canEdit",
+          "name": "showLineNumbers",
           "type": "boolean",
           "default": "false"
-        },
-        {
-          "name": "onDraftsChanged",
-          "type": "function"
         }
       ]
     },
     {
-      "name": "DemandRateOutlookChart",
-      "file": "src/components/revenue/DemandRateOutlookChart",
+      "name": "CodeBlockCopyButton",
+      "file": "src/components/ai-elements/code-block.tsx",
       "import_path": "",
-      "is_default": true,
       "props": [
         {
-          "name": "forecasts",
-          "type": "any",
-          "required": true
-        },
-        {
-          "name": "onOpenDate",
-          "type": "function"
-        }
-      ]
-    },
-    {
-      "name": "EventsPanel",
-      "file": "src/components/revenue/EventsPanel",
-      "import_path": "",
-      "is_default": true
-    },
-    {
-      "name": "MarketSignalsPanel",
-      "file": "src/components/revenue/MarketSignalsPanel",
-      "import_path": "",
-      "is_default": true
-    },
-    {
-      "name": "MonthPerformanceHeader",
-      "file": "src/components/revenue/MonthPerformanceHeader",
-      "import_path": "",
-      "is_default": true
-    },
-    {
-      "name": "MorningDigestPanel",
-      "file": "src/components/revenue/MorningDigestPanel",
-      "import_path": "",
-      "is_default": true,
-      "props": [
-        {
-          "name": "hotelId",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "organizationSlug",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "canEdit",
-          "type": "boolean",
-          "required": true
-        }
-      ]
-    },
-    {
-      "name": "PickupAutomationRules",
-      "file": "src/components/revenue/PickupAutomationRules",
-      "import_path": "",
-      "is_default": true,
-      "props": [
-        {
-          "name": "hotelId",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "organizationSlug",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "name": "PickupHorizonChart",
-      "file": "src/components/revenue/PickupHorizonChart",
-      "import_path": "",
-      "is_default": true,
-      "props": [
-        {
-          "name": "metrics",
-          "type": "any",
-          "required": true
-        },
-        {
-          "name": "pickupWindowDays",
-          "type": "number"
-        },
-        {
-          "name": "onPickupWindowChange",
+          "name": "onCopy",
           "type": "function"
         },
         {
-          "name": "hotels",
-          "type": "any"
+          "name": "onError",
+          "type": "function"
         },
         {
-          "name": "hotelId",
-          "type": "string"
-        },
-        {
-          "name": "selectedMonth",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "eventsByDate",
-          "type": "any"
-        }
-      ]
-    },
-    {
-      "name": "PickupMovementBoard",
-      "file": "src/components/revenue/PickupMovementBoard",
-      "import_path": "",
-      "is_default": true
-    },
-    {
-      "name": "PickupRangeSummary",
-      "file": "src/components/revenue/PickupRangeSummary",
-      "import_path": "",
-      "is_default": true
-    },
-    {
-      "name": "PrevioRatePlanMapping",
-      "file": "src/components/revenue/PrevioRatePlanMapping",
-      "import_path": "",
-      "is_default": true
-    },
-    {
-      "name": "PricingDriverChips",
-      "file": "src/components/revenue/PricingDriverChips",
-      "import_path": "",
-      "is_default": true
-    },
-    {
-      "name": "QuickRateAdjustDialog",
-      "file": "src/components/revenue/QuickRateAdjustDialog",
-      "import_path": "",
-      "is_default": true
-    },
-    {
-      "name": "RateActivityPanel",
-      "file": "src/components/revenue/RateActivityPanel",
-      "import_path": "",
-      "is_default": true
-    },
-    {
-      "name": "RateCellHistory",
-      "file": "src/components/revenue/RateCellHistory",
-      "import_path": "",
-      "is_default": true
-    },
-    {
-      "name": "RateStrategyGrid",
-      "file": "src/components/revenue/RateStrategyGrid",
-      "import_path": "",
-      "is_default": true,
-      "props": [
-        {
-          "name": "loading",
-          "type": "boolean",
-          "required": true
-        },
-        {
-          "name": "today",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "hotelId",
-          "type": "string"
-        },
-        {
-          "name": "organizationSlug",
-          "type": "string"
-        },
-        {
-          "name": "roomTypes",
-          "type": "any",
-          "required": true
-        },
-        {
-          "name": "rates",
-          "type": "any",
-          "required": true
-        },
-        {
-          "name": "metrics",
-          "type": "any",
-          "required": true
-        },
-        {
-          "name": "nights",
-          "type": "any"
-        },
-        {
-          "name": "pickupWindowDays",
+          "name": "timeout",
           "type": "number",
-          "required": true
-        },
-        {
-          "name": "onPickupWindowChange",
-          "type": "function",
-          "required": true
-        },
-        {
-          "name": "thresholds",
-          "type": "any"
-        },
-        {
-          "name": "canEditRates",
-          "type": "boolean",
-          "default": "false"
-        },
-        {
-          "name": "demandByDate",
-          "type": "any"
-        },
-        {
-          "name": "eventsByDate",
-          "type": "any"
-        },
-        {
-          "name": "leftByTypeDate",
-          "type": "any"
-        },
-        {
-          "name": "onRatesUpdated",
-          "type": "function"
-        },
-        {
-          "name": "onHorizonDaysChange",
-          "type": "function"
+          "default": "2000"
         }
       ]
     },
     {
-      "name": "RecommendationOutcomesPanel",
-      "file": "src/components/revenue/RecommendationOutcomesPanel",
-      "import_path": "",
-      "is_default": true
+      "name": "CodeBlockLanguageSelector",
+      "file": "src/components/ai-elements/code-block.tsx",
+      "import_path": ""
     },
     {
-      "name": "RevenueIntelligencePanel",
-      "file": "src/components/revenue/RevenueIntelligencePanel",
+      "name": "CodeBlockLanguageSelectorTrigger",
+      "file": "src/components/ai-elements/code-block.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CodeBlockLanguageSelectorValue",
+      "file": "src/components/ai-elements/code-block.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CodeBlockLanguageSelectorContent",
+      "file": "src/components/ai-elements/code-block.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "CodeBlockLanguageSelectorItem",
+      "file": "src/components/ai-elements/code-block.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Conversation",
+      "file": "src/components/ai-elements/conversation.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ConversationContent",
+      "file": "src/components/ai-elements/conversation.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ConversationEmptyState",
+      "file": "src/components/ai-elements/conversation.tsx",
       "import_path": "",
-      "is_default": true,
       "props": [
-        {
-          "name": "hotelId",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "name": "RevenuePulsePanel",
-      "file": "src/components/revenue/RevenuePulsePanel",
-      "import_path": "",
-      "is_default": true,
-      "props": [
-        {
-          "name": "today",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "metrics",
-          "type": "any",
-          "required": true
-        },
-        {
-          "name": "roomsAvailable",
-          "type": "number",
-          "required": true
-        },
-        {
-          "name": "thresholds",
-          "type": "any"
-        }
-      ]
-    },
-    {
-      "name": "RevenueSyncHistory",
-      "file": "src/components/revenue/RevenueSyncHistory",
-      "import_path": "",
-      "is_default": true,
-      "props": [
-        {
-          "name": "hotelId",
-          "type": "string"
-        },
-        {
-          "name": "limit",
-          "type": "number",
-          "default": "12"
-        },
-        {
-          "name": "includeDailyOverview",
-          "type": "boolean",
-          "default": "true"
-        }
-      ]
-    },
-    {
-      "name": "RevenueToolsBar",
-      "file": "src/components/revenue/RevenueToolsBar",
-      "import_path": "",
-      "is_default": true
-    },
-    {
-      "name": "SegmentPerformancePanel",
-      "file": "src/components/revenue/SegmentPerformancePanel",
-      "import_path": "",
-      "is_default": true,
-      "props": [
-        {
-          "name": "nights",
-          "type": "any",
-          "required": true
-        },
-        {
-          "name": "selectedMonth",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "name": "StrategyCalendar",
-      "file": "src/components/revenue/StrategyCalendar",
-      "import_path": "",
-      "is_default": true,
-      "props": [
-        {
-          "name": "rowsByDate",
-          "type": "any",
-          "required": true
-        },
-        {
-          "name": "onSelect",
-          "type": "function",
-          "required": true
-        },
-        {
-          "name": "decisionsByDate",
-          "type": "any"
-        }
-      ]
-    },
-    {
-      "name": "StrategyRecommendationsPanel",
-      "file": "src/components/revenue/StrategyRecommendationsPanel",
-      "import_path": "",
-      "is_default": true
-    },
-    {
-      "name": "TodaysBookingsPanel",
-      "file": "src/components/revenue/TodaysBookingsPanel",
-      "import_path": "",
-      "is_default": true,
-      "props": [
-        {
-          "name": "hotelId",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "today",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "name": "TodaysSalesAdrGoal",
-      "file": "src/components/revenue/TodaysSalesAdrGoal",
-      "import_path": "",
-      "is_default": true,
-      "props": [
-        {
-          "name": "hotelId",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "today",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "lastSyncAt",
-          "type": "string"
-        }
-      ]
-    },
-    {
-      "name": "YearOverYearPanel",
-      "file": "src/components/revenue/YearOverYearPanel",
-      "import_path": "",
-      "is_default": true,
-      "props": [
-        {
-          "name": "hotelId",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "name": "PercentAdjustmentTab",
-      "file": "src/components/revenue/settings/PercentAdjustmentTab",
-      "import_path": "",
-      "is_default": true,
-      "props": [
-        {
-          "name": "hotelId",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "orgSlug",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "table",
-          "type": "enum",
-          "values": [
-            "dow_adjustments",
-            "monthly_adjustments",
-            "lead_time_adjustments"
-          ],
-          "required": true
-        },
-        {
-          "name": "keyColumn",
-          "type": "enum",
-          "values": [
-            "dow",
-            "month",
-            "bucket"
-          ],
-          "required": true
-        },
-        {
-          "name": "slots",
-          "type": "any",
-          "required": true
-        },
         {
           "name": "title",
           "type": "string",
-          "required": true
+          "default": "No messages yet"
         },
         {
           "name": "description",
-          "type": "string"
+          "type": "string",
+          "default": "Start a conversation to see messages here"
+        },
+        {
+          "name": "icon",
+          "type": "any"
         }
       ]
     },
     {
-      "name": "RoomsSetupTab",
-      "file": "src/components/revenue/settings/RoomsSetupTab",
+      "name": "ConversationScrollButton",
+      "file": "src/components/ai-elements/conversation.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ConversationDownload",
+      "file": "src/components/ai-elements/conversation.tsx",
       "import_path": "",
-      "is_default": true
+      "props": [
+        {
+          "name": "messages",
+          "type": "any",
+          "required": true
+        },
+        {
+          "name": "filename",
+          "type": "string",
+          "default": "conversation.md"
+        },
+        {
+          "name": "formatMessage",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "name": "Message",
+      "file": "src/components/ai-elements/message.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "from",
+          "type": "any",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "MessageContent",
+      "file": "src/components/ai-elements/message.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MessageActions",
+      "file": "src/components/ai-elements/message.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MessageAction",
+      "file": "src/components/ai-elements/message.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "tooltip",
+          "type": "string"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "default": "Previous branch"
+        }
+      ]
+    },
+    {
+      "name": "MessageBranch",
+      "file": "src/components/ai-elements/message.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "defaultBranch",
+          "type": "number",
+          "default": "0"
+        },
+        {
+          "name": "onBranchChange",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "name": "MessageBranchContent",
+      "file": "src/components/ai-elements/message.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MessageBranchSelector",
+      "file": "src/components/ai-elements/message.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MessageBranchPrevious",
+      "file": "src/components/ai-elements/message.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MessageBranchNext",
+      "file": "src/components/ai-elements/message.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MessageBranchPage",
+      "file": "src/components/ai-elements/message.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "MessageToolbar",
+      "file": "src/components/ai-elements/message.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputProvider",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "LocalReferencedSourcesContext",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputActionAddAttachments",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "label",
+          "type": "string",
+          "default": "Add photos or files"
+        }
+      ]
+    },
+    {
+      "name": "PromptInputActionAddScreenshot",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "label",
+          "type": "string",
+          "default": "Add photos or files"
+        }
+      ]
+    },
+    {
+      "name": "PromptInput",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "accept",
+          "type": "string"
+        },
+        {
+          "name": "multiple",
+          "type": "boolean"
+        },
+        {
+          "name": "globalDrop",
+          "type": "boolean"
+        },
+        {
+          "name": "syncHiddenInput",
+          "type": "boolean"
+        },
+        {
+          "name": "maxFiles",
+          "type": "number"
+        },
+        {
+          "name": "maxFileSize",
+          "type": "number"
+        },
+        {
+          "name": "onError",
+          "type": "function"
+        },
+        {
+          "name": "onSubmit",
+          "type": "function",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "PromptInputBody",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputTextarea",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputHeader",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputFooter",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputTools",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputButton",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "tooltip",
+          "type": "any"
+        }
+      ]
+    },
+    {
+      "name": "PromptInputActionMenu",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputActionMenuTrigger",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputActionMenuContent",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputActionMenuItem",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputSubmit",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "status",
+          "type": "any"
+        },
+        {
+          "name": "onStop",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "name": "PromptInputSelect",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputSelectTrigger",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputSelectContent",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputSelectItem",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputSelectValue",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputHoverCard",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputHoverCardTrigger",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputHoverCardContent",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputTabsList",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputTab",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputTabLabel",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputTabBody",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputTabItem",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputCommand",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputCommandInput",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputCommandList",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputCommandEmpty",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputCommandGroup",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputCommandItem",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "PromptInputCommandSeparator",
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Shimmer",
+      "file": "src/components/ai-elements/shimmer.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "Tool",
+      "file": "src/components/ai-elements/tool.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ToolHeader",
+      "file": "src/components/ai-elements/tool.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "title",
+          "type": "string"
+        },
+        {
+          "name": "className",
+          "type": "string",
+          "default": "size-4 text-yellow-600"
+        }
+      ]
+    },
+    {
+      "name": "ToolContent",
+      "file": "src/components/ai-elements/tool.tsx",
+      "import_path": ""
+    },
+    {
+      "name": "ToolInput",
+      "file": "src/components/ai-elements/tool.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "input",
+          "type": "any",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "ToolOutput",
+      "file": "src/components/ai-elements/tool.tsx",
+      "import_path": "",
+      "props": [
+        {
+          "name": "output",
+          "type": "any",
+          "required": true
+        },
+        {
+          "name": "errorText",
+          "type": "any",
+          "required": true
+        }
+      ]
     }
   ],
   "assets": [
