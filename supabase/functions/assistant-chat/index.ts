@@ -149,6 +149,61 @@ function buildTools(service: any, profile: Profile, scopes: Set<Scope>) {
     });
   }
 
+  if (scopes.has("revenue") || scopes.has("reception")) {
+    tools.get_occupancy = tool({
+      description:
+        "Occupancy for a date or date range in the user's authorized hotel: rooms sold, rooms available and occupancy percentage. Use this whenever occupancy is asked about.",
+      inputSchema: jsonSchema<{ startDate: string | null; endDate: string | null }>({
+        type: "object",
+        properties: {
+          startDate: { type: ["string", "null"], description: "YYYY-MM-DD or null for today" },
+          endDate: { type: ["string", "null"], description: "YYYY-MM-DD or null for the same day" },
+        },
+        required: ["startDate", "endDate"],
+        additionalProperties: false,
+      }),
+      execute: async ({ startDate, endDate }) => {
+        const today = new Date().toISOString().slice(0, 10);
+        const from = startDate ?? today;
+        const to = endDate ?? from;
+        const { data, error } = await service
+          .from("revenue_daily_snapshots")
+          .select("stay_date,captured_date,occupancy_pct,rooms_sold,rooms_available")
+          .gte("stay_date", from)
+          .lte("stay_date", to)
+          .eq("organization_slug", profile.organization_slug)
+          .eq("hotel_id", profile.assigned_hotel)
+          .order("stay_date")
+          .order("captured_date", { ascending: false })
+          .limit(2000);
+        if (error) throw new Error(`Occupancy lookup failed: ${error.message}`);
+        // Keep only the newest capture per stay date so figures are current.
+        const latest = new Map<string, any>();
+        for (const row of data ?? []) if (!latest.has(row.stay_date)) latest.set(row.stay_date, row);
+        const days = [...latest.values()].map((r) => ({
+          stay_date: r.stay_date,
+          rooms_sold: r.rooms_sold,
+          rooms_available: r.rooms_available,
+          occupancy_pct:
+            r.occupancy_pct ??
+            (r.rooms_available ? Math.round((Number(r.rooms_sold) / Number(r.rooms_available)) * 1000) / 10 : null),
+        }));
+        const sold = days.reduce((s, d) => s + Number(d.rooms_sold ?? 0), 0);
+        const avail = days.reduce((s, d) => s + Number(d.rooms_available ?? 0), 0);
+        return {
+          from,
+          to,
+          days,
+          totals: {
+            rooms_sold: sold,
+            rooms_available: avail,
+            occupancy_pct: avail ? Math.round((sold / avail) * 1000) / 10 : null,
+          },
+        };
+      },
+    });
+  }
+
   if (scopes.has("housekeeping")) {
     tools.get_housekeeping_status = tool({
       description: "Read room status and today's assignments inside the user's authorized hotel and organization only.",
@@ -368,7 +423,8 @@ Deno.serve(async (req) => {
     }
 
     const openai = createOpenAI({ apiKey: openAiKey });
-    const modelId = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
+    // High-reasoning default so answers about live hotel data are accurate.
+    const modelId = Deno.env.get("OPENAI_MODEL") || "gpt-5.6";
     const result = streamText({
       model: openai.responses(modelId),
       system: `You are the Hotel Care Assistant. Be concise, practical, and accurate.
@@ -381,7 +437,14 @@ For general knowledge, answer normally. For Hotel Care usage questions, use the 
       tools: buildTools(service, profile as Profile, scopes),
       stopWhen: stepCountIs(50),
       abortSignal: req.signal,
-      providerOptions: { openai: { store: false } },
+      providerOptions: {
+        openai: {
+          store: false,
+          reasoningEffort: "medium",
+          reasoningSummary: "auto",
+          include: ["reasoning.encrypted_content"],
+        },
+      },
     });
 
     return result.toUIMessageStreamResponse({

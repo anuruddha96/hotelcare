@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import type { RevenueUsage } from '@/hooks/useBilling';
 import { toast } from 'sonner';
 import { Save, CreditCard, KeyRound, RefreshCw } from 'lucide-react';
 
@@ -57,8 +58,8 @@ export default function BillingSettingsPanel() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [rolling, setRolling] = useState(false);
-  const [rollupNote, setRollupNote] = useState<string | null>(null);
+  const [usage, setUsage] = useState<RevenueUsage[]>([]);
+  const [usageLoading, setUsageLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -96,29 +97,27 @@ export default function BillingSettingsPanel() {
     else toast.success('Billing settings saved');
   };
 
-  /** Recompute last month's revenue share and place it on the next invoice. */
-  const runRollup = async () => {
-    setRolling(true);
-    setRollupNote(null);
-    const { data, error } = await supabase.functions.invoke('billing-manage', {
-      body: { action: 'usage_rollup', organizationSlug: slug },
-    });
-    setRolling(false);
-    const payload = data as
-      | { error?: string; period_start?: string; results?: { hotel: string; fee_cents?: number; revenue_cents?: number; invoiced?: boolean; skipped?: string }[] }
-      | null;
-    if (error || payload?.error) {
-      toast.error(payload?.error ?? error?.message ?? 'Could not calculate usage');
+  // Last month's revenue share is settled automatically by the backend; here we
+  // only read back what it computed so the admin can check the figures.
+  useEffect(() => {
+    if (!slug || settings?.revenue_pricing_mode !== 'percent') {
+      setUsage([]);
       return;
     }
-    const lines = (payload?.results ?? []).map((r) =>
-      r.skipped
-        ? `${r.hotel}: ${r.skipped}`
-        : `${r.hotel}: ${((r.revenue_cents ?? 0) / 100).toFixed(0)} revenue → ${((r.fee_cents ?? 0) / 100).toFixed(2)} fee${r.invoiced ? ' (added to invoice)' : ' (saved, no paid subscription yet)'}`,
-    );
-    setRollupNote([`Period ${payload?.period_start ?? ''}`, ...lines].join('\n'));
-    toast.success('Usage calculated');
-  };
+    let cancelled = false;
+    setUsageLoading(true);
+    (async () => {
+      const { data } = await supabase.functions.invoke('billing-manage', {
+        body: { action: 'summary', organizationSlug: slug },
+      });
+      if (cancelled) return;
+      setUsage(((data as { revenue_usage?: RevenueUsage[] } | null)?.revenue_usage ?? []) as RevenueUsage[]);
+      setUsageLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, settings?.revenue_pricing_mode]);
 
   const euros = (cents: number) => (cents / 100).toString();
   const toCents = (v: string) => Math.round((parseFloat(v) || 0) * 100);
@@ -264,11 +263,33 @@ export default function BillingSettingsPanel() {
                         />
                       </div>
                     </div>
-                    <Button variant="outline" size="sm" onClick={runRollup} disabled={rolling}>
-                      <RefreshCw className={`h-4 w-4 mr-2 ${rolling ? 'animate-spin' : ''}`} />
-                      {rolling ? 'Calculating…' : "Bill last month's usage now"}
-                    </Button>
-                    {rollupNote && <p className="text-xs text-muted-foreground whitespace-pre-line">{rollupNote}</p>}
+                    <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
+                      <p className="text-xs font-medium flex items-center gap-1.5">
+                        <RefreshCw className={`h-3.5 w-3.5 ${usageLoading ? 'animate-spin' : ''}`} />
+                        Last full month — settled automatically
+                      </p>
+                      {usageLoading && <p className="text-xs text-muted-foreground">Calculating…</p>}
+                      {!usageLoading && usage.length === 0 && (
+                        <p className="text-xs text-muted-foreground">No property revenue recorded yet.</p>
+                      )}
+                      {usage.map((u) => (
+                        <p key={u.hotel_id} className="text-xs text-muted-foreground">
+                          <span className="font-medium text-foreground">{u.hotel_name ?? u.hotel_id}</span>{' '}
+                          {u.period_start.slice(0, 7)}: {(u.revenue_cents / 100).toFixed(0)} {settings.currency} realised →{' '}
+                          {u.trial_waived
+                            ? `free during the trial (would have been ${(
+                                (u.waived_fee_cents ?? 0) / 100
+                              ).toFixed(2)} ${settings.currency})`
+                            : `${(u.fee_cents / 100).toFixed(2)} ${settings.currency}${
+                                u.invoiced ? ' — on the next invoice' : ' — saved, no paid subscription yet'
+                              }`}
+                        </p>
+                      ))}
+                      <p className="text-[11px] text-muted-foreground">
+                        Recalculated every time this page or the Payments page opens, and once a month automatically. Trial
+                        months are never charged.
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>

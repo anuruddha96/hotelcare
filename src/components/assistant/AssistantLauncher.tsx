@@ -82,7 +82,10 @@ export default function AssistantLauncher() {
         )}
         aria-label="Open the Hotel Care Assistant"
       >
-        <img src={hotelCareMark} alt="" className="h-5 w-5 rounded-sm" />
+        {/* White chip keeps the blue mark legible on the blue button. */}
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-background shadow-sm">
+          <img src={hotelCareMark} alt="" className="h-5 w-5" />
+        </span>
         <span className="hidden sm:inline">Ask</span>
       </Button>
 

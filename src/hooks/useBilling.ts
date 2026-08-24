@@ -27,11 +27,17 @@ export interface BillingSettings {
 /** Last full month's realised revenue and the resulting percentage fee. */
 export interface RevenueUsage {
   hotel_id: string;
+  hotel_name?: string;
   period_start: string;
   period_end: string;
   revenue_cents: number;
   room_nights: number;
+  /** Charged amount — always 0 while the free trial covers the month. */
   fee_cents: number;
+  /** What the month would have cost without the trial. */
+  waived_fee_cents?: number;
+  trial_waived?: boolean;
+  invoiced?: boolean;
 }
 
 export interface BillingHotel {
