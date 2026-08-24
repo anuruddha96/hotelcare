@@ -1334,6 +1334,32 @@ export default function RateStrategyGrid({
     }
   }
 
+  /**
+   * Some of these rows can never succeed as-is (a price that would invert the
+   * room order is refused every retry), so there has to be a way to clear the
+   * list. Dismissing retires the draft — the live Previo price is untouched.
+   */
+  async function dismissFailedPrices() {
+    if (!hotelId || pending.length === 0) return;
+    setDismissingFailures(true);
+    try {
+      const ids = pending.map((d) => d.id);
+      const { error } = await supabase
+        .from("revenue_rate_drafts")
+        .update({ status: "cancelled" })
+        .in("id", ids);
+      if (error) throw error;
+      setPushOpen(false);
+      setPending([]);
+      toast.success(`${ids.length} price${ids.length === 1 ? "" : "s"} dismissed`);
+      void refreshDrafts();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not dismiss these prices");
+    } finally {
+      setDismissingFailures(false);
+    }
+  }
+
 
 
   /** Whether there is more calendar to the left / right (drives the edge hints). */
