@@ -453,24 +453,17 @@ export default function RevenueHotelDetail() {
     void load();
   }, [loading, profile?.role, hotelId, contextMismatch]);
 
-  // Opening a property never blocks on Previo. A server-side scheduler keeps
-  // every property within a 30-minute freshness window, so the page paints the
-  // last stored data immediately — and if that data is older than 30 minutes we
-  // start a silent background refresh and say so in the status line.
+  // Opening a property never starts Previo from the browser. The server-side
+  // scheduler owns refreshes and keeps every property inside the freshness
+  // window; the page only paints the last atomically completed dataset. This
+  // avoids duplicate SLNT syncs and opaque Edge Function errors on first login.
   useEffect(() => {
     if (loading || !profile || !hotelId || contextMismatch) return;
     if (autoSyncedHotelRef.current === hotelId) return;
     autoSyncedHotelRef.current = hotelId;
     if (!isRevenueAdmin(profile.role)) setTab("grid");
 
-    if (autoBgHotelRef.current === hotelId) return;
     autoBgHotelRef.current = hotelId;
-    const target = hotelId;
-    void (async () => {
-      const info = await fetchRevenueSyncInfo(target).catch(() => null);
-      if (!info?.stale || activeHotelRef.current !== target) return;
-      await runSync(false, true);
-    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, profile?.role, hotelId, contextMismatch]);
 

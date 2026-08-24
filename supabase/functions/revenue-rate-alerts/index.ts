@@ -18,6 +18,11 @@ interface Thresholds {
   rate_alert_emails_enabled: boolean;
 }
 
+interface CurrencySettings {
+  base_currency: string;
+  eur_conversion_rate: number | null;
+}
+
 const DEFAULTS: Thresholds = {
   rate_warn_below_eur: 60,
   rate_critical_below_eur: 40,
@@ -45,7 +50,7 @@ Deno.serve(async (req) => {
 
     const { data: hotels } = await admin
       .from("hotel_revenue_settings")
-      .select("hotel_id, organization_slug, rate_warn_below_eur, rate_critical_below_eur, rate_max_sane_eur, rate_alert_emails_enabled");
+      .select("hotel_id, organization_slug, base_currency, eur_conversion_rate, rate_warn_below_eur, rate_critical_below_eur, rate_max_sane_eur, rate_alert_emails_enabled");
 
     const targets = (hotels ?? []).filter((h: any) => !only || h.hotel_id === only);
     if (only && targets.length === 0) targets.push({ hotel_id: only, ...DEFAULTS } as any);
@@ -61,6 +66,24 @@ Deno.serve(async (req) => {
         rate_max_sane_eur: Number(h.rate_max_sane_eur ?? DEFAULTS.rate_max_sane_eur),
         rate_alert_emails_enabled: h.rate_alert_emails_enabled !== false,
       };
+      const currency: CurrencySettings = {
+        base_currency: String(h.base_currency ?? "EUR").toUpperCase(),
+        eur_conversion_rate: Number(h.eur_conversion_rate) > 0 ? Number(h.eur_conversion_rate) : null,
+      };
+      // Alert settings are intentionally configured in EUR. Stored Previo
+      // prices, however, are in the property's base currency (HUF for SLNT).
+      // Convert the thresholds, never the authoritative prices.
+      const thresholdScale = currency.base_currency === "EUR"
+        ? 1
+        : currency.eur_conversion_rate;
+      if (!thresholdScale) {
+        console.warn(`Skipping rate alerts for ${h.hotel_id}: no EUR conversion rate for ${currency.base_currency}`);
+        summary.push({ hotel_id: h.hotel_id, found: 0, emailed: 0 });
+        continue;
+      }
+      const criticalBelow = t.rate_critical_below_eur * thresholdScale;
+      const maxSane = t.rate_max_sane_eur * thresholdScale;
+      const currencyLabel = currency.base_currency === "HUF" ? "Ft" : currency.base_currency;
 
       const { data: rates } = await admin
         .from("revenue_room_type_rates")
@@ -74,7 +97,7 @@ Deno.serve(async (req) => {
       const offenders = (rates ?? []).filter((r: any) => {
         const p = Number(r.price);
         if (!Number.isFinite(p)) return false;
-        return p <= 0 || p < t.rate_critical_below_eur || p > t.rate_max_sane_eur;
+        return p <= 0 || p < criticalBelow || p > maxSane;
       });
 
       if (offenders.length === 0) { summary.push({ hotel_id: h.hotel_id, found: 0, emailed: 0 }); continue; }
@@ -128,7 +151,7 @@ Deno.serve(async (req) => {
             `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee">${r.stay_date}</td>` +
             `<td style="padding:6px 10px;border-bottom:1px solid #eee">${r.room_type_name}</td>` +
             `<td style="padding:6px 10px;border-bottom:1px solid #eee">${r.occupancy} guest(s)</td>` +
-            `<td style="padding:6px 10px;border-bottom:1px solid #eee;font-weight:600">${Number(r.price).toFixed(0)} EUR</td></tr>`,
+            `<td style="padding:6px 10px;border-bottom:1px solid #eee;font-weight:600">${Number(r.price).toLocaleString("en-US", { maximumFractionDigits: 0 })} ${currencyLabel}</td></tr>`,
           ).join("");
 
           const html = `
@@ -136,7 +159,7 @@ Deno.serve(async (req) => {
               <h2 style="margin:0 0 8px">Unusual rates detected — ${h.hotel_id}</h2>
               <p style="margin:0 0 16px;color:#555">
                 ${fresh.length} published price${fresh.length === 1 ? "" : "s"} fall outside the safety net
-                (below ${t.rate_critical_below_eur} EUR or above ${t.rate_max_sane_eur} EUR).
+                (below ${Math.round(criticalBelow).toLocaleString("en-US")} ${currencyLabel} or above ${Math.round(maxSane).toLocaleString("en-US")} ${currencyLabel}).
                 Please review them in Revenue Management before they sell.
               </p>
               <table style="border-collapse:collapse;font-size:14px">
