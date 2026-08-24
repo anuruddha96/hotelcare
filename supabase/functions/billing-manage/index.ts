@@ -21,6 +21,7 @@ import {
   moduleEnabled,
   moduleLabel,
   trialEndsAt,
+  trialCoversPeriod,
   lastMonthRange,
   realisedRevenueCents,
   percentFeeCents,
