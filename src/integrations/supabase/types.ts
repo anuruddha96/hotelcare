@@ -8173,8 +8173,8 @@ export type Database = {
       claim_next_revenue_sync: {
         Args: { _fresh_for?: string; _lease_for?: string }
         Returns: {
-          hotel_id: string
-          organization_slug: string
+          out_hotel_id: string
+          out_organization_slug: string
         }[]
       }
       claim_publisher_lease: {

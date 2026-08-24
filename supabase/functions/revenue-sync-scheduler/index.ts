@@ -32,7 +32,7 @@ serve(async (req) => {
     if (claimErr) throw new Error(claimErr.message);
 
     const row = Array.isArray(claim) ? claim[0] : claim;
-    hotelId = row?.hotel_id ?? null;
+    hotelId = row?.out_hotel_id ?? row?.hotel_id ?? null;
 
     if (!hotelId) {
       return new Response(JSON.stringify({ ok: true, skipped: true }), {
