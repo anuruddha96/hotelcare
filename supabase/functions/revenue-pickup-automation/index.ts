@@ -42,7 +42,7 @@ import {
   farOutFloorTopUp,
   farOutFloorTopUpText,
 } from "../_shared/pricingRules.ts";
-import { assertRateChangesSafe } from "../_shared/rateSafety.ts";
+import { enforceRateSafety, repairLadder } from "../_shared/rateSafety.ts";
 
 
 
