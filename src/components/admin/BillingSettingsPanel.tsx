@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
+import type { RevenueUsage } from '@/hooks/useBilling';
 import { toast } from 'sonner';
 import { Save, CreditCard, KeyRound, RefreshCw } from 'lucide-react';
 
