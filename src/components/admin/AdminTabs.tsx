@@ -6,8 +6,9 @@ import { TranslationManagement } from './TranslationManagement';
 import { PhotoCleanupManager } from '@/components/dashboard/PhotoCleanupManager';
 import PMSConfigurationManagement from './PMSConfigurationManagement';
 import { BreakfastCodeManagement } from './BreakfastCodeManagement';
-import { Building2, Hotel, Languages, HardDrive, Cable, Coffee, GraduationCap, MapPin, Mail, CreditCard } from 'lucide-react';
+import { Building2, Hotel, Languages, HardDrive, Cable, Coffee, GraduationCap, MapPin, Mail, CreditCard, Megaphone } from 'lucide-react';
 import BillingSettingsPanel from './BillingSettingsPanel';
+import AnnouncementsPanel from './AnnouncementsPanel';
 import { TrainingAdminPanel } from './TrainingAdminPanel';
 import AiProviderStatus from './AiProviderStatus';
 import RevenueEngineControls from './RevenueEngineControls';
@@ -69,6 +70,10 @@ export const AdminTabs = () => {
               <CreditCard className="w-4 h-4" />
               Payments
             </TabsTrigger>
+            <TabsTrigger value="announcements" className="gap-2">
+              <Megaphone className="w-4 h-4" />
+              Announcements
+            </TabsTrigger>
             <TabsTrigger value="system" className="gap-2">
               <HardDrive className="w-4 h-4" />
               System
@@ -118,6 +123,10 @@ export const AdminTabs = () => {
 
         <TabsContent value="payments">
           <BillingSettingsPanel />
+        </TabsContent>
+
+        <TabsContent value="announcements">
+          <AnnouncementsPanel />
         </TabsContent>
 
         <TabsContent value="system">

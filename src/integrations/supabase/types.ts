@@ -14,6 +14,44 @@ export type Database = {
   }
   public: {
     Tables: {
+      announcement_receipts: {
+        Row: {
+          announcement_id: string
+          created_at: string
+          dismissed_at: string | null
+          id: string
+          seen_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          announcement_id: string
+          created_at?: string
+          dismissed_at?: string | null
+          id?: string
+          seen_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          announcement_id?: string
+          created_at?: string
+          dismissed_at?: string | null
+          id?: string
+          seen_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "announcement_receipts_announcement_id_fkey"
+            columns: ["announcement_id"]
+            isOneToOne: false
+            referencedRelation: "system_announcements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       archived_housekeepers: {
         Row: {
           archive_expires_at: string
@@ -391,6 +429,54 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_revenue_usage: {
+        Row: {
+          billed_at: string | null
+          created_at: string
+          currency: string
+          fee_cents: number
+          hotel_id: string
+          id: string
+          organization_slug: string
+          percent_bps: number
+          period_month: string
+          realised_revenue_cents: number
+          room_nights: number
+          stripe_invoice_item_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          billed_at?: string | null
+          created_at?: string
+          currency?: string
+          fee_cents?: number
+          hotel_id: string
+          id?: string
+          organization_slug: string
+          percent_bps?: number
+          period_month: string
+          realised_revenue_cents?: number
+          room_nights?: number
+          stripe_invoice_item_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          billed_at?: string | null
+          created_at?: string
+          currency?: string
+          fee_cents?: number
+          hotel_id?: string
+          id?: string
+          organization_slug?: string
+          percent_bps?: number
+          period_month?: string
+          realised_revenue_cents?: number
+          room_nights?: number
+          stripe_invoice_item_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       billing_settings: {
         Row: {
           created_at: string
@@ -402,7 +488,11 @@ export type Database = {
           organization_slug: string
           payments_enabled: boolean
           revenue_module_enabled: boolean
+          revenue_percent_bps: number
+          revenue_percent_cap_cents: number
+          revenue_percent_min_cents: number
           revenue_price_cents: number
+          revenue_pricing_mode: string
           stripe_publishable_key: string | null
           trial_enabled: boolean
           trial_months: number
@@ -419,7 +509,11 @@ export type Database = {
           organization_slug: string
           payments_enabled?: boolean
           revenue_module_enabled?: boolean
+          revenue_percent_bps?: number
+          revenue_percent_cap_cents?: number
+          revenue_percent_min_cents?: number
           revenue_price_cents?: number
+          revenue_pricing_mode?: string
           stripe_publishable_key?: string | null
           trial_enabled?: boolean
           trial_months?: number
@@ -436,7 +530,11 @@ export type Database = {
           organization_slug?: string
           payments_enabled?: boolean
           revenue_module_enabled?: boolean
+          revenue_percent_bps?: number
+          revenue_percent_cap_cents?: number
+          revenue_percent_min_cents?: number
           revenue_price_cents?: number
+          revenue_pricing_mode?: string
           stripe_publishable_key?: string | null
           trial_enabled?: boolean
           trial_months?: number
@@ -7383,6 +7481,54 @@ export type Database = {
         }
         Relationships: []
       }
+      system_announcements: {
+        Row: {
+          body: string
+          created_at: string
+          created_by: string | null
+          ends_at: string | null
+          id: string
+          pinned: boolean
+          published: boolean
+          starts_at: string
+          target_org_slugs: string[]
+          target_roles: string[]
+          title: string
+          tone: string
+          updated_at: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          created_by?: string | null
+          ends_at?: string | null
+          id?: string
+          pinned?: boolean
+          published?: boolean
+          starts_at?: string
+          target_org_slugs?: string[]
+          target_roles?: string[]
+          title: string
+          tone?: string
+          updated_at?: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          created_by?: string | null
+          ends_at?: string | null
+          id?: string
+          pinned?: boolean
+          published?: boolean
+          starts_at?: string
+          target_org_slugs?: string[]
+          target_roles?: string[]
+          title?: string
+          tone?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ticket_categories: {
         Row: {
           category_key: string
@@ -7988,6 +8134,13 @@ export type Database = {
     }
     Functions: {
       billable_room_count: { Args: { _hotel_id: string }; Returns: number }
+      billing_realised_revenue: {
+        Args: { _from: string; _hotel_id: string; _to: string }
+        Returns: {
+          revenue_eur: number
+          room_nights: number
+        }[]
+      }
       can_manage_slnt_schedule: {
         Args: { _hotel_id: string }
         Returns: boolean

@@ -261,14 +261,26 @@ export default function RevenueHotelDetail() {
   const [syncWaiting, setSyncWaiting] = useState(false);
   const [serverRefreshing, setServerRefreshing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  // Background (silent) refresh state: the cached numbers stay on screen and a
+  // short status line tells the user an update is landing.
+  const [bgRefreshing, setBgRefreshing] = useState(false);
+  const [bgFailed, setBgFailed] = useState(false);
+  const [freshConfirm, setFreshConfirm] = useState<{ minutes: number } | null>(null);
+  const [syncStartedAt, setSyncStartedAt] = useState<number | null>(null);
+  const autoBgHotelRef = useRef<string | null>(null);
   const autoSyncedHotelRef = useRef<string | null>(null);
   const syncingRef = useRef(false);
   const activeHotelRef = useRef(hotelId);
   const loadInFlightRef = useRef<{ hotelId: string; promise: Promise<void> } | null>(null);
   activeHotelRef.current = hotelId;
 
-  /** Pull fresh Previo revenue + occupancy data with visible progress. */
-  async function runSync(force = false) {
+  /**
+   * Pull fresh Previo revenue + occupancy data.
+   *
+   * `background = true` keeps the cached screen intact: no progress card, only
+   * a short status line, and a confirmation toast once the numbers swap in.
+   */
+  async function runSync(force = false, background = false) {
     if (!hotelId || syncingRef.current) return;
     const claim = await claimRevenueSync(hotelId, force);
     if (claim === "fresh") {
@@ -281,11 +293,13 @@ export default function RevenueHotelDetail() {
       // A refresh on *this* property may be named; anything else stays
       // anonymous — it may belong to an organisation this user cannot see.
       const wait = await fetchRevenueWaitState(targetHotelId).catch(() => null);
-      toast.info(
-        wait?.scope === "this_property"
-          ? "Another user is refreshing this property — your refresh will follow."
-          : "Refresh queued, starting shortly.",
-      );
+      if (!background) {
+        toast.info(
+          wait?.scope === "this_property"
+            ? "An update is already running — this page will refresh by itself. No second request is needed."
+            : "Refresh queued, starting shortly.",
+        );
+      }
       setSyncWaiting(true);
       void (async () => {
         const started = Date.now();
@@ -310,11 +324,15 @@ export default function RevenueHotelDetail() {
 
     syncingRef.current = true;
     setSyncError(null);
-    setSyncing(true);
+    setBgFailed(false);
+    setSyncStartedAt(Date.now());
+    if (background) setBgRefreshing(true);
+    else setSyncing(true);
     // A new attempt starts a new progress session. During an attempt the value
     // only moves forward, including when an error leaves the cover visible.
     setSyncPct(8);
     setSyncStep("Connecting to Previo…");
+
     try {
       setSyncPct(25);
       setSyncStep("Pulling rates, reservations and room types…");
@@ -340,6 +358,7 @@ export default function RevenueHotelDetail() {
       await Promise.all([load(), live.reload()]);
       setSyncPct(100);
       setSyncStep("Up to date");
+      if (background) toast.success("Updated just now — figures are current.");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Sync failed";
       // Release the local guard immediately so the visible retry action cannot
@@ -349,15 +368,46 @@ export default function RevenueHotelDetail() {
         _hotel_id: hotelId,
         _error: message,
       }); } catch { /* lease expiry remains the safety net */ }
-      setSyncError(message);
-      toast.error(message);
+      if (background) {
+        // Never blow up the screen for an automatic refresh — the cached
+        // numbers stay, and the status line offers a retry.
+        setBgFailed(true);
+      } else {
+        setSyncError(message);
+        toast.error(message);
+      }
     } finally {
       setTimeout(() => {
         syncingRef.current = false;
         setSyncing(false);
+        setBgRefreshing(false);
       }, 600);
     }
   }
+
+  /**
+   * What "Sync now" does, in three honest cases: confirm when the data is
+   * already fresh, explain when an update is already running, refresh when the
+   * data is stale.
+   */
+  async function requestSync() {
+    if (!hotelId) return;
+    if (syncing || syncWaiting || bgRefreshing || serverRefreshing) {
+      const secs = syncStartedAt ? Math.max(1, Math.round((Date.now() - syncStartedAt) / 1000)) : null;
+      toast.info(
+        `An update is already running${secs ? ` — it started ${secs < 60 ? `${secs} seconds` : `${Math.round(secs / 60)} min`} ago` : ""}. This page will update by itself, no second request is needed.`,
+      );
+      return;
+    }
+    const info = await fetchRevenueSyncInfo(hotelId).catch(() => null);
+    if (info?.at && !info.stale) {
+      const minutes = Math.max(1, Math.round((Date.now() - new Date(info.at).getTime()) / 60000));
+      setFreshConfirm({ minutes });
+      return;
+    }
+    void runSync(true);
+  }
+
 
   // Align app context with the property in the URL before anything loads.
   useEffect(() => {
@@ -403,16 +453,27 @@ export default function RevenueHotelDetail() {
     void load();
   }, [loading, profile?.role, hotelId, contextMismatch]);
 
-  // Opening a property never pulls from Previo. A server-side scheduler keeps
-  // every property within a 30-minute freshness window, one property at a time,
-  // so the page paints the last stored data immediately.
+  // Opening a property never blocks on Previo. A server-side scheduler keeps
+  // every property within a 30-minute freshness window, so the page paints the
+  // last stored data immediately — and if that data is older than 30 minutes we
+  // start a silent background refresh and say so in the status line.
   useEffect(() => {
     if (loading || !profile || !hotelId || contextMismatch) return;
     if (autoSyncedHotelRef.current === hotelId) return;
     autoSyncedHotelRef.current = hotelId;
     if (!isRevenueAdmin(profile.role)) setTab("grid");
+
+    if (autoBgHotelRef.current === hotelId) return;
+    autoBgHotelRef.current = hotelId;
+    const target = hotelId;
+    void (async () => {
+      const info = await fetchRevenueSyncInfo(target).catch(() => null);
+      if (!info?.stale || activeHotelRef.current !== target) return;
+      await runSync(false, true);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, profile?.role, hotelId, contextMismatch]);
+
 
   // Watch the shared sync state cheaply. When the server refresh for THIS
   // property lands, re-read the (already cheap) database rows so the numbers
@@ -878,26 +939,48 @@ export default function RevenueHotelDetail() {
             Revenue management
             {live.lastSyncAt ? (
               <>
-                {` · data as of ${new Date(live.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
-                <span className="hidden sm:inline"> · refreshes automatically every 30 minutes</span>
+                {` · data from ${new Date(live.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+                {!bgRefreshing && !bgFailed && !serverRefreshing && (
+                  <span className="hidden sm:inline"> · refreshes automatically every 30 minutes</span>
+                )}
               </>
             ) : live.loading ? (
               <span className="ml-1 inline-block h-2 w-24 align-middle rounded bg-muted animate-pulse" />
             ) : (
               " · never synced"
             )}
-            {serverRefreshing && (
-              <span className="ml-1 animate-pulse text-primary">· refreshing in the background…</span>
+            {(bgRefreshing || serverRefreshing) && (
+              <span className="ml-1 animate-pulse text-primary">· updating in the background…</span>
+            )}
+            {bgFailed && !bgRefreshing && !serverRefreshing && (
+              <>
+                <span className="ml-1 text-destructive">· the last update didn't complete</span>
+                <button
+                  type="button"
+                  className="ml-1 underline hover:no-underline"
+                  onClick={() => void runSync(true)}
+                >
+                  Try again
+                </button>
+              </>
             )}
           </p>
 
 
         </div>
-        <Button variant="outline" size="sm" onClick={() => void runSync(true)} disabled={syncing || syncWaiting}
+        {(bgRefreshing || serverRefreshing) && (
+          <div className="w-full sm:w-40 h-1 rounded-full overflow-hidden bg-primary/15" role="status" aria-label="Updating">
+            <div className="h-full w-1/3 rounded-full bg-primary animate-[fade-in_1.2s_ease-in-out_infinite_alternate]" />
+          </div>
+        )}
+        <Button variant="outline" size="sm" onClick={() => void requestSync()}
           title="Pull fresh prices, reservations and occupancy from Previo now">
-          {syncing || syncWaiting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-          {syncWaiting ? "Sync in progress" : "Sync now"}
+          {syncing || syncWaiting || bgRefreshing || serverRefreshing
+            ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
+            : <RefreshCw className="h-4 w-4 mr-1" />}
+          {syncing || bgRefreshing || serverRefreshing || syncWaiting ? "Updating…" : "Sync now"}
         </Button>
+
         {isTechnicalAdmin && (
           <>
             <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}><Edit3 className="h-4 w-4 mr-1" />Bulk Edit</Button>
@@ -931,7 +1014,25 @@ export default function RevenueHotelDetail() {
         </div>
       )}
 
+      {/* Refreshing fresh data is allowed, but never by accident. */}
+      <Dialog open={!!freshConfirm} onOpenChange={(o) => { if (!o) setFreshConfirm(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Your data is already up to date</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            These figures are from {freshConfirm?.minutes} minute{freshConfirm?.minutes === 1 ? "" : "s"} ago.
+            Refreshing pulls everything from Previo again and takes about a minute.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFreshConfirm(null)}>Keep current data</Button>
+            <Button onClick={() => { setFreshConfirm(null); void runSync(true); }}>Refresh anyway</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Sync progress — engaging status while Previo data lands */}
+
       {syncing && (
         <Card className="border-primary/40 bg-primary/5">
           <CardContent className="py-3 flex items-center gap-3">

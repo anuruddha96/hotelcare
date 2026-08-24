@@ -12,6 +12,7 @@ import { LocationPermissionBoot } from "@/components/dashboard/LocationPermissio
 import { WelcomeBackOverlay } from "@/components/revenue/WelcomeBackOverlay";
 import { PointerEventsGuard } from "@/components/system/PointerEventsGuard";
 import { ServiceOutageBanner } from "@/components/system/ServiceOutageBanner";
+import { SystemAnnouncementBanner } from "@/components/system/SystemAnnouncementBanner";
 
 
 // Lazy load all pages to keep initial bundle small
@@ -179,6 +180,7 @@ const MainApp = () => (
           <Toaster />
           <PointerEventsGuard />
           <ServiceOutageBanner />
+          <SystemAnnouncementBanner />
           <BrowserRouter>
 
             <AuthenticatedShell>
