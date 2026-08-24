@@ -772,6 +772,24 @@ Deno.serve(async (req) => {
       error_message: failed > 0 ? errors[0]?.error : null,
     });
 
+    // Keep the atomic read model aligned with accepted manual/automation
+    // writes between full PMS syncs. Preserve the PMS completion timestamp so
+    // a price push never makes booking/occupancy data appear fresher than it is.
+    if (pushed > 0) {
+      const { data: syncState } = await admin.from("revenue_sync_state")
+        .select("last_success_at, last_success_by_name")
+        .eq("hotel_id", hotelId)
+        .maybeSingle();
+      if (syncState?.last_success_at) {
+        const { error: publishError } = await admin.rpc("refresh_revenue_published_payload", {
+          _hotel_id: hotelId,
+          _sync_completed_at: syncState.last_success_at,
+          _sync_completed_by_name: syncState.last_success_by_name ?? null,
+        });
+        if (publishError) console.error("could not refresh published revenue payload after rate push", publishError.message);
+      }
+    }
+
     const failedIds = results.flatMap((result) => result.failedIds);
     return json({ ok: true, pushRunId, pushed, pushedIds, failed, failedIds, verified, method: writeMethod, errors });
   } catch (e) {
