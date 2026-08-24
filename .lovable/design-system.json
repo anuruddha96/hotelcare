@@ -2,7 +2,7 @@
   "meta": {
     "name": "195a2daa-26b4-42e0-8ee1-c0c157972991",
     "package": "@ws-ilhrr5tzpy4crvboqzzj/195a2daa-26b4-42e0-8ee1-c0c157972991",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "framework": "react",
     "css_framework": "tailwind",
     "starter_template": "custom_design_system_tailwind",
@@ -13,6 +13,7 @@
     "source_manifest": {
       "#enrichment": "6abb9afe31a5988d2093d1d716eecf23eeed7e0aaeaa84e5a3ab780089a5197b",
       ".gitignore": "d9566700e8535935d03c1583474d790c",
+      ".lovable/meta.yaml": "954a981e8847ec1692669dbb04ae9ae9",
       ".lovable/plan-manager-training.md": "b0c03c4e91d9b30448ebc059d1224798",
       ".lovable/plan/1-tenant-isolation-model-today-and-its-weaknesses-2026-08-07.md": "a4677d283c947be52603d5d5899562df",
       ".lovable/plan/actionable-signals-a-real-previo-rate-write-2026-08-08.md": "52349b9b3975388605460a87445d369b",
@@ -103,6 +104,7 @@
       ".lovable/plan/strict-tenant-urls-and-one-revenue-refresh-per-30-minutes-2026-08-13.md": "9b6fc321c5b4aa922d1d65cd99569264",
       ".lovable/plan/team-view-tap-to-assign-instead-of-long-drags-slnt-only-2026-08-07.md": "f9361e4fe984806852370d5bf4e8b847",
       ".lovable/plan/whole-number-pricing-everywhere-a-faster-calmer-rate-pickup-2026-08-18.md": "0a79aa5f5aa943ace0f1756e020ffb81",
+      ".lovable/sources.yaml": "85650baf848ef209adbcf704cd10bef1",
       ".lovable/training-regression-checklist.md": "f716d24acd52ed76a82aacc67fe62294",
       "AUTOMATIC_CLEANUP_SETUP.md": "993bf6a644d77d51fe8e5a97066ebf97",
       "IMPLEMENTATION_SUMMARY.md": "9de28baca99a3bcdb58b2ba1a787c304",
