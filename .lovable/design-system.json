@@ -2,7 +2,7 @@
   "meta": {
     "name": "195a2daa-26b4-42e0-8ee1-c0c157972991",
     "package": "@ws-ilhrr5tzpy4crvboqzzj/195a2daa-26b4-42e0-8ee1-c0c157972991",
-    "version": "1.6.0",
+    "version": "1.7.0",
     "framework": "react",
     "css_framework": "tailwind",
     "starter_template": "custom_design_system",
@@ -13,7 +13,7 @@
     "source_manifest": {
       "#enrichment": "783360f145eb0e9ca2620816c127264f7dcf365098e3de1007939c395e091d8f",
       ".gitignore": "d9566700e8535935d03c1583474d790c",
-      ".lovable/meta.yaml": "86a17ac0d6b10fddfde4cdc325cb93a7",
+      ".lovable/meta.yaml": "8794970d6049858cc148d2b86f7a2b22",
       ".lovable/plan-manager-training.md": "b0c03c4e91d9b30448ebc059d1224798",
       ".lovable/plan/1-tenant-isolation-model-today-and-its-weaknesses-2026-08-07.md": "a4677d283c947be52603d5d5899562df",
       ".lovable/plan/actionable-signals-a-real-previo-rate-write-2026-08-08.md": "52349b9b3975388605460a87445d369b",
