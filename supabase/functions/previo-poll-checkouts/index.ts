@@ -692,38 +692,39 @@ serve(async (req) => {
           });
         }
       }
-      let { data: cfg } = await service
+      const { data: cfg } = await service
         .from("pms_configurations")
         .select("hotel_id, pms_hotel_id, credentials_secret_name, settings")
         .eq("hotel_id", hotelIdInput)
         .eq("pms_type", "previo")
         .eq("is_active", true)
         .maybeSingle();
-      if (!cfg) {
-        // Portfolio tenants (e.g. SLNT) keep their Previo credentials in
-        // pms_accounts instead of a single pms_configurations row.
-        const { data: acct } = await service
+      // Portfolio tenants (e.g. SLNT) keep their Previo credentials in
+      // pms_accounts — one row per Previo account — instead of a single
+      // pms_configurations row. Poll every active account for that property.
+      const found: any[] = cfg ? [cfg] : [];
+      if (found.length === 0) {
+        const { data: accts } = await service
           .from("pms_accounts")
           .select("hotel_id, pms_hotel_id, credentials_secret_name, settings")
           .eq("hotel_id", hotelIdInput)
           .eq("pms_type", "previo")
           .eq("is_active", true)
-          .order("is_primary", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (acct) cfg = acct as any;
+          .order("is_primary", { ascending: false });
+        for (const a of accts ?? []) found.push(a);
       }
-      if (!cfg) {
+      if (found.length === 0) {
         return new Response(JSON.stringify({ error: `No active Previo config for ${hotelIdInput}` }), {
           status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if ((cfg as any).settings?.disable_checkout_poll) {
+      const enabled = found.filter((c) => !c?.settings?.disable_checkout_poll);
+      if (enabled.length === 0) {
         return new Response(JSON.stringify({ ok: true, skipped: true, reason: "disabled in settings" }), {
           status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      targets.push(cfg as any);
+      for (const c of enabled) targets.push(c as any);
     } else {
       // Fan-out: service-role OR cron trigger only.
       if (!isServiceCall && !isCronTrigger) {
