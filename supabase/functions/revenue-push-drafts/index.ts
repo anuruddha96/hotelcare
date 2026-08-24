@@ -10,7 +10,7 @@ import { loadPrevioCredentials, hasPrevioCredentials } from "../_shared/previoCr
 import { writePrevioRate, readPrevioRateLevelsRange } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 import { pricesMatch } from "../_shared/pricingRules.ts";
-import { assertRateChangesSafe, repairLadder } from "../_shared/rateSafety.ts";
+import { assertExactRateMappings, filterRoomHierarchy, repairLadder } from "../_shared/rateSafety.ts";
 
 
 const corsHeaders = {
