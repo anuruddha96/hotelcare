@@ -692,13 +692,27 @@ serve(async (req) => {
           });
         }
       }
-      const { data: cfg } = await service
+      let { data: cfg } = await service
         .from("pms_configurations")
         .select("hotel_id, pms_hotel_id, credentials_secret_name, settings")
         .eq("hotel_id", hotelIdInput)
         .eq("pms_type", "previo")
         .eq("is_active", true)
         .maybeSingle();
+      if (!cfg) {
+        // Portfolio tenants (e.g. SLNT) keep their Previo credentials in
+        // pms_accounts instead of a single pms_configurations row.
+        const { data: acct } = await service
+          .from("pms_accounts")
+          .select("hotel_id, pms_hotel_id, credentials_secret_name, settings")
+          .eq("hotel_id", hotelIdInput)
+          .eq("pms_type", "previo")
+          .eq("is_active", true)
+          .order("is_primary", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (acct) cfg = acct as any;
+      }
       if (!cfg) {
         return new Response(JSON.stringify({ error: `No active Previo config for ${hotelIdInput}` }), {
           status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
