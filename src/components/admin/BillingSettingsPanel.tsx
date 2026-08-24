@@ -26,6 +26,10 @@ interface Settings {
   trial_start: string;
   stripe_publishable_key: string | null;
   payments_enabled: boolean;
+  revenue_pricing_mode: 'per_room' | 'percent';
+  revenue_percent_bps: number;
+  revenue_percent_min_cents: number;
+  revenue_percent_cap_cents: number;
 }
 
 const BLANK = (slug: string): Settings => ({
@@ -41,6 +45,10 @@ const BLANK = (slug: string): Settings => ({
   trial_start: new Date().toISOString().slice(0, 10),
   stripe_publishable_key: '',
   payments_enabled: true,
+  revenue_pricing_mode: 'per_room',
+  revenue_percent_bps: 100,
+  revenue_percent_min_cents: 0,
+  revenue_percent_cap_cents: 0,
 });
 
 export default function BillingSettingsPanel() {
