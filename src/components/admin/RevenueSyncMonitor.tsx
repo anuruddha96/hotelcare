@@ -44,11 +44,11 @@ export default function RevenueSyncMonitor() {
           "hotel_id, organization_slug, last_success_at, last_success_by_name, lease_started_at, lease_expires_at, last_error, updated_at",
         )
         .order("last_success_at", { ascending: true, nullsFirst: true }),
-      supabase.from("hotels").select("hotel_id, hotel_name"),
+      supabase.from("hotels").select("id, name"),
     ]);
     setRows(((state as SyncStateRow[]) || []));
     const map: Record<string, string> = {};
-    for (const h of (hotels as any[]) || []) map[h.hotel_id] = h.hotel_name;
+    for (const h of (hotels as any[]) || []) map[h.id] = h.name;
     setNames(map);
     setBusy(false);
   }, []);
