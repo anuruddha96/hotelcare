@@ -871,9 +871,13 @@ export default function RevenueHotelDetail() {
           <p className="text-[11px] text-muted-foreground truncate">
             Revenue management
             {live.lastSyncAt
-              ? ` · last synced ${formatDistance(new Date(live.lastSyncAt), new Date())} ago by ${live.lastSyncBy || "automatic sync"}`
+              ? ` · as of ${new Date(live.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
               : " · never synced"}
+            {serverRefreshing && (
+              <span className="ml-1 animate-pulse text-primary">· refreshing in the background…</span>
+            )}
           </p>
+
         </div>
         <Button variant="outline" size="sm" onClick={() => void runSync(true)} disabled={syncing || syncWaiting}
           title="Pull fresh prices, reservations and occupancy from Previo now">
