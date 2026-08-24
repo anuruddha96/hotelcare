@@ -3859,7 +3859,7 @@ export default function RateStrategyGrid({
       <Dialog open={pushOpen} onOpenChange={setPushOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-base">Previo refused these prices</DialogTitle>
+            <DialogTitle className="text-base">These prices were not applied</DialogTitle>
           </DialogHeader>
           <div className="max-h-[50vh] overflow-y-auto">
             <table className="w-full text-xs">
@@ -3876,7 +3876,7 @@ export default function RateStrategyGrid({
                     <td className="py-2 whitespace-nowrap">{d.stay_date}</td>
                     <td className="py-2">
                       <span>{d.room_type_name} · {d.occupancy}g</span>
-                      <span className="block text-[10px] text-destructive">{d.push_error || "Previo rejected this price"}</span>
+                      <span className="block text-[10px] text-destructive">{d.push_error || "This price was rejected"}</span>
                     </td>
                     <td className="py-2 text-right font-semibold tabular-nums">{moneyBase(d.new_price)}</td>
                   </tr>
@@ -3884,10 +3884,22 @@ export default function RateStrategyGrid({
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-muted-foreground">Only persistent write failures appear here. Successful delivery and verification stay in the background.</p>
+          <p className="text-xs text-muted-foreground">
+            Most of these are stopped by Hotel Care's own price-order guard, not by Previo: a cheaper room type
+            would have ended up above a more expensive one on that date, so the write was held back. Retry after
+            fixing the higher room's price, or dismiss to clear the list — dismissing never changes a live Previo price.
+          </p>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setPushOpen(false)}>Close</Button>
-            <Button onClick={() => void retryFailedPrices()} disabled={retryingFailures || pending.length === 0}>
+            <Button
+              variant="ghost"
+              onClick={() => void dismissFailedPrices()}
+              disabled={dismissingFailures || retryingFailures || pending.length === 0}
+            >
+              {dismissingFailures && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              Dismiss {pending.length}
+            </Button>
+            <Button onClick={() => void retryFailedPrices()} disabled={retryingFailures || dismissingFailures || pending.length === 0}>
               {retryingFailures && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
               Retry {pending.length} price{pending.length === 1 ? "" : "s"}
             </Button>
