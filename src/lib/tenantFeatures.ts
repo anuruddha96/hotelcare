@@ -34,7 +34,8 @@ const SLNT_FEATURES: Partial<TenantFeatures> = {
   venuesEnabled: true,
   scopedStaffEnabled: true,
   multiPmsAccounts: true,
-  housekeepingOnly: true,
+  // SLNT now runs the full Revenue Management module, same as RD Hotels.
+  housekeepingOnly: false,
   nonDestructivePmsUpload: true,
   dualPmsUpload: true,
 };
