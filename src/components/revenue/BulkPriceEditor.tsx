@@ -14,7 +14,7 @@ import { addDays, isWeekend, type RoomTypeRate } from "@/lib/revenueAnalytics";
 import { getRevenueCurrency, moneyBase } from "@/lib/revenueCurrency";
 import { logRateChanges } from "@/lib/rateAudit";
 import type { DraftChange } from "@/lib/rateDrafts";
-import { publishRates } from "@/lib/ratePublishing";
+import { publishRates, queueNote } from "@/lib/ratePublishing";
 import { pushMinStay, expandRange } from "@/lib/minStay";
 
 type Mode = "amount" | "percent" | "set" | "round";
