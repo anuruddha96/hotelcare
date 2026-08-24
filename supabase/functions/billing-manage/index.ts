@@ -61,11 +61,40 @@ Deno.serve(async (req) => {
       .eq("organization_slug", slug);
 
     if (action === "summary") {
+      // For percentage-based Revenue Management we show what last full month
+      // would have cost, computed from the synced Previo revenue.
+      const { start, end } = lastMonthRange();
+      let usage: {
+        hotel_id: string;
+        period_start: string;
+        period_end: string;
+        revenue_cents: number;
+        room_nights: number;
+        fee_cents: number;
+      }[] = [];
+
+      if (settings.revenue_pricing_mode === "percent") {
+        usage = await Promise.all(
+          hotels.map(async (h) => {
+            const { revenueCents, roomNights } = await realisedRevenueCents(h.hotel_id, start, end);
+            return {
+              hotel_id: h.hotel_id,
+              period_start: start,
+              period_end: end,
+              revenue_cents: revenueCents,
+              room_nights: roomNights,
+              fee_cents: percentFeeCents(settings, revenueCents),
+            };
+          }),
+        );
+      }
+
       return json({
         settings: { ...settings, stripe_secret_configured: Boolean(Deno.env.get("STRIPE_SECRET_KEY")) },
         hotels,
         subscriptions: subs ?? [],
         trial_ends_at: trialEndsAt(settings),
+        revenue_usage: usage,
       });
     }
 
