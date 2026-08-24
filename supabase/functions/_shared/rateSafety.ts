@@ -4,6 +4,8 @@ type RateChange = {
   room_type_name: string;
   occupancy: number;
   new_price: number;
+  old_price?: number | null;
+  [key: string]: unknown;
 };
 
 type MappingRow = {
@@ -17,6 +19,15 @@ type RoomTypeRow = {
   sort_order: number | null;
   is_sellable: boolean | null;
   counts_toward_inventory: boolean | null;
+};
+
+type StoredRate = {
+  stay_date: string;
+  obk_id: string | null;
+  room_type_name: string;
+  occupancy: number;
+  price: number;
+  updated_at?: string | null;
 };
 
 const NON_ROOM_PRODUCT = /brunch|breakfast|coffee|visitor|látogató|conference|konferencia|meeting|terem/i;
@@ -37,6 +48,27 @@ async function paged<T>(build: (from: number, to: number) => any): Promise<T[]> 
     if (batch.length < size) break;
   }
   return rows;
+}
+
+function dateWindow(changes: RateChange[]): [string, string] {
+  const dates = Array.from(new Set(changes.map((c) => c.stay_date))).sort();
+  return [dates[0], dates[dates.length - 1]];
+}
+
+async function loadStoredRates(
+  admin: any,
+  hotelId: string,
+  changes: RateChange[],
+): Promise<StoredRate[]> {
+  const [from, to] = dateWindow(changes);
+  return await paged<StoredRate>((start, end) => admin
+    .from("revenue_room_type_rates")
+    .select("stay_date,obk_id,room_type_name,occupancy,price,updated_at")
+    .eq("hotel_id", hotelId)
+    .gte("stay_date", from)
+    .lte("stay_date", to)
+    .order("updated_at", { ascending: true })
+    .range(start, end));
 }
 
 /**
@@ -72,17 +104,119 @@ export async function assertExactRateMappings(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Occupancy ladder
+// ---------------------------------------------------------------------------
+
 /**
- * Protect the configured low-to-high room order for Gozsdu and Memories.
- * Existing external inversions stay visible, but an incoming Hotel Care change
- * may not create or deepen one. Only same-date, same-occupancy cells compare.
+ * A room type on one date must never charge less for more guests. Every pricing
+ * path (manual cell edit, bulk editor, automation) decides one cell at a time,
+ * and per-cell floors/top-ups regularly lift the 2-guest level above the
+ * untouched 3-guest level. This pure helper takes the merged ladder and returns
+ * the price each level must end up at, repairing only upward so no floor,
+ * min-ADR or markdown cap is ever undercut.
+ */
+export function repairLadder(
+  levels: Array<{ occupancy: number; price: number }>,
+): Map<number, number> {
+  const sorted = [...levels].sort((a, b) => a.occupancy - b.occupancy);
+  const out = new Map<number, number>();
+  let runningMax = -Infinity;
+  for (const level of sorted) {
+    const price = Number(level.price);
+    if (!Number.isFinite(price)) continue;
+    const target = Math.max(price, runningMax === -Infinity ? price : runningMax);
+    runningMax = target;
+    out.set(Number(level.occupancy), Math.round(target));
+  }
+  return out;
+}
+
+/**
+ * Merge the pending changes with the stored ladder and return the extra sibling
+ * changes needed to keep every ladder non-decreasing. Pending changes whose own
+ * price is below a lower occupancy are lifted in place.
+ */
+export async function normalizeOccupancyLadder(
+  admin: any,
+  hotelId: string,
+  changes: RateChange[],
+): Promise<RateChange[]> {
+  if (changes.length === 0) return [];
+  const stored = await loadStoredRates(admin, hotelId, changes);
+
+  const groupKey = (row: { stay_date: string; obk_id?: string | null; room_type_name: string }) =>
+    `${row.stay_date}|${mappingKey(row.obk_id) || row.room_type_name}`;
+
+  // Newest stored price per cell (rows arrive oldest-first).
+  const storedPrice = new Map<string, number>();
+  const groupLevels = new Map<string, Set<number>>();
+  for (const row of stored) {
+    const key = `${groupKey(row)}|${Number(row.occupancy)}`;
+    storedPrice.set(key, Number(row.price));
+    const group = groupKey(row);
+    if (!groupLevels.has(group)) groupLevels.set(group, new Set());
+    groupLevels.get(group)!.add(Number(row.occupancy));
+  }
+
+  const changeByCell = new Map<string, RateChange>();
+  const touchedGroups = new Map<string, RateChange>();
+  for (const change of changes) {
+    const group = groupKey(change);
+    changeByCell.set(`${group}|${Number(change.occupancy)}`, change);
+    if (!touchedGroups.has(group)) touchedGroups.set(group, change);
+  }
+
+  const repairs: RateChange[] = [];
+  for (const [group, template] of touchedGroups) {
+    const occupancies = new Set<number>(groupLevels.get(group) ?? []);
+    for (const change of changes) {
+      if (groupKey(change) === group) occupancies.add(Number(change.occupancy));
+    }
+    if (occupancies.size < 2) continue;
+
+    const merged = Array.from(occupancies).sort((a, b) => a - b).map((occupancy) => {
+      const cell = `${group}|${occupancy}`;
+      const pending = changeByCell.get(cell);
+      const price = pending ? Number(pending.new_price) : Number(storedPrice.get(cell));
+      return { occupancy, price };
+    }).filter((level) => Number.isFinite(level.price));
+
+    const repaired = repairLadder(merged);
+    for (const level of merged) {
+      const target = repaired.get(level.occupancy);
+      if (target === undefined || target <= Math.round(level.price)) continue;
+      const cell = `${group}|${level.occupancy}`;
+      const pending = changeByCell.get(cell);
+      if (pending) {
+        pending.new_price = target;
+        continue;
+      }
+      const repair: RateChange = { ...template };
+      repair.occupancy = level.occupancy;
+      repair.old_price = Math.round(level.price);
+      repair.new_price = target;
+      if ("intent_source" in repair) repair.intent_source = "ladder_repair";
+      if ("id" in repair) delete (repair as Record<string, unknown>).id;
+      repairs.push(repair);
+      changeByCell.set(cell, repair);
+    }
+  }
+  return repairs;
+}
+
+/**
+ * Protect the configured low-to-high room order. Existing external inversions
+ * stay visible — blocking every edit on an already-inverted date would freeze
+ * the calendar — but an incoming Hotel Care change may not create or deepen
+ * one. Only same-date, same-occupancy cells compare.
  */
 export async function assertRoomHierarchy(
   admin: any,
   hotelId: string,
   changes: RateChange[],
 ): Promise<void> {
-  if (!new Set(["gozsdu-court", "memories-budapest"]).has(hotelId) || changes.length === 0) return;
+  if (changes.length === 0) return;
 
   const { data: roomData, error: roomError } = await admin
     .from("room_types")
@@ -98,57 +232,51 @@ export async function assertRoomHierarchy(
     !!room.pms_room_id &&
     !NON_ROOM_PRODUCT.test(room.name),
   );
-  if (rooms.length < 2) return;
+  // Without a deliberate low-to-high order there is nothing to protect.
+  const orders = new Set(rooms.map((room) => room.sort_order).filter((value) => value !== null && value !== undefined));
+  if (rooms.length < 2 || orders.size < 2) return;
 
   const roomIndex = new Map(rooms.map((room, index) => [room.name, index]));
   const relevant = changes.filter((change) => roomIndex.has(change.room_type_name));
   if (relevant.length === 0) return;
 
-  const dates = Array.from(new Set(relevant.map((change) => change.stay_date))).sort();
-  const current = await paged<{
-    stay_date: string;
-    room_type_name: string;
-    occupancy: number;
-    price: number;
-    updated_at: string;
-  }>((from, to) => admin
-    .from("revenue_room_type_rates")
-    .select("stay_date,room_type_name,occupancy,price,updated_at")
-    .eq("hotel_id", hotelId)
-    .gte("stay_date", dates[0])
-    .lte("stay_date", dates[dates.length - 1])
-    .order("updated_at", { ascending: true })
-    .range(from, to));
-
-  const prices = new Map<string, number>();
-  for (const row of current) {
-    prices.set(cellKey(row.stay_date, row.room_type_name, Number(row.occupancy)), Number(row.price));
+  const stored = await loadStoredRates(admin, hotelId, relevant);
+  const before = new Map<string, number>();
+  for (const row of stored) {
+    before.set(cellKey(row.stay_date, row.room_type_name, Number(row.occupancy)), Number(row.price));
   }
+  const after = new Map(before);
   const touched = new Set<string>();
   for (const change of relevant) {
     const key = cellKey(change.stay_date, change.room_type_name, Number(change.occupancy));
-    prices.set(key, Number(change.new_price));
+    after.set(key, Number(change.new_price));
     touched.add(key);
   }
+
+  const gap = (map: Map<string, number>, lowerKey: string, higherKey: string): number | null => {
+    const lower = map.get(lowerKey);
+    const higher = map.get(higherKey);
+    if (lower === undefined || higher === undefined) return null;
+    return lower - higher;
+  };
 
   for (const change of relevant) {
     const index = roomIndex.get(change.room_type_name);
     if (index === undefined) continue;
     for (const neighbourIndex of [index - 1, index + 1]) {
-      const neighbour = rooms[neighbourIndex];
-      if (!neighbour) continue;
+      if (!rooms[neighbourIndex]) continue;
       const lower = rooms[Math.min(index, neighbourIndex)];
       const higher = rooms[Math.max(index, neighbourIndex)];
       const lowerKey = cellKey(change.stay_date, lower.name, Number(change.occupancy));
       const higherKey = cellKey(change.stay_date, higher.name, Number(change.occupancy));
       if (!touched.has(lowerKey) && !touched.has(higherKey)) continue;
-      const lowerPrice = prices.get(lowerKey);
-      const higherPrice = prices.get(higherKey);
-      if (lowerPrice !== undefined && higherPrice !== undefined && lowerPrice > higherPrice) {
-        throw new Error(
-          `Price hierarchy blocked for ${change.stay_date}: ${lower.name} (${lowerPrice}) cannot be higher than ${higher.name} (${higherPrice}) for ${change.occupancy} guest${change.occupancy === 1 ? "" : "s"}.`,
-        );
-      }
+      const afterGap = gap(after, lowerKey, higherKey);
+      if (afterGap === null || afterGap <= 0) continue;
+      const beforeGap = gap(before, lowerKey, higherKey) ?? 0;
+      if (afterGap <= beforeGap) continue; // pre-existing inversion, not deepened
+      throw new Error(
+        `Price hierarchy blocked for ${change.stay_date}: ${lower.name} (${after.get(lowerKey)}) cannot be higher than ${higher.name} (${after.get(higherKey)}) for ${change.occupancy} guest${change.occupancy === 1 ? "" : "s"}.`,
+      );
     }
   }
 }
@@ -160,4 +288,22 @@ export async function assertRateChangesSafe(
 ): Promise<void> {
   await assertExactRateMappings(admin, hotelId, changes);
   await assertRoomHierarchy(admin, hotelId, changes);
+}
+
+/**
+ * One safety layer for every write path: exact mappings, occupancy-ladder
+ * repair, then the cross-room-type order. Returns the change list to write,
+ * which may contain extra sibling cells created by the ladder repair.
+ */
+export async function enforceRateSafety(
+  admin: any,
+  hotelId: string,
+  changes: RateChange[],
+): Promise<{ changes: RateChange[]; repairs: RateChange[] }> {
+  if (changes.length === 0) return { changes, repairs: [] };
+  await assertExactRateMappings(admin, hotelId, changes);
+  const repairs = await normalizeOccupancyLadder(admin, hotelId, changes);
+  const all = [...changes, ...repairs];
+  await assertRoomHierarchy(admin, hotelId, all);
+  return { changes: all, repairs };
 }
