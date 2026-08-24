@@ -423,7 +423,8 @@ Deno.serve(async (req) => {
     }
 
     const openai = createOpenAI({ apiKey: openAiKey });
-    const modelId = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
+    // High-reasoning default so answers about live hotel data are accurate.
+    const modelId = Deno.env.get("OPENAI_MODEL") || "gpt-5.6";
     const result = streamText({
       model: openai.responses(modelId),
       system: `You are the Hotel Care Assistant. Be concise, practical, and accurate.
