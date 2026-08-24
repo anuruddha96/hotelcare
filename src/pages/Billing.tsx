@@ -250,6 +250,49 @@ export default function Billing() {
 
 
 
+        {/* At-a-glance: what you have, what it costs, how it is priced. */}
+        {summary && (
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Building2 className="h-3.5 w-3.5" /> Properties
+                </p>
+                <p className="text-2xl font-bold mt-1">{summary.hotels.length}</p>
+                <p className="text-xs text-muted-foreground">
+                  {summary.hotels.reduce((n, h) => n + h.rooms, 0)} rooms in total
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <CreditCard className="h-3.5 w-3.5" /> Current monthly cost
+                </p>
+                <p className="text-2xl font-bold mt-1">
+                  {activeSubs.length ? formatMoney(activeMonthly, currency) : formatMoney(0, currency)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {trialActive ? 'Free while your trial runs' : 'Excluding VAT'}
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Percent className="h-3.5 w-3.5" /> Revenue Management
+                </p>
+                <p className="text-2xl font-bold mt-1">
+                  {percentMode ? percentLabel : formatMoney(settings?.revenue_price_cents ?? 0, currency)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {percentMode ? 'of realised room revenue, monthly' : 'per room, per month'}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {error && (
           <Alert variant="destructive">
             <AlertTitle>Couldn't load billing</AlertTitle>
