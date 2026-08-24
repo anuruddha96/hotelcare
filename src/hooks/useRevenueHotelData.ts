@@ -75,6 +75,7 @@ export function useRevenueHotelData(
   const [payload, setPayload] = useState<PublishedRevenuePayload | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [lastSyncBy, setLastSyncBy] = useState<string | null>(null);
+  const payloadRef = useRef<PublishedRevenuePayload | null>(null);
   const requestVersionRef = useRef(0);
   const inFlightRef = useRef<Promise<void> | null>(null);
 
@@ -86,7 +87,7 @@ export function useRevenueHotelData(
     if (inFlightRef.current) return inFlightRef.current;
     const requestVersion = ++requestVersionRef.current;
     const request = (async () => {
-    if (!payload) setLoading(true);
+    if (!payloadRef.current) setLoading(true);
     setError(null);
     try {
       const { data, error: rpcError } = await (supabase as any).rpc("get_revenue_published_payload", {
@@ -97,7 +98,7 @@ export function useRevenueHotelData(
       const row = Array.isArray(data) ? data[0] : data;
       if (!row?.payload) throw new Error("No completed Revenue dataset is available yet");
       const next = row.payload as PublishedRevenuePayload;
-      setPayload({
+      const completedPayload = {
         ...next,
         roomTypes: (next.roomTypes ?? []).map((room) => ({
           ...room,
@@ -109,7 +110,9 @@ export function useRevenueHotelData(
         cancellations: next.cancellations ?? [],
         movements: next.movements ?? [],
         settings: next.settings ?? {},
-      });
+      };
+      payloadRef.current = completedPayload;
+      setPayload(completedPayload);
       setLastSyncAt(row.sync_completed_at ?? null);
       setLastSyncBy(row.sync_completed_by_name ?? null);
     } catch (e) {
@@ -123,7 +126,7 @@ export function useRevenueHotelData(
     try { await request; } finally {
       if (inFlightRef.current === request) inFlightRef.current = null;
     }
-  }, [hotelId, payload]);
+  }, [hotelId]);
 
   /** A full re-read: used after a sync or a price push. */
   const reload = useCallback(async () => { await runLoad(); }, [runLoad]);
@@ -133,6 +136,7 @@ export function useRevenueHotelData(
     // must keep the current calendar mounted (no blocking spinner).
     requestVersionRef.current += 1;
     inFlightRef.current = null;
+    payloadRef.current = null;
     setPayload(null);
   }, [hotelId]);
 
