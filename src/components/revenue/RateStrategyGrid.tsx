@@ -1578,7 +1578,17 @@ export default function RateStrategyGrid({
     markFlash(rowsToSave.map((r) => `${r.stay_date}|${r.room_type_name}|${r.occupancy}`), "team");
     void (async () => {
       try {
-        await publishRates({ hotelId, organizationSlug, source: "manual", changes: rowsToSave });
+        const result = await publishRates({ hotelId, organizationSlug, source: "manual", changes: rowsToSave });
+        if (result.rejected.length > 0) {
+          toast.warning(
+            `${result.queued} of ${rowsToSave.length} prices queued — ${result.rejected.length} could not be queued`,
+            { description: result.rejected[0]?.reason?.slice(0, 160) },
+          );
+        } else {
+          const note = queueNote(result);
+          if (note) toast.info(note);
+        }
+
 
         // 2. The change dots come from the audit trail, so write it right away.
         void logRateChanges({
