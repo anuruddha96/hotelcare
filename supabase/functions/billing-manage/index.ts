@@ -170,32 +170,17 @@ Deno.serve(async (req) => {
       .eq("organization_slug", slug);
 
     if (action === "summary") {
-      // For percentage-based Revenue Management we show what last full month
-      // would have cost, computed from the synced Previo revenue.
-      const { start, end } = lastMonthRange();
-      let usage: {
-        hotel_id: string;
-        period_start: string;
-        period_end: string;
-        revenue_cents: number;
-        room_nights: number;
-        fee_cents: number;
-      }[] = [];
-
+      // Percentage-based Revenue Management settles last full month automatically:
+      // the figures are recomputed, stored and (outside the trial) invoiced here,
+      // so nobody has to press a button.
+      let usage: UsageRow[] = [];
       if (settings.revenue_pricing_mode === "percent") {
-        usage = await Promise.all(
-          hotels.map(async (h) => {
-            const { revenueCents, roomNights } = await realisedRevenueCents(h.hotel_id, start, end);
-            return {
-              hotel_id: h.hotel_id,
-              period_start: start,
-              period_end: end,
-              revenue_cents: revenueCents,
-              room_nights: roomNights,
-              fee_cents: percentFeeCents(settings, revenueCents),
-            };
-          }),
-        );
+        try {
+          const rollup = await rollupLastMonth(slug, settings, hotels, subs ?? [], stripeClient());
+          usage = rollup.rows;
+        } catch (e) {
+          console.error("automatic usage rollup failed", e);
+        }
       }
 
       return json({
