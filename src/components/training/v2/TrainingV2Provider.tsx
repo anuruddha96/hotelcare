@@ -689,9 +689,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
       // Seed the chain queue from the curriculum definition. Manual restart
       // or explicit start replaces any prior in-flight chain.
       const rawChain = Array.isArray(c.chain) ? c.chain : [];
-      chainQueueRef.current = isPropertyOrg
-        ? rawChain.filter((s) => s !== 'v2_manager_revenue')
-        : [...rawChain];
+      chainQueueRef.current = [...rawChain];
 
       setActive(c);
       setStepIndex(Math.min(resumeIdx, c.steps.length - 1));
@@ -859,10 +857,10 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
   // organization/isPropertyOrg computed above
 
   const availableCurricula = useMemo(() => {
-    const base = curriculaForRole(role || '');
-    // Property-style orgs (SLNT) don't use Revenue Management — hide its module.
-    return isPropertyOrg ? base.filter((c) => c.slug !== 'v2_manager_revenue') : base;
-  }, [role, isPropertyOrg]);
+    // Revenue Management training applies to every organization, including
+    // property-style tenants (SLNT).
+    return curriculaForRole(role || '');
+  }, [role]);
 
 
   // First-login prompt actions
