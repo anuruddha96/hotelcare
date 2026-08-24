@@ -2,7 +2,7 @@
   "meta": {
     "name": "195a2daa-26b4-42e0-8ee1-c0c157972991",
     "package": "@ws-ilhrr5tzpy4crvboqzzj/195a2daa-26b4-42e0-8ee1-c0c157972991",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "framework": "react",
     "css_framework": "tailwind",
     "starter_template": "custom_design_system_tailwind",
@@ -11,7 +11,7 @@
     ],
     "source_type": "local",
     "source_manifest": {
-      "#enrichment": "6abb9afe31a5988d2093d1d716eecf23eeed7e0aaeaa84e5a3ab780089a5197b",
+      "#enrichment": "223b3e20c9d7c4ef04d6c9725f41efef76029c0e5a0256c00274316e92fb2bb6",
       ".gitignore": "d9566700e8535935d03c1583474d790c",
       ".lovable/meta.yaml": "954a981e8847ec1692669dbb04ae9ae9",
       ".lovable/plan-manager-training.md": "b0c03c4e91d9b30448ebc059d1224798",
@@ -134,7 +134,7 @@
       "src/components/ErrorBoundary.tsx": "1a1294f11c9b95b1456fb64fdf532da0",
       "src/components/InstallAppPrompt.tsx": "3564415cd16da9e8ca3c0d1f01f3b3f3",
       "src/components/admin/AIRoomImportDialog.tsx": "cb7cb62a38f389ca2605605962ea36d6",
-      "src/components/admin/AdminTabs.tsx": "178a6c2e225e6c1a16c4a81466d84c6e",
+      "src/components/admin/AdminTabs.tsx": "2ee0fc5382d5bf28526a9973e0b4d10b",
       "src/components/admin/AiProviderStatus.tsx": "f7690175f4234504e12124b2e62b7837",
       "src/components/admin/BillingSettingsPanel.tsx": "731e7d7858646ba3e1935901756cdc5d",
       "src/components/admin/BreakfastCodeManagement.tsx": "2f3bd789c51695eda17c338d3c482d01",
@@ -146,6 +146,7 @@
       "src/components/admin/PMSConfigurationManagement.tsx": "38a8ffc91eeda5cc8a106d54a9a8879c",
       "src/components/admin/PmsSyncStatus.tsx": "e73a80129a307ba5f017986f71e6f97f",
       "src/components/admin/RevenueEngineControls.tsx": "d15d18d3b52091153cbc3a617a347eac",
+      "src/components/admin/RevenueSyncMonitor.tsx": "ad028d9784b591df51c0022c538f1ee3",
       "src/components/admin/TrainingAdminPanel.tsx": "4124ef290b225b4ef841581b912e83a0",
       "src/components/admin/TranslationManagement.tsx": "c604369d93640f54687dab3ffdd7de39",
       "src/components/ai-elements/code-block.tsx": "11551fc610d4361869413647c0f3c0d8",
@@ -1248,6 +1249,12 @@
     {
       "name": "RevenueEngineControls",
       "file": "src/components/admin/RevenueEngineControls",
+      "import_path": "",
+      "is_default": true
+    },
+    {
+      "name": "RevenueSyncMonitor",
+      "file": "src/components/admin/RevenueSyncMonitor",
       "import_path": "",
       "is_default": true
     },

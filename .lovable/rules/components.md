@@ -359,6 +359,12 @@ import RevenueSyncHistory from "@ws-ilhrr5tzpy4crvboqzzj/195a2daa-26b4-42e0-8ee1
 | `limit` | number | `12` |
 | `includeDailyOverview` | boolean | `true` |
 
+### RevenueSyncMonitor
+
+```ts
+import RevenueSyncMonitor from "@ws-ilhrr5tzpy4crvboqzzj/195a2daa-26b4-42e0-8ee1-c0c157972991"
+```
+
 ### RevenueToolsBar
 
 ```ts
