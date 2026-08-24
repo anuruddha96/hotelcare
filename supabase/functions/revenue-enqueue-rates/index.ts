@@ -1,6 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { z } from "npm:zod@3.23.8";
+import { assertRateChangesSafe } from "../_shared/rateSafety.ts";
 
 const ChangeSchema = z.object({
   stay_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -70,6 +71,8 @@ Deno.serve(async (req) => {
       byCell.set(`${change.stay_date}|${change.room_type_name}|${change.occupancy}`, change);
     }
     let changes = [...byCell.values()];
+
+    await assertRateChangesSafe(admin, hotelId, changes);
 
     // Sold-out room types are published too. A date can free up at any moment
     // through a cancellation, and holding its price still made the calendar

@@ -101,7 +101,7 @@ export function useRevenueHotelData(
         });
         if (result.error) throw result.error;
         return result;
-      }, { attempts: 3, baseDelayMs: 500, maxDelayMs: 1800, timeoutMs: 15000 });
+      }, { attempts: 3, baseDelayMs: 500, maxDelayMs: 1800, timeoutMs: 30000 });
       if (requestVersion !== requestVersionRef.current) return;
       const row = Array.isArray(data) ? data[0] : data;
       if (!row?.payload) throw new Error("No completed Revenue dataset is available yet");
