@@ -42,6 +42,7 @@ import {
   farOutFloorTopUp,
   farOutFloorTopUpText,
 } from "../_shared/pricingRules.ts";
+import { assertRateChangesSafe } from "../_shared/rateSafety.ts";
 
 
 
@@ -324,6 +325,7 @@ async function queueIntents(
   priority: number,
 ): Promise<string | null> {
   if (payload.length === 0) return null;
+  await assertRateChangesSafe(admin, rule.hotel_id, payload as any[]);
   const runId = crypto.randomUUID();
   const { error: runError } = await admin.from("revenue_rate_push_runs").insert({
     id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,

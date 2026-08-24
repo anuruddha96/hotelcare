@@ -7,6 +7,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth } from "../_shared/previoAuth.ts";
+import { assertRateChangesSafe } from "../_shared/rateSafety.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -76,9 +77,6 @@ serve(async (req) => {
         412,
       );
     }
-    const defaultMap =
-      validMaps.find((m: any) => m.is_default) ?? validMaps[0];
-
     // Approved recs not yet pushed in next 90 days
     const today = new Date().toISOString().slice(0, 10);
     const horizon = (() => {
@@ -89,7 +87,7 @@ serve(async (req) => {
 
     let recsQuery = supabase
       .from("rate_recommendations")
-      .select("id, stay_date, recommended_rate_eur, current_rate_eur, reason")
+      .select("id, stay_date, recommended_rate_eur, current_rate_eur, reason, room_type_id")
       .eq("hotel_id", hotelId)
       .eq("status", "approved")
       .is("pushed_at", null)
@@ -107,6 +105,23 @@ serve(async (req) => {
       return json({ ok: true, pushed: 0, failed: 0, skipped: 0, message: "No approved recs pending push." });
     }
 
+    const roomTypeIds = Array.from(new Set((recs as any[]).map((rec) => rec.room_type_id).filter(Boolean)));
+    const { data: roomTypes } = roomTypeIds.length > 0
+      ? await supabase.from("room_types").select("id,name,pms_room_id").in("id", roomTypeIds)
+      : { data: [] as any[] };
+    const roomById = new Map((roomTypes ?? []).map((room: any) => [room.id, room]));
+    const changes = (recs as any[]).map((rec) => {
+      const room = roomById.get(rec.room_type_id);
+      return {
+        stay_date: rec.stay_date,
+        obk_id: room?.pms_room_id ?? null,
+        room_type_name: room?.name ?? "Unmapped recommendation",
+        occupancy: 2,
+        new_price: Number(rec.recommended_rate_eur),
+      };
+    });
+    await assertRateChangesSafe(supabase, hotelId, changes);
+
     const ratePath =
       Deno.env.get("PREVIO_RATE_UPDATE_PATH") ||
       "/v1/rates/update"; // placeholder until Previo confirms exact endpoint
@@ -116,10 +131,20 @@ serve(async (req) => {
     const errors: any[] = [];
 
     for (const rec of recs as any[]) {
+      const room = roomById.get(rec.room_type_id);
+      const exactMap = validMaps.find((mapping: any) =>
+        String(mapping.room_type_id) === String(rec.room_type_id) &&
+        String(mapping.previo_room_type_id) === String(room?.pms_room_id),
+      );
+      if (!exactMap) {
+        failed++;
+        errors.push({ stay_date: rec.stay_date, error: `No exact Previo mapping for ${room?.name ?? "recommendation"}` });
+        continue;
+      }
       const payload = {
         hotelId: cfg.pms_hotel_id,
-        rateId: defaultMap.previo_rate_plan_id,
-        roomTypeId: defaultMap.previo_room_type_id,
+        rateId: exactMap.previo_rate_plan_id,
+        roomTypeId: exactMap.previo_room_type_id,
         date: rec.stay_date,
         priceEur: rec.recommended_rate_eur,
       };

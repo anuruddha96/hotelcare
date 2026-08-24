@@ -10,6 +10,7 @@ import { loadPrevioCredentials, hasPrevioCredentials } from "../_shared/previoCr
 import { writePrevioRate, readPrevioRateLevelsRange } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 import { pricesMatch } from "../_shared/pricingRules.ts";
+import { assertRateChangesSafe } from "../_shared/rateSafety.ts";
 
 
 const corsHeaders = {
@@ -134,9 +135,6 @@ Deno.serve(async (req) => {
         error: `No Previo pricelist could be resolved for this hotel. ${mappingNote} Run a revenue sync, then try “Sync rate plans” again.`.trim(),
       });
     }
-    const defaultMap = validMaps.find((m: any) => m.is_default) ?? validMaps[0];
-
-
     const { data: settings } = await admin
       .from("hotel_revenue_settings")
       .select("rate_write_method, base_currency")
@@ -220,6 +218,10 @@ Deno.serve(async (req) => {
       }
       return json({ ok: true, pushed: 0, failed: 0, message: "Nothing to push." });
     }
+
+    // Revalidate immediately before delivery. This protects legacy callers and
+    // queued work created before the enqueue-time safety checks existed.
+    await assertRateChangesSafe(admin, hotelId, drafts as any[]);
 
 
     // Sold-out room types are published as well: a cancellation can reopen the
@@ -345,7 +347,10 @@ Deno.serve(async (req) => {
 
     for (const d of drafts as any[]) {
       const mapForType = validMaps.find((m: any) => String(m.previo_room_type_id) === String(d.obk_id));
-      const map: any = mapForType ?? defaultMap;
+      if (!mapForType) {
+        throw new Error(`Price not sent: no exact Previo rate-plan mapping for ${d.room_type_name}. Sync rate plans, then try again.`);
+      }
+      const map: any = mapForType;
       // Multi-account hotels prefix the obk id with the Previo hotId.
       const scoped = String(map.previo_room_type_id ?? d.obk_id);
       const parts = scoped.split(":");
