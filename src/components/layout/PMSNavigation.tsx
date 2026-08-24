@@ -38,10 +38,10 @@ export function PMSNavigation() {
 
   const propertyTerms = usePropertyTerms();
 
+  // Revenue Management is available in every organization (property-style
+  // orgs like SLNT run the same module as RD Hotels).
   const visibleItems = PMS_NAV_ITEMS.filter(
     (item) => profile && item.roles.includes(profile.role)
-      // Hide Revenue Management for property-style orgs (e.g. SLNT airbnbs)
-      && !(item.key === 'revenue' && propertyTerms.isProperty)
   );
 
   if (visibleItems.length === 0) return null;
