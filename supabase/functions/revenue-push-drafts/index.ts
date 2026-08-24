@@ -10,7 +10,7 @@ import { loadPrevioCredentials, hasPrevioCredentials } from "../_shared/previoCr
 import { writePrevioRate, readPrevioRateLevelsRange } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 import { pricesMatch } from "../_shared/pricingRules.ts";
-import { assertExactRateMappings, filterRoomHierarchy, repairLadder } from "../_shared/rateSafety.ts";
+import { assertExactRateMappings, filterRoomHierarchy, liftHigherRooms, repairLadder } from "../_shared/rateSafety.ts";
 
 
 const corsHeaders = {
@@ -224,6 +224,44 @@ Deno.serve(async (req) => {
     // single unsafe cell must not cancel the whole run: the offenders are
     // closed out and the rest of the batch is delivered.
     await assertExactRateMappings(admin, hotelId, drafts as any[]);
+    // A raise that would leave a cheaper room above the next tier used to be
+    // discarded, which left the inversion in place. The tiers above are lifted
+    // with it instead, as extra drafts inside the same run.
+    try {
+      const lifts = await liftHigherRooms(admin, hotelId, drafts as any[]);
+      const insertable: any[] = [];
+      for (const lift of lifts) {
+        if (!lift.obk_id) continue;
+        try {
+          await assertExactRateMappings(admin, hotelId, [lift]);
+        } catch { continue; } // unmapped room type: leave it untouched
+        insertable.push({
+          hotel_id: hotelId,
+          organization_slug: (drafts as any[])[0]?.organization_slug ?? null,
+          stay_date: lift.stay_date,
+          obk_id: lift.obk_id,
+          room_type_name: lift.room_type_name,
+          occupancy: lift.occupancy,
+          old_price: lift.old_price,
+          new_price: lift.new_price,
+          currency: (drafts as any[])[0]?.currency ?? "EUR",
+          status: "draft",
+          intent_source: "hierarchy_repair",
+          push_run_id: requestedRunId ?? null,
+        });
+      }
+      if (insertable.length > 0) {
+        const { data: insertedLifts, error: liftError } = await admin
+          .from("revenue_rate_drafts")
+          .insert(insertable)
+          .select("id, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, currency, created_by, organization_slug, created_at");
+        if (liftError) throw liftError;
+        drafts = [...(drafts as any[]), ...((insertedLifts ?? []) as any[])];
+        console.log(`[safety] ${hotelId} lifted ${insertable.length} higher room tier(s) to keep the room order`);
+      }
+    } catch (error) {
+      console.log(`[safety] ${hotelId} hierarchy lift skipped: ${(error as Error)?.message ?? error}`);
+    }
     {
       const { kept, dropped } = await filterRoomHierarchy(admin, hotelId, drafts as any[]);
       if (dropped.length > 0) {

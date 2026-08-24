@@ -254,9 +254,9 @@ export default function RevenueHotelDetail() {
   });
 
   const revAdmin = isRevenueAdmin(profile?.role);
-  // Revenue top management intentionally has the same module powers and
-  // presentation as an admin; portfolio administration remains admin-only.
-  const isTechnicalAdmin = revAdmin;
+  // Top management keeps its rate-editing powers on the grid, but the admin
+  // tooling row and the extra tabs stay hidden for them as designed.
+  const isTechnicalAdmin = profile?.role === "admin";
   const [syncing, setSyncing] = useState(false);
   const [syncStep, setSyncStep] = useState("Connecting to Previo…");
   const [syncPct, setSyncPct] = useState(0);
