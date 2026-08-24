@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   addDays,
   budapestToday,
   buildDayMetrics,
-  pickupWindowFirstDay,
   type BookingNight,
   type CancelledNight,
   type DailySnapshot,
@@ -31,45 +30,14 @@ export interface RevenueRoomType {
   name_translations: Record<string, string>;
 }
 
-/**
- * Supabase caps a single select at 1000 rows — page through everything.
- *
- * Pages used to be fetched one after another, so a property with 12k booking
- * nights paid twelve round trips in a row before anything appeared. Pages are
- * now requested in parallel waves: the first page tells us whether there is
- * more, and the rest come back together.
- */
-async function fetchAll<T>(
-  build: () => ReturnType<typeof supabase.from>,
-  apply: (q: any) => any,
-): Promise<T[]> {
-  const page = 1000;
-  const wave = 6;
-  const maxRows = 20000;
-
-  const readPage = async (offset: number): Promise<T[]> => {
-    const { data, error } = await apply(build()).range(offset, offset + page - 1);
-    if (error) throw error;
-    return (data ?? []) as T[];
-  };
-
-  const first = await readPage(0);
-  if (first.length < page) return first;
-
-  const out: T[] = [...first];
-  for (let start = page; start < maxRows; start += page * wave) {
-    const offsets: number[] = [];
-    for (let i = 0; i < wave && start + i * page < maxRows; i++) offsets.push(start + i * page);
-    const pages = await Promise.all(offsets.map(readPage));
-    let exhausted = false;
-    for (const rows of pages) {
-      out.push(...rows);
-      if (rows.length < page) exhausted = true;
-    }
-    if (exhausted) break;
-  }
-
-  return out;
+interface PublishedRevenuePayload {
+  roomTypes: RevenueRoomType[];
+  nights: BookingNight[];
+  snapshots: DailySnapshot[];
+  rates: RoomTypeRate[];
+  cancellations: CancelledNight[];
+  movements: PickupMovement[];
+  settings: Record<string, unknown>;
 }
 
 export interface RevenueHotelData {
@@ -104,206 +72,46 @@ export function useRevenueHotelData(
 ): RevenueHotelData {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [roomTypes, setRoomTypes] = useState<RevenueRoomType[]>([]);
-  const [nights, setNights] = useState<BookingNight[]>([]);
-  const [snapshots, setSnapshots] = useState<DailySnapshot[]>([]);
-  const [rates, setRates] = useState<RoomTypeRate[]>([]);
-  const [cancellations, setCancellations] = useState<CancelledNight[]>([]);
-  const [movements, setMovements] = useState<PickupMovement[]>([]);
-  const [sellableOverride, setSellableOverride] = useState<number | null>(null);
-  const [thresholds, setThresholds] = useState<RevenueThresholds>(DEFAULT_THRESHOLDS);
+  const [payload, setPayload] = useState<PublishedRevenuePayload | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [lastSyncBy, setLastSyncBy] = useState<string | null>(null);
-  const hasPayloadRef = useRef(false);
   const requestVersionRef = useRef(0);
   const inFlightRef = useRef<Promise<void> | null>(null);
-  const [payloadTick, setPayloadTick] = useState(0);
-
-  // First paint only needs the dates the calendar actually shows. The full
-  // horizon is fetched right after, without clearing the screen, so opening a
-  // property no longer waits on six months of nights, rates and snapshots.
-  const FIRST_PAINT_DAYS = 60;
-  const [activeHorizon, setActiveHorizon] = useState(() => Math.min(FIRST_PAINT_DAYS, horizonDays));
-  useEffect(() => {
-    // A shrinking request (rare) applies immediately; growth is staged below.
-    setActiveHorizon((cur) => (horizonDays < cur ? horizonDays : cur));
-  }, [horizonDays]);
-  useEffect(() => {
-    if (!payloadTick || activeHorizon >= horizonDays) return;
-    const id = window.setTimeout(() => setActiveHorizon(horizonDays), 250);
-    return () => window.clearTimeout(id);
-  }, [payloadTick, activeHorizon, horizonDays]);
 
   const today = budapestToday();
-  const horizonEnd = addDays(today, activeHorizon);
+  const horizonEnd = addDays(today, horizonDays);
 
-  // Sync movements are hourly per stay date, so a 90-day fetch runs into tens of
-  // thousands of rows and gets truncated — dropping exactly the newest captures
-  // the pickup window needs. Only load as far back as the window can reach.
-  const movementLookbackDays = Math.max(
-    7,
-    (pickupWindowDays < 0 ? Math.ceil(Math.abs(pickupWindowDays) / 24) : pickupWindowDays) + 2,
-  );
-  const movementSince = addDays(today, -movementLookbackDays);
-
-
-  /** Last stay date already present in state — lets growth fetch only new days. */
-  const loadedThroughRef = useRef<string | null>(null);
-
-  /** The five big per-date feeds for one date range. */
-  const fetchRange = useCallback(async (from: string, to: string) => {
-    // Snapshots and pickup captures are stored per sync (hundreds of rows per
-    // stay date), so reading them raw meant tens of thousands of rows and
-    // dozens of paged round trips before the calendar could paint. Postgres
-    // collapses both feeds for us: newest capture per date (plus the pickup
-    // baseline) and hourly gain/loss buckets.
-    const windowStart = pickupWindowFirstDay(pickupWindowDays);
-    const [nightRows, snapRes, rateRows, cancelRows, movementRes] = await Promise.all([
-      fetchAll<BookingNight>(
-        () => supabase.from("revenue_booking_nights") as any,
-        (q) => q.select("stay_date, res_id, room_key, obk_id, room_type_name, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, guests")
-          .eq("hotel_id", hotelId).gte("stay_date", from).lte("stay_date", to)
-          .order("stay_date").order("res_id").order("room_key", { nullsFirst: true }),
-      ),
-      (supabase as any).rpc("revenue_calendar_snapshots", {
-        _hotel_id: hotelId,
-        _from: from,
-        _to: to,
-        _window_start: windowStart,
-      }),
-      fetchAll<RoomTypeRate>(
-        () => supabase.from("revenue_room_type_rates") as any,
-        // Same here — captured_at is identical across a whole sync batch,
-        // which is exactly how whole months of rates went missing.
-        (q) => q.select("stay_date, obk_id, room_type_name, occupancy, price, currency, rate_plan_id, captured_at, updated_at")
-          .eq("hotel_id", hotelId).gte("stay_date", from).lte("stay_date", to)
-          .order("stay_date").order("obk_id").order("occupancy").order("captured_at", { ascending: false }),
-      ),
-      fetchAll<CancelledNight>(
-        () => supabase.from("revenue_cancelled_nights") as any,
-        (q) => q.select("stay_date, res_id, room_key, obk_id, room_type_name, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, guests, cancelled_at")
-          .eq("hotel_id", hotelId).gte("stay_date", from).lte("stay_date", to)
-          .order("stay_date").order("res_id").order("room_key", { nullsFirst: true }),
-      ),
-      (supabase as any).rpc("revenue_pickup_movements", {
-        _hotel_id: hotelId,
-        _from: from,
-        _to: to,
-        _since: `${movementSince}T00:00:00Z`,
-      }),
-    ]);
-    if (snapRes.error) throw snapRes.error;
-    if (movementRes.error) throw movementRes.error;
-    return {
-      nightRows,
-      snapRows: (snapRes.data ?? []) as DailySnapshot[],
-      rateRows,
-      cancelRows,
-      movementRows: (movementRes.data ?? []) as PickupMovement[],
-    };
-  }, [hotelId, movementSince, today, pickupWindowDays]);
-
-
-  /** Newest capture per visible cell — stale duplicates must never win. */
-  const dedupeRates = (rows: RoomTypeRate[]): RoomTypeRate[] => {
-    const newest = new Map<string, RoomTypeRate>();
-    const sorted = [...rows].sort((a, b) => {
-      const aTime = Date.parse(a.updated_at ?? a.captured_at ?? "") || 0;
-      const bTime = Date.parse(b.updated_at ?? b.captured_at ?? "") || 0;
-      return bTime - aTime;
-    });
-    for (const rate of sorted) {
-      const key = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
-      if (!newest.has(key)) newest.set(key, rate);
-    }
-    return Array.from(newest.values());
-  };
-
-  const runLoad = useCallback(async (incremental: boolean) => {
+  const runLoad = useCallback(async () => {
     if (!hotelId) { setLoading(false); return; }
-    // Several page-level events can ask for the same payload at once. Share the
-    // active request instead of issuing another seven paginated query groups.
     if (inFlightRef.current) return inFlightRef.current;
     const requestVersion = ++requestVersionRef.current;
-    const extendFrom = incremental && loadedThroughRef.current
-      ? addDays(loadedThroughRef.current, 1)
-      : null;
     const request = (async () => {
-    // Keep the last successful calendar mounted during background refreshes.
-    // `loading` is only a blocking state before the first successful payload.
-    if (!hasPayloadRef.current) setLoading(true);
+    if (!payload) setLoading(true);
     setError(null);
     try {
-      // Growing the horizon reads ONLY the new days and merges them in: the
-      // first 60 days are never fetched a second and third time.
-      if (extendFrom && extendFrom <= horizonEnd) {
-        const part = await fetchRange(extendFrom, horizonEnd);
-        if (requestVersion !== requestVersionRef.current) return;
-        setNights((cur) => [...cur, ...part.nightRows]);
-        setSnapshots((cur) => [...cur, ...part.snapRows]);
-        setRates((cur) => [...cur, ...dedupeRates(part.rateRows)]);
-        setCancellations((cur) => [...cur, ...part.cancelRows]);
-        setMovements((cur) => [...cur, ...part.movementRows]);
-        loadedThroughRef.current = horizonEnd;
-        setPayloadTick((t) => t + 1);
-        return;
-      }
-
-      const [rt, ranged, settings, sync] = await Promise.all([
-        supabase.from("room_types")
-          .select("id, name, pms_room_id, num_rooms, is_reference, derivation_mode, derivation_value, sort_order, is_sellable, counts_toward_inventory, name_translations")
-          .eq("hotel_id", hotelId).order("sort_order"),
-
-        fetchRange(today, horizonEnd),
-
-        supabase.from("hotel_revenue_settings")
-          .select("sellable_rooms, rate_warn_below_eur, rate_critical_below_eur, rate_max_sane_eur, occupancy_low_pct, occupancy_high_pct, pickup_strong_threshold, base_currency, eur_conversion_rate")
-          .eq("hotel_id", hotelId).maybeSingle(),
-
-        supabase.from("revenue_sync_state")
-          .select("last_success_at, last_success_by_name")
-          .eq("hotel_id", hotelId).maybeSingle(),
-      ]);
-
-      // A response for an old property/range must never replace the currently
-      // selected property's calendar.
-      if (requestVersion !== requestVersionRef.current) return;
-
-      setRoomTypes(((rt.data ?? []) as any[]).map((r) => ({
-        ...r,
-        name_translations: (r.name_translations ?? {}) as Record<string, string>,
-      })) as RevenueRoomType[]);
-      setNights(ranged.nightRows);
-      setSnapshots(ranged.snapRows);
-      // Previo can retain historical rows for an older pricelist. Keep the
-      // newest capture for each visible cell so stale duplicates never win by
-      // database return order after a successful push.
-      setRates(dedupeRates(ranged.rateRows));
-      setCancellations(ranged.cancelRows);
-      setMovements(ranged.movementRows);
-      loadedThroughRef.current = horizonEnd;
-      const s = (settings as any)?.data ?? null;
-      setSellableOverride((s?.sellable_rooms as number | null) ?? null);
-      // The safety-net limits are stored as euro amounts. A property that
-      // publishes forints would otherwise have every price flagged "critical",
-      // so scale the euro limits into the property's own currency.
-      const baseCur = String(s?.base_currency ?? "EUR").toUpperCase();
-      const eurRate = Number(s?.eur_conversion_rate) || 0;
-      const scale = baseCur !== "EUR" && eurRate > 0 ? eurRate : 1;
-      setThresholds({
-        rateWarnBelowEur: Number(s?.rate_warn_below_eur ?? DEFAULT_THRESHOLDS.rateWarnBelowEur) * scale,
-        rateCriticalBelowEur: Number(s?.rate_critical_below_eur ?? DEFAULT_THRESHOLDS.rateCriticalBelowEur) * scale,
-        rateMaxSaneEur: Number(s?.rate_max_sane_eur ?? DEFAULT_THRESHOLDS.rateMaxSaneEur) * scale,
-        occupancyLowPct: Number(s?.occupancy_low_pct ?? DEFAULT_THRESHOLDS.occupancyLowPct),
-        occupancyHighPct: Number(s?.occupancy_high_pct ?? DEFAULT_THRESHOLDS.occupancyHighPct),
-        pickupStrongThreshold: Number(s?.pickup_strong_threshold ?? DEFAULT_THRESHOLDS.pickupStrongThreshold),
+      const { data, error: rpcError } = await (supabase as any).rpc("get_revenue_published_payload", {
+        _hotel_id: hotelId,
       });
-
-      const syncRow = sync.data as { last_success_at?: string; last_success_by_name?: string | null } | null;
-      setLastSyncAt(syncRow?.last_success_at ?? null);
-      setLastSyncBy(syncRow?.last_success_by_name ?? null);
-      hasPayloadRef.current = true;
-      setPayloadTick((t) => t + 1);
+      if (rpcError) throw rpcError;
+      if (requestVersion !== requestVersionRef.current) return;
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row?.payload) throw new Error("No completed Revenue dataset is available yet");
+      const next = row.payload as PublishedRevenuePayload;
+      setPayload({
+        ...next,
+        roomTypes: (next.roomTypes ?? []).map((room) => ({
+          ...room,
+          name_translations: room.name_translations ?? {},
+        })),
+        nights: next.nights ?? [],
+        snapshots: next.snapshots ?? [],
+        rates: next.rates ?? [],
+        cancellations: next.cancellations ?? [],
+        movements: next.movements ?? [],
+        settings: next.settings ?? {},
+      });
+      setLastSyncAt(row.sync_completed_at ?? null);
+      setLastSyncBy(row.sync_completed_by_name ?? null);
     } catch (e) {
       if (requestVersion !== requestVersionRef.current) return;
       setError(e instanceof Error ? e.message : String(e));
@@ -315,26 +123,22 @@ export function useRevenueHotelData(
     try { await request; } finally {
       if (inFlightRef.current === request) inFlightRef.current = null;
     }
-  }, [hotelId, today, horizonEnd, fetchRange]);
+  }, [hotelId, payload]);
 
   /** A full re-read: used after a sync or a price push. */
-  const reload = useCallback(async () => { await runLoad(false); }, [runLoad]);
+  const reload = useCallback(async () => { await runLoad(); }, [runLoad]);
 
   useEffect(() => {
     // Only a property switch invalidates what is on screen. Growing the horizon
     // must keep the current calendar mounted (no blocking spinner).
     requestVersionRef.current += 1;
     inFlightRef.current = null;
-    hasPayloadRef.current = false;
-    loadedThroughRef.current = null;
+    setPayload(null);
   }, [hotelId]);
 
 
   useEffect(() => {
-    const grew = hasPayloadRef.current
-      && loadedThroughRef.current !== null
-      && horizonEnd > loadedThroughRef.current;
-    void runLoad(grew);
+    void runLoad();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runLoad]);
 
@@ -343,6 +147,26 @@ export function useRevenueHotelData(
   // massively inflates the denominator and pushes occupancy down. Count only
   // sellable room types explicitly flagged as inventory, and let an admin
   // override win outright.
+  const roomTypes = payload?.roomTypes ?? [];
+  const nights = useMemo(() => (payload?.nights ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
+  const snapshots = useMemo(() => (payload?.snapshots ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
+  const rates = useMemo(() => (payload?.rates ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
+  const cancellations = useMemo(() => (payload?.cancellations ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
+  const movements = useMemo(() => (payload?.movements ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
+  const settings = payload?.settings ?? {};
+  const sellableOverride = (settings.sellable_rooms as number | null) ?? null;
+  const baseCur = String(settings.base_currency ?? "EUR").toUpperCase();
+  const eurRate = Number(settings.eur_conversion_rate) || 0;
+  const scale = baseCur !== "EUR" && eurRate > 0 ? eurRate : 1;
+  const thresholds: RevenueThresholds = {
+    rateWarnBelowEur: Number(settings.rate_warn_below_eur ?? DEFAULT_THRESHOLDS.rateWarnBelowEur) * scale,
+    rateCriticalBelowEur: Number(settings.rate_critical_below_eur ?? DEFAULT_THRESHOLDS.rateCriticalBelowEur) * scale,
+    rateMaxSaneEur: Number(settings.rate_max_sane_eur ?? DEFAULT_THRESHOLDS.rateMaxSaneEur) * scale,
+    occupancyLowPct: Number(settings.occupancy_low_pct ?? DEFAULT_THRESHOLDS.occupancyLowPct),
+    occupancyHighPct: Number(settings.occupancy_high_pct ?? DEFAULT_THRESHOLDS.occupancyHighPct),
+    pickupStrongThreshold: Number(settings.pickup_strong_threshold ?? DEFAULT_THRESHOLDS.pickupStrongThreshold),
+  };
+
   const inventoryFromTypes = roomTypes
     .filter((r) => r.is_sellable !== false && r.counts_toward_inventory !== false)
     .reduce((s, r) => s + (r.num_rooms || 0), 0);
@@ -373,7 +197,6 @@ export function useRevenueHotelData(
   return {
     loading, error, today, horizonEnd, roomTypes, roomsAvailable,
     nights, snapshots, rates, cancellations, metrics, lastSyncAt, lastSyncBy, thresholds, reload,
-    // True while later dates are still on their way in (staged horizon).
-    extending: activeHorizon < horizonDays,
+    extending: false,
   };
 }

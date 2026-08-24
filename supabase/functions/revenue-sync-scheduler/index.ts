@@ -61,8 +61,6 @@ serve(async (req) => {
       call("revenue-rate-alerts", { hotelId }),
     ]);
 
-    await service.rpc("complete_revenue_sync", { _hotel_id: hotelId, _success: true });
-
     return new Response(
       JSON.stringify({ ok: true, hotel_id: hotelId, ms: Date.now() - started }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },

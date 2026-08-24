@@ -443,18 +443,6 @@ export default function RevenueHotelDetail() {
   }, [hotelId]);
 
 
-  // Hard ceiling on the opening cover: after 6 seconds show the page (with its
-  // skeletons) instead of a spinner, whatever the network is doing.
-  const [coverTimedOut, setCoverTimedOut] = useState(false);
-  useEffect(() => {
-    setCoverTimedOut(false);
-    const id = window.setTimeout(() => setCoverTimedOut(true), 6000);
-    return () => window.clearTimeout(id);
-  }, [hotelId]);
-
-
-
-
   function load(): Promise<void> {
     if (!hotelId) return Promise.resolve();
     if (loadInFlightRef.current?.hotelId === hotelId) return loadInFlightRef.current.promise;
@@ -822,7 +810,7 @@ export default function RevenueHotelDetail() {
   // literally nothing to render. A Previo sync — ours or another user's — keeps
   // running behind the numbers (thin bar at the top), and the cover gives up
   // after a few seconds rather than holding the property hostage.
-  if ((live.loading || syncError) && live.roomTypes.length === 0 && !coverTimedOut) {
+  if (live.loading && live.roomTypes.length === 0) {
 
     return (
       <div className="min-h-screen bg-background">
@@ -839,6 +827,24 @@ export default function RevenueHotelDetail() {
         <div className="container mx-auto p-3 sm:p-4">
           <RevenueSkeleton />
         </div>
+      </div>
+    );
+  }
+
+  if (live.error && live.roomTypes.length === 0) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <div className="container mx-auto px-3 sm:px-4 pt-3"><MainTabsBar current="revenue" /></div>
+        <main className="container mx-auto p-3 sm:p-4">
+          <Card className="border-destructive/30">
+            <CardContent className="py-8 text-center">
+              <AlertTriangle className="mx-auto h-7 w-7 text-destructive" />
+              <h1 className="mt-3 font-semibold">Revenue data could not be opened</h1>
+              <p className="mt-1 text-sm text-muted-foreground">No partial figures are being shown. Please reload shortly.</p>
+            </CardContent>
+          </Card>
+        </main>
       </div>
     );
   }
