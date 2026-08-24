@@ -172,6 +172,16 @@ export function moduleLabel(settings: BillingSettings, module: ModuleKey) {
   return module === "revenue" ? "Revenue Management" : settings.operations_module_label;
 }
 
+/**
+ * True when the free trial still covers a billing period, i.e. the trial ends
+ * on or after the last day of that month. Trial months are never charged.
+ */
+export function trialCoversPeriod(settings: BillingSettings, periodEnd: string): boolean {
+  const end = trialEndsAt(settings);
+  if (!end) return false;
+  return new Date(end).getTime() >= new Date(`${periodEnd}T00:00:00Z`).getTime();
+}
+
 export function trialEndsAt(settings: BillingSettings): string | null {
   if (!settings.trial_enabled) return null;
   const start = new Date(`${settings.trial_start}T00:00:00Z`);
