@@ -3128,8 +3128,8 @@ export default function RateStrategyGrid({
                         /* No native tooltip: the hover card below is the one
                            place the cell's story is told, so the browser
                            bubble can't fight it for the same pixels. */
-                        aria-label={soldOut ? `${d} · ${row.roomTypeName} · sold out · price still editable` : `${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
-                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
+                        aria-label={inverted ? `${d} · ${row.roomTypeName} · ${row.occ} guests · ${eur(shown ?? null)} · below a lower guest count, will be lifted` : soldOut ? `${d} · ${row.roomTypeName} · sold out · price still editable` : `${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
+                        className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
                         style={{ width: CELL_W }}
 
                       >
@@ -3177,6 +3177,11 @@ export default function RateStrategyGrid({
                           <p className="text-[11px] text-muted-foreground">
                             {soldOut ? "Sold out · price still moves with the rest" : `${tone.label} · ${originLabel}`}
                           </p>
+                          {inverted ? (
+                            <p className="text-[11px] font-medium text-amber-600">
+                              Below the {row.occ - 1 >= 1 ? "lower" : ""} guest count on this date ({moneyBase(lowerOccPrice ?? null)}) — automation will lift it to match.
+                            </p>
+                          ) : null}
                           <p className="mt-1 mb-2 flex justify-between">
                             <span className="text-muted-foreground">Current price</span>
                             <span className="tabular-nums font-semibold">{moneyBase(published ?? null)}</span>
