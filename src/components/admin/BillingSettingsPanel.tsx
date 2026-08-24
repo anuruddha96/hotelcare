@@ -177,14 +177,74 @@ export default function BillingSettingsPanel() {
                   Turn this on once the organization is allowed to buy the revenue module.
                 </p>
                 <div className="space-y-2">
-                  <Label>Price per room / month</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={euros(settings.revenue_price_cents)}
-                    onChange={(e) => patch({ revenue_price_cents: toCents(e.target.value) })}
-                  />
+                  <Label>How it is charged</Label>
+                  <Select
+                    value={settings.revenue_pricing_mode}
+                    onValueChange={(v) => patch({ revenue_pricing_mode: v as Settings['revenue_pricing_mode'] })}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="per_room">Fixed price per room / month</SelectItem>
+                      <SelectItem value="percent">Share of realised room revenue</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
+
+                {settings.revenue_pricing_mode === 'per_room' ? (
+                  <div className="space-y-2">
+                    <Label>Price per room / month</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={euros(settings.revenue_price_cents)}
+                      onChange={(e) => patch({ revenue_price_cents: toCents(e.target.value) })}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label>Percentage of realised room revenue</Label>
+                      <Input
+                        type="number"
+                        step="0.05"
+                        min={0}
+                        value={(settings.revenue_percent_bps / 100).toString()}
+                        onChange={(e) =>
+                          patch({ revenue_percent_bps: Math.round((parseFloat(e.target.value) || 0) * 100) })
+                        }
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Charged each month from the previous calendar month's realised room revenue, taken
+                        automatically from the synced property data. 1 = 1%.
+                      </p>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>Minimum / month</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={euros(settings.revenue_percent_min_cents)}
+                          onChange={(e) => patch({ revenue_percent_min_cents: toCents(e.target.value) })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Cap / month (0 = none)</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={euros(settings.revenue_percent_cap_cents)}
+                          onChange={(e) => patch({ revenue_percent_cap_cents: toCents(e.target.value) })}
+                        />
+                      </div>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={runRollup} disabled={rolling}>
+                      <RefreshCw className={`h-4 w-4 mr-2 ${rolling ? 'animate-spin' : ''}`} />
+                      {rolling ? 'Calculating…' : "Bill last month's usage now"}
+                    </Button>
+                    {rollupNote && <p className="text-xs text-muted-foreground whitespace-pre-line">{rollupNote}</p>}
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
