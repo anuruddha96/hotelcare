@@ -8363,6 +8363,33 @@ export type Database = {
       }
       release_publisher_lease: { Args: { p_token: string }; Returns: undefined }
       release_publisher_lock: { Args: { p_hotel: string }; Returns: undefined }
+      revenue_calendar_snapshots: {
+        Args: {
+          _from: string
+          _hotel_id: string
+          _to: string
+          _window_start: string
+        }
+        Returns: {
+          adr_eur: number
+          captured_at: string
+          captured_date: string
+          new_bookings: number
+          occupancy_pct: number
+          revenue_eur: number
+          rooms_available: number
+          rooms_sold: number
+          stay_date: string
+        }[]
+      }
+      revenue_pickup_movements: {
+        Args: { _from: string; _hotel_id: string; _since: string; _to: string }
+        Returns: {
+          captured_at: string
+          delta: number
+          stay_date: string
+        }[]
+      }
       revenue_sync_wait_state: {
         Args: { _hotel_id: string }
         Returns: {

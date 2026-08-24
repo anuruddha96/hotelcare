@@ -870,13 +870,21 @@ export default function RevenueHotelDetail() {
           <h1 className="text-lg sm:text-xl font-semibold truncate">{hotelName}</h1>
           <p className="text-[11px] text-muted-foreground truncate">
             Revenue management
-            {live.lastSyncAt
-              ? ` · as of ${new Date(live.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-              : " · never synced"}
+            {live.lastSyncAt ? (
+              <>
+                {` · data as of ${new Date(live.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+                <span className="hidden sm:inline"> · refreshes automatically every 30 minutes</span>
+              </>
+            ) : live.loading ? (
+              <span className="ml-1 inline-block h-2 w-24 align-middle rounded bg-muted animate-pulse" />
+            ) : (
+              " · never synced"
+            )}
             {serverRefreshing && (
               <span className="ml-1 animate-pulse text-primary">· refreshing in the background…</span>
             )}
           </p>
+
 
         </div>
         <Button variant="outline" size="sm" onClick={() => void runSync(true)} disabled={syncing || syncWaiting}
