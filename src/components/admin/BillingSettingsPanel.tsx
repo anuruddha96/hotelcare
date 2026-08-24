@@ -96,29 +96,27 @@ export default function BillingSettingsPanel() {
     else toast.success('Billing settings saved');
   };
 
-  /** Recompute last month's revenue share and place it on the next invoice. */
-  const runRollup = async () => {
-    setRolling(true);
-    setRollupNote(null);
-    const { data, error } = await supabase.functions.invoke('billing-manage', {
-      body: { action: 'usage_rollup', organizationSlug: slug },
-    });
-    setRolling(false);
-    const payload = data as
-      | { error?: string; period_start?: string; results?: { hotel: string; fee_cents?: number; revenue_cents?: number; invoiced?: boolean; skipped?: string }[] }
-      | null;
-    if (error || payload?.error) {
-      toast.error(payload?.error ?? error?.message ?? 'Could not calculate usage');
+  // Last month's revenue share is settled automatically by the backend; here we
+  // only read back what it computed so the admin can check the figures.
+  useEffect(() => {
+    if (!slug || settings?.revenue_pricing_mode !== 'percent') {
+      setUsage([]);
       return;
     }
-    const lines = (payload?.results ?? []).map((r) =>
-      r.skipped
-        ? `${r.hotel}: ${r.skipped}`
-        : `${r.hotel}: ${((r.revenue_cents ?? 0) / 100).toFixed(0)} revenue → ${((r.fee_cents ?? 0) / 100).toFixed(2)} fee${r.invoiced ? ' (added to invoice)' : ' (saved, no paid subscription yet)'}`,
-    );
-    setRollupNote([`Period ${payload?.period_start ?? ''}`, ...lines].join('\n'));
-    toast.success('Usage calculated');
-  };
+    let cancelled = false;
+    setUsageLoading(true);
+    (async () => {
+      const { data } = await supabase.functions.invoke('billing-manage', {
+        body: { action: 'summary', organizationSlug: slug },
+      });
+      if (cancelled) return;
+      setUsage(((data as { revenue_usage?: RevenueUsage[] } | null)?.revenue_usage ?? []) as RevenueUsage[]);
+      setUsageLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, settings?.revenue_pricing_mode]);
 
   const euros = (cents: number) => (cents / 100).toString();
   const toCents = (v: string) => Math.round((parseFloat(v) || 0) * 100);
