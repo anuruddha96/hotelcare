@@ -979,7 +979,10 @@ export default function RevenueHotelDetail() {
             cancellations={live.cancellations}
             loading={live.loading}
             loadedThrough={live.horizonEnd}
+            refreshing={serverRefreshing || live.extending}
+            lastSyncAt={live.lastSyncAt}
           />
+
 
 
           <RateStrategyGrid
