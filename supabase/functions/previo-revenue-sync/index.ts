@@ -597,6 +597,19 @@ serve(async (req) => {
   }
 
   // ---------- 2. rates (skipped in probe mode) ----------
+  // Some Previo logins answer with the whole account's pricelist, including
+  // rooms that belong to a sister property. Mirroring those under this hotel
+  // put foreign room types in its calendar, so the rate mirror is restricted to
+  // the room types this hotel actually owns.
+  const { data: ownRoomRows } = await service
+    .from("room_types")
+    .select("pms_room_id")
+    .eq("hotel_id", hotelId);
+  const ownObkIds = new Set(
+    ((ownRoomRows ?? []) as Array<{ pms_room_id: string | null }>)
+      .filter((row) => row.pms_room_id)
+      .map((row) => String(row.pms_room_id)),
+  );
   const rateRows: RateRow[] = [];
   if (!probeOnly) {
     for (const acc of liveAccounts) {
@@ -610,6 +623,7 @@ serve(async (req) => {
   const dedupedRates = new Map<string, RateRow>();
   for (const r of rateRows) {
     if (r.stay_date < from || r.stay_date > to) continue;
+    if (ownObkIds.size > 0 && !ownObkIds.has(String(r.obk_id))) continue;
     dedupedRates.set(`${r.stay_date}|${r.obk_id}|${r.rate_plan_id}|${r.occupancy}`, r);
   }
   // Capture the previous authoritative mirror before overwriting it. This is

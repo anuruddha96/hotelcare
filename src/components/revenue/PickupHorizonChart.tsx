@@ -155,36 +155,18 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
     void (async () => {
       const today = budapestToday();
       const end = horizonEnd ?? today;
-      // Snapshots are captured several times a day, and the largest property
-      // produces far more rows than the others. A single paged query therefore
-      // filled up with that one hotel and the sister properties dropped out of
-      // the result (they then rendered as 0% / 0 EUR). Fetch each hotel on its
-      // own, newest captures first, so every property is represented.
-      const yesterday = new Date(`${today}T00:00:00Z`);
-      yesterday.setUTCDate(yesterday.getUTCDate() - 1);
-      const capturedSince = yesterday.toISOString().slice(0, 10);
-
-      const perHotel = await Promise.all(hotelIds.map(async (hotelId) => {
-        const rows: SnapshotRow[] = [];
-        for (let offset = 0; offset < 20000; offset += 1000) {
-          const { data, error } = await supabase
-            .from("revenue_daily_snapshots")
-            .select("hotel_id, stay_date, rooms_sold, occupancy_pct, adr_eur, revenue_eur, rooms_available")
-            .eq("hotel_id", hotelId)
-            .gte("stay_date", today)
-            .lte("stay_date", end)
-            .gte("captured_date", capturedSince)
-            .order("captured_date", { ascending: false })
-            .range(offset, offset + 999);
-          if (error) break;
-          const page = (data ?? []) as SnapshotRow[];
-          rows.push(...page);
-          if (page.length < 1000) break;
-        }
-        return rows;
-      }));
-
-      if (!cancelled) setSnapshots(perHotel.flat());
+      // One server-side call collapses every property to its newest capture per
+      // stay date. The old client-side paging pulled tens of thousands of raw
+      // snapshot rows and left the sister properties reading 0% for seconds.
+      const { data, error } = await supabase.rpc("revenue_portfolio_latest_snapshots", {
+        _hotel_ids: hotelIds,
+        _from: today,
+        _to: end,
+      });
+      if (cancelled) return;
+      // A failed refresh keeps the previously loaded comparison on screen.
+      if (error) { console.error("portfolio snapshots failed", error); return; }
+      setSnapshots((data ?? []) as SnapshotRow[]);
     })();
 
     return () => { cancelled = true; };

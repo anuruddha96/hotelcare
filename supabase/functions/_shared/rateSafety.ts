@@ -344,6 +344,105 @@ export async function assertRateChangesSafe(
  * that would create or deepen a cross-room-type inversion are dropped, so one
  * bad cell never cancels a whole round.
  */
+/**
+ * When an occupancy repair or a floor top-up lifts a cheaper room above the next
+ * room up, the old behaviour dropped that cell and the inversion survived. The
+ * hierarchy is repaired upward instead: every higher room on that date and
+ * occupancy is lifted to at least the cheaper room's price, cascading up the
+ * tiers. Pre-existing inversions are left alone — only order we would newly
+ * break is corrected.
+ */
+export async function liftHigherRooms(
+  admin: any,
+  hotelId: string,
+  changes: RateChange[],
+): Promise<RateChange[]> {
+  if (changes.length === 0) return [];
+
+  const { data: roomData, error: roomError } = await admin
+    .from("room_types")
+    .select("name,pms_room_id,sort_order,is_sellable,counts_toward_inventory")
+    .eq("hotel_id", hotelId)
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+  if (roomError) throw roomError;
+
+  const rooms = ((roomData ?? []) as RoomTypeRow[]).filter((room) =>
+    room.is_sellable !== false &&
+    room.counts_toward_inventory !== false &&
+    !!room.pms_room_id &&
+    !NON_ROOM_PRODUCT.test(room.name),
+  );
+  const orders = new Set(rooms.map((r) => r.sort_order).filter((v) => v !== null && v !== undefined));
+  if (rooms.length < 2 || orders.size < 2) return [];
+
+  const stored = await loadStoredRates(admin, hotelId, changes);
+  const before = new Map<string, number>();
+  for (const row of stored) {
+    before.set(cellKey(row.stay_date, row.room_type_name, Number(row.occupancy)), Number(row.price));
+  }
+  const after = new Map(before);
+  const pending = new Map<string, RateChange>();
+  for (const change of changes) {
+    const key = cellKey(change.stay_date, change.room_type_name, Number(change.occupancy));
+    after.set(key, Math.round(Number(change.new_price)));
+    pending.set(key, change);
+  }
+
+  // Only the (date, occupancy) pairs we are actually touching need repairing.
+  const slots = new Map<string, RateChange>();
+  for (const change of changes) {
+    const slot = `${change.stay_date}|${Number(change.occupancy)}`;
+    if (!slots.has(slot)) slots.set(slot, change);
+  }
+
+  const lifts: RateChange[] = [];
+  for (const [slot, template] of slots) {
+    const [stayDate, occupancyRaw] = slot.split("|");
+    const occupancy = Number(occupancyRaw);
+    let runningMax = -Infinity;
+    let previousName: string | null = null;
+    for (const room of rooms) {
+      const key = cellKey(stayDate, room.name, occupancy);
+      const current = after.get(key);
+      if (current === undefined) continue;
+      if (runningMax !== -Infinity && current < runningMax) {
+        const priorLower = previousName ? before.get(cellKey(stayDate, previousName, occupancy)) : undefined;
+        // An inversion that already existed in Previo is not ours to close, but
+        // as soon as our own raise makes it worse we lift the tier above too.
+        const preExisting = priorLower !== undefined && priorLower > current;
+        const weDeepenIt = priorLower === undefined
+          || Math.round(runningMax) > Math.round(priorLower);
+        if (!preExisting || weDeepenIt) {
+          const target = Math.round(runningMax);
+          const change = pending.get(key);
+          if (change) {
+            change.new_price = target;
+          } else {
+            const lift: RateChange = { ...template };
+            lift.stay_date = stayDate;
+            lift.occupancy = occupancy;
+            lift.room_type_name = room.name;
+            lift.obk_id = room.pms_room_id;
+            lift.old_price = Math.round(current);
+            lift.new_price = target;
+            if ("intent_source" in lift) lift.intent_source = "hierarchy_repair";
+            if ("id" in lift) delete (lift as Record<string, unknown>).id;
+            lifts.push(lift);
+          }
+          after.set(key, target);
+          runningMax = target;
+          previousName = room.name;
+          continue;
+        }
+      }
+      runningMax = Math.max(runningMax === -Infinity ? current : runningMax, current);
+      previousName = room.name;
+    }
+  }
+  return lifts;
+}
+
 export async function enforceRateSafety(
   admin: any,
   hotelId: string,
@@ -351,10 +450,24 @@ export async function enforceRateSafety(
 ): Promise<{ changes: RateChange[]; repairs: RateChange[]; dropped: Array<{ change: RateChange; reason: string }> }> {
   if (changes.length === 0) return { changes, repairs: [], dropped: [] };
   await assertExactRateMappings(admin, hotelId, changes);
-  const repairs = await normalizeOccupancyLadder(admin, hotelId, changes);
+  const ladderRepairs = await normalizeOccupancyLadder(admin, hotelId, changes);
+  // Lift the tiers above before filtering, so a legitimate raise repairs the
+  // room order instead of being thrown away.
+  const hierarchyRepairs = await liftHigherRooms(admin, hotelId, [...changes, ...ladderRepairs])
+    .catch(() => [] as RateChange[]);
+  // A lift we cannot map to an exact Previo rate plan is not safe to send.
+  const mappable: RateChange[] = [];
+  for (const lift of hierarchyRepairs.filter((c) => !!c.obk_id)) {
+    try {
+      await assertExactRateMappings(admin, hotelId, [lift]);
+      mappable.push(lift);
+    } catch { /* unmapped room type: leave it untouched */ }
+  }
+  const repairs = [...ladderRepairs, ...mappable];
   const all = [...changes, ...repairs];
   const { kept, dropped } = await filterRoomHierarchy(admin, hotelId, all);
   const repairSet = new Set(repairs);
   return { changes: kept, repairs: kept.filter((c) => repairSet.has(c)), dropped };
 }
+
 

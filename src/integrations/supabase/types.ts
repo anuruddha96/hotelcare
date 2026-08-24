@@ -8597,6 +8597,18 @@ export type Database = {
           stay_date: string
         }[]
       }
+      revenue_portfolio_latest_snapshots: {
+        Args: { _from: string; _hotel_ids: string[]; _to: string }
+        Returns: {
+          adr_eur: number
+          hotel_id: string
+          occupancy_pct: number
+          revenue_eur: number
+          rooms_available: number
+          rooms_sold: number
+          stay_date: string
+        }[]
+      }
       revenue_sync_wait_state: {
         Args: { _hotel_id: string }
         Returns: {
