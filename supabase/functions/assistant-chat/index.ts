@@ -437,7 +437,14 @@ For general knowledge, answer normally. For Hotel Care usage questions, use the 
       tools: buildTools(service, profile as Profile, scopes),
       stopWhen: stepCountIs(50),
       abortSignal: req.signal,
-      providerOptions: { openai: { store: false } },
+      providerOptions: {
+        openai: {
+          store: false,
+          reasoningEffort: "medium",
+          reasoningSummary: "auto",
+          include: ["reasoning.encrypted_content"],
+        },
+      },
     });
 
     return result.toUIMessageStreamResponse({
