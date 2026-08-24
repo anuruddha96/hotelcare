@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { claimRevenueSync, fetchRevenueSyncInfo, REVENUE_STALE_MS } from "@/lib/revenueFreshness";
+import { claimRevenueSync, fetchRevenueSyncInfo, fetchRevenueWaitState } from "@/lib/revenueFreshness";
 import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -89,7 +89,7 @@ const SWITCHABLE_ROLES = ["admin", "manager", "housekeeping_manager", "top_manag
 
 
 /** How often the page re-checks the shared property freshness timestamp. */
-const BACKGROUND_SYNC_MS = REVENUE_STALE_MS;
+const SYNC_WATCH_MS = 60 * 1000;
 const DOW_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 function fmtMonth(d: Date) { return d.toLocaleString("en-US", { month: "long", year: "numeric" }); }
@@ -259,6 +259,7 @@ export default function RevenueHotelDetail() {
   const [syncStep, setSyncStep] = useState("Connecting to Previo…");
   const [syncPct, setSyncPct] = useState(0);
   const [syncWaiting, setSyncWaiting] = useState(false);
+  const [serverRefreshing, setServerRefreshing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const autoSyncedHotelRef = useRef<string | null>(null);
   const syncingRef = useRef(false);
@@ -277,21 +278,35 @@ export default function RevenueHotelDetail() {
       // Never hold the screen for someone else's refresh. Whatever is cached
       // stays visible; we quietly re-read the data once their sync lands.
       const targetHotelId = hotelId;
+      // A refresh on *this* property may be named; anything else stays
+      // anonymous — it may belong to an organisation this user cannot see.
+      const wait = await fetchRevenueWaitState(targetHotelId).catch(() => null);
+      toast.info(
+        wait?.scope === "this_property"
+          ? "Another user is refreshing this property — your refresh will follow."
+          : "Refresh queued, starting shortly.",
+      );
+      setSyncWaiting(true);
       void (async () => {
         const started = Date.now();
-        while (Date.now() - started < 2 * 60 * 1000) {
-          await new Promise((resolve) => window.setTimeout(resolve, 5000));
-          if (activeHotelRef.current !== targetHotelId) return;
-          const info = await fetchRevenueSyncInfo(targetHotelId);
-          if (!info.stale) {
+        try {
+          while (Date.now() - started < 2 * 60 * 1000) {
+            await new Promise((resolve) => window.setTimeout(resolve, 5000));
             if (activeHotelRef.current !== targetHotelId) return;
-            await Promise.all([load(), live.reload()]);
-            return;
+            const info = await fetchRevenueSyncInfo(targetHotelId);
+            if (!info.stale) {
+              if (activeHotelRef.current !== targetHotelId) return;
+              await Promise.all([load(), live.reload()]);
+              return;
+            }
           }
+        } finally {
+          setSyncWaiting(false);
         }
       })();
       return;
     }
+
 
     syncingRef.current = true;
     setSyncError(null);
@@ -388,48 +403,45 @@ export default function RevenueHotelDetail() {
     void load();
   }, [loading, profile?.role, hotelId, contextMismatch]);
 
-  // Executives land straight on the Rate Grid. The property-wide history is
-  // authoritative: data pulled by any user in the last 30 minutes is reused.
-  // The freshness check runs *after* the cached screen is painted so opening a
-  // property never waits on Previo.
+  // Opening a property never pulls from Previo. A server-side scheduler keeps
+  // every property within a 30-minute freshness window, one property at a time,
+  // so the page paints the last stored data immediately.
   useEffect(() => {
     if (loading || !profile || !hotelId || contextMismatch) return;
     if (autoSyncedHotelRef.current === hotelId) return;
     autoSyncedHotelRef.current = hotelId;
     if (!isRevenueAdmin(profile.role)) setTab("grid");
-    const id = window.setTimeout(() => { void runSync(); }, 1200);
-    return () => window.clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, profile?.role, hotelId, contextMismatch]);
 
-
-
-  // Keep the page honest while it stays open without making every tab pull.
-  // Each tick first consults shared history, so at most one refresh is needed
-  // per property per 30-minute window.
+  // Watch the shared sync state cheaply. When the server refresh for THIS
+  // property lands, re-read the (already cheap) database rows so the numbers
+  // update in place — no overlay, no Previo call from the browser.
   useEffect(() => {
     if (!hotelId) return;
-    const id = window.setInterval(() => {
+    const targetHotelId = hotelId;
+    let cancelled = false;
+    let lastSeen: string | null = null;
+
+    const tick = async () => {
       if (document.visibilityState !== "visible") return;
-      void (async () => {
-        await runSync();
-      })();
-    }, BACKGROUND_SYNC_MS);
-    return () => window.clearInterval(id);
+      try {
+        const state = await fetchRevenueWaitState(targetHotelId);
+        if (cancelled || activeHotelRef.current !== targetHotelId) return;
+        setServerRefreshing(state.scope === "this_property");
+        if (state.lastSuccessAt && lastSeen && state.lastSuccessAt !== lastSeen) {
+          await Promise.all([load(), live.reload()]);
+        }
+        lastSeen = state.lastSuccessAt;
+      } catch { /* the cached screen stays valid */ }
+    };
+
+    void tick();
+    const id = window.setInterval(() => { void tick(); }, SYNC_WATCH_MS);
+    return () => { cancelled = true; window.clearInterval(id); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hotelId]);
 
-  // Returning to the tab never replaces the working screen. The shared
-  // freshness claim makes this a no-op while data is younger than 30 minutes.
-  useEffect(() => {
-    if (!hotelId) return;
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") void runSync();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => document.removeEventListener("visibilitychange", onVisibility);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hotelId]);
 
   // Hard ceiling on the opening cover: after 6 seconds show the page (with its
   // skeletons) instead of a spinner, whatever the network is doing.
@@ -859,9 +871,13 @@ export default function RevenueHotelDetail() {
           <p className="text-[11px] text-muted-foreground truncate">
             Revenue management
             {live.lastSyncAt
-              ? ` · last synced ${formatDistance(new Date(live.lastSyncAt), new Date())} ago by ${live.lastSyncBy || "automatic sync"}`
+              ? ` · as of ${new Date(live.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
               : " · never synced"}
+            {serverRefreshing && (
+              <span className="ml-1 animate-pulse text-primary">· refreshing in the background…</span>
+            )}
           </p>
+
         </div>
         <Button variant="outline" size="sm" onClick={() => void runSync(true)} disabled={syncing || syncWaiting}
           title="Pull fresh prices, reservations and occupancy from Previo now">
@@ -963,7 +979,10 @@ export default function RevenueHotelDetail() {
             cancellations={live.cancellations}
             loading={live.loading}
             loadedThrough={live.horizonEnd}
+            refreshing={serverRefreshing || live.extending}
+            lastSyncAt={live.lastSyncAt}
           />
+
 
 
           <RateStrategyGrid

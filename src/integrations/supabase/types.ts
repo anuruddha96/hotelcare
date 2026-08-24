@@ -7981,6 +7981,13 @@ export type Database = {
           run_status: string
         }[]
       }
+      claim_next_revenue_sync: {
+        Args: { _fresh_for?: string; _lease_for?: string }
+        Returns: {
+          hotel_id: string
+          organization_slug: string
+        }[]
+      }
       claim_publisher_lease: {
         Args: { p_hotel: string; p_stale_minutes?: number; p_token: string }
         Returns: boolean
@@ -8356,6 +8363,13 @@ export type Database = {
       }
       release_publisher_lease: { Args: { p_token: string }; Returns: undefined }
       release_publisher_lock: { Args: { p_hotel: string }; Returns: undefined }
+      revenue_sync_wait_state: {
+        Args: { _hotel_id: string }
+        Returns: {
+          last_success_at: string
+          scope: string
+        }[]
+      }
       run_auto_signout: { Args: never; Returns: number }
       slnt_venue_visible: {
         Args: { _user_id: string; _venue_id: string }

@@ -53,3 +53,30 @@ export async function fetchRevenueSyncInfo(hotelId: string): Promise<RevenueSync
     stale: !at || Date.now() - new Date(at).getTime() > REVENUE_STALE_MS,
   };
 }
+
+/**
+ * Who, if anyone, is refreshing right now.
+ *
+ * `this_property` may be shown with detail — the viewer can see this property
+ * anyway. `other` means the server queue is busy with a property this user may
+ * not be allowed to know about, so it must stay anonymous.
+ */
+export type RevenueWaitScope = "idle" | "this_property" | "other";
+
+export interface RevenueWaitState {
+  scope: RevenueWaitScope;
+  lastSuccessAt: string | null;
+}
+
+export async function fetchRevenueWaitState(hotelId: string): Promise<RevenueWaitState> {
+  const { data, error } = await (supabase as any).rpc("revenue_sync_wait_state", {
+    _hotel_id: hotelId,
+  });
+  if (error) return { scope: "idle", lastSuccessAt: null };
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    scope: (row?.scope ?? "idle") as RevenueWaitScope,
+    lastSuccessAt: row?.last_success_at ?? null,
+  };
+}
+
