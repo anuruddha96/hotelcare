@@ -49,8 +49,9 @@ export function MainTabsBar({ current, className }: MainTabsBarProps) {
 
   const orgPath = `/${organizationSlug || 'rdhotels'}`;
   const isExec = EXEC_ROLES.includes(role);
-  // Revenue Management is hidden for property-style orgs (e.g. SLNT airbnbs)
-  const showRevenue = isExec && !propertyTerms.isProperty;
+  // Revenue Management is available to exec roles in every organization
+  // (property-style orgs like SLNT included).
+  const showRevenue = isExec;
 
 
   const goDashboard = (tab: string) => navigate(`${orgPath}?tab=${tab}`);
