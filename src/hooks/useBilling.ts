@@ -17,6 +17,21 @@ export interface BillingSettings {
   stripe_publishable_key: string | null;
   payments_enabled: boolean;
   stripe_secret_configured?: boolean;
+  /** 'per_room' = fixed price per room, 'percent' = share of realised revenue. */
+  revenue_pricing_mode: 'per_room' | 'percent';
+  revenue_percent_bps: number;
+  revenue_percent_min_cents: number;
+  revenue_percent_cap_cents: number;
+}
+
+/** Last full month's realised revenue and the resulting percentage fee. */
+export interface RevenueUsage {
+  hotel_id: string;
+  period_start: string;
+  period_end: string;
+  revenue_cents: number;
+  room_nights: number;
+  fee_cents: number;
 }
 
 export interface BillingHotel {
@@ -41,6 +56,7 @@ export interface BillingSummary {
   hotels: BillingHotel[];
   subscriptions: ModuleSubscription[];
   trial_ends_at: string | null;
+  revenue_usage?: RevenueUsage[];
 }
 
 const ACTIVE = ['active', 'trialing', 'past_due'];
