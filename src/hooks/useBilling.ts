@@ -101,6 +101,10 @@ export function useBilling(organizationSlug?: string | null) {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    // Billing requires a real user token; invoking before the session is
+    // restored sends the anon key and returns 401.
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData.session) { setLoading(false); return; }
     const { data, error: err } = await supabase.functions.invoke('billing-manage', {
       body: { action: 'summary', organizationSlug: organizationSlug ?? undefined },
     });

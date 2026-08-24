@@ -26,6 +26,10 @@ export function SubscriptionStatusMenu({
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Without a restored session `invoke` sends the anon key as the bearer
+      // token and billing answers 401 — stay quiet until the user is signed in.
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) { if (!cancelled) setLoading(false); return; }
       const { data } = await supabase.functions.invoke('billing-manage', {
         body: { action: 'summary', organizationSlug: organizationSlug ?? undefined },
       });
