@@ -10,7 +10,7 @@ import { loadPrevioCredentials, hasPrevioCredentials } from "../_shared/previoCr
 import { writePrevioRate, readPrevioRateLevelsRange } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 import { pricesMatch } from "../_shared/pricingRules.ts";
-import { assertRateChangesSafe } from "../_shared/rateSafety.ts";
+import { assertRateChangesSafe, repairLadder } from "../_shared/rateSafety.ts";
 
 
 const corsHeaders = {
@@ -410,7 +410,11 @@ Deno.serve(async (req) => {
         previous = wanted.get(occupancy) ?? previous;
         levels.push({ occupancy, price: Math.round(previous) });
       }
-      return levels;
+      // Never publish a ladder that charges less for more guests: an inversion
+      // can arrive from Previo's own pricelist or from a per-cell floor lifting
+      // one level only. Repairs go upward, so no floor is undercut.
+      const repaired = repairLadder(levels);
+      return levels.map((l) => ({ occupancy: l.occupancy, price: repaired.get(l.occupancy) ?? l.price }));
     };
 
 

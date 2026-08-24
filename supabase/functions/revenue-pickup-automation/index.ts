@@ -42,7 +42,7 @@ import {
   farOutFloorTopUp,
   farOutFloorTopUpText,
 } from "../_shared/pricingRules.ts";
-import { assertRateChangesSafe } from "../_shared/rateSafety.ts";
+import { enforceRateSafety, repairLadder } from "../_shared/rateSafety.ts";
 
 
 
@@ -325,7 +325,13 @@ async function queueIntents(
   priority: number,
 ): Promise<string | null> {
   if (payload.length === 0) return null;
-  await assertRateChangesSafe(admin, rule.hotel_id, payload as any[]);
+  {
+    const safe = await enforceRateSafety(admin, rule.hotel_id, payload as any[]);
+    if (safe.repairs.length > 0) {
+      console.log(`[ladder] ${rule.hotel_id} repaired ${safe.repairs.length} occupancy sibling(s) alongside ${payload.length} intent(s)`);
+      payload = safe.changes as Array<Record<string, unknown>>;
+    }
+  }
   const runId = crypto.randomUUID();
   const { error: runError } = await admin.from("revenue_rate_push_runs").insert({
     id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
@@ -1203,6 +1209,111 @@ Deno.serve(async (req) => {
           }
         }
       }
+
+      // ------------------------------------------------------------------
+      // Occupancy ladder repair.
+      //
+      // A room type must never charge less for more guests. Inversions arrive
+      // from Previo's own pricelists and from per-cell floors that lift a
+      // single level, so once per round the whole horizon is swept and the
+      // affected sibling levels are lifted to the level below them. Repairs
+      // only ever move a price up, never down.
+      // ------------------------------------------------------------------
+      let ladderRepairActions = 0;
+      if (!dryRun && rule.auto_publish) {
+        try {
+          const local = localParts(rule.run_timezone || "Europe/Budapest");
+          const slot = `${local.time.slice(0, 2)}:${String(Math.floor(Number(local.time.slice(3, 5)) / 15) * 15).padStart(2, "0")}`;
+          const horizon = new Date(`${local.date}T00:00:00Z`);
+          horizon.setUTCDate(horizon.getUTCDate() + Math.max(1, Number(rule.future_booking_window_days || 183)));
+          const horizonDate = horizon.toISOString().slice(0, 10);
+
+          const [{ data: ladderRates }, { data: ladderPending }] = await Promise.all([
+            pagedAll((f, t) => admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).order("stay_date").range(f, t)),
+            pagedAll((f, t) => admin.from("revenue_rate_drafts").select("stay_date, obk_id, occupancy").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).in("status", ["draft", "sending", "pushed"]).is("superseded_at", null).order("stay_date").range(f, t)),
+          ]);
+
+          const pendingCells = new Set(
+            ((ladderPending ?? []) as any[]).map((r) => `${r.stay_date}|${r.obk_id}|${Number(r.occupancy)}`),
+          );
+          const newestCell = new Map<string, any>();
+          for (const row of (ladderRates ?? []) as any[]) {
+            const key = `${row.stay_date}|${row.obk_id}|${Number(row.occupancy)}`;
+            if (!newestCell.has(key)) newestCell.set(key, row);
+          }
+          const groups = new Map<string, any[]>();
+          for (const row of newestCell.values()) {
+            const key = `${row.stay_date}|${row.obk_id}`;
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key)!.push(row);
+          }
+
+          const MAX_REPAIRS = 200;
+          const repairRows: any[] = [];
+          const repairDrafts: any[] = [];
+          for (const rows of groups.values()) {
+            if (repairRows.length >= MAX_REPAIRS) break;
+            if (rows.length < 2) continue;
+            const repaired = repairLadder(rows.map((r) => ({ occupancy: Number(r.occupancy), price: Number(r.price) })));
+            for (const row of rows) {
+              const occupancy = Number(row.occupancy) || 2;
+              const current = Math.round(Number(row.price));
+              const target = repaired.get(occupancy);
+              if (target === undefined || target <= current) continue;
+              if (pendingCells.has(`${row.stay_date}|${row.obk_id}|${occupancy}`)) continue;
+              if (repairRows.length >= MAX_REPAIRS) break;
+              const currency = row.currency ?? rule.currency ?? "EUR";
+              repairRows.push({
+                rule_id: rule.id, rule_version: rule.version, hotel_id: rule.hotel_id,
+                organization_slug: rule.organization_slug, reservation_id: null,
+                stay_date: row.stay_date, pickup_at: null, pickup_sequence: 0,
+                room_type_name: row.room_type_name, obk_id: String(row.obk_id), occupancy,
+                old_price: current, increase_amount: target - current, new_price: target,
+                status: "queued", decision_type: "ladder_repair",
+                observation_from: evalWindow.from, observation_to: runStartedAt,
+                net_pickup: null, schedule_slot: slot, local_business_date: local.date,
+                cap_applied: null, decision_reason: "ladder_repair",
+                reason_detail: `${occupancy} guests was priced at ${current} ${currency}, below a lower guest count on the same date. Lifted to ${target} ${currency} so the price never drops as guests are added.`,
+              });
+              repairDrafts.push({
+                hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
+                stay_date: row.stay_date, obk_id: String(row.obk_id),
+                room_type_name: row.room_type_name, occupancy,
+                old_price: current, new_price: target, currency, status: "draft",
+                priority: priorityOf("markdown"), intent_source: "ladder_repair",
+              });
+            }
+          }
+
+          if (repairRows.length > 0) {
+            const { data: insertedRepairs, error: repairError } = await admin
+              .from("revenue_pickup_automation_actions")
+              .upsert(repairRows, { onConflict: "hotel_id,stay_date,obk_id,occupancy,rule_version,schedule_slot,local_business_date", ignoreDuplicates: true })
+              .select("stay_date,obk_id,occupancy");
+            if (repairError) throw repairError;
+            const accepted = new Set(((insertedRepairs ?? []) as any[]).map((r) => `${r.stay_date}|${r.obk_id}|${Number(r.occupancy)}`));
+            const payload = repairDrafts.filter((r) => accepted.has(`${r.stay_date}|${r.obk_id}|${Number(r.occupancy)}`));
+            if (payload.length > 0) {
+              const runId = await queueIntents(admin, rule, payload, priorityOf("markdown"));
+              ladderRepairActions = payload.length;
+              if (runId) {
+                await admin.from("revenue_pickup_automation_actions")
+                  .update({ push_run_id: runId })
+                  .eq("hotel_id", rule.hotel_id)
+                  .eq("rule_version", rule.version)
+                  .eq("schedule_slot", slot)
+                  .eq("local_business_date", local.date)
+                  .eq("decision_type", "ladder_repair")
+                  .is("push_run_id", null);
+              }
+            }
+          }
+          console.log(`[ladder-repair] ${rule.hotel_id} candidates=${repairRows.length} queued=${ladderRepairActions}`);
+        } catch (error) {
+          console.log(`[ladder-repair] ${rule.hotel_id} failed: ${(error as Error)?.message ?? error}`);
+        }
+      }
+
 
       // ------------------------------------------------------------------
       // Smart pricing — strong early demand.
