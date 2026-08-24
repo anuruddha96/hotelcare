@@ -743,6 +743,51 @@ serve(async (req) => {
         { price: Number(rate.price), ratePlanId: String(rate.rate_plan_id) },
       );
     }
+
+    // Previo is the truth once we have just read it. Any older intent that
+    // never landed (a rejected price, or a cell blocked by our own price-order
+    // guard) is closed out here against the freshly read value, so the red
+    // "not applied" squares heal by themselves, stop poisoning later pushes of
+    // the same range, and are never re-sent over a newer live price.
+    {
+      const { data: stuck, error: stuckError } = await service
+        .from("revenue_rate_drafts")
+        .select("id, stay_date, obk_id, occupancy, created_at")
+        .eq("hotel_id", hotelId)
+        .eq("status", "failed")
+        .is("superseded_at", null)
+        .gte("stay_date", from)
+        .lte("stay_date", to)
+        .limit(5000);
+      if (stuckError) {
+        errors.push(`stale draft healing read: ${stuckError.message}`);
+      } else {
+        const settleIds = ((stuck ?? []) as Array<{
+          id: string; stay_date: string; obk_id: string | number | null; occupancy: number; created_at: string;
+        }>)
+          .filter((draft) => {
+            const live = livePrice.get(`${draft.stay_date}|${draft.obk_id}|${draft.occupancy}`);
+            // Only settle when this read actually covered the cell and the
+            // intent predates the read; a price submitted during the sync keeps
+            // its chance to go out.
+            return Boolean(live) && Date.parse(draft.created_at) < started;
+          })
+          .map((draft) => draft.id);
+        for (let i = 0; i < settleIds.length; i += 300) {
+          const { error: settleError } = await service.from("revenue_rate_drafts").update({
+            status: "superseded",
+            confirmation_status: "settled_from_pms",
+            superseded_at: new Date().toISOString(),
+            last_checked_at: new Date().toISOString(),
+            push_error: "Settled from Previo — the live Previo price is now the current price for this room and date",
+          }).in("id", settleIds.slice(i, i + 300));
+          if (settleError) errors.push(`stale draft healing: ${settleError.message}`);
+        }
+        if (settleIds.length > 0) console.log(`healed ${settleIds.length} stuck price cells from Previo`, hotelId);
+      }
+    }
+
+
     const { data: outstanding, error: draftReadError } = await service
       .from("revenue_rate_drafts")
       .select("id, created_at, stay_date, obk_id, room_type_name, occupancy, old_price, new_price, created_by, push_run_id, confirmation_status, actual_previo_price, reconcile_attempts, reconcile_next_at, reconcile_state")

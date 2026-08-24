@@ -100,63 +100,105 @@ Deno.serve(async (req) => {
     });
     if (runError) throw runError;
 
+    const rejected: Array<{ stay_date: string; room_type_name: string; occupancy: number; reason: string }> = [];
+    let queued = 0;
+
     try {
         const dates = changes.map((change) => change.stay_date).sort();
-        // Older intents for the same cells are superseded, never deleted: the
-        // audit trail of "what we meant to send" has to survive. Rows already
-        // claimed by the publisher are left alone — this run queues behind them.
+        // Older intents for the same cells are retired BEFORE the new ones are
+        // written. Only one live intent per cell may exist, so inserting first
+        // used to abort the entire submission on a single leftover row — one
+        // stale cell would sink a six-month push. Rows already claimed by the
+        // publisher are superseded too: the newest price a person asked for
+        // always wins, and the in-flight row is discarded on completion.
         const { data: existingDrafts } = await admin.from("revenue_rate_drafts")
           .select("id,stay_date,room_type_name,occupancy")
           .eq("hotel_id", hotelId).gte("stay_date", dates[0]).lte("stay_date", dates[dates.length - 1])
           .in("status", ["draft", "failed"])
-          .is("superseded_at", null)
-          .is("claimed_at", null);
-        const staleByCell = new Map<string, string[]>();
+          .is("superseded_at", null);
+        const staleIds: string[] = [];
         for (const row of existingDrafts ?? []) {
           const key = `${row.stay_date}|${row.room_type_name}|${row.occupancy}`;
           if (!byCell.has(key)) continue;
-          staleByCell.set(key, [...(staleByCell.get(key) ?? []), row.id]);
+          staleIds.push(row.id);
+        }
+        const supersededAt = new Date().toISOString();
+        for (const ids of chunks(staleIds, 300)) {
+          const { error: supersedeError } = await admin.from("revenue_rate_drafts")
+            .update({ status: "superseded", confirmation_status: "superseded", superseded_at: supersededAt })
+            .in("id", ids)
+            .is("superseded_at", null)
+            .in("status", ["draft", "failed"]);
+          if (supersedeError) throw supersedeError;
         }
 
+        const rowFor = (change: z.infer<typeof ChangeSchema>) => ({
+          hotel_id: hotelId, organization_slug: orgSlug,
+          ...change, status: "draft", push_error: null, created_by: user.id, push_run_id: runId,
+          confirmation_status: "sending", priority, intent_source: intent,
+        });
+
         for (const batch of chunks(changes, 500)) {
-          const draftRows = batch.map((change) => ({
-            hotel_id: hotelId, organization_slug: orgSlug,
-            ...change, status: "draft", push_error: null, created_by: user.id, push_run_id: runId,
-            confirmation_status: "sending", priority, intent_source: intent,
-          }));
-          const { data: drafts, error } = await admin.from("revenue_rate_drafts").insert(draftRows).select("id,stay_date,room_type_name,occupancy");
-          if (error) throw error;
-          const idsByCell = new Map((drafts ?? []).map((draft) => [
+          let drafts: Array<{ id: string; stay_date: string; room_type_name: string; occupancy: number }> = [];
+          const { data: inserted, error } = await admin.from("revenue_rate_drafts")
+            .insert(batch.map(rowFor)).select("id,stay_date,room_type_name,occupancy");
+          if (error) {
+            // A whole chunk must never be lost because of one bad cell: fall
+            // back to row-by-row so the rest of the range still goes out, and
+            // report the offenders instead of failing the request.
+            console.warn("chunk insert failed, isolating rows", error.message);
+            for (const change of batch) {
+              const { data: one, error: rowError } = await admin.from("revenue_rate_drafts")
+                .insert(rowFor(change)).select("id,stay_date,room_type_name,occupancy").maybeSingle();
+              if (rowError || !one) {
+                rejected.push({
+                  stay_date: change.stay_date, room_type_name: change.room_type_name,
+                  occupancy: change.occupancy,
+                  reason: rowError?.message ?? "Could not be queued",
+                });
+                continue;
+              }
+              drafts.push(one);
+            }
+          } else {
+            drafts = inserted ?? [];
+          }
+          if (drafts.length === 0) continue;
+
+          const idsByCell = new Map(drafts.map((draft) => [
             `${draft.stay_date}|${draft.room_type_name}|${draft.occupancy}`, draft.id,
           ]));
 
-          // Successors exist now, so each superseded row can point at the one
-          // that replaced it.
-          const supersededAt = new Date().toISOString();
-          for (const [key, successorId] of idsByCell) {
-            const stale = staleByCell.get(key);
-            if (!stale?.length) continue;
-            for (const ids of chunks(stale, 300)) {
-              await admin.from("revenue_rate_drafts")
-                .update({ status: "superseded", superseded_at: supersededAt, superseded_by: successorId })
-                .in("id", ids)
-                .is("superseded_at", null)
-                .is("claimed_at", null)
-                .in("status", ["draft", "failed"]);
-            }
-            staleByCell.delete(key);
+          const items = batch
+            .filter((change) => idsByCell.has(`${change.stay_date}|${change.room_type_name}|${change.occupancy}`))
+            .map((change) => ({
+              run_id: runId, hotel_id: hotelId, organization_slug: orgSlug,
+              stay_date: change.stay_date, obk_id: change.obk_id, room_type_name: change.room_type_name,
+              occupancy: change.occupancy, old_price: change.old_price, target_price: change.new_price,
+              draft_id: idsByCell.get(`${change.stay_date}|${change.room_type_name}|${change.occupancy}`),
+            }));
+          if (items.length > 0) {
+            const { error: itemError } = await admin.from("revenue_rate_push_items")
+              .upsert(items, { onConflict: "run_id,stay_date,room_type_name,occupancy" });
+            if (itemError) throw itemError;
           }
-
-
-          const items = batch.map((change) => ({
-            run_id: runId, hotel_id: hotelId, organization_slug: orgSlug,
-            stay_date: change.stay_date, obk_id: change.obk_id, room_type_name: change.room_type_name,
-            occupancy: change.occupancy, old_price: change.old_price, target_price: change.new_price,
-            draft_id: idsByCell.get(`${change.stay_date}|${change.room_type_name}|${change.occupancy}`),
-          }));
-          const { error: itemError } = await admin.from("revenue_rate_push_items").insert(items);
-          if (itemError) throw itemError;
+          queued += drafts.length;
         }
+
+        if (queued === 0) {
+          await admin.from("revenue_rate_push_runs").update({
+            status: "failed", finished_at: new Date().toISOString(),
+            last_error: rejected[0]?.reason?.slice(0, 500) ?? "No price could be queued",
+          }).eq("id", runId);
+          return json({
+            ok: false,
+            error: `None of these ${changes.length} prices could be queued. ${rejected[0]?.reason ?? ""}`.trim(),
+            rejected: rejected.slice(0, 20),
+          }, 200);
+        }
+
+        await admin.from("revenue_rate_push_runs")
+          .update({ requested_count: queued }).eq("id", runId);
 
         const kick = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/revenue-publish-queue`, {
           method: "POST",
@@ -177,7 +219,20 @@ Deno.serve(async (req) => {
       throw error;
     }
 
-    return json({ ok: true, runId, queued: changes.length, skippedSoldOut });
+    // How many jobs are ahead of this one, so the app can say "queued behind N"
+    // instead of leaving the user guessing whether anything happened.
+    const { count: ahead } = await admin.from("revenue_rate_push_runs")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["queued", "processing"])
+      .lt("created_at", new Date().toISOString())
+      .neq("id", runId);
+
+    return json({
+      ok: true, runId, queued, skippedSoldOut,
+      rejectedCount: rejected.length, rejected: rejected.slice(0, 20),
+      queueAhead: ahead ?? 0,
+    });
+
 
   } catch (error) {
     console.error("rate enqueue failed", error);

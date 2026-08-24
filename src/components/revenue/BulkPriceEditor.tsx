@@ -14,7 +14,7 @@ import { addDays, isWeekend, type RoomTypeRate } from "@/lib/revenueAnalytics";
 import { getRevenueCurrency, moneyBase } from "@/lib/revenueCurrency";
 import { logRateChanges } from "@/lib/rateAudit";
 import type { DraftChange } from "@/lib/rateDrafts";
-import { publishRates } from "@/lib/ratePublishing";
+import { publishRates, queueNote } from "@/lib/ratePublishing";
 import { pushMinStay, expandRange } from "@/lib/minStay";
 
 type Mode = "amount" | "percent" | "set" | "round";
@@ -189,7 +189,18 @@ export default function BulkPriceEditor({
         })),
       });
 
-      toast.success(`${result.queued} price${result.queued === 1 ? "" : "s"} sent to Previo${result.skippedSoldOut ? ` · ${result.skippedSoldOut} sold-out cell${result.skippedSoldOut === 1 ? "" : "s"} skipped` : ""}`);
+      const extras = [
+        result.skippedSoldOut ? `${result.skippedSoldOut} sold-out cell${result.skippedSoldOut === 1 ? "" : "s"} skipped` : "",
+        result.rejected.length ? `${result.rejected.length} could not be queued` : "",
+        queueNote(result) ?? "",
+      ].filter(Boolean).join(" · ");
+      const headline = `${result.queued} price${result.queued === 1 ? "" : "s"} sent to Previo`;
+      if (result.rejected.length > 0) {
+        toast.warning(headline, { description: `${extras}. ${result.rejected[0]?.reason ?? ""}`.trim() });
+      } else {
+        toast.success(extras ? `${headline} · ${extras}` : headline);
+      }
+
       await onSaved?.();
       onOpenChange(false);
     } catch (e) {
