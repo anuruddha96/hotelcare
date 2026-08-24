@@ -770,7 +770,7 @@ serve(async (req) => {
             // Only settle when this read actually covered the cell and the
             // intent predates the read; a price submitted during the sync keeps
             // its chance to go out.
-            return Boolean(live) && Date.parse(draft.created_at) < Date.parse(syncStartedAt);
+            return Boolean(live) && Date.parse(draft.created_at) < started;
           })
           .map((draft) => draft.id);
         for (let i = 0; i < settleIds.length; i += 300) {
