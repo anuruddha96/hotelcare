@@ -138,7 +138,7 @@ Deno.serve(async (req) => {
 
         // Revenue Management can be sold as a share of realised revenue. The
         // subscription then carries a zero-amount monthly line and the real fee
-        // is invoiced每 month from the synced revenue (billing-usage-rollup).
+        // is invoiced monthly from the synced revenue (billing-usage-rollup).
         if (module === "revenue" && settings.revenue_pricing_mode === "percent") {
           const pct = (settings.revenue_percent_bps / 100).toFixed(2).replace(/\.00$/, "");
           lineItems.push({
