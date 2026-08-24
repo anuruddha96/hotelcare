@@ -249,8 +249,16 @@ export default function MonthPerformanceHeader({
    * finished, not an empty hotel.
    */
   const loadedMonth = loadedThrough ? loadedThrough.slice(0, 7) : null;
-  const isMonthPending = (key: string) =>
-    loading || (loadedMonth ? key > loadedMonth : false) || aggregate(key).days === 0;
+  const isMonthPending = (key: string) => {
+    if (loading) return true;
+    if (loadedMonth && key > loadedMonth) return true;
+    const rows = metrics.filter((m) => monthKey(m.stay_date) === key);
+    if (rows.length === 0) return true;
+    // No synced evidence for any date in the month: the fetch has not landed,
+    // so shimmer instead of printing a misleading 0%.
+    return !rows.some((m) => m.hasData);
+  };
+
   const monthPending = isMonthPending(month);
   const pendingMonths = outlook.filter((o) => isMonthPending(o.key)).length;
 
