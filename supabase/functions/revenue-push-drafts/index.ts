@@ -850,10 +850,14 @@ Deno.serve(async (req) => {
         .eq("hotel_id", hotelId)
         .maybeSingle();
       if (syncState?.last_success_at) {
+        // Argument names must match the SQL signature
+        // refresh_revenue_published_payload(_hotel_id, _completed_at, _actor_name);
+        // the old names made PostgREST reject the call, so the published
+        // payload stayed on the pre-push prices until the next full PMS sync.
         const { error: publishError } = await admin.rpc("refresh_revenue_published_payload", {
           _hotel_id: hotelId,
-          _sync_completed_at: syncState.last_success_at,
-          _sync_completed_by_name: syncState.last_success_by_name ?? null,
+          _completed_at: syncState.last_success_at,
+          _actor_name: syncState.last_success_by_name ?? null,
         });
         if (publishError) console.error("could not refresh published revenue payload after rate push", publishError.message);
       }

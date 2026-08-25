@@ -1571,6 +1571,25 @@ export default function RateStrategyGrid({
 
 
   /**
+   * A push lands in Previo a few seconds after it is queued, and the server
+   * republishes the Revenue snapshot as soon as it does. Re-read that snapshot
+   * a few times so the grid shows the real per-occupancy prices without
+   * waiting for the next half-hourly PMS sync.
+   */
+  const reloadTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+  useEffect(() => () => {
+    reloadTimersRef.current.forEach(clearTimeout);
+    reloadTimersRef.current = [];
+  }, []);
+  const scheduleRatesReload = useCallback(() => {
+    if (!onRatesUpdated) return;
+    reloadTimersRef.current.forEach(clearTimeout);
+    reloadTimersRef.current = [8000, 20000, 45000].map((delay) =>
+      setTimeout(() => { void onRatesUpdated(); }, delay),
+    );
+  }, [onRatesUpdated]);
+
+  /**
    * Send prices to Previo without making anyone wait. The grid shows the new
    * price and its change dot straight away; queueing, sending and verifying
    * all happen after the dialog has closed. Only a real failure interrupts.
@@ -1615,7 +1634,9 @@ export default function RateStrategyGrid({
           const note = queueNote(result);
           if (note) toast.info(note);
         }
-
+        // Pull the republished per-occupancy prices back in once Previo has
+        // taken them, so no cell keeps showing an optimistic value.
+        scheduleRatesReload();
 
         // 2. The change dots come from the audit trail, so write it right away.
         void logRateChanges({
@@ -1634,7 +1655,7 @@ export default function RateStrategyGrid({
         toast.error(e instanceof Error ? e.message : "Could not send the prices to Previo");
       }
     })();
-  }, [hotelId, organizationSlug, reloadAudit]);
+  }, [hotelId, organizationSlug, reloadAudit, scheduleRatesReload]);
 
   /** Publish one or many absolute target prices without blocking on Previo. */
   async function saveDraft() {
