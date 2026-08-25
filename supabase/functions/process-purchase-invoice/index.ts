@@ -455,6 +455,15 @@ Dates ISO YYYY-MM-DD. Amounts as numbers. Default currency HUF.`;
     return new Response(JSON.stringify({ success: true, data: parsed }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+    } catch (inner) {
+      const msg = inner instanceof Error ? inner.message : String(inner);
+      console.error("process-purchase-invoice processing error", msg);
+      await markFailed(msg);
+      return new Response(JSON.stringify({ success: false, error: msg }), {
+        status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
   } catch (e) {
     console.error("process-purchase-invoice error", e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown" }), {
