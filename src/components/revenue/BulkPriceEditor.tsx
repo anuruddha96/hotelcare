@@ -103,14 +103,32 @@ export default function BulkPriceEditor({
     const floor = Number(minPrice);
     const ceil = Number(maxPrice);
     const out: Array<DraftChange & { label: string }> = [];
-    for (const r of rates) {
-      if (r.stay_date < from || r.stay_date > to) continue;
-      if (!dows.has(dowOf(r.stay_date))) continue;
-      if (types.size > 0 && !types.has(r.room_type_name ?? "")) continue;
-      if (occs.size > 0 && !occs.has(r.occupancy)) continue;
+    const selected = rates.filter((r) =>
+      r.stay_date >= from && r.stay_date <= to &&
+      dows.has(dowOf(r.stay_date)) &&
+      (types.size === 0 || types.has(r.room_type_name ?? "")) &&
+      (occs.size === 0 || occs.has(r.occupancy)) &&
+      Number.isFinite(Number(r.price)));
+
+    // A fixed price is the price of the cheapest cell of each day; every other
+    // room type and guest count keeps its distance instead of being flattened.
+    const shaped = mode === "set" && keepShape && Number.isFinite(input) && input > 0
+      ? (() => {
+        const byDate = new Map<string, Map<string, number>>();
+        const dates = Array.from(new Set(selected.map((r) => r.stay_date)));
+        for (const date of dates) {
+          const cells = selected.filter((r) => r.stay_date === date)
+            .map((r) => ({ key: `${r.obk_id}|${r.occupancy}`, current: Number(r.price) }));
+          byDate.set(date, applyKeepingShape(cells, { target: input, step: Math.max(1, rounding) }));
+        }
+        return byDate;
+      })()
+      : null;
+
+    for (const r of selected) {
       const current = Number(r.price);
-      if (!Number.isFinite(current)) continue;
       let next =
+        shaped ? shaped.get(r.stay_date)?.get(`${r.obk_id}|${r.occupancy}`) ?? current :
         mode === "set" ? input :
         mode === "percent" ? current * (1 + input / 100) :
         mode === "amount" ? current + input : current;
@@ -130,7 +148,8 @@ export default function BulkPriceEditor({
       });
     }
     return out.sort((a, b) => a.stay_date.localeCompare(b.stay_date) || a.label.localeCompare(b.label));
-  }, [rates, from, to, dows, types, occs, mode, value, rounding, minPrice, maxPrice]);
+  }, [rates, from, to, dows, types, occs, mode, value, rounding, minPrice, maxPrice, keepShape]);
+
 
   const grouped = useMemo(() => {
     const map = new Map<string, Array<DraftChange & { label: string }>>();
