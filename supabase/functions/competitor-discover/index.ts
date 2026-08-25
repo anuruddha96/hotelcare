@@ -62,9 +62,18 @@ Deno.serve(async (req) => {
     const apiKey = Deno.env.get("OPENAI_API_KEY");
     if (!apiKey) return json({ error: "OPENAI_API_KEY is not configured for this project." }, 500);
 
-    const { data: hotel } = await admin.from("hotels").select("name").eq("id", hotelId).maybeSingle();
-    const hotelName = (hotel?.name as string | undefined) ?? "";
-    if (!hotelName) return json({ error: "Hotel not found" }, 404);
+    // hotelId may be a UUID (hotels.id) or a slug used in the app routes.
+    let hotelName = "";
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(hotelId);
+    if (isUuid) {
+      const { data: hotel } = await admin.from("hotels").select("name").eq("id", hotelId).maybeSingle();
+      hotelName = (hotel?.name as string | undefined) ?? "";
+    }
+    if (!hotelName) {
+      const { data: resolved } = await admin.rpc("get_hotel_name_from_id", { hotel_id: hotelId });
+      if (typeof resolved === "string") hotelName = resolved;
+    }
+    if (!hotelName) return json({ error: `Hotel not found for "${hotelId}"` }, 404);
 
     const { data: existing } = await admin
       .from("competitor_properties")
