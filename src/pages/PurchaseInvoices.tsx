@@ -124,6 +124,12 @@ export default function PurchaseInvoices() {
   const canDelete = profile && DELETE_ROLES.includes(profile.role);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const financeAccess = useFinanceAccess();
+  const pendingApproval = useMemo(
+    () => invoices.filter(i => i.review_status === 'pending_approval' && i.approval_status !== 'approved'),
+    [invoices],
+  );
+
 
   useFirstRunTour('purchase_invoices_v2', PI_TOUR);
 
