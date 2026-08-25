@@ -834,19 +834,21 @@ export default function RevenueHotelDetail() {
 
   async function pullFromPrevio() {
     if (!hotelId) return;
-    const dateFrom = iso(new Date());
-    const dateTo = iso(addDays(new Date(), 120));
-    toast.info("Pulling rates from Previo…");
-    const { data, error } = await supabase.functions.invoke("previo-pull-rates", {
-      body: { hotelId, dateFrom, dateTo }
+    // The old `previo-pull-rates` endpoint is a retired stub that pulled
+    // nothing. A manual pull now runs the real refresh, so Previo's prices
+    // become the calendar's prices.
+    toast.info("Reading prices from Previo…");
+    const { data, error } = await supabase.functions.invoke("previo-revenue-sync", {
+      body: { hotelId, horizonDays: 365 },
     });
-    if (error || !data?.ok) {
-      toast.error(data?.error || error?.message || "Pull failed");
+    if (error || (data && data.success === false && !data.rates)) {
+      toast.error((data as any)?.errors?.[0] || error?.message || "Pull failed");
       return;
     }
-    toast.success(`Pulled ${data.upserted ?? 0} rate snapshots from Previo`);
+    toast.success(`Previo prices applied · ${(data as any)?.rates ?? 0} rate cells refreshed`);
     load();
   }
+
 
   // Never render another property's price list under the current header.
   if (contextMismatch) {

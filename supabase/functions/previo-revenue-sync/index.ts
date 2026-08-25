@@ -1733,7 +1733,9 @@ serve(async (req) => {
     notes: softNotes,
   };
 
-  await service.from("pms_sync_history").insert({
+  // A silently failing history insert is how this run became untraceable, so
+  // the error is surfaced instead of dropped.
+  const { error: historyError } = await service.from("pms_sync_history").insert({
     sync_type: "revenue_sync",
     direction: "inbound",
     hotel_id: hotelId,
@@ -1743,6 +1745,8 @@ serve(async (req) => {
     synced_by_user_id: actorId,
     synced_by_name: actorName,
   });
+  if (historyError) console.error("revenue sync history insert failed", historyError.message);
+
 
   await service.rpc("complete_revenue_sync", {
     _hotel_id: hotelId,
