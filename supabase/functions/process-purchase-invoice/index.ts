@@ -268,7 +268,7 @@ Dates ISO YYYY-MM-DD. Amounts as numbers. Default currency HUF.`;
             role: "user",
             content: [
               { type: "text", text: "Extract structured invoice data and call return_invoice." },
-              { type: "image_url", image_url: { url: dataUrl } },
+              documentPart,
             ],
           },
         ],
@@ -279,23 +279,31 @@ Dates ISO YYYY-MM-DD. Amounts as numbers. Default currency HUF.`;
 
     if (!aiRes.ok) {
       const txt = await aiRes.text();
-      console.error("AI gateway error", aiRes.status, txt);
-      if (aiRes.status === 429 || aiRes.status === 402) {
-        await supabase.from("purchase_invoices").update({
-          status: "failed",
-          processing_notes: aiRes.status === 429 ? "AI rate limit" : "AI credits exhausted",
-        }).eq("id", invoiceId);
-        return new Response(JSON.stringify({ error: aiRes.status === 429 ? "Rate limited, retry later." : "AI credits exhausted." }), {
-          status: aiRes.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      throw new Error(`AI gateway: ${aiRes.status}`);
+      console.error("AI provider error", aiRes.status, txt);
+      const note = aiRes.status === 429
+        ? "AI rate limit — retry later"
+        : aiRes.status === 402
+          ? "AI credits exhausted"
+          : aiRes.status >= 500
+            ? `AI service error (${aiRes.status}) — retry later`
+            : `AI rejected the document (${aiRes.status}). It may be an unsupported or corrupt file.`;
+      await markFailed(note);
+      return new Response(JSON.stringify({ success: false, error: note }), {
+        status: aiRes.status === 429 || aiRes.status === 402 ? aiRes.status : 502,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const aiJson = await aiRes.json();
     const toolCall = aiJson?.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall) throw new Error("AI returned no tool call");
-    const parsed = JSON.parse(toolCall.function.arguments);
+    if (!toolCall) throw new Error("The AI did not return structured invoice data");
+    let parsed: any;
+    try {
+      parsed = JSON.parse(toolCall.function.arguments);
+    } catch (_) {
+      throw new Error("The AI returned invalid structured data");
+    }
+
 
     // Normalize dates
     parsed.invoice_date = normalizeDate(parsed.invoice_date);
