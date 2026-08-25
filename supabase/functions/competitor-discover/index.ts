@@ -70,7 +70,7 @@ Deno.serve(async (req) => {
       hotelName = (hotel?.name as string | undefined) ?? "";
     }
     if (!hotelName) {
-      const { data: resolved } = await admin.rpc("get_hotel_name_from_id", { _hotel_id: hotelId });
+      const { data: resolved } = await admin.rpc("get_hotel_name_from_id", { hotel_id: hotelId });
       if (typeof resolved === "string") hotelName = resolved;
     }
     if (!hotelName) return json({ error: `Hotel not found for "${hotelId}"` }, 404);
