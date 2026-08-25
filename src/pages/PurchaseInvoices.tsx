@@ -572,7 +572,7 @@ export default function PurchaseInvoices() {
                                   {t('pi.status.unverified') || 'Unverified'}
                                 </Badge>
                               )}
-                              {(inv.status === 'failed' || inv.status === 'uploaded') && (
+                              {(inv.status === 'failed' || inv.status === 'uploaded' || isStuckProcessing(inv)) && (
                                 <Button
                                   size="sm"
                                   variant="outline"
