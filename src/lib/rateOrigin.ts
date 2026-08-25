@@ -63,6 +63,9 @@ export function fromAuditSource(source: string | null, confirmation?: string): C
   if (confirmation === "different") return "failed";
   switch (source) {
     case "previo_confirmed": return "team";
+    // A push from the grid or the bulk editor is still a person's decision;
+    // it used to fall through to null and let an automation dot take the cell.
+    case "previo_bulk_confirmed": return "team";
     case "previo_automation_confirmed": return "automation";
     // A push the pickup automation tool published: purple straight away, so a
     // manual run is visible before the next Previo confirmation arrives.
