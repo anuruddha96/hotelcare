@@ -1689,6 +1689,92 @@ export type Database = {
         }
         Relationships: []
       }
+      finance_access: {
+        Row: {
+          created_at: string
+          id: string
+          organization_slug: string
+          profile: Database["public"]["Enums"]["finance_profile"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          organization_slug: string
+          profile?: Database["public"]["Enums"]["finance_profile"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          organization_slug?: string
+          profile?: Database["public"]["Enums"]["finance_profile"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      finance_access_companies: {
+        Row: {
+          company_id: string
+          finance_access_id: string
+          id: string
+        }
+        Insert: {
+          company_id: string
+          finance_access_id: string
+          id?: string
+        }
+        Update: {
+          company_id?: string
+          finance_access_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finance_access_companies_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_buyer_companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_access_companies_finance_access_id_fkey"
+            columns: ["finance_access_id"]
+            isOneToOne: false
+            referencedRelation: "finance_access"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      finance_access_properties: {
+        Row: {
+          finance_access_id: string
+          hotel_id: string
+          id: string
+        }
+        Insert: {
+          finance_access_id: string
+          hotel_id: string
+          id?: string
+        }
+        Update: {
+          finance_access_id?: string
+          hotel_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finance_access_properties_finance_access_id_fkey"
+            columns: ["finance_access_id"]
+            isOneToOne: false
+            referencedRelation: "finance_access"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       general_tasks: {
         Row: {
           assigned_by: string
@@ -2576,7 +2662,10 @@ export type Database = {
           created_at: string
           display_color: string | null
           id: string
+          is_active: boolean
+          legal_name: string | null
           name: string
+          normalized_tax_id: string | null
           notes: string | null
           organization_slug: string
           tax_id: string | null
@@ -2586,7 +2675,10 @@ export type Database = {
           created_at?: string
           display_color?: string | null
           id?: string
+          is_active?: boolean
+          legal_name?: string | null
           name: string
+          normalized_tax_id?: string | null
           notes?: string | null
           organization_slug: string
           tax_id?: string | null
@@ -2596,10 +2688,113 @@ export type Database = {
           created_at?: string
           display_color?: string | null
           id?: string
+          is_active?: boolean
+          legal_name?: string | null
           name?: string
+          normalized_tax_id?: string | null
           notes?: string | null
           organization_slug?: string
           tax_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      invoice_company_aliases: {
+        Row: {
+          alias_name: string
+          company_id: string
+          created_at: string
+          id: string
+          organization_slug: string
+        }
+        Insert: {
+          alias_name: string
+          company_id: string
+          created_at?: string
+          id?: string
+          organization_slug: string
+        }
+        Update: {
+          alias_name?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          organization_slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_company_aliases_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_buyer_companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoice_company_properties: {
+        Row: {
+          company_id: string
+          created_at: string
+          hotel_id: string
+          id: string
+          organization_slug: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          hotel_id: string
+          id?: string
+          organization_slug: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          organization_slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_company_properties_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_buyer_companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoice_cost_centres: {
+        Row: {
+          code: string
+          created_at: string
+          hotel_id: string | null
+          id: string
+          is_active: boolean
+          label: string
+          organization_slug: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          hotel_id?: string | null
+          id?: string
+          is_active?: boolean
+          label: string
+          organization_slug: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          hotel_id?: string | null
+          id?: string
+          is_active?: boolean
+          label?: string
+          organization_slug?: string
+          sort_order?: number
           updated_at?: string
         }
         Relationships: []
@@ -4307,6 +4502,7 @@ export type Database = {
           hotel_id: string | null
           id: string
           is_super_admin: boolean | null
+          job_title: string | null
           last_login: string | null
           nickname: string | null
           organization_slug: string | null
@@ -4328,6 +4524,7 @@ export type Database = {
           hotel_id?: string | null
           id: string
           is_super_admin?: boolean | null
+          job_title?: string | null
           last_login?: string | null
           nickname?: string | null
           organization_slug?: string | null
@@ -4349,6 +4546,7 @@ export type Database = {
           hotel_id?: string | null
           id?: string
           is_super_admin?: boolean | null
+          job_title?: string | null
           last_login?: string | null
           nickname?: string | null
           organization_slug?: string | null
@@ -4360,6 +4558,53 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      purchase_invoice_audit_log: {
+        Row: {
+          action: string
+          created_at: string
+          field: string | null
+          id: string
+          invoice_id: string
+          new_value: string | null
+          notes: string | null
+          old_value: string | null
+          organization_slug: string | null
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          field?: string | null
+          id?: string
+          invoice_id: string
+          new_value?: string | null
+          notes?: string | null
+          old_value?: string | null
+          organization_slug?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          field?: string | null
+          id?: string
+          invoice_id?: string
+          new_value?: string | null
+          notes?: string | null
+          old_value?: string | null
+          organization_slug?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchase_invoice_audit_log_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       purchase_invoice_categories: {
         Row: {
@@ -4487,12 +4732,17 @@ export type Database = {
       }
       purchase_invoices: {
         Row: {
+          approval_status: string
+          approved_at: string | null
+          approved_by: string | null
           bottle_deposit_amount: number | null
           buyer_address: string | null
           buyer_company_id: string | null
           buyer_name: string | null
           buyer_tax_id: string | null
+          company_property_mismatch: boolean
           confidence_score: number | null
+          cost_centre_id: string | null
           created_at: string
           currency: string
           document_type: string | null
@@ -4502,9 +4752,11 @@ export type Database = {
           error_code: string | null
           error_details: Json | null
           expense_category: string | null
+          expense_category_id: string | null
           extraction_notes: string | null
           file_mime: string | null
           file_path: string
+          file_sha256: string | null
           file_size_bytes: number | null
           hotel_id: string | null
           id: string
@@ -4518,13 +4770,26 @@ export type Database = {
           merchant_tax_id: string | null
           needs_review: boolean
           net_amount: number | null
+          normalized_invoice_number: string | null
+          normalized_merchant_tax_id: string | null
           notes: string | null
           organization_slug: string
           payment_method: string | null
           performance_date: string | null
           processing_notes: string | null
           raw_text: string | null
+          rejected_at: string | null
+          rejected_by: string | null
+          rejection_reason: string | null
+          reopen_reason: string | null
+          reopened_at: string | null
+          reopened_by: string | null
+          review_status: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          reviewer_notes: string | null
           status: string
+          submitted_at: string | null
           total_amount: number | null
           total_vat_amount: number | null
           updated_at: string
@@ -4534,12 +4799,17 @@ export type Database = {
           verified_by: string | null
         }
         Insert: {
+          approval_status?: string
+          approved_at?: string | null
+          approved_by?: string | null
           bottle_deposit_amount?: number | null
           buyer_address?: string | null
           buyer_company_id?: string | null
           buyer_name?: string | null
           buyer_tax_id?: string | null
+          company_property_mismatch?: boolean
           confidence_score?: number | null
+          cost_centre_id?: string | null
           created_at?: string
           currency?: string
           document_type?: string | null
@@ -4549,9 +4819,11 @@ export type Database = {
           error_code?: string | null
           error_details?: Json | null
           expense_category?: string | null
+          expense_category_id?: string | null
           extraction_notes?: string | null
           file_mime?: string | null
           file_path: string
+          file_sha256?: string | null
           file_size_bytes?: number | null
           hotel_id?: string | null
           id?: string
@@ -4565,13 +4837,26 @@ export type Database = {
           merchant_tax_id?: string | null
           needs_review?: boolean
           net_amount?: number | null
+          normalized_invoice_number?: string | null
+          normalized_merchant_tax_id?: string | null
           notes?: string | null
           organization_slug: string
           payment_method?: string | null
           performance_date?: string | null
           processing_notes?: string | null
           raw_text?: string | null
+          rejected_at?: string | null
+          rejected_by?: string | null
+          rejection_reason?: string | null
+          reopen_reason?: string | null
+          reopened_at?: string | null
+          reopened_by?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          reviewer_notes?: string | null
           status?: string
+          submitted_at?: string | null
           total_amount?: number | null
           total_vat_amount?: number | null
           updated_at?: string
@@ -4581,12 +4866,17 @@ export type Database = {
           verified_by?: string | null
         }
         Update: {
+          approval_status?: string
+          approved_at?: string | null
+          approved_by?: string | null
           bottle_deposit_amount?: number | null
           buyer_address?: string | null
           buyer_company_id?: string | null
           buyer_name?: string | null
           buyer_tax_id?: string | null
+          company_property_mismatch?: boolean
           confidence_score?: number | null
+          cost_centre_id?: string | null
           created_at?: string
           currency?: string
           document_type?: string | null
@@ -4596,9 +4886,11 @@ export type Database = {
           error_code?: string | null
           error_details?: Json | null
           expense_category?: string | null
+          expense_category_id?: string | null
           extraction_notes?: string | null
           file_mime?: string | null
           file_path?: string
+          file_sha256?: string | null
           file_size_bytes?: number | null
           hotel_id?: string | null
           id?: string
@@ -4612,13 +4904,26 @@ export type Database = {
           merchant_tax_id?: string | null
           needs_review?: boolean
           net_amount?: number | null
+          normalized_invoice_number?: string | null
+          normalized_merchant_tax_id?: string | null
           notes?: string | null
           organization_slug?: string
           payment_method?: string | null
           performance_date?: string | null
           processing_notes?: string | null
           raw_text?: string | null
+          rejected_at?: string | null
+          rejected_by?: string | null
+          rejection_reason?: string | null
+          reopen_reason?: string | null
+          reopened_at?: string | null
+          reopened_by?: string | null
+          review_status?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          reviewer_notes?: string | null
           status?: string
+          submitted_at?: string | null
           total_amount?: number | null
           total_vat_amount?: number | null
           updated_at?: string
@@ -4636,10 +4941,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "purchase_invoices_cost_centre_id_fkey"
+            columns: ["cost_centre_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_cost_centres"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "purchase_invoices_duplicate_of_fkey"
             columns: ["duplicate_of"]
             isOneToOne: false
             referencedRelation: "purchase_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchase_invoices_expense_category_id_fkey"
+            columns: ["expense_category_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_invoice_categories"
             referencedColumns: ["id"]
           },
           {
@@ -8284,6 +8603,16 @@ export type Database = {
         Returns: Json
       }
       expire_stale_recommendations: { Args: never; Returns: number }
+      fin_can_approve: { Args: { _user_id?: string }; Returns: boolean }
+      fin_is_admin: { Args: { _user_id?: string }; Returns: boolean }
+      fin_profile: {
+        Args: { _user_id?: string }
+        Returns: Database["public"]["Enums"]["finance_profile"]
+      }
+      fin_scope_ok: {
+        Args: { _company_id: string; _hotel_id: string; _user_id?: string }
+        Returns: boolean
+      }
       generate_ticket_number: { Args: never; Returns: string }
       get_assignable_staff:
         | {
@@ -8502,6 +8831,98 @@ export type Database = {
         Args: { org_slug: string }
         Returns: boolean
       }
+      pi_analytics_breakdown: {
+        Args: {
+          _approval_status?: string
+          _company_id?: string
+          _dimension?: string
+          _from?: string
+          _hotel_id?: string
+          _limit?: number
+          _to?: string
+        }
+        Returns: {
+          credit_total: number
+          invoice_count: number
+          label: string
+          spend: number
+        }[]
+      }
+      pi_analytics_buckets: {
+        Args: {
+          _approval_status?: string
+          _bucket?: string
+          _category_id?: string
+          _company_id?: string
+          _cost_centre_id?: string
+          _from?: string
+          _hotel_id?: string
+          _merchant?: string
+          _to?: string
+        }
+        Returns: {
+          bucket: string
+          invoice_count: number
+          spend: number
+          vat: number
+        }[]
+      }
+      pi_analytics_summary: {
+        Args: {
+          _approval_status?: string
+          _category_id?: string
+          _company_id?: string
+          _cost_centre_id?: string
+          _currency?: string
+          _from?: string
+          _hotel_id?: string
+          _merchant?: string
+          _review_status?: string
+          _to?: string
+        }
+        Returns: {
+          approval_rate: number
+          approved: number
+          avg_amount: number
+          duplicate_alerts: number
+          extraction_rate: number
+          invoice_count: number
+          pending_approval: number
+          pending_approval_value: number
+          rejected: number
+          spend: number
+          unique_merchants: number
+          vat: number
+        }[]
+      }
+      pi_norm_doc_number: { Args: { _raw: string }; Returns: string }
+      pi_norm_tax_id: { Args: { _raw: string }; Returns: string }
+      pi_pending_ageing: {
+        Args: never
+        Returns: {
+          bucket: string
+          invoice_count: number
+          value: number
+        }[]
+      }
+      pi_search_invoices: {
+        Args: { _limit?: number; _offset?: number; _q: string }
+        Returns: {
+          approval_status: string
+          buyer_name: string
+          currency: string
+          hotel_id: string
+          id: string
+          invoice_date: string
+          invoice_number: string
+          merchant_name: string
+          merchant_tax_id: string
+          rank: number
+          review_status: string
+          status: string
+          total_amount: number
+        }[]
+      }
       pi_user_hotel: { Args: never; Returns: string }
       pi_user_org: { Args: never; Returns: string }
       pi_user_role: { Args: never; Returns: string }
@@ -8679,6 +9100,13 @@ export type Database = {
         | "checkout_cleaning"
         | "maintenance"
         | "deep_cleaning"
+      finance_profile:
+        | "none"
+        | "uploader"
+        | "reviewer"
+        | "controller"
+        | "chief_controller"
+        | "management_read"
       rate_change_source:
         | "engine"
         | "manual"
@@ -8866,6 +9294,14 @@ export const Constants = {
         "checkout_cleaning",
         "maintenance",
         "deep_cleaning",
+      ],
+      finance_profile: [
+        "none",
+        "uploader",
+        "reviewer",
+        "controller",
+        "chief_controller",
+        "management_read",
       ],
       rate_change_source: [
         "engine",

@@ -19,7 +19,9 @@ import { toast } from 'sonner';
 import {
   Camera, Upload, Receipt, BarChart3, Download, Loader2, ShieldAlert,
   CheckCircle, AlertCircle, FileText, RefreshCw, AlertTriangle, Trash2, Eye,
+  ShieldCheck, Settings, Clock,
 } from 'lucide-react';
+
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -30,6 +32,10 @@ import {
 } from 'recharts';
 import { useFirstRunTour, TourReplayButton, type TourStep } from '@/components/training/GuidedTour';
 import { VerifyInvoiceDialog } from '@/components/purchase-invoices/VerifyInvoiceDialog';
+import { InvoiceSettingsPanel } from '@/components/purchase-invoices/InvoiceSettingsPanel';
+import { useFinanceAccess } from '@/hooks/useFinanceAccess';
+import { workflowLabel } from '@/lib/purchaseInvoiceWorkflow';
+
 
 const ALLOWED_ROLES = ['admin','top_management','top_management_manager','control_finance','back_office','reception','front_office'];
 const ANALYTICS_ROLES = ['admin','top_management','top_management_manager','control_finance'];
@@ -59,7 +65,7 @@ const VAT_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4',
 const STATUS_FILTERS = ['all','uploaded','processing','processed','verified','failed','needs_review','duplicates','credit_notes'] as const;
 type StatusFilter = typeof STATUS_FILTERS[number];
 type SortMode = 'newest'|'oldest'|'amountDesc'|'amountAsc'|'merchant';
-type RangeKey = '7d'|'30d'|'90d'|'ytd'|'all'|'custom';
+type RangeKey = '7d'|'30d'|'90d'|'mtd'|'prevMonth'|'ytd'|'prevYear'|'all'|'custom';
 type VerifyFilter = 'all'|'verified'|'unverified';
 type UploadStage = 'uploading'|'digitizing'|'extracting'|'done'|'error';
 type UploadJob = {
@@ -118,6 +124,12 @@ export default function PurchaseInvoices() {
   const canDelete = profile && DELETE_ROLES.includes(profile.role);
   const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const financeAccess = useFinanceAccess();
+  const pendingApproval = useMemo(
+    () => invoices.filter(i => i.review_status === 'pending_approval' && i.approval_status !== 'approved'),
+    [invoices],
+  );
+
 
   useFirstRunTour('purchase_invoices_v2', PI_TOUR);
 
@@ -375,12 +387,26 @@ export default function PurchaseInvoices() {
                 <BarChart3 className="h-4 w-4 mr-1.5" />{t('pi.tab.analytics')}
               </TabsTrigger>
             )}
+            {canSeeQueue && (
+              <TabsTrigger value="approvals">
+                <ShieldCheck className="h-4 w-4 mr-1.5" />Approvals
+                {pendingApproval.length > 0 && (
+                  <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-[10px]">{pendingApproval.length}</Badge>
+                )}
+              </TabsTrigger>
+            )}
             {canSeeAnalytics && (
               <TabsTrigger value="export" data-tour="pi-export">
                 <Download className="h-4 w-4 mr-1.5" />{t('pi.tab.export')}
               </TabsTrigger>
             )}
+            {financeAccess.canManageFinance && (
+              <TabsTrigger value="settings">
+                <Settings className="h-4 w-4 mr-1.5" />Settings
+              </TabsTrigger>
+            )}
           </TabsList>
+
 
           <TabsContent value="upload" className="space-y-4">
             <Card data-tour="pi-upload" data-training="invoice-upload">
@@ -636,9 +662,13 @@ export default function PurchaseInvoices() {
                         <SelectItem value="7d">{t('pi.analytics.range.7d')}</SelectItem>
                         <SelectItem value="30d">{t('pi.analytics.range.30d')}</SelectItem>
                         <SelectItem value="90d">{t('pi.analytics.range.90d')}</SelectItem>
+                        <SelectItem value="mtd">This month</SelectItem>
+                        <SelectItem value="prevMonth">Previous month</SelectItem>
                         <SelectItem value="ytd">{t('pi.analytics.range.ytd')}</SelectItem>
+                        <SelectItem value="prevYear">Previous year</SelectItem>
                         <SelectItem value="all">{t('pi.analytics.range.all')}</SelectItem>
                         <SelectItem value="custom">Custom…</SelectItem>
+
                       </SelectContent>
                     </Select>
                   </div>
@@ -695,23 +725,42 @@ export default function PurchaseInvoices() {
                 </CardContent>
               </Card>
 
+              {rangedInvoices.length === 0 && invoices.length > 0 && (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    No invoices fall inside the selected period, but {invoices.length} invoice(s) exist overall.
+                    Invoices are placed by their invoice date — widen the date range or choose “All time” to see them.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+
 
               <div data-tour="pi-kpis" className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <Kpi label={t('pi.analytics.thisMonth')} value={`${stats.total.toLocaleString()} HUF`} sub={`${stats.count} ${t('pi.queue.count').replace('{n}','').trim()}`} />
+                <Kpi label="Spend in selected period" value={`${stats.total.toLocaleString()} HUF`} sub={`${stats.count} invoices`} />
                 <Kpi label={t('pi.analytics.avgInvoice')} value={`${Math.round(stats.avg).toLocaleString()} HUF`} />
                 <Kpi label={t('pi.analytics.totalVat')} value={`${stats.vat.toLocaleString()} HUF`} />
-                <Kpi label={t('pi.analytics.successRate')} value={`${stats.successRate}%`} />
+                <Kpi label="Extraction success" value={`${stats.extractionRate}%`} sub="AI read the document" />
+                <Kpi label="Approval rate" value={`${stats.approvalRate}%`} sub={`${stats.approved} approved · ${stats.rejected} rejected`} />
+                <Kpi
+                  label="Pending control"
+                  value={String(stats.pendingApproval)}
+                  sub={`${Math.round(stats.pendingApprovalValue).toLocaleString()} HUF`}
+                />
                 <Kpi label={t('pi.analytics.uniqueMerchants')} value={String(stats.uniqueMerchants)} />
                 <Kpi label={t('pi.analytics.topMerchant')} value={stats.top} small />
                 <Kpi
-                  label={t('pi.analytics.unverified')}
+                  label="Awaiting review (selected period)"
                   value={String(stats.unverified)}
-                  icon={stats.unverified > 0
+                  sub={`${stats.unverifiedAllTime} all time`}
+                  icon={stats.unverifiedAllTime > 0
                     ? <AlertCircle className="h-6 w-6 text-orange-500/60" />
                     : <CheckCircle className="h-6 w-6 text-green-500/60" />}
                 />
-                <Kpi label={t('pi.analytics.lastMonth')} value={`${stats.lastMonth.toLocaleString()} HUF`} />
+                <Kpi label="Duplicate alerts" value={String(stats.duplicateAlerts)} sub="in selected period" />
               </div>
+
 
               {anomalies.length > 0 && (
                 <Alert>
@@ -839,7 +888,11 @@ export default function PurchaseInvoices() {
               </div>
 
               <Card>
-                <CardHeader><CardTitle className="text-base">{t('pi.analytics.monthly')}</CardTitle></CardHeader>
+                <CardHeader>
+                  <CardTitle className="text-base">{t('pi.analytics.monthly')}</CardTitle>
+                  <p className="text-xs text-muted-foreground">All time — this chart intentionally ignores the selected period.</p>
+                </CardHeader>
+
                 <CardContent style={{ height: 260 }}>
                   <ResponsiveContainer>
                     <LineChart data={monthlyComparison(invoices)}>
@@ -876,7 +929,66 @@ export default function PurchaseInvoices() {
               </Card>
             </TabsContent>
           )}
+
+          {canSeeQueue && (
+            <TabsContent value="approvals" className="space-y-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 text-primary" />Waiting for approval
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    {financeAccess.canApprove
+                      ? 'Open an invoice to approve, reject or return it for correction.'
+                      : 'Only controllers can approve. You can still review the data and submit corrections.'}
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {pendingApproval.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-6 text-center">Nothing is waiting for approval.</p>
+                  ) : pendingApproval.map(inv => {
+                    const days = Math.floor((Date.now() - new Date(inv.submitted_at || inv.created_at).getTime()) / 864e5);
+                    return (
+                      <button
+                        key={inv.id}
+                        onClick={() => setVerifyId(inv.id)}
+                        className="w-full text-left rounded-md border p-3 hover:bg-accent/50 transition-colors flex items-center gap-3"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium truncate">
+                            {inv.merchant_name || '—'}
+                            {inv.is_credit_note && <Badge variant="outline" className="ml-2 text-[10px]">Credit note</Badge>}
+                            {inv.duplicate_status === 'suspected' && (
+                              <Badge variant="destructive" className="ml-2 text-[10px]">Possible duplicate</Badge>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground truncate">
+                            {inv.invoice_number || 'no number'} · {inv.invoice_date || '—'} · {inv.buyer_name || 'no entity'}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-sm font-semibold tabular-nums">
+                            {inv.total_amount != null ? `${Math.round(inv.total_amount).toLocaleString()} ${inv.currency || 'HUF'}` : '—'}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground flex items-center gap-1 justify-end">
+                            <Clock className="h-3 w-3" />{days}d · {workflowLabel(inv)}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+
+          {financeAccess.canManageFinance && (
+            <TabsContent value="settings">
+              <InvoiceSettingsPanel />
+            </TabsContent>
+          )}
         </Tabs>
+
       </div>
       <VerifyInvoiceDialog
         invoiceId={verifyId}
@@ -926,32 +1038,57 @@ function Kpi({ label, value, sub, icon, small }: { label: string; value: string;
   );
 }
 
-function filterByRange(invoices: any[], range: RangeKey, customFrom?: string, customTo?: string): any[] {
-  if (range === 'all') return invoices;
-  if (range === 'custom') {
-    const from = customFrom ? new Date(customFrom) : null;
-    const to = customTo ? new Date(customTo + 'T23:59:59') : null;
-    return invoices.filter(i => {
-      const d = i.invoice_date || i.created_at;
-      if (!d) return false;
-      const dt = new Date(d);
-      if (from && dt < from) return false;
-      if (to && dt > to) return false;
-      return true;
-    });
-  }
+function rangeBounds(range: RangeKey, customFrom?: string, customTo?: string): { from: Date | null; to: Date | null } {
   const now = new Date();
-  let start: Date;
-  if (range === '7d') start = new Date(now.getTime() - 7*864e5);
-  else if (range === '30d') start = new Date(now.getTime() - 30*864e5);
-  else if (range === '90d') start = new Date(now.getTime() - 90*864e5);
-  else start = new Date(now.getFullYear(), 0, 1);
-  return invoices.filter(i => {
-    const d = i.invoice_date || i.created_at;
-    return d && new Date(d) >= start;
-  });
+  switch (range) {
+    case 'all': return { from: null, to: null };
+    case 'custom': return {
+      from: customFrom ? new Date(customFrom) : null,
+      to: customTo ? new Date(customTo + 'T23:59:59') : null,
+    };
+    case '7d': return { from: new Date(now.getTime() - 7 * 864e5), to: null };
+    case '30d': return { from: new Date(now.getTime() - 30 * 864e5), to: null };
+    case '90d': return { from: new Date(now.getTime() - 90 * 864e5), to: null };
+    case 'mtd': return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: null };
+    case 'prevMonth': return {
+      from: new Date(now.getFullYear(), now.getMonth() - 1, 1),
+      to: new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59),
+    };
+    case 'prevYear': return {
+      from: new Date(now.getFullYear() - 1, 0, 1),
+      to: new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59),
+    };
+    case 'ytd':
+    default: return { from: new Date(now.getFullYear(), 0, 1), to: null };
+  }
 }
 
+// The comparable window immediately before the selected one (same length).
+function previousBounds(range: RangeKey, customFrom?: string, customTo?: string): { from: Date | null; to: Date | null } {
+  const { from, to } = rangeBounds(range, customFrom, customTo);
+  if (!from) return { from: null, to: null };
+  const end = to ?? new Date();
+  const span = end.getTime() - from.getTime();
+  return { from: new Date(from.getTime() - span), to: new Date(from.getTime() - 1) };
+}
+
+function withinBounds(inv: any, from: Date | null, to: Date | null): boolean {
+  const d = inv.invoice_date || inv.created_at;
+  if (!d) return !from && !to;
+  const dt = new Date(d);
+  if (from && dt < from) return false;
+  if (to && dt > to) return false;
+  return true;
+}
+
+function filterByRange(invoices: any[], range: RangeKey, customFrom?: string, customTo?: string): any[] {
+  const { from, to } = rangeBounds(range, customFrom, customTo);
+  if (!from && !to) return invoices;
+  return invoices.filter(i => withinBounds(i, from, to));
+}
+
+// Every period figure comes from `ranged` (the user's selected filters).
+// All-time figures are returned separately and are labelled as such in the UI.
 function computeStats(all: any[], ranged: any[]) {
   const total = ranged.reduce((s, i) => s + Number(i.total_amount || 0), 0);
   const vat = ranged.reduce((s, i) => s + Number(i.total_vat_amount || 0), 0);
@@ -964,19 +1101,36 @@ function computeStats(all: any[], ranged: any[]) {
   });
   const top = Object.entries(merchantTotals).sort(([,a],[,b]) => b - a)[0]?.[0] || '—';
   const uniqueMerchants = new Set(ranged.map(i => i.merchant_name).filter(Boolean)).size;
-  const processedOrBetter = all.filter(i => ['processed','verified'].includes(i.status) || i.is_verified).length;
-  const totalAttempts = all.filter(i => i.status !== 'uploaded').length || 1;
-  const successRate = Math.round((processedOrBetter / totalAttempts) * 100);
-  const unverified = all.filter(i => i.status === 'processed' && !i.is_verified).length;
-  // last month
-  const now = new Date();
-  const lmStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lmEnd = new Date(now.getFullYear(), now.getMonth(), 0);
-  const lastMonth = all
-    .filter(i => i.invoice_date && new Date(i.invoice_date) >= lmStart && new Date(i.invoice_date) <= lmEnd)
+
+  // Extraction success = AI got structured data out of the document.
+  const attempts = ranged.filter(i => i.status !== 'uploaded').length;
+  const extracted = ranged.filter(i => ['processed','verified'].includes(i.status) || i.is_verified).length;
+  const extractionRate = attempts ? Math.round((extracted / attempts) * 100) : 0;
+
+  // Approval rate = approved / (everything that reached a decision point).
+  const decidable = ranged.filter(i => i.status === 'processed' || i.approval_status === 'approved' || i.approval_status === 'rejected').length;
+  const approved = ranged.filter(i => i.approval_status === 'approved').length;
+  const rejected = ranged.filter(i => i.approval_status === 'rejected').length;
+  const approvalRate = decidable ? Math.round((approved / decidable) * 100) : 0;
+  const pendingApproval = ranged.filter(i => i.review_status === 'pending_approval' && i.approval_status !== 'approved').length;
+  const pendingApprovalValue = ranged
+    .filter(i => i.review_status === 'pending_approval' && i.approval_status !== 'approved')
     .reduce((s, i) => s + Number(i.total_amount || 0), 0);
-  return { total, vat, count, avg, top, uniqueMerchants, successRate, unverified, lastMonth };
+  const duplicateAlerts = ranged.filter(i => i.duplicate_status === 'suspected' || i.duplicate_status === 'exact' || i.duplicate_status === 'possible').length;
+
+  // Awaiting review inside the selected period, plus the all-time backlog so a
+  // narrow period can never make an outstanding backlog look like zero.
+  const unverified = ranged.filter(i => i.status === 'processed' && !i.is_verified).length;
+  const unverifiedAllTime = all.filter(i => i.status === 'processed' && !i.is_verified).length;
+
+  return {
+    total, vat, count, avg, top, uniqueMerchants,
+    extractionRate, approvalRate, approved, rejected,
+    pendingApproval, pendingApprovalValue, duplicateAlerts,
+    unverified, unverifiedAllTime,
+  };
 }
+
 
 function detectAnomalies(invoices: any[]) {
   const out: { id: string; kind: 'duplicate'|'vat'; merchant?: string; invoiceNumber?: string }[] = [];

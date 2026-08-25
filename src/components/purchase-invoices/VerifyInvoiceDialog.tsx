@@ -1,17 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Plus, Trash2, CheckCircle2, FileText, ZoomIn, ZoomOut, RotateCw, Download, Maximize2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Loader2, Plus, Trash2, CheckCircle2, FileText, ZoomIn, ZoomOut, RotateCw, Download, Maximize2, Lock } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { toast } from 'sonner';
+import { InvoiceWorkflowPanel } from './InvoiceWorkflowPanel';
+import { useFinanceAccess } from '@/hooks/useFinanceAccess';
+import { isLocked } from '@/lib/purchaseInvoiceWorkflow';
 
 const EDIT_ROLES = ['admin', 'top_management', 'top_management_manager', 'manager', 'control_finance', 'back_office_manager', 'control_manager'];
+
 
 const VAT_KINDS = [
   'standard_27', 'reduced_18', 'reduced_5', 'zero',
@@ -48,7 +53,7 @@ interface Props {
 export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props) {
   const { profile, user } = useAuth();
   const { t } = useTranslation();
-  const canEdit = !!profile && EDIT_ROLES.includes(profile.role);
+  const { canReview } = useFinanceAccess();
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -57,6 +62,39 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
   const [items, setItems] = useState<ItemLine[]>([]);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [externalUrl, setExternalUrl] = useState<string | null>(null);
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [costCentres, setCostCentres] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+
+  const locked = isLocked(invoice || {});
+  // Approved invoices are frozen; only controlling can reopen them.
+  const canEdit = (!!profile && EDIT_ROLES.includes(profile.role) || canReview) && !locked;
+
+  // Master lists for the controlling classification selects.
+  useEffect(() => {
+    const org = profile?.organization_slug;
+    if (!open || !org) return;
+    let cancelled = false;
+    (async () => {
+      const [c, cc, cat] = await Promise.all([
+        supabase.from('invoice_buyer_companies').select('id, name, legal_name, tax_id').eq('organization_slug', org).eq('is_active', true).order('name'),
+        supabase.from('invoice_cost_centres').select('id, label, code').eq('organization_slug', org).eq('is_active', true).order('sort_order'),
+        supabase.from('purchase_invoice_categories').select('id, label, code').eq('organization_slug', org).eq('is_active', true).order('sort_order'),
+      ]);
+      if (cancelled) return;
+      setCompanies(c.data ?? []);
+      setCostCentres(cc.data ?? []);
+      setCategories(cat.data ?? []);
+    })();
+    return () => { cancelled = true; };
+  }, [open, profile?.organization_slug]);
+
+  const reload = useCallback(async () => {
+    if (!invoiceId) return;
+    const { data } = await supabase.from('purchase_invoices').select('*').eq('id', invoiceId).maybeSingle();
+    if (data) setInvoice(data);
+  }, [invoiceId]);
+
 
   useEffect(() => {
     if (!open || !invoiceId) return;
@@ -133,9 +171,13 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
         total_vat_amount: invoice.total_vat_amount,
         total_amount: invoice.total_amount,
         expense_category: invoice.expense_category,
+        expense_category_id: invoice.expense_category_id || null,
+        cost_centre_id: invoice.cost_centre_id || null,
+        buyer_company_id: invoice.buyer_company_id || null,
         payment_method: invoice.payment_method,
         bottle_deposit_amount: invoice.bottle_deposit_amount,
         notes: invoice.notes,
+
         ...(markVerified ? {
           is_verified: true,
           verified_by: user.id,
@@ -239,6 +281,12 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
             {!canEdit && invoice && (
               <Badge variant="secondary" className="ml-1 text-[10px]">Read-only</Badge>
             )}
+            {locked && (
+              <Badge variant="secondary" className="ml-1 gap-1 text-[10px]">
+                <Lock className="h-3 w-3" />Approved · locked
+              </Badge>
+
+            )}
           </DialogTitle>
         </DialogHeader>
 
@@ -328,7 +376,11 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
 
             {/* Editable fields */}
             <div className="flex flex-col min-h-0">
+              <div className="px-4 pt-3">
+                <InvoiceWorkflowPanel invoice={invoice} onChanged={() => { reload(); onSaved?.(); }} />
+              </div>
               <Tabs defaultValue="header" className="flex-1 flex flex-col min-h-0">
+
                 <TabsList className="mx-4 mt-3 shrink-0">
                   <TabsTrigger value="header">{t('pi.field.merchant')}</TabsTrigger>
                   <TabsTrigger value="vat">{t('pi.vat.heading')}</TabsTrigger>
@@ -381,11 +433,73 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
                     <Field type="number" label={t('pi.field.vat')} value={invoice.total_vat_amount} onChange={v => update({ total_vat_amount: v })} disabled={!canEdit} />
                     <Field type="number" label={t('pi.field.total')} value={invoice.total_amount} onChange={v => update({ total_amount: v })} disabled={!canEdit} />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label={t('pi.field.category')} value={invoice.expense_category} onChange={v => update({ expense_category: v })} disabled={!canEdit} />
-                    <Field label="Payment method" value={invoice.payment_method} onChange={v => update({ payment_method: v })} disabled={!canEdit} />
+                  <div className="rounded-md border border-dashed p-3 space-y-2">
+                    <div className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">Controlling</div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Legal entity (billed company)</Label>
+                      <Select
+                        value={invoice.buyer_company_id ?? 'none'}
+                        disabled={!canEdit}
+                        onValueChange={(v) => update({ buyer_company_id: v === 'none' ? null : v })}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Not assigned" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Not assigned</SelectItem>
+                          {companies.map(c => (
+                            <SelectItem key={c.id} value={c.id}>{c.legal_name || c.name}{c.tax_id ? ` · ${c.tax_id}` : ''}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {invoice.company_property_mismatch && (
+                        <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                          ⚠ This company is not normally billed for {invoice.hotel_id || 'this property'} — please confirm.
+                        </p>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Cost centre</Label>
+                        <Select
+                          value={invoice.cost_centre_id ?? 'none'}
+                          disabled={!canEdit}
+                          onValueChange={(v) => update({ cost_centre_id: v === 'none' ? null : v })}
+                        >
+                          <SelectTrigger><SelectValue placeholder="Not assigned" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Not assigned</SelectItem>
+                            {costCentres.map(c => (
+                              <SelectItem key={c.id} value={c.id}>{c.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">{t('pi.field.category')}</Label>
+                        <Select
+                          value={invoice.expense_category_id ?? 'none'}
+                          disabled={!canEdit}
+                          onValueChange={(v) => {
+                            const cat = categories.find(c => c.id === v);
+                            update({ expense_category_id: v === 'none' ? null : v, expense_category: cat?.label ?? invoice.expense_category });
+                          }}
+                        >
+                          <SelectTrigger><SelectValue placeholder="Uncategorized" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Uncategorized</SelectItem>
+                            {categories.map(c => (
+                              <SelectItem key={c.id} value={c.id}>{c.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {!invoice.expense_category_id && invoice.expense_category && (
+                          <p className="text-[11px] text-muted-foreground truncate">AI suggested: {invoice.expense_category}</p>
+                        )}
+                      </div>
+                    </div>
                   </div>
+                  <Field label="Payment method" value={invoice.payment_method} onChange={v => update({ payment_method: v })} disabled={!canEdit} />
                   <Field label="Notes" value={invoice.notes} onChange={v => update({ notes: v })} disabled={!canEdit} />
+
                 </TabsContent>
 
                 <TabsContent value="vat" className="flex-1 min-h-0 overflow-y-auto px-4 py-3 mt-0">
