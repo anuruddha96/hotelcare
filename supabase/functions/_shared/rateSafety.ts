@@ -118,19 +118,45 @@ export async function assertExactRateMappings(
  */
 export function repairLadder(
   levels: Array<{ occupancy: number; price: number }>,
+  step = 0,
 ): Map<number, number> {
   const sorted = [...levels].sort((a, b) => a.occupancy - b.occupancy);
   const out = new Map<number, number>();
+  const gap = Math.max(0, Math.round(step));
   let runningMax = -Infinity;
+  let previousOccupancy: number | null = null;
   for (const level of sorted) {
     const price = Number(level.price);
     if (!Number.isFinite(price)) continue;
-    const target = Math.max(price, runningMax === -Infinity ? price : runningMax);
+    const occupancy = Number(level.occupancy);
+    // More guests must cost more, not the same: the required step is applied
+    // per guest level, so a repaired ladder never repeats one number.
+    const required = runningMax === -Infinity
+      ? price
+      : runningMax + gap * Math.max(1, occupancy - (previousOccupancy ?? occupancy));
+    const target = Math.max(price, required);
     runningMax = target;
-    out.set(Number(level.occupancy), Math.round(target));
+    previousOccupancy = occupancy;
+    out.set(occupancy, Math.round(target));
   }
   return out;
 }
+
+/** Minimum price difference between one guest count and the next. */
+export async function loadGuestStep(admin: any, hotelId: string): Promise<number> {
+  try {
+    const { data } = await admin
+      .from("hotel_revenue_settings")
+      .select("extra_guest_supplement_eur")
+      .eq("hotel_id", hotelId)
+      .maybeSingle();
+    const value = Number((data as any)?.extra_guest_supplement_eur);
+    return Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;
+  } catch {
+    return 0;
+  }
+}
+
 
 /**
  * Merge the pending changes with the stored ladder and return the extra sibling
