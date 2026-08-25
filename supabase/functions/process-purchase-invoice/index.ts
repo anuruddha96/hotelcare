@@ -149,6 +149,17 @@ Deno.serve(async (req) => {
     const b64 = ab2b64(buf);
     const mime = isPdf ? "application/pdf" : (invoice.file_mime || "image/jpeg");
     const dataUrl = `data:${mime};base64,${b64}`;
+    // PDFs must go in as a file part — image_url only accepts images.
+    const documentPart = isPdf
+      ? {
+          type: "file",
+          file: {
+            filename: (invoice.file_path.split("/").pop() || "invoice") .replace(/[^\w.\-]/g, "_"),
+            file_data: dataUrl,
+          },
+        }
+      : { type: "image_url", image_url: { url: dataUrl } };
+
 
     const systemPrompt = `You are an OCR + invoice parsing engine specialized in Hungarian invoices and receipts.
 You MUST call the tool 'return_invoice' with the extracted structured data. Never reply with free text.
