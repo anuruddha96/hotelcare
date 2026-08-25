@@ -281,6 +281,12 @@ export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props
             {!canEdit && invoice && (
               <Badge variant="secondary" className="ml-1 text-[10px]">Read-only</Badge>
             )}
+            {locked && (
+              <Badge variant="secondary" className="ml-1 gap-1 text-[10px]">
+                <Lock className="h-3 w-3" />Approved · locked
+              </Badge>
+
+            )}
           </DialogTitle>
         </DialogHeader>
 
