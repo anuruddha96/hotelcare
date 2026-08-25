@@ -1634,7 +1634,9 @@ export default function RateStrategyGrid({
           const note = queueNote(result);
           if (note) toast.info(note);
         }
-
+        // Pull the republished per-occupancy prices back in once Previo has
+        // taken them, so no cell keeps showing an optimistic value.
+        scheduleRatesReload();
 
         // 2. The change dots come from the audit trail, so write it right away.
         void logRateChanges({
@@ -1653,7 +1655,7 @@ export default function RateStrategyGrid({
         toast.error(e instanceof Error ? e.message : "Could not send the prices to Previo");
       }
     })();
-  }, [hotelId, organizationSlug, reloadAudit]);
+  }, [hotelId, organizationSlug, reloadAudit, scheduleRatesReload]);
 
   /** Publish one or many absolute target prices without blocking on Previo. */
   async function saveDraft() {
