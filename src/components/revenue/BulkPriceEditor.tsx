@@ -377,7 +377,15 @@ export default function BulkPriceEditor({
                     onClick={() => setMode(m)}>{label}</Button>
                 ))}
               </div>
+              {mode === "set" && (
+                <label className="flex items-start gap-2 pt-1 text-[11px] text-muted-foreground">
+                  <input type="checkbox" className="mt-0.5 h-3.5 w-3.5" checked={keepShape}
+                    onChange={(e) => setKeepShape(e.target.checked)} />
+                  Keep room and guest differences
+                </label>
+              )}
             </div>
+
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">
                 {mode === "percent" ? "Percent (− lowers)" : mode === "round" ? "Not used" : `Amount in ${cur.code}`}
