@@ -405,6 +405,8 @@ export async function liftHigherRooms(
   if (rooms.length < 2 || orders.size < 2) return [];
 
   const stored = await loadStoredRates(admin, hotelId, changes);
+  const roomStep = await loadGuestStep(admin, hotelId);
+
   const before = new Map<string, number>();
   for (const row of stored) {
     before.set(cellKey(row.stay_date, row.room_type_name, Number(row.occupancy)), Number(row.price));
