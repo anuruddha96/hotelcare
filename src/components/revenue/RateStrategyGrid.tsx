@@ -3707,6 +3707,17 @@ export default function RateStrategyGrid({
                     <SelectItem value="round">Only round the prices</SelectItem>
                   </SelectContent>
                 </Select>
+                {dayMode === "set" && (
+                  <label className="flex items-start gap-2 pt-1 text-[11px] text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-3.5 w-3.5"
+                      checked={keepShape}
+                      onChange={(e) => setKeepShape(e.target.checked)}
+                    />
+                    Keep room and guest differences (the price applies to the cheapest cell)
+                  </label>
+                )}
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">
