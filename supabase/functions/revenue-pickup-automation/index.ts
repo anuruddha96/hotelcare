@@ -2364,10 +2364,12 @@ Deno.serve(async (req) => {
 
 
       const failedCount = Math.max(0, changed.filter((c) => c.status === "failed").length);
+      // Engine work already announced above is not counted twice.
+      const engineExtra = engineReported ? 0 : engineWork;
 
       // Durable history so a person who was away still learns what the engine
       // did. Routine "nothing happened" automatic checks stay silent.
-      if (changed.length > 0 || failedCount > 0 || engineWork > 0) {
+      if (changed.length > 0 || failedCount > 0 || engineExtra > 0) {
         const { error: notifErr } = await admin.from("revenue_automation_notifications").insert({
           hotel_id: rule.hotel_id,
           organization_slug: rule.organization_slug,
@@ -2378,12 +2380,12 @@ Deno.serve(async (req) => {
           rule_id: rule.id,
           action_ids: insertedActionIds,
           pickups_count: events.length,
-          actions_count: inserted + engineWork,
+          actions_count: inserted + engineExtra,
           pushed_count: 0,
           failed_count: failedCount,
           currency: rule.currency ?? "EUR",
           severity: failedCount > 0 ? "warning" : "info",
-          summary: `${queued + engineWork} prices queued safely · ${failedCount} failed${engineParts.length > 0 ? ` · ${engineParts.join(" · ")}` : ""}`,
+          summary: `${queued + engineExtra} prices queued safely · ${failedCount} failed${engineExtra > 0 && engineParts.length > 0 ? ` · ${engineParts.join(" · ")}` : ""}`,
           changes: changed,
         });
         if (notifErr) console.error("notification insert failed", notifErr);
