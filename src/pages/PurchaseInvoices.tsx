@@ -929,7 +929,66 @@ export default function PurchaseInvoices() {
               </Card>
             </TabsContent>
           )}
+
+          {canSeeQueue && (
+            <TabsContent value="approvals" className="space-y-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <ShieldCheck className="h-4 w-4 text-primary" />Waiting for approval
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    {financeAccess.canApprove
+                      ? 'Open an invoice to approve, reject or return it for correction.'
+                      : 'Only controllers can approve. You can still review the data and submit corrections.'}
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {pendingApproval.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-6 text-center">Nothing is waiting for approval.</p>
+                  ) : pendingApproval.map(inv => {
+                    const days = Math.floor((Date.now() - new Date(inv.submitted_at || inv.created_at).getTime()) / 864e5);
+                    return (
+                      <button
+                        key={inv.id}
+                        onClick={() => setVerifyId(inv.id)}
+                        className="w-full text-left rounded-md border p-3 hover:bg-accent/50 transition-colors flex items-center gap-3"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium truncate">
+                            {inv.merchant_name || '—'}
+                            {inv.is_credit_note && <Badge variant="outline" className="ml-2 text-[10px]">Credit note</Badge>}
+                            {inv.duplicate_status === 'suspected' && (
+                              <Badge variant="destructive" className="ml-2 text-[10px]">Possible duplicate</Badge>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground truncate">
+                            {inv.invoice_number || 'no number'} · {inv.invoice_date || '—'} · {inv.buyer_name || 'no entity'}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-sm font-semibold tabular-nums">
+                            {inv.total_amount != null ? `${Math.round(inv.total_amount).toLocaleString()} ${inv.currency || 'HUF'}` : '—'}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground flex items-center gap-1 justify-end">
+                            <Clock className="h-3 w-3" />{days}d · {workflowLabel(inv)}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+
+          {financeAccess.canManageFinance && (
+            <TabsContent value="settings">
+              <InvoiceSettingsPanel />
+            </TabsContent>
+          )}
         </Tabs>
+
       </div>
       <VerifyInvoiceDialog
         invoiceId={verifyId}
