@@ -19,7 +19,9 @@ import { toast } from 'sonner';
 import {
   Camera, Upload, Receipt, BarChart3, Download, Loader2, ShieldAlert,
   CheckCircle, AlertCircle, FileText, RefreshCw, AlertTriangle, Trash2, Eye,
+  ShieldCheck, Settings, Clock,
 } from 'lucide-react';
+
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
