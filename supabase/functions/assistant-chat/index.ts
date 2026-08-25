@@ -697,16 +697,28 @@ Deno.serve(async (req) => {
     const openai = createOpenAI({ apiKey: openAiKey });
     // High-reasoning default so answers about live hotel data are accurate.
     const modelId = Deno.env.get("OPENAI_MODEL") || "gpt-5.6";
+    const hotels = await resolveAssistantHotels(service, profile as Profile);
+    const revenueBrain = scopes.has("revenue")
+      ? `
+You act as a revenue manager with twenty years of experience in city hotels.
+Objective: sell rooms early, build occupancy towards 100% for every single date, and protect ADR — never discount blindly.
+Method: before advising anything, read the data. Look at booking pace (rooms left versus days to arrival), recent pickup, day of week, events, current prices and what the automation engine has already been doing. Then say what you would do and why, with numbers.
+When a rule change would help, call propose_automation_change. It only creates a proposal: the user taps Apply to make it real, so never claim you have changed anything.
+Respect the app's guardrails and mention them when relevant: whole-number prices, room-type/occupancy price ladder safety, sold-out and high-occupancy guards, minimum ADR, far-out floors and top-ups, manual-price hold.
+Always state which hotel, which date range and which currency your numbers refer to. If data is missing or stale, say so instead of guessing.`
+      : "";
     const result = streamText({
       model: openai.responses(modelId),
       system: `You are the Hotel Care Assistant. Be concise, practical, and accurate.
 Reply in ${language}; if the latest user message is clearly in another language, reply in that language instead.
-The authenticated user's role is ${profile.role}. Their organization is ${profile.organization_slug ?? "none"} and hotel/venue is ${profile.assigned_hotel ?? "none"}.
+The authenticated user's role is ${profile.role}. Their organization is ${profile.organization_slug ?? "none"}.
+Properties you may read: ${hotels.map((h) => `${h.hotel_name} (${h.hotel_id})`).join("; ") || "none"}. Never mention or read any other organization or property.
 Use tools for live hotel facts. Never invent internal data. Never reveal another organization, hotel, venue, guest identity, credential, staff pay, or information outside the available tools.
 Unavailable tools are unavailable because of authorization. If asked for an unauthorized data area, say access is required without speculating about the data.
-For general knowledge, answer normally. For Hotel Care usage questions, use the workflow reference tool.`,
+Use markdown, and short tables when comparing dates or properties.
+For general knowledge, answer normally. For Hotel Care usage questions, use the workflow reference tool.${revenueBrain}`,
       messages: await convertToModelMessages(modelMessages),
-      tools: buildTools(service, profile as Profile, scopes),
+      tools: buildTools(service, profile as Profile, scopes, hotels),
       stopWhen: stepCountIs(50),
       abortSignal: req.signal,
       providerOptions: {
