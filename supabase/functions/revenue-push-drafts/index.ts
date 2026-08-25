@@ -268,14 +268,32 @@ Deno.serve(async (req) => {
         const keptIds = new Set(kept.map((change: any) => change.id));
         const blocked = (drafts as any[]).filter((draft) => !keptIds.has(draft.id));
         console.log(`[safety] ${hotelId} dropped ${blocked.length} draft(s) that would deepen a room-order inversion`);
-        for (let i = 0; i < blocked.length; i += 300) {
-          await admin.from("revenue_rate_drafts").update({
-            status: "failed",
-            confirmation_status: "blocked",
-            push_error: dropped[0]?.reason ?? "Blocked by the room price order guard.",
-          }).in("id", blocked.slice(i, i + 300).map((draft) => draft.id));
+        // Each blocked draft carries the reason for its own date and room type.
+        // Copying the first reason onto every row made the whole list look like
+        // one date's problem and hid what actually needs fixing.
+        const reasonById = new Map<string, string>();
+        for (const entry of dropped) {
+          const id = (entry.change as any)?.id;
+          if (id) reasonById.set(String(id), entry.reason);
+        }
+        const groups = new Map<string, string[]>();
+        for (const draft of blocked) {
+          const reason = (reasonById.get(String(draft.id)) ?? "Blocked by the room price order guard.").slice(0, 500);
+          const list = groups.get(reason) ?? [];
+          list.push(draft.id);
+          groups.set(reason, list);
+        }
+        for (const [reason, ids] of groups) {
+          for (let i = 0; i < ids.length; i += 300) {
+            await admin.from("revenue_rate_drafts").update({
+              status: "failed",
+              confirmation_status: "blocked",
+              push_error: reason,
+            }).in("id", ids.slice(i, i + 300));
+          }
         }
       }
+
       drafts = kept as any[];
     }
     if (drafts.length === 0) {
