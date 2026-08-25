@@ -154,13 +154,20 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
     let cancelled = false;
     void (async () => {
       const today = budapestToday();
-      const end = horizonEnd ?? today;
+      // The comparison tiles report the whole selected calendar month, so the
+      // window starts at the month opening rather than today — otherwise the
+      // sister properties showed 0% for a month already under way. The horizon
+      // end falls back to a fixed window so the lines paint before the grid
+      // metrics have finished loading.
+      const monthStart = `${selectedMonth}-01`;
+      const from = monthStart < today ? monthStart : today;
+      const end = horizonEnd ?? new Date(Date.now() + 190 * 86400000).toISOString().slice(0, 10);
       // One server-side call collapses every property to its newest capture per
       // stay date. The old client-side paging pulled tens of thousands of raw
       // snapshot rows and left the sister properties reading 0% for seconds.
       const { data, error } = await supabase.rpc("revenue_portfolio_latest_snapshots", {
         _hotel_ids: hotelIds,
-        _from: today,
+        _from: from,
         _to: end,
       });
       if (cancelled) return;
@@ -171,7 +178,8 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idsKey, horizonEnd]);
+  }, [idsKey, horizonEnd, selectedMonth]);
+
 
   /** Newest capture wins per hotel + stay date. */
   const latestByHotelDate = useMemo(() => {
