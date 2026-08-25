@@ -88,7 +88,33 @@ function detectRequestedScope(question: string): Scope | null {
   return null;
 }
 
-function buildTools(service: any, profile: Profile, scopes: Set<Scope>) {
+function hotelArgSchema(extra: Record<string, unknown>, required: string[]) {
+  return {
+    type: "object",
+    properties: {
+      hotelId: { type: ["string", "null"], description: "One of the user's hotel ids, or null for all of them" },
+      ...extra,
+    },
+    required: ["hotelId", ...required],
+    additionalProperties: false,
+  } as const;
+}
+
+function buildTools(
+  service: any,
+  profile: Profile,
+  scopes: Set<Scope>,
+  hotels: AssistantHotel[],
+) {
+  const orgSlug = profile.organization_slug;
+  const hotelIds = hotels.map((h) => h.hotel_id);
+  const today = () => new Date().toISOString().slice(0, 10);
+  const resolve = (requested: string | null | undefined) => {
+    const picked = pickHotels(hotels, requested);
+    if (!picked.ok) throw new Error(picked.error);
+    return picked.hotels.map((h) => h.hotel_id);
+  };
+
   const tools: Record<string, any> = {
     get_context_now: tool({
       description: "Get the current date and time in the hotel's Budapest timezone.",
@@ -105,6 +131,11 @@ function buildTools(service: any, profile: Profile, scopes: Set<Scope>) {
         };
       },
     }),
+    get_my_properties: tool({
+      description: "List the hotels/venues this user is allowed to see. Always call this before comparing properties.",
+      inputSchema: jsonSchema<Record<string, never>>({ type: "object", properties: {}, required: [], additionalProperties: false }),
+      execute: async () => ({ organization: orgSlug, hotels }),
+    }),
     get_app_howto: tool({
       description: "Read the Hotel Care workflow reference when the user asks how to use the app.",
       inputSchema: jsonSchema<{ topic: string }>({
@@ -119,68 +150,305 @@ function buildTools(service: any, profile: Profile, scopes: Set<Scope>) {
 
   if (scopes.has("revenue")) {
     tools.get_revenue_metrics = tool({
-      description: "Read revenue metrics for dates inside the user's authorized hotel and organization only.",
-      inputSchema: jsonSchema<{ startDate: string | null; endDate: string | null }>({
-        type: "object",
-        properties: {
-          startDate: { type: ["string", "null"], description: "YYYY-MM-DD or null" },
-          endDate: { type: ["string", "null"], description: "YYYY-MM-DD or null" },
-        },
-        required: ["startDate", "endDate"],
-        additionalProperties: false,
-      }),
-      execute: async ({ startDate, endDate }) => {
-        const today = new Date().toISOString().slice(0, 10);
-        const from = startDate ?? today;
+      description:
+        "Revenue metrics (occupancy, ADR, revenue, rooms sold/available) per stay date for one or all of the user's hotels.",
+      inputSchema: jsonSchema<{ hotelId: string | null; startDate: string | null; endDate: string | null }>(
+        hotelArgSchema(
+          {
+            startDate: { type: ["string", "null"], description: "YYYY-MM-DD or null for today" },
+            endDate: { type: ["string", "null"], description: "YYYY-MM-DD or null for the same day" },
+          },
+          ["startDate", "endDate"],
+        ),
+      ),
+      execute: async ({ hotelId, startDate, endDate }) => {
+        const ids = resolve(hotelId);
+        const from = startDate ?? today();
         const to = endDate ?? from;
-        let query = service
+        const { data, error } = await service
           .from("revenue_daily_snapshots")
-          .select("stay_date,captured_date,occupancy_pct,adr_eur,revenue_eur,rooms_sold,rooms_available")
+          .select("hotel_id,stay_date,captured_date,occupancy_pct,adr_eur,revenue_eur,rooms_sold,rooms_available")
           .gte("stay_date", from)
           .lte("stay_date", to)
-          .eq("organization_slug", profile.organization_slug)
-          .eq("hotel_id", profile.assigned_hotel)
+          .eq("organization_slug", orgSlug)
+          .in("hotel_id", ids)
           .order("stay_date")
-          .limit(370);
-        const { data, error } = await query;
+          .order("captured_date", { ascending: false })
+          .limit(4000);
         if (error) throw new Error(`Revenue lookup failed: ${error.message}`);
-        return { from, to, rows: data ?? [] };
+        // Newest capture per hotel + stay date.
+        const latest = new Map<string, any>();
+        for (const row of data ?? []) {
+          const key = `${row.hotel_id}|${row.stay_date}`;
+          if (!latest.has(key)) latest.set(key, row);
+        }
+        return { from, to, hotels: ids, rows: [...latest.values()] };
       },
     });
+
+    tools.get_pickup_and_pace = tool({
+      description:
+        "Booking pace: rooms sold vs available by stay date plus the automation engine's recorded pickup actions, so you can judge whether a date is pacing ahead or behind.",
+      inputSchema: jsonSchema<{ hotelId: string | null; days: number | null }>(
+        hotelArgSchema({ days: { type: ["number", "null"], description: "Horizon in days from today, default 60, max 365" } }, ["days"]),
+      ),
+      execute: async ({ hotelId, days }) => {
+        const ids = resolve(hotelId);
+        const horizon = Math.min(Math.max(Number(days ?? 60), 1), 365);
+        const from = today();
+        const to = new Date(Date.now() + horizon * 86_400_000).toISOString().slice(0, 10);
+        const [snapshots, actions] = await Promise.all([
+          service
+            .from("revenue_daily_snapshots")
+            .select("hotel_id,stay_date,captured_date,rooms_sold,rooms_available,occupancy_pct,adr_eur")
+            .eq("organization_slug", orgSlug)
+            .in("hotel_id", ids)
+            .gte("stay_date", from)
+            .lte("stay_date", to)
+            .order("stay_date")
+            .order("captured_date", { ascending: false })
+            .limit(6000),
+          service
+            .from("revenue_pickup_actions")
+            .select("hotel_id,stay_date,trigger_kind,trigger_detail,delta_eur,old_price,new_price,occurred_at")
+            .eq("organization_slug", orgSlug)
+            .in("hotel_id", ids)
+            .gte("stay_date", from)
+            .lte("stay_date", to)
+            .order("occurred_at", { ascending: false })
+            .limit(300),
+        ]);
+        if (snapshots.error) throw new Error(`Pace lookup failed: ${snapshots.error.message}`);
+        if (actions.error) throw new Error(`Pickup action lookup failed: ${actions.error.message}`);
+        const latest = new Map<string, any>();
+        for (const row of snapshots.data ?? []) {
+          const key = `${row.hotel_id}|${row.stay_date}`;
+          if (!latest.has(key)) latest.set(key, row);
+        }
+        const pace = [...latest.values()].map((r) => ({
+          hotel_id: r.hotel_id,
+          stay_date: r.stay_date,
+          rooms_sold: r.rooms_sold,
+          rooms_available: r.rooms_available,
+          rooms_left: Number(r.rooms_available ?? 0) - Number(r.rooms_sold ?? 0),
+          occupancy_pct: r.occupancy_pct,
+          adr_eur: r.adr_eur,
+        }));
+        return { from, to, pace, recentPickupActions: actions.data ?? [] };
+      },
+    });
+
+    tools.get_rate_calendar = tool({
+      description:
+        "Current prices, min-stay and restrictions per stay date, room type and occupancy as last captured from the PMS.",
+      inputSchema: jsonSchema<{ hotelId: string | null; startDate: string | null; endDate: string | null }>(
+        hotelArgSchema(
+          {
+            startDate: { type: ["string", "null"], description: "YYYY-MM-DD or null for today" },
+            endDate: { type: ["string", "null"], description: "YYYY-MM-DD or null for 30 days out" },
+          },
+          ["startDate", "endDate"],
+        ),
+      ),
+      execute: async ({ hotelId, startDate, endDate }) => {
+        const ids = resolve(hotelId);
+        const from = startDate ?? today();
+        const to = endDate ?? new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+        const { data, error } = await service
+          .from("revenue_room_type_rates")
+          .select("hotel_id,stay_date,room_type_name,occupancy,price,currency,min_stay,closed_to_arrival,captured_at")
+          .eq("organization_slug", orgSlug)
+          .in("hotel_id", ids)
+          .gte("stay_date", from)
+          .lte("stay_date", to)
+          .order("stay_date")
+          .limit(4000);
+        if (error) throw new Error(`Rate lookup failed: ${error.message}`);
+        return { from, to, rates: data ?? [] };
+      },
+    });
+
+    tools.get_automation_rules = tool({
+      description:
+        "Read the current revenue pickup automation configuration for the user's hotels, including the last run status and error.",
+      inputSchema: jsonSchema<{ hotelId: string | null }>(hotelArgSchema({}, [])),
+      execute: async ({ hotelId }) => {
+        const ids = resolve(hotelId);
+        const { data, error } = await service
+          .from("revenue_pickup_automation_rules")
+          .select("*")
+          .eq("organization_slug", orgSlug)
+          .in("hotel_id", ids)
+          .limit(50);
+        if (error) throw new Error(`Automation rule lookup failed: ${error.message}`);
+        return {
+          changeableFields: Object.entries(AUTOMATION_FIELDS).map(([field, spec]) => ({
+            field,
+            label: spec.label,
+            ...(spec.kind === "number" ? { min: spec.min, max: spec.max } : { type: "boolean" }),
+          })),
+          rules: data ?? [],
+        };
+      },
+    });
+
+    tools.get_automation_activity = tool({
+      description:
+        "Recent automation decisions: what the engine changed, for which stay date and room type, why, and whether the push succeeded.",
+      inputSchema: jsonSchema<{ hotelId: string | null; limit: number | null }>(
+        hotelArgSchema({ limit: { type: ["number", "null"], description: "Rows to return, default 50, max 200" } }, ["limit"]),
+      ),
+      execute: async ({ hotelId, limit }) => {
+        const ids = resolve(hotelId);
+        const take = Math.min(Math.max(Number(limit ?? 50), 1), 200);
+        const { data, error } = await service
+          .from("revenue_pickup_automation_actions")
+          .select(
+            "hotel_id,stay_date,room_type_name,occupancy,old_price,new_price,increase_amount,decision_type,decision_reason,reason_detail,net_pickup,status,push_error,created_at",
+          )
+          .eq("organization_slug", orgSlug)
+          .in("hotel_id", ids)
+          .order("created_at", { ascending: false })
+          .limit(take);
+        if (error) throw new Error(`Automation activity lookup failed: ${error.message}`);
+        return { actions: data ?? [] };
+      },
+    });
+
+    tools.get_demand_context = tool({
+      description: "Events and demand ratings for a date range, to justify surcharges or markdowns.",
+      inputSchema: jsonSchema<{ hotelId: string | null; startDate: string | null; endDate: string | null }>(
+        hotelArgSchema(
+          {
+            startDate: { type: ["string", "null"], description: "YYYY-MM-DD or null for today" },
+            endDate: { type: ["string", "null"], description: "YYYY-MM-DD or null for 90 days out" },
+          },
+          ["startDate", "endDate"],
+        ),
+      ),
+      execute: async ({ hotelId, startDate, endDate }) => {
+        const ids = resolve(hotelId);
+        const from = startDate ?? today();
+        const to = endDate ?? new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
+        const [events, ratings] = await Promise.all([
+          service
+            .from("demand_events")
+            .select("hotel_id,title,category,city,event_date,end_date,expected_impact,surcharge_eur,confidence,approved")
+            .eq("organization_slug", orgSlug)
+            .in("hotel_id", ids)
+            .gte("event_date", from)
+            .lte("event_date", to)
+            .order("event_date")
+            .limit(400),
+          service
+            .from("revenue_demand_ratings")
+            .select("hotel_id,stay_date,rating,reason,event_name")
+            .eq("organization_slug", orgSlug)
+            .in("hotel_id", ids)
+            .gte("stay_date", from)
+            .lte("stay_date", to)
+            .order("stay_date")
+            .limit(400),
+        ]);
+        if (events.error) throw new Error(`Event lookup failed: ${events.error.message}`);
+        if (ratings.error) throw new Error(`Demand rating lookup failed: ${ratings.error.message}`);
+        return { from, to, events: events.data ?? [], ratings: ratings.data ?? [] };
+      },
+    });
+
+    if (canChangeAutomation(profile.role)) {
+      tools.propose_automation_change = tool({
+        description:
+          "Propose a change to a hotel's revenue automation configuration. This DOES NOT change anything: it returns a before/after diff the user must approve with the Apply button. Call it after you have read the current rules and the supporting data, and explain your reasoning in the message.",
+        inputSchema: jsonSchema<{ hotelId: string; changes: Record<string, unknown>; reason: string }>({
+          type: "object",
+          properties: {
+            hotelId: { type: "string", description: "The hotel id the change applies to" },
+            reason: { type: "string", description: "Why this change helps occupancy or ADR, in one or two sentences" },
+            changes: {
+              type: "object",
+              description: "Map of allowed rule field -> new value. Read get_automation_rules for the allowed fields.",
+              additionalProperties: true,
+            },
+          },
+          required: ["hotelId", "changes", "reason"],
+          additionalProperties: false,
+        }),
+        execute: async ({ hotelId, changes, reason }) => {
+          const ids = resolve(hotelId);
+          if (ids.length !== 1) throw new Error("Name exactly one hotel for an automation change");
+          const validated = validateChanges(changes);
+          if (!validated.ok) throw new Error(validated.error);
+          const { data: rule, error } = await service
+            .from("revenue_pickup_automation_rules")
+            .select("*")
+            .eq("organization_slug", orgSlug)
+            .eq("hotel_id", ids[0])
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (error) throw new Error(`Automation rule lookup failed: ${error.message}`);
+          if (!rule) throw new Error(`No automation configuration exists yet for ${ids[0]}`);
+          const diff = validated.changes
+            .map((change) => ({
+              field: change.field,
+              label: change.label,
+              from: rule[change.field] ?? null,
+              to: change.value,
+            }))
+            .filter((row) => String(row.from) !== String(row.to));
+          if (!diff.length) throw new Error("Those values are already configured — nothing to change");
+          return {
+            kind: "automation_change_proposal",
+            ruleId: rule.id,
+            hotelId: ids[0],
+            hotelName: hotels.find((h) => h.hotel_id === ids[0])?.hotel_name ?? ids[0],
+            currency: rule.currency ?? "EUR",
+            reason,
+            diff,
+            requiresApproval: true,
+          };
+        },
+      });
+    }
   }
 
   if (scopes.has("revenue") || scopes.has("reception")) {
     tools.get_occupancy = tool({
       description:
-        "Occupancy for a date or date range in the user's authorized hotel: rooms sold, rooms available and occupancy percentage. Use this whenever occupancy is asked about.",
-      inputSchema: jsonSchema<{ startDate: string | null; endDate: string | null }>({
-        type: "object",
-        properties: {
-          startDate: { type: ["string", "null"], description: "YYYY-MM-DD or null for today" },
-          endDate: { type: ["string", "null"], description: "YYYY-MM-DD or null for the same day" },
-        },
-        required: ["startDate", "endDate"],
-        additionalProperties: false,
-      }),
-      execute: async ({ startDate, endDate }) => {
-        const today = new Date().toISOString().slice(0, 10);
-        const from = startDate ?? today;
+        "Occupancy for a date or date range: rooms sold, rooms available and occupancy percentage. Use this whenever occupancy is asked about.",
+      inputSchema: jsonSchema<{ hotelId: string | null; startDate: string | null; endDate: string | null }>(
+        hotelArgSchema(
+          {
+            startDate: { type: ["string", "null"], description: "YYYY-MM-DD or null for today" },
+            endDate: { type: ["string", "null"], description: "YYYY-MM-DD or null for the same day" },
+          },
+          ["startDate", "endDate"],
+        ),
+      ),
+      execute: async ({ hotelId, startDate, endDate }) => {
+        const ids = resolve(hotelId);
+        const from = startDate ?? today();
         const to = endDate ?? from;
         const { data, error } = await service
           .from("revenue_daily_snapshots")
-          .select("stay_date,captured_date,occupancy_pct,rooms_sold,rooms_available")
+          .select("hotel_id,stay_date,captured_date,occupancy_pct,rooms_sold,rooms_available")
           .gte("stay_date", from)
           .lte("stay_date", to)
-          .eq("organization_slug", profile.organization_slug)
-          .eq("hotel_id", profile.assigned_hotel)
+          .eq("organization_slug", orgSlug)
+          .in("hotel_id", ids)
           .order("stay_date")
           .order("captured_date", { ascending: false })
-          .limit(2000);
+          .limit(6000);
         if (error) throw new Error(`Occupancy lookup failed: ${error.message}`);
-        // Keep only the newest capture per stay date so figures are current.
+        // Keep only the newest capture per hotel + stay date so figures are current.
         const latest = new Map<string, any>();
-        for (const row of data ?? []) if (!latest.has(row.stay_date)) latest.set(row.stay_date, row);
+        for (const row of data ?? []) {
+          const key = `${row.hotel_id}|${row.stay_date}`;
+          if (!latest.has(key)) latest.set(key, row);
+        }
         const days = [...latest.values()].map((r) => ({
+          hotel_id: r.hotel_id,
           stay_date: r.stay_date,
           rooms_sold: r.rooms_sold,
           rooms_available: r.rooms_available,
@@ -206,15 +474,17 @@ function buildTools(service: any, profile: Profile, scopes: Set<Scope>) {
 
   if (scopes.has("housekeeping")) {
     tools.get_housekeeping_status = tool({
-      description: "Read room status and today's assignments inside the user's authorized hotel and organization only.",
-      inputSchema: jsonSchema<Record<string, never>>({ type: "object", properties: {}, required: [], additionalProperties: false }),
-      execute: async () => {
+      description: "Read room status and today's assignments inside the user's authorized hotels and organization only.",
+      inputSchema: jsonSchema<{ hotelId: string | null }>(hotelArgSchema({}, [])),
+      execute: async ({ hotelId }) => {
+        const ids = resolve(hotelId);
+        const names = hotels.filter((h) => ids.includes(h.hotel_id)).map((h) => h.hotel_name);
         const roomsQuery = service
           .from("rooms")
-          .select("id,room_number,status")
-          .eq("organization_slug", profile.organization_slug)
-          .eq("hotel", profile.assigned_hotel)
-          .limit(500);
+          .select("id,room_number,status,hotel")
+          .eq("organization_slug", orgSlug)
+          .in("hotel", [...new Set([...ids, ...names])])
+          .limit(2000);
         const rooms = await roomsQuery;
         if (rooms.error) throw new Error(`Room lookup failed: ${rooms.error.message}`);
         const roomIds = (rooms.data ?? []).map((room: any) => room.id);
@@ -222,10 +492,10 @@ function buildTools(service: any, profile: Profile, scopes: Set<Scope>) {
           ? await service
               .from("room_assignments")
               .select("id,room_id,assigned_to,status,started_at,completed_at")
-              .eq("organization_slug", profile.organization_slug)
+              .eq("organization_slug", orgSlug)
               .in("room_id", roomIds)
-              .eq("assignment_date", new Date().toISOString().slice(0, 10))
-              .limit(500)
+              .eq("assignment_date", today())
+              .limit(2000)
           : { data: [], error: null };
         if (assignments.error) throw new Error(`Assignment lookup failed: ${assignments.error.message}`);
         const counts: Record<string, number> = {};
@@ -237,21 +507,20 @@ function buildTools(service: any, profile: Profile, scopes: Set<Scope>) {
 
   if (scopes.has("maintenance")) {
     tools.get_maintenance_tickets = tool({
-      description: "Read maintenance tickets inside the user's authorized hotel and organization only.",
-      inputSchema: jsonSchema<{ status: string | null }>({
-        type: "object",
-        properties: { status: { type: ["string", "null"], description: "open, in_progress, completed, or null" } },
-        required: ["status"],
-        additionalProperties: false,
-      }),
-      execute: async ({ status }) => {
+      description: "Read maintenance tickets inside the user's authorized hotels and organization only.",
+      inputSchema: jsonSchema<{ hotelId: string | null; status: string | null }>(
+        hotelArgSchema({ status: { type: ["string", "null"], description: "open, in_progress, completed, or null" } }, ["status"]),
+      ),
+      execute: async ({ hotelId, status }) => {
+        const ids = resolve(hotelId);
+        const names = hotels.filter((h) => ids.includes(h.hotel_id)).map((h) => h.hotel_name);
         let query = service
           .from("tickets")
-          .select("id,ticket_number,title,description,status,priority,room_number,sla_due_date,created_at")
-          .eq("organization_slug", profile.organization_slug)
-          .eq("hotel", profile.assigned_hotel)
+          .select("id,ticket_number,title,description,status,priority,room_number,hotel,sla_due_date,created_at")
+          .eq("organization_slug", orgSlug)
+          .in("hotel", [...new Set([...ids, ...names])])
           .order("created_at", { ascending: false })
-          .limit(100);
+          .limit(200);
         if (status) query = query.eq("status", status);
         const { data, error } = await query;
         if (error) throw new Error(`Maintenance lookup failed: ${error.message}`);
@@ -262,35 +531,34 @@ function buildTools(service: any, profile: Profile, scopes: Set<Scope>) {
 
   if (scopes.has("reception")) {
     tools.get_reception_overview = tool({
-      description: "Read arrivals, departures, room status, and breakfast counts inside the user's authorized hotel and organization only. Never returns guest personal details.",
-      inputSchema: jsonSchema<{ date: string | null }>({
-        type: "object",
-        properties: { date: { type: ["string", "null"], description: "YYYY-MM-DD or null for today" } },
-        required: ["date"],
-        additionalProperties: false,
-      }),
-      execute: async ({ date }) => {
-        const target = date ?? new Date().toISOString().slice(0, 10);
-        let reservationsQuery = service
+      description: "Read arrivals, departures and breakfast counts inside the user's authorized hotels and organization only. Never returns guest personal details.",
+      inputSchema: jsonSchema<{ hotelId: string | null; date: string | null }>(
+        hotelArgSchema({ date: { type: ["string", "null"], description: "YYYY-MM-DD or null for today" } }, ["date"]),
+      ),
+      execute: async ({ hotelId, date }) => {
+        const ids = resolve(hotelId);
+        const target = date ?? today();
+        const reservationsQuery = service
           .from("reservations")
-          .select("id,check_in_date,check_out_date,status")
-          .eq("organization_slug", profile.organization_slug)
-          .eq("hotel_id", profile.assigned_hotel)
+          .select("id,hotel_id,check_in_date,check_out_date,status")
+          .eq("organization_slug", orgSlug)
+          .in("hotel_id", ids)
           .or(`check_in_date.eq.${target},check_out_date.eq.${target}`)
-          .limit(500);
-        let breakfastQuery = service
+          .limit(2000);
+        const breakfastQuery = service
           .from("breakfast_roster")
-          .select("id,stay_date,breakfast_count")
-          .eq("organization_slug", profile.organization_slug)
-          .eq("hotel_id", profile.assigned_hotel)
+          .select("id,hotel_id,stay_date,breakfast_count")
+          .eq("organization_slug", orgSlug)
+          .in("hotel_id", ids)
           .eq("stay_date", target)
-          .limit(500);
+          .limit(2000);
         const [reservations, breakfast] = await Promise.all([reservationsQuery, breakfastQuery]);
         if (reservations.error) throw new Error(`Reservation lookup failed: ${reservations.error.message}`);
         if (breakfast.error) throw new Error(`Breakfast lookup failed: ${breakfast.error.message}`);
         const rows = reservations.data ?? [];
         return {
           date: target,
+          hotels: ids,
           arrivals: rows.filter((row: any) => row.check_in_date === target).length,
           departures: rows.filter((row: any) => row.check_out_date === target).length,
           breakfastCount: (breakfast.data ?? []).reduce(
@@ -302,8 +570,10 @@ function buildTools(service: any, profile: Profile, scopes: Set<Scope>) {
     });
   }
 
+  void hotelIds;
   return tools;
 }
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
