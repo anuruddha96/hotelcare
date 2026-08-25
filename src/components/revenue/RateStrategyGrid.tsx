@@ -1713,17 +1713,32 @@ export default function RateStrategyGrid({
   const dayToolChanges = useMemo(() => {
     if (!dayTool) return [] as Array<{ date: string; row: Extract<Row, { kind: "rate" }>; from: number | null; to: number }>;
     const out: Array<{ date: string; row: Extract<Row, { kind: "rate" }>; from: number | null; to: number }> = [];
-    for (const row of rateRows) {
-      if (dayTypes.size > 0 && !dayTypes.has(row.roomTypeName)) continue;
-      for (const d of dayToolDates) {
+    const rows = rateRows.filter((row) => dayTypes.size === 0 || dayTypes.has(row.roomTypeName));
+    const target = Number(dayValue);
+    const shapedSet = dayMode === "set" && keepShape && Number.isFinite(target) && target > 0;
+
+    for (const d of dayToolDates) {
+      // A fixed price prices the cheapest cell of the day; the rest of the day
+      // keeps its shape, so room and guest differences survive the edit.
+      const shaped = shapedSet
+        ? applyKeepingShape(
+          rows.map((row) => ({
+            key: `${row.obk}|${row.occ}`,
+            current: row.obk ? priceMap.get(row.obk)?.get(row.occ)?.get(d) ?? null : null,
+          })),
+          { target, step: Math.max(1, dayRound), supplement: guestStep },
+        )
+        : null;
+      for (const row of rows) {
         const current = row.obk ? priceMap.get(row.obk)?.get(row.occ)?.get(d) ?? null : null;
-        const next = dayToolNext(current);
+        const next = shaped ? shaped.get(`${row.obk}|${row.occ}`) ?? null : dayToolNext(current);
         if (next === null || (current !== null && Math.round(next) === Math.round(current))) continue;
         out.push({ date: d, row, from: current, to: next });
       }
     }
     return out;
-  }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext]);
+  }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext, dayMode, dayValue, dayRound, keepShape, guestStep]);
+
 
   /** Publish every change the day tool previews. */
   async function applyDayTool(_mode: "draft" | "push" = "push") {
