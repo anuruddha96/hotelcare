@@ -28,6 +28,13 @@ import {
   requestAssistantAccess,
   useAssistant,
 } from "@/hooks/useAssistant";
+import AutomationChangeCard, { isAutomationProposal } from "./AutomationChangeCard";
+
+const STARTER_PROMPTS = [
+  "How is the next 14 days pacing across my properties?",
+  "Which dates are at risk of not filling, and what would you change?",
+  "Review my automation rules and suggest one improvement.",
+];
 
 const SCOPE_LABEL: Record<string, string> = {
   revenue: "Revenue management",
