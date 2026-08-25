@@ -1797,37 +1797,47 @@ Deno.serve(async (req) => {
       if (topUpActions > 0) engineParts.push(`${topUpActions} floor top-up${topUpActions === 1 ? "" : "s"}`);
       if (ladderRepairActions > 0) engineParts.push(`${ladderRepairActions} ladder repair${ladderRepairActions === 1 ? "" : "s"}`);
 
-      if (pickups.length === 0) {
-        await admin.from("revenue_pickup_automation_rules").update({
-          last_run_at: runStartedAt,
-          last_evaluated_at: runStartedAt,
-          last_successful_evaluation_at: runStartedAt,
-          last_evaluation_status: "ok",
-          last_evaluation_error: null,
-          next_run_at: nextRunAt(now, intervalMinutes),
-        }).eq("id", rule.id);
+      // The engine passes are reported the moment they finish. The pickup pass
+      // below can be long, and when a run is cut short the operator must still
+      // see the work that already reached the queue — otherwise the inbox looks
+      // idle for hours while prices are moving.
+      let engineReported = false;
+      if (!dryRun && engineWork > 0) {
+        const { error: engineErr } = await admin.from("revenue_automation_notifications").insert({
+          hotel_id: rule.hotel_id,
+          organization_slug: rule.organization_slug,
+          notification_type: "pickup_automation",
+          run_source: isEngine ? "automatic" : "manual",
+          actor_name: isEngine ? "Automatic pricing" : (actorName ?? "Manual run"),
+          actor_user_id: isEngine ? null : actorUserId,
+          rule_id: rule.id,
+          action_ids: [],
+          pickups_count: 0,
+          actions_count: engineWork,
+          pushed_count: 0,
+          failed_count: 0,
+          currency: rule.currency ?? "EUR",
+          severity: "info",
+          summary: `${engineWork} price${engineWork === 1 ? "" : "s"} queued safely · ${engineParts.join(" · ")}`,
+          changes: [],
+        });
+        if (engineErr) console.error("engine notification insert failed", engineErr);
+        else engineReported = true;
+      }
 
-        if (!dryRun && engineWork > 0) {
-          const { error: engineErr } = await admin.from("revenue_automation_notifications").insert({
-            hotel_id: rule.hotel_id,
-            organization_slug: rule.organization_slug,
-            notification_type: "pickup_automation",
-            run_source: isEngine ? "automatic" : "manual",
-            actor_name: isEngine ? "Automatic pricing" : (actorName ?? "Manual run"),
-            actor_user_id: isEngine ? null : actorUserId,
-            rule_id: rule.id,
-            action_ids: [],
-            pickups_count: 0,
-            actions_count: engineWork,
-            pushed_count: 0,
-            failed_count: 0,
-            currency: rule.currency ?? "EUR",
-            severity: "info",
-            summary: `${engineWork} price${engineWork === 1 ? "" : "s"} queued safely · ${engineParts.join(" · ")}`,
-            changes: [],
-          });
-          if (engineErr) console.error("engine notification insert failed", engineErr);
-        }
+      // Heartbeat: the passes above succeeded, so the rule is marked evaluated
+      // now rather than only at the very end of the pickup pass.
+      await admin.from("revenue_pickup_automation_rules").update({
+        last_run_at: runStartedAt,
+        last_evaluated_at: runStartedAt,
+        last_successful_evaluation_at: runStartedAt,
+        last_evaluation_status: "ok",
+        last_evaluation_error: null,
+        next_run_at: nextRunAt(now, intervalMinutes),
+      }).eq("id", rule.id);
+
+      if (pickups.length === 0) {
+
 
         summary.push({
           hotel_id: rule.hotel_id, pickups: 0, actions: markdownActions,
