@@ -442,8 +442,17 @@ export default function RateStrategyGrid({
   const [dayWeekdays, setDayWeekdays] = useState<"all" | "weekend" | "weekday">("all");
   const [dayTypes, setDayTypes] = useState<Set<string>>(new Set());
   const [dayRound, setDayRound] = useState(1);
+  /**
+   * A fixed price typed for a whole day is the price of the cheapest cell:
+   * every other room type and guest count keeps its distance to it. Turning
+   * this off writes the same number everywhere (rarely what anyone wants).
+   */
+  const [keepShape, setKeepShape] = useState(true);
+  /** Minimum step between one guest count and the next, from the property settings. */
+  const [guestStep, setGuestStep] = useState(10);
   /** "Show all" for the change preview in the day tool. */
   const [dayShowAll, setDayShowAll] = useState(false);
+
   /** The full bulk price editor (date range, weekdays, room types). */
   const [bulkOpen, setBulkOpen] = useState(false);
 
