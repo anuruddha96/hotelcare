@@ -131,10 +131,13 @@ function auditPhase(r: RateAuditRow): ChangePhase {
 
 function auditLabel(r: RateAuditRow, phase: ChangePhase): string {
   if (phase === "failed") return r.payload?.confirmation_status === "different" ? "landed on a different price" : "Previo refused it";
-  if (phase === "confirmed") return r.source === "previo_external" ? "changed directly in Previo" : "confirmed in Previo";
+  // A Previo-side price always wins after a sync: say so plainly, with both
+  // numbers already shown on the line above (old → new).
+  if (phase === "confirmed") return r.source === "previo_external" ? "Previo had a different price — Hotel Care adopted it" : "confirmed in Previo";
   if (phase === "sending") return "sent to Previo — confirming";
   return "waiting to be sent";
 }
+
 
 /** Label for a change made outside HotelCare, straight in the PMS. */
 export const PREVIO_ACTOR = "Changed in Previo";
