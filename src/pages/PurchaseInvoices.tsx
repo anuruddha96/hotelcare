@@ -168,6 +168,11 @@ export default function PurchaseInvoices() {
     return { ok: true };
   };
 
+  // An invoice left in `processing` for over 5 minutes is stale — allow a retry.
+  const isStuckProcessing = (inv: any) =>
+    inv?.status === 'processing' &&
+    Date.now() - new Date(inv.updated_at || inv.created_at).getTime() > 5 * 60 * 1000;
+
   // A useful message for the user, never the raw translation key.
   const ocrErrorMessage = (res: { errorCode?: string; message?: string }) => {
     if (res.errorCode) {
