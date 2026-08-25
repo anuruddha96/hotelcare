@@ -9,6 +9,8 @@ import {
   tool,
   type UIMessage,
 } from "npm:ai@7";
+import { AUTOMATION_FIELDS, canChangeAutomation, validateChanges } from "../_shared/assistantAutomationFields.ts";
+import { pickHotels, resolveAssistantHotels, type AssistantHotel } from "../_shared/assistantHotels.ts";
 
 type Profile = {
   id: string;
