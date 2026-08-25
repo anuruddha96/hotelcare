@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
 import { useAssistant } from "@/hooks/useAssistant";
 import AssistantChat from "@/components/assistant/AssistantChat";
+import { canUseAssistant } from "@/lib/assistantAccess";
 import { cn } from "@/lib/utils";
 import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
 
@@ -21,12 +22,12 @@ export default function AssistantPage() {
     document.title = "Hotel Care Assistant";
   }, []);
 
-  // Not launched yet: admins only.
-  const isAdmin = profile?.role === "admin";
+  // Controlled rollout: admins plus enabled pilot users.
+  const allowed = canUseAssistant(profile);
   useEffect(() => {
-    if (profile && !isAdmin) navigate(`/${profile.organization_slug ?? ""}`, { replace: true });
-  }, [profile, isAdmin, navigate]);
-  if (!isAdmin) return null;
+    if (profile && !allowed) navigate(`/${profile.organization_slug ?? ""}`, { replace: true });
+  }, [profile, allowed, navigate]);
+  if (!allowed) return null;
 
   const newThread = async () => {
     const id = await createThread();
