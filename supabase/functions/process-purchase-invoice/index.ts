@@ -113,10 +113,23 @@ Deno.serve(async (req) => {
 
     await supabase.from("purchase_invoices").update({ status: "processing" }).eq("id", invoiceId);
 
+    // Once the row is in `processing`, EVERY failure below must land back in the
+    // database as `failed` — otherwise the invoice is stuck forever.
+    const markFailed = async (note: string, code?: string) => {
+      const details = code ? ((ERROR_CODES as any)[code] ?? null) : null;
+      await supabase.from("purchase_invoices").update({
+        status: "failed",
+        processing_notes: note.slice(0, 500),
+        ...(code ? { error_code: code, error_details: details } : {}),
+      }).eq("id", invoiceId);
+    };
+
+    try {
     // Fetch the file
     const { data: fileBlob, error: dlErr } = await supabase.storage
       .from("purchase-invoices").download(invoice.file_path);
     if (dlErr || !fileBlob) throw new Error("Failed to download file: " + (dlErr?.message ?? "unknown"));
+
 
     const isPdf = (invoice.file_mime || "").toLowerCase().includes("pdf") ||
                   invoice.file_path.toLowerCase().endsWith(".pdf");
