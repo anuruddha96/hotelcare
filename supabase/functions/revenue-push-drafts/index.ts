@@ -10,7 +10,7 @@ import { loadPrevioCredentials, hasPrevioCredentials } from "../_shared/previoCr
 import { writePrevioRate, readPrevioRateLevelsRange } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 import { pricesMatch } from "../_shared/pricingRules.ts";
-import { assertExactRateMappings, filterRoomHierarchy, liftHigherRooms, loadGuestStep, repairLadder } from "../_shared/rateSafety.ts";
+import { assertExactRateMappings, filterRoomHierarchy, liftHigherRooms, repairLadder } from "../_shared/rateSafety.ts";
 
 
 const corsHeaders = {
@@ -441,7 +441,6 @@ Deno.serve(async (req) => {
       .eq("hotel_id", hotelId)
       .gte("stay_date", stayDates[0])
       .lte("stay_date", stayDates[stayDates.length - 1]);
-    const guestStep = await loadGuestStep(admin, hotelId);
     const storedLevels = new Map<string, Map<number, number>>();
     for (const row of (storedRateRows ?? []) as any[]) {
       const key = `${row.stay_date}|${String(row.obk_id).split(":").pop()}`;
@@ -474,7 +473,7 @@ Deno.serve(async (req) => {
       // Never publish a ladder that charges less for more guests: an inversion
       // can arrive from Previo's own pricelist or from a per-cell floor lifting
       // one level only. Repairs go upward, so no floor is undercut.
-      const repaired = repairLadder(levels, guestStep);
+      const repaired = repairLadder(levels);
       return levels.map((l) => ({ occupancy: l.occupancy, price: repaired.get(l.occupancy) ?? l.price }));
     };
 
