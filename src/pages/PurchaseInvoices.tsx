@@ -226,10 +226,10 @@ export default function PurchaseInvoices() {
           // verifies the invoice — no auto-dismiss.
           setVerifyId(tid);
         } else {
-          const code = res.errorCode || 'unknown';
-          patch({ status: 'error', progress: 100, error: code, errorCode: code });
-          if (code === 'processor_unavailable') toast.warning(t('pi.error.processor_unavailable'));
-          else toast.error(t(`pi.error.${code}`) || t('pi.upload.failed'));
+          const message = ocrErrorMessage(res);
+          patch({ status: 'error', progress: 100, error: message, errorCode: res.errorCode });
+          if (res.errorCode === 'processor_unavailable') toast.warning(t('pi.error.processor_unavailable'));
+          else toast.error(message);
         }
       } catch (e: any) {
         console.error(e);
@@ -249,7 +249,8 @@ export default function PurchaseInvoices() {
     if (res.ok) toast.success(t('pi.upload.success'), { id: `retry-${id}` });
     else if (res.errorCode === 'processor_unavailable')
       toast.warning(t('pi.error.processor_unavailable'), { id: `retry-${id}` });
-    else toast.error(t(`pi.error.${res.errorCode}`) || t('pi.upload.failed'), { id: `retry-${id}` });
+    else toast.error(ocrErrorMessage(res), { id: `retry-${id}` });
+
   };
 
   const handleDelete = async (inv: any) => {
