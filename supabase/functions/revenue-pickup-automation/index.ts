@@ -42,7 +42,7 @@ import {
   farOutFloorTopUp,
   farOutFloorTopUpText,
 } from "../_shared/pricingRules.ts";
-import { enforceRateSafety, repairLadder } from "../_shared/rateSafety.ts";
+import { enforceRateSafety, loadGuestStep, repairLadder } from "../_shared/rateSafety.ts";
 
 
 
@@ -1248,13 +1248,14 @@ Deno.serve(async (req) => {
             groups.get(key)!.push(row);
           }
 
+          const ladderGuestStep = await loadGuestStep(admin, rule.hotel_id);
           const MAX_REPAIRS = 200;
           const repairRows: any[] = [];
           const repairDrafts: any[] = [];
           for (const rows of groups.values()) {
             if (repairRows.length >= MAX_REPAIRS) break;
             if (rows.length < 2) continue;
-            const repaired = repairLadder(rows.map((r) => ({ occupancy: Number(r.occupancy), price: Number(r.price) })));
+            const repaired = repairLadder(rows.map((r) => ({ occupancy: Number(r.occupancy), price: Number(r.price) })), ladderGuestStep);
             for (const row of rows) {
               const occupancy = Number(row.occupancy) || 2;
               const current = Math.round(Number(row.price));

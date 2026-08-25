@@ -2210,11 +2210,13 @@ export type Database = {
           eur_conversion_rate: number | null
           eur_rate_source: string | null
           eur_rate_updated_at: string | null
+          extra_guest_supplement_eur: number
           floor_price_eur: number
           hotel_id: string
           idle_decay_eur: number
           idle_decay_hours: number
           is_engine_enabled: boolean
+          keep_day_shape: boolean
           low_demand_decrease_eur: number
           market_city: string | null
           market_country: string | null
@@ -2264,11 +2266,13 @@ export type Database = {
           eur_conversion_rate?: number | null
           eur_rate_source?: string | null
           eur_rate_updated_at?: string | null
+          extra_guest_supplement_eur?: number
           floor_price_eur?: number
           hotel_id: string
           idle_decay_eur?: number
           idle_decay_hours?: number
           is_engine_enabled?: boolean
+          keep_day_shape?: boolean
           low_demand_decrease_eur?: number
           market_city?: string | null
           market_country?: string | null
@@ -2318,11 +2322,13 @@ export type Database = {
           eur_conversion_rate?: number | null
           eur_rate_source?: string | null
           eur_rate_updated_at?: string | null
+          extra_guest_supplement_eur?: number
           floor_price_eur?: number
           hotel_id?: string
           idle_decay_eur?: number
           idle_decay_hours?: number
           is_engine_enabled?: boolean
+          keep_day_shape?: boolean
           low_demand_decrease_eur?: number
           market_city?: string | null
           market_country?: string | null

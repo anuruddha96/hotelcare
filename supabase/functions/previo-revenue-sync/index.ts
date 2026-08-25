@@ -812,7 +812,7 @@ serve(async (req) => {
         .from("rate_change_audit")
         .select("stay_date, source, performed_at, payload")
         .eq("hotel_id", hotelId)
-        .in("source", ["day-tool", "cell-edit", "pickup-board", "bulk-editor", "demand", "autopilot"])
+        .in("source", ["day-tool", "cell-edit", "pickup-board", "bulk-editor", "demand", "autopilot", "push", "manual_push"])
         .gte("stay_date", from)
         .lte("stay_date", to)
         .order("performed_at", { ascending: false })
@@ -975,7 +975,8 @@ serve(async (req) => {
 
           const origin = originByCell.get(`${draft.stay_date}|${draft.room_type_name}|${draft.occupancy}`) ?? null;
           const isAutomation = draft.push_run_id ? automationRuns.has(draft.push_run_id) : false;
-          const manualOrigin = origin === "day-tool" || origin === "cell-edit" || origin === "pickup-board";
+          const manualOrigin = origin === "day-tool" || origin === "cell-edit" || origin === "pickup-board"
+            || origin === "push" || origin === "manual_push";
           auditRows.push({
             hotel_id: hotelId,
             organization_slug: orgSlug,

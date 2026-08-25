@@ -41,6 +41,7 @@ import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
 import PickupAutomationRules from "@/components/revenue/PickupAutomationRules";
 import { publishRates, queueNote } from "@/lib/ratePublishing";
 import { pushMinStay } from "@/lib/minStay";
+import { applyKeepingShape, ladderFromEditedLevel } from "@/lib/dayShapePricing";
 
 import { rememberedRange, writeNumberPref } from "@/lib/revenuePrefs";
 
@@ -442,8 +443,34 @@ export default function RateStrategyGrid({
   const [dayWeekdays, setDayWeekdays] = useState<"all" | "weekend" | "weekday">("all");
   const [dayTypes, setDayTypes] = useState<Set<string>>(new Set());
   const [dayRound, setDayRound] = useState(1);
+  /**
+   * A fixed price typed for a whole day is the price of the cheapest cell:
+   * every other room type and guest count keeps its distance to it. Turning
+   * this off writes the same number everywhere (rarely what anyone wants).
+   */
+  const [keepShape, setKeepShape] = useState(true);
+  /** Minimum step between one guest count and the next, from the property settings. */
+  const [guestStep, setGuestStep] = useState(10);
   /** "Show all" for the change preview in the day tool. */
   const [dayShowAll, setDayShowAll] = useState(false);
+
+  // The step between guest counts is a property setting, so a repair keeps the
+  // same shape the revenue engine uses.
+  useEffect(() => {
+    if (!hotelId) return;
+    let cancelled = false;
+    void (async () => {
+      const { data } = await supabase
+        .from("hotel_revenue_settings")
+        .select("extra_guest_supplement_eur")
+        .eq("hotel_id", hotelId)
+        .maybeSingle();
+      const value = Number((data as { extra_guest_supplement_eur?: number } | null)?.extra_guest_supplement_eur);
+      if (!cancelled && Number.isFinite(value) && value >= 0) setGuestStep(Math.round(value));
+    })();
+    return () => { cancelled = true; };
+  }, [hotelId]);
+
   /** The full bulk price editor (date range, weekdays, room types). */
   const [bulkOpen, setBulkOpen] = useState(false);
 
@@ -1629,11 +1656,26 @@ export default function RateStrategyGrid({
 
     const rowsToSave: any[] = [];
     for (const d of targetDates) {
+      // "Every guest count" used to copy one number into all levels, which is
+      // how 1, 2, 3 and 4 guests ended up at the same price. The typed price
+      // lands on the edited level and the rest of the ladder follows it.
+      const ladder = editMode === "set" && keepShape && occs.length > 1 && edit.obk_id
+        ? ladderFromEditedLevel(
+          occs.map((occ) => ({
+            occupancy: occ,
+            current: priceMap.get(edit.obk_id!)?.get(occ)?.get(d) ?? null,
+          })),
+          edit.occupancy,
+          { target: input, supplement: guestStep },
+        )
+        : null;
       for (const occ of occs) {
         const current = edit.obk_id ? priceMap.get(edit.obk_id)?.get(occ)?.get(d) ?? null : null;
-        const next = editMode === "set"
-          ? input
-          : current === null ? null : Math.round(current * (1 + input / 100));
+        const next = ladder
+          ? ladder.get(occ) ?? null
+          : editMode === "set"
+            ? input
+            : current === null ? null : Math.round(current * (1 + input / 100));
         if (next === null || !Number.isFinite(next) || next <= 0) continue;
         rowsToSave.push({
           hotel_id: hotelId,
@@ -1649,6 +1691,7 @@ export default function RateStrategyGrid({
         });
       }
     }
+
     if (rowsToSave.length === 0) { toast.error("Nothing to change with these options"); return; }
 
     setEdit(null);
@@ -1704,17 +1747,32 @@ export default function RateStrategyGrid({
   const dayToolChanges = useMemo(() => {
     if (!dayTool) return [] as Array<{ date: string; row: Extract<Row, { kind: "rate" }>; from: number | null; to: number }>;
     const out: Array<{ date: string; row: Extract<Row, { kind: "rate" }>; from: number | null; to: number }> = [];
-    for (const row of rateRows) {
-      if (dayTypes.size > 0 && !dayTypes.has(row.roomTypeName)) continue;
-      for (const d of dayToolDates) {
+    const rows = rateRows.filter((row) => dayTypes.size === 0 || dayTypes.has(row.roomTypeName));
+    const target = Number(dayValue);
+    const shapedSet = dayMode === "set" && keepShape && Number.isFinite(target) && target > 0;
+
+    for (const d of dayToolDates) {
+      // A fixed price prices the cheapest cell of the day; the rest of the day
+      // keeps its shape, so room and guest differences survive the edit.
+      const shaped = shapedSet
+        ? applyKeepingShape(
+          rows.map((row) => ({
+            key: `${row.obk}|${row.occ}`,
+            current: row.obk ? priceMap.get(row.obk)?.get(row.occ)?.get(d) ?? null : null,
+          })),
+          { target, step: Math.max(1, dayRound), supplement: guestStep },
+        )
+        : null;
+      for (const row of rows) {
         const current = row.obk ? priceMap.get(row.obk)?.get(row.occ)?.get(d) ?? null : null;
-        const next = dayToolNext(current);
+        const next = shaped ? shaped.get(`${row.obk}|${row.occ}`) ?? null : dayToolNext(current);
         if (next === null || (current !== null && Math.round(next) === Math.round(current))) continue;
         out.push({ date: d, row, from: current, to: next });
       }
     }
     return out;
-  }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext]);
+  }, [dayTool, rateRows, dayTypes, dayToolDates, priceMap, dayToolNext, dayMode, dayValue, dayRound, keepShape, guestStep]);
+
 
   /** Publish every change the day tool previews. */
   async function applyDayTool(_mode: "draft" | "push" = "push") {
@@ -3649,6 +3707,17 @@ export default function RateStrategyGrid({
                     <SelectItem value="round">Only round the prices</SelectItem>
                   </SelectContent>
                 </Select>
+                {dayMode === "set" && (
+                  <label className="flex items-start gap-2 pt-1 text-[11px] text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-3.5 w-3.5"
+                      checked={keepShape}
+                      onChange={(e) => setKeepShape(e.target.checked)}
+                    />
+                    Keep room and guest differences (the price applies to the cheapest cell)
+                  </label>
+                )}
               </div>
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">
