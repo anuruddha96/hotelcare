@@ -1656,11 +1656,26 @@ export default function RateStrategyGrid({
 
     const rowsToSave: any[] = [];
     for (const d of targetDates) {
+      // "Every guest count" used to copy one number into all levels, which is
+      // how 1, 2, 3 and 4 guests ended up at the same price. The typed price
+      // lands on the edited level and the rest of the ladder follows it.
+      const ladder = editMode === "set" && keepShape && occs.length > 1 && edit.obk_id
+        ? ladderFromEditedLevel(
+          occs.map((occ) => ({
+            occupancy: occ,
+            current: priceMap.get(edit.obk_id!)?.get(occ)?.get(d) ?? null,
+          })),
+          edit.occupancy,
+          { target: input, supplement: guestStep },
+        )
+        : null;
       for (const occ of occs) {
         const current = edit.obk_id ? priceMap.get(edit.obk_id)?.get(occ)?.get(d) ?? null : null;
-        const next = editMode === "set"
-          ? input
-          : current === null ? null : Math.round(current * (1 + input / 100));
+        const next = ladder
+          ? ladder.get(occ) ?? null
+          : editMode === "set"
+            ? input
+            : current === null ? null : Math.round(current * (1 + input / 100));
         if (next === null || !Number.isFinite(next) || next <= 0) continue;
         rowsToSave.push({
           hotel_id: hotelId,
@@ -1676,6 +1691,7 @@ export default function RateStrategyGrid({
         });
       }
     }
+
     if (rowsToSave.length === 0) { toast.error("Nothing to change with these options"); return; }
 
     setEdit(null);
