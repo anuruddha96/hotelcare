@@ -384,7 +384,7 @@ Deno.serve(async (req) => {
 
       const digest = await buildDigest(admin, s.hotel_id, (s.organization_slug as string | null) ?? null, now.date);
 
-      // hotel_id can be a slug ("ottofiori") or a UUID — resolve both.
+      // hotel_id can be a slug ("ottofiori", "slnt-group") or a UUID — resolve both.
       const isUuid = /^[0-9a-f-]{36}$/i.test(String(s.hotel_id));
       let hotelName: string | null = null;
       if (isUuid) {
@@ -393,11 +393,21 @@ Deno.serve(async (req) => {
       } else {
         const { data: named } = await admin.rpc("get_hotel_name_from_id", { hotel_id: s.hotel_id });
         hotelName = typeof named === "string" && named && named !== s.hotel_id ? named : null;
+        // Slug-based properties live in hotel_configurations (works for any tenant).
+        if (!hotelName) {
+          const { data: cfg } = await admin
+            .from("hotel_configurations")
+            .select("hotel_name")
+            .eq("hotel_id", s.hotel_id)
+            .maybeSingle();
+          hotelName = (cfg?.hotel_name as string | undefined) ?? null;
+        }
         if (!hotelName) {
           const { data: hotel } = await admin.from("hotels").select("name").eq("name", s.hotel_id).maybeSingle();
           hotelName = (hotel?.name as string | undefined) ?? null;
         }
       }
+
       if (!hotelName) {
         failures.push({ hotel_id: s.hotel_id, error: `Could not resolve the hotel name for "${s.hotel_id}" — digest not sent.` });
         continue;

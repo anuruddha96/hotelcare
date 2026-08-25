@@ -142,7 +142,7 @@ export default function PurchaseInvoices() {
 
   useEffect(() => { if (canAccess) reload(); }, [canAccess]);
 
-  const runOcr = async (invoiceId: string): Promise<{ ok: boolean; errorCode?: string }> => {
+  const runOcr = async (invoiceId: string): Promise<{ ok: boolean; errorCode?: string; message?: string }> => {
     const { data, error } = await supabase.functions.invoke('process-purchase-invoice', {
       body: { invoiceId },
     });
@@ -151,11 +151,37 @@ export default function PurchaseInvoices() {
       if (msg.includes('Failed to send') || msg.includes('Failed to fetch')) {
         return { ok: false, errorCode: 'processor_unavailable' };
       }
-      return { ok: false, errorCode: 'unknown' };
+      // Read the real backend reason out of the function response body.
+      let payload: any = null;
+      try {
+        const res = (error as any)?.context;
+        if (res && typeof res.json === 'function') payload = await res.json();
+      } catch (_) { /* body already consumed or not JSON */ }
+      if (payload?.error_code) return { ok: false, errorCode: payload.error_code, message: payload?.error };
+      if (payload?.error) return { ok: false, message: String(payload.error) };
+      return { ok: false, message: msg || undefined };
     }
-    if (data?.success === false && data?.error_code) return { ok: false, errorCode: data.error_code };
+    if (data?.success === false && data?.error_code) {
+      return { ok: false, errorCode: data.error_code, message: data?.error };
+    }
+    if (data?.success === false) return { ok: false, message: data?.error ? String(data.error) : undefined };
     return { ok: true };
   };
+
+  // An invoice left in `processing` for over 5 minutes is stale — allow a retry.
+  const isStuckProcessing = (inv: any) =>
+    inv?.status === 'processing' &&
+    Date.now() - new Date(inv.updated_at || inv.created_at).getTime() > 5 * 60 * 1000;
+
+  // A useful message for the user, never the raw translation key.
+  const ocrErrorMessage = (res: { errorCode?: string; message?: string }) => {
+    if (res.errorCode) {
+      const translated = t(`pi.error.${res.errorCode}`);
+      if (translated && translated !== `pi.error.${res.errorCode}`) return translated;
+    }
+    return res.message || t('pi.upload.failed') || 'Invoice could not be processed. Please retry.';
+  };
+
 
   const handleFile = async (file: File) => {
 
@@ -205,10 +231,10 @@ export default function PurchaseInvoices() {
           // verifies the invoice — no auto-dismiss.
           setVerifyId(tid);
         } else {
-          const code = res.errorCode || 'unknown';
-          patch({ status: 'error', progress: 100, error: code, errorCode: code });
-          if (code === 'processor_unavailable') toast.warning(t('pi.error.processor_unavailable'));
-          else toast.error(t(`pi.error.${code}`) || t('pi.upload.failed'));
+          const message = ocrErrorMessage(res);
+          patch({ status: 'error', progress: 100, error: message, errorCode: res.errorCode });
+          if (res.errorCode === 'processor_unavailable') toast.warning(t('pi.error.processor_unavailable'));
+          else toast.error(message);
         }
       } catch (e: any) {
         console.error(e);
@@ -228,7 +254,8 @@ export default function PurchaseInvoices() {
     if (res.ok) toast.success(t('pi.upload.success'), { id: `retry-${id}` });
     else if (res.errorCode === 'processor_unavailable')
       toast.warning(t('pi.error.processor_unavailable'), { id: `retry-${id}` });
-    else toast.error(t(`pi.error.${res.errorCode}`) || t('pi.upload.failed'), { id: `retry-${id}` });
+    else toast.error(ocrErrorMessage(res), { id: `retry-${id}` });
+
   };
 
   const handleDelete = async (inv: any) => {
@@ -550,7 +577,7 @@ export default function PurchaseInvoices() {
                                   {t('pi.status.unverified') || 'Unverified'}
                                 </Badge>
                               )}
-                              {(inv.status === 'failed' || inv.status === 'uploaded') && (
+                              {(inv.status === 'failed' || inv.status === 'uploaded' || isStuckProcessing(inv)) && (
                                 <Button
                                   size="sm"
                                   variant="outline"

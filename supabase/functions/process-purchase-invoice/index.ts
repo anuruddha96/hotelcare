@@ -113,10 +113,23 @@ Deno.serve(async (req) => {
 
     await supabase.from("purchase_invoices").update({ status: "processing" }).eq("id", invoiceId);
 
+    // Once the row is in `processing`, EVERY failure below must land back in the
+    // database as `failed` — otherwise the invoice is stuck forever.
+    const markFailed = async (note: string, code?: string) => {
+      const details = code ? ((ERROR_CODES as any)[code] ?? null) : null;
+      await supabase.from("purchase_invoices").update({
+        status: "failed",
+        processing_notes: note.slice(0, 500),
+        ...(code ? { error_code: code, error_details: details } : {}),
+      }).eq("id", invoiceId);
+    };
+
+    try {
     // Fetch the file
     const { data: fileBlob, error: dlErr } = await supabase.storage
       .from("purchase-invoices").download(invoice.file_path);
     if (dlErr || !fileBlob) throw new Error("Failed to download file: " + (dlErr?.message ?? "unknown"));
+
 
     const isPdf = (invoice.file_mime || "").toLowerCase().includes("pdf") ||
                   invoice.file_path.toLowerCase().endsWith(".pdf");
@@ -136,6 +149,17 @@ Deno.serve(async (req) => {
     const b64 = ab2b64(buf);
     const mime = isPdf ? "application/pdf" : (invoice.file_mime || "image/jpeg");
     const dataUrl = `data:${mime};base64,${b64}`;
+    // PDFs must go in as a file part — image_url only accepts images.
+    const documentPart = isPdf
+      ? {
+          type: "file",
+          file: {
+            filename: (invoice.file_path.split("/").pop() || "invoice") .replace(/[^\w.\-]/g, "_"),
+            file_data: dataUrl,
+          },
+        }
+      : { type: "image_url", image_url: { url: dataUrl } };
+
 
     const systemPrompt = `You are an OCR + invoice parsing engine specialized in Hungarian invoices and receipts.
 You MUST call the tool 'return_invoice' with the extracted structured data. Never reply with free text.
@@ -244,7 +268,7 @@ Dates ISO YYYY-MM-DD. Amounts as numbers. Default currency HUF.`;
             role: "user",
             content: [
               { type: "text", text: "Extract structured invoice data and call return_invoice." },
-              { type: "image_url", image_url: { url: dataUrl } },
+              documentPart,
             ],
           },
         ],
@@ -255,23 +279,31 @@ Dates ISO YYYY-MM-DD. Amounts as numbers. Default currency HUF.`;
 
     if (!aiRes.ok) {
       const txt = await aiRes.text();
-      console.error("AI gateway error", aiRes.status, txt);
-      if (aiRes.status === 429 || aiRes.status === 402) {
-        await supabase.from("purchase_invoices").update({
-          status: "failed",
-          processing_notes: aiRes.status === 429 ? "AI rate limit" : "AI credits exhausted",
-        }).eq("id", invoiceId);
-        return new Response(JSON.stringify({ error: aiRes.status === 429 ? "Rate limited, retry later." : "AI credits exhausted." }), {
-          status: aiRes.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      throw new Error(`AI gateway: ${aiRes.status}`);
+      console.error("AI provider error", aiRes.status, txt);
+      const note = aiRes.status === 429
+        ? "AI rate limit — retry later"
+        : aiRes.status === 402
+          ? "AI credits exhausted"
+          : aiRes.status >= 500
+            ? `AI service error (${aiRes.status}) — retry later`
+            : `AI rejected the document (${aiRes.status}). It may be an unsupported or corrupt file.`;
+      await markFailed(note);
+      return new Response(JSON.stringify({ success: false, error: note }), {
+        status: aiRes.status === 429 || aiRes.status === 402 ? aiRes.status : 502,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const aiJson = await aiRes.json();
     const toolCall = aiJson?.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall) throw new Error("AI returned no tool call");
-    const parsed = JSON.parse(toolCall.function.arguments);
+    if (!toolCall) throw new Error("The AI did not return structured invoice data");
+    let parsed: any;
+    try {
+      parsed = JSON.parse(toolCall.function.arguments);
+    } catch (_) {
+      throw new Error("The AI returned invalid structured data");
+    }
+
 
     // Normalize dates
     parsed.invoice_date = normalizeDate(parsed.invoice_date);
@@ -423,6 +455,15 @@ Dates ISO YYYY-MM-DD. Amounts as numbers. Default currency HUF.`;
     return new Response(JSON.stringify({ success: true, data: parsed }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+    } catch (inner) {
+      const msg = inner instanceof Error ? inner.message : String(inner);
+      console.error("process-purchase-invoice processing error", msg);
+      await markFailed(msg);
+      return new Response(JSON.stringify({ success: false, error: msg }), {
+        status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
   } catch (e) {
     console.error("process-purchase-invoice error", e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown" }), {
