@@ -32,6 +32,10 @@ import {
 } from 'recharts';
 import { useFirstRunTour, TourReplayButton, type TourStep } from '@/components/training/GuidedTour';
 import { VerifyInvoiceDialog } from '@/components/purchase-invoices/VerifyInvoiceDialog';
+import { InvoiceSettingsPanel } from '@/components/purchase-invoices/InvoiceSettingsPanel';
+import { useFinanceAccess } from '@/hooks/useFinanceAccess';
+import { workflowLabel } from '@/lib/purchaseInvoiceWorkflow';
+
 
 const ALLOWED_ROLES = ['admin','top_management','top_management_manager','control_finance','back_office','reception','front_office'];
 const ANALYTICS_ROLES = ['admin','top_management','top_management_manager','control_finance'];
