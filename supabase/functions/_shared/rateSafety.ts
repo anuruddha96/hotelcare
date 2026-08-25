@@ -170,6 +170,8 @@ export async function normalizeOccupancyLadder(
 ): Promise<RateChange[]> {
   if (changes.length === 0) return [];
   const stored = await loadStoredRates(admin, hotelId, changes);
+  const guestStep = await loadGuestStep(admin, hotelId);
+
 
   const groupKey = (row: { stay_date: string; obk_id?: string | null; room_type_name: string }) =>
     `${row.stay_date}|${mappingKey(row.obk_id) || row.room_type_name}`;
