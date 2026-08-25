@@ -28,6 +28,13 @@ import {
   requestAssistantAccess,
   useAssistant,
 } from "@/hooks/useAssistant";
+import AutomationChangeCard, { isAutomationProposal } from "./AutomationChangeCard";
+
+const STARTER_PROMPTS = [
+  "How is the next 14 days pacing across my properties?",
+  "Which dates are at risk of not filling, and what would you change?",
+  "Review my automation rules and suggest one improvement.",
+];
 
 const SCOPE_LABEL: Record<string, string> = {
   revenue: "Revenue management",
@@ -200,13 +207,26 @@ function ChatSession({
         <ConversationContent className="gap-4 px-2 py-4 sm:px-3">
           {messages.length === 0 && (
             <ConversationEmptyState className="min-h-[48vh] px-5" title="How can I help?">
-              <div className="mx-auto max-w-xs space-y-4 text-center">
+              <div className="mx-auto max-w-sm space-y-4 text-center">
                 <img src="/icon-192.png" alt="Hotel Care" className="mx-auto h-12 w-12 rounded-lg" />
                 <div>
                   <p className="font-medium text-foreground">How can I help?</p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     Ask about your work, your property, or Hotel Care. Answers respect your role.
                   </p>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {STARTER_PROMPTS.map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      className="rounded-lg border bg-card px-3 py-2 text-left text-sm text-card-foreground
+                                 transition-colors hover:bg-accent hover:text-accent-foreground"
+                      onClick={() => void submit({ text: prompt })}
+                    >
+                      {prompt}
+                    </button>
+                  ))}
                 </div>
               </div>
             </ConversationEmptyState>
@@ -231,6 +251,15 @@ function ChatSession({
                       if (!(part.type.startsWith("tool-") || part.type === "dynamic-tool")) return null;
                       const toolPart = part as any;
                       const toolName = part.type === "dynamic-tool" ? toolPart.toolName : part.type.slice(5);
+                      // A rule change proposal renders as an approve/dismiss card.
+                      if (isAutomationProposal(toolPart.output)) {
+                        return (
+                          <AutomationChangeCard
+                            key={`${message.id}-proposal-${partIndex}`}
+                            proposal={toolPart.output}
+                          />
+                        );
+                      }
                       return (
                         <Tool key={`${message.id}-tool-${partIndex}`} defaultOpen={false}>
                           <ToolHeader

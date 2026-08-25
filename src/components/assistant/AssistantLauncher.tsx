@@ -8,6 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useAssistant } from "@/hooks/useAssistant";
 import AssistantChat from "./AssistantChat";
 import AssistantAccessRequests, { canApproveAssistantAccess } from "./AssistantAccessRequests";
+import { canUseAssistant } from "@/lib/assistantAccess";
 import { cn } from "@/lib/utils";
 import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
 
@@ -66,8 +67,8 @@ export default function AssistantLauncher() {
 
   // Hidden on public/unauthenticated screens.
   if (!user || !profile?.organization_slug) return null;
-  // Not launched yet: admins only.
-  if (profile.role !== "admin") return null;
+  // Controlled rollout: admins plus enabled pilot users.
+  if (!canUseAssistant(profile)) return null;
   if (location.pathname.startsWith("/bb") || location.pathname.startsWith("/auth")) return null;
 
   const isApprover = canApproveAssistantAccess(profile.role);
