@@ -53,7 +53,7 @@ interface Props {
 export function VerifyInvoiceDialog({ invoiceId, open, onClose, onSaved }: Props) {
   const { profile, user } = useAuth();
   const { t } = useTranslation();
-  const { canReview, canApprove } = useFinanceAccess();
+  const { canReview } = useFinanceAccess();
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
