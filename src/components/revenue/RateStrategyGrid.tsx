@@ -41,6 +41,7 @@ import BulkPriceEditor from "@/components/revenue/BulkPriceEditor";
 import PickupAutomationRules from "@/components/revenue/PickupAutomationRules";
 import { publishRates, queueNote } from "@/lib/ratePublishing";
 import { pushMinStay } from "@/lib/minStay";
+import { applyKeepingShape, ladderFromEditedLevel } from "@/lib/dayShapePricing";
 
 import { rememberedRange, writeNumberPref } from "@/lib/revenuePrefs";
 
@@ -452,6 +453,23 @@ export default function RateStrategyGrid({
   const [guestStep, setGuestStep] = useState(10);
   /** "Show all" for the change preview in the day tool. */
   const [dayShowAll, setDayShowAll] = useState(false);
+
+  // The step between guest counts is a property setting, so a repair keeps the
+  // same shape the revenue engine uses.
+  useEffect(() => {
+    if (!hotelId) return;
+    let cancelled = false;
+    void (async () => {
+      const { data } = await supabase
+        .from("hotel_revenue_settings")
+        .select("extra_guest_supplement_eur")
+        .eq("hotel_id", hotelId)
+        .maybeSingle();
+      const value = Number((data as { extra_guest_supplement_eur?: number } | null)?.extra_guest_supplement_eur);
+      if (!cancelled && Number.isFinite(value) && value >= 0) setGuestStep(Math.round(value));
+    })();
+    return () => { cancelled = true; };
+  }, [hotelId]);
 
   /** The full bulk price editor (date range, weekdays, room types). */
   const [bulkOpen, setBulkOpen] = useState(false);
