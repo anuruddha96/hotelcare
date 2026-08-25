@@ -444,7 +444,10 @@ export async function liftHigherRooms(
         const weDeepenIt = priorLower === undefined
           || Math.round(runningMax) > Math.round(priorLower);
         if (!preExisting || weDeepenIt) {
-          const target = Math.round(runningMax);
+          // A better room may not merely match the cheaper one: lift it by one
+          // configured step so the two tiers stay distinguishable.
+          const target = Math.round(runningMax) + roomStep;
+
           const change = pending.get(key);
           if (change) {
             change.new_price = target;
