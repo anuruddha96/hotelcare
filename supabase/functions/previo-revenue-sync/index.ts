@@ -367,6 +367,10 @@ serve(async (req) => {
   // whole rate universe and the draft reconciliation pass are skipped, which
   // turns a multi-minute full sync into a short reservation refresh.
   const probeOnly: boolean = body.mode === "automation_probe";
+  // A person pressed "Sync now" / "Pull rates": Previo is the final word for
+  // this run. Whatever Previo publishes right now becomes the Hotel Care
+  // price, and older Hotel Care requests are closed instead of re-sent.
+  const authoritativePull: boolean = body.mode === "authoritative_pms_pull";
   if (!hotelId) return json({ error: "hotelId is required" }, 400);
 
 
@@ -898,6 +902,48 @@ serve(async (req) => {
         claimedCells.add(`${draft.stay_date}|${draft.obk_id}|${live.ratePlanId}|${draft.occupancy}`);
         const landed = live.price;
         const confirmed = pricesMatch(Number(draft.new_price), landed);
+
+        // Authoritative manual pull: Previo's live price wins over any Hotel
+        // Care request that already existed when this sync started. The old
+        // intent is closed (never re-sent), so the grid stops flipping back to
+        // a price the PMS has moved on from. Anything a user typed *after* the
+        // sync began keeps its intent and still publishes normally.
+        if (
+          authoritativePull && !confirmed
+          && Date.parse(draft.created_at) < started
+        ) {
+          pushPatch(`pms_settled|${landed}`, draft.id, {
+            confirmation_status: "superseded",
+            actual_previo_price: landed,
+            last_checked_at: checkedAt,
+            reconcile_state: "settled_from_pms",
+            reconcile_next_at: null,
+            reconcile_error: null,
+            push_error: `Hotel Care had ${draft.new_price}, Previo had ${landed} — Previo's price was adopted`,
+          });
+          if (orgSlug) {
+            auditRows.push({
+              hotel_id: hotelId, organization_slug: orgSlug,
+              action: "external_price_change", source: "previo_external",
+              stay_date: draft.stay_date,
+              old_rate_eur: Number(draft.new_price), new_rate_eur: landed,
+              delta_eur: Math.round((landed - Number(draft.new_price)) * 100) / 100,
+              notes: `${draft.room_type_name}: Hotel Care had ${draft.new_price}, Previo had ${landed} — Previo's price was adopted`,
+              performed_by: null,
+              payload: {
+                room_type_name: draft.room_type_name, occupancy: draft.occupancy,
+                requested_price: Number(draft.new_price),
+                actual_previo_price: landed,
+                confirmation_status: "settled_from_pms",
+                resolved_at: checkedAt,
+              },
+            });
+          }
+          divergentDrafts += 1;
+          continue;
+        }
+
+
 
         // Previo moved this price again since we last flagged it, and nobody
         // in Hotel Care asked for anything newer: Previo is the truth now.
@@ -1705,7 +1751,7 @@ serve(async (req) => {
   }
 
   const summary = {
-    mode: probeOnly ? "automation_probe" : "full",
+    mode: probeOnly ? "automation_probe" : (authoritativePull ? "authoritative_pms_pull" : "full"),
     hotelId,
 
     orgSlug,
@@ -1737,7 +1783,7 @@ serve(async (req) => {
   // the error is surfaced instead of dropped.
   const { error: historyError } = await service.from("pms_sync_history").insert({
     sync_type: "revenue_sync",
-    direction: "inbound",
+    direction: "from_previo",
     hotel_id: hotelId,
     sync_status: errors.length ? "partial" : "success",
     error_message: errors.length ? errors.slice(0, 5).join(" | ") : null,
@@ -1745,7 +1791,11 @@ serve(async (req) => {
     synced_by_user_id: actorId,
     synced_by_name: actorName,
   });
-  if (historyError) console.error("revenue sync history insert failed", historyError.message);
+  if (historyError) {
+    console.error("revenue sync history insert failed", historyError.message);
+    errors.push(`sync history: ${historyError.message}`);
+    summary.errors = errors;
+  }
 
 
   await service.rpc("complete_revenue_sync", {

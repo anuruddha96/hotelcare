@@ -281,7 +281,7 @@ export default function RevenueHotelDetail() {
    * `background = true` keeps the cached screen intact: no progress card, only
    * a short status line, and a confirmation toast once the numbers swap in.
    */
-  async function runSync(force = false, background = false) {
+  async function runSync(force = false, background = false, authoritative = !background) {
     if (!hotelId || syncingRef.current) return;
     const claim = await claimRevenueSync(hotelId, force);
     if (claim === "fresh") {
@@ -337,7 +337,15 @@ export default function RevenueHotelDetail() {
     try {
       setSyncPct(25);
       setSyncStep("Pulling rates, reservations and room types…");
-      const revRes = await supabase.functions.invoke("previo-revenue-sync", { body: { hotelId, horizonDays: 365 } });
+      // A person asked for this refresh: Previo is the final word, so any older
+      // Hotel Care request for the same cell is closed rather than re-sent.
+      const revRes = await supabase.functions.invoke("previo-revenue-sync", {
+        body: {
+          hotelId,
+          horizonDays: 365,
+          ...(authoritative ? { mode: "authoritative_pms_pull" } : {}),
+        },
+      });
       if (revRes.error) throw new Error(revRes.error.message);
       if (revRes.data?.success === false) {
         throw new Error(revRes.data?.errors?.[0] || "Revenue sync was incomplete");
@@ -834,19 +842,10 @@ export default function RevenueHotelDetail() {
 
   async function pullFromPrevio() {
     if (!hotelId) return;
-    // The old `previo-pull-rates` endpoint is a retired stub that pulled
-    // nothing. A manual pull now runs the real refresh, so Previo's prices
-    // become the calendar's prices.
-    toast.info("Reading prices from Previo…");
-    const { data, error } = await supabase.functions.invoke("previo-revenue-sync", {
-      body: { hotelId, horizonDays: 365 },
-    });
-    if (error || (data && data.success === false && !data.rates)) {
-      toast.error((data as any)?.errors?.[0] || error?.message || "Pull failed");
-      return;
-    }
-    toast.success(`Previo prices applied · ${(data as any)?.rates ?? 0} rate cells refreshed`);
-    load();
+    // "Pull rates" and "Sync now" are the same authoritative PMS refresh: one
+    // code path, one lease, so two manual refreshes can never overlap and the
+    // grid always reloads from the freshly published dataset.
+    await runSync(true);
   }
 
 
