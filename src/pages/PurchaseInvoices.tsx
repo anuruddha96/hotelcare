@@ -375,12 +375,26 @@ export default function PurchaseInvoices() {
                 <BarChart3 className="h-4 w-4 mr-1.5" />{t('pi.tab.analytics')}
               </TabsTrigger>
             )}
+            {canSeeQueue && (
+              <TabsTrigger value="approvals">
+                <ShieldCheck className="h-4 w-4 mr-1.5" />Approvals
+                {pendingApproval.length > 0 && (
+                  <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-[10px]">{pendingApproval.length}</Badge>
+                )}
+              </TabsTrigger>
+            )}
             {canSeeAnalytics && (
               <TabsTrigger value="export" data-tour="pi-export">
                 <Download className="h-4 w-4 mr-1.5" />{t('pi.tab.export')}
               </TabsTrigger>
             )}
+            {financeAccess.canManageFinance && (
+              <TabsTrigger value="settings">
+                <Settings className="h-4 w-4 mr-1.5" />Settings
+              </TabsTrigger>
+            )}
           </TabsList>
+
 
           <TabsContent value="upload" className="space-y-4">
             <Card data-tour="pi-upload" data-training="invoice-upload">
