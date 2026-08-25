@@ -14,6 +14,7 @@ import { addDays, isWeekend, type RoomTypeRate } from "@/lib/revenueAnalytics";
 import { getRevenueCurrency, moneyBase } from "@/lib/revenueCurrency";
 import { logRateChanges } from "@/lib/rateAudit";
 import type { DraftChange } from "@/lib/rateDrafts";
+import { applyKeepingShape } from "@/lib/dayShapePricing";
 import { publishRates, queueNote } from "@/lib/ratePublishing";
 import { pushMinStay, expandRange } from "@/lib/minStay";
 
@@ -66,6 +67,8 @@ export default function BulkPriceEditor({
   const [mode, setMode] = useState<Mode>("amount");
   const [value, setValue] = useState("2");
   const [rounding, setRounding] = useState<Rounding>("1");
+  /** A fixed price keeps room and guest differences unless this is turned off. */
+  const [keepShape, setKeepShape] = useState(true);
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [showAll, setShowAll] = useState(false);
@@ -119,7 +122,7 @@ export default function BulkPriceEditor({
         for (const date of dates) {
           const cells = selected.filter((r) => r.stay_date === date)
             .map((r) => ({ key: `${r.obk_id}|${r.occupancy}`, current: Number(r.price) }));
-          byDate.set(date, applyKeepingShape(cells, { target: input, step: Math.max(1, rounding) }));
+          byDate.set(date, applyKeepingShape(cells, { target: input, step: 1 }));
         }
         return byDate;
       })()
