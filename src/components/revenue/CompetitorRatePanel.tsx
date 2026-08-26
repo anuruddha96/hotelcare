@@ -378,7 +378,44 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
       </section>
 
       <section className="space-y-2">
-        <h4 className="text-sm font-semibold">You against the set</h4>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h4 className="text-sm font-semibold">You against the set</h4>
+          {comparison.length > 0 && (
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Switch id="comp-each" checked={showEach} onCheckedChange={setShowEach} />
+                <Label htmlFor="comp-each" className="text-xs font-normal">Each competitor</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch id="comp-siblings" checked={showSiblings} onCheckedChange={setShowSiblings} />
+                <Label htmlFor="comp-siblings" className="text-xs font-normal">Our other hotels</Label>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {comparison.length > 0 && (
+          <div className="h-64 w-full rounded-lg border p-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 10 }} width={44} />
+                <Tooltip contentStyle={{ fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line type="monotone" dataKey="You" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} connectNulls />
+                <Line type="monotone" dataKey="Set average" stroke="hsl(var(--muted-foreground))" strokeWidth={2} strokeDasharray="4 3" dot={false} connectNulls />
+                {showEach && competitors.map((c, i) => (
+                  <Line key={c.id} type="monotone" dataKey={c.name} stroke={LINE_COLORS[i % LINE_COLORS.length]} strokeWidth={1.5} dot={false} connectNulls />
+                ))}
+                {showSiblings && siblings.map((s, i) => (
+                  <Line key={s.hotelId} type="monotone" dataKey={s.label} stroke={LINE_COLORS[(i + 2) % LINE_COLORS.length]} strokeWidth={1.5} strokeDasharray="2 2" dot={false} connectNulls />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
         {comparison.length === 0 ? (
           <p className="text-xs text-muted-foreground">No competitor prices captured yet — run a scan.</p>
         ) : (
