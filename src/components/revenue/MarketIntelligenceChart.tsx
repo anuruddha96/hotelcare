@@ -285,6 +285,25 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
     return { actual, dowAvg };
   }, [latestByHotelDate]);
 
+  /**
+   * The rate line the market is judged against: our own selling rate by
+   * default, or a sister property's ADR when the reader switches baseline.
+   */
+  const baselineRate = useMemo(() => {
+    if (baseline === "__ours__") return (date: string) => ourRateByDate?.get(date) ?? null;
+    return (date: string) => {
+      const row = latestByHotelDate.get(`${baseline}|${date}`);
+      return row?.adr_eur == null ? null : Math.round(Number(row.adr_eur));
+    };
+  }, [baseline, ourRateByDate, latestByHotelDate]);
+
+  const baselineLabel = baseline === "__ours__"
+    ? "This property"
+    : hotels.find((h) => h.hotel_id === baseline)?.hotel_name ?? "Selected property";
+
+  const compColor = (id: string) =>
+    COMP_COLORS[Math.max(0, marketData.competitors.findIndex((c) => c.id === id)) % COMP_COLORS.length];
+
   const data = useMemo(() => metrics.slice(0, days).map((m) => {
     const actual = demandByDate.actual.get(m.stay_date);
     const dow = new Date(`${m.stay_date}T00:00:00Z`).getUTCDay();
@@ -310,12 +329,69 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
         point[`h_${h.hotel_id}`] = row?.occupancy_pct == null ? null : Math.round(Number(row.occupancy_pct));
       }
     }
+
+    // ---- competitive set -------------------------------------------------
+    const mk = marketData.marketByDate.get(m.stay_date);
+    point.ourRate = prefs.ourRate ? baselineRate(m.stay_date) : null;
+    point.marketAvg = prefs.marketAvg && mk?.trimmed_avg_rate != null ? Math.round(Number(mk.trimmed_avg_rate)) : null;
+    point.marketMedian = prefs.marketMedian && mk?.median_rate != null ? Math.round(Number(mk.median_rate)) : null;
+    point.bandLow = prefs.band && mk?.min_rate != null ? Math.round(Number(mk.min_rate)) : null;
+    point.bandSpan = prefs.band && mk?.min_rate != null && mk?.max_rate != null
+      ? Math.max(0, Math.round(Number(mk.max_rate) - Number(mk.min_rate))) : null;
+    point.marketMin = mk?.min_rate == null ? null : Math.round(Number(mk.min_rate));
+    point.marketMax = mk?.max_rate == null ? null : Math.round(Number(mk.max_rate));
+    point.marketSample = mk?.sample_size ?? 0;
+    point.marketStale = mk?.stale ?? false;
+    for (const c of shownCompetitors) {
+      point[`c_${c.id}`] = marketData.ratesByCompetitor.get(c.id)?.get(m.stay_date) ?? null;
+    }
+
     return point as {
       date: string; label: string; pickup: number; gained: number; lost: number; occ: number; adr: number | null;
       demand: number | null; demandForecast: number | null; monthStart: boolean; month: string;
       [key: string]: unknown;
     };
-  }), [metrics, days, demandByDate, compare, hotels, latestByHotelDate]);
+  }), [metrics, days, demandByDate, compare, hotels, latestByHotelDate,
+    marketData.marketByDate, marketData.ratesByCompetitor, shownCompetitors, prefs, baselineRate]);
+
+  /** Where the baseline property sits against the market over the horizon. */
+  const marketStanding = useMemo(() => {
+    let ours = 0, mkt = 0, nights = 0, cheaper = 0, dearer = 0;
+    for (const d of data) {
+      const our = baselineRate(d.date);
+      const avg = marketData.marketByDate.get(d.date)?.trimmed_avg_rate;
+      if (our == null || avg == null) continue;
+      ours += our; mkt += Number(avg); nights += 1;
+      if (our < Number(avg) * 0.9) cheaper += 1;
+      if (our > Number(avg) * 1.1) dearer += 1;
+    }
+    if (!nights || mkt === 0) return null;
+    return { pct: Math.round(((ours - mkt) / mkt) * 100), nights, cheaper, dearer };
+  }, [data, baselineRate, marketData.marketByDate]);
+
+  /** Owner-friendly export of exactly what the chart is showing. */
+  const exportCsv = () => {
+    const headers = ["Date", "Pickup", "Occupancy %", "Baseline rate", "Market average", "Market median",
+      "Cheapest", "Dearest", "Set size", ...shownCompetitors.map((c) => c.name)];
+    const lines = [headers.join(",")];
+    for (const d of data) {
+      const mk = marketData.marketByDate.get(d.date);
+      const cells = [
+        d.date, d.pickup, d.occ, baselineRate(d.date) ?? "",
+        mk?.trimmed_avg_rate ?? "", mk?.median_rate ?? "", mk?.min_rate ?? "", mk?.max_rate ?? "", mk?.sample_size ?? 0,
+        ...shownCompetitors.map((c) => marketData.ratesByCompetitor.get(c.id)?.get(d.date) ?? ""),
+      ];
+      lines.push(cells.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `market-intelligence-${hotelId ?? "hotel"}-${budapestToday()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
 
   /** Same calendar-month KPIs and weighted formulas as the headline card. */
   const comparisonSummary = useMemo(() => {
