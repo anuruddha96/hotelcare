@@ -351,7 +351,11 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
         supabase.from("revenue_pickup_automation_actions")
           .select("status, created_at").eq("hotel_id", hotelId)
           .order("created_at", { ascending: false }).limit(500),
+        supabase.from("hotel_revenue_settings").select("extra_guest_supplement_eur").eq("hotel_id", hotelId).maybeSingle(),
       ]);
+
+      const storedStep = Number((settingsRes.data as { extra_guest_supplement_eur?: number } | null)?.extra_guest_supplement_eur);
+      setGuestStep(Number.isFinite(storedStep) && storedStep >= 0 ? Math.round(storedStep) : 10);
 
       const names = new Map<string, string>();
       for (const row of (nameRes.data ?? []) as any[]) names.set(row.hotel_id, row.hotel_name);
