@@ -2059,6 +2059,8 @@ export default function RateStrategyGrid({
   const unpaintSelection = useCallback(() => {
     anchorRef.current = null;
     focusRef.current = null;
+    pointerPosRef.current = null;
+
     if (paintRaf.current !== null) { window.cancelAnimationFrame(paintRaf.current); paintRaf.current = null; }
     paintSelection();
   }, [paintSelection]);
