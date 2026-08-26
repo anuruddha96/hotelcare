@@ -899,6 +899,8 @@ serve(async (req) => {
         CheckedOut: isCheckedOut,
         IsCheckoutRoom: !isNoShow && !isCancelled && isCheckoutRoom,
         IsNoShow: isNoShow,
+        NoShowSource: noShowSource,
+
         IsCancelled: isCancelled,
         NotArrived: isNotArrived,
 
