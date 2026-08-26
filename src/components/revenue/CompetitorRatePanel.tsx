@@ -342,6 +342,16 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
                       <ExternalLink className="h-3 w-3" /> rate page
                     </a>
                   )}
+                  {c.last_scan_at && (
+                    <p className={`mt-0.5 flex items-center gap-1 text-[11px] ${c.last_scan_status === "ok" ? "text-muted-foreground" : "text-amber-600"}`}>
+                      {c.last_scan_status !== "ok" && <AlertTriangle className="h-3 w-3" />}
+                      {c.last_scan_status === "ok"
+                        ? `Last checked ${new Date(c.last_scan_at).toLocaleString()}`
+                        : c.last_scan_status === "no_prices_found"
+                          ? "Last check found no public price"
+                          : `Last check failed: ${c.last_scan_error ?? "unknown reason"}`}
+                    </p>
+                  )}
                 </div>
                 <Badge variant="secondary" className="text-[10px]">
                   {rates.filter((r) => r.competitor_id === c.id).length} prices
