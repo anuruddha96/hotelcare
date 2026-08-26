@@ -117,15 +117,48 @@ interface Props {
   /** Calendar month shared with the headline performance card. */
   selectedMonth: string;
   eventsByDate?: Map<string, { title: string; impact: string }[]>;
+  /** Our own selling rate per stay date, plotted against the competitive set. */
+  ourRateByDate?: Map<string, number>;
+}
+
+/** Colours for the watched competitors, in list order. */
+const COMP_COLORS = [
+  "hsl(217 91% 60%)", "hsl(160 60% 45%)", "hsl(30 84% 55%)",
+  "hsl(280 65% 60%)", "hsl(340 75% 55%)", "hsl(190 80% 42%)",
+  "hsl(45 90% 45%)", "hsl(0 72% 55%)",
+];
+const MARKET_COLOR = "hsl(var(--foreground) / 0.75)";
+const OUR_RATE_COLOR = "hsl(var(--primary))";
+
+/** Which of the competitive-set series the reader keeps ticked on. */
+interface MarketPrefs {
+  ourRate: boolean;
+  marketAvg: boolean;
+  marketMedian: boolean;
+  band: boolean;
+  competitors: string[];
+}
+const DEFAULT_PREFS: MarketPrefs = {
+  ourRate: true, marketAvg: true, marketMedian: false, band: true, competitors: [],
+};
+const prefsKey = (hotelId?: string | null) => `market-intel-series:${hotelId ?? "default"}`;
+function loadPrefs(hotelId?: string | null): MarketPrefs {
+  if (typeof window === "undefined") return DEFAULT_PREFS;
+  try {
+    const raw = window.localStorage.getItem(prefsKey(hotelId));
+    return raw ? { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<MarketPrefs>) } : DEFAULT_PREFS;
+  } catch { return DEFAULT_PREFS; }
 }
 
 /**
- * Demand & pickup horizon.
+ * Market intelligence horizon.
  *
  * Bars are net pickup. On top of them the reader can layer occupancy, ADR, an
- * in-house Budapest demand index, and one occupancy line per sister property.
+ * in-house city demand index, one occupancy line per sister property, and the
+ * whole competitive set: our selling rate, the market average and median, the
+ * cheapest-to-dearest band and any individual competitor ticked on.
  */
-export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickupWindowChange, hotels = [], hotelId, selectedMonth, eventsByDate }: Props) {
+export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onPickupWindowChange, hotels = [], hotelId, selectedMonth, eventsByDate, ourRateByDate }: Props) {
   const isMobile = useIsMobile();
   // Wide bars beat a long horizon on a phone: 30 days is still readable.
   const [days, setDays] = useState(() => (typeof window !== "undefined" && window.innerWidth < 768 ? 30 : 60));
@@ -137,6 +170,29 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
   /** Event shading can be switched off when it crowds the chart. */
   const [showEvents, setShowEvents] = useState(true);
 
+  /** Competitive-set series, remembered per property. */
+  const [prefs, setPrefs] = useState<MarketPrefs>(() => loadPrefs(hotelId));
+  useEffect(() => { setPrefs(loadPrefs(hotelId)); }, [hotelId]);
+  useEffect(() => {
+    try { window.localStorage.setItem(prefsKey(hotelId), JSON.stringify(prefs)); } catch { /* private mode */ }
+  }, [prefs, hotelId]);
+  const setPref = <K extends keyof MarketPrefs>(key: K, value: MarketPrefs[K]) =>
+    setPrefs((p) => ({ ...p, [key]: value }));
+  const toggleCompetitor = (id: string) => setPrefs((p) => ({
+    ...p,
+    competitors: p.competitors.includes(id) ? p.competitors.filter((c) => c !== id) : [...p.competitors, id],
+  }));
+
+  /** Which property the market is judged against. */
+  const [baseline, setBaseline] = useState<string>("__ours__");
+  useEffect(() => { setBaseline("__ours__"); }, [hotelId]);
+
+  const marketData = useMarketRates(hotelId ?? null);
+  const shownCompetitors = useMemo(
+    () => marketData.competitors.filter((c) => prefs.competitors.includes(c.id)),
+    [marketData.competitors, prefs.competitors],
+  );
+
   /** Properties the reader has switched off in comparison mode. */
   const [hiddenHotels, setHiddenHotels] = useState<Set<string>>(new Set());
   const toggleHotel = (id: string) => setHiddenHotels((prev) => {
@@ -144,6 +200,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
+
   const activeWindow = pickupWindowDays ?? PICKUP_WINDOW_48H;
   const [customDays, setCustomDays] = useState(7);
   const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
