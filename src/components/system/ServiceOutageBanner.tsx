@@ -26,11 +26,16 @@ async function gatewayIsDown(): Promise<boolean> {
   }
 }
 
+// Turned off: the provider outage is over, so nobody should see this notice.
+// Flip to true to bring the health polling and banner back.
+const ENABLED = false;
+
 export function ServiceOutageBanner() {
   const [down, setDown] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
+    if (!ENABLED) return;
     let cancelled = false;
     const check = async () => {
       const isDown = await gatewayIsDown();
@@ -46,7 +51,7 @@ export function ServiceOutageBanner() {
     };
   }, []);
 
-  if (!down || dismissed) return null;
+  if (!ENABLED || !down || dismissed) return null;
 
   return (
     <div className="fixed inset-x-0 top-0 z-[100] border-b border-destructive/30 bg-destructive/10 backdrop-blur-sm">
