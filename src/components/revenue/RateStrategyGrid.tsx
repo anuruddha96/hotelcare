@@ -3408,13 +3408,13 @@ export default function RateStrategyGrid({
 
       {/* Price the selected block */}
       <Dialog open={rangeToolOpen} onOpenChange={(o) => { setRangeToolOpen(o); if (!o) clearRange(); }}>
-        <DialogContent className="sm:max-w-md" style={{ pointerEvents: "auto" }}>
+        <DialogContent style={{ pointerEvents: "auto" }} className="flex max-h-[90dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl p-4 sm:w-full sm:max-w-md sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-base">
               Change {rangeCells.length} selected price{rangeCells.length === 1 ? "" : "s"}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
             <div className="rounded-md border bg-muted/30 p-2 text-[11px] text-muted-foreground">
               {rangeRect && dates[rangeRect.d0] ? (
                 <>
@@ -3442,6 +3442,59 @@ export default function RateStrategyGrid({
                 aria-label="Amount"
               />
             </div>
+
+            {/* One-tap presets — the same steps as the day editor. */}
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">Increase</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
+                    <Button
+                      key={`r-up-${n}`}
+                      size="sm"
+                      variant={rangeCalc === "amount" && rangeValue === String(n) ? "default" : "outline"}
+                      className="h-8 min-w-[58px] text-[11px]"
+                      onClick={() => { setRangeCalc("amount"); setRangeValue(String(n)); }}
+                    >
+                      +{n}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-[10px] font-medium uppercase tracking-wide text-rose-600">Decrease</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
+                    <Button
+                      key={`r-down-${n}`}
+                      size="sm"
+                      variant={rangeCalc === "amount" && rangeValue === String(-n) ? "default" : "outline"}
+                      className="h-8 min-w-[58px] text-[11px]"
+                      onClick={() => { setRangeCalc("amount"); setRangeValue(String(-n)); }}
+                    >
+                      −{n}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Percent</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {["10", "20", "-10", "-20"].map((p) => (
+                    <Button
+                      key={`r-pc-${p}`}
+                      size="sm"
+                      variant={rangeCalc === "percent" && rangeValue === p ? "default" : "outline"}
+                      className="h-8 min-w-[58px] text-[11px]"
+                      onClick={() => { setRangeCalc("percent"); setRangeValue(p); }}
+                    >
+                      {Number(p) > 0 ? `+${p}%` : `${p}%`}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
             <p className="text-[11px] text-muted-foreground">
               Sold-out cells are included. Prices are always sent to Previo as whole {getRevenueCurrency().code}.
             </p>
@@ -3465,6 +3518,7 @@ export default function RateStrategyGrid({
               )}
             </div>
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setRangeToolOpen(false)}>Cancel</Button>
             <Button disabled={rangeChanges.length === 0} onClick={() => void applyRangeTool()}>
