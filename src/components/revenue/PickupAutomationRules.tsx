@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
   Bot, Loader2, HelpCircle, Clock, TrendingUp, TrendingDown,
-  ShieldCheck, CalendarRange, FileText,
+  ShieldCheck, CalendarRange, FileText, Users,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
@@ -336,19 +336,26 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
   const [running, setRunning] = useState(false);
   const [stats, setStats] = useState({ pushed: 0, failed: 0, lastActionAt: null as string | null });
   const [runResult, setRunResult] = useState<RunResult | null>(null);
+  // Minimum price difference between one guest count and the next inside the
+  // same room type. Stored per property, used by every publishing path.
+  const [guestStep, setGuestStep] = useState<number>(10);
 
   useEffect(() => {
     if (!hotelId) return;
     setLoading(true);
     void (async () => {
-      const [ruleRes, nameRes, othersRes, actionsRes] = await Promise.all([
+      const [ruleRes, nameRes, othersRes, actionsRes, settingsRes] = await Promise.all([
         supabase.from("revenue_pickup_automation_rules").select("*").eq("hotel_id", hotelId).eq("name", "Pickup pricing").maybeSingle(),
         supabase.from("hotel_configurations").select("hotel_id, hotel_name"),
         supabase.from("revenue_pickup_automation_rules").select("*").neq("hotel_id", hotelId),
         supabase.from("revenue_pickup_automation_actions")
           .select("status, created_at").eq("hotel_id", hotelId)
           .order("created_at", { ascending: false }).limit(500),
+        supabase.from("hotel_revenue_settings").select("extra_guest_supplement_eur").eq("hotel_id", hotelId).maybeSingle(),
       ]);
+
+      const storedStep = Number((settingsRes.data as { extra_guest_supplement_eur?: number } | null)?.extra_guest_supplement_eur);
+      setGuestStep(Number.isFinite(storedStep) && storedStep >= 0 ? Math.round(storedStep) : 10);
 
       const names = new Map<string, string>();
       for (const row of (nameRes.data ?? []) as any[]) names.set(row.hotel_id, row.hotel_name);
@@ -541,6 +548,11 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
     };
     const { data, error } = await supabase.from("revenue_pickup_automation_rules")
       .upsert(payload as any, { onConflict: "hotel_id,name" }).select("*").single();
+    // The occupancy step lives with the property, not with the rule version, so
+    // every publishing path (manual, bulk, automation) reads the same number.
+    const { error: stepError } = await supabase.from("hotel_revenue_settings")
+      .upsert({ hotel_id: hotelId, extra_guest_supplement_eur: Math.max(0, Math.round(guestStep)) } as any, { onConflict: "hotel_id" });
+    if (stepError) toast.error(errorMessage(stepError, "Could not save the occupancy price step"));
     setSaving(false);
     if (error) { toast.error(errorMessage(error, "Could not save these settings")); return; }
     setRule(data as unknown as Rule);
@@ -1221,6 +1233,32 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                 <p className="text-[11px] text-muted-foreground">
                   Every lift still respects the daily rise limit, the maximum single change and the sold-out guard.
                 </p>
+              </Section>
+
+              {/* Occupancy spacing */}
+              <Section
+                value="occupancy"
+                icon={Users}
+                title="Price per extra guest"
+                summary={guestStep > 0
+                  ? `Each extra guest costs at least ${cur} ${guestStep} more`
+                  : "No minimum difference between guest counts"}
+              >
+                <p className="text-xs text-muted-foreground">
+                  Inside one room type, two guests must never pay the same as three. Every price
+                  we publish — manual, bulk or automatic — is spaced by at least this amount, and a
+                  daily sweep lifts any level that came back flat from the PMS.
+                </p>
+                <NumField
+                  label="Minimum difference per extra guest"
+                  suffix={cur}
+                  min={0}
+                  max={cur === "EUR" ? 100 : 100000}
+                  value={guestStep}
+                  onChange={(e) => setGuestStep(Number(e.target.value))}
+                  hint={<><strong>Example:</strong> with {cur} {guestStep || 10}, a {cur} 240 two-guest price makes three guests {cur} {240 + (guestStep || 10)} and four guests {cur} {240 + 2 * (guestStep || 10)}.</>}
+                  note="Typical is 10–20. Repairs only ever move a price up, never down."
+                />
               </Section>
 
               {/* 6 — Smart pricing */}
