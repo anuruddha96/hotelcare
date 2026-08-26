@@ -10,8 +10,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Loader2, Plus, RefreshCw, Sparkles, Trash2, ExternalLink, Check } from "lucide-react";
+import { Loader2, Plus, RefreshCw, Sparkles, Trash2, ExternalLink, Check, AlertTriangle } from "lucide-react";
+import {
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+} from "recharts";
 import { money } from "@/lib/revenueCurrency";
 import type { DayMetrics } from "@/lib/revenueAnalytics";
 
@@ -29,6 +34,10 @@ interface Competitor {
   name: string;
   source_url: string | null;
   active: boolean;
+  last_scan_at: string | null;
+  last_scan_status: string | null;
+  last_scan_error: string | null;
+  last_scan_prices: number | null;
 }
 
 interface CompRate {
@@ -44,6 +53,16 @@ interface Suggestion {
   why: string | null;
 }
 
+/** Distinct, theme-safe line colours for each watched hotel. */
+const LINE_COLORS = [
+  "hsl(var(--chart-1, 220 70% 50%))",
+  "hsl(var(--chart-2, 160 60% 45%))",
+  "hsl(var(--chart-3, 30 80% 55%))",
+  "hsl(var(--chart-4, 280 65% 60%))",
+  "hsl(var(--chart-5, 340 75% 55%))",
+  "hsl(var(--muted-foreground))",
+];
+
 export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit, ratesByDate }: Props) {
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [rates, setRates] = useState<CompRate[]>([]);
@@ -54,12 +73,18 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
   const [adding, setAdding] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
+  const [showEach, setShowEach] = useState(false);
+  const [showSiblings, setShowSiblings] = useState(false);
+  const [siblings, setSiblings] = useState<Array<{ hotelId: string; label: string; adr: Map<string, number> }>>([]);
 
   const load = useCallback(async () => {
     if (!hotelId) return;
     setLoading(true);
     const [{ data: comps }, { data: rs }] = await Promise.all([
-      supabase.from("competitor_properties").select("id, name, source_url, active").eq("hotel_id", hotelId).order("name"),
+      supabase
+        .from("competitor_properties")
+        .select("id, name, source_url, active, last_scan_at, last_scan_status, last_scan_error, last_scan_prices")
+        .eq("hotel_id", hotelId).order("name"),
       supabase
         .from("competitor_rates")
         .select("competitor_id, stay_date, rate, currency")
@@ -73,6 +98,36 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
   }, [hotelId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Sister properties in the same organisation, so the set can be read next to
+  // how our own hotels are priced for the same nights.
+  useEffect(() => {
+    if (!showSiblings || !hotelId || siblings.length) return;
+    let cancelled = false;
+    void (async () => {
+      const { data: hotels } = await supabase.rpc("get_user_organization_hotels");
+      const list = ((hotels ?? []) as Array<{ hotel_id: string; hotel_name: string }>)
+        .filter((h) => h.hotel_id && h.hotel_id !== hotelId);
+      if (!list.length) return;
+      const from = new Date().toISOString().slice(0, 10);
+      const to = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+      const { data: snaps } = await supabase.rpc("revenue_portfolio_latest_snapshots", {
+        _hotel_ids: list.map((h) => h.hotel_id), _from: from, _to: to,
+      });
+      if (cancelled) return;
+      const byHotel = new Map<string, Map<string, number>>();
+      for (const row of ((snaps ?? []) as Array<{ hotel_id: string; stay_date: string; adr_eur: number | null }>)) {
+        if (row.adr_eur == null) continue;
+        const m = byHotel.get(row.hotel_id) ?? new Map<string, number>();
+        m.set(String(row.stay_date).slice(0, 10), Number(row.adr_eur));
+        byHotel.set(row.hotel_id, m);
+      }
+      setSiblings(list
+        .filter((h) => byHotel.has(h.hotel_id))
+        .map((h) => ({ hotelId: h.hotel_id, label: h.hotel_name || h.hotel_id, adr: byHotel.get(h.hotel_id)! })));
+    })();
+    return () => { cancelled = true; };
+  }, [showSiblings, hotelId, siblings.length]);
 
   const byDate = useMemo(() => {
     const m = new Map<string, number[]>();
@@ -95,6 +150,31 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
       return { date: d, avg, ours, diff, n: set.length };
     });
   }, [byDate, ratesByDate]);
+
+  /** Chart rows: our price, the set average, and optionally each hotel. */
+  const chartData = useMemo(() => {
+    const perCompetitor = new Map<string, Map<string, number>>();
+    for (const r of rates) {
+      if (r.rate == null) continue;
+      const m = perCompetitor.get(r.competitor_id) ?? new Map<string, number>();
+      m.set(r.stay_date, Number(r.rate));
+      perCompetitor.set(r.competitor_id, m);
+    }
+    return comparison.map((row) => {
+      const point: Record<string, string | number | null> = {
+        date: row.date.slice(5),
+        You: row.ours,
+        "Set average": Number(row.avg.toFixed(0)),
+      };
+      if (showEach) {
+        for (const c of competitors) point[c.name] = perCompetitor.get(c.id)?.get(row.date) ?? null;
+      }
+      if (showSiblings) {
+        for (const s of siblings) point[s.label] = s.adr.get(row.date) ?? null;
+      }
+      return point;
+    });
+  }, [comparison, rates, competitors, showEach, showSiblings, siblings]);
 
   const insert = async (n: string, u: string | null) => {
     if (!hotelId || !organizationSlug) return false;
