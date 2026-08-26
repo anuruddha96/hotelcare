@@ -2184,16 +2184,10 @@ export default function RateStrategyGrid({
         return;
       }
       e.preventDefault();
-      const under = document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null;
-      const cell = under?.closest?.("[data-cell-row]") as HTMLElement | null;
-      if (!cell) return;
-      const hit = { row: Number(cell.dataset.cellRow), date: Number(cell.dataset.cellDate) };
-      if (!Number.isFinite(hit.row) || !Number.isFinite(hit.date)) return;
-      const prev = focusRef.current;
-      if (prev && prev.row === hit.row && prev.date === hit.date) return;
-      focusRef.current = hit;
+      pointerPosRef.current = { x: t.clientX, y: t.clientY };
       schedulePaint();
     };
+
 
     const onTouchEnd = () => {
       if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
