@@ -781,8 +781,14 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                   );
                 }}
 
-                formatter={(value: unknown, name: string) => {
+                formatter={(value: unknown, name: string, item: { dataKey?: string | number }) => {
+                  const key = String(item?.dataKey ?? "");
+                  if (key === "bandLow") return null as unknown as [string, string];
+                  if (key === "bandSpan") return null as unknown as [string, string];
                   if (name === "ADR") return [money(Number(value)), name];
+                  if (key.startsWith("c_") || key === "ourRate" || key === "marketAvg" || key === "marketMedian") {
+                    return value == null ? (null as unknown as [string, string]) : [money(Number(value)), name];
+                  }
                   if (name === "Pickup" || name === "Booked" || name === "Cancelled") {
                     const n = Math.abs(value as number);
                     if (!n) return null as unknown as [string, string];
@@ -791,6 +797,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                   }
                   return [`${value}%`, name];
                 }}
+
               />
               {/* Clicking a legend entry hides or shows that series, so the
                   reader can isolate pickup when the lines overlap. */}
