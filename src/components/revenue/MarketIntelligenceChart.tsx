@@ -818,3 +818,31 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
     </Card>
   );
 }
+
+/** A titled block of tick boxes inside the series popover. */
+function SeriesGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+      <div className="space-y-1">{children}</div>
+    </div>
+  );
+}
+
+/** One tickable series, with an optional colour swatch and freshness hint. */
+function Tick({ label, checked, onChange, color, hint }: {
+  label: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  color?: string;
+  hint?: string;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-muted/60">
+      <Checkbox checked={checked} onCheckedChange={(v) => onChange(v === true)} />
+      {color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />}
+      <span className="min-w-0 flex-1 truncate text-xs">{label}</span>
+      {hint && <span className="shrink-0 text-[10px] text-muted-foreground">{hint}</span>}
+    </label>
+  );
+}
