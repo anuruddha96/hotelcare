@@ -2,9 +2,15 @@
 //
 // Uses the hotel's own OpenAI key with web search. Each competitor is asked in
 // small date chunks (a single 30–60 day question used to time out or come back
-// truncated, which is why the panel showed "0 prices" for everyone). Every
-// competitor records the outcome of its last scan so the UI can explain a
-// failure instead of silently showing nothing.
+// truncated). Prices are stored fully qualified — room type, occupancy, board,
+// refundability, the page they were read from and a confidence score — so the
+// market average compares like with like instead of mixing a non-refundable
+// room-only rate with a flexible rate including breakfast.
+//
+// A blank-date second pass re-asks only the nights a competitor left empty, so
+// coverage fills in over consecutive runs instead of sitting at "0 prices".
+// The scheduled sweep takes a single-flight lease and pauses itself when the
+// OpenAI key is rejected, out of credit, or rate limited.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -20,7 +26,22 @@ function json(body: unknown, status = 200) {
   });
 }
 
-interface ScannedRate { date: string; price: number | null; currency?: string | null }
+interface ScannedRate {
+  date: string;
+  price: number | null;
+  currency?: string | null;
+  room_type?: string | null;
+  board?: string | null;
+  refundable?: boolean | null;
+  source_url?: string | null;
+  confidence?: number | null;
+}
+
+class ScanBlocked extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
 
 function extractJson(text: string): unknown {
   const cleaned = (text ?? "").replace(/```json|```/g, "").trim();
@@ -34,26 +55,32 @@ function extractJson(text: string): unknown {
 }
 
 const CHUNK_DAYS = 10;
+const LEASE_ID = "competitor-rate-scan";
 
 function isoAdd(base: Date, days: number) {
   return new Date(base.getTime() + days * 86_400_000).toISOString().slice(0, 10);
 }
 
 /** One web-search question covering a short date range for one competitor. */
-async function askChunk(
+async function askDates(
   apiKey: string,
   competitor: { name: string; source_url: string | null },
-  from: string,
-  to: string,
-): Promise<{ rates: ScannedRate[]; currency: string | null; error: string | null }> {
+  dates: string[],
+): Promise<{ rates: ScannedRate[]; currency: string | null; error: string | null; model: string | null }> {
   const prompt = [
     `Find the publicly advertised nightly room price for the hotel "${competitor.name}" in Budapest`,
     competitor.source_url ? `(official page: ${competitor.source_url})` : "",
-    `for each stay date from ${from} to ${to}, standard double room, 2 adults, 1 night.`,
+    `for each of these stay dates: ${dates.join(", ")}.`,
+    `Always quote the cheapest available STANDARD DOUBLE room for 2 adults, 1 night.`,
     `Search the web (the hotel site, Booking.com, Google Hotels).`,
-    `Only report a price you actually saw on a public page.`,
-    `Return strict JSON only: {"currency":"EUR","rates":[{"date":"YYYY-MM-DD","price":123}]}.`,
-    `Use null for price when you could not find it. Never guess or interpolate.`,
+    `For every date report the room type name, whether breakfast is included ("room_only" or "breakfast"),`,
+    `whether the rate is refundable, the exact page URL you read the price on,`,
+    `and a confidence between 0 and 1 for how sure you are the price is real and for that date.`,
+    `Only report a price you actually saw on a public page. Never guess or interpolate.`,
+    `Return strict JSON only:`,
+    `{"currency":"EUR","rates":[{"date":"YYYY-MM-DD","price":123,"currency":"EUR","room_type":"Standard Double",`,
+    `"board":"breakfast","refundable":true,"source_url":"https://…","confidence":0.9}]}.`,
+    `Use null for price when you could not find it.`,
   ].filter(Boolean).join(" ");
 
   let lastError: string | null = null;
@@ -65,12 +92,19 @@ async function askChunk(
         body: JSON.stringify({
           model,
           tools: [{ type: "web_search_preview", search_context_size: "medium" }],
-          max_output_tokens: 4000,
+          max_output_tokens: 6000,
           input: prompt,
         }),
       });
       if (!attempt.ok) {
-        lastError = `${model}: ${attempt.status} ${(await attempt.text()).slice(0, 200)}`;
+        const detail = (await attempt.text()).slice(0, 200);
+        // Key, credit and rate-limit problems are not per-competitor failures:
+        // every following question would fail the same way and spend nothing
+        // but time, so the whole sweep stops and parks itself.
+        if ([401, 402, 403, 429].includes(attempt.status)) {
+          throw new ScanBlocked(`OpenAI ${attempt.status}: ${detail}`, attempt.status);
+        }
+        lastError = `${model}: ${attempt.status} ${detail}`;
         console.error("competitor-rate-scan", lastError);
         continue;
       }
@@ -86,13 +120,24 @@ async function askChunk(
         rates: Array.isArray(parsed.rates) ? parsed.rates : [],
         currency: parsed.currency ?? null,
         error: null,
+        model,
       };
     } catch (e) {
+      if (e instanceof ScanBlocked) throw e;
       lastError = `${model}: ${e instanceof Error ? e.message : String(e)}`;
       console.error("competitor-rate-scan", lastError);
     }
   }
-  return { rates: [], currency: null, error: lastError ?? "no answer" };
+  return { rates: [], currency: null, error: lastError ?? "no answer", model: null };
+}
+
+function normaliseBoard(v: string | null | undefined): string | null {
+  if (!v) return null;
+  const s = String(v).toLowerCase();
+  if (s.includes("breakfast") && !s.includes("no breakfast") && !s.includes("without")) return "breakfast";
+  if (s.includes("half")) return "half_board";
+  if (s.includes("all")) return "all_inclusive";
+  return "room_only";
 }
 
 Deno.serve(async (req) => {
@@ -102,6 +147,8 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
+
+  let leaseHeld = false;
 
   try {
     const body = await req.json().catch(() => ({}));
@@ -128,7 +175,13 @@ Deno.serve(async (req) => {
     } else if (body.hotelId) {
       hotelIds = [String(body.hotelId)];
     } else {
-      // Scheduled sweep: every hotel that has at least one active competitor.
+      // Scheduled sweep: one run at a time across the whole project.
+      const { data: claimed } = await admin.rpc("claim_competitor_scan_lease", {
+        _id: LEASE_ID, _minutes: 25,
+      });
+      if (!claimed) return json({ ok: true, skipped: "another sweep is running or the sweep is paused" });
+      leaseHeld = true;
+
       const { data: all } = await admin
         .from("competitor_properties").select("hotel_id").eq("active", true);
       hotelIds = [...new Set(((all ?? []) as { hotel_id: string }[]).map((r) => r.hotel_id))];
@@ -141,6 +194,7 @@ Deno.serve(async (req) => {
     const start = new Date();
     const startIso = start.toISOString().slice(0, 10);
     const endIso = isoAdd(start, days);
+    const allDates = Array.from({ length: days }, (_, i) => isoAdd(start, i));
 
     let captured = 0;
     const results: Array<{ competitor: string; prices: number; error: string | null }> = [];
@@ -157,39 +211,101 @@ Deno.serve(async (req) => {
       for (const c of competitors) {
         let stored = 0;
         let error: string | null = null;
+        let usedModel: string | null = null;
+        const filled = new Set<string>();
 
-        for (let offset = 0; offset < days; offset += CHUNK_DAYS) {
-          const from = isoAdd(start, offset);
-          const to = isoAdd(start, Math.min(offset + CHUNK_DAYS - 1, days));
-          const chunk = await askChunk(apiKey, c, from, to);
-          if (chunk.error) { error = chunk.error; continue; }
+        const { data: runRow } = await admin.from("competitor_scan_runs").insert({
+          hotel_id: hotelId,
+          organization_slug: c.organization_slug,
+          competitor_id: c.id,
+          window_from: startIso,
+          window_to: endIso,
+          dates_requested: allDates.length,
+          status: "running",
+        }).select("id").maybeSingle();
+        const runId = (runRow as { id?: string } | null)?.id ?? null;
 
+        /** Store one answer, returning how many usable prices it held. */
+        const persist = async (
+          chunk: { rates: ScannedRate[]; currency: string | null },
+        ) => {
           const rows = chunk.rates
             .filter((r) => r && typeof r.date === "string" && r.price != null && Number.isFinite(Number(r.price)))
             .filter((r) => r.date >= startIso && r.date <= endIso)
+            .filter((r) => (r.confidence == null ? true : Number(r.confidence) >= 0.3))
             .map((r) => ({
               competitor_id: c.id,
               hotel_id: hotelId,
               organization_slug: c.organization_slug,
               stay_date: r.date,
               rate: Number(r.price),
+              rate_original: Number(r.price),
               currency: (r.currency ?? chunk.currency ?? "EUR").toString().slice(0, 6),
+              currency_original: (r.currency ?? chunk.currency ?? "EUR").toString().slice(0, 6),
+              room_type: r.room_type ? String(r.room_type).slice(0, 120) : null,
+              occupancy: 2,
+              board: normaliseBoard(r.board),
+              refundable: typeof r.refundable === "boolean" ? r.refundable : null,
+              source_page_url: r.source_url ? String(r.source_url).slice(0, 500) : (c.source_url ?? null),
+              confidence: r.confidence == null ? null : Math.max(0, Math.min(1, Number(r.confidence))),
               source: c.source_url ?? "web search",
               captured_at: new Date().toISOString(),
             }));
 
-          if (rows.length) {
-            const { error: upErr } = await admin
-              .from("competitor_rates")
-              .upsert(rows, { onConflict: "competitor_id,stay_date" });
-            if (upErr) { error = upErr.message; console.error("competitor-rate-scan upsert", upErr.message); }
-            else { stored += rows.length; captured += rows.length; }
+          if (!rows.length) return 0;
+          const { error: upErr } = await admin
+            .from("competitor_rates")
+            .upsert(rows, { onConflict: "competitor_id,stay_date" });
+          if (upErr) {
+            error = upErr.message;
+            console.error("competitor-rate-scan upsert", upErr.message);
+            return 0;
           }
+          for (const r of rows) filled.add(r.stay_date);
+          return rows.length;
+        };
+
+        // First pass: sequential short date windows.
+        for (let offset = 0; offset < days; offset += CHUNK_DAYS) {
+          const window = allDates.slice(offset, offset + CHUNK_DAYS);
+          const chunk = await askDates(apiKey, c, window);
+          usedModel = chunk.model ?? usedModel;
+          if (chunk.error) { error = chunk.error; continue; }
+          const n = await persist(chunk);
+          stored += n;
+          captured += n;
+        }
+
+        // Second pass: only the nights that came back empty, up to two windows,
+        // so a partially answered competitor closes its gaps next.
+        const missing = allDates.filter((d) => !filled.has(d));
+        if (missing.length && missing.length < allDates.length) {
+          for (const window of [missing.slice(0, CHUNK_DAYS), missing.slice(CHUNK_DAYS, CHUNK_DAYS * 2)]) {
+            if (!window.length) continue;
+            const chunk = await askDates(apiKey, c, window);
+            usedModel = chunk.model ?? usedModel;
+            if (chunk.error) { error = chunk.error; continue; }
+            const n = await persist(chunk);
+            stored += n;
+            captured += n;
+          }
+        }
+
+        const status = stored > 0 ? "ok" : (error ? "failed" : "no_prices_found");
+
+        if (runId) {
+          await admin.from("competitor_scan_runs").update({
+            prices_found: stored,
+            status,
+            error: stored > 0 ? null : error,
+            model: usedModel,
+            finished_at: new Date().toISOString(),
+          }).eq("id", runId);
         }
 
         await admin.from("competitor_properties").update({
           last_scan_at: new Date().toISOString(),
-          last_scan_status: stored > 0 ? "ok" : (error ? "failed" : "no_prices_found"),
+          last_scan_status: status,
           last_scan_error: stored > 0 ? null : error,
           last_scan_prices: stored,
         }).eq("id", c.id);
@@ -200,7 +316,21 @@ Deno.serve(async (req) => {
 
     return json({ ok: true, captured, hotels: hotelIds.length, results });
   } catch (e) {
+    if (e instanceof ScanBlocked) {
+      // Park the sweep rather than burn the key on questions that cannot work.
+      const minutes = e.status === 429 ? 60 : 12 * 60;
+      await admin.rpc("pause_competitor_scan", {
+        _id: LEASE_ID, _minutes: minutes, _reason: e.message.slice(0, 300),
+      });
+      leaseHeld = false;
+      console.error("competitor-rate-scan blocked", e.message);
+      return json({ error: e.message, paused_minutes: minutes }, e.status === 429 ? 429 : 402);
+    }
     console.error("competitor-rate-scan error", e);
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+  } finally {
+    if (leaseHeld) {
+      await admin.rpc("release_competitor_scan_lease", { _id: LEASE_ID }).catch(() => {});
+    }
   }
 });

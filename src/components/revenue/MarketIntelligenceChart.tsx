@@ -3,14 +3,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Bar, CartesianGrid, Cell, ComposedChart, Label, LabelList, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from "recharts";
-import { Activity } from "lucide-react";
+import { Area, Bar, CartesianGrid, Cell, ComposedChart, Label, LabelList, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from "recharts";
+import { Activity, Download, SlidersHorizontal } from "lucide-react";
 import type { DayMetrics } from "@/lib/revenueAnalytics";
 import { budapestToday, daysBetween, pickupWindowLabel, PICKUP_WINDOW_48H } from "@/lib/revenueAnalytics";
 import { money, currencySymbol } from "@/lib/revenueCurrency";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { supabase } from "@/integrations/supabase/client";
+import { useMarketRates } from "@/hooks/useMarketRates";
+
 
 const RANGES = [
   { value: 14, label: "14d" },
@@ -113,15 +117,48 @@ interface Props {
   /** Calendar month shared with the headline performance card. */
   selectedMonth: string;
   eventsByDate?: Map<string, { title: string; impact: string }[]>;
+  /** Our own selling rate per stay date, plotted against the competitive set. */
+  ourRateByDate?: Map<string, number>;
+}
+
+/** Colours for the watched competitors, in list order. */
+const COMP_COLORS = [
+  "hsl(217 91% 60%)", "hsl(160 60% 45%)", "hsl(30 84% 55%)",
+  "hsl(280 65% 60%)", "hsl(340 75% 55%)", "hsl(190 80% 42%)",
+  "hsl(45 90% 45%)", "hsl(0 72% 55%)",
+];
+const MARKET_COLOR = "hsl(var(--foreground) / 0.75)";
+const OUR_RATE_COLOR = "hsl(var(--primary))";
+
+/** Which of the competitive-set series the reader keeps ticked on. */
+interface MarketPrefs {
+  ourRate: boolean;
+  marketAvg: boolean;
+  marketMedian: boolean;
+  band: boolean;
+  competitors: string[];
+}
+const DEFAULT_PREFS: MarketPrefs = {
+  ourRate: true, marketAvg: true, marketMedian: false, band: true, competitors: [],
+};
+const prefsKey = (hotelId?: string | null) => `market-intel-series:${hotelId ?? "default"}`;
+function loadPrefs(hotelId?: string | null): MarketPrefs {
+  if (typeof window === "undefined") return DEFAULT_PREFS;
+  try {
+    const raw = window.localStorage.getItem(prefsKey(hotelId));
+    return raw ? { ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<MarketPrefs>) } : DEFAULT_PREFS;
+  } catch { return DEFAULT_PREFS; }
 }
 
 /**
- * Demand & pickup horizon.
+ * Market intelligence horizon.
  *
  * Bars are net pickup. On top of them the reader can layer occupancy, ADR, an
- * in-house Budapest demand index, and one occupancy line per sister property.
+ * in-house city demand index, one occupancy line per sister property, and the
+ * whole competitive set: our selling rate, the market average and median, the
+ * cheapest-to-dearest band and any individual competitor ticked on.
  */
-export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickupWindowChange, hotels = [], hotelId, selectedMonth, eventsByDate }: Props) {
+export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onPickupWindowChange, hotels = [], hotelId, selectedMonth, eventsByDate, ourRateByDate }: Props) {
   const isMobile = useIsMobile();
   // Wide bars beat a long horizon on a phone: 30 days is still readable.
   const [days, setDays] = useState(() => (typeof window !== "undefined" && window.innerWidth < 768 ? 30 : 60));
@@ -133,6 +170,29 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
   /** Event shading can be switched off when it crowds the chart. */
   const [showEvents, setShowEvents] = useState(true);
 
+  /** Competitive-set series, remembered per property. */
+  const [prefs, setPrefs] = useState<MarketPrefs>(() => loadPrefs(hotelId));
+  useEffect(() => { setPrefs(loadPrefs(hotelId)); }, [hotelId]);
+  useEffect(() => {
+    try { window.localStorage.setItem(prefsKey(hotelId), JSON.stringify(prefs)); } catch { /* private mode */ }
+  }, [prefs, hotelId]);
+  const setPref = <K extends keyof MarketPrefs>(key: K, value: MarketPrefs[K]) =>
+    setPrefs((p) => ({ ...p, [key]: value }));
+  const toggleCompetitor = (id: string) => setPrefs((p) => ({
+    ...p,
+    competitors: p.competitors.includes(id) ? p.competitors.filter((c) => c !== id) : [...p.competitors, id],
+  }));
+
+  /** Which property the market is judged against. */
+  const [baseline, setBaseline] = useState<string>("__ours__");
+  useEffect(() => { setBaseline("__ours__"); }, [hotelId]);
+
+  const marketData = useMarketRates(hotelId ?? null);
+  const shownCompetitors = useMemo(
+    () => marketData.competitors.filter((c) => prefs.competitors.includes(c.id)),
+    [marketData.competitors, prefs.competitors],
+  );
+
   /** Properties the reader has switched off in comparison mode. */
   const [hiddenHotels, setHiddenHotels] = useState<Set<string>>(new Set());
   const toggleHotel = (id: string) => setHiddenHotels((prev) => {
@@ -140,6 +200,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
     if (next.has(id)) next.delete(id); else next.add(id);
     return next;
   });
+
   const activeWindow = pickupWindowDays ?? PICKUP_WINDOW_48H;
   const [customDays, setCustomDays] = useState(7);
   const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
@@ -224,6 +285,25 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
     return { actual, dowAvg };
   }, [latestByHotelDate]);
 
+  /**
+   * The rate line the market is judged against: our own selling rate by
+   * default, or a sister property's ADR when the reader switches baseline.
+   */
+  const baselineRate = useMemo(() => {
+    if (baseline === "__ours__") return (date: string) => ourRateByDate?.get(date) ?? null;
+    return (date: string) => {
+      const row = latestByHotelDate.get(`${baseline}|${date}`);
+      return row?.adr_eur == null ? null : Math.round(Number(row.adr_eur));
+    };
+  }, [baseline, ourRateByDate, latestByHotelDate]);
+
+  const baselineLabel = baseline === "__ours__"
+    ? "This property"
+    : hotels.find((h) => h.hotel_id === baseline)?.hotel_name ?? "Selected property";
+
+  const compColor = (id: string) =>
+    COMP_COLORS[Math.max(0, marketData.competitors.findIndex((c) => c.id === id)) % COMP_COLORS.length];
+
   const data = useMemo(() => metrics.slice(0, days).map((m) => {
     const actual = demandByDate.actual.get(m.stay_date);
     const dow = new Date(`${m.stay_date}T00:00:00Z`).getUTCDay();
@@ -249,12 +329,69 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
         point[`h_${h.hotel_id}`] = row?.occupancy_pct == null ? null : Math.round(Number(row.occupancy_pct));
       }
     }
+
+    // ---- competitive set -------------------------------------------------
+    const mk = marketData.marketByDate.get(m.stay_date);
+    point.ourRate = prefs.ourRate ? baselineRate(m.stay_date) : null;
+    point.marketAvg = prefs.marketAvg && mk?.trimmed_avg_rate != null ? Math.round(Number(mk.trimmed_avg_rate)) : null;
+    point.marketMedian = prefs.marketMedian && mk?.median_rate != null ? Math.round(Number(mk.median_rate)) : null;
+    point.bandLow = prefs.band && mk?.min_rate != null ? Math.round(Number(mk.min_rate)) : null;
+    point.bandSpan = prefs.band && mk?.min_rate != null && mk?.max_rate != null
+      ? Math.max(0, Math.round(Number(mk.max_rate) - Number(mk.min_rate))) : null;
+    point.marketMin = mk?.min_rate == null ? null : Math.round(Number(mk.min_rate));
+    point.marketMax = mk?.max_rate == null ? null : Math.round(Number(mk.max_rate));
+    point.marketSample = mk?.sample_size ?? 0;
+    point.marketStale = mk?.stale ?? false;
+    for (const c of shownCompetitors) {
+      point[`c_${c.id}`] = marketData.ratesByCompetitor.get(c.id)?.get(m.stay_date) ?? null;
+    }
+
     return point as {
       date: string; label: string; pickup: number; gained: number; lost: number; occ: number; adr: number | null;
       demand: number | null; demandForecast: number | null; monthStart: boolean; month: string;
       [key: string]: unknown;
     };
-  }), [metrics, days, demandByDate, compare, hotels, latestByHotelDate]);
+  }), [metrics, days, demandByDate, compare, hotels, latestByHotelDate,
+    marketData.marketByDate, marketData.ratesByCompetitor, shownCompetitors, prefs, baselineRate]);
+
+  /** Where the baseline property sits against the market over the horizon. */
+  const marketStanding = useMemo(() => {
+    let ours = 0, mkt = 0, nights = 0, cheaper = 0, dearer = 0;
+    for (const d of data) {
+      const our = baselineRate(d.date);
+      const avg = marketData.marketByDate.get(d.date)?.trimmed_avg_rate;
+      if (our == null || avg == null) continue;
+      ours += our; mkt += Number(avg); nights += 1;
+      if (our < Number(avg) * 0.9) cheaper += 1;
+      if (our > Number(avg) * 1.1) dearer += 1;
+    }
+    if (!nights || mkt === 0) return null;
+    return { pct: Math.round(((ours - mkt) / mkt) * 100), nights, cheaper, dearer };
+  }, [data, baselineRate, marketData.marketByDate]);
+
+  /** Owner-friendly export of exactly what the chart is showing. */
+  const exportCsv = () => {
+    const headers = ["Date", "Pickup", "Occupancy %", "Baseline rate", "Market average", "Market median",
+      "Cheapest", "Dearest", "Set size", ...shownCompetitors.map((c) => c.name)];
+    const lines = [headers.join(",")];
+    for (const d of data) {
+      const mk = marketData.marketByDate.get(d.date);
+      const cells = [
+        d.date, d.pickup, d.occ, baselineRate(d.date) ?? "",
+        mk?.trimmed_avg_rate ?? "", mk?.median_rate ?? "", mk?.min_rate ?? "", mk?.max_rate ?? "", mk?.sample_size ?? 0,
+        ...shownCompetitors.map((c) => marketData.ratesByCompetitor.get(c.id)?.get(d.date) ?? ""),
+      ];
+      lines.push(cells.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `market-intelligence-${hotelId ?? "hotel"}-${budapestToday()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
 
   /** Same calendar-month KPIs and weighted formulas as the headline card. */
   const comparisonSummary = useMemo(() => {
@@ -308,6 +445,27 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
   const usesPercentAxis = showOcc || showDemand || compare;
   const hasDemand = demandByDate.actual.size > 0;
 
+  /** Any money series (our rate, market, competitors) needs the money axis. */
+  const usesRateAxis = shownCompetitors.length > 0 || prefs.marketAvg || prefs.marketMedian
+    || prefs.band || prefs.ourRate;
+  const rateDomain = useMemo<[number, number] | undefined>(() => {
+    const vals: number[] = [];
+    for (const d of data) {
+      for (const key of ["ourRate", "marketAvg", "marketMedian", "marketMin", "marketMax"]) {
+        const v = d[key] as number | null;
+        if (typeof v === "number" && v > 0) vals.push(v);
+      }
+      for (const c of shownCompetitors) {
+        const v = d[`c_${c.id}`] as number | null;
+        if (typeof v === "number" && v > 0) vals.push(v);
+      }
+    }
+    if (!vals.length) return undefined;
+    const lo = Math.min(...vals), hi = Math.max(...vals);
+    const pad = Math.max(10, (hi - lo) * 0.12);
+    return [Math.max(0, Math.floor((lo - pad) / 10) * 10), Math.ceil((hi + pad) / 10) * 10];
+  }, [data, shownCompetitors]);
+
   /** The dropdown mirrors the shared window instead of holding its own state. */
   const period = periodForWindow(activeWindow, customDays);
 
@@ -319,10 +477,15 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
     <Card>
       <CardHeader className="pb-2 gap-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-            <Activity className="h-4 w-4 text-primary" />
-            Demand &amp; pickup horizon
-          </CardTitle>
+          <div>
+            <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+              <Activity className="h-4 w-4 text-primary" />
+              Market intelligence horizon
+            </CardTitle>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Pickup, demand and the competitive set, night by night
+            </p>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={totalPickup > 0 ? "secondary" : "outline"} className="font-normal">
               {totalPickup > 0 ? "+" : ""}{totalPickup} net rooms
@@ -338,8 +501,17 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                 Peak {peak.label}: +{peak.pickup}
               </Badge>
             )}
+            {marketStanding && (
+              <Badge variant="outline" className="font-normal">
+                {baselineLabel} is {marketStanding.pct === 0
+                  ? "level with"
+                  : `${Math.abs(marketStanding.pct)}% ${marketStanding.pct > 0 ? "above" : "below"}`} the market
+                <span className="ml-1 text-muted-foreground">({marketStanding.nights} nights priced)</span>
+              </Badge>
+            )}
           </div>
         </div>
+
         <div className="flex flex-wrap items-center gap-2">
           {onPickupWindowChange && (
             <>
@@ -400,8 +572,99 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                 onClick={() => setCompare((v) => !v)}>Compare properties</Button>
             )}
           </div>
+
+          {/* Everything that can be drawn, in one tick list. */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs">
+                <SlidersHorizontal className="mr-1 h-3.5 w-3.5" />
+                Series
+                {(shownCompetitors.length > 0 || prefs.marketAvg) && (
+                  <Badge variant="secondary" className="ml-1 h-4 px-1 text-[9px] font-normal">
+                    {shownCompetitors.length + (prefs.marketAvg ? 1 : 0)}
+                  </Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80 p-0">
+              <div className="max-h-[60vh] overflow-y-auto p-3 space-y-3">
+                <SeriesGroup title="Ours">
+                  <Tick label="Occupancy" checked={showOcc} onChange={(v) => setShowOcc(v)} />
+                  <Tick label="Our ADR (achieved)" checked={showAdr} onChange={(v) => setShowAdr(v)} />
+                  <Tick label="Our selling rate" checked={prefs.ourRate} onChange={(v) => setPref("ourRate", v)} />
+                </SeriesGroup>
+
+                <SeriesGroup title="Market">
+                  <Tick label="Market average rate" checked={prefs.marketAvg} onChange={(v) => setPref("marketAvg", v)} />
+                  <Tick label="Market median" checked={prefs.marketMedian} onChange={(v) => setPref("marketMedian", v)} />
+                  <Tick label="Cheapest–dearest band" checked={prefs.band} onChange={(v) => setPref("band", v)} />
+                  {hasDemand && <Tick label="City demand index" checked={showDemand} onChange={(v) => setShowDemand(v)} />}
+                  {(eventsByDate?.size ?? 0) > 0 && (
+                    <Tick label="Event shading" checked={showEvents} onChange={(v) => setShowEvents(v)} />
+                  )}
+                </SeriesGroup>
+
+                <SeriesGroup title={`Competitors (${marketData.competitors.length})`}>
+                  {marketData.competitors.length === 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      No hotels watched yet — add them in Competitor rates.
+                    </p>
+                  )}
+                  {marketData.competitors.map((c) => {
+                    const count = marketData.ratesByCompetitor.get(c.id)?.size ?? 0;
+                    return (
+                      <Tick
+                        key={c.id}
+                        label={c.name}
+                        color={compColor(c.id)}
+                        checked={prefs.competitors.includes(c.id)}
+                        onChange={() => toggleCompetitor(c.id)}
+                        hint={count === 0
+                          ? (c.last_scan_status === "failed" ? "last check failed" : "no public price found")
+                          : `${count} prices · ${c.last_scan_at ? new Date(c.last_scan_at).toLocaleDateString() : "never checked"}`}
+                      />
+                    );
+                  })}
+                </SeriesGroup>
+
+                {hotels.length > 1 && (
+                  <SeriesGroup title="Our other hotels">
+                    <Tick label="Show occupancy lines" checked={compare} onChange={(v) => setCompare(v)} />
+                    {compare && hotels.map((h, i) => (
+                      <Tick
+                        key={h.hotel_id}
+                        label={h.hotel_name}
+                        color={colorFor(h.hotel_id, i)}
+                        checked={!hiddenHotels.has(h.hotel_id)}
+                        onChange={() => toggleHotel(h.hotel_id)}
+                      />
+                    ))}
+                  </SeriesGroup>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          {hotels.length > 1 && (
+            <Select value={baseline} onValueChange={setBaseline}>
+              <SelectTrigger className="h-7 w-[190px] text-xs">
+                <SelectValue placeholder="Compare against market" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__ours__">Baseline: this property</SelectItem>
+                {hotels.filter((h) => h.hotel_id !== hotelId).map((h) => (
+                  <SelectItem key={h.hotel_id} value={h.hotel_id}>Baseline: {h.hotel_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={exportCsv}>
+            <Download className="mr-1 h-3.5 w-3.5" />CSV
+          </Button>
         </div>
       </CardHeader>
+
       <CardContent className="px-1 sm:px-4">
         {compare && comparisonSummary.length > 0 && (
           <div className="mb-3 grid grid-cols-2 gap-2 px-2 lg:grid-cols-4">
@@ -471,6 +734,12 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                 hide={!showAdr || usesPercentAxis}
                 tickFormatter={(v: number) => `${currencySymbol()}${Math.round(v)}`}
                 domain={adrDomain} />
+              {/* Money scale shared by our rate, the market and every competitor. */}
+              <YAxis yAxisId="rate" orientation="right" width={46} tick={{ fontSize: 10 }} axisLine={false} tickLine={false}
+                hide={!usesRateAxis || rateDomain == null}
+                tickFormatter={(v: number) => `${currencySymbol()}${Math.round(v)}`}
+                domain={rateDomain ?? ["auto", "auto"]} />
+
               {showEvents && data.filter(d => eventsByDate?.has(d.date)).map((d) => (
                 <ReferenceLine
                   key={d.date}
@@ -512,8 +781,14 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   );
                 }}
 
-                formatter={(value: unknown, name: string) => {
+                formatter={(value: unknown, name: string, item: { dataKey?: string | number }) => {
+                  const key = String(item?.dataKey ?? "");
+                  if (key === "bandLow") return null as unknown as [string, string];
+                  if (key === "bandSpan") return null as unknown as [string, string];
                   if (name === "ADR") return [money(Number(value)), name];
+                  if (key.startsWith("c_") || key === "ourRate" || key === "marketAvg" || key === "marketMedian") {
+                    return value == null ? (null as unknown as [string, string]) : [money(Number(value)), name];
+                  }
                   if (name === "Pickup" || name === "Booked" || name === "Cancelled") {
                     const n = Math.abs(value as number);
                     if (!n) return null as unknown as [string, string];
@@ -522,6 +797,7 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   }
                   return [`${value}%`, name];
                 }}
+
               />
               {/* Clicking a legend entry hides or shows that series, so the
                   reader can isolate pickup when the lines overlap. */}
@@ -541,6 +817,11 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   { value: "ADR", type: "line", color: showAdr ? ADR_COLOR : "hsl(var(--muted-foreground) / 0.4)", id: "adr" },
                   ...(hasDemand ? [{ value: "City demand", type: "line" as const, color: showDemand ? DEMAND_COLOR : "hsl(var(--muted-foreground) / 0.4)", id: "demand" }] : []),
                   ...(compare ? hotels.map((h, i) => ({ value: h.hotel_name, type: "line" as const, color: hiddenHotels.has(h.hotel_id) ? "hsl(var(--muted-foreground) / 0.4)" : colorFor(h.hotel_id, i), id: h.hotel_id })) : []),
+                  ...(prefs.ourRate ? [{ value: `${baselineLabel} rate`, type: "line" as const, color: OUR_RATE_COLOR, id: "ourRate" }] : []),
+                  ...(prefs.marketAvg ? [{ value: "Market average", type: "line" as const, color: MARKET_COLOR, id: "marketAvg" }] : []),
+                  ...(prefs.marketMedian ? [{ value: "Market median", type: "line" as const, color: MARKET_COLOR, id: "marketMedian" }] : []),
+                  ...shownCompetitors.map((c) => ({ value: c.name, type: "line" as const, color: compColor(c.id), id: c.id })),
+
                 ]}
               />
               {/* Rooms booked and rooms given back are stacked around zero, so
@@ -582,11 +863,66 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                   strokeWidth={h.hotel_id === hotelId ? 2.5 : 1.5}
                   dot={false} connectNulls opacity={0.85} />
               ))}
+
+              {/* ---- competitive set ------------------------------------- */}
+              {prefs.band && (
+                <>
+                  <Area yAxisId="rate" dataKey="bandLow" stackId="band" stroke="none" fill="transparent"
+                    legendType="none" name="Market floor" isAnimationActive={false} connectNulls />
+                  <Area yAxisId="rate" dataKey="bandSpan" stackId="band" stroke="none"
+                    fill="hsl(var(--foreground) / 0.08)" name="Cheapest–dearest" isAnimationActive={false} connectNulls />
+                </>
+              )}
+              {prefs.marketAvg && (
+                <Line yAxisId="rate" type="monotone" dataKey="marketAvg" name="Market average" stroke={MARKET_COLOR}
+                  strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls />
+              )}
+              {prefs.marketMedian && (
+                <Line yAxisId="rate" type="monotone" dataKey="marketMedian" name="Market median" stroke={MARKET_COLOR}
+                  strokeWidth={1.5} strokeDasharray="2 3" dot={false} connectNulls opacity={0.8} />
+              )}
+              {prefs.ourRate && (
+                <Line yAxisId="rate" type="monotone" dataKey="ourRate" name={`${baselineLabel} rate`} stroke={OUR_RATE_COLOR}
+                  strokeWidth={2.5} dot={false} connectNulls />
+              )}
+              {shownCompetitors.map((c) => (
+                <Line key={c.id} yAxisId="rate" type="monotone" dataKey={`c_${c.id}`} name={c.name}
+                  stroke={compColor(c.id)} strokeWidth={1.5} dot={false} connectNulls opacity={0.9} />
+              ))}
+
             </ComposedChart>
           </ResponsiveContainer>
         </div>
       </CardContent>
 
     </Card>
+  );
+}
+
+/** A titled block of tick boxes inside the series popover. */
+function SeriesGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{title}</p>
+      <div className="space-y-1">{children}</div>
+    </div>
+  );
+}
+
+/** One tickable series, with an optional colour swatch and freshness hint. */
+function Tick({ label, checked, onChange, color, hint }: {
+  label: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  color?: string;
+  hint?: string;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-muted/60">
+      <Checkbox checked={checked} onCheckedChange={(v) => onChange(v === true)} />
+      {color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />}
+      <span className="min-w-0 flex-1 truncate text-xs">{label}</span>
+      {hint && <span className="shrink-0 text-[10px] text-muted-foreground">{hint}</span>}
+    </label>
   );
 }
