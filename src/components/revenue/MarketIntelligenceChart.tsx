@@ -420,26 +420,130 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
     }).sort((a, b) => (a.hotel_id === hotelId ? -1 : b.hotel_id === hotelId ? 1 : 0));
   }, [compare, hotels, latestByHotelDate, hotelId, metrics, selectedMonth]);
 
+  // ------------------------------------------------------------- viewport
+  /**
+   * Zoom and pan window over the horizon. Pinch on touch, wheel on desktop,
+   * drag to pan. Everything the chart draws reads the sliced window, so the
+   * axes rescale to what is actually on screen.
+   */
+  const plotRef = useRef<HTMLDivElement | null>(null);
+  const [view, setView] = useState({ start: 0, count: 0 });
+  useEffect(() => { setView({ start: 0, count: data.length }); }, [data.length, days]);
+
+  const viewData = useMemo(() => {
+    if (!view.count) return data;
+    const count = Math.min(Math.max(4, view.count), data.length);
+    const start = Math.min(Math.max(0, view.start), Math.max(0, data.length - count));
+    return data.slice(start, start + count);
+  }, [data, view]);
+
+  const resetZoom = () => setView({ start: 0, count: data.length });
+
+  /** Zoom around a horizontal position (0–1) inside the plot. */
+  const zoomAt = useCallback((factor: number, anchor: number) => {
+    setView((v) => {
+      const total = data.length;
+      if (total === 0) return v;
+      const count = v.count || total;
+      const next = Math.round(Math.min(total, Math.max(4, count * factor)));
+      const focus = v.start + anchor * count;
+      const start = Math.round(Math.min(Math.max(0, focus - anchor * next), Math.max(0, total - next)));
+      return { start, count: next };
+    });
+  }, [data.length]);
+
+  useEffect(() => {
+    const el = plotRef.current;
+    if (!el) return;
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1);
+      const rect = el.getBoundingClientRect();
+      const anchor = rect.width ? (e.clientX - rect.left) / rect.width : 0.5;
+      zoomAt(Math.exp(dy * 0.0015), Math.min(1, Math.max(0, anchor)));
+    };
+
+    let pinchDist = 0;
+    let pinchAnchor = 0.5;
+    let panX = 0;
+    let panCount = 0;
+
+    const dist = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+
+    const onTouchStart = (e: TouchEvent) => {
+      const rect = el.getBoundingClientRect();
+      if (e.touches.length === 2) {
+        pinchDist = dist(e.touches);
+        const mid = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        pinchAnchor = rect.width ? Math.min(1, Math.max(0, (mid - rect.left) / rect.width)) : 0.5;
+      } else if (e.touches.length === 1) {
+        panX = e.touches[0].clientX;
+        panCount = 0;
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && pinchDist > 0) {
+        e.preventDefault();
+        const d = dist(e.touches);
+        if (d > 0) {
+          zoomAt(pinchDist / d, pinchAnchor);
+          pinchDist = d;
+        }
+        return;
+      }
+      if (e.touches.length === 1) {
+        const rect = el.getBoundingClientRect();
+        const dx = e.touches[0].clientX - panX;
+        const count = panCount || view.count || data.length;
+        const perPx = rect.width ? count / rect.width : 0;
+        const steps = Math.round(-dx * perPx);
+        if (steps !== 0) {
+          e.preventDefault();
+          panX = e.touches[0].clientX;
+          setView((v) => {
+            const c = v.count || data.length;
+            return { count: c, start: Math.min(Math.max(0, v.start + steps), Math.max(0, data.length - c)) };
+          });
+        }
+      }
+    };
+
+    const onTouchEnd = () => { pinchDist = 0; };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+    };
+  }, [zoomAt, data.length, view.count]);
+
   /** Labels for the month dividers drawn across the plot. */
-  const monthMarks = useMemo(() => data.filter((d) => d.monthStart), [data]);
+  const monthMarks = useMemo(() => viewData.filter((d) => d.monthStart), [viewData]);
 
   /** Numbers over each bar stay readable only while the bars are wide enough. */
-  const showLabels = data.length <= 45 && !compare;
+  const showLabels = viewData.length <= 45 && !compare;
 
   /** A tight ADR band around the real values keeps the line meaningful. */
   const adrDomain = useMemo<[number, number]>(() => {
-    const vals = data.map((d) => d.adr).filter((v): v is number => typeof v === "number" && v > 0);
+    const vals = viewData.map((d) => d.adr).filter((v): v is number => typeof v === "number" && v > 0);
     if (vals.length === 0) return [0, 100];
     const lo = Math.min(...vals);
     const hi = Math.max(...vals);
     const pad = Math.max(10, (hi - lo) * 0.15);
     return [Math.max(0, Math.floor((lo - pad) / 10) * 10), Math.ceil((hi + pad) / 10) * 10];
-  }, [data]);
+  }, [viewData]);
 
-  const totalPickup = useMemo(() => data.reduce((s, d) => s + (d.pickup || 0), 0), [data]);
-  const totalGained = useMemo(() => data.reduce((s, d) => s + (d.gained || 0), 0), [data]);
-  const totalLost = useMemo(() => data.reduce((s, d) => s - (d.lost || 0), 0), [data]);
-  const peak = useMemo(() => data.reduce((best, d) => (d.pickup > (best?.pickup ?? -99) ? d : best), data[0]), [data]);
+  const totalPickup = useMemo(() => viewData.reduce((s, d) => s + (d.pickup || 0), 0), [viewData]);
+  const totalGained = useMemo(() => viewData.reduce((s, d) => s + (d.gained || 0), 0), [viewData]);
+  const totalLost = useMemo(() => viewData.reduce((s, d) => s - (d.lost || 0), 0), [viewData]);
+  const peak = useMemo(() => viewData.reduce((best, d) => (d.pickup > (best?.pickup ?? -99) ? d : best), viewData[0]), [viewData]);
 
   /** Occupancy scale is on screen whenever anything uses it. */
   const usesPercentAxis = showOcc || showDemand || compare;
@@ -450,7 +554,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
     || prefs.band || prefs.ourRate;
   const rateDomain = useMemo<[number, number] | undefined>(() => {
     const vals: number[] = [];
-    for (const d of data) {
+    for (const d of viewData) {
       for (const key of ["ourRate", "marketAvg", "marketMedian", "marketMin", "marketMax"]) {
         const v = d[key] as number | null;
         if (typeof v === "number" && v > 0) vals.push(v);
@@ -464,7 +568,36 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
     const lo = Math.min(...vals), hi = Math.max(...vals);
     const pad = Math.max(10, (hi - lo) * 0.12);
     return [Math.max(0, Math.floor((lo - pad) / 10) * 10), Math.ceil((hi + pad) / 10) * 10];
-  }, [data, shownCompetitors]);
+  }, [viewData, shownCompetitors]);
+
+  /** Every drawable series, as a tickable legend entry. */
+  const legendItems = useMemo(() => {
+    const items: Array<{ id: string; label: string; color: string; shape: "bar" | "line"; active: boolean; toggle?: () => void }> = [
+      { id: "gained", label: "Booked", color: PICKUP_LEGEND_COLOR, shape: "bar", active: true },
+      { id: "lost", label: "Cancelled", color: "hsl(199 89% 60%)", shape: "bar", active: true },
+      { id: "occ", label: "Occupancy", color: "hsl(var(--primary))", shape: "line", active: showOcc, toggle: () => setShowOcc((v) => !v) },
+      { id: "adr", label: "ADR", color: ADR_COLOR, shape: "line", active: showAdr, toggle: () => setShowAdr((v) => !v) },
+    ];
+    if (hasDemand) items.push({ id: "demand", label: "City demand", color: DEMAND_COLOR, shape: "line", active: showDemand, toggle: () => setShowDemand((v) => !v) });
+    if (compare) {
+      hotels.forEach((h, i) => items.push({
+        id: h.hotel_id, label: h.hotel_name, color: colorFor(h.hotel_id, i), shape: "line",
+        active: !hiddenHotels.has(h.hotel_id), toggle: () => toggleHotel(h.hotel_id),
+      }));
+    }
+    items.push({ id: "ourRate", label: `${baselineLabel} rate`, color: OUR_RATE_COLOR, shape: "line", active: prefs.ourRate, toggle: () => setPref("ourRate", !prefs.ourRate) });
+    items.push({ id: "marketAvg", label: "Market average", color: MARKET_COLOR, shape: "line", active: prefs.marketAvg, toggle: () => setPref("marketAvg", !prefs.marketAvg) });
+    items.push({ id: "marketMedian", label: "Market median", color: MARKET_COLOR, shape: "line", active: prefs.marketMedian, toggle: () => setPref("marketMedian", !prefs.marketMedian) });
+    for (const c of marketData.competitors) {
+      items.push({
+        id: c.id, label: c.name, color: compColor(c.id), shape: "line",
+        active: prefs.competitors.includes(c.id), toggle: () => toggleCompetitor(c.id),
+      });
+    }
+    return items;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showOcc, showAdr, showDemand, hasDemand, compare, hotels, hiddenHotels, prefs, baselineLabel, marketData.competitors]);
+
 
   /** The dropdown mirrors the shared window instead of holding its own state. */
   const period = periodForWindow(activeWindow, customDays);
