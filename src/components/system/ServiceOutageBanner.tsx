@@ -51,7 +51,7 @@ export function ServiceOutageBanner() {
     };
   }, []);
 
-  if (!down || dismissed) return null;
+  if (!ENABLED || !down || dismissed) return null;
 
   return (
     <div className="fixed inset-x-0 top-0 z-[100] border-b border-destructive/30 bg-destructive/10 backdrop-blur-sm">
