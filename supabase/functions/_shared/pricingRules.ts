@@ -680,6 +680,80 @@ export function immediateWindowDecision(input: ImmediateWindowInput): ImmediateW
 }
 
 // --------------------------------------------------------------------------
+// Final sell-down window (the cancellation-policy tail)
+// --------------------------------------------------------------------------
+
+export interface FinalWindowInput {
+  enabled: boolean;
+  daysOut: number;
+  /** Length of the tail, in days — normally the cancellation policy (7). */
+  finalWindowDays: number;
+  /** Rooms still to sell on that date, when known. 0 means sold out. */
+  roomsLeft?: number | null;
+  /** Net room-nights gained on that date inside the observation window. */
+  netPickup?: number | null;
+  /** Room-nights that count as abnormal pickup; 0 disables the exception. */
+  abnormalPickupRooms?: number | null;
+  /** Impact of a confirmed event on that date, when there is one. */
+  eventImpact?: string | null;
+  /** Whether a high-impact event may lift a price inside the tail. */
+  allowEventIncrease?: boolean;
+}
+
+export interface FinalWindowDecision {
+  inWindow: boolean;
+  /** Mark down every cycle while rooms remain: sell the leftovers. */
+  forceMarkdown: boolean;
+  allowIncrease: boolean;
+  /** Why an increase is (not) allowed — used in the pricing trail. */
+  reason: "outside_window" | "abnormal_pickup" | "special_event" | "final_sell_down";
+}
+
+/**
+ * Inside the cancellation-policy tail the room either sells or is lost, so the
+ * price only ever goes down. Two things earn an exception: genuinely abnormal
+ * pickup on that date, and a high-impact event the property chose to price for.
+ */
+export function finalWindowDecision(input: FinalWindowInput): FinalWindowDecision {
+  const window = Math.max(0, Number(input.finalWindowDays) || 0);
+  const days = Number(input.daysOut);
+  const inWindow = !!input.enabled && window > 0 && Number.isFinite(days) && days >= 0 && days <= window;
+  if (!inWindow) {
+    return { inWindow: false, forceMarkdown: false, allowIncrease: true, reason: "outside_window" };
+  }
+
+  const left = input.roomsLeft;
+  const hasRooms = left === null || left === undefined || Number(left) > 0;
+
+  const threshold = Math.max(0, Number(input.abnormalPickupRooms ?? 0) || 0);
+  const net = Number(input.netPickup ?? 0) || 0;
+  if (threshold > 0 && net >= threshold) {
+    return { inWindow: true, forceMarkdown: false, allowIncrease: true, reason: "abnormal_pickup" };
+  }
+
+  const impact = String(input.eventImpact ?? "").toLowerCase();
+  if (input.allowEventIncrease && impact === "high") {
+    return { inWindow: true, forceMarkdown: false, allowIncrease: true, reason: "special_event" };
+  }
+
+  return { inWindow: true, forceMarkdown: hasRooms, allowIncrease: false, reason: "final_sell_down" };
+}
+
+/** Plain-language sentence for a markdown driven by the final selling window. */
+export function finalWindowText(input: {
+  amount: number;
+  currency?: string | null;
+  daysOut: number;
+  roomsLeft?: number | null;
+  windowDays: number;
+}): string {
+  const left = input.roomsLeft === null || input.roomsLeft === undefined
+    ? ""
+    : `, ${Math.max(0, Math.round(Number(input.roomsLeft)))} room${Math.round(Number(input.roomsLeft)) === 1 ? "" : "s"} left`;
+  return `${input.daysOut} day${input.daysOut === 1 ? "" : "s"} to arrival${left} — reduced by ${money(input.amount, input.currency)} to sell the remaining rooms inside the final ${input.windowDays}-day selling window.`;
+}
+
+// --------------------------------------------------------------------------
 // Demand spikes (occupancy running ahead of pace)
 // --------------------------------------------------------------------------
 

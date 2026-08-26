@@ -10,8 +10,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Loader2, Plus, RefreshCw, Sparkles, Trash2, ExternalLink, Check } from "lucide-react";
+import { Loader2, Plus, RefreshCw, Sparkles, Trash2, ExternalLink, Check, AlertTriangle } from "lucide-react";
+import {
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+} from "recharts";
 import { money } from "@/lib/revenueCurrency";
 import type { DayMetrics } from "@/lib/revenueAnalytics";
 
@@ -29,6 +34,10 @@ interface Competitor {
   name: string;
   source_url: string | null;
   active: boolean;
+  last_scan_at: string | null;
+  last_scan_status: string | null;
+  last_scan_error: string | null;
+  last_scan_prices: number | null;
 }
 
 interface CompRate {
@@ -44,6 +53,16 @@ interface Suggestion {
   why: string | null;
 }
 
+/** Distinct, theme-safe line colours for each watched hotel. */
+const LINE_COLORS = [
+  "hsl(var(--chart-1, 220 70% 50%))",
+  "hsl(var(--chart-2, 160 60% 45%))",
+  "hsl(var(--chart-3, 30 80% 55%))",
+  "hsl(var(--chart-4, 280 65% 60%))",
+  "hsl(var(--chart-5, 340 75% 55%))",
+  "hsl(var(--muted-foreground))",
+];
+
 export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit, ratesByDate }: Props) {
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [rates, setRates] = useState<CompRate[]>([]);
@@ -54,12 +73,18 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
   const [adding, setAdding] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
+  const [showEach, setShowEach] = useState(false);
+  const [showSiblings, setShowSiblings] = useState(false);
+  const [siblings, setSiblings] = useState<Array<{ hotelId: string; label: string; adr: Map<string, number> }>>([]);
 
   const load = useCallback(async () => {
     if (!hotelId) return;
     setLoading(true);
     const [{ data: comps }, { data: rs }] = await Promise.all([
-      supabase.from("competitor_properties").select("id, name, source_url, active").eq("hotel_id", hotelId).order("name"),
+      supabase
+        .from("competitor_properties")
+        .select("id, name, source_url, active, last_scan_at, last_scan_status, last_scan_error, last_scan_prices")
+        .eq("hotel_id", hotelId).order("name"),
       supabase
         .from("competitor_rates")
         .select("competitor_id, stay_date, rate, currency")
@@ -73,6 +98,36 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
   }, [hotelId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Sister properties in the same organisation, so the set can be read next to
+  // how our own hotels are priced for the same nights.
+  useEffect(() => {
+    if (!showSiblings || !hotelId || siblings.length) return;
+    let cancelled = false;
+    void (async () => {
+      const { data: hotels } = await supabase.rpc("get_user_organization_hotels");
+      const list = ((hotels ?? []) as Array<{ hotel_id: string; hotel_name: string }>)
+        .filter((h) => h.hotel_id && h.hotel_id !== hotelId);
+      if (!list.length) return;
+      const from = new Date().toISOString().slice(0, 10);
+      const to = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+      const { data: snaps } = await supabase.rpc("revenue_portfolio_latest_snapshots", {
+        _hotel_ids: list.map((h) => h.hotel_id), _from: from, _to: to,
+      });
+      if (cancelled) return;
+      const byHotel = new Map<string, Map<string, number>>();
+      for (const row of ((snaps ?? []) as Array<{ hotel_id: string; stay_date: string; adr_eur: number | null }>)) {
+        if (row.adr_eur == null) continue;
+        const m = byHotel.get(row.hotel_id) ?? new Map<string, number>();
+        m.set(String(row.stay_date).slice(0, 10), Number(row.adr_eur));
+        byHotel.set(row.hotel_id, m);
+      }
+      setSiblings(list
+        .filter((h) => byHotel.has(h.hotel_id))
+        .map((h) => ({ hotelId: h.hotel_id, label: h.hotel_name || h.hotel_id, adr: byHotel.get(h.hotel_id)! })));
+    })();
+    return () => { cancelled = true; };
+  }, [showSiblings, hotelId, siblings.length]);
 
   const byDate = useMemo(() => {
     const m = new Map<string, number[]>();
@@ -95,6 +150,31 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
       return { date: d, avg, ours, diff, n: set.length };
     });
   }, [byDate, ratesByDate]);
+
+  /** Chart rows: our price, the set average, and optionally each hotel. */
+  const chartData = useMemo(() => {
+    const perCompetitor = new Map<string, Map<string, number>>();
+    for (const r of rates) {
+      if (r.rate == null) continue;
+      const m = perCompetitor.get(r.competitor_id) ?? new Map<string, number>();
+      m.set(r.stay_date, Number(r.rate));
+      perCompetitor.set(r.competitor_id, m);
+    }
+    return comparison.map((row) => {
+      const point: Record<string, string | number | null> = {
+        date: row.date.slice(5),
+        You: row.ours,
+        "Set average": Number(row.avg.toFixed(0)),
+      };
+      if (showEach) {
+        for (const c of competitors) point[c.name] = perCompetitor.get(c.id)?.get(row.date) ?? null;
+      }
+      if (showSiblings) {
+        for (const s of siblings) point[s.label] = s.adr.get(row.date) ?? null;
+      }
+      return point;
+    });
+  }, [comparison, rates, competitors, showEach, showSiblings, siblings]);
 
   const insert = async (n: string, u: string | null) => {
     if (!hotelId || !organizationSlug) return false;
@@ -165,9 +245,11 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
         body: { hotelId, days: 30 },
       });
       if (error) throw error;
-      const captured = (data as { captured?: number } | null)?.captured ?? 0;
-      if (captured) toast.success(`Captured ${captured} competitor prices`);
-      else toast.info("No public prices were found this time.");
+      const res = data as { captured?: number; results?: Array<{ competitor: string; prices: number; error: string | null }> } | null;
+      const captured = res?.captured ?? 0;
+      const failed = (res?.results ?? []).filter((r) => r.prices === 0);
+      if (captured) toast.success(`Captured ${captured} competitor prices${failed.length ? ` · ${failed.length} hotel(s) returned nothing` : ""}`);
+      else toast.info(failed[0]?.error ? `No prices captured: ${failed[0].error}` : "No public prices were found this time.");
       void load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "The scan failed");
@@ -262,6 +344,16 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
                       <ExternalLink className="h-3 w-3" /> rate page
                     </a>
                   )}
+                  {c.last_scan_at && (
+                    <p className={`mt-0.5 flex items-center gap-1 text-[11px] ${c.last_scan_status === "ok" ? "text-muted-foreground" : "text-amber-600"}`}>
+                      {c.last_scan_status !== "ok" && <AlertTriangle className="h-3 w-3" />}
+                      {c.last_scan_status === "ok"
+                        ? `Last checked ${new Date(c.last_scan_at).toLocaleString()}`
+                        : c.last_scan_status === "no_prices_found"
+                          ? "Last check found no public price"
+                          : `Last check failed: ${c.last_scan_error ?? "unknown reason"}`}
+                    </p>
+                  )}
                 </div>
                 <Badge variant="secondary" className="text-[10px]">
                   {rates.filter((r) => r.competitor_id === c.id).length} prices
@@ -288,7 +380,44 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
       </section>
 
       <section className="space-y-2">
-        <h4 className="text-sm font-semibold">You against the set</h4>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h4 className="text-sm font-semibold">You against the set</h4>
+          {comparison.length > 0 && (
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Switch id="comp-each" checked={showEach} onCheckedChange={setShowEach} />
+                <Label htmlFor="comp-each" className="text-xs font-normal">Each competitor</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch id="comp-siblings" checked={showSiblings} onCheckedChange={setShowSiblings} />
+                <Label htmlFor="comp-siblings" className="text-xs font-normal">Our other hotels</Label>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {comparison.length > 0 && (
+          <div className="h-64 w-full rounded-lg border p-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                <XAxis dataKey="date" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 10 }} width={44} />
+                <Tooltip contentStyle={{ fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line type="monotone" dataKey="You" stroke="hsl(var(--primary))" strokeWidth={2.5} dot={false} connectNulls />
+                <Line type="monotone" dataKey="Set average" stroke="hsl(var(--muted-foreground))" strokeWidth={2} strokeDasharray="4 3" dot={false} connectNulls />
+                {showEach && competitors.map((c, i) => (
+                  <Line key={c.id} type="monotone" dataKey={c.name} stroke={LINE_COLORS[i % LINE_COLORS.length]} strokeWidth={1.5} dot={false} connectNulls />
+                ))}
+                {showSiblings && siblings.map((s, i) => (
+                  <Line key={s.hotelId} type="monotone" dataKey={s.label} stroke={LINE_COLORS[(i + 2) % LINE_COLORS.length]} strokeWidth={1.5} strokeDasharray="2 2" dot={false} connectNulls />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
         {comparison.length === 0 ? (
           <p className="text-xs text-muted-foreground">No competitor prices captured yet — run a scan.</p>
         ) : (
