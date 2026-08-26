@@ -297,13 +297,29 @@ Deno.serve(async (req) => {
           }
         }
 
-        const status = stored > 0 ? "ok" : (error ? "failed" : "no_prices_found");
+        // Reconcile: cross-check this scrape against the observations of the
+        // last few days, drop the ones that disagree with the group and write
+        // one agreed, confidence-scored price per night into the chart table.
+        let reconciled = 0;
+        if (stored > 0) {
+          const { data: rec, error: recErr } = await admin.rpc("reconcile_competitor_rates", {
+            _competitor_id: c.id, _from: startIso, _to: endIso, _window_hours: 96,
+          });
+          if (recErr) {
+            error = recErr.message;
+            console.error("competitor-rate-scan reconcile", recErr.message);
+          } else {
+            reconciled = Number(rec ?? 0);
+          }
+        }
+
+        const status = reconciled > 0 ? "ok" : (error ? "failed" : "no_prices_found");
 
         if (runId) {
           await admin.from("competitor_scan_runs").update({
-            prices_found: stored,
+            prices_found: reconciled,
             status,
-            error: stored > 0 ? null : error,
+            error: reconciled > 0 ? null : error,
             model: usedModel,
             finished_at: new Date().toISOString(),
           }).eq("id", runId);
@@ -312,11 +328,17 @@ Deno.serve(async (req) => {
         await admin.from("competitor_properties").update({
           last_scan_at: new Date().toISOString(),
           last_scan_status: status,
-          last_scan_error: stored > 0 ? null : error,
-          last_scan_prices: stored,
+          last_scan_error: reconciled > 0 ? null : error,
+          last_scan_prices: reconciled,
         }).eq("id", c.id);
 
-        results.push({ competitor: c.name, prices: stored, error: stored > 0 ? null : error });
+        results.push({
+          competitor: c.name,
+          prices: reconciled,
+          observations: stored,
+          error: reconciled > 0 ? null : error,
+        });
+
       }
     }
 
