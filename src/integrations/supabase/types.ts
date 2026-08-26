@@ -1035,44 +1035,148 @@ export type Database = {
       }
       competitor_rates: {
         Row: {
+          board: string | null
           captured_at: string
           competitor_id: string
+          confidence: number | null
           created_at: string
           currency: string
+          currency_original: string | null
           hotel_id: string
           id: string
+          occupancy: number | null
           organization_slug: string
           rate: number | null
+          rate_original: number | null
+          refundable: boolean | null
+          room_type: string | null
           source: string | null
+          source_page_url: string | null
           stay_date: string
         }
         Insert: {
+          board?: string | null
           captured_at?: string
           competitor_id: string
+          confidence?: number | null
           created_at?: string
           currency?: string
+          currency_original?: string | null
           hotel_id: string
           id?: string
+          occupancy?: number | null
           organization_slug: string
           rate?: number | null
+          rate_original?: number | null
+          refundable?: boolean | null
+          room_type?: string | null
           source?: string | null
+          source_page_url?: string | null
           stay_date: string
         }
         Update: {
+          board?: string | null
           captured_at?: string
           competitor_id?: string
+          confidence?: number | null
           created_at?: string
           currency?: string
+          currency_original?: string | null
           hotel_id?: string
           id?: string
+          occupancy?: number | null
           organization_slug?: string
           rate?: number | null
+          rate_original?: number | null
+          refundable?: boolean | null
+          room_type?: string | null
           source?: string | null
+          source_page_url?: string | null
           stay_date?: string
         }
         Relationships: [
           {
             foreignKeyName: "competitor_rates_competitor_id_fkey"
+            columns: ["competitor_id"]
+            isOneToOne: false
+            referencedRelation: "competitor_properties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      competitor_scan_lease: {
+        Row: {
+          id: string
+          locked_until: string
+          pause_reason: string | null
+          paused_until: string | null
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          locked_until: string
+          pause_reason?: string | null
+          paused_until?: string | null
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          locked_until?: string
+          pause_reason?: string | null
+          paused_until?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      competitor_scan_runs: {
+        Row: {
+          competitor_id: string | null
+          dates_requested: number
+          error: string | null
+          finished_at: string | null
+          hotel_id: string
+          id: string
+          model: string | null
+          organization_slug: string | null
+          prices_found: number
+          started_at: string
+          status: string
+          window_from: string | null
+          window_to: string | null
+        }
+        Insert: {
+          competitor_id?: string | null
+          dates_requested?: number
+          error?: string | null
+          finished_at?: string | null
+          hotel_id: string
+          id?: string
+          model?: string | null
+          organization_slug?: string | null
+          prices_found?: number
+          started_at?: string
+          status?: string
+          window_from?: string | null
+          window_to?: string | null
+        }
+        Update: {
+          competitor_id?: string | null
+          dates_requested?: number
+          error?: string | null
+          finished_at?: string | null
+          hotel_id?: string
+          id?: string
+          model?: string | null
+          organization_slug?: string | null
+          prices_found?: number
+          started_at?: string
+          status?: string
+          window_from?: string | null
+          window_to?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "competitor_scan_runs_competitor_id_fkey"
             columns: ["competitor_id"]
             isOneToOne: false
             referencedRelation: "competitor_properties"
@@ -8502,6 +8606,10 @@ export type Database = {
         Args: { p_hotel: string; p_stale_minutes?: number }
         Returns: boolean
       }
+      claim_competitor_scan_lease: {
+        Args: { _id: string; _minutes: number }
+        Returns: boolean
+      }
       claim_due_automation_rule: {
         Args: never
         Returns: {
@@ -8850,10 +8958,33 @@ export type Database = {
         Args: { _role: Database["public"]["Enums"]["user_role"] }
         Returns: boolean
       }
+      market_rates_by_date: {
+        Args: {
+          _from: string
+          _hotel_id: string
+          _max_age_hours?: number
+          _to: string
+        }
+        Returns: {
+          avg_rate: number
+          freshest_at: string
+          max_rate: number
+          median_rate: number
+          min_rate: number
+          sample_size: number
+          stale: boolean
+          stay_date: string
+          trimmed_avg_rate: number
+        }[]
+      }
       normalize_hotel_name: { Args: { input_hotel: string }; Returns: string }
       organization_has_custom_branding: {
         Args: { org_slug: string }
         Returns: boolean
+      }
+      pause_competitor_scan: {
+        Args: { _id: string; _minutes: number; _reason: string }
+        Returns: undefined
       }
       pi_analytics_breakdown: {
         Args: {
@@ -9015,6 +9146,10 @@ export type Database = {
         Returns: undefined
       }
       release_automation_lock: { Args: { p_hotel: string }; Returns: undefined }
+      release_competitor_scan_lease: {
+        Args: { _id: string }
+        Returns: undefined
+      }
       release_own_revenue_sync: {
         Args: { _error?: string; _hotel_id: string }
         Returns: undefined
