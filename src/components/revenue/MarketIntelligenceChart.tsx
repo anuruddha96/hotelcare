@@ -15,6 +15,14 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { supabase } from "@/integrations/supabase/client";
 import { useMarketRates } from "@/hooks/useMarketRates";
 
+/** Keeps the last settled value while `frozen` is true, so axes don't jump mid-gesture. */
+function useFrozenWhile<T>(frozen: boolean, value: T): T {
+  const held = useRef(value);
+  if (!frozen) held.current = value;
+  return frozen ? held.current : value;
+}
+
+
 
 const RANGES = [
   { value: 14, label: "14d" },
@@ -584,7 +592,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
   const showLabels = viewData.length <= 45 && !compare;
 
   /** A tight ADR band around the real values keeps the line meaningful. */
-  const adrDomain = useMemo<[number, number]>(() => {
+  const rawAdrDomain = useMemo<[number, number]>(() => {
     const vals = viewData.map((d) => d.adr).filter((v): v is number => typeof v === "number" && v > 0);
     if (vals.length === 0) return [0, 100];
     const lo = Math.min(...vals);
@@ -592,6 +600,9 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
     const pad = Math.max(10, (hi - lo) * 0.15);
     return [Math.max(0, Math.floor((lo - pad) / 10) * 10), Math.ceil((hi + pad) / 10) * 10];
   }, [viewData]);
+
+  /** Axes stay put during a pinch/pan so the chart doesn't rescale under the finger. */
+  const adrDomain = useFrozenWhile(gesturing, rawAdrDomain);
 
   const totalPickup = useMemo(() => viewData.reduce((s, d) => s + (d.pickup || 0), 0), [viewData]);
   const totalGained = useMemo(() => viewData.reduce((s, d) => s + (d.gained || 0), 0), [viewData]);
@@ -605,7 +616,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
   /** Any money series (our rate, market, competitors) needs the money axis. */
   const usesRateAxis = shownCompetitors.length > 0 || prefs.marketAvg || prefs.marketMedian
     || prefs.band || prefs.ourRate;
-  const rateDomain = useMemo<[number, number] | undefined>(() => {
+  const rawRateDomain = useMemo<[number, number] | undefined>(() => {
     const vals: number[] = [];
     for (const d of viewData) {
       for (const key of ["ourRate", "marketAvg", "marketMedian", "marketMin", "marketMax"]) {
@@ -622,6 +633,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
     const pad = Math.max(10, (hi - lo) * 0.12);
     return [Math.max(0, Math.floor((lo - pad) / 10) * 10), Math.ceil((hi + pad) / 10) * 10];
   }, [viewData, shownCompetitors]);
+  const rateDomain = useFrozenWhile(gesturing, rawRateDomain);
 
   /** Every drawable series, as a tickable legend entry. */
   const legendItems = useMemo(() => {
@@ -896,7 +908,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
             })}
           </div>
         )}
-        <div ref={plotRef} className="h-[22rem] touch-none select-none sm:h-72">
+        <div ref={plotRef} className="h-[22rem] touch-pan-y select-none sm:h-72">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={viewData} margin={{ top: 16, right: 4, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
