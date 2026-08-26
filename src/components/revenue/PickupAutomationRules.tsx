@@ -548,6 +548,11 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
     };
     const { data, error } = await supabase.from("revenue_pickup_automation_rules")
       .upsert(payload as any, { onConflict: "hotel_id,name" }).select("*").single();
+    // The occupancy step lives with the property, not with the rule version, so
+    // every publishing path (manual, bulk, automation) reads the same number.
+    const { error: stepError } = await supabase.from("hotel_revenue_settings")
+      .upsert({ hotel_id: hotelId, extra_guest_supplement_eur: Math.max(0, Math.round(guestStep)) } as any, { onConflict: "hotel_id" });
+    if (stepError) toast.error(errorMessage(stepError, "Could not save the occupancy price step"));
     setSaving(false);
     if (error) { toast.error(errorMessage(error, "Could not save these settings")); return; }
     setRule(data as unknown as Rule);
