@@ -741,7 +741,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                 tickFormatter={(v: number) => `${currencySymbol()}${Math.round(v)}`}
                 domain={rateDomain ?? ["auto", "auto"]} />
 
-              {showEvents && data.filter(d => eventsByDate?.has(d.date)).map((d) => (
+              {showEvents && viewData.filter(d => eventsByDate?.has(d.date)).map((d) => (
                 <ReferenceLine
                   key={d.date}
                   yAxisId="pickup"
