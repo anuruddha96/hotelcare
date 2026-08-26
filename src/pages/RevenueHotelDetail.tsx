@@ -903,6 +903,241 @@ export default function RevenueHotelDetail() {
     );
   }
 
+  // ---- Phone experience -------------------------------------------------
+  // One job per screen: change prices, read today, or open the analysis.
+  if (isMobile) {
+    const moreItems: MobileMoreItem[] = [
+      {
+        key: "market",
+        label: "Market intelligence",
+        description: "Pickup, occupancy, ADR, competitors",
+        icon: <BarChart3 className="h-4 w-4" />,
+        render: () => (
+          <MarketIntelligenceChart
+            metrics={live.metrics}
+            pickupWindowDays={pickupWindow}
+            onPickupWindowChange={setPickupWindow}
+            hotels={tenantHotels.map((h) => ({ hotel_id: h.hotel_id, hotel_name: h.hotel_name }))}
+            hotelId={hotelId ?? null}
+            selectedMonth={selectedMonth}
+            eventsByDate={eventsByDate}
+            ourRateByDate={ourRateByDate}
+          />
+        ),
+      },
+      {
+        key: "month",
+        label: "Month performance",
+        description: "How the selected month is performing",
+        icon: <Activity className="h-4 w-4" />,
+        render: () => (
+          <MonthPerformanceHeader
+            today={live.today}
+            metrics={live.metrics}
+            pickupWindowDays={pickupWindow}
+            onPickupWindowChange={setPickupWindow}
+            hotelId={hotelId ?? null}
+            canEdit={isTechnicalAdmin}
+            roomsAvailable={live.roomsAvailable}
+            selectedMonth={selectedMonth}
+            onSelectedMonthChange={setSelectedMonth}
+            nights={live.nights}
+            cancellations={live.cancellations}
+            loading={live.loading}
+            loadedThrough={live.horizonEnd}
+            refreshing={serverRefreshing || live.extending}
+            lastSyncAt={live.lastSyncAt}
+          />
+        ),
+      },
+      {
+        key: "events",
+        label: "Events",
+        description: "What is happening in the city",
+        icon: <CalIcon className="h-4 w-4" />,
+        render: () => <EventsPanel hotelId={hotelId ?? null} selectedMonth={selectedMonth} />,
+      },
+      {
+        key: "pickup",
+        label: "Pickup movements",
+        description: "Rooms gained and given back",
+        icon: <TrendingUp className="h-4 w-4" />,
+        render: () => (
+          <PickupMovementBoard
+            metrics={live.metrics}
+            windowDays={pickupWindow}
+            nights={live.nights}
+            cancellations={live.cancellations}
+            hotelId={hotelId ?? null}
+            organizationSlug={organizationSlug ?? null}
+            rates={live.rates}
+            canEdit={revAdmin}
+            onRatesUpdated={live.reload}
+          />
+        ),
+      },
+      {
+        key: "sales",
+        label: "Today's sales & ADR goal",
+        icon: <Gauge className="h-4 w-4" />,
+        render: () => (
+          <TodaysSalesAdrGoal hotelId={hotelId ?? null} today={live.today} lastSyncAt={live.lastSyncAt} />
+        ),
+      },
+      {
+        key: "segments",
+        label: "Segments & channels",
+        icon: <PieChart className="h-4 w-4" />,
+        render: () => <SegmentPerformancePanel nights={live.nights} selectedMonth={selectedMonth} />,
+      },
+      {
+        key: "yoy",
+        label: "Year over year",
+        icon: <BarChart3 className="h-4 w-4" />,
+        render: () => <YearOverYearPanel hotelId={hotelId ?? null} />,
+      },
+      {
+        key: "compset",
+        label: "Competitor rates",
+        icon: <Binoculars className="h-4 w-4" />,
+        render: () => (
+          <CompetitorRatePanel
+            hotelId={hotelId ?? null}
+            organizationSlug={organizationSlug ?? null}
+            canEdit={revAdmin}
+            ratesByDate={ourRateByDate}
+          />
+        ),
+      },
+      {
+        key: "digest",
+        label: "Morning e-mail",
+        icon: <Mail className="h-4 w-4" />,
+        render: () => (
+          <MorningDigestPanel
+            hotelId={hotelId ?? null}
+            organizationSlug={organizationSlug ?? null}
+            canEdit={revAdmin}
+          />
+        ),
+      },
+      ...(isTechnicalAdmin
+        ? [
+            {
+              key: "demand",
+              label: "Demand desk",
+              icon: <Gauge className="h-4 w-4" />,
+              render: () => (
+                <DemandPricingPanel
+                  hotelId={hotelId ?? null}
+                  organizationSlug={organizationSlug ?? null}
+                  today={live.today}
+                  nights={live.nights}
+                  rates={live.rates}
+                  canEdit={revAdmin}
+                />
+              ),
+            },
+            {
+              key: "pulse",
+              label: "Revenue pulse",
+              icon: <Activity className="h-4 w-4" />,
+              render: () => (
+                <RevenuePulsePanel
+                  today={live.today}
+                  metrics={live.metrics}
+                  roomsAvailable={live.roomsAvailable}
+                  thresholds={live.thresholds}
+                />
+              ),
+            },
+            {
+              key: "ai",
+              label: "AI intelligence",
+              icon: <Sparkles className="h-4 w-4" />,
+              render: () => <RevenueIntelligencePanel hotelId={hotelId ?? null} />,
+            },
+            {
+              key: "syncs",
+              label: "Sync history",
+              icon: <HistoryIcon className="h-4 w-4" />,
+              render: () => <RevenueSyncHistory hotelId={hotelId!} limit={30} />,
+            },
+          ]
+        : []),
+    ];
+
+    return (
+      <MobileRevenueShell
+        header={
+          <>
+            <Header />
+            {live.loading && (
+              <div className="h-0.5 w-full overflow-hidden bg-primary/10" role="status" aria-label="Refreshing data">
+                <div className="h-full w-1/3 bg-primary animate-[fade-in_1.2s_ease-in-out_infinite_alternate]" />
+              </div>
+            )}
+            <div className="flex items-center gap-2 px-3 pt-3">
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate text-base font-semibold">{hotelName}</h1>
+                <p className="truncate text-[11px] text-muted-foreground">
+                  {live.lastSyncAt
+                    ? `Updated ${new Date(live.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                    : "Never synced"}
+                  {(bgRefreshing || serverRefreshing) && " · updating…"}
+                </p>
+              </div>
+              <Button variant="outline" size="sm" className="h-9" onClick={() => void requestSync()}>
+                {syncing || syncWaiting || bgRefreshing || serverRefreshing
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <RefreshCw className="h-4 w-4" />}
+              </Button>
+            </div>
+          </>
+        }
+        prices={
+          <MobilePricesTab
+            hotelId={hotelId ?? null}
+            organizationSlug={organizationSlug ?? null}
+            today={live.today}
+            roomTypes={live.roomTypes}
+            rates={live.rates}
+            metrics={live.metrics}
+            leftByTypeDate={leftByTypeDate}
+            canEdit={revAdmin}
+            onRatesUpdated={live.reload}
+            fullGrid={
+              <RateStrategyGrid
+                loading={live.loading}
+                today={live.today}
+                hotelId={hotelId ?? null}
+                organizationSlug={organizationSlug ?? null}
+                roomTypes={live.roomTypes}
+                rates={live.rates}
+                metrics={live.metrics}
+                nights={live.nights}
+                thresholds={live.thresholds}
+                canEditRates={revAdmin}
+                pickupWindowDays={pickupWindow}
+                onPickupWindowChange={setPickupWindow}
+                demandByDate={demandByDate}
+                eventsByDate={eventsByDate}
+                leftByTypeDate={leftByTypeDate}
+                onRatesUpdated={live.reload}
+                onHorizonDaysChange={growHorizon}
+              />
+            }
+          />
+        }
+        today={
+          <MobileTodayPanel today={live.today} metrics={live.metrics} lastSyncAt={live.lastSyncAt} />
+        }
+        more={<MobileMoreList items={moreItems} />}
+      />
+    );
+  }
+
+
   return (
 
 
