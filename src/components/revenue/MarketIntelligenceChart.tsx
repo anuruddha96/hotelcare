@@ -433,30 +433,50 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
   const markGesture = useCallback(() => {
     setGesturing(true);
     if (gestureTimer.current) window.clearTimeout(gestureTimer.current);
-    gestureTimer.current = window.setTimeout(() => setGesturing(false), 400);
+    gestureTimer.current = window.setTimeout(() => setGesturing(false), 350);
   }, []);
   useEffect(() => { setView({ start: 0, count: data.length }); }, [data.length, days]);
 
+  const MIN_WINDOW = 7;
+
+  /** Fractional window kept outside state so repeated small gestures don't round away. */
+  const preciseView = useRef({ start: 0, count: 0 });
+  useEffect(() => { preciseView.current = { start: view.start, count: view.count }; }, [view.start, view.count]);
+
   const viewData = useMemo(() => {
     if (!view.count) return data;
-    const count = Math.min(Math.max(4, view.count), data.length);
+    const count = Math.min(Math.max(MIN_WINDOW, view.count), data.length);
     const start = Math.min(Math.max(0, view.start), Math.max(0, data.length - count));
     return data.slice(start, start + count);
   }, [data, view]);
 
-  const resetZoom = () => setView({ start: 0, count: data.length });
+  const resetZoom = () => {
+    preciseView.current = { start: 0, count: data.length };
+    setView({ start: 0, count: data.length });
+  };
 
   /** Zoom around a horizontal position (0–1) inside the plot. */
   const zoomAt = useCallback((factor: number, anchor: number) => {
-    setView((v) => {
-      const total = data.length;
-      if (total === 0) return v;
-      const count = v.count || total;
-      const next = Math.round(Math.min(total, Math.max(4, count * factor)));
-      const focus = v.start + anchor * count;
-      const start = Math.round(Math.min(Math.max(0, focus - anchor * next), Math.max(0, total - next)));
-      return { start, count: next };
-    });
+    const total = data.length;
+    if (total === 0) return;
+    const p = preciseView.current;
+    const count = p.count || total;
+    const start = p.start;
+    const next = Math.min(total, Math.max(Math.min(MIN_WINDOW, total), count * factor));
+    const focus = start + anchor * count;
+    const nextStart = Math.min(Math.max(0, focus - anchor * next), Math.max(0, total - next));
+    preciseView.current = { start: nextStart, count: next };
+    setView({ start: Math.round(nextStart), count: Math.round(next) });
+  }, [data.length]);
+
+  const panBy = useCallback((deltaSteps: number) => {
+    const total = data.length;
+    if (total === 0) return;
+    const p = preciseView.current;
+    const count = p.count || total;
+    const start = Math.min(Math.max(0, p.start + deltaSteps), Math.max(0, total - count));
+    preciseView.current = { start, count };
+    setView({ start: Math.round(start), count: Math.round(count) });
   }, [data.length]);
 
   useEffect(() => {
@@ -464,31 +484,44 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
     if (!el) return;
 
     const onWheel = (e: WheelEvent) => {
+      // Trackpad two-finger horizontal scroll pans; vertical scroll / pinch zooms.
+      const rect = el.getBoundingClientRect();
+      if (!e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        e.preventDefault();
+        markGesture();
+        const count = preciseView.current.count || data.length;
+        panBy(e.deltaX * (rect.width ? count / rect.width : 0));
+        return;
+      }
       e.preventDefault();
       markGesture();
       const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1);
-      const rect = el.getBoundingClientRect();
       const anchor = rect.width ? (e.clientX - rect.left) / rect.width : 0.5;
-      zoomAt(Math.exp(dy * 0.0015), Math.min(1, Math.max(0, anchor)));
+      // ctrlKey = trackpad pinch, which sends much larger deltas.
+      const intensity = e.ctrlKey ? 0.01 : 0.002;
+      zoomAt(Math.exp(dy * intensity), Math.min(1, Math.max(0, anchor)));
     };
 
     let pinchDist = 0;
     let pinchAnchor = 0.5;
     let panX = 0;
-    let panCount = 0;
+    let panY = 0;
+    let axis: "none" | "x" | "y" = "none";
 
     const dist = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 
     const onTouchStart = (e: TouchEvent) => {
       const rect = el.getBoundingClientRect();
-      if (e.touches.length === 2) markGesture();
       if (e.touches.length === 2) {
+        markGesture();
         pinchDist = dist(e.touches);
         const mid = (e.touches[0].clientX + e.touches[1].clientX) / 2;
         pinchAnchor = rect.width ? Math.min(1, Math.max(0, (mid - rect.left) / rect.width)) : 0.5;
+        axis = "x";
       } else if (e.touches.length === 1) {
         panX = e.touches[0].clientX;
-        panCount = 0;
+        panY = e.touches[0].clientY;
+        axis = "none";
       }
     };
 
@@ -497,43 +530,52 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
         e.preventDefault();
         markGesture();
         const d = dist(e.touches);
-        if (d > 0) {
+        // Ignore jitter below a pixel so the window doesn't wobble.
+        if (d > 0 && Math.abs(d - pinchDist) > 1) {
           zoomAt(pinchDist / d, pinchAnchor);
           pinchDist = d;
         }
         return;
       }
-      if (e.touches.length === 1) {
-        const rect = el.getBoundingClientRect();
-        const dx = e.touches[0].clientX - panX;
-        const count = panCount || view.count || data.length;
-        const perPx = rect.width ? count / rect.width : 0;
-        const steps = Math.round(-dx * perPx);
-        if (steps !== 0) {
-          e.preventDefault();
-          markGesture();
-          panX = e.touches[0].clientX;
-          setView((v) => {
-            const c = v.count || data.length;
-            return { count: c, start: Math.min(Math.max(0, v.start + steps), Math.max(0, data.length - c)) };
-          });
-        }
+      if (e.touches.length !== 1) return;
+      const dx = e.touches[0].clientX - panX;
+      const dy = e.touches[0].clientY - panY;
+      if (axis === "none") {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        // A mostly vertical swipe belongs to the page, not the chart.
+        axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+        panX = e.touches[0].clientX;
+        return;
       }
+      if (axis !== "x") return;
+      const rect = el.getBoundingClientRect();
+      const count = preciseView.current.count || data.length;
+      const perPx = rect.width ? count / rect.width : 0;
+      const moveX = e.touches[0].clientX - panX;
+      if (moveX === 0) return;
+      e.preventDefault();
+      markGesture();
+      panX = e.touches[0].clientX;
+      panBy(-moveX * perPx);
     };
 
-    const onTouchEnd = () => { pinchDist = 0; };
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0) { pinchDist = 0; axis = "none"; }
+    };
 
     el.addEventListener("wheel", onWheel, { passive: false });
     el.addEventListener("touchstart", onTouchStart, { passive: true });
     el.addEventListener("touchmove", onTouchMove, { passive: false });
     el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchEnd);
     return () => {
       el.removeEventListener("wheel", onWheel);
       el.removeEventListener("touchstart", onTouchStart);
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
     };
-  }, [zoomAt, data.length, view.count, markGesture]);
+  }, [zoomAt, panBy, data.length, markGesture]);
 
   /** Labels for the month dividers drawn across the plot. */
   const monthMarks = useMemo(() => viewData.filter((d) => d.monthStart), [viewData]);
