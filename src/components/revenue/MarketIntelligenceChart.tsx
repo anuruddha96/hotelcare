@@ -445,6 +445,27 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
   const usesPercentAxis = showOcc || showDemand || compare;
   const hasDemand = demandByDate.actual.size > 0;
 
+  /** Any money series (our rate, market, competitors) needs the money axis. */
+  const usesRateAxis = shownCompetitors.length > 0 || prefs.marketAvg || prefs.marketMedian
+    || prefs.band || prefs.ourRate;
+  const rateDomain = useMemo<[number, number] | undefined>(() => {
+    const vals: number[] = [];
+    for (const d of data) {
+      for (const key of ["ourRate", "marketAvg", "marketMedian", "marketMin", "marketMax"]) {
+        const v = d[key] as number | null;
+        if (typeof v === "number" && v > 0) vals.push(v);
+      }
+      for (const c of shownCompetitors) {
+        const v = d[`c_${c.id}`] as number | null;
+        if (typeof v === "number" && v > 0) vals.push(v);
+      }
+    }
+    if (!vals.length) return undefined;
+    const lo = Math.min(...vals), hi = Math.max(...vals);
+    const pad = Math.max(10, (hi - lo) * 0.12);
+    return [Math.max(0, Math.floor((lo - pad) / 10) * 10), Math.ceil((hi + pad) / 10) * 10];
+  }, [data, shownCompetitors]);
+
   /** The dropdown mirrors the shared window instead of holding its own state. */
   const period = periodForWindow(activeWindow, customDays);
 
@@ -456,10 +477,15 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
     <Card>
       <CardHeader className="pb-2 gap-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-sm sm:text-base flex items-center gap-2">
-            <Activity className="h-4 w-4 text-primary" />
-            Demand &amp; pickup horizon
-          </CardTitle>
+          <div>
+            <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+              <Activity className="h-4 w-4 text-primary" />
+              Market intelligence horizon
+            </CardTitle>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              Pickup, demand and the competitive set, night by night
+            </p>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={totalPickup > 0 ? "secondary" : "outline"} className="font-normal">
               {totalPickup > 0 ? "+" : ""}{totalPickup} net rooms
@@ -475,8 +501,17 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                 Peak {peak.label}: +{peak.pickup}
               </Badge>
             )}
+            {marketStanding && (
+              <Badge variant="outline" className="font-normal">
+                {baselineLabel} is {marketStanding.pct === 0
+                  ? "level with"
+                  : `${Math.abs(marketStanding.pct)}% ${marketStanding.pct > 0 ? "above" : "below"}`} the market
+                <span className="ml-1 text-muted-foreground">({marketStanding.nights} nights priced)</span>
+              </Badge>
+            )}
           </div>
         </div>
+
         <div className="flex flex-wrap items-center gap-2">
           {onPickupWindowChange && (
             <>
