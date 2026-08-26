@@ -277,6 +277,20 @@ async function evaluateRoomHierarchy(
     before.set(cellKey(row.stay_date, row.room_type_name, Number(row.occupancy)), Number(row.price));
   }
 
+  // For queued/background publishing, one logical edit can be delivered in
+  // several slices. Earlier slices may already have mirrored their new prices
+  // into `revenue_room_type_rates` by the time the later slice is validated.
+  // Using only the live mirror as the baseline then makes the remaining
+  // sibling markdown look like it "deepens" an inversion, even when the whole
+  // original batch preserved the exact same gap. Prefer the draft's captured
+  // old price as the baseline for touched cells so the guard evaluates the
+  // user's intended before/after state, not a half-applied intermediate state.
+  for (const change of relevant) {
+    const oldPrice = Number(change.old_price);
+    if (!Number.isFinite(oldPrice) || oldPrice <= 0) continue;
+    before.set(cellKey(change.stay_date, change.room_type_name, Number(change.occupancy)), Math.round(oldPrice));
+  }
+
   const gap = (map: Map<string, number>, lowerKey: string, higherKey: string): number | null => {
     const lower = map.get(lowerKey);
     const higher = map.get(higherKey);
@@ -410,6 +424,11 @@ export async function liftHigherRooms(
   const before = new Map<string, number>();
   for (const row of stored) {
     before.set(cellKey(row.stay_date, row.room_type_name, Number(row.occupancy)), Number(row.price));
+  }
+  for (const change of changes) {
+    const oldPrice = Number(change.old_price);
+    if (!Number.isFinite(oldPrice) || oldPrice <= 0) continue;
+    before.set(cellKey(change.stay_date, change.room_type_name, Number(change.occupancy)), Math.round(oldPrice));
   }
   const after = new Map(before);
   const pending = new Map<string, RateChange>();
