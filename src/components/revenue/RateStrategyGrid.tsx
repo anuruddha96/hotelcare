@@ -1976,6 +1976,8 @@ export default function RateStrategyGrid({
   const pillRef = useRef<HTMLDivElement | null>(null);
   const cellElementsRef = useRef(new Map<string, HTMLButtonElement>());
   const paintedCellsRef = useRef(new Set<string>());
+  /** Last pointer position seen during a drag; hit-tested once per frame. */
+  const pointerPosRef = useRef<{ x: number; y: number } | null>(null);
   const SEL_CLASSES = ["bg-primary/25", "ring-1", "ring-inset", "ring-primary"];
 
   const paintSelection = useCallback(() => {
@@ -2000,11 +2002,19 @@ export default function RateStrategyGrid({
     for (const key of paintedCellsRef.current) {
       if (next.has(key)) continue;
       const el = cellElementsRef.current.get(key);
-      if (el) el.classList.remove(...SEL_CLASSES);
+      if (el) {
+        el.classList.remove(...SEL_CLASSES);
+        el.style.transitionProperty = "";
+      }
     }
     for (const key of next) {
       if (paintedCellsRef.current.has(key)) continue;
-      cellElementsRef.current.get(key)?.classList.add(...SEL_CLASSES);
+      const el = cellElementsRef.current.get(key);
+      if (!el) continue;
+      // Colour transitions on hundreds of cells is what makes a drag stutter —
+      // the highlight has to appear on the same frame as the finger.
+      el.style.transitionProperty = "none";
+      el.classList.add(...SEL_CLASSES);
     }
     paintedCellsRef.current = next;
     const count = next.size;
@@ -2014,19 +2024,43 @@ export default function RateStrategyGrid({
     }
   }, []);
 
+  /**
+   * Resolve the cell under the last pointer position. Doing the hit-test inside
+   * the animation frame (instead of on every move event) keeps the gesture at
+   * one layout read per frame.
+   */
+  const resolveFocusFromPointer = useCallback(() => {
+    const p = pointerPosRef.current;
+    if (!p) return;
+    pointerPosRef.current = null;
+    const under = document.elementFromPoint(p.x, p.y) as HTMLElement | null;
+    const cell = under?.closest?.("[data-cell-row]") as HTMLElement | null;
+    if (!cell) return;
+    const row = Number(cell.dataset.cellRow);
+    const date = Number(cell.dataset.cellDate);
+    if (!Number.isFinite(row) || !Number.isFinite(date)) return;
+    const prev = focusRef.current;
+    if (prev && prev.row === row && prev.date === date) return;
+    focusRef.current = { row, date };
+  }, []);
+
   /** Queue a repaint on the next frame — never more than one per frame. */
   const schedulePaint = useCallback(() => {
     if (paintRaf.current !== null) return;
     paintRaf.current = window.requestAnimationFrame(() => {
       paintRaf.current = null;
+      resolveFocusFromPointer();
       paintSelection();
     });
-  }, [paintSelection]);
+  }, [paintSelection, resolveFocusFromPointer]);
+
 
   /** Drop every painted class so React can own the highlight again. */
   const unpaintSelection = useCallback(() => {
     anchorRef.current = null;
     focusRef.current = null;
+    pointerPosRef.current = null;
+
     if (paintRaf.current !== null) { window.cancelAnimationFrame(paintRaf.current); paintRaf.current = null; }
     paintSelection();
   }, [paintSelection]);
@@ -2099,23 +2133,13 @@ export default function RateStrategyGrid({
   }, [unpaintSelection]);
 
   useEffect(() => {
-    const findCell = (x: number, y: number) => {
-      const el = document.elementFromPoint(x, y) as HTMLElement | null;
-      const cell = el?.closest?.("[data-cell-row]") as HTMLElement | null;
-      if (!cell) return null;
-      return { row: Number(cell.dataset.cellRow), date: Number(cell.dataset.cellDate) };
-    };
     const onMove = (e: PointerEvent) => {
       if (!cellDraggingRef.current) return;
       e.preventDefault();
-      const hit = findCell(e.clientX, e.clientY);
-      if (hit && Number.isFinite(hit.row) && Number.isFinite(hit.date)) {
-        const prev = focusRef.current;
-        if (prev && prev.row === hit.row && prev.date === hit.date) return;
-        focusRef.current = hit;
-        schedulePaint();
-      }
+      pointerPosRef.current = { x: e.clientX, y: e.clientY };
+      schedulePaint();
     };
+
     const onUp = () => {
       if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
       pendingCell.current = null;
@@ -2160,16 +2184,10 @@ export default function RateStrategyGrid({
         return;
       }
       e.preventDefault();
-      const under = document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null;
-      const cell = under?.closest?.("[data-cell-row]") as HTMLElement | null;
-      if (!cell) return;
-      const hit = { row: Number(cell.dataset.cellRow), date: Number(cell.dataset.cellDate) };
-      if (!Number.isFinite(hit.row) || !Number.isFinite(hit.date)) return;
-      const prev = focusRef.current;
-      if (prev && prev.row === hit.row && prev.date === hit.date) return;
-      focusRef.current = hit;
+      pointerPosRef.current = { x: t.clientX, y: t.clientY };
       schedulePaint();
     };
+
 
     const onTouchEnd = () => {
       if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
@@ -3390,13 +3408,13 @@ export default function RateStrategyGrid({
 
       {/* Price the selected block */}
       <Dialog open={rangeToolOpen} onOpenChange={(o) => { setRangeToolOpen(o); if (!o) clearRange(); }}>
-        <DialogContent className="sm:max-w-md" style={{ pointerEvents: "auto" }}>
+        <DialogContent style={{ pointerEvents: "auto" }} className="flex max-h-[90dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl p-4 sm:w-full sm:max-w-md sm:p-6">
           <DialogHeader>
             <DialogTitle className="text-base">
               Change {rangeCells.length} selected price{rangeCells.length === 1 ? "" : "s"}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
             <div className="rounded-md border bg-muted/30 p-2 text-[11px] text-muted-foreground">
               {rangeRect && dates[rangeRect.d0] ? (
                 <>
@@ -3424,6 +3442,59 @@ export default function RateStrategyGrid({
                 aria-label="Amount"
               />
             </div>
+
+            {/* One-tap presets — the same steps as the day editor. */}
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">Increase</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
+                    <Button
+                      key={`r-up-${n}`}
+                      size="sm"
+                      variant={rangeCalc === "amount" && rangeValue === String(n) ? "default" : "outline"}
+                      className="h-8 min-w-[58px] text-[11px]"
+                      onClick={() => { setRangeCalc("amount"); setRangeValue(String(n)); }}
+                    >
+                      +{n}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-[10px] font-medium uppercase tracking-wide text-rose-600">Decrease</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[1, 2, 5, 8, 11, 18, 22, 30, 35, 45].map((n) => (
+                    <Button
+                      key={`r-down-${n}`}
+                      size="sm"
+                      variant={rangeCalc === "amount" && rangeValue === String(-n) ? "default" : "outline"}
+                      className="h-8 min-w-[58px] text-[11px]"
+                      onClick={() => { setRangeCalc("amount"); setRangeValue(String(-n)); }}
+                    >
+                      −{n}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Percent</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {["10", "20", "-10", "-20"].map((p) => (
+                    <Button
+                      key={`r-pc-${p}`}
+                      size="sm"
+                      variant={rangeCalc === "percent" && rangeValue === p ? "default" : "outline"}
+                      className="h-8 min-w-[58px] text-[11px]"
+                      onClick={() => { setRangeCalc("percent"); setRangeValue(p); }}
+                    >
+                      {Number(p) > 0 ? `+${p}%` : `${p}%`}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
             <p className="text-[11px] text-muted-foreground">
               Sold-out cells are included. Prices are always sent to Previo as whole {getRevenueCurrency().code}.
             </p>
@@ -3447,6 +3518,7 @@ export default function RateStrategyGrid({
               )}
             </div>
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setRangeToolOpen(false)}>Cancel</Button>
             <Button disabled={rangeChanges.length === 0} onClick={() => void applyRangeTool()}>
