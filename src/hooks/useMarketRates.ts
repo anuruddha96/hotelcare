@@ -54,6 +54,8 @@ export interface MarketRatesResult {
   competitors: CompetitorProperty[];
   /** competitor id -> stay date -> price */
   ratesByCompetitor: Map<string, Map<string, number>>;
+  /** competitor id -> average reliability (0-1) of its plotted prices */
+  reliabilityByCompetitor: Map<string, number>;
   /** stay date -> market aggregate */
   marketByDate: Map<string, MarketDay>;
   rows: CompetitorRateRow[];
@@ -62,6 +64,9 @@ export interface MarketRatesResult {
 }
 
 const HORIZON_DAYS = 200;
+
+/** Reconciled prices below this score are treated as unreliable and hidden. */
+export const MIN_CONFIDENCE = 0.45;
 
 export function useMarketRates(hotelId: string | null): MarketRatesResult {
   const [competitors, setCompetitors] = useState<CompetitorProperty[]>([]);
@@ -100,15 +105,34 @@ export function useMarketRates(hotelId: string | null): MarketRatesResult {
     return () => { cancelled = true; };
   }, [hotelId, nonce]);
 
+  // Only reconciled prices the scanner is reasonably sure about are plotted:
+  // a low-confidence quote (one lonely observation, wide disagreement between
+  // scrapes, or a stale reading) would make the comp-set look precise when it
+  // is not, so it is held back rather than drawn.
   const ratesByCompetitor = useMemo(() => {
     const map = new Map<string, Map<string, number>>();
     for (const r of rows) {
       if (r.rate == null) continue;
-      if (r.confidence != null && Number(r.confidence) < 0.4) continue;
+      if (r.confidence != null && Number(r.confidence) < MIN_CONFIDENCE) continue;
       const m = map.get(r.competitor_id) ?? new Map<string, number>();
       m.set(String(r.stay_date).slice(0, 10), Math.round(Number(r.rate)));
       map.set(r.competitor_id, m);
     }
+    return map;
+  }, [rows]);
+
+  const reliabilityByCompetitor = useMemo(() => {
+    const totals = new Map<string, { sum: number; n: number }>();
+    for (const r of rows) {
+      if (r.rate == null) continue;
+      const conf = r.confidence == null ? 0.6 : Number(r.confidence);
+      if (conf < MIN_CONFIDENCE) continue;
+      const t = totals.get(r.competitor_id) ?? { sum: 0, n: 0 };
+      t.sum += conf; t.n += 1;
+      totals.set(r.competitor_id, t);
+    }
+    const map = new Map<string, number>();
+    for (const [id, t] of totals) map.set(id, t.n ? t.sum / t.n : 0);
     return map;
   }, [rows]);
 
@@ -118,7 +142,7 @@ export function useMarketRates(hotelId: string | null): MarketRatesResult {
     return map;
   }, [market]);
 
-  return { competitors, ratesByCompetitor, marketByDate, rows, loading, reload };
+  return { competitors, ratesByCompetitor, reliabilityByCompetitor, marketByDate, rows, loading, reload };
 }
 
 /** How many prices a competitor currently holds in the loaded horizon. */

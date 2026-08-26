@@ -197,7 +197,7 @@ Deno.serve(async (req) => {
     const allDates = Array.from({ length: days }, (_, i) => isoAdd(start, i));
 
     let captured = 0;
-    const results: Array<{ competitor: string; prices: number; error: string | null }> = [];
+    const results: Array<{ competitor: string; prices: number; observations?: number; error: string | null }> = [];
 
     for (const hotelId of hotelIds) {
       const { data: competitors } = await admin
@@ -225,9 +225,15 @@ Deno.serve(async (req) => {
         }).select("id").maybeSingle();
         const runId = (runRow as { id?: string } | null)?.id ?? null;
 
-        /** Store one answer, returning how many usable prices it held. */
+        /**
+         * Store one answer as raw observations. Nothing is written straight to
+         * the chart table: every scrape is logged, and the agreed price plus a
+         * confidence score is derived from all recent observations afterwards
+         * (see reconcile_competitor_rates), so a single hallucinated or stale
+         * quote can no longer move the market average on its own.
+         */
         const persist = async (
-          chunk: { rates: ScannedRate[]; currency: string | null },
+          chunk: { rates: ScannedRate[]; currency: string | null; model?: string | null },
         ) => {
           const rows = chunk.rates
             .filter((r) => r && typeof r.date === "string" && r.price != null && Number.isFinite(Number(r.price)))
@@ -239,31 +245,31 @@ Deno.serve(async (req) => {
               organization_slug: c.organization_slug,
               stay_date: r.date,
               rate: Number(r.price),
-              rate_original: Number(r.price),
               currency: (r.currency ?? chunk.currency ?? "EUR").toString().slice(0, 6),
-              currency_original: (r.currency ?? chunk.currency ?? "EUR").toString().slice(0, 6),
               room_type: r.room_type ? String(r.room_type).slice(0, 120) : null,
               occupancy: 2,
               board: normaliseBoard(r.board),
               refundable: typeof r.refundable === "boolean" ? r.refundable : null,
               source_page_url: r.source_url ? String(r.source_url).slice(0, 500) : (c.source_url ?? null),
-              confidence: r.confidence == null ? null : Math.max(0, Math.min(1, Number(r.confidence))),
-              source: c.source_url ?? "web search",
-              captured_at: new Date().toISOString(),
+              raw_confidence: r.confidence == null ? null : Math.max(0, Math.min(1, Number(r.confidence))),
+              model: chunk.model ?? null,
+              run_id: runId,
+              observed_at: new Date().toISOString(),
             }));
 
           if (!rows.length) return 0;
-          const { error: upErr } = await admin
-            .from("competitor_rates")
-            .upsert(rows, { onConflict: "competitor_id,stay_date" });
-          if (upErr) {
-            error = upErr.message;
-            console.error("competitor-rate-scan upsert", upErr.message);
+          const { error: insErr } = await admin
+            .from("competitor_rate_observations")
+            .insert(rows);
+          if (insErr) {
+            error = insErr.message;
+            console.error("competitor-rate-scan observations", insErr.message);
             return 0;
           }
           for (const r of rows) filled.add(r.stay_date);
           return rows.length;
         };
+
 
         // First pass: sequential short date windows.
         for (let offset = 0; offset < days; offset += CHUNK_DAYS) {
@@ -291,13 +297,29 @@ Deno.serve(async (req) => {
           }
         }
 
-        const status = stored > 0 ? "ok" : (error ? "failed" : "no_prices_found");
+        // Reconcile: cross-check this scrape against the observations of the
+        // last few days, drop the ones that disagree with the group and write
+        // one agreed, confidence-scored price per night into the chart table.
+        let reconciled = 0;
+        if (stored > 0) {
+          const { data: rec, error: recErr } = await admin.rpc("reconcile_competitor_rates", {
+            _competitor_id: c.id, _from: startIso, _to: endIso, _window_hours: 96,
+          });
+          if (recErr) {
+            error = recErr.message;
+            console.error("competitor-rate-scan reconcile", recErr.message);
+          } else {
+            reconciled = Number(rec ?? 0);
+          }
+        }
+
+        const status = reconciled > 0 ? "ok" : (error ? "failed" : "no_prices_found");
 
         if (runId) {
           await admin.from("competitor_scan_runs").update({
-            prices_found: stored,
+            prices_found: reconciled,
             status,
-            error: stored > 0 ? null : error,
+            error: reconciled > 0 ? null : error,
             model: usedModel,
             finished_at: new Date().toISOString(),
           }).eq("id", runId);
@@ -306,11 +328,17 @@ Deno.serve(async (req) => {
         await admin.from("competitor_properties").update({
           last_scan_at: new Date().toISOString(),
           last_scan_status: status,
-          last_scan_error: stored > 0 ? null : error,
-          last_scan_prices: stored,
+          last_scan_error: reconciled > 0 ? null : error,
+          last_scan_prices: reconciled,
         }).eq("id", c.id);
 
-        results.push({ competitor: c.name, prices: stored, error: stored > 0 ? null : error });
+        results.push({
+          competitor: c.name,
+          prices: reconciled,
+          observations: stored,
+          error: reconciled > 0 ? null : error,
+        });
+
       }
     }
 

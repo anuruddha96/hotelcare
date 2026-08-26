@@ -612,6 +612,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                   )}
                   {marketData.competitors.map((c) => {
                     const count = marketData.ratesByCompetitor.get(c.id)?.size ?? 0;
+                    const reliability = marketData.reliabilityByCompetitor.get(c.id) ?? 0;
                     return (
                       <Tick
                         key={c.id}
@@ -621,7 +622,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                         onChange={() => toggleCompetitor(c.id)}
                         hint={count === 0
                           ? (c.last_scan_status === "failed" ? "last check failed" : "no public price found")
-                          : `${count} prices · ${c.last_scan_at ? new Date(c.last_scan_at).toLocaleDateString() : "never checked"}`}
+                          : `${count} prices · ${Math.round(reliability * 100)}% reliable · ${c.last_scan_at ? new Date(c.last_scan_at).toLocaleDateString() : "never checked"}`}
                       />
                     );
                   })}
