@@ -31,6 +31,8 @@ import {
   decisionReasonText,
   cancellationHoldText,
   immediateWindowDecision,
+  finalWindowDecision,
+  finalWindowText,
   detectDemandSpike,
   eventSurcharge,
   demandSignalText,
@@ -111,6 +113,11 @@ interface Rule {
   immediate_sell_mode_enabled: boolean;
   immediate_window_days: number;
   immediate_markdown_step: number;
+  // Final sell-down window (cancellation-policy tail): only ever price down.
+  final_window_enabled: boolean;
+  final_window_days: number;
+  final_window_allow_event_increase: boolean;
+  final_window_abnormal_pickup_rooms: number;
   // Demand spikes and events
   spike_detection_enabled: boolean;
   spike_threshold_pct: number;
@@ -991,11 +998,23 @@ Deno.serve(async (req) => {
             immediateStep: Number(rule.immediate_markdown_step ?? 0),
           });
 
+          // Final sell-down window: inside the cancellation-policy tail a date
+          // with rooms left is marked down every cycle, no matter how healthy
+          // it looks — the room either sells now or is lost.
+          const finalWindow = finalWindowDecision({
+            enabled: rule.final_window_enabled !== false,
+            daysOut: dayDiff(local.date, rate.stay_date),
+            finalWindowDays: Math.max(0, Number(rule.final_window_days ?? 7)),
+            roomsLeft: guardsFor?.left ?? null,
+            netPickup: netByDate.get(rate.stay_date) ?? 0,
+            abnormalPickupRooms: Number(rule.final_window_abnormal_pickup_rooms ?? 0),
+          });
+
           // Smart pricing: only genuinely weak demand is marked down. A date
           // whose occupancy is already at or above the "weak" threshold is
           // left alone even when this single hour brought no booking; near-term
           // dates below the threshold are the ones worth stimulating.
-          if (rule.smart_pricing_enabled && !immediate.forceMarkdown) {
+          if (rule.smart_pricing_enabled && !immediate.forceMarkdown && !finalWindow.forceMarkdown) {
             const allowed = smartMarkdownAllowed({
               occupancyPct: guardsFor?.pct ?? null,
               daysOut: dayDiff(local.date, rate.stay_date),
@@ -1026,7 +1045,9 @@ Deno.serve(async (req) => {
             farOutDays: Math.max(0, Number(rule.far_out_days ?? 90)),
           });
           const wantsWholeNumbers = rule.whole_number_prices !== false;
-          const bandStepRaw = rule.lead_bands_enabled === false
+          // Inside the final selling window the full step always applies: the
+          // lead-band shrink is what made the last days drift by pennies.
+          const bandStepRaw = (rule.lead_bands_enabled === false || finalWindow.forceMarkdown)
             ? immediate.step
             : bandMarkdownStep({
               band,
@@ -1120,17 +1141,25 @@ Deno.serve(async (req) => {
             observation_from: observationFrom, observation_to: runStartedAt,
             net_pickup: net,
             schedule_slot: slot, local_business_date: local.date, cap_applied: step.applied,
-            decision_reason: net < 0 ? "cancellation" : "no_pickup",
-            reason_detail: decisionReasonText({
-              kind: net < 0 ? "cancellation" : "no_pickup",
-              netPickup: net,
-              occupancyPct: guardsFor?.pct ?? null,
-              daysOut: dayDiff(local.date, rate.stay_date),
-              amount: movedBy,
-              currency: rate.currency ?? rule.currency ?? "EUR",
-
-              currency: rate.currency ?? rule.currency ?? "EUR",
-            }),
+            decision_reason: finalWindow.forceMarkdown
+              ? "final_sell_down"
+              : (net < 0 ? "cancellation" : "no_pickup"),
+            reason_detail: finalWindow.forceMarkdown
+              ? finalWindowText({
+                amount: Math.abs(movedBy),
+                currency: rate.currency ?? rule.currency ?? "EUR",
+                daysOut: dayDiff(local.date, rate.stay_date),
+                roomsLeft: guardsFor?.left ?? null,
+                windowDays: Math.max(0, Number(rule.final_window_days ?? 7)),
+              })
+              : decisionReasonText({
+                kind: net < 0 ? "cancellation" : "no_pickup",
+                netPickup: net,
+                occupancyPct: guardsFor?.pct ?? null,
+                daysOut: dayDiff(local.date, rate.stay_date),
+                amount: movedBy,
+                currency: rate.currency ?? rule.currency ?? "EUR",
+              }),
           });
           if (rule.auto_publish) markdownDrafts.push({
             hotel_id: rule.hotel_id, organization_slug: rule.organization_slug, stay_date: rate.stay_date,
@@ -1484,6 +1513,18 @@ Deno.serve(async (req) => {
 
           const spike = spikeByDate.get(rate.stay_date) ?? null;
           const event = rule.event_surcharge_auto ? eventByDate.get(rate.stay_date) ?? null : null;
+
+          // Final selling window: inside the cancellation tail neither a spike
+          // nor an event may raise the price — the remaining rooms must sell.
+          const tail = finalWindowDecision({
+            enabled: rule.final_window_enabled !== false,
+            daysOut: dayDiff(local.date, rate.stay_date),
+            finalWindowDays: Math.max(0, Number(rule.final_window_days ?? 7)),
+            roomsLeft: leftByDate.get(rate.stay_date) ?? null,
+            eventImpact: eventByDate.get(rate.stay_date)?.impact ?? null,
+            allowEventIncrease: rule.final_window_allow_event_increase === true,
+          });
+          if (tail.inWindow && !tail.allowIncrease) continue;
 
           if (!stepByDate.has(rate.stay_date)) {
             let base = strongDemandStep({
@@ -2086,6 +2127,21 @@ Deno.serve(async (req) => {
           occupancyPct: occByStayDate.get(ev.stay_date) ?? null,
           soldOutOccupancyPct: Number(rule.sold_out_occupancy_pct ?? 100),
         })) { heldSoldOut++; noteSkip(ev.stay_date, "sold_out"); continue; }
+
+        // Final selling window: only genuinely abnormal pickup (or, when the
+        // property allows it, a high-impact event) may raise a price this
+        // close to arrival. Everything else must keep selling down.
+        const tail = finalWindowDecision({
+          enabled: rule.final_window_enabled !== false,
+          daysOut,
+          finalWindowDays: Math.max(0, Number(rule.final_window_days ?? 7)),
+          roomsLeft: leftByStayDate.get(ev.stay_date) ?? null,
+          netPickup: netPickup.get(ev.stay_date) ?? 0,
+          abnormalPickupRooms: Number(rule.final_window_abnormal_pickup_rooms ?? 0),
+          eventImpact: null,
+          allowEventIncrease: false,
+        });
+        if (tail.inWindow && !tail.allowIncrease) { noteSkip(ev.stay_date, "final_sell_down"); continue; }
 
 
         // The 2nd booking inside the window is the "heat" signal: it takes the

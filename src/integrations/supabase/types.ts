@@ -989,6 +989,10 @@ export type Database = {
           created_by: string | null
           hotel_id: string
           id: string
+          last_scan_at: string | null
+          last_scan_error: string | null
+          last_scan_prices: number
+          last_scan_status: string | null
           name: string
           notes: string | null
           organization_slug: string
@@ -1001,6 +1005,10 @@ export type Database = {
           created_by?: string | null
           hotel_id: string
           id?: string
+          last_scan_at?: string | null
+          last_scan_error?: string | null
+          last_scan_prices?: number
+          last_scan_status?: string | null
           name: string
           notes?: string | null
           organization_slug: string
@@ -1013,6 +1021,10 @@ export type Database = {
           created_by?: string | null
           hotel_id?: string
           id?: string
+          last_scan_at?: string | null
+          last_scan_error?: string | null
+          last_scan_prices?: number
+          last_scan_status?: string | null
           name?: string
           notes?: string | null
           organization_slug?: string
@@ -6293,6 +6305,10 @@ export type Database = {
           far_out_floor_topup_threshold: number
           far_out_notify: boolean
           far_out_surcharge: number
+          final_window_abnormal_pickup_rooms: number
+          final_window_allow_event_increase: boolean
+          final_window_days: number
+          final_window_enabled: boolean
           future_booking_window_days: number
           high_occupancy_pct: number
           hotel_id: string
@@ -6367,6 +6383,10 @@ export type Database = {
           far_out_floor_topup_threshold?: number
           far_out_notify?: boolean
           far_out_surcharge?: number
+          final_window_abnormal_pickup_rooms?: number
+          final_window_allow_event_increase?: boolean
+          final_window_days?: number
+          final_window_enabled?: boolean
           future_booking_window_days?: number
           high_occupancy_pct?: number
           hotel_id: string
@@ -6441,6 +6461,10 @@ export type Database = {
           far_out_floor_topup_threshold?: number
           far_out_notify?: boolean
           far_out_surcharge?: number
+          final_window_abnormal_pickup_rooms?: number
+          final_window_allow_event_increase?: boolean
+          final_window_days?: number
+          final_window_enabled?: boolean
           future_booking_window_days?: number
           high_occupancy_pct?: number
           hotel_id?: string

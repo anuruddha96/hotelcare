@@ -57,6 +57,10 @@ interface Rule {
   immediate_sell_mode_enabled: boolean;
   immediate_window_days: number;
   immediate_markdown_step: number;
+  final_window_enabled: boolean;
+  final_window_days: number;
+  final_window_allow_event_increase: boolean;
+  final_window_abnormal_pickup_rooms: number;
   spike_detection_enabled: boolean;
   spike_threshold_pct: number;
   spike_lookback_days: number;
@@ -120,6 +124,8 @@ const DEFAULT_RULE: Rule = {
   sold_out_guard_enabled: true, sold_out_occupancy_pct: 100,
   cancellation_markdown_enabled: true, cancellation_wait_minutes: 60,
   immediate_sell_mode_enabled: true, immediate_window_days: 14, immediate_markdown_step: 2,
+  final_window_enabled: true, final_window_days: 7, final_window_allow_event_increase: false,
+  final_window_abnormal_pickup_rooms: 5,
   spike_detection_enabled: true, spike_threshold_pct: 5, spike_lookback_days: 7,
   event_surcharge_eur: 10, event_surcharge_auto: false,
   lead_bands_enabled: true, far_out_days: 90, far_out_enabled: true,
@@ -425,6 +431,10 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       immediate_sell_mode_enabled: source.rule.immediate_sell_mode_enabled ?? true,
       immediate_window_days: source.rule.immediate_window_days ?? 14,
       immediate_markdown_step: source.rule.immediate_markdown_step ?? 2,
+      final_window_enabled: source.rule.final_window_enabled ?? true,
+      final_window_days: source.rule.final_window_days ?? 7,
+      final_window_allow_event_increase: source.rule.final_window_allow_event_increase ?? false,
+      final_window_abnormal_pickup_rooms: source.rule.final_window_abnormal_pickup_rooms ?? 5,
       spike_detection_enabled: source.rule.spike_detection_enabled ?? true,
       spike_threshold_pct: source.rule.spike_threshold_pct ?? 5,
       spike_lookback_days: source.rule.spike_lookback_days ?? 7,
@@ -496,6 +506,10 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       immediate_sell_mode_enabled: rule.immediate_sell_mode_enabled,
       immediate_window_days: rule.immediate_window_days,
       immediate_markdown_step: rule.immediate_markdown_step,
+      final_window_enabled: rule.final_window_enabled,
+      final_window_days: rule.final_window_days,
+      final_window_allow_event_increase: rule.final_window_allow_event_increase,
+      final_window_abnormal_pickup_rooms: rule.final_window_abnormal_pickup_rooms,
       spike_detection_enabled: rule.spike_detection_enabled,
       spike_threshold_pct: rule.spike_threshold_pct,
       spike_lookback_days: rule.spike_lookback_days,
@@ -977,6 +991,37 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                     onChange={(e) => setRule({ ...rule, immediate_markdown_step: Number(e.target.value) })}
                   />
                 </div>
+
+                <ToggleRow
+                  title="Final selling window"
+                  desc="Inside the cancellation window the price only ever goes down until the last rooms are sold."
+                  hint={<><strong>Example:</strong> with a {rule.final_window_days}-day cancellation policy, dates inside {rule.final_window_days} days never rise — even on an event date — unless at least {rule.final_window_abnormal_pickup_rooms} rooms sold in the window.</>}
+                  checked={rule.final_window_enabled}
+                  onChange={(final_window_enabled) => setRule({ ...rule, final_window_enabled })}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <NumField
+                    label="Final window" suffix="days" min={1} max={30}
+                    disabled={!rule.final_window_enabled}
+                    value={rule.final_window_days}
+                    onChange={(e) => setRule({ ...rule, final_window_days: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Abnormal pickup allows a rise" suffix="rooms" min={0} max={50}
+                    disabled={!rule.final_window_enabled}
+                    value={rule.final_window_abnormal_pickup_rooms}
+                    onChange={(e) => setRule({ ...rule, final_window_abnormal_pickup_rooms: Number(e.target.value) })}
+                  />
+                </div>
+                <ToggleRow
+                  title="Let a big event lift the last days"
+                  desc="Off by default: even a high-impact event keeps selling down inside the final window."
+                  hint={<>Turn this on only when your event dates reliably sell out at the last minute.</>}
+                  checked={rule.final_window_allow_event_increase}
+                  onChange={(final_window_allow_event_increase) => setRule({ ...rule, final_window_allow_event_increase })}
+                />
+
+
 
                 <ToggleRow
                   title="Wait after a cancellation"
