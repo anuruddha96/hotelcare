@@ -813,19 +813,51 @@ serve(async (req) => {
       rosterSource = "reservations";
     }
 
+    // Does this property actually maintain check-in status in Previo? If at
+    // least one reservation in this run is in-house or checked out, the hotel
+    // uses the workflow, so a reservation still sitting at a pre-arrival status
+    // after its arrival date is meaningful. Properties that never check guests
+    // in have no such rows and are left completely untouched.
+    const hotelUsesCheckInStatuses = (() => {
+      for (const rec of reservationsByObjId.values()) {
+        if (isInHouseStatus(rec.statusId) || isCheckedOutStatus(rec.statusId)) return true;
+      }
+      for (const rec of reservationsByRoomName.values()) {
+        if (isInHouseStatus(rec.statusId) || isCheckedOutStatus(rec.statusId)) return true;
+      }
+      return false;
+    })();
+    const isPreArrivalStatus = (statusId: number) => statusId === 1 || statusId === 2;
+
     const rows = rooms.map((r) => {
       const roomNumber = extractRoomNumber(r.name);
       const res = (r.roomId ? reservationsByObjId.get(r.roomId) : undefined)
         ?? reservationsByRoomName.get(r.name)
         ?? (roomNumber !== r.name ? reservationsByRoomName.get(roomNumber) : undefined);
       const isCancelled = !!res && isCancelledStatus(res.statusId);
-      const isNoShow = !!res && isNoShowStatus(res.statusId);
       const isArrival = !!res && res.arrivalDate === today;
       const isCheckedIn = !!res && isInHouseStatus(res.statusId);
+      // Suspected no-show: arrival was before today, the guest was never
+      // checked in, and the property does maintain check-in statuses.
+      const isStaleNotArrived = !!res
+        && hotelUsesCheckInStatuses
+        && !isCancelled
+        && res.arrivalDate < today
+        && res.departureDate > today
+        && isPreArrivalStatus(res.statusId);
+      const isNoShow = (!!res && isNoShowStatus(res.statusId)) || isStaleNotArrived;
+      const noShowSource = !res
+        ? null
+        : isNoShowStatus(res.statusId)
+          ? "previo_status_8"
+          : isStaleNotArrived
+            ? "inferred_never_checked_in"
+            : null;
       const isNotArrived = !!res && isArrival && !isCancelled && !isNoShow && !isCheckedIn;
       const isOccupied = !!res && !isCancelled && !isNoShow && !isNotArrived
         && res.arrivalDate <= today && res.departureDate > today;
       const isDeparture = !!res && !isCancelled && !isNoShow && res.departureDate === today;
+
       const isDepartureTomorrow = !!res && res.departureDate === tomorrow;
       const isCheckedOut = !!res && isCheckedOutStatus(res.statusId) && isDeparture;
       // Only real checkouts (today or already checked out) belong in the
