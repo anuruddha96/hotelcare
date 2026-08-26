@@ -1235,6 +1235,32 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                 </p>
               </Section>
 
+              {/* Occupancy spacing */}
+              <Section
+                value="occupancy"
+                icon={Users}
+                title="Price per extra guest"
+                summary={guestStep > 0
+                  ? `Each extra guest costs at least ${cur} ${guestStep} more`
+                  : "No minimum difference between guest counts"}
+              >
+                <p className="text-xs text-muted-foreground">
+                  Inside one room type, two guests must never pay the same as three. Every price
+                  we publish — manual, bulk or automatic — is spaced by at least this amount, and a
+                  daily sweep lifts any level that came back flat from the PMS.
+                </p>
+                <NumField
+                  label="Minimum difference per extra guest"
+                  suffix={cur}
+                  min={0}
+                  max={cur === "EUR" ? 100 : 100000}
+                  value={guestStep}
+                  onChange={(e) => setGuestStep(Number(e.target.value))}
+                  hint={<><strong>Example:</strong> with {cur} {guestStep || 10}, a {cur} 240 two-guest price makes three guests {cur} {240 + (guestStep || 10)} and four guests {cur} {240 + 2 * (guestStep || 10)}.</>}
+                  note="Typical is 10–20. Repairs only ever move a price up, never down."
+                />
+              </Section>
+
               {/* 6 — Smart pricing */}
               <Section
                 value="smart"
