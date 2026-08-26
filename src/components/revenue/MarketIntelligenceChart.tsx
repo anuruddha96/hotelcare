@@ -465,6 +465,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      markGesture();
       const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1);
       const rect = el.getBoundingClientRect();
       const anchor = rect.width ? (e.clientX - rect.left) / rect.width : 0.5;
@@ -480,6 +481,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
 
     const onTouchStart = (e: TouchEvent) => {
       const rect = el.getBoundingClientRect();
+      if (e.touches.length === 2) markGesture();
       if (e.touches.length === 2) {
         pinchDist = dist(e.touches);
         const mid = (e.touches[0].clientX + e.touches[1].clientX) / 2;
@@ -493,6 +495,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length === 2 && pinchDist > 0) {
         e.preventDefault();
+        markGesture();
         const d = dist(e.touches);
         if (d > 0) {
           zoomAt(pinchDist / d, pinchAnchor);
@@ -508,6 +511,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
         const steps = Math.round(-dx * perPx);
         if (steps !== 0) {
           e.preventDefault();
+          markGesture();
           panX = e.touches[0].clientX;
           setView((v) => {
             const c = v.count || data.length;
@@ -529,7 +533,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("touchend", onTouchEnd);
     };
-  }, [zoomAt, data.length, view.count]);
+  }, [zoomAt, data.length, view.count, markGesture]);
 
   /** Labels for the month dividers drawn across the plot. */
   const monthMarks = useMemo(() => viewData.filter((d) => d.monthStart), [viewData]);
