@@ -893,7 +893,8 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
               ))}
               <ReferenceLine yAxisId="pickup" y={0} stroke="hsl(var(--muted-foreground) / 0.4)" />
               <RTooltip
-                cursor={{ fill: "hsl(var(--muted) / 0.4)" }}
+                active={gesturing ? false : undefined}
+                cursor={gesturing ? false : { fill: "hsl(var(--muted) / 0.4)" }}
                 contentStyle={{ fontSize: 11, padding: "4px 8px" }}
                 labelFormatter={(label, payload) => {
                   const date = payload && payload[0]?.payload?.date;
