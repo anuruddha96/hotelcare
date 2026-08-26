@@ -106,6 +106,7 @@ export default function RevenueHotelDetail() {
   const { hotels: tenantHotels, loading: tenantLoading } = useTenant();
   const { organizationSlug, hotelId } = useParams<{ organizationSlug: string; hotelId: string }>();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   // The URL property and the property shown in the header must never disagree:
   // editing Memories' price list while the app context says Ottofiori is a
   // cross-property accident waiting to happen.
