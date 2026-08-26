@@ -45,7 +45,7 @@ import RevenuePulsePanel from "@/components/revenue/RevenuePulsePanel";
 import RevenueToolsBar from "@/components/revenue/RevenueToolsBar";
 
 import PickupMovementBoard from "@/components/revenue/PickupMovementBoard";
-import PickupHorizonChart from "@/components/revenue/PickupHorizonChart";
+import MarketIntelligenceChart from "@/components/revenue/MarketIntelligenceChart";
 import { useTenant } from "@/contexts/TenantContext";
 import TodaysSalesAdrGoal from "@/components/revenue/TodaysSalesAdrGoal";
 import MonthPerformanceHeader from "@/components/revenue/MonthPerformanceHeader";
@@ -1110,7 +1110,7 @@ export default function RevenueHotelDetail() {
 
           {/* The demand events calendar sits right under the rate & pickup
               calendar: the events it holds are what the Demand row explains. */}
-          <PickupHorizonChart 
+          <MarketIntelligenceChart 
             metrics={live.metrics} 
             pickupWindowDays={pickupWindow} 
             onPickupWindowChange={setPickupWindow}
