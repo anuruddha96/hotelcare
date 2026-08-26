@@ -710,12 +710,12 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
             })}
           </div>
         )}
-        <div className="h-72">
+        <div ref={plotRef} className="h-[22rem] touch-none select-none sm:h-72">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} margin={{ top: 16, right: 4, left: 0, bottom: 0 }}>
+            <ComposedChart data={viewData} margin={{ top: 16, right: 4, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
               <XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false}
-                interval={Math.max(0, Math.floor(data.length / 8))} />
+                interval={Math.max(0, Math.floor(viewData.length / (isMobile ? 5 : 8)))} />
               {/* Pickup owns the left axis so single-room days stay visible
                   even when ADR runs in the hundreds. */}
               <YAxis yAxisId="pickup" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={30}
