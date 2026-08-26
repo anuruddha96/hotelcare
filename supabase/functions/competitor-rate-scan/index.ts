@@ -197,7 +197,7 @@ Deno.serve(async (req) => {
     const allDates = Array.from({ length: days }, (_, i) => isoAdd(start, i));
 
     let captured = 0;
-    const results: Array<{ competitor: string; prices: number; error: string | null }> = [];
+    const results: Array<{ competitor: string; prices: number; observations?: number; error: string | null }> = [];
 
     for (const hotelId of hotelIds) {
       const { data: competitors } = await admin
