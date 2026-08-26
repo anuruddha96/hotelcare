@@ -400,8 +400,99 @@ export default function PickupHorizonChart({ metrics, pickupWindowDays, onPickup
                 onClick={() => setCompare((v) => !v)}>Compare properties</Button>
             )}
           </div>
+
+          {/* Everything that can be drawn, in one tick list. */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button size="sm" variant="outline" className="h-7 px-2 text-xs">
+                <SlidersHorizontal className="mr-1 h-3.5 w-3.5" />
+                Series
+                {(shownCompetitors.length > 0 || prefs.marketAvg) && (
+                  <Badge variant="secondary" className="ml-1 h-4 px-1 text-[9px] font-normal">
+                    {shownCompetitors.length + (prefs.marketAvg ? 1 : 0)}
+                  </Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80 p-0">
+              <div className="max-h-[60vh] overflow-y-auto p-3 space-y-3">
+                <SeriesGroup title="Ours">
+                  <Tick label="Occupancy" checked={showOcc} onChange={(v) => setShowOcc(v)} />
+                  <Tick label="Our ADR (achieved)" checked={showAdr} onChange={(v) => setShowAdr(v)} />
+                  <Tick label="Our selling rate" checked={prefs.ourRate} onChange={(v) => setPref("ourRate", v)} />
+                </SeriesGroup>
+
+                <SeriesGroup title="Market">
+                  <Tick label="Market average rate" checked={prefs.marketAvg} onChange={(v) => setPref("marketAvg", v)} />
+                  <Tick label="Market median" checked={prefs.marketMedian} onChange={(v) => setPref("marketMedian", v)} />
+                  <Tick label="Cheapest–dearest band" checked={prefs.band} onChange={(v) => setPref("band", v)} />
+                  {hasDemand && <Tick label="City demand index" checked={showDemand} onChange={(v) => setShowDemand(v)} />}
+                  {(eventsByDate?.size ?? 0) > 0 && (
+                    <Tick label="Event shading" checked={showEvents} onChange={(v) => setShowEvents(v)} />
+                  )}
+                </SeriesGroup>
+
+                <SeriesGroup title={`Competitors (${marketData.competitors.length})`}>
+                  {marketData.competitors.length === 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      No hotels watched yet — add them in Competitor rates.
+                    </p>
+                  )}
+                  {marketData.competitors.map((c) => {
+                    const count = marketData.ratesByCompetitor.get(c.id)?.size ?? 0;
+                    return (
+                      <Tick
+                        key={c.id}
+                        label={c.name}
+                        color={compColor(c.id)}
+                        checked={prefs.competitors.includes(c.id)}
+                        onChange={() => toggleCompetitor(c.id)}
+                        hint={count === 0
+                          ? (c.last_scan_status === "failed" ? "last check failed" : "no public price found")
+                          : `${count} prices · ${c.last_scan_at ? new Date(c.last_scan_at).toLocaleDateString() : "never checked"}`}
+                      />
+                    );
+                  })}
+                </SeriesGroup>
+
+                {hotels.length > 1 && (
+                  <SeriesGroup title="Our other hotels">
+                    <Tick label="Show occupancy lines" checked={compare} onChange={(v) => setCompare(v)} />
+                    {compare && hotels.map((h, i) => (
+                      <Tick
+                        key={h.hotel_id}
+                        label={h.hotel_name}
+                        color={colorFor(h.hotel_id, i)}
+                        checked={!hiddenHotels.has(h.hotel_id)}
+                        onChange={() => toggleHotel(h.hotel_id)}
+                      />
+                    ))}
+                  </SeriesGroup>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          {hotels.length > 1 && (
+            <Select value={baseline} onValueChange={setBaseline}>
+              <SelectTrigger className="h-7 w-[190px] text-xs">
+                <SelectValue placeholder="Compare against market" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__ours__">Baseline: this property</SelectItem>
+                {hotels.filter((h) => h.hotel_id !== hotelId).map((h) => (
+                  <SelectItem key={h.hotel_id} value={h.hotel_id}>Baseline: {h.hotel_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={exportCsv}>
+            <Download className="mr-1 h-3.5 w-3.5" />CSV
+          </Button>
         </div>
       </CardHeader>
+
       <CardContent className="px-1 sm:px-4">
         {compare && comparisonSummary.length > 0 && (
           <div className="mb-3 grid grid-cols-2 gap-2 px-2 lg:grid-cols-4">
