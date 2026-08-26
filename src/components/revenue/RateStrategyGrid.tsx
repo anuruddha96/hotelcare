@@ -1976,6 +1976,8 @@ export default function RateStrategyGrid({
   const pillRef = useRef<HTMLDivElement | null>(null);
   const cellElementsRef = useRef(new Map<string, HTMLButtonElement>());
   const paintedCellsRef = useRef(new Set<string>());
+  /** Last pointer position seen during a drag; hit-tested once per frame. */
+  const pointerPosRef = useRef<{ x: number; y: number } | null>(null);
   const SEL_CLASSES = ["bg-primary/25", "ring-1", "ring-inset", "ring-primary"];
 
   const paintSelection = useCallback(() => {
@@ -2000,11 +2002,19 @@ export default function RateStrategyGrid({
     for (const key of paintedCellsRef.current) {
       if (next.has(key)) continue;
       const el = cellElementsRef.current.get(key);
-      if (el) el.classList.remove(...SEL_CLASSES);
+      if (el) {
+        el.classList.remove(...SEL_CLASSES);
+        el.style.transitionProperty = "";
+      }
     }
     for (const key of next) {
       if (paintedCellsRef.current.has(key)) continue;
-      cellElementsRef.current.get(key)?.classList.add(...SEL_CLASSES);
+      const el = cellElementsRef.current.get(key);
+      if (!el) continue;
+      // Colour transitions on hundreds of cells is what makes a drag stutter —
+      // the highlight has to appear on the same frame as the finger.
+      el.style.transitionProperty = "none";
+      el.classList.add(...SEL_CLASSES);
     }
     paintedCellsRef.current = next;
     const count = next.size;
@@ -2014,14 +2024,36 @@ export default function RateStrategyGrid({
     }
   }, []);
 
+  /**
+   * Resolve the cell under the last pointer position. Doing the hit-test inside
+   * the animation frame (instead of on every move event) keeps the gesture at
+   * one layout read per frame.
+   */
+  const resolveFocusFromPointer = useCallback(() => {
+    const p = pointerPosRef.current;
+    if (!p) return;
+    pointerPosRef.current = null;
+    const under = document.elementFromPoint(p.x, p.y) as HTMLElement | null;
+    const cell = under?.closest?.("[data-cell-row]") as HTMLElement | null;
+    if (!cell) return;
+    const row = Number(cell.dataset.cellRow);
+    const date = Number(cell.dataset.cellDate);
+    if (!Number.isFinite(row) || !Number.isFinite(date)) return;
+    const prev = focusRef.current;
+    if (prev && prev.row === row && prev.date === date) return;
+    focusRef.current = { row, date };
+  }, []);
+
   /** Queue a repaint on the next frame — never more than one per frame. */
   const schedulePaint = useCallback(() => {
     if (paintRaf.current !== null) return;
     paintRaf.current = window.requestAnimationFrame(() => {
       paintRaf.current = null;
+      resolveFocusFromPointer();
       paintSelection();
     });
-  }, [paintSelection]);
+  }, [paintSelection, resolveFocusFromPointer]);
+
 
   /** Drop every painted class so React can own the highlight again. */
   const unpaintSelection = useCallback(() => {
