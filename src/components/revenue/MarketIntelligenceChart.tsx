@@ -894,6 +894,42 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
             </ComposedChart>
           </ResponsiveContainer>
         </div>
+
+        {/* Legend: every entry is tickable, with touch-sized targets. */}
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1.5 px-2">
+          {legendItems.map((it) => (
+            <button
+              key={it.id}
+              type="button"
+              aria-pressed={it.active}
+              onClick={it.toggle}
+              disabled={!it.toggle}
+              className={`flex min-h-[28px] items-center gap-1.5 rounded px-1 text-[11px] transition ${
+                it.active ? "" : "opacity-40 line-through"
+              } ${it.toggle ? "hover:bg-muted/60" : "cursor-default"}`}
+            >
+              <span
+                className={it.shape === "bar" ? "h-2.5 w-2.5 rounded-[2px]" : "h-0.5 w-4 rounded-full"}
+                style={{ background: it.color }}
+              />
+              <span className="max-w-[150px] truncate">{it.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-1 flex items-center justify-between px-2 text-[10px] text-muted-foreground">
+          <span>
+            {isMobile ? "Pinch to zoom, drag to pan" : "Scroll to zoom, drag to pan"}
+            {" · "}
+            {viewData.length} of {data.length} nights
+          </span>
+          {(view.start > 0 || view.count < data.length) && (
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={resetZoom}>
+              Reset zoom
+            </Button>
+          )}
+        </div>
+
       </CardContent>
 
     </Card>
