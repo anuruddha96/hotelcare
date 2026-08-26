@@ -225,9 +225,15 @@ Deno.serve(async (req) => {
         }).select("id").maybeSingle();
         const runId = (runRow as { id?: string } | null)?.id ?? null;
 
-        /** Store one answer, returning how many usable prices it held. */
+        /**
+         * Store one answer as raw observations. Nothing is written straight to
+         * the chart table: every scrape is logged, and the agreed price plus a
+         * confidence score is derived from all recent observations afterwards
+         * (see reconcile_competitor_rates), so a single hallucinated or stale
+         * quote can no longer move the market average on its own.
+         */
         const persist = async (
-          chunk: { rates: ScannedRate[]; currency: string | null },
+          chunk: { rates: ScannedRate[]; currency: string | null; model?: string | null },
         ) => {
           const rows = chunk.rates
             .filter((r) => r && typeof r.date === "string" && r.price != null && Number.isFinite(Number(r.price)))
@@ -239,31 +245,31 @@ Deno.serve(async (req) => {
               organization_slug: c.organization_slug,
               stay_date: r.date,
               rate: Number(r.price),
-              rate_original: Number(r.price),
               currency: (r.currency ?? chunk.currency ?? "EUR").toString().slice(0, 6),
-              currency_original: (r.currency ?? chunk.currency ?? "EUR").toString().slice(0, 6),
               room_type: r.room_type ? String(r.room_type).slice(0, 120) : null,
               occupancy: 2,
               board: normaliseBoard(r.board),
               refundable: typeof r.refundable === "boolean" ? r.refundable : null,
               source_page_url: r.source_url ? String(r.source_url).slice(0, 500) : (c.source_url ?? null),
-              confidence: r.confidence == null ? null : Math.max(0, Math.min(1, Number(r.confidence))),
-              source: c.source_url ?? "web search",
-              captured_at: new Date().toISOString(),
+              raw_confidence: r.confidence == null ? null : Math.max(0, Math.min(1, Number(r.confidence))),
+              model: chunk.model ?? null,
+              run_id: runId,
+              observed_at: new Date().toISOString(),
             }));
 
           if (!rows.length) return 0;
-          const { error: upErr } = await admin
-            .from("competitor_rates")
-            .upsert(rows, { onConflict: "competitor_id,stay_date" });
-          if (upErr) {
-            error = upErr.message;
-            console.error("competitor-rate-scan upsert", upErr.message);
+          const { error: insErr } = await admin
+            .from("competitor_rate_observations")
+            .insert(rows);
+          if (insErr) {
+            error = insErr.message;
+            console.error("competitor-rate-scan observations", insErr.message);
             return 0;
           }
           for (const r of rows) filled.add(r.stay_date);
           return rows.length;
         };
+
 
         // First pass: sequential short date windows.
         for (let offset = 0; offset < days; offset += CHUNK_DAYS) {
