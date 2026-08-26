@@ -71,9 +71,11 @@ Deno.serve(async (req) => {
       byCell.set(`${change.stay_date}|${change.room_type_name}|${change.occupancy}`, change);
     }
     let changes = [...byCell.values()];
+    const { priority, intent } = INTENT_BY_SOURCE[source] ?? { priority: 50, intent: source };
 
     {
-      const safe = await enforceRateSafety(admin, hotelId, changes as any[]);
+      const safetyInput = changes.map((change) => ({ ...change, intent_source: intent }));
+      const safe = await enforceRateSafety(admin, hotelId, safetyInput as any[]);
       changes = safe.changes as any;
     }
 
@@ -88,8 +90,6 @@ Deno.serve(async (req) => {
     const runId = crypto.randomUUID();
     const orgSlug = organizationSlug ?? profile.organization_slug;
 
-
-    const { priority, intent } = INTENT_BY_SOURCE[source] ?? { priority: 50, intent: source };
 
     // Durability comes before acknowledgement. The browser may disappear as
     // soon as this function returns, so the run and every item must already be

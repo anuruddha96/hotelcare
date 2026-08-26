@@ -345,12 +345,14 @@ async function evaluateRoomHierarchy(
 }
 
 export async function assertRoomHierarchy(
-  admin: any,
-  hotelId: string,
-  changes: RateChange[],
+  _admin: any,
+  _hotelId: string,
+  _changes: RateChange[],
 ): Promise<void> {
-  const violations = await evaluateRoomHierarchy(admin, hotelId, changes);
-  if (violations.length > 0) throw new Error(violations[0].reason);
+  // Cross-room prices are commercial positioning, not a hard safety invariant.
+  // Different categories may legitimately overlap or cross on the same date.
+  // Same-room occupancy ladders remain strict; automation-originated raises are
+  // handled separately by liftHigherRooms as a non-blocking upward repair.
 }
 
 /**
@@ -359,13 +361,13 @@ export async function assertRoomHierarchy(
  * offending changes are dropped and reported instead.
  */
 export async function filterRoomHierarchy(
-  admin: any,
-  hotelId: string,
+  _admin: any,
+  _hotelId: string,
   changes: RateChange[],
 ): Promise<{ kept: RateChange[]; dropped: Array<{ change: RateChange; reason: string }> }> {
-  const dropped = await evaluateRoomHierarchy(admin, hotelId, changes);
-  const bad = new Set(dropped.map((entry) => entry.change));
-  return { kept: changes.filter((change) => !bad.has(change)), dropped };
+  // Kept for compatibility with older publishing paths. Cross-room ordering is
+  // advisory and must never reject a manager edit or a synchronized markdown.
+  return { kept: changes, dropped: [] };
 }
 
 
@@ -419,8 +421,6 @@ export async function liftHigherRooms(
   if (rooms.length < 2 || orders.size < 2) return [];
 
   const stored = await loadStoredRates(admin, hotelId, changes);
-  const roomStep = await loadGuestStep(admin, hotelId);
-
   const before = new Map<string, number>();
   for (const row of stored) {
     before.set(cellKey(row.stay_date, row.room_type_name, Number(row.occupancy)), Number(row.price));
@@ -438,9 +438,16 @@ export async function liftHigherRooms(
     pending.set(key, change);
   }
 
-  // Only the (date, occupancy) pairs we are actually touching need repairing.
+  // Only automation-originated raises may trigger a cross-room repair. Manual
+  // pricing is intentional commercial positioning and must remain untouched.
   const slots = new Map<string, RateChange>();
   for (const change of changes) {
+    const intent = String(change.intent_source ?? "");
+    const oldPrice = Number(change.old_price);
+    const isAutomatedRaise = (intent.startsWith("automation_") || intent === "automation")
+      && Number.isFinite(oldPrice)
+      && Number(change.new_price) > oldPrice;
+    if (!isAutomatedRaise) continue;
     const slot = `${change.stay_date}|${Number(change.occupancy)}`;
     if (!slots.has(slot)) slots.set(slot, change);
   }
@@ -463,9 +470,9 @@ export async function liftHigherRooms(
         const weDeepenIt = priorLower === undefined
           || Math.round(runningMax) > Math.round(priorLower);
         if (!preExisting || weDeepenIt) {
-          // A better room may not merely match the cheaper one: lift it by one
-          // configured step so the two tiers stay distinguishable.
-          const target = Math.round(runningMax) + roomStep;
+          // Equality or a close overlap is commercially safe. Lift only enough
+          // to remove the inversion created by this automated raise.
+          const target = Math.round(runningMax);
 
           const change = pending.get(key);
           if (change) {
@@ -516,10 +523,7 @@ export async function enforceRateSafety(
     } catch { /* unmapped room type: leave it untouched */ }
   }
   const repairs = [...ladderRepairs, ...mappable];
-  const all = [...changes, ...repairs];
-  const { kept, dropped } = await filterRoomHierarchy(admin, hotelId, all);
-  const repairSet = new Set(repairs);
-  return { changes: kept, repairs: kept.filter((c) => repairSet.has(c)), dropped };
+  return { changes: [...changes, ...repairs], repairs, dropped: [] };
 }
 
 

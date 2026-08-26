@@ -33,7 +33,7 @@ Deno.test("allows a mapped non-hierarchy hotel", async () => {
   assertEquals(true, true);
 });
 
-Deno.test("blocks a new Studio over One-Bedroom inversion", async () => {
+Deno.test("allows cross-room price overlap because room categories are not a hard invariant", async () => {
   const admin = {
     from: (table: string) => query(
       table === "previo_rate_plan_mapping"
@@ -49,13 +49,9 @@ Deno.test("blocks a new Studio over One-Bedroom inversion", async () => {
             ],
     ),
   };
-  await assertRejects(
-    () => assertRateChangesSafe(admin, "gozsdu-court", [{
-      stay_date: "2026-09-01", obk_id: "studio", room_type_name: "Studio", occupancy: 2, new_price: 130,
-    }]),
-    Error,
-    "Price hierarchy blocked",
-  );
+  await assertRateChangesSafe(admin, "gozsdu-court", [{
+    stay_date: "2026-09-01", obk_id: "studio", room_type_name: "Studio", occupancy: 2, new_price: 130,
+  }]);
 });
 
 // --- occupancy ladder -------------------------------------------------------
@@ -190,4 +186,30 @@ Deno.test("paired markdowns use draft old prices as the hierarchy baseline", asy
   ]);
   assertEquals(safe.dropped.length, 0);
   assertEquals(safe.changes.length, 2);
+});
+
+Deno.test("an automated raise lifts a higher room instead of blocking the change", async () => {
+  const admin = {
+    from: (table: string) => query(
+      table === "previo_rate_plan_mapping"
+        ? mapping(["studio", "one"])
+        : table === "room_types"
+          ? [
+              { name: "Studio", pms_room_id: "studio", sort_order: 1, is_sellable: true, counts_toward_inventory: true },
+              { name: "One-Bedroom", pms_room_id: "one", sort_order: 2, is_sellable: true, counts_toward_inventory: true },
+            ]
+          : [
+              { stay_date: "2026-09-01", obk_id: "studio", room_type_name: "Studio", occupancy: 2, price: 100 },
+              { stay_date: "2026-09-01", obk_id: "one", room_type_name: "One-Bedroom", occupancy: 2, price: 120 },
+            ],
+    ),
+  };
+  const safe = await enforceRateSafety(admin, "gozsdu-court", [{
+    stay_date: "2026-09-01", obk_id: "studio", room_type_name: "Studio", occupancy: 2,
+    old_price: 100, new_price: 130, intent_source: "automation_pickup",
+  }]);
+  assertEquals(safe.dropped.length, 0);
+  assertEquals(safe.repairs.length, 1);
+  assertEquals(safe.repairs[0].room_type_name, "One-Bedroom");
+  assertEquals(safe.repairs[0].new_price, 130);
 });
