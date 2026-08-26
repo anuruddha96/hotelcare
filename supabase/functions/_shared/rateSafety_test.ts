@@ -167,3 +167,27 @@ Deno.test("a pre-existing cross-room inversion is not blocked when it is not dee
   }]);
   assertEquals(safe.changes.length, 1);
 });
+
+Deno.test("paired markdowns use draft old prices as the hierarchy baseline", async () => {
+  const admin = {
+    from: (table: string) => query(
+      table === "previo_rate_plan_mapping"
+        ? mapping(["twin", "triple"])
+        : table === "room_types"
+          ? [
+              { name: "Deluxe Twin Room", pms_room_id: "twin", sort_order: 1, is_sellable: true, counts_toward_inventory: true },
+              { name: "Luxusní třílůžkový pokoj", pms_room_id: "triple", sort_order: 2, is_sellable: true, counts_toward_inventory: true },
+            ]
+          : [
+              { stay_date: "2026-09-30", obk_id: "twin", room_type_name: "Deluxe Twin Room", occupancy: 1, price: 252 },
+              { stay_date: "2026-09-30", obk_id: "triple", room_type_name: "Luxusní třílůžkový pokoj", occupancy: 1, price: 185 },
+            ],
+    ),
+  };
+  const safe = await enforceRateSafety(admin, "ottofiori", [
+    { stay_date: "2026-09-30", obk_id: "twin", room_type_name: "Deluxe Twin Room", occupancy: 1, old_price: 253, new_price: 252 },
+    { stay_date: "2026-09-30", obk_id: "triple", room_type_name: "Luxusní třílůžkový pokoj", occupancy: 1, old_price: 185, new_price: 184 },
+  ]);
+  assertEquals(safe.dropped.length, 0);
+  assertEquals(safe.changes.length, 2);
+});
