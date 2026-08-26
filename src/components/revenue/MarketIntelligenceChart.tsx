@@ -428,6 +428,13 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
    */
   const plotRef = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState({ start: 0, count: 0 });
+  const [gesturing, setGesturing] = useState(false);
+  const gestureTimer = useRef<number | null>(null);
+  const markGesture = useCallback(() => {
+    setGesturing(true);
+    if (gestureTimer.current) window.clearTimeout(gestureTimer.current);
+    gestureTimer.current = window.setTimeout(() => setGesturing(false), 400);
+  }, []);
   useEffect(() => { setView({ start: 0, count: data.length }); }, [data.length, days]);
 
   const viewData = useMemo(() => {
