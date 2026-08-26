@@ -344,7 +344,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
     if (!hotelId) return;
     setLoading(true);
     void (async () => {
-      const [ruleRes, nameRes, othersRes, actionsRes] = await Promise.all([
+      const [ruleRes, nameRes, othersRes, actionsRes, settingsRes] = await Promise.all([
         supabase.from("revenue_pickup_automation_rules").select("*").eq("hotel_id", hotelId).eq("name", "Pickup pricing").maybeSingle(),
         supabase.from("hotel_configurations").select("hotel_id, hotel_name"),
         supabase.from("revenue_pickup_automation_rules").select("*").neq("hotel_id", hotelId),
