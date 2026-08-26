@@ -336,6 +336,9 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
   const [running, setRunning] = useState(false);
   const [stats, setStats] = useState({ pushed: 0, failed: 0, lastActionAt: null as string | null });
   const [runResult, setRunResult] = useState<RunResult | null>(null);
+  // Minimum price difference between one guest count and the next inside the
+  // same room type. Stored per property, used by every publishing path.
+  const [guestStep, setGuestStep] = useState<number>(10);
 
   useEffect(() => {
     if (!hotelId) return;
