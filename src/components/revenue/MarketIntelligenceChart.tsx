@@ -800,31 +800,8 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                 }}
 
               />
-              {/* Clicking a legend entry hides or shows that series, so the
-                  reader can isolate pickup when the lines overlap. */}
-              <Legend
-                wrapperStyle={{ fontSize: 11, cursor: "pointer" }}
-                onClick={(entry: { value?: string; id?: string }) => {
-                  if (entry?.value === "Occupancy") setShowOcc((v) => !v);
-                  if (entry?.value === "ADR") setShowAdr((v) => !v);
-                  if (entry?.value === "City demand") setShowDemand((v) => !v);
-                  const hotel = hotels.find((h) => h.hotel_name === entry?.value);
-                  if (hotel) toggleHotel(hotel.hotel_id);
-                }}
-                payload={[
-                  { value: "Booked", type: "square", color: PICKUP_LEGEND_COLOR, id: "gained" },
-                  { value: "Cancelled", type: "square", color: "hsl(199 89% 60%)", id: "lost" },
-                  { value: "Occupancy", type: "line", color: showOcc ? "hsl(var(--primary))" : "hsl(var(--muted-foreground) / 0.4)", id: "occ" },
-                  { value: "ADR", type: "line", color: showAdr ? ADR_COLOR : "hsl(var(--muted-foreground) / 0.4)", id: "adr" },
-                  ...(hasDemand ? [{ value: "City demand", type: "line" as const, color: showDemand ? DEMAND_COLOR : "hsl(var(--muted-foreground) / 0.4)", id: "demand" }] : []),
-                  ...(compare ? hotels.map((h, i) => ({ value: h.hotel_name, type: "line" as const, color: hiddenHotels.has(h.hotel_id) ? "hsl(var(--muted-foreground) / 0.4)" : colorFor(h.hotel_id, i), id: h.hotel_id })) : []),
-                  ...(prefs.ourRate ? [{ value: `${baselineLabel} rate`, type: "line" as const, color: OUR_RATE_COLOR, id: "ourRate" }] : []),
-                  ...(prefs.marketAvg ? [{ value: "Market average", type: "line" as const, color: MARKET_COLOR, id: "marketAvg" }] : []),
-                  ...(prefs.marketMedian ? [{ value: "Market median", type: "line" as const, color: MARKET_COLOR, id: "marketMedian" }] : []),
-                  ...shownCompetitors.map((c) => ({ value: c.name, type: "line" as const, color: compColor(c.id), id: c.id })),
+              {/* Legend lives outside the SVG so its hit areas are finger-sized. */}
 
-                ]}
-              />
               {/* Rooms booked and rooms given back are stacked around zero, so
                   a date that gained and lost the same number of rooms still
                   shows both movements instead of an empty column. */}
