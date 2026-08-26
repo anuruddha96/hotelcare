@@ -807,7 +807,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                   shows both movements instead of an empty column. */}
               <Bar yAxisId="pickup" dataKey="gained" name="Booked" stackId="pickup" radius={[2, 2, 0, 0]}
                 maxBarSize={18} minPointSize={2} fill={PICKUP_LEGEND_COLOR} isAnimationActive animationDuration={550}>
-                {data.map((d) => <Cell key={d.date} fill={barColor(d.gained)} />)}
+                {viewData.map((d) => <Cell key={d.date} fill={barColor(d.gained)} />)}
                 {showLabels && (
                   <LabelList
                     dataKey="pickup"
