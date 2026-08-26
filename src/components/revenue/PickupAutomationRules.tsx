@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
   Bot, Loader2, HelpCircle, Clock, TrendingUp, TrendingDown,
-  ShieldCheck, CalendarRange, FileText,
+  ShieldCheck, CalendarRange, FileText, Users,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
