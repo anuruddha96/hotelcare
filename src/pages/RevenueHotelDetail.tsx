@@ -51,7 +51,11 @@ import TodaysSalesAdrGoal from "@/components/revenue/TodaysSalesAdrGoal";
 import MonthPerformanceHeader from "@/components/revenue/MonthPerformanceHeader";
 import { buildDemandBoard } from "@/lib/demandScore";
 import RevenueIntelligencePanel from "@/components/revenue/RevenueIntelligencePanel";
-
+import MobileRevenueShell from "@/components/revenue/mobile/MobileRevenueShell";
+import MobilePricesTab from "@/components/revenue/mobile/MobilePricesTab";
+import MobileTodayPanel from "@/components/revenue/mobile/MobileTodayPanel";
+import MobileMoreList, { type MobileMoreItem } from "@/components/revenue/mobile/MobileMoreList";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
 import { WelcomeBackOverlay } from "@/components/revenue/WelcomeBackOverlay";
