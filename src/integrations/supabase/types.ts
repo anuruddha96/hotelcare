@@ -1033,6 +1033,71 @@ export type Database = {
         }
         Relationships: []
       }
+      competitor_rate_observations: {
+        Row: {
+          board: string | null
+          competitor_id: string
+          currency: string | null
+          hotel_id: string
+          id: string
+          model: string | null
+          observed_at: string
+          occupancy: number | null
+          organization_slug: string | null
+          rate: number | null
+          raw_confidence: number | null
+          refundable: boolean | null
+          room_type: string | null
+          run_id: string | null
+          source_page_url: string | null
+          stay_date: string
+        }
+        Insert: {
+          board?: string | null
+          competitor_id: string
+          currency?: string | null
+          hotel_id: string
+          id?: string
+          model?: string | null
+          observed_at?: string
+          occupancy?: number | null
+          organization_slug?: string | null
+          rate?: number | null
+          raw_confidence?: number | null
+          refundable?: boolean | null
+          room_type?: string | null
+          run_id?: string | null
+          source_page_url?: string | null
+          stay_date: string
+        }
+        Update: {
+          board?: string | null
+          competitor_id?: string
+          currency?: string | null
+          hotel_id?: string
+          id?: string
+          model?: string | null
+          observed_at?: string
+          occupancy?: number | null
+          organization_slug?: string | null
+          rate?: number | null
+          raw_confidence?: number | null
+          refundable?: boolean | null
+          room_type?: string | null
+          run_id?: string | null
+          source_page_url?: string | null
+          stay_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "competitor_rate_observations_competitor_id_fkey"
+            columns: ["competitor_id"]
+            isOneToOne: false
+            referencedRelation: "competitor_properties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       competitor_rates: {
         Row: {
           board: string | null
@@ -9136,6 +9201,15 @@ export type Database = {
           source: string
           stay_date: string
         }[]
+      }
+      reconcile_competitor_rates: {
+        Args: {
+          _competitor_id: string
+          _from: string
+          _to: string
+          _window_hours?: number
+        }
+        Returns: number
       }
       refresh_revenue_published_payload: {
         Args: {
