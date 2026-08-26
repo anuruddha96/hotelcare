@@ -2133,23 +2133,13 @@ export default function RateStrategyGrid({
   }, [unpaintSelection]);
 
   useEffect(() => {
-    const findCell = (x: number, y: number) => {
-      const el = document.elementFromPoint(x, y) as HTMLElement | null;
-      const cell = el?.closest?.("[data-cell-row]") as HTMLElement | null;
-      if (!cell) return null;
-      return { row: Number(cell.dataset.cellRow), date: Number(cell.dataset.cellDate) };
-    };
     const onMove = (e: PointerEvent) => {
       if (!cellDraggingRef.current) return;
       e.preventDefault();
-      const hit = findCell(e.clientX, e.clientY);
-      if (hit && Number.isFinite(hit.row) && Number.isFinite(hit.date)) {
-        const prev = focusRef.current;
-        if (prev && prev.row === hit.row && prev.date === hit.date) return;
-        focusRef.current = hit;
-        schedulePaint();
-      }
+      pointerPosRef.current = { x: e.clientX, y: e.clientY };
+      schedulePaint();
     };
+
     const onUp = () => {
       if (holdTimer.current) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
       pendingCell.current = null;
