@@ -3,14 +3,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Bar, CartesianGrid, Cell, ComposedChart, Label, LabelList, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from "recharts";
-import { Activity } from "lucide-react";
+import { Area, Bar, CartesianGrid, Cell, ComposedChart, Label, LabelList, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis } from "recharts";
+import { Activity, Download, SlidersHorizontal } from "lucide-react";
 import type { DayMetrics } from "@/lib/revenueAnalytics";
 import { budapestToday, daysBetween, pickupWindowLabel, PICKUP_WINDOW_48H } from "@/lib/revenueAnalytics";
 import { money, currencySymbol } from "@/lib/revenueCurrency";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { supabase } from "@/integrations/supabase/client";
+import { useMarketRates } from "@/hooks/useMarketRates";
+
 
 const RANGES = [
   { value: 14, label: "14d" },
