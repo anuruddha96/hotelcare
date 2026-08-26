@@ -851,6 +851,33 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                   strokeWidth={h.hotel_id === hotelId ? 2.5 : 1.5}
                   dot={false} connectNulls opacity={0.85} />
               ))}
+
+              {/* ---- competitive set ------------------------------------- */}
+              {prefs.band && (
+                <>
+                  <Area yAxisId="rate" dataKey="bandLow" stackId="band" stroke="none" fill="transparent"
+                    legendType="none" name="Market floor" isAnimationActive={false} connectNulls />
+                  <Area yAxisId="rate" dataKey="bandSpan" stackId="band" stroke="none"
+                    fill="hsl(var(--foreground) / 0.08)" name="Cheapest–dearest" isAnimationActive={false} connectNulls />
+                </>
+              )}
+              {prefs.marketAvg && (
+                <Line yAxisId="rate" type="monotone" dataKey="marketAvg" name="Market average" stroke={MARKET_COLOR}
+                  strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls />
+              )}
+              {prefs.marketMedian && (
+                <Line yAxisId="rate" type="monotone" dataKey="marketMedian" name="Market median" stroke={MARKET_COLOR}
+                  strokeWidth={1.5} strokeDasharray="2 3" dot={false} connectNulls opacity={0.8} />
+              )}
+              {prefs.ourRate && (
+                <Line yAxisId="rate" type="monotone" dataKey="ourRate" name={`${baselineLabel} rate`} stroke={OUR_RATE_COLOR}
+                  strokeWidth={2.5} dot={false} connectNulls />
+              )}
+              {shownCompetitors.map((c) => (
+                <Line key={c.id} yAxisId="rate" type="monotone" dataKey={`c_${c.id}`} name={c.name}
+                  stroke={compColor(c.id)} strokeWidth={1.5} dot={false} connectNulls opacity={0.9} />
+              ))}
+
             </ComposedChart>
           </ResponsiveContainer>
         </div>
