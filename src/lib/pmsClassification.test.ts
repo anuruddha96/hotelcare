@@ -78,4 +78,22 @@ describe("PMS housekeeping classification", () => {
       expect(result.isDepartureTomorrow).toBe(false);
     }
   });
+
+  it("treats an inferred no-show (arrived yesterday, never checked in) as vacant, not daily", () => {
+    const result = classifyPmsHousekeepingRow({
+      Room: "DB/TW-303",
+      Occupied: "No",
+      ArrivalDate: "2026-08-25",
+      DepartureDate: "2026-08-27",
+      RawReservationStatusId: 2,
+      IsNoShow: true,
+      NoShowSource: "inferred_never_checked_in",
+      "Night / Total": "2/2",
+    }, "2026-08-26");
+    expect(result.isNoShow).toBe(true);
+    expect(result.isDailyRoom).toBe(false);
+    expect(result.isCheckoutRoom).toBe(false);
+    expect(result.isStayThrough).toBe(false);
+    expect(result.isDepartureTomorrow).toBe(false);
+  });
 });
