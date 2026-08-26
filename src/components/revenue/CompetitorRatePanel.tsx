@@ -245,9 +245,11 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
         body: { hotelId, days: 30 },
       });
       if (error) throw error;
-      const captured = (data as { captured?: number } | null)?.captured ?? 0;
-      if (captured) toast.success(`Captured ${captured} competitor prices`);
-      else toast.info("No public prices were found this time.");
+      const res = data as { captured?: number; results?: Array<{ competitor: string; prices: number; error: string | null }> } | null;
+      const captured = res?.captured ?? 0;
+      const failed = (res?.results ?? []).filter((r) => r.prices === 0);
+      if (captured) toast.success(`Captured ${captured} competitor prices${failed.length ? ` · ${failed.length} hotel(s) returned nothing` : ""}`);
+      else toast.info(failed[0]?.error ? `No prices captured: ${failed[0].error}` : "No public prices were found this time.");
       void load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "The scan failed");
