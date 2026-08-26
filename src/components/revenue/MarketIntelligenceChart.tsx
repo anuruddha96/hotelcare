@@ -817,6 +817,11 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                   { value: "ADR", type: "line", color: showAdr ? ADR_COLOR : "hsl(var(--muted-foreground) / 0.4)", id: "adr" },
                   ...(hasDemand ? [{ value: "City demand", type: "line" as const, color: showDemand ? DEMAND_COLOR : "hsl(var(--muted-foreground) / 0.4)", id: "demand" }] : []),
                   ...(compare ? hotels.map((h, i) => ({ value: h.hotel_name, type: "line" as const, color: hiddenHotels.has(h.hotel_id) ? "hsl(var(--muted-foreground) / 0.4)" : colorFor(h.hotel_id, i), id: h.hotel_id })) : []),
+                  ...(prefs.ourRate ? [{ value: `${baselineLabel} rate`, type: "line" as const, color: OUR_RATE_COLOR, id: "ourRate" }] : []),
+                  ...(prefs.marketAvg ? [{ value: "Market average", type: "line" as const, color: MARKET_COLOR, id: "marketAvg" }] : []),
+                  ...(prefs.marketMedian ? [{ value: "Market median", type: "line" as const, color: MARKET_COLOR, id: "marketMedian" }] : []),
+                  ...shownCompetitors.map((c) => ({ value: c.name, type: "line" as const, color: compColor(c.id), id: c.id })),
+
                 ]}
               />
               {/* Rooms booked and rooms given back are stacked around zero, so
