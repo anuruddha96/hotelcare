@@ -734,6 +734,12 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                 hide={!showAdr || usesPercentAxis}
                 tickFormatter={(v: number) => `${currencySymbol()}${Math.round(v)}`}
                 domain={adrDomain} />
+              {/* Money scale shared by our rate, the market and every competitor. */}
+              <YAxis yAxisId="rate" orientation="right" width={46} tick={{ fontSize: 10 }} axisLine={false} tickLine={false}
+                hide={!usesRateAxis || rateDomain == null}
+                tickFormatter={(v: number) => `${currencySymbol()}${Math.round(v)}`}
+                domain={rateDomain ?? ["auto", "auto"]} />
+
               {showEvents && data.filter(d => eventsByDate?.has(d.date)).map((d) => (
                 <ReferenceLine
                   key={d.date}
