@@ -1118,6 +1118,8 @@ export default function RevenueHotelDetail() {
             hotelId={hotelId ?? null}
             selectedMonth={selectedMonth} 
             eventsByDate={eventsByDate}
+            ourRateByDate={ourRateByDate}
+
           />
 
           <EventsPanel hotelId={hotelId ?? null} selectedMonth={selectedMonth} />
