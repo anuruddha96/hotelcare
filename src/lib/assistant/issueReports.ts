@@ -14,9 +14,11 @@ export async function reportAssistantIssue(params: {
   threadId?: string | null;
   page: AssistantPageContext;
 }): Promise<{ ok: boolean; error?: string }> {
-  const { error } = await supabase.functions.invoke("assistant-report-issue", {
+  const { error } = await supabase.functions.invoke("assistant-save-abort", {
     body: {
+      type: "issue_report",
       title: params.title.slice(0, 200),
+
       description: params.description.slice(0, 4000),
       ai_summary: params.aiSummary ?? null,
       category: params.category ?? "other",
