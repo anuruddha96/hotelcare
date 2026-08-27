@@ -137,13 +137,14 @@ export function RevenueAutomationNotifications() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {detail?.failed_count ? <AlertTriangle className="h-4 w-4 text-destructive" /> : <Bell className="h-4 w-4" />}
-              {detail?.hotel_name} — pricing run
+              {detail?.hotel_name} — price update
             </DialogTitle>
             <DialogDescription>
               {detail
-                ? `${detail.run_source === 'automatic' ? 'Automatic automation' : 'Manual run'} by ${detail.actor_name} · ${relativeTime(detail.created_at)}`
+                ? `${detail.run_source === 'automatic' ? 'Run automatically' : `Started by ${detail.actor_name}`} · ${relativeTime(detail.created_at)}`
                 : ''}
             </DialogDescription>
+
           </DialogHeader>
 
           {detail && (
