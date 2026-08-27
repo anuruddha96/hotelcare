@@ -73,9 +73,20 @@ Deno.serve(async (req) => {
     let changes = [...byCell.values()];
     const { priority, intent } = INTENT_BY_SOURCE[source] ?? { priority: 50, intent: source };
 
+    // Cells whose room type has no exact Previo rate plan are held back one by
+    // one and reported; the correctly mapped prices are still queued, so a
+    // single unmapped room type cannot cancel a month of pricing.
+    const preRejected: Array<{ stay_date: string; room_type_name: string; occupancy: number; reason: string }> = [];
     {
       const safetyInput = changes.map((change) => ({ ...change, intent_source: intent }));
       const safe = await enforceRateSafety(admin, hotelId, safetyInput as any[]);
+      for (const entry of safe.dropped) {
+        const c = entry.change as any;
+        preRejected.push({
+          stay_date: c.stay_date, room_type_name: c.room_type_name,
+          occupancy: c.occupancy, reason: entry.reason,
+        });
+      }
       changes = safe.changes as any;
     }
 
@@ -84,8 +95,14 @@ Deno.serve(async (req) => {
     // inconsistent and hard to follow, so every selected cell is sent.
     const skippedSoldOut = 0;
     if (changes.length === 0) {
-      return json({ error: "Every selected room type is sold out on those dates — nothing to publish." }, 400);
+      return json({
+        error: preRejected.length > 0
+          ? `None of these prices could be queued. ${preRejected[0].reason}`
+          : "Every selected room type is sold out on those dates — nothing to publish.",
+        rejected: preRejected.slice(0, 20),
+      }, 400);
     }
+
 
     const runId = crypto.randomUUID();
     const orgSlug = organizationSlug ?? profile.organization_slug;
