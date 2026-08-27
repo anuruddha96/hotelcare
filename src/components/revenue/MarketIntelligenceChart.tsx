@@ -401,22 +401,32 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
   };
 
 
-  /** Same calendar-month KPIs and weighted formulas as the headline card. */
+  /**
+   * Calendar-month KPIs for every property.
+   *
+   * Every tile — including the property currently open — is computed from the
+   * same portfolio snapshots over the same date window. Reading the open
+   * property from the live grid metrics instead made its numbers disagree with
+   * the tile the very same hotel showed from another property's page, because
+   * the grid only covers today forward while the snapshots cover the whole
+   * selected month. The grid metrics are only used as a fallback when no
+   * snapshot has landed yet for the open property.
+   */
   const comparisonSummary = useMemo(() => {
     if (!compare) return [];
     const selectedRows = metrics.filter((m) => m.stay_date.slice(0, 7) === selectedMonth);
     return hotels.map((h) => {
-      const isCurrent = h.hotel_id === hotelId;
       const mine = Array.from(latestByHotelDate.values()).filter(
         (r) => r.hotel_id === h.hotel_id && r.stay_date.slice(0, 7) === selectedMonth,
       );
-      const sold = isCurrent
+      const useFallback = mine.length === 0 && h.hotel_id === hotelId;
+      const sold = useFallback
         ? selectedRows.reduce((s, r) => s + r.roomsSold, 0)
         : mine.reduce((s, r) => s + (Number(r.rooms_sold) || 0), 0);
-      const capacity = isCurrent
+      const capacity = useFallback
         ? selectedRows.reduce((s, r) => s + r.roomsAvailable, 0)
         : mine.reduce((s, r) => s + (Number(r.rooms_available) || 0), 0);
-      const revenue = isCurrent
+      const revenue = useFallback
         ? selectedRows.reduce((s, r) => s + r.revenueEur, 0)
         : mine.reduce((s, r) => s + Number(r.revenue_eur ?? 0), 0);
       return {
@@ -427,6 +437,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
       };
     }).sort((a, b) => (a.hotel_id === hotelId ? -1 : b.hotel_id === hotelId ? 1 : 0));
   }, [compare, hotels, latestByHotelDate, hotelId, metrics, selectedMonth]);
+
 
   // ------------------------------------------------------------- viewport
   /**
