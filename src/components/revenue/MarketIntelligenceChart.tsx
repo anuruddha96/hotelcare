@@ -1000,8 +1000,10 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                 </button>
               );
             })}
+            </div>
           </div>
         )}
+
         <div ref={plotRef} className="h-[22rem] touch-pan-y select-none sm:h-72">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={viewData} margin={{ top: 16, right: 4, left: 0, bottom: 0 }}>
