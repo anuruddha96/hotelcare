@@ -54,12 +54,11 @@ function allowedScopes(role: string): Set<Scope> {
   if (["admin", "manager", "top_management", "top_management_manager"].includes(role)) {
     return new Set(["revenue", "housekeeping", "maintenance", "reception", "finance"]);
   }
-  if (["control_finance", "control_manager", "finance_manager", "back_office_manager"].includes(role)) {
-    return new Set(["finance"]);
-  }
+  if (["control_finance", "control_manager", "finance_manager"].includes(role)) return new Set(["finance"]);
+  if (role === "back_office_manager") return new Set(["finance", "housekeeping", "maintenance", "reception"]);
   if (["housekeeping", "housekeeping_manager", "supervisor"].includes(role)) return new Set(["housekeeping"]);
   if (["maintenance", "maintenance_manager"].includes(role)) return new Set(["maintenance"]);
-  if (["reception", "reception_manager", "front_office"].includes(role)) return new Set(["reception"]);
+  if (["reception", "reception_manager", "front_office", "breakfast_staff"].includes(role)) return new Set(["reception"]);
   return new Set();
 }
 
