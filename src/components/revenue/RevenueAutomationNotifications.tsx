@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bell, AlertTriangle, Bot, User as UserIcon, ArrowRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Bell, AlertTriangle, Bot, User as UserIcon, ArrowRight, Info, ArrowUpRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
@@ -18,16 +20,26 @@ import {
   relativeTime,
   type AutomationNotification,
 } from '@/hooks/useRevenueAutomationNotifications';
+import {
+  runHeadline,
+  runPreview,
+  runReasons,
+  runStats,
+  runStatus,
+} from '@/lib/revenue/automationSummary';
 
 const money = (value: number | null | undefined, currency: string | null | undefined) =>
   value === null || value === undefined
     ? '—'
     : `${Math.round(Number(value))} ${currency ?? ''}`.trim();
 
+
 /** Bell + inbox for revenue price-automation activity. */
 export function RevenueAutomationNotifications() {
   const canSee = useCanSeeAutomationNotifications();
+  const navigate = useNavigate();
   const { items, unreadCount, markRead, markAllRead } = useRevenueAutomationNotifications(canSee);
+
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<AutomationNotification | null>(null);
   const welcomed = useRef(false);
@@ -109,11 +121,9 @@ export function RevenueAutomationNotifications() {
                     </span>
                   </div>
                   <p className={cn('mt-1 text-xs', failed ? 'text-destructive font-medium' : 'text-muted-foreground')}>
-                    {failed
-                      ? `${item.failed_count} price${item.failed_count === 1 ? '' : 's'} need attention · ${item.pushed_count} sent`
-                      : item.summary ??
-                        `${item.changes.length} prices changed · ${item.pushed_count} sent · 0 failed`}
+                    {runPreview(item)}
                   </p>
+
                   <p className="mt-0.5 text-[11px] text-muted-foreground truncate">{item.actor_name}</p>
                 </button>
               );
@@ -127,81 +137,124 @@ export function RevenueAutomationNotifications() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {detail?.failed_count ? <AlertTriangle className="h-4 w-4 text-destructive" /> : <Bell className="h-4 w-4" />}
-              {detail?.hotel_name} — pricing run
+              {detail?.hotel_name} — price update
             </DialogTitle>
             <DialogDescription>
               {detail
-                ? `${detail.run_source === 'automatic' ? 'Automatic automation' : 'Manual run'} by ${detail.actor_name} · ${relativeTime(detail.created_at)}`
+                ? `${detail.run_source === 'automatic' ? 'Run automatically' : `Started by ${detail.actor_name}`} · ${relativeTime(detail.created_at)}`
                 : ''}
             </DialogDescription>
+
           </DialogHeader>
 
           {detail && (
             <>
-              <div className="grid grid-cols-4 gap-2">
-                {[
-                  { label: 'Pickups', value: detail.pickups_count },
-                  { label: 'Cells', value: detail.actions_count },
-                  { label: 'Sent', value: detail.pushed_count },
-                  { label: 'Failed', value: detail.failed_count },
-                ].map((kpi) => (
+              <div className="rounded-lg border bg-muted/40 p-3">
+                <p className="text-sm font-medium">{runHeadline(detail)}</p>
+                <p
+                  className={cn(
+                    'mt-0.5 text-xs',
+                    runStatus(detail).tone === 'attention' ? 'text-destructive font-medium' : 'text-muted-foreground',
+                  )}
+                >
+                  {runStatus(detail).text}
+                </p>
+                {runReasons(detail).length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {runReasons(detail).map((reason) => (
+                      <Tooltip key={reason.label}>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-[11px] text-muted-foreground"
+                          >
+                            {reason.label}
+                            <Info className="h-3 w-3" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-[260px] text-xs">{reason.explain}</TooltipContent>
+                      </Tooltip>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {runStats(detail).map((kpi) => (
                   <div
                     key={kpi.label}
                     className={cn(
                       'rounded-lg border p-2 text-center',
-                      kpi.label === 'Failed' && detail.failed_count > 0 && 'border-destructive/50 bg-destructive/5',
+                      kpi.danger && 'border-destructive/50 bg-destructive/5',
                     )}
                   >
-                    <div className="text-lg font-semibold">{kpi.value}</div>
+                    <div className="text-lg font-semibold">{kpi.value.toLocaleString()}</div>
                     <div className="text-[11px] text-muted-foreground">{kpi.label}</div>
                   </div>
                 ))}
               </div>
 
-              <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border">
-                <table className="w-full text-xs">
-                  <thead className="sticky top-0 bg-muted/80 backdrop-blur">
-                    <tr className="text-left">
-                      <th className="px-2 py-1.5 font-medium">Stay date</th>
-                      <th className="px-2 py-1.5 font-medium">Room type</th>
-                      <th className="px-2 py-1.5 font-medium">Guests</th>
-                      <th className="px-2 py-1.5 font-medium">Price</th>
-                      <th className="px-2 py-1.5 font-medium">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detail.changes.map((row, index) => (
-                      <tr key={`${row.stay_date}-${index}`} className="border-t">
-                        <td className="px-2 py-1.5 whitespace-nowrap">{row.stay_date}</td>
-                        <td className="px-2 py-1.5">{row.room_type_name ?? '—'}</td>
-                        <td className="px-2 py-1.5">{row.occupancy ?? '—'}</td>
-                        <td className="px-2 py-1.5 whitespace-nowrap">
-                          <span className="text-muted-foreground">{money(row.old_price, row.currency ?? detail.currency)}</span>
-                          <ArrowRight className="inline h-3 w-3 mx-1" />
-                          <span className="font-medium">{money(row.new_price, row.currency ?? detail.currency)}</span>
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <Badge
-                            variant={row.status === 'failed' ? 'destructive' : row.status === 'pushed' ? 'default' : 'secondary'}
-                            className="text-[10px] px-1.5 py-0"
-                          >
-                            {row.status ?? 'pending'}
-                          </Badge>
-                        </td>
+              {detail.changes.length > 0 ? (
+                <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                      <tr className="text-left">
+                        <th className="px-2 py-1.5 font-medium">Stay date</th>
+                        <th className="px-2 py-1.5 font-medium">Room type</th>
+                        <th className="px-2 py-1.5 font-medium">Guests</th>
+                        <th className="px-2 py-1.5 font-medium">Price</th>
+                        <th className="px-2 py-1.5 font-medium">Status</th>
                       </tr>
-                    ))}
-                    {detail.changes.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="px-2 py-4 text-center text-muted-foreground">
-                          No individual price rows recorded for this run.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {detail.changes.map((row, index) => (
+                        <tr key={`${row.stay_date}-${index}`} className="border-t">
+                          <td className="px-2 py-1.5 whitespace-nowrap">{row.stay_date}</td>
+                          <td className="px-2 py-1.5">{row.room_type_name ?? '—'}</td>
+                          <td className="px-2 py-1.5">{row.occupancy ?? '—'}</td>
+                          <td className="px-2 py-1.5 whitespace-nowrap">
+                            <span className="text-muted-foreground">{money(row.old_price, row.currency ?? detail.currency)}</span>
+                            <ArrowRight className="inline h-3 w-3 mx-1" />
+                            <span className="font-medium">{money(row.new_price, row.currency ?? detail.currency)}</span>
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <Badge
+                              variant={row.status === 'failed' ? 'destructive' : row.status === 'pushed' ? 'default' : 'secondary'}
+                              className="text-[10px] px-1.5 py-0"
+                            >
+                              {row.status ?? 'pending'}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="rounded-lg border p-4 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    This run applied a rule across the whole calendar, so the prices are summarised here rather
+                    than listed one by one.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="mt-3 gap-1.5"
+                    onClick={() => {
+                      const slug = detail.organization_slug;
+                      setDetail(null);
+                      setOpen(false);
+                      navigate(slug ? `/${slug}/revenue/${detail.hotel_id}` : `/revenue/${detail.hotel_id}`);
+                    }}
+                  >
+                    Open the rate calendar
+                    <ArrowUpRight className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
             </>
           )}
+
         </DialogContent>
       </Dialog>
     </>
