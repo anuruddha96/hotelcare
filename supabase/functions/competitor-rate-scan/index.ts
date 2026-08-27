@@ -89,6 +89,8 @@ async function askDates(
       const attempt = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        // A single hung web-search question must never stall the sweep.
+        signal: AbortSignal.timeout(90_000),
         body: JSON.stringify({
           model,
           tools: [{ type: "web_search_preview", search_context_size: "medium" }],
@@ -96,6 +98,7 @@ async function askDates(
           input: prompt,
         }),
       });
+
       if (!attempt.ok) {
         const detail = (await attempt.text()).slice(0, 200);
         // Key, credit and rate-limit problems are not per-competitor failures:
