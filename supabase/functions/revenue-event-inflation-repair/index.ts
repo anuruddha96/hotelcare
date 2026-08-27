@@ -20,9 +20,21 @@ Deno.serve(async (req) => {
 
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   const token = (req.headers.get("Authorization") ?? "").replace("Bearer ", "").trim();
-  if (!serviceKey || token !== serviceKey) return json({ error: "Not authorised" }, 401);
+  if (!serviceKey) return json({ error: "Not authorised" }, 401);
 
   const admin = createClient(Deno.env.get("SUPABASE_URL") ?? "", serviceKey);
+
+  if (token !== serviceKey) {
+    // Fall back to an admin user session.
+    const { data: userResult } = await admin.auth.getUser(token);
+    const user = userResult?.user;
+    if (!user) return json({ error: "Not authorised" }, 401);
+    const { data: profile } = await admin.from("profiles").select("role").eq("id", user.id).maybeSingle();
+    if (!profile || !["admin", "top_management", "top_management_manager"].includes(String(profile.role))) {
+      return json({ error: "Not authorised" }, 403);
+    }
+  }
+
 
   try {
     const body = await req.json().catch(() => ({}));
