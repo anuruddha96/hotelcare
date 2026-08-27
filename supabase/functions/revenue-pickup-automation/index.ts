@@ -1853,7 +1853,14 @@ Deno.serve(async (req) => {
         // A human lowered this date recently and the hold has just expired.
         // Before automation re-raises it, the advisor reasons about whether
         // that is commercially sensible; it may only keep or cancel the move.
-        if (manualReviewDates.size > 0 && strongRows.length > 0) {
+        // With the advisor switched off no paid call is made: the manager's
+        // lower price simply stands, which is the same safe outcome the
+        // advisor produces when it is unavailable.
+        if (!rule.ai_assist_enabled && manualReviewDates.size > 0 && strongRows.length > 0) {
+          const veto = new Map<string, number>();
+          for (const d of manualReviewDates) if (strongDates.has(d)) veto.set(d, 0);
+          if (veto.size > 0) applyAiFactors(strongRows, strongDrafts, veto, "increase");
+        } else if (manualReviewDates.size > 0 && strongRows.length > 0) {
           const veto = await aiReviewManualOverrides(
             Array.from(manualReviewDates)
               .filter((d) => strongDates.has(d))

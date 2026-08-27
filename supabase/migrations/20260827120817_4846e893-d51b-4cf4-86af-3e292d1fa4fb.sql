@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.ai_spend_snapshot(text) FROM PUBLIC, anon;

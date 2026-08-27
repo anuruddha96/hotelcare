@@ -6,6 +6,9 @@
 // are never estimated, and anything the organisation already has is filtered
 // out before it can be offered or saved twice.
 
+import { logAiUsage } from "./aiBudget.ts";
+
+
 /** Comparison key for duplicate detection: accents, case and noise removed. */
 export function normTitle(t: string): string {
   return String(t)
@@ -148,7 +151,9 @@ export async function searchEvents(opts: {
       input: compactRetry ? `${prompt} Prioritize high and medium impact events and produce compact JSON.` : prompt,
       text: { format: { type: "json_schema", name: "events", strict: true, schema } },
       max_output_tokens: compactRetry ? 10000 : 16000,
-      tools: [{ type: "web_search_preview", search_context_size: compactRetry ? "medium" : "high" }],
+      // "high" search context roughly triples the bill for a handful of extra
+      // events, so both the first attempt and the retry stay on "medium".
+      tools: [{ type: "web_search_preview", search_context_size: compactRetry ? "low" : "medium" }],
       tool_choice: "auto",
     };
 
@@ -167,6 +172,15 @@ export async function searchEvents(opts: {
     }
 
     const ai = await aiResp.json();
+    await logAiUsage(admin, {
+      organizationSlug,
+      functionName: "event-search",
+      model: String(payload.model ?? ""),
+      inputTokens: Number(ai?.usage?.input_tokens ?? 0),
+      outputTokens: Number(ai?.usage?.output_tokens ?? 0),
+      webSearches: 1,
+      searchContext: compactRetry ? "low" : "medium",
+    });
     if (ai.status === "incomplete") {
       console.error("event response incomplete", JSON.stringify(ai.incomplete_details ?? {}));
       return { events: [], error: "The event search answer was cut off.", retryable: true };
@@ -188,7 +202,9 @@ export async function searchEvents(opts: {
   };
 
   let { events, error: aiError, retryable } = await askOpenAI(false);
-  if (!events.length && (retryable || !aiError)) {
+  // Retry only when the answer was unusable. "No events found" is a real
+  // answer, and re-asking it paid for a second web search every time.
+  if (!events.length && retryable) {
     const retry = await askOpenAI(true);
     events = retry.events;
     aiError = retry.error;

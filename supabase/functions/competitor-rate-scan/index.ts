@@ -13,6 +13,7 @@
 // OpenAI key is rejected, out of credit, or rate limited.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { aiFeatureEnabled, checkAiBudget, logAiUsage } from "../_shared/aiBudget.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,8 +55,16 @@ function extractJson(text: string): unknown {
   return null;
 }
 
-const CHUNK_DAYS = 10;
+// Cost control: web search is billed per call, so the scheduled sweep asks few,
+// wide questions with the cheap model, and only the manual button uses the
+// expensive one.
+const CHUNK_DAYS = 20;
 const LEASE_ID = "competitor-rate-scan";
+/** Scheduled sweep: near horizon every week, the full 60 nights fortnightly. */
+const CRON_NEAR_DAYS = 14;
+const CRON_FULL_DAYS = 60;
+/** A competitor scanned this recently is skipped by the scheduled sweep. */
+const CRON_FRESH_HOURS = 120;
 
 function isoAdd(base: Date, days: number) {
   return new Date(base.getTime() + days * 86_400_000).toISOString().slice(0, 10);
@@ -67,7 +76,11 @@ async function askDates(
   competitor: { name: string; source_url: string | null },
   dates: string[],
   strict = false,
-): Promise<{ rates: ScannedRate[]; currency: string | null; error: string | null; model: string | null }> {
+  tier: "cheap" | "rich" = "rich",
+): Promise<{
+  rates: ScannedRate[]; currency: string | null; error: string | null; model: string | null;
+  usage: { model: string | null; inputTokens: number; outputTokens: number; searchContext: "low" | "medium" };
+}> {
   const prompt = strict ? [
     // Retry wording: short, no prose, one line per date. Long prompts are what
     // make the model answer in prose that cannot be parsed.
@@ -94,7 +107,15 @@ async function askDates(
   ].filter(Boolean).join(" ");
 
   let lastError: string | null = null;
-  for (const model of ["gpt-4o", "gpt-4.1"]) {
+  // The scheduled sweep runs on the cheap model with a small search context;
+  // the manual button keeps the stronger model. Only one model is tried per
+  // question — a second full web search for the same nights doubled the bill
+  // for very little extra coverage.
+  const models = tier === "cheap" ? ["gpt-4o-mini"] : ["gpt-4o"];
+  const searchContext: "low" | "medium" = tier === "cheap" ? "low" : "medium";
+  // Everything the caller needs to bill this question to the spend log.
+  const usage = { model: null as string | null, inputTokens: 0, outputTokens: 0, searchContext };
+  for (const model of models) {
     try {
       const attempt = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
@@ -103,8 +124,8 @@ async function askDates(
         signal: AbortSignal.timeout(90_000),
         body: JSON.stringify({
           model,
-          tools: [{ type: "web_search_preview", search_context_size: "medium" }],
-          max_output_tokens: 6000,
+          tools: [{ type: "web_search_preview", search_context_size: searchContext }],
+          max_output_tokens: tier === "cheap" ? 4000 : 6000,
           input: prompt,
         }),
       });
@@ -122,6 +143,9 @@ async function askDates(
         continue;
       }
       const payload = await attempt.json();
+      usage.model = model;
+      usage.inputTokens = Number(payload?.usage?.input_tokens ?? 0);
+      usage.outputTokens = Number(payload?.usage?.output_tokens ?? 0);
       const text: string = payload.output_text
         ?? (payload.output ?? [])
           .flatMap((o: { content?: { text?: string }[] }) => o.content ?? [])
@@ -134,6 +158,7 @@ async function askDates(
         currency: parsed.currency ?? null,
         error: null,
         model,
+        usage,
       };
     } catch (e) {
       if (e instanceof ScanBlocked) throw e;
@@ -141,7 +166,7 @@ async function askDates(
       console.error("competitor-rate-scan", lastError);
     }
   }
-  return { rates: [], currency: null, error: lastError ?? "no answer", model: null };
+  return { rates: [], currency: null, error: lastError ?? "no answer", model: null, usage };
 }
 
 function normaliseBoard(v: string | null | undefined): string | null {
@@ -200,7 +225,14 @@ Deno.serve(async (req) => {
       hotelIds = [...new Set(((all ?? []) as { hotel_id: string }[]).map((r) => r.hotel_id))];
     }
 
-    const days = Math.min(Math.max(Number(body.days ?? 60), 1), 90);
+    // Horizon: the manual button keeps whatever the panel asks for. The
+    // scheduled sweep looks 14 nights ahead most weeks and stretches to 60
+    // every second week — far-out competitor rates barely move, so paying for
+    // them weekly is waste.
+    const weekOfYear = Math.floor(Date.now() / (7 * 86_400_000));
+    const cronDays = weekOfYear % 2 === 0 ? CRON_FULL_DAYS : CRON_NEAR_DAYS;
+    const days = Math.min(Math.max(Number(body.days ?? (isCron ? cronDays : 60)), 1), 90);
+    const tier: "cheap" | "rich" = isCron ? "cheap" : "rich";
     const apiKey = Deno.env.get("OPENAI_API_KEY");
     if (!apiKey) return json({ error: "OPENAI_API_KEY is not configured for this project." }, 500);
 
@@ -218,13 +250,34 @@ Deno.serve(async (req) => {
     const scanAll = async () => {
     for (const hotelId of hotelIds) {
 
-      const { data: competitors } = await admin
+      const { data: competitorRows } = await admin
         .from("competitor_properties")
-        .select("id, name, source_url, organization_slug")
+        .select("id, name, source_url, organization_slug, last_scan_at")
         .eq("hotel_id", hotelId)
         .eq("active", true);
 
+      // Freshness skip: a competitor already scanned in the last few days costs
+      // money to re-ask and tells us nothing new.
+      const freshCutoff = new Date(Date.now() - CRON_FRESH_HOURS * 3_600_000).toISOString();
+      const competitors = ((competitorRows ?? []) as Array<{
+        id: string; name: string; source_url: string | null; organization_slug: string; last_scan_at: string | null;
+      }>).filter((c) => !isCron || !c.last_scan_at || c.last_scan_at < freshCutoff);
+
       if (!competitors?.length) continue;
+
+      // Spend guard: the scheduled sweep stops when the organisation is over
+      // its AI budget or has switched the automatic scan off. The manual
+      // button still respects the budget, so a runaway cannot be clicked back
+      // into life.
+      const orgSlug = competitors[0]?.organization_slug ?? null;
+      const budget = await checkAiBudget(admin, orgSlug, { scheduled: isCron });
+      if (!budget.allowed) {
+        results.push({ competitor: "—", prices: 0, error: budget.reason ?? "AI budget reached" });
+        continue;
+      }
+      if (isCron && !(await aiFeatureEnabled(admin, orgSlug, "competitor_scan_enabled"))) {
+        continue;
+      }
 
       for (const c of competitors) {
         let stored = 0;
@@ -290,14 +343,31 @@ Deno.serve(async (req) => {
 
 
         /**
-         * One window, retried once when the model answers with something we
-         * cannot read. A single unreadable answer used to mark the whole
-         * competitor as failed even though the next attempt usually works.
+         * One window. A retry costs a second paid web search, so the scheduled
+         * sweep only retries when the answer was unreadable — an honest "no
+         * public price" is accepted and picked up by the next run.
          */
         const askWindow = async (window: string[]) => {
-          let chunk = await askDates(apiKey, c, window);
-          if (chunk.error || !chunk.rates.length) {
-            chunk = await askDates(apiKey, c, window, true);
+          const bill = async (u: Awaited<ReturnType<typeof askDates>>) =>
+            await logAiUsage(admin, {
+              organizationSlug: c.organization_slug,
+              hotelId,
+              functionName: "competitor-rate-scan",
+              model: u.usage.model,
+              inputTokens: u.usage.inputTokens,
+              outputTokens: u.usage.outputTokens,
+              webSearches: 1,
+              searchContext: u.usage.searchContext,
+              ok: !u.error,
+              error: u.error,
+            });
+
+          let chunk = await askDates(apiKey, c, window, false, tier);
+          await bill(chunk);
+          const unreadable = Boolean(chunk.error);
+          if (unreadable || (!isCron && !chunk.rates.length)) {
+            chunk = await askDates(apiKey, c, window, true, tier);
+            await bill(chunk);
           }
           usedModel = chunk.model ?? usedModel;
           if (chunk.error) { error = chunk.error; return; }
@@ -306,20 +376,11 @@ Deno.serve(async (req) => {
           captured += n;
         };
 
-        // First pass: sequential short date windows.
+        // One pass of wide date windows. The old "fill the blanks" third pass
+        // is gone: it tripled the number of paid web searches for nights the
+        // next scheduled run covers anyway.
         for (let offset = 0; offset < days; offset += CHUNK_DAYS) {
           await askWindow(allDates.slice(offset, offset + CHUNK_DAYS));
-        }
-
-        // Second pass: only the nights that came back empty, up to two windows,
-        // so a partially answered competitor closes its gaps next.
-        const missing = allDates.filter((d) => !filled.has(d));
-        if (missing.length && missing.length < allDates.length) {
-          for (let offset = 0; offset < missing.length && offset < CHUNK_DAYS * 3; offset += CHUNK_DAYS) {
-            const window = missing.slice(offset, offset + CHUNK_DAYS);
-            if (!window.length) continue;
-            await askWindow(window);
-          }
         }
 
         // Reconcile: cross-check this scrape against the observations of the

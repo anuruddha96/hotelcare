@@ -15,10 +15,15 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { searchEvents } from "../_shared/eventSearch.ts";
+import { aiFeatureEnabled, checkAiBudget } from "../_shared/aiBudget.ts";
 
-const MONTHS_AHEAD = 12;
-const MAX_SLOTS = 6;          // AI searches per invocation
-const REFRESH_DAYS = 7;       // a month is re-checked once a week
+// Cost control: this sweep pays for a web search per month scanned. It now
+// runs weekly on a rotating 3-month window, so the full 12-month horizon is
+// still refreshed about once a month for a quarter of the old spend.
+const WINDOW_MONTHS = 3;      // months looked at per invocation
+const WINDOW_SLOTS = 4;       // rotating windows: months 1-3, 4-6, 7-9, 10-12
+const MAX_SLOTS = 3;          // AI searches per invocation
+const REFRESH_DAYS = 30;      // a month is re-checked at most once a month
 const LOCK_MINUTES = 10;
 
 const json = (body: unknown, status = 200) =>
@@ -82,14 +87,27 @@ serve(async (req) => {
     const results: Array<Record<string, unknown>> = [];
     let slots = 0;
 
+    // Rotating window: which quarter of the 12-month horizon this run covers.
+    const weekIndex = Math.floor(Date.now() / (7 * 86_400_000));
+    const windowStart = (weekIndex % WINDOW_SLOTS) * WINDOW_MONTHS;
+
     outer:
     for (const market of markets.values()) {
-      for (let i = 0; i < MONTHS_AHEAD; i++) {
+      for (let i = windowStart; i < windowStart + WINDOW_MONTHS; i++) {
         if (slots >= MAX_SLOTS) break outer;
         const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, 1));
         const month = monthKey(d);
         const slotKey = `${market.organizationSlug}|${market.city.toLowerCase()}|${month}`;
         if (done.has(slotKey)) continue;
+
+        // Spend guard: no paid search once the organisation is over budget or
+        // has switched the automatic sweep off.
+        const budget = await checkAiBudget(admin, market.organizationSlug, { scheduled: true });
+        if (!budget.allowed) {
+          results.push({ org: market.organizationSlug, city: market.city, month, skipped: budget.reason });
+          continue outer;
+        }
+        if (!(await aiFeatureEnabled(admin, market.organizationSlug, "event_sweep_enabled"))) continue outer;
         slots++;
 
         const result = await searchEvents({

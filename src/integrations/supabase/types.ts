@@ -14,6 +14,81 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_budget_settings: {
+        Row: {
+          competitor_scan_enabled: boolean
+          daily_budget_usd: number
+          event_sweep_enabled: boolean
+          monthly_budget_usd: number
+          organization_slug: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          competitor_scan_enabled?: boolean
+          daily_budget_usd?: number
+          event_sweep_enabled?: boolean
+          monthly_budget_usd?: number
+          organization_slug: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          competitor_scan_enabled?: boolean
+          daily_budget_usd?: number
+          event_sweep_enabled?: boolean
+          monthly_budget_usd?: number
+          organization_slug?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      ai_usage_log: {
+        Row: {
+          created_at: string
+          error: string | null
+          estimated_cost_usd: number
+          function_name: string
+          hotel_id: string | null
+          id: string
+          input_tokens: number
+          model: string | null
+          ok: boolean
+          organization_slug: string | null
+          output_tokens: number
+          web_searches: number
+        }
+        Insert: {
+          created_at?: string
+          error?: string | null
+          estimated_cost_usd?: number
+          function_name: string
+          hotel_id?: string | null
+          id?: string
+          input_tokens?: number
+          model?: string | null
+          ok?: boolean
+          organization_slug?: string | null
+          output_tokens?: number
+          web_searches?: number
+        }
+        Update: {
+          created_at?: string
+          error?: string | null
+          estimated_cost_usd?: number
+          function_name?: string
+          hotel_id?: string | null
+          id?: string
+          input_tokens?: number
+          model?: string | null
+          ok?: boolean
+          organization_slug?: string | null
+          output_tokens?: number
+          web_searches?: number
+        }
+        Relationships: []
+      }
       announcement_receipts: {
         Row: {
           announcement_id: string
@@ -8802,6 +8877,16 @@ export type Database = {
       }
     }
     Functions: {
+      ai_spend_snapshot: {
+        Args: { _org: string }
+        Returns: {
+          daily_budget: number
+          monthly_budget: number
+          spend_month: number
+          spend_today: number
+          within_budget: boolean
+        }[]
+      }
       billable_room_count: { Args: { _hotel_id: string }; Returns: number }
       billing_realised_revenue: {
         Args: { _from: string; _hotel_id: string; _to: string }
