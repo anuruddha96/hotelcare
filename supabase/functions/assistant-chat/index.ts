@@ -738,6 +738,17 @@ Deno.serve(async (req) => {
     const languageCode = typeof body?.language === "string" ? body.language : profile.preferred_language ?? "en";
     const language = LANGUAGE_NAMES[languageCode] ?? LANGUAGE_NAMES.en;
 
+    // Where the user is standing. This is a UX hint only — it never widens
+    // what may be read; scopes and properties come from the profile above.
+    const page: PageContext =
+      body?.page && typeof body.page === "object" ? (body.page as Record<string, unknown>) : null;
+    const rawCapabilities = body?.capabilities ?? {};
+    const capabilities: Capabilities = {
+      destinations: Array.isArray(rawCapabilities.destinations) ? rawCapabilities.destinations.slice(0, 60) : [],
+      guides: Array.isArray(rawCapabilities.guides) ? rawCapabilities.guides.slice(0, 40) : [],
+    };
+
+
     const { error: userInsertError } = await service.from("assistant_messages").insert({
       thread_id: threadId,
       user_id: userData.user.id,
