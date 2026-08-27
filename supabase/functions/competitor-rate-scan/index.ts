@@ -199,7 +199,12 @@ Deno.serve(async (req) => {
     let captured = 0;
     const results: Array<{ competitor: string; prices: number; observations?: number; error: string | null }> = [];
 
+    // The whole sweep is far slower than the 150s request idle limit, so the
+    // HTTP call only starts the work; results land in the tables the panel
+    // reads. Nothing is awaited by the browser.
+    const scanAll = async () => {
     for (const hotelId of hotelIds) {
+
       const { data: competitors } = await admin
         .from("competitor_properties")
         .select("id, name, source_url, organization_slug")
