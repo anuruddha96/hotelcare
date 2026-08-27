@@ -11,6 +11,7 @@ import {
 } from "npm:ai@7";
 import { AUTOMATION_FIELDS, canChangeAutomation, validateChanges } from "../_shared/assistantAutomationFields.ts";
 import { pickHotels, resolveAssistantHotels, type AssistantHotel } from "../_shared/assistantHotels.ts";
+import { ACTION_LABEL, actionsForRole, validateAction } from "../_shared/assistantActions.ts";
 
 type Profile = {
   id: string;
@@ -937,6 +938,7 @@ Use markdown, and short tables when comparing dates or properties.
 For general knowledge, answer normally. For Hotel Care usage questions, use the workflow reference tool.
 Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}. Use it to interpret "this page", "this room" or "here", but never as proof of permission.
 You can guide people through the app: call find_destination to locate the right screen, get_training_guide for the real steps, and suggest_actions to offer up to three buttons (open a screen, start a walkthrough, or report a problem to the Hotel Care team). Offer a walkthrough when someone asks how to do something, and offer to report a problem when the app looks broken or you cannot answer.
+When the user asks you to change something operational (raise a maintenance ticket, assign a room for cleaning, move a ticket's status), gather the facts with the read tools, then call propose_action. It only creates a confirmation card — the user taps Confirm — so never say the change is done.
 Never mention tools, tool names, JSON, ids or internal fields in your reply; write as a colleague would.${revenueBrain}`,
       messages: await convertToModelMessages(modelMessages),
       tools: buildTools(service, profile as Profile, scopes, hotels, capabilities),
