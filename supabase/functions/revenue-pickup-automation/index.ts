@@ -1415,19 +1415,27 @@ Deno.serve(async (req) => {
         const leadDays = Math.max(0, Number(rule.long_lead_days ?? 30));
         const highPct = Number(rule.high_occupancy_pct ?? 85);
 
+        const manualLookbackHours = Math.max(
+          Number(rule.manual_markdown_hold_hours || 0),
+          Number(rule.manual_override_review_hours ?? 24),
+        );
+
         const [
           { data: strongRates },
           { data: strongSnapshots },
           { data: strongToday },
           { data: strongManual },
           { data: strongPending },
+          { data: marketRows },
         ] = await Promise.all([
           pagedAll((f, t) => admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).order("stay_date").range(f, t)),
           pagedAll((f, t) => admin.from("revenue_daily_snapshots").select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_date", { ascending: false }).order("stay_date").range(f, t)),
-          pagedAll((f, t) => admin.from("revenue_pickup_automation_actions").select("stay_date, increase_amount").eq("hotel_id", rule.hotel_id).eq("local_business_date", local.date).gt("increase_amount", 0).order("stay_date").range(f, t)),
-          pagedAll((f, t) => admin.from("rate_change_audit").select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).gte("performed_at", new Date(Date.now() - Math.max(0, Number(rule.manual_markdown_hold_hours || 0)) * 3_600_000).toISOString()).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("revenue_pickup_automation_actions").select("stay_date, obk_id, occupancy, increase_amount, decision_reason").eq("hotel_id", rule.hotel_id).eq("local_business_date", local.date).gt("increase_amount", 0).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("rate_change_audit").select("stay_date, performed_at, source, old_price, new_price").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).gte("performed_at", new Date(Date.now() - Math.max(0, manualLookbackHours) * 3_600_000).toISOString()).order("stay_date").range(f, t)),
           pagedAll((f, t) => admin.from("revenue_rate_drafts").select("id, stay_date, obk_id, occupancy, new_price, status, created_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).in("status", ["draft", "sending", "pushed"]).is("superseded_at", null).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("competitor_rates").select("stay_date, rate, confidence, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("captured_at", new Date(Date.now() - 7 * 86_400_000).toISOString()).gt("rate", 0).order("stay_date").range(f, t)),
         ]);
+
 
         const occByDate = new Map<string, number | null>();
         const leftByDate = new Map<string, number | null>();
