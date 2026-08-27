@@ -21,7 +21,7 @@ type Profile = {
   preferred_language: string | null;
 };
 
-type Scope = "revenue" | "housekeeping" | "maintenance" | "reception";
+type Scope = "revenue" | "housekeeping" | "maintenance" | "reception" | "finance";
 
 const LANGUAGE_NAMES: Record<string, string> = {
   en: "English",
@@ -52,7 +52,10 @@ function json(data: unknown, status = 200) {
 
 function allowedScopes(role: string): Set<Scope> {
   if (["admin", "manager", "top_management", "top_management_manager"].includes(role)) {
-    return new Set(["revenue", "housekeeping", "maintenance", "reception"]);
+    return new Set(["revenue", "housekeeping", "maintenance", "reception", "finance"]);
+  }
+  if (["control_finance", "control_manager", "finance_manager", "back_office_manager"].includes(role)) {
+    return new Set(["finance"]);
   }
   if (["housekeeping", "housekeeping_manager", "supervisor"].includes(role)) return new Set(["housekeeping"]);
   if (["maintenance", "maintenance_manager"].includes(role)) return new Set(["maintenance"]);
@@ -88,6 +91,7 @@ function detectRequestedScope(question: string): Scope | null {
   if (/\b(clean|cleaning|housekeep|dirty room|inspected room|assignment)\b/.test(q)) return "housekeeping";
   if (/\b(maintenance|ticket|repair|broken|sla|overdue issue)\b/.test(q)) return "maintenance";
   if (/\b(arrival|departure|check.?in|check.?out|breakfast|guest)\b/.test(q)) return "reception";
+  if (/\b(invoice|supplier|vendor|vat|cost centre|cost center|purchase|approval queue)\b/.test(q)) return "finance";
   return null;
 }
 
@@ -780,6 +784,154 @@ function buildTools(
     });
   }
 
+
+  // Everyone: what is on my own plate right now.
+  tools.get_my_day = tool({
+    description:
+      "Read what this signed-in user personally has today: their own room assignments, the tickets assigned to them, and whether they are currently signed in for the shift. Use it for 'what should I do', 'my rooms', 'am I signed in'.",
+    inputSchema: jsonSchema<Record<string, never>>({ type: "object", properties: {}, required: [], additionalProperties: false }),
+    execute: async () => {
+      const [assignments, myTickets, attendance] = await Promise.all([
+        service
+          .from("room_assignments")
+          .select("id,room_id,status,assignment_type,priority,started_at,completed_at")
+          .eq("assigned_to", profile.id)
+          .eq("assignment_date", today())
+          .limit(200),
+        service
+          .from("tickets")
+          .select("id,ticket_number,title,status,priority,room_number,sla_due_date")
+          .eq("assigned_to", profile.id)
+          .neq("status", "completed")
+          .order("created_at", { ascending: false })
+          .limit(100),
+        service
+          .from("staff_attendance")
+          .select("id,check_in_time,check_out_time,status,work_date")
+          .eq("user_id", profile.id)
+          .eq("work_date", today())
+          .maybeSingle(),
+      ]);
+      const roomIds = (assignments.data ?? []).map((row: any) => row.room_id);
+      const rooms = roomIds.length
+        ? await service.from("rooms").select("id,room_number,floor,status").in("id", roomIds).limit(200)
+        : { data: [] };
+      const numbers = new Map((rooms.data ?? []).map((room: any) => [room.id, room]));
+      return {
+        signedIn: Boolean(attendance.data && !attendance.data.check_out_time),
+        attendance: attendance.data ?? null,
+        myRooms: (assignments.data ?? []).map((row: any) => ({
+          ...row,
+          room_number: numbers.get(row.room_id)?.room_number ?? null,
+          floor: numbers.get(row.room_id)?.floor ?? null,
+          room_status: numbers.get(row.room_id)?.status ?? null,
+        })),
+        myTickets: myTickets.data ?? [],
+      };
+    },
+  });
+
+  if (scopes.has("housekeeping") || scopes.has("maintenance")) {
+    tools.get_room_detail = tool({
+      description:
+        "Everything known about one room right now: status, today's assignment and who has it, open tickets and unresolved housekeeping notes. Call this before answering a question about a specific room number.",
+      inputSchema: jsonSchema<{ hotelId: string | null; roomNumber: string }>(
+        hotelArgSchema({ roomNumber: { type: "string", description: "The room number as staff say it, e.g. 303" } }, ["roomNumber"]),
+      ),
+      execute: async ({ hotelId, roomNumber }) => {
+        const ids = resolve(hotelId);
+        const names = hotels.filter((h) => ids.includes(h.hotel_id)).map((h) => h.hotel_name);
+        const { data: rooms, error } = await service
+          .from("rooms")
+          .select("id,room_number,floor,status,hotel,room_name,is_checkout_room,guest_nights_stayed")
+          .eq("organization_slug", orgSlug)
+          .in("hotel", [...new Set([...ids, ...names])])
+          .eq("room_number", String(roomNumber).trim())
+          .limit(5);
+        if (error) throw new Error(`Room lookup failed: ${error.message}`);
+        const room = (rooms ?? [])[0];
+        if (!room) return { error: `No room ${roomNumber} in your properties.` };
+        const [assignment, roomTickets, notes] = await Promise.all([
+          service
+            .from("room_assignments")
+            .select("id,assigned_to,status,assignment_type,started_at,completed_at,is_dnd,notes")
+            .eq("room_id", room.id)
+            .eq("assignment_date", today())
+            .limit(5),
+          service
+            .from("tickets")
+            .select("id,ticket_number,title,status,priority,created_at,sla_due_date")
+            .eq("room_id", room.id)
+            .neq("status", "completed")
+            .limit(30),
+          service
+            .from("housekeeping_notes")
+            .select("id,note_type,content,is_resolved,created_at")
+            .eq("room_id", room.id)
+            .eq("is_resolved", false)
+            .order("created_at", { ascending: false })
+            .limit(20),
+        ]);
+        return {
+          room,
+          todaysAssignments: assignment.data ?? [],
+          openTickets: roomTickets.data ?? [],
+          openNotes: notes.data ?? [],
+        };
+      },
+    });
+  }
+
+  if (scopes.has("finance")) {
+    tools.get_purchase_invoices = tool({
+      description:
+        "Read purchase invoices for the user's authorized properties: what is waiting for review or approval, totals by status, and the oldest items. Never returns bank details.",
+      inputSchema: jsonSchema<{ hotelId: string | null; status: string | null; startDate: string | null; endDate: string | null }>(
+        hotelArgSchema(
+          {
+            status: {
+              type: ["string", "null"],
+              description: "Approval status filter: pending, approved, rejected, or null for all",
+            },
+            startDate: { type: ["string", "null"], description: "Invoice date from, YYYY-MM-DD or null" },
+            endDate: { type: ["string", "null"], description: "Invoice date to, YYYY-MM-DD or null" },
+          },
+          ["status", "startDate", "endDate"],
+        ),
+      ),
+      execute: async ({ hotelId, status, startDate, endDate }) => {
+        const ids = resolve(hotelId);
+        let query = service
+          .from("purchase_invoices")
+          .select(
+            "id,hotel_id,merchant_name,invoice_number,invoice_date,due_date,currency,total_amount,net_amount,total_vat_amount,review_status,approval_status,needs_review,expense_category",
+          )
+          .eq("organization_slug", orgSlug)
+          .in("hotel_id", ids)
+          .order("invoice_date", { ascending: false })
+          .limit(300);
+        if (status) query = query.eq("approval_status", status);
+        if (startDate) query = query.gte("invoice_date", startDate);
+        if (endDate) query = query.lte("invoice_date", endDate);
+        const { data, error } = await query;
+        if (error) throw new Error(`Invoice lookup failed: ${error.message}`);
+        const rows = data ?? [];
+        const byStatus: Record<string, { count: number; total: number }> = {};
+        for (const row of rows) {
+          const key = row.approval_status ?? "unknown";
+          byStatus[key] = byStatus[key] ?? { count: 0, total: 0 };
+          byStatus[key].count += 1;
+          byStatus[key].total += Number(row.total_amount ?? 0);
+        }
+        return {
+          invoices: rows.slice(0, 60),
+          totalsByApprovalStatus: byStatus,
+          waitingForReview: rows.filter((row: any) => row.needs_review).length,
+        };
+      },
+    });
+  }
+
   void hotelIds;
   return tools;
 }
@@ -836,6 +988,17 @@ Deno.serve(async (req) => {
     if (threadError || !thread) return json({ error: "Conversation not found" }, 404);
     if (thread.organization_slug !== profile.organization_slug || thread.hotel_id !== profile.assigned_hotel) {
       return json({ error: "Conversation is outside your current property scope" }, 403);
+    }
+
+    // Fair-use guard: bounded number of assistant turns per user per 5 minutes.
+    const windowStart = new Date(Date.now() - 5 * 60_000).toISOString();
+    const { count: recentCount } = await service
+      .from("assistant_audit_log")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userData.user.id)
+      .gte("created_at", windowStart);
+    if ((recentCount ?? 0) >= 40) {
+      return json({ error: "You have asked a lot of questions in a short time. Please try again in a few minutes." }, 429);
     }
 
     const { data: storedRows, error: storedError } = await service
