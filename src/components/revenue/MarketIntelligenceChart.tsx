@@ -77,10 +77,17 @@ function periodForWindow(windowDays: number, customDays: number): PeriodKey {
   return "custom";
 }
 
-/** Legend swatch for pickup — matches the typical positive-pickup bar. */
-const PICKUP_LEGEND_COLOR = "hsl(28 96% 60%)";
-const ADR_COLOR = "hsl(160 84% 39%)";
-const DEMAND_COLOR = "hsl(271 76% 53%)";
+/**
+ * Fixed series colours. Every important line owns a hue no other line uses —
+ * occupancy and our own rate used to share the primary token, which made the
+ * two most-read lines indistinguishable.
+ */
+const PICKUP_LEGEND_COLOR = "hsl(28 96% 60%)";   // booked bars — orange
+const CANCEL_COLOR = "hsl(199 89% 60%)";          // cancelled bars — light blue
+const OCC_COLOR = "hsl(221 83% 45%)";             // occupancy — deep blue
+const ADR_COLOR = "hsl(160 84% 39%)";             // ADR — green
+const DEMAND_COLOR = "hsl(271 76% 53%)";          // city demand — violet
+
 
 /** Owner-chosen colours, carried over from the portfolio comparison panel. */
 const HOTEL_COLORS: Record<string, string> = {
