@@ -24,6 +24,10 @@ import {
   clampAiFactor,
   applyRounding,
   roundStep,
+  riseCeiling,
+  aboveMarket,
+
+
 
   shortWindowIncreaseAllowed,
   soldOutBlocksIncrease,
