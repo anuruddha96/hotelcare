@@ -240,11 +240,18 @@ Deno.serve(async (req) => {
     const scanAll = async () => {
     for (const hotelId of hotelIds) {
 
-      const { data: competitors } = await admin
+      const { data: competitorRows } = await admin
         .from("competitor_properties")
-        .select("id, name, source_url, organization_slug")
+        .select("id, name, source_url, organization_slug, last_scan_at")
         .eq("hotel_id", hotelId)
         .eq("active", true);
+
+      // Freshness skip: a competitor already scanned in the last few days costs
+      // money to re-ask and tells us nothing new.
+      const freshCutoff = new Date(Date.now() - CRON_FRESH_HOURS * 3_600_000).toISOString();
+      const competitors = ((competitorRows ?? []) as Array<{
+        id: string; name: string; source_url: string | null; organization_slug: string; last_scan_at: string | null;
+      }>).filter((c) => !isCron || !c.last_scan_at || c.last_scan_at < freshCutoff);
 
       if (!competitors?.length) continue;
 
