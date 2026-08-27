@@ -319,14 +319,15 @@ Deno.serve(async (req) => {
 
 
         /**
-         * One window, retried once when the model answers with something we
-         * cannot read. A single unreadable answer used to mark the whole
-         * competitor as failed even though the next attempt usually works.
+         * One window. A retry costs a second paid web search, so the scheduled
+         * sweep only retries when the answer was unreadable — an honest "no
+         * public price" is accepted and picked up by the next run.
          */
         const askWindow = async (window: string[]) => {
-          let chunk = await askDates(apiKey, c, window);
-          if (chunk.error || !chunk.rates.length) {
-            chunk = await askDates(apiKey, c, window, true);
+          let chunk = await askDates(apiKey, c, window, false, tier);
+          const unreadable = Boolean(chunk.error);
+          if (unreadable || (!isCron && !chunk.rates.length)) {
+            chunk = await askDates(apiKey, c, window, true, tier);
           }
           usedModel = chunk.model ?? usedModel;
           if (chunk.error) { error = chunk.error; return; }
@@ -335,20 +336,11 @@ Deno.serve(async (req) => {
           captured += n;
         };
 
-        // First pass: sequential short date windows.
+        // One pass of wide date windows. The old "fill the blanks" third pass
+        // is gone: it tripled the number of paid web searches for nights the
+        // next scheduled run covers anyway.
         for (let offset = 0; offset < days; offset += CHUNK_DAYS) {
           await askWindow(allDates.slice(offset, offset + CHUNK_DAYS));
-        }
-
-        // Second pass: only the nights that came back empty, up to two windows,
-        // so a partially answered competitor closes its gaps next.
-        const missing = allDates.filter((d) => !filled.has(d));
-        if (missing.length && missing.length < allDates.length) {
-          for (let offset = 0; offset < missing.length && offset < CHUNK_DAYS * 3; offset += CHUNK_DAYS) {
-            const window = missing.slice(offset, offset + CHUNK_DAYS);
-            if (!window.length) continue;
-            await askWindow(window);
-          }
         }
 
         // Reconcile: cross-check this scrape against the observations of the
