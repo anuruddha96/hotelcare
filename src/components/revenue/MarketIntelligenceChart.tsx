@@ -89,14 +89,18 @@ const ADR_COLOR = "hsl(160 84% 39%)";             // ADR — green
 const DEMAND_COLOR = "hsl(271 76% 53%)";          // city demand — violet
 
 
-/** Owner-chosen colours, carried over from the portfolio comparison panel. */
+/**
+ * Sister-property colours. Kept far apart from each other and from the fixed
+ * series hues; sister lines are also dashed, so the two groups never read the
+ * same even on a small screen.
+ */
 const HOTEL_COLORS: Record<string, string> = {
   "mika-downtown": "#111111",
-  "memories-budapest": "#B5835A",
-  ottofiori: "#2E7D32",
-  "gozsdu-court": "#CD7F32",
+  "memories-budapest": "#A16207",
+  ottofiori: "#0F766E",
+  "gozsdu-court": "#B91C1C",
 };
-const FALLBACK = ["#3B82F6", "#9333EA", "#DC2626", "#0891B2"];
+const FALLBACK = ["#6D28D9", "#B45309", "#065F46", "#9D174D"];
 const colorFor = (id: string, i: number) => HOTEL_COLORS[id] ?? FALLBACK[i % FALLBACK.length];
 
 function barColor(pickup: number): string {
