@@ -27,6 +27,10 @@ interface Rule {
   booking_window_tiers: Tier[]; same_hour_window_minutes: number;
   second_pickup_surcharge: number; minimum_adr: number | null;
   maximum_increase: number | null; max_daily_increase_per_date: number;
+  max_increase_pct: number; max_daily_increase_pct: number;
+  event_uplift_once_per_day: boolean; market_ceiling_multiple: number;
+  manual_override_ai_enabled: boolean; manual_override_review_hours: number;
+
   application_scope: "booked_room_type" | "all_room_types";
   positive_pickup_enabled: boolean; pickup_lookback_hours: number;
   no_pickup_enabled: boolean; no_pickup_lookback_hours: number;
