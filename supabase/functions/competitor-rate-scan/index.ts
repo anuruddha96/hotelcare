@@ -347,10 +347,26 @@ Deno.serve(async (req) => {
          * public price" is accepted and picked up by the next run.
          */
         const askWindow = async (window: string[]) => {
+          const bill = async (u: Awaited<ReturnType<typeof askDates>>) =>
+            await logAiUsage(admin, {
+              organizationSlug: c.organization_slug,
+              hotelId,
+              functionName: "competitor-rate-scan",
+              model: u.usage.model,
+              inputTokens: u.usage.inputTokens,
+              outputTokens: u.usage.outputTokens,
+              webSearches: 1,
+              searchContext: u.usage.searchContext,
+              ok: !u.error,
+              error: u.error,
+            });
+
           let chunk = await askDates(apiKey, c, window, false, tier);
+          await bill(chunk);
           const unreadable = Boolean(chunk.error);
           if (unreadable || (!isCron && !chunk.rates.length)) {
             chunk = await askDates(apiKey, c, window, true, tier);
+            await bill(chunk);
           }
           usedModel = chunk.model ?? usedModel;
           if (chunk.error) { error = chunk.error; return; }
