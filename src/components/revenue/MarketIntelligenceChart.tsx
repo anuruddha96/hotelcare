@@ -144,6 +144,18 @@ function competitorColor(index: number): string {
 const MARKET_COLOR = "hsl(var(--foreground) / 0.75)";
 const OUR_RATE_COLOR = "hsl(var(--primary))";
 
+/** "11 Aug" — used for the comparison window caption. */
+function shortDate(date: string | null): string {
+  if (!date) return "—";
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: "UTC", day: "numeric", month: "short" });
+}
+
+/** Cross-property money is always normalised to euros, whatever each PMS quotes. */
+function eurMoney(value: number | null): string {
+  return value == null ? "—" : `€${Math.round(value).toLocaleString()}`;
+}
+
+
 /** Which of the competitive-set series the reader keeps ticked on. */
 interface MarketPrefs {
   ourRate: boolean;
