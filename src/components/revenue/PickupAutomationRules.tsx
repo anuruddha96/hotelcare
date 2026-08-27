@@ -170,6 +170,13 @@ function explain(rule: Rule, hotelName: string): string[] {
   if (rule.minimum_adr) lines.push(`Prices are never published below €${rule.minimum_adr}.`);
   if (rule.maximum_increase) lines.push(`One pickup can add at most €${rule.maximum_increase}.`);
   lines.push(`A single date can rise at most €${rule.max_daily_increase_per_date} in one day, no matter how many bookings arrive.`);
+  if (rule.max_daily_increase_pct > 0) {
+    lines.push(`No price may finish a day more than ${rule.max_daily_increase_pct}% above where it started, and a single move is capped at ${rule.max_increase_pct}%.`);
+  }
+  if (rule.event_uplift_once_per_day) {
+    lines.push(`An event lifts a date once per day; any further rise on that date needs a genuinely new booking.`);
+  }
+
   if (rule.no_pickup_enabled) {
     const step = rule.no_pickup_decrease ?? 0.5;
     const perDay = Math.max(1, Math.floor(1440 / Math.max(60, rule.evaluation_interval_minutes))) * step;
