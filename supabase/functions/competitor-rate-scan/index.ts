@@ -111,7 +111,9 @@ async function askDates(
   // question — a second full web search for the same nights doubled the bill
   // for very little extra coverage.
   const models = tier === "cheap" ? ["gpt-4o-mini"] : ["gpt-4o"];
-  const searchContext = tier === "cheap" ? "low" : "medium";
+  const searchContext: "low" | "medium" = tier === "cheap" ? "low" : "medium";
+  // Everything the caller needs to bill this question to the spend log.
+  const usage = { model: null as string | null, inputTokens: 0, outputTokens: 0, searchContext };
   for (const model of models) {
     try {
       const attempt = await fetch("https://api.openai.com/v1/responses", {
