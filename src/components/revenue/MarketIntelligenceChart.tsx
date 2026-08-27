@@ -1146,34 +1146,39 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                 <Line key={h.hotel_id} yAxisId="right" type="monotone" dataKey={`h_${h.hotel_id}`} name={h.hotel_name}
                   stroke={colorFor(h.hotel_id, hotels.findIndex((x) => x.hotel_id === h.hotel_id))}
                   strokeWidth={h.hotel_id === hotelId ? 2.5 : 1.5}
-                  dot={false} connectNulls opacity={0.85} />
+                  strokeDasharray={h.hotel_id === hotelId ? undefined : "6 3"}
+                  dot={false} connectNulls={false} opacity={0.85} />
               ))}
 
-              {/* ---- competitive set ------------------------------------- */}
+              {/* ---- competitive set -------------------------------------
+                  Nothing here is interpolated: where a scan found no price the
+                  line simply breaks, so a short competitor line reads as
+                  missing coverage rather than a price collapse. */}
               {prefs.band && (
                 <>
                   <Area yAxisId="rate" dataKey="bandLow" stackId="band" stroke="none" fill="transparent"
-                    legendType="none" name="Market floor" isAnimationActive={false} connectNulls />
+                    legendType="none" name="Market floor" isAnimationActive={false} connectNulls={false} />
                   <Area yAxisId="rate" dataKey="bandSpan" stackId="band" stroke="none"
-                    fill="hsl(var(--foreground) / 0.08)" name="Cheapest–dearest" isAnimationActive={false} connectNulls />
+                    fill="hsl(var(--foreground) / 0.08)" name="Cheapest–dearest" isAnimationActive={false} connectNulls={false} />
                 </>
               )}
               {prefs.marketAvg && (
                 <Line yAxisId="rate" type="monotone" dataKey="marketAvg" name="Market average" stroke={MARKET_COLOR}
-                  strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls />
+                  strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls={false} />
               )}
               {prefs.marketMedian && (
                 <Line yAxisId="rate" type="monotone" dataKey="marketMedian" name="Market median" stroke={MARKET_COLOR}
-                  strokeWidth={1.5} strokeDasharray="2 3" dot={false} connectNulls opacity={0.8} />
+                  strokeWidth={1.5} strokeDasharray="2 3" dot={false} connectNulls={false} opacity={0.8} />
               )}
               {prefs.ourRate && (
                 <Line yAxisId="rate" type="monotone" dataKey="ourRate" name={`${baselineLabel} rate`} stroke={OUR_RATE_COLOR}
-                  strokeWidth={2.5} dot={false} connectNulls />
+                  strokeWidth={2.5} dot={false} connectNulls={false} />
               )}
               {shownCompetitors.map((c) => (
                 <Line key={c.id} yAxisId="rate" type="monotone" dataKey={`c_${c.id}`} name={c.name}
-                  stroke={compColor(c.id)} strokeWidth={1.5} dot={false} connectNulls opacity={0.9} />
+                  stroke={compColor(c.id)} strokeWidth={1.5} dot={false} connectNulls={false} opacity={0.9} />
               ))}
+
 
             </ComposedChart>
           </ResponsiveContainer>
