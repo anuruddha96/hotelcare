@@ -104,6 +104,46 @@ export async function assertExactRateMappings(
   }
 }
 
+/**
+ * Same mapping rule, applied one cell at a time.
+ *
+ * A single room type without an exact rate plan must not cancel a whole month
+ * of prices: the mapped cells still go to Previo and only the unmapped ones are
+ * reported back, so the reader sees exactly which rooms need a rate-plan sync.
+ */
+export async function partitionByExactRateMappings(
+  admin: any,
+  hotelId: string,
+  changes: RateChange[],
+): Promise<{ mapped: RateChange[]; unmapped: Array<{ change: RateChange; reason: string }> }> {
+  if (changes.length === 0) return { mapped: [], unmapped: [] };
+  const { data, error } = await admin
+    .from("previo_rate_plan_mapping")
+    .select("previo_room_type_id, previo_rate_plan_id")
+    .eq("hotel_id", hotelId);
+  if (error) throw error;
+
+  const mappedTypes = new Set(
+    ((data ?? []) as MappingRow[])
+      .filter((row) => row.previo_room_type_id && row.previo_rate_plan_id)
+      .map((row) => mappingKey(row.previo_room_type_id)),
+  );
+  const mapped: RateChange[] = [];
+  const unmapped: Array<{ change: RateChange; reason: string }> = [];
+  for (const change of changes) {
+    const obkId = mappingKey(change.obk_id);
+    if (obkId && mappedTypes.has(obkId)) mapped.push(change);
+    else {
+      unmapped.push({
+        change,
+        reason: `No exact Previo rate-plan mapping for ${change.room_type_name || obkId || "this room type"}. Sync rate plans, then try again.`,
+      });
+    }
+  }
+  return { mapped, unmapped };
+}
+
+
 // ---------------------------------------------------------------------------
 // Occupancy ladder
 // ---------------------------------------------------------------------------
