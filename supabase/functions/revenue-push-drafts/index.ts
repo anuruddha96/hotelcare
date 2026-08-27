@@ -223,18 +223,44 @@ Deno.serve(async (req) => {
     // queued work created before the enqueue-time safety checks existed. A
     // single unsafe cell must not cancel the whole run: the offenders are
     // closed out and the rest of the batch is delivered.
-    await assertExactRateMappings(admin, hotelId, drafts as any[]);
+    {
+      const { mapped, unmapped } = await partitionByExactRateMappings(admin, hotelId, drafts as any[]);
+      if (unmapped.length > 0) {
+        console.log(`[safety] ${hotelId} held back ${unmapped.length} draft(s) without an exact Previo rate plan`);
+        const groups = new Map<string, string[]>();
+        for (const entry of unmapped) {
+          const id = (entry.change as any)?.id;
+          if (!id) continue;
+          const list = groups.get(entry.reason) ?? [];
+          list.push(String(id));
+          groups.set(entry.reason, list);
+        }
+        for (const [reason, ids] of groups) {
+          for (let i = 0; i < ids.length; i += 300) {
+            await admin.from("revenue_rate_drafts").update({
+              status: "failed",
+              confirmation_status: "blocked",
+              push_error: reason.slice(0, 500),
+            }).in("id", ids.slice(i, i + 300));
+          }
+        }
+      }
+      drafts = mapped as any[];
+      if (drafts.length === 0) {
+        return json({ ok: true, pushed: 0, failed: unmapped.length, message: "No queued price had an exact Previo rate plan." });
+      }
+    }
     // A raise that would leave a cheaper room above the next tier used to be
     // discarded, which left the inversion in place. The tiers above are lifted
     // with it instead, as extra drafts inside the same run.
     try {
       const lifts = await liftHigherRooms(admin, hotelId, drafts as any[]);
       const insertable: any[] = [];
-      for (const lift of lifts) {
-        if (!lift.obk_id) continue;
-        try {
-          await assertExactRateMappings(admin, hotelId, [lift]);
-        } catch { continue; } // unmapped room type: leave it untouched
+      const { mapped: mappableLifts } = await partitionByExactRateMappings(
+        admin, hotelId, lifts.filter((l: any) => !!l.obk_id) as any[],
+      );
+      for (const lift of mappableLifts as any[]) {
+
         insertable.push({
           hotel_id: hotelId,
           organization_slug: (drafts as any[])[0]?.organization_slug ?? null,
