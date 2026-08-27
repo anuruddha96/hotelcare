@@ -183,7 +183,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
   /** Optional series the user can layer on top of pickup. */
   const [showOcc, setShowOcc] = useState(true);
   const [showAdr, setShowAdr] = useState(false);
-  const [showDemand, setShowDemand] = useState(true);
+  const [showDemand, setShowDemand] = useState(false);
   const [compare, setCompare] = useState(false);
   /** Event shading can be switched off when it crowds the chart. */
   const [showEvents, setShowEvents] = useState(true);
