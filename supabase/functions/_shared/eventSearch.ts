@@ -199,7 +199,9 @@ export async function searchEvents(opts: {
   };
 
   let { events, error: aiError, retryable } = await askOpenAI(false);
-  if (!events.length && (retryable || !aiError)) {
+  // Retry only when the answer was unusable. "No events found" is a real
+  // answer, and re-asking it paid for a second web search every time.
+  if (!events.length && retryable) {
     const retry = await askOpenAI(true);
     events = retry.events;
     aiError = retry.error;
