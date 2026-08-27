@@ -18,6 +18,10 @@ const LABELS: Record<string, string> = {
   get_housekeeping_status: "Checking today's housekeeping…",
   get_maintenance_tickets: "Checking maintenance…",
   get_reception_overview: "Reviewing today's arrivals and departures…",
+  get_housekeeping_team: "Checking who is on the housekeeping team…",
+  get_lost_and_found: "Checking lost and found…",
+  get_staff_on_duty: "Checking who is on duty…",
+  propose_action: "Preparing this for your confirmation…",
 };
 
 export function activityLabel(toolName: string): string {
@@ -26,5 +30,5 @@ export function activityLabel(toolName: string): string {
 
 /** True for the tool whose output is rendered as a card rather than hidden. */
 export function isRenderedTool(toolName: string): boolean {
-  return toolName === "suggest_actions" || toolName === "propose_automation_change";
+  return toolName === "suggest_actions" || toolName === "propose_automation_change" || toolName === "propose_action";
 }

@@ -32,6 +32,7 @@ import { greeting, starterPrompts } from "@/lib/assistant/starters";
 import { isAssistantDebugEnabled } from "@/lib/assistant/debugMode";
 import { reportAssistantIssue, sendAssistantFeedback } from "@/lib/assistant/issueReports";
 import AutomationChangeCard, { isAutomationProposal } from "./AutomationChangeCard";
+import ActionConfirmCard, { isActionProposal } from "./ActionConfirmCard";
 import AssistantActions, { isAssistantActions } from "./AssistantActions";
 import ActivityLine from "./ActivityLine";
 import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
@@ -314,6 +315,9 @@ function ChatSession({
 
                       if (isAutomationProposal(toolPart.output)) {
                         return <AutomationChangeCard key={`${key}-proposal`} proposal={toolPart.output} />;
+                      }
+                      if (isActionProposal(toolPart.output)) {
+                        return <ActionConfirmCard key={`${key}-action`} proposal={toolPart.output} />;
                       }
                       if (isAssistantActions(toolPart.output)) {
                         return (
