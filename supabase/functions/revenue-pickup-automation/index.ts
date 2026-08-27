@@ -1861,6 +1861,7 @@ Deno.serve(async (req) => {
               }
             }
           }
+          await announcePass("floor top-up", topUpActions);
         }
       }
 
@@ -1875,13 +1876,12 @@ Deno.serve(async (req) => {
       if (topUpActions > 0) engineParts.push(`${topUpActions} floor top-up${topUpActions === 1 ? "" : "s"}`);
       if (ladderRepairActions > 0) engineParts.push(`${ladderRepairActions} ladder repair${ladderRepairActions === 1 ? "" : "s"}`);
 
-      // The engine passes are reported the moment they finish. The pickup pass
-      // below can be long, and when a run is cut short the operator must still
-      // see the work that already reached the queue — otherwise the inbox looks
-      // idle for hours while prices are moving.
-      let engineReported = false;
-      if (!dryRun && engineWork > 0) {
+      // Each pass already announced itself above, so the summary only speaks
+      // when something was left unreported (an insert that failed at the time).
+      let engineReported = reportedWork >= engineWork;
+      if (!dryRun && engineWork > reportedWork) {
         const { error: engineErr } = await admin.from("revenue_automation_notifications").insert({
+
           hotel_id: rule.hotel_id,
           organization_slug: rule.organization_slug,
           notification_type: "pickup_automation",
