@@ -752,6 +752,37 @@ Deno.serve(async (req) => {
       let topUpActions = 0;
       const strongDates = new Set<string>();
 
+      // A long run can be cut short by the platform before the summary at the
+      // end of the property loop is reached — that is why the activity feed
+      // looked idle for days while markdowns were being queued every hour.
+      // Each pass therefore announces its own work the moment it lands.
+      let reportedWork = 0;
+      const announcePass = async (label: string, count: number) => {
+        if (dryRun || count <= 0) return;
+        const { error } = await admin.from("revenue_automation_notifications").insert({
+          hotel_id: rule.hotel_id,
+          organization_slug: rule.organization_slug,
+          notification_type: "pickup_automation",
+          run_source: isEngine ? "automatic" : "manual",
+          actor_name: isEngine ? "Automatic pricing" : (actorName ?? "Manual run"),
+          actor_user_id: isEngine ? null : actorUserId,
+          rule_id: rule.id,
+          action_ids: [],
+          pickups_count: 0,
+          actions_count: count,
+          pushed_count: 0,
+          failed_count: 0,
+          currency: rule.currency ?? "EUR",
+          severity: "info",
+          summary: `${count} price${count === 1 ? "" : "s"} queued safely · ${count} ${label}${count === 1 ? "" : "s"}`,
+          changes: [],
+        });
+        if (error) console.error(`${label} notification insert failed`, error);
+        else reportedWork += count;
+      };
+
+
+
       if (rule.no_pickup_enabled) {
         const local = localParts(rule.run_timezone || "Europe/Budapest");
         // A stable per-cycle slot label keeps the "one action per cell per
@@ -1236,8 +1267,10 @@ Deno.serve(async (req) => {
                 .is("push_run_id", null);
             }
           }
+          await announcePass("markdown", markdownActions);
         }
       }
+
 
       // ------------------------------------------------------------------
       // Occupancy ladder repair.
@@ -1339,6 +1372,8 @@ Deno.serve(async (req) => {
             }
           }
           console.log(`[ladder-repair] ${rule.hotel_id} candidates=${repairRows.length} queued=${ladderRepairActions}`);
+          await announcePass("ladder repair", ladderRepairActions);
+
         } catch (error) {
           console.log(`[ladder-repair] ${rule.hotel_id} failed: ${(error as Error)?.message ?? error}`);
         }
@@ -1670,8 +1705,10 @@ Deno.serve(async (req) => {
                 .is("push_run_id", null);
             }
           }
+          await announcePass("strong-demand increase", strongActions);
         }
       }
+
 
       // ------------------------------------------------------------------
       // Far-out floor top-up.
@@ -1824,6 +1861,7 @@ Deno.serve(async (req) => {
               }
             }
           }
+          await announcePass("floor top-up", topUpActions);
         }
       }
 
@@ -1838,13 +1876,12 @@ Deno.serve(async (req) => {
       if (topUpActions > 0) engineParts.push(`${topUpActions} floor top-up${topUpActions === 1 ? "" : "s"}`);
       if (ladderRepairActions > 0) engineParts.push(`${ladderRepairActions} ladder repair${ladderRepairActions === 1 ? "" : "s"}`);
 
-      // The engine passes are reported the moment they finish. The pickup pass
-      // below can be long, and when a run is cut short the operator must still
-      // see the work that already reached the queue — otherwise the inbox looks
-      // idle for hours while prices are moving.
-      let engineReported = false;
-      if (!dryRun && engineWork > 0) {
+      // Each pass already announced itself above, so the summary only speaks
+      // when something was left unreported (an insert that failed at the time).
+      let engineReported = reportedWork >= engineWork;
+      if (!dryRun && engineWork > reportedWork) {
         const { error: engineErr } = await admin.from("revenue_automation_notifications").insert({
+
           hotel_id: rule.hotel_id,
           organization_slug: rule.organization_slug,
           notification_type: "pickup_automation",
