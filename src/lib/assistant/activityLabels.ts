@@ -21,6 +21,9 @@ const LABELS: Record<string, string> = {
   get_housekeeping_team: "Checking who is on the housekeeping team…",
   get_lost_and_found: "Checking lost and found…",
   get_staff_on_duty: "Checking who is on duty…",
+  get_my_day: "Checking your shift and your rooms…",
+  get_room_detail: "Looking up that room…",
+  get_purchase_invoices: "Reviewing purchase invoices…",
   propose_action: "Preparing this for your confirmation…",
 };
 
