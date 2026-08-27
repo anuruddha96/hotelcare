@@ -735,10 +735,22 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
       }
     }
     if (!vals.length) return undefined;
-    const lo = Math.min(...vals), hi = Math.max(...vals);
+    // A single mis-scraped price (a total stay, or a HUF amount stored without
+    // conversion) used to stretch the money axis to six figures and flatten
+    // every real competitor line into the baseline. The axis is therefore
+    // scaled to the bulk of the prices: values far from the median are clipped
+    // out of the domain rather than allowed to dictate it.
+    const sorted = [...vals].sort((a, b) => a - b);
+    const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.round(q * (sorted.length - 1))))];
+    const median = at(0.5);
+    const sane = sorted.filter((v) => v >= median / 4 && v <= median * 4);
+    const base = sane.length ? sane : sorted;
+    const lo = base[0];
+    const hi = base[base.length - 1];
     const pad = Math.max(10, (hi - lo) * 0.12);
     return [Math.max(0, Math.floor((lo - pad) / 10) * 10), Math.ceil((hi + pad) / 10) * 10];
   }, [viewData, shownCompetitors]);
+
   const rateDomain = useFrozenWhile(gesturing, rawRateDomain);
 
   /** Every drawable series, as a tickable legend entry. */
