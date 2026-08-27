@@ -215,7 +215,14 @@ Deno.serve(async (req) => {
       hotelIds = [...new Set(((all ?? []) as { hotel_id: string }[]).map((r) => r.hotel_id))];
     }
 
-    const days = Math.min(Math.max(Number(body.days ?? 60), 1), 90);
+    // Horizon: the manual button keeps whatever the panel asks for. The
+    // scheduled sweep looks 14 nights ahead most weeks and stretches to 60
+    // every second week — far-out competitor rates barely move, so paying for
+    // them weekly is waste.
+    const weekOfYear = Math.floor(Date.now() / (7 * 86_400_000));
+    const cronDays = weekOfYear % 2 === 0 ? CRON_FULL_DAYS : CRON_NEAR_DAYS;
+    const days = Math.min(Math.max(Number(body.days ?? (isCron ? cronDays : 60)), 1), 90);
+    const tier: "cheap" | "rich" = isCron ? "cheap" : "rich";
     const apiKey = Deno.env.get("OPENAI_API_KEY");
     if (!apiKey) return json({ error: "OPENAI_API_KEY is not configured for this project." }, 500);
 
