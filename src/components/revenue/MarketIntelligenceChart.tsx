@@ -320,7 +320,8 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
     : hotels.find((h) => h.hotel_id === baseline)?.hotel_name ?? "Selected property";
 
   const compColor = (id: string) =>
-    COMP_COLORS[Math.max(0, marketData.competitors.findIndex((c) => c.id === id)) % COMP_COLORS.length];
+    competitorColor(Math.max(0, marketData.competitors.findIndex((c) => c.id === id)));
+
 
   const data = useMemo(() => metrics.slice(0, days).map((m) => {
     const actual = demandByDate.actual.get(m.stay_date);
