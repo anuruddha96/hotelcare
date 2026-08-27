@@ -241,22 +241,21 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
     if (!hotelId) return;
     setScanning(true);
     try {
-      const { data, error } = await supabase.functions.invoke("competitor-rate-scan", {
+      const { error } = await supabase.functions.invoke("competitor-rate-scan", {
         body: { hotelId, days: 30 },
       });
       if (error) throw error;
-      const res = data as { captured?: number; results?: Array<{ competitor: string; prices: number; error: string | null }> } | null;
-      const captured = res?.captured ?? 0;
-      const failed = (res?.results ?? []).filter((r) => r.prices === 0);
-      if (captured) toast.success(`Captured ${captured} competitor prices${failed.length ? ` · ${failed.length} hotel(s) returned nothing` : ""}`);
-      else toast.info(failed[0]?.error ? `No prices captured: ${failed[0].error}` : "No public prices were found this time.");
+      toast.success("Scanning competitor prices in the background — results appear here as they land.");
+      // The sweep keeps running server-side; refresh a few times as it fills in.
       void load();
+      [30_000, 90_000, 180_000].forEach((ms) => window.setTimeout(() => void load(), ms));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "The scan failed");
     } finally {
       setScanning(false);
     }
   };
+
 
   if (loading) {
     return <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>;

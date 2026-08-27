@@ -89,6 +89,8 @@ async function askDates(
       const attempt = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        // A single hung web-search question must never stall the sweep.
+        signal: AbortSignal.timeout(90_000),
         body: JSON.stringify({
           model,
           tools: [{ type: "web_search_preview", search_context_size: "medium" }],
@@ -96,6 +98,7 @@ async function askDates(
           input: prompt,
         }),
       });
+
       if (!attempt.ok) {
         const detail = (await attempt.text()).slice(0, 200);
         // Key, credit and rate-limit problems are not per-competitor failures:
@@ -199,7 +202,12 @@ Deno.serve(async (req) => {
     let captured = 0;
     const results: Array<{ competitor: string; prices: number; observations?: number; error: string | null }> = [];
 
+    // The whole sweep is far slower than the 150s request idle limit, so the
+    // HTTP call only starts the work; results land in the tables the panel
+    // reads. Nothing is awaited by the browser.
+    const scanAll = async () => {
     for (const hotelId of hotelIds) {
+
       const { data: competitors } = await admin
         .from("competitor_properties")
         .select("id, name, source_url, organization_slug")
@@ -341,24 +349,40 @@ Deno.serve(async (req) => {
 
       }
     }
+    };
 
-    return json({ ok: true, captured, hotels: hotelIds.length, results });
-  } catch (e) {
-    if (e instanceof ScanBlocked) {
-      // Park the sweep rather than burn the key on questions that cannot work.
-      const minutes = e.status === 429 ? 60 : 12 * 60;
-      await admin.rpc("pause_competitor_scan", {
-        _id: LEASE_ID, _minutes: minutes, _reason: e.message.slice(0, 300),
+    const work = scanAll()
+      .catch(async (e) => {
+        if (e instanceof ScanBlocked) {
+          // Park the sweep rather than burn the key on questions that cannot work.
+          const minutes = e.status === 429 ? 60 : 12 * 60;
+          await admin.rpc("pause_competitor_scan", {
+            _id: LEASE_ID, _minutes: minutes, _reason: e.message.slice(0, 300),
+          }).catch(() => {});
+          leaseHeld = false;
+          console.error("competitor-rate-scan blocked", e.message);
+          return;
+        }
+        console.error("competitor-rate-scan error", e);
+      })
+      .finally(async () => {
+        console.log("competitor-rate-scan finished", { captured, hotels: hotelIds.length, results });
+        if (leaseHeld) {
+          leaseHeld = false;
+          await admin.rpc("release_competitor_scan_lease", { _id: LEASE_ID }).catch(() => {});
+        }
       });
-      leaseHeld = false;
-      console.error("competitor-rate-scan blocked", e.message);
-      return json({ error: e.message, paused_minutes: minutes }, e.status === 429 ? 429 : 402);
-    }
+
+    const rt = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
+    if (rt) rt.waitUntil(work); else await work;
+
+    return json({ ok: true, started: true, hotels: hotelIds.length });
+  } catch (e) {
     console.error("competitor-rate-scan error", e);
-    return json({ error: e instanceof Error ? e.message : String(e) }, 500);
-  } finally {
     if (leaseHeld) {
       await admin.rpc("release_competitor_scan_lease", { _id: LEASE_ID }).catch(() => {});
     }
+    return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
+
 });
