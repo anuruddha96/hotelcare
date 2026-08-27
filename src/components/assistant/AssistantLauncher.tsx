@@ -22,7 +22,7 @@ export default function AssistantLauncher() {
   const { user, profile } = useAuth();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("chat");
-  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+  const [viewport, setViewport] = useState<{ height: number; top: number } | null>(null);
   const [debugOn, setDebugOn] = useState(false);
 
   const [params, setParams] = useSearchParams();
