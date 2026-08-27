@@ -951,7 +951,13 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
 
       <CardContent className="px-1 sm:px-4">
         {compare && comparisonSummary.length > 0 && (
-          <div className="mb-3 grid grid-cols-2 gap-2 px-2 lg:grid-cols-4">
+          <div className="mb-3 px-2">
+            <p className="mb-1.5 text-[10px] text-muted-foreground">
+              {comparison.nights > 0
+                ? <>Same window for every property: <span className="font-medium text-foreground">{shortDate(comparison.from)} – {shortDate(comparison.to)}</span> ({comparison.nights} night{comparison.nights === 1 ? "" : "s"} captured in {selectedMonth})</>
+                : <>No overlapping nights captured for these properties in {selectedMonth}</>}
+            </p>
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
             {comparisonSummary.map((s) => {
               const on = !hiddenHotels.has(s.hotel_id);
               const color = colorFor(s.hotel_id, hotels.findIndex((h) => h.hotel_id === s.hotel_id));
@@ -976,18 +982,21 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                   <div className="mt-1.5 grid grid-cols-3 gap-1 tabular-nums">
                     <div>
                       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Occupancy</p>
-                      <p className="text-base font-semibold leading-tight">{s.occ}%</p>
+                      <p className="text-base font-semibold leading-tight">{s.occ == null ? "—" : `${s.occ}%`}</p>
                     </div>
                     <div>
                       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">ADR</p>
-                      <p className="text-base font-semibold leading-tight">{money(s.adr)}</p>
+                      <p className="text-base font-semibold leading-tight">{eurMoney(s.adr)}</p>
                     </div>
                     <div>
                       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">RevPAR</p>
-                      <p className="text-base font-semibold leading-tight">{money(s.revpar)}</p>
+                      <p className="text-base font-semibold leading-tight">{eurMoney(s.revpar)}</p>
                     </div>
                   </div>
-                  <p className="mt-1 text-[10px] text-muted-foreground">{selectedMonth} · tap to {on ? "hide" : "show"}</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    {s.occ == null ? "no data in this window" : `tap to ${on ? "hide" : "show"}`}
+                  </p>
+
                 </button>
               );
             })}
