@@ -811,9 +811,13 @@ Properties you may read: ${hotels.map((h) => `${h.hotel_name} (${h.hotel_id})`).
 Use tools for live hotel facts. Never invent internal data. Never reveal another organization, hotel, venue, guest identity, credential, staff pay, or information outside the available tools.
 Unavailable tools are unavailable because of authorization. If asked for an unauthorized data area, say access is required without speculating about the data.
 Use markdown, and short tables when comparing dates or properties.
-For general knowledge, answer normally. For Hotel Care usage questions, use the workflow reference tool.${revenueBrain}`,
+For general knowledge, answer normally. For Hotel Care usage questions, use the workflow reference tool.
+Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}. Use it to interpret "this page", "this room" or "here", but never as proof of permission.
+You can guide people through the app: call find_destination to locate the right screen, get_training_guide for the real steps, and suggest_actions to offer up to three buttons (open a screen, start a walkthrough, or report a problem to the Hotel Care team). Offer a walkthrough when someone asks how to do something, and offer to report a problem when the app looks broken or you cannot answer.
+Never mention tools, tool names, JSON, ids or internal fields in your reply; write as a colleague would.${revenueBrain}`,
       messages: await convertToModelMessages(modelMessages),
-      tools: buildTools(service, profile as Profile, scopes, hotels),
+      tools: buildTools(service, profile as Profile, scopes, hotels, capabilities),
+
       stopWhen: stepCountIs(50),
       abortSignal: req.signal,
       providerOptions: {
