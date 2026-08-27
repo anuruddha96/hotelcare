@@ -104,6 +104,46 @@ export async function assertExactRateMappings(
   }
 }
 
+/**
+ * Same mapping rule, applied one cell at a time.
+ *
+ * A single room type without an exact rate plan must not cancel a whole month
+ * of prices: the mapped cells still go to Previo and only the unmapped ones are
+ * reported back, so the reader sees exactly which rooms need a rate-plan sync.
+ */
+export async function partitionByExactRateMappings(
+  admin: any,
+  hotelId: string,
+  changes: RateChange[],
+): Promise<{ mapped: RateChange[]; unmapped: Array<{ change: RateChange; reason: string }> }> {
+  if (changes.length === 0) return { mapped: [], unmapped: [] };
+  const { data, error } = await admin
+    .from("previo_rate_plan_mapping")
+    .select("previo_room_type_id, previo_rate_plan_id")
+    .eq("hotel_id", hotelId);
+  if (error) throw error;
+
+  const mappedTypes = new Set(
+    ((data ?? []) as MappingRow[])
+      .filter((row) => row.previo_room_type_id && row.previo_rate_plan_id)
+      .map((row) => mappingKey(row.previo_room_type_id)),
+  );
+  const mapped: RateChange[] = [];
+  const unmapped: Array<{ change: RateChange; reason: string }> = [];
+  for (const change of changes) {
+    const obkId = mappingKey(change.obk_id);
+    if (obkId && mappedTypes.has(obkId)) mapped.push(change);
+    else {
+      unmapped.push({
+        change,
+        reason: `No exact Previo rate-plan mapping for ${change.room_type_name || obkId || "this room type"}. Sync rate plans, then try again.`,
+      });
+    }
+  }
+  return { mapped, unmapped };
+}
+
+
 // ---------------------------------------------------------------------------
 // Occupancy ladder
 // ---------------------------------------------------------------------------
@@ -508,22 +548,22 @@ export async function enforceRateSafety(
   changes: RateChange[],
 ): Promise<{ changes: RateChange[]; repairs: RateChange[]; dropped: Array<{ change: RateChange; reason: string }> }> {
   if (changes.length === 0) return { changes, repairs: [], dropped: [] };
-  await assertExactRateMappings(admin, hotelId, changes);
-  const ladderRepairs = await normalizeOccupancyLadder(admin, hotelId, changes);
+  // Unmapped room types are held back cell by cell; the rest of the batch still
+  // goes out, so one missing rate plan cannot cancel a month of pricing.
+  const { mapped: safeChanges, unmapped } = await partitionByExactRateMappings(admin, hotelId, changes);
+  if (safeChanges.length === 0) return { changes: [], repairs: [], dropped: unmapped };
+  const ladderRepairs = await normalizeOccupancyLadder(admin, hotelId, safeChanges);
   // Lift the tiers above before filtering, so a legitimate raise repairs the
   // room order instead of being thrown away.
-  const hierarchyRepairs = await liftHigherRooms(admin, hotelId, [...changes, ...ladderRepairs])
+  const hierarchyRepairs = await liftHigherRooms(admin, hotelId, [...safeChanges, ...ladderRepairs])
     .catch(() => [] as RateChange[]);
   // A lift we cannot map to an exact Previo rate plan is not safe to send.
-  const mappable: RateChange[] = [];
-  for (const lift of hierarchyRepairs.filter((c) => !!c.obk_id)) {
-    try {
-      await assertExactRateMappings(admin, hotelId, [lift]);
-      mappable.push(lift);
-    } catch { /* unmapped room type: leave it untouched */ }
-  }
+  const { mapped: mappable } = await partitionByExactRateMappings(
+    admin, hotelId, hierarchyRepairs.filter((c) => !!c.obk_id),
+  );
   const repairs = [...ladderRepairs, ...mappable];
-  return { changes: [...changes, ...repairs], repairs, dropped: [] };
+  return { changes: [...safeChanges, ...repairs], repairs, dropped: unmapped };
 }
+
 
 

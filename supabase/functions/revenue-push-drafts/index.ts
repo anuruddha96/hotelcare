@@ -10,7 +10,7 @@ import { loadPrevioCredentials, hasPrevioCredentials } from "../_shared/previoCr
 import { writePrevioRate, readPrevioRateLevelsRange } from "../_shared/previoRateWrite.ts";
 import { syncPrevioRatePlanMappings } from "../_shared/previoRatePlans.ts";
 import { pricesMatch } from "../_shared/pricingRules.ts";
-import { assertExactRateMappings, filterRoomHierarchy, liftHigherRooms, repairLadder } from "../_shared/rateSafety.ts";
+import { partitionByExactRateMappings, filterRoomHierarchy, liftHigherRooms, repairLadder } from "../_shared/rateSafety.ts";
 
 
 const corsHeaders = {
@@ -223,18 +223,44 @@ Deno.serve(async (req) => {
     // queued work created before the enqueue-time safety checks existed. A
     // single unsafe cell must not cancel the whole run: the offenders are
     // closed out and the rest of the batch is delivered.
-    await assertExactRateMappings(admin, hotelId, drafts as any[]);
+    {
+      const { mapped, unmapped } = await partitionByExactRateMappings(admin, hotelId, drafts as any[]);
+      if (unmapped.length > 0) {
+        console.log(`[safety] ${hotelId} held back ${unmapped.length} draft(s) without an exact Previo rate plan`);
+        const groups = new Map<string, string[]>();
+        for (const entry of unmapped) {
+          const id = (entry.change as any)?.id;
+          if (!id) continue;
+          const list = groups.get(entry.reason) ?? [];
+          list.push(String(id));
+          groups.set(entry.reason, list);
+        }
+        for (const [reason, ids] of groups) {
+          for (let i = 0; i < ids.length; i += 300) {
+            await admin.from("revenue_rate_drafts").update({
+              status: "failed",
+              confirmation_status: "blocked",
+              push_error: reason.slice(0, 500),
+            }).in("id", ids.slice(i, i + 300));
+          }
+        }
+      }
+      drafts = mapped as any[];
+      if (drafts.length === 0) {
+        return json({ ok: true, pushed: 0, failed: unmapped.length, message: "No queued price had an exact Previo rate plan." });
+      }
+    }
     // A raise that would leave a cheaper room above the next tier used to be
     // discarded, which left the inversion in place. The tiers above are lifted
     // with it instead, as extra drafts inside the same run.
     try {
       const lifts = await liftHigherRooms(admin, hotelId, drafts as any[]);
       const insertable: any[] = [];
-      for (const lift of lifts) {
-        if (!lift.obk_id) continue;
-        try {
-          await assertExactRateMappings(admin, hotelId, [lift]);
-        } catch { continue; } // unmapped room type: leave it untouched
+      const { mapped: mappableLifts } = await partitionByExactRateMappings(
+        admin, hotelId, lifts.filter((l: any) => !!l.obk_id) as any[],
+      );
+      for (const lift of mappableLifts as any[]) {
+
         insertable.push({
           hotel_id: hotelId,
           organization_slug: (drafts as any[])[0]?.organization_slug ?? null,
@@ -422,13 +448,21 @@ Deno.serve(async (req) => {
       drafts: any[];
     };
     const groups = new Map<string, Group>();
+    // One room type without a rate plan fails only its own cells; the rest of
+    // the run is still delivered.
+    const unmappedDrafts: Array<{ id: string; reason: string }> = [];
 
     for (const d of drafts as any[]) {
       const mapForType = validMaps.find((m: any) => String(m.previo_room_type_id) === String(d.obk_id));
       if (!mapForType) {
-        throw new Error(`Price not sent: no exact Previo rate-plan mapping for ${d.room_type_name}. Sync rate plans, then try again.`);
+        unmappedDrafts.push({
+          id: d.id,
+          reason: `Price not sent: no exact Previo rate-plan mapping for ${d.room_type_name}. Sync rate plans, then try again.`,
+        });
+        continue;
       }
       const map: any = mapForType;
+
       // Multi-account hotels prefix the obk id with the Previo hotId.
       const scoped = String(map.previo_room_type_id ?? d.obk_id);
       const parts = scoped.split(":");
@@ -451,8 +485,29 @@ Deno.serve(async (req) => {
       }
     }
 
+    if (unmappedDrafts.length > 0) {
+      const groupsByReason = new Map<string, string[]>();
+      for (const u of unmappedDrafts) {
+        const list = groupsByReason.get(u.reason) ?? [];
+        list.push(u.id);
+        groupsByReason.set(u.reason, list);
+      }
+      for (const [reason, ids] of groupsByReason) {
+        for (let i = 0; i < ids.length; i += 300) {
+          await admin.from("revenue_rate_drafts").update({
+            status: "failed", confirmation_status: "blocked", push_error: reason.slice(0, 500),
+          }).in("id", ids.slice(i, i + 300));
+        }
+      }
+      drafts = (drafts as any[]).filter((d) => !unmappedDrafts.some((u) => u.id === d.id));
+    }
+
     const groupList = Array.from(groups.values());
+    if (groupList.length === 0) {
+      return json({ ok: true, pushed: 0, failed: unmappedDrafts.length, message: "No queued price had an exact Previo rate plan." });
+    }
     const stayDates = groupList.map((group) => group.stay_date).sort();
+
     const { data: storedRateRows } = await admin
       .from("revenue_room_type_rates")
       .select("stay_date, obk_id, occupancy, price")
