@@ -448,13 +448,21 @@ Deno.serve(async (req) => {
       drafts: any[];
     };
     const groups = new Map<string, Group>();
+    // One room type without a rate plan fails only its own cells; the rest of
+    // the run is still delivered.
+    const unmappedDrafts: Array<{ id: string; reason: string }> = [];
 
     for (const d of drafts as any[]) {
       const mapForType = validMaps.find((m: any) => String(m.previo_room_type_id) === String(d.obk_id));
       if (!mapForType) {
-        throw new Error(`Price not sent: no exact Previo rate-plan mapping for ${d.room_type_name}. Sync rate plans, then try again.`);
+        unmappedDrafts.push({
+          id: d.id,
+          reason: `Price not sent: no exact Previo rate-plan mapping for ${d.room_type_name}. Sync rate plans, then try again.`,
+        });
+        continue;
       }
       const map: any = mapForType;
+
       // Multi-account hotels prefix the obk id with the Previo hotId.
       const scoped = String(map.previo_room_type_id ?? d.obk_id);
       const parts = scoped.split(":");
