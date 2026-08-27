@@ -565,73 +565,234 @@ function buildTools(
     });
   }
 
+  // Shared housekeeping snapshot: the same picture the operations board shows,
+  // so the model never has to guess from bare status counts.
+  const housekeepingSnapshot = async (ids: string[], date: string) => {
+    const names = hotels.filter((h) => ids.includes(h.hotel_id)).map((h) => h.hotel_name);
+    const hotelKeys = [...new Set([...ids, ...names])];
+    const rooms = await service
+      .from("rooms")
+      .select(
+        "id,room_number,room_name,hotel,floor_number,status,is_checkout_room,is_dnd,towel_change_required,linen_change_required,notes,guest_nights_stayed,last_cleaned_at,checkout_time,pms_metadata",
+      )
+      .eq("organization_slug", orgSlug)
+      .in("hotel", hotelKeys)
+      .limit(2000);
+    if (rooms.error) throw new Error(`Room lookup failed: ${rooms.error.message}`);
+    const roomRows = rooms.data ?? [];
+    const roomIds = roomRows.map((room: any) => room.id);
+    const assignments = roomIds.length
+      ? await service
+          .from("room_assignments")
+          .select(
+            "id,room_id,assigned_to,status,assignment_type,priority,started_at,completed_at,is_dnd,ready_to_clean,supervisor_approved,notes",
+          )
+          .eq("organization_slug", orgSlug)
+          .in("room_id", roomIds)
+          .eq("assignment_date", date)
+          .limit(2000)
+      : { data: [], error: null };
+    if (assignments.error) throw new Error(`Assignment lookup failed: ${assignments.error.message}`);
+    const assignmentRows = assignments.data ?? [];
+
+    const staffIds = [...new Set(assignmentRows.map((row: any) => row.assigned_to).filter(Boolean))];
+    const staff = staffIds.length
+      ? await service.from("profiles").select("id,full_name,nickname,role").in("id", staffIds).limit(300)
+      : { data: [] };
+    const staffName = new Map(
+      (staff.data ?? []).map((person: any) => [person.id, person.full_name || person.nickname || "Unnamed staff"]),
+    );
+
+    const openNotes = roomIds.length
+      ? await service
+          .from("housekeeping_notes")
+          .select("room_id,note_type,content")
+          .eq("organization_slug", orgSlug)
+          .in("room_id", roomIds)
+          .eq("is_resolved", false)
+          .limit(500)
+      : { data: [] };
+    const notesByRoom = new Map<string, any[]>();
+    for (const note of openNotes.data ?? []) {
+      const list = notesByRoom.get(note.room_id) ?? [];
+      list.push({ type: note.note_type, note: String(note.content ?? "").slice(0, 160) });
+      notesByRoom.set(note.room_id, list);
+    }
+
+    const byRoom = new Map<string, any>();
+    for (const row of assignmentRows) {
+      // Keep the most advanced assignment per room (completed > in progress > assigned).
+      const rank = (s: string) => (s === "completed" ? 3 : s === "in_progress" ? 2 : 1);
+      const current = byRoom.get(row.room_id);
+      if (!current || rank(row.status) >= rank(current.status)) byRoom.set(row.room_id, row);
+    }
+
+    const pmsRtcToday = (meta: any) => {
+      if (!meta) return false;
+      if (!(meta.checkedOutToday === true || meta.readyToClean === true)) return false;
+      const stamp = String(meta.readyToCleanDate ?? meta.checkedOutAt ?? "").slice(0, 10);
+      return stamp === date;
+    };
+
+    const roomView = roomRows.map((room: any) => {
+      const meta = (room.pms_metadata ?? {}) as any;
+      const assignment = byRoom.get(room.id);
+      const isCheckout = room.is_checkout_room === true || meta.scheduledDepartureToday === true;
+      return {
+        room: room.room_number,
+        hotel: room.hotel,
+        floor: room.floor_number ?? null,
+        status: room.status,
+        type: isCheckout ? "checkout" : "daily",
+        assignedTo: assignment?.assigned_to ? staffName.get(assignment.assigned_to) ?? "Unknown staff" : null,
+        assignmentStatus: assignment?.status ?? null,
+        startedAt: assignment?.started_at ?? null,
+        completedAt: assignment?.completed_at ?? null,
+        approved: assignment?.supervisor_approved === true,
+        dnd: room.is_dnd === true || assignment?.is_dnd === true,
+        noService: meta.noService === true || meta.no_service === true,
+        readyToClean: pmsRtcToday(meta) || assignment?.ready_to_clean === true,
+        departsTomorrow: meta.departsTomorrow === true || meta.scheduledDepartureTomorrow === true,
+        towelChange: room.towel_change_required === true,
+        linenChange: room.linen_change_required === true,
+        nightsStayed: room.guest_nights_stayed ?? null,
+        notes: notesByRoom.get(room.id) ?? [],
+        lastCleanedAt: room.last_cleaned_at ?? null,
+      };
+    });
+
+    const statusCounts: Record<string, number> = {};
+    for (const room of roomRows) statusCounts[room.status] = (statusCounts[room.status] ?? 0) + 1;
+
+    const byPerson = new Map<string, any>();
+    for (const row of assignmentRows) {
+      const key = row.assigned_to ?? "unassigned";
+      const name = row.assigned_to ? staffName.get(row.assigned_to) ?? "Unknown staff" : "Unassigned";
+      const entry = byPerson.get(key) ?? { staff: name, assigned: 0, completed: 0, inProgress: 0, notStarted: 0, rooms: [] };
+      entry.assigned += 1;
+      if (row.status === "completed") entry.completed += 1;
+      else if (row.status === "in_progress") entry.inProgress += 1;
+      else entry.notStarted += 1;
+      const roomNumber = roomRows.find((r: any) => r.id === row.room_id)?.room_number;
+      if (roomNumber) entry.rooms.push(roomNumber);
+      byPerson.set(key, entry);
+    }
+    const team = [...byPerson.values()].map((entry) => ({
+      ...entry,
+      progressPct: entry.assigned ? Math.round((entry.completed / entry.assigned) * 100) : 0,
+    }));
+
+    const dirty = roomView.filter((r) => r.status === "dirty");
+    const checkout = roomView.filter((r) => r.type === "checkout");
+    const daily = roomView.filter((r) => r.type === "daily");
+    const totals = {
+      rooms: roomView.length,
+      dirty: dirty.length,
+      clean: roomView.filter((r) => r.status === "clean").length,
+      inProgress: roomView.filter((r) => r.assignmentStatus === "in_progress").length,
+      completedToday: roomView.filter((r) => r.assignmentStatus === "completed").length,
+      notStarted: roomView.filter((r) => r.assignmentStatus === "assigned").length,
+      unassignedDirty: dirty.filter((r) => !r.assignedTo).length,
+      dnd: roomView.filter((r) => r.dnd).length,
+      noService: roomView.filter((r) => r.noService).length,
+      checkoutRooms: checkout.length,
+      dailyRooms: daily.length,
+    };
+
+    return {
+      date,
+      hotels: hotels.filter((h) => ids.includes(h.hotel_id)).map((h) => ({ id: h.hotel_id, name: h.hotel_name })),
+      totals,
+      progressPct: assignmentRows.length
+        ? Math.round((assignmentRows.filter((a: any) => a.status === "completed").length / assignmentRows.length) * 100)
+        : 0,
+      team,
+      checkoutRooms: checkout,
+      dailyRooms: daily,
+      unassignedDirtyRooms: dirty.filter((r) => !r.assignedTo).map((r) => r.room),
+      attentionRooms: roomView.filter((r) => r.dnd || r.noService || (r.notes?.length ?? 0) > 0),
+      dataFreshness:
+        assignmentRows.length === 0
+          ? "No cleaning assignments exist for this date yet — rooms may not have been assigned."
+          : null,
+    };
+  };
+
   if (scopes.has("housekeeping")) {
     tools.get_housekeeping_status = tool({
-      description: "Read room status and today's assignments inside the user's authorized hotels and organization only.",
-      inputSchema: jsonSchema<{ hotelId: string | null }>(hotelArgSchema({}, [])),
-      execute: async ({ hotelId }) => {
-        const ids = resolve(hotelId);
-        const names = hotels.filter((h) => ids.includes(h.hotel_id)).map((h) => h.hotel_name);
-        const roomsQuery = service
-          .from("rooms")
-          .select("id,room_number,status,hotel")
-          .eq("organization_slug", orgSlug)
-          .in("hotel", [...new Set([...ids, ...names])])
-          .limit(2000);
-        const rooms = await roomsQuery;
-        if (rooms.error) throw new Error(`Room lookup failed: ${rooms.error.message}`);
-        const roomIds = (rooms.data ?? []).map((room: any) => room.id);
-        const assignments = roomIds.length
-          ? await service
-              .from("room_assignments")
-              .select("id,room_id,assigned_to,status,started_at,completed_at")
-              .eq("organization_slug", orgSlug)
-              .in("room_id", roomIds)
-              .eq("assignment_date", today())
-              .limit(2000)
-          : { data: [], error: null };
-        if (assignments.error) throw new Error(`Assignment lookup failed: ${assignments.error.message}`);
-        const counts: Record<string, number> = {};
-        for (const room of rooms.data ?? []) counts[room.status] = (counts[room.status] ?? 0) + 1;
-        return { roomStatusCounts: counts, assignments: assignments.data ?? [] };
-      },
-    });
-  }
-
-  if (scopes.has("maintenance")) {
-    tools.get_maintenance_tickets = tool({
-      description: "Read maintenance tickets inside the user's authorized hotels and organization only.",
-      inputSchema: jsonSchema<{ hotelId: string | null; status: string | null }>(
-        hotelArgSchema({ status: { type: ["string", "null"], description: "open, in_progress, completed, or null" } }, ["status"]),
-      ),
-      execute: async ({ hotelId, status }) => {
-        const ids = resolve(hotelId);
-        const names = hotels.filter((h) => ids.includes(h.hotel_id)).map((h) => h.hotel_name);
-        let query = service
-          .from("tickets")
-          .select("id,ticket_number,title,description,status,priority,room_number,hotel,sla_due_date,created_at")
-          .eq("organization_slug", orgSlug)
-          .in("hotel", [...new Set([...ids, ...names])])
-          .order("created_at", { ascending: false })
-          .limit(200);
-        if (status) query = query.eq("status", status);
-        const { data, error } = await query;
-        if (error) throw new Error(`Maintenance lookup failed: ${error.message}`);
-        return { tickets: data ?? [] };
-      },
-    });
-  }
-
-  if (scopes.has("reception")) {
-    tools.get_reception_overview = tool({
       description:
-        "Read arrivals, departures, in-house rooms and breakfast counts for a date from the live PMS (Previo) daily overview, inside the user's authorized hotels only. Returns room-level rows without guest personal details.",
+        "The full housekeeping picture for a date: totals, checkout vs daily rooms, every room with its status, cleaner, DND / no-service / towel / linen / note flags, per-housekeeper progress, and the unassigned dirty rooms. Use this for any housekeeping question and answer with these exact numbers, room numbers and names.",
       inputSchema: jsonSchema<{ hotelId: string | null; date: string | null }>(
         hotelArgSchema({ date: { type: ["string", "null"], description: "YYYY-MM-DD or null for today" } }, ["date"]),
       ),
-      execute: async ({ hotelId, date }) => {
-        const ids = resolve(hotelId);
+      execute: async ({ hotelId, date }) => housekeepingSnapshot(resolve(hotelId), date ?? today()),
+    });
+  }
+
+
+  const maintenanceTickets = async (ids: string[], status: string | null) => {
+    const names = hotels.filter((h) => ids.includes(h.hotel_id)).map((h) => h.hotel_name);
+    let query = service
+      .from("tickets")
+      .select(
+        "id,ticket_number,title,description,status,priority,room_number,hotel,department,category,sla_due_date,created_at,closed_at,assigned_to,on_hold,hold_reason,pending_supervisor_approval",
+      )
+      .eq("organization_slug", orgSlug)
+      .in("hotel", [...new Set([...ids, ...names])])
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (status) query = query.eq("status", status);
+    const { data, error } = await query;
+    if (error) throw new Error(`Maintenance lookup failed: ${error.message}`);
+    const rows = data ?? [];
+    const assignees = [...new Set(rows.map((t: any) => t.assigned_to).filter(Boolean))];
+    const staff = assignees.length
+      ? await service.from("profiles").select("id,full_name,nickname").in("id", assignees).limit(200)
+      : { data: [] };
+    const nameOf = new Map((staff.data ?? []).map((p: any) => [p.id, p.full_name || p.nickname || "Unnamed staff"]));
+    const now = Date.now();
+    const tickets = rows.map((t: any) => {
+      const due = t.sla_due_date ? new Date(t.sla_due_date).getTime() : null;
+      const open = t.status !== "completed";
+      return {
+        ...t,
+        assigned_to: t.assigned_to ? nameOf.get(t.assigned_to) ?? "Unknown staff" : null,
+        ageHours: t.created_at ? Math.round((now - new Date(t.created_at).getTime()) / 3_600_000) : null,
+        slaBreached: Boolean(open && due && due < now),
+        slaAtRisk: Boolean(open && due && due >= now && due - now < 4 * 3_600_000),
+      };
+    });
+    return {
+      tickets,
+      counts: {
+        total: tickets.length,
+        open: tickets.filter((t: any) => t.status === "open").length,
+        inProgress: tickets.filter((t: any) => t.status === "in_progress").length,
+        completed: tickets.filter((t: any) => t.status === "completed").length,
+        slaBreached: tickets.filter((t: any) => t.slaBreached).length,
+        slaAtRisk: tickets.filter((t: any) => t.slaAtRisk).length,
+        onHold: tickets.filter((t: any) => t.on_hold).length,
+      },
+    };
+  };
+
+  if (scopes.has("maintenance")) {
+    tools.get_maintenance_tickets = tool({
+      description:
+        "Maintenance tickets for the user's authorized hotels, with assignee names, ticket age, SLA breached / at-risk flags and on-hold state. Answer with the ticket numbers, rooms and counts it returns.",
+      inputSchema: jsonSchema<{ hotelId: string | null; status: string | null }>(
+        hotelArgSchema({ status: { type: ["string", "null"], description: "open, in_progress, completed, or null" } }, ["status"]),
+      ),
+      execute: async ({ hotelId, status }) => maintenanceTickets(resolve(hotelId), status),
+    });
+  }
+
+
+  const receptionOverview = async (ids: string[], date: string | null) => {
+    {
+      {
         const target = date ?? today();
+
         // The PMS daily overview repeats a stay once per business date, so the
         // same arrival shows up under several rows. Dedupe by stay.
         const snapshotQuery = service
@@ -711,10 +872,41 @@ function buildTools(
               ? "No PMS daily-overview rows for this date — the nightly Previo sync may not have run yet, so counts may be incomplete."
               : null,
         };
+      }
+    }
+  };
+
+  if (scopes.has("reception")) {
+    tools.get_reception_overview = tool({
+      description:
+        "Arrivals, departures, in-house rooms and breakfast counts for a date from the live PMS (Previo) daily overview, inside the user's authorized hotels only. Room-level rows, no guest personal details.",
+      inputSchema: jsonSchema<{ hotelId: string | null; date: string | null }>(
+        hotelArgSchema({ date: { type: ["string", "null"], description: "YYYY-MM-DD or null for today" } }, ["date"]),
+      ),
+      execute: async ({ hotelId, date }) => receptionOverview(resolve(hotelId), date),
+    });
+  }
+
+  if (scopes.has("housekeeping")) {
+    tools.get_housekeeping_briefing = tool({
+      description:
+        "One supervisor-grade briefing for a date: the full housekeeping board, live PMS arrivals/departures/in-house, and open maintenance tickets. Use this for broad questions like 'how is housekeeping doing today' or 'what's the situation today'.",
+      inputSchema: jsonSchema<{ hotelId: string | null; date: string | null }>(
+        hotelArgSchema({ date: { type: ["string", "null"], description: "YYYY-MM-DD or null for today" } }, ["date"]),
+      ),
+      execute: async ({ hotelId, date }) => {
+        const ids = resolve(hotelId);
+        const target = date ?? today();
+        const [housekeeping, reception, maintenance] = await Promise.all([
+          housekeepingSnapshot(ids, target).catch((e) => ({ error: String(e?.message ?? e) })),
+          receptionOverview(ids, target).catch((e) => ({ error: String(e?.message ?? e) })),
+          maintenanceTickets(ids, null).catch((e) => ({ error: String(e?.message ?? e) })),
+        ]);
+        return { date: target, housekeeping, reception, maintenance };
       },
     });
-
   }
+
 
   if (scopes.has("housekeeping")) {
     tools.get_housekeeping_team = tool({
@@ -771,7 +963,8 @@ function buildTools(
     });
 
     tools.get_staff_on_duty = tool({
-      description: "Who is currently signed in for work today at the user's authorized properties.",
+      description:
+        "Who is signed in for work on a date at the user's authorized properties, with names, roles, sign-in/out times and who has not signed in yet. Staff must be signed in before they can start a room.",
       inputSchema: jsonSchema<{ hotelId: string | null; date: string | null }>(
         hotelArgSchema({ date: { type: ["string", "null"], description: "YYYY-MM-DD or null for today" } }, ["date"]),
       ),
@@ -779,17 +972,56 @@ function buildTools(
         const ids = resolve(hotelId);
         const names = hotels.filter((h) => ids.includes(h.hotel_id)).map((h) => h.hotel_name);
         const target = date ?? today();
-        const { data, error } = await service
-          .from("staff_attendance")
-          .select("id,user_id,hotel,work_date,check_in_time,check_out_time,status")
+        // staff_attendance has no hotel column — scope it through the profiles
+        // of the authorized properties instead.
+        const staff = await service
+          .from("profiles")
+          .select("id,full_name,nickname,role,assigned_hotel")
           .eq("organization_slug", orgSlug)
-          .in("hotel", [...new Set([...ids, ...names])])
-          .eq("work_date", target)
+          .in("assigned_hotel", [...new Set([...ids, ...names])])
+          .is("deleted_at", null)
           .limit(500);
-        if (error) throw new Error(`Attendance lookup failed: ${error.message}`);
-        return { date: target, attendance: data ?? [] };
+        if (staff.error) throw new Error(`Staff lookup failed: ${staff.error.message}`);
+        const staffRows = staff.data ?? [];
+        const staffIds = staffRows.map((p: any) => p.id);
+        const attendance = staffIds.length
+          ? await service
+              .from("staff_attendance")
+              .select("user_id,work_date,check_in_time,check_out_time,status,break_type,break_started_at")
+              .eq("organization_slug", orgSlug)
+              .in("user_id", staffIds)
+              .eq("work_date", target)
+              .limit(1000)
+          : { data: [], error: null };
+        if (attendance.error) throw new Error(`Attendance lookup failed: ${attendance.error.message}`);
+        const byUser = new Map((attendance.data ?? []).map((row: any) => [row.user_id, row]));
+        const people = staffRows.map((person: any) => {
+          const record = byUser.get(person.id);
+          return {
+            staff: person.full_name || person.nickname || "Unnamed staff",
+            role: person.role,
+            hotel: person.assigned_hotel,
+            signedIn: Boolean(record && !record.check_out_time),
+            checkInTime: record?.check_in_time ?? null,
+            checkOutTime: record?.check_out_time ?? null,
+            attendanceStatus: record?.status ?? "not_signed_in",
+            onBreak: Boolean(record?.break_started_at && !record?.check_out_time && record?.break_type),
+          };
+        });
+        return {
+          date: target,
+          onDuty: people.filter((p) => p.signedIn),
+          finishedShift: people.filter((p) => !p.signedIn && p.checkInTime),
+          notSignedIn: people.filter((p) => !p.checkInTime).map((p) => ({ staff: p.staff, role: p.role })),
+          counts: {
+            onDuty: people.filter((p) => p.signedIn).length,
+            onBreak: people.filter((p) => p.onBreak).length,
+            notSignedIn: people.filter((p) => !p.checkInTime).length,
+          },
+        };
       },
     });
+
   }
 
   const availableActions = actionsForRole(profile.role).filter((kind) =>
@@ -869,7 +1101,7 @@ function buildTools(
       ]);
       const roomIds = (assignments.data ?? []).map((row: any) => row.room_id);
       const rooms = roomIds.length
-        ? await service.from("rooms").select("id,room_number,floor,status").in("id", roomIds).limit(200)
+        ? await service.from("rooms").select("id,room_number,floor_number,status").in("id", roomIds).limit(200)
         : { data: [] };
       const numbers = new Map((rooms.data ?? []).map((room: any) => [room.id, room]));
       return {
@@ -878,9 +1110,10 @@ function buildTools(
         myRooms: (assignments.data ?? []).map((row: any) => ({
           ...row,
           room_number: numbers.get(row.room_id)?.room_number ?? null,
-          floor: numbers.get(row.room_id)?.floor ?? null,
+          floor: numbers.get(row.room_id)?.floor_number ?? null,
           room_status: numbers.get(row.room_id)?.status ?? null,
         })),
+
         myTickets: myTickets.data ?? [],
       };
     },
@@ -898,7 +1131,9 @@ function buildTools(
         const names = hotels.filter((h) => ids.includes(h.hotel_id)).map((h) => h.hotel_name);
         const { data: rooms, error } = await service
           .from("rooms")
-          .select("id,room_number,floor,status,hotel,room_name,is_checkout_room,guest_nights_stayed")
+          .select(
+            "id,room_number,floor_number,status,hotel,room_name,is_checkout_room,guest_nights_stayed,is_dnd,towel_change_required,linen_change_required,last_cleaned_at,notes,pms_metadata",
+          )
           .eq("organization_slug", orgSlug)
           .in("hotel", [...new Set([...ids, ...names])])
           .eq("room_number", String(roomNumber).trim())
@@ -913,12 +1148,16 @@ function buildTools(
             .eq("room_id", room.id)
             .eq("assignment_date", today())
             .limit(5),
+          // tickets has no room_id — it is keyed by room_number + hotel.
           service
             .from("tickets")
-            .select("id,ticket_number,title,status,priority,created_at,sla_due_date")
-            .eq("room_id", room.id)
+            .select("id,ticket_number,title,status,priority,created_at,sla_due_date,assigned_to,on_hold")
+            .eq("organization_slug", orgSlug)
+            .eq("hotel", room.hotel)
+            .eq("room_number", room.room_number)
             .neq("status", "completed")
             .limit(30),
+
           service
             .from("housekeeping_notes")
             .select("id,note_type,content,is_resolved,created_at")
@@ -927,12 +1166,29 @@ function buildTools(
             .order("created_at", { ascending: false })
             .limit(20),
         ]);
+        const people = [
+          ...new Set([
+            ...(assignment.data ?? []).map((a: any) => a.assigned_to),
+            ...(roomTickets.data ?? []).map((t: any) => t.assigned_to),
+          ].filter(Boolean)),
+        ];
+        const staff = people.length
+          ? await service.from("profiles").select("id,full_name,nickname").in("id", people).limit(100)
+          : { data: [] };
+        const nameOf = new Map((staff.data ?? []).map((p: any) => [p.id, p.full_name || p.nickname || "Unnamed staff"]));
         return {
-          room,
-          todaysAssignments: assignment.data ?? [],
-          openTickets: roomTickets.data ?? [],
+          room: { ...room, floor: room.floor_number ?? null },
+          todaysAssignments: (assignment.data ?? []).map((a: any) => ({
+            ...a,
+            assigned_to: a.assigned_to ? nameOf.get(a.assigned_to) ?? "Unknown staff" : null,
+          })),
+          openTickets: (roomTickets.data ?? []).map((t: any) => ({
+            ...t,
+            assigned_to: t.assigned_to ? nameOf.get(t.assigned_to) ?? "Unknown staff" : null,
+          })),
           openNotes: notes.data ?? [],
         };
+
       },
     });
   }
@@ -1153,6 +1409,15 @@ Properties you may read: ${hotels.map((h) => `${h.hotel_name} (${h.hotel_id})`).
 If the user asks about their own shift, rooms or tickets ('what do I do now', 'my rooms', 'am I signed in'), call get_my_day first.
 For arrivals, departures, in-house rooms or breakfast, always call get_reception_overview (it reads the live PMS daily overview) before answering, and answer with the room-level detail it returns. Never state "no arrivals" unless that tool actually returned zero arrivals for that date and hotel; if it reports missing PMS rows, say the data has not synced yet instead of reporting zero. If the user says the numbers look wrong, re-run the tool for the exact date and hotel they mean rather than repeating your previous answer.
 
+How to answer operational questions — you are judged against an experienced hotel supervisor, so vagueness is a failure:
+- For any housekeeping question, call get_housekeeping_status; for a broad "how are we doing today" call get_housekeeping_briefing (housekeeping + PMS + maintenance in one read). Never answer housekeeping from memory or from bare status counts.
+- Lead with the concrete picture: checkout rooms versus daily rooms, how many are done / in progress / not started, overall progress percentage, and each housekeeper by name with their completed-of-assigned count.
+- Always call out the exceptions: DND rooms, no-service rooms, unassigned dirty rooms, rooms with unresolved notes, towel/linen changes due, SLA-breached tickets. Give the room numbers, not adjectives.
+- Never say things like "the team seems to be working efficiently". Say what is finished, what is left, who is behind and what to do next.
+- If a tool reports a data-freshness warning or returns zero assignments, say the data has not been assigned/synced yet — do not report it as good news.
+- If the user disputes a number, re-run the tool for the exact hotel and date and compare with what they see, instead of restating your previous answer.
+
+
 Use tools for live hotel facts. Never invent internal data. Never reveal another organization, hotel, venue, guest identity, credential, staff pay, or information outside the available tools.
 Unavailable tools are unavailable because of authorization. If asked for an unauthorized data area, say access is required without speculating about the data.
 Use markdown, and short tables when comparing dates or properties.
@@ -1169,7 +1434,7 @@ Never mention tools, tool names, JSON, ids or internal fields in your reply; wri
       providerOptions: {
         openai: {
           store: false,
-          reasoningEffort: "medium",
+          reasoningEffort: "high",
           reasoningSummary: "auto",
           include: ["reasoning.encrypted_content"],
         },
