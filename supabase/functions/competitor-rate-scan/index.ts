@@ -142,6 +142,9 @@ async function askDates(
         continue;
       }
       const payload = await attempt.json();
+      usage.model = model;
+      usage.inputTokens = Number(payload?.usage?.input_tokens ?? 0);
+      usage.outputTokens = Number(payload?.usage?.output_tokens ?? 0);
       const text: string = payload.output_text
         ?? (payload.output ?? [])
           .flatMap((o: { content?: { text?: string }[] }) => o.content ?? [])
