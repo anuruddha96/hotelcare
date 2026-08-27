@@ -243,7 +243,7 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
     setScanning(true);
     try {
       const { error } = await supabase.functions.invoke("competitor-rate-scan", {
-        body: { hotelId, days: 30 },
+        body: { hotelId, days: 60 },
       });
       if (error) throw error;
       toast.success("Scanning competitor prices in the background — results appear here as they land.");
