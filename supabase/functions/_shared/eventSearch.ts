@@ -6,6 +6,9 @@
 // are never estimated, and anything the organisation already has is filtered
 // out before it can be offered or saved twice.
 
+import { logAiUsage } from "./aiBudget.ts";
+
+
 /** Comparison key for duplicate detection: accents, case and noise removed. */
 export function normTitle(t: string): string {
   return String(t)
