@@ -147,7 +147,31 @@ export function useMarketRates(hotelId: string | null): MarketRatesResult {
     return map;
   }, [market]);
 
-  return { competitors, ratesByCompetitor, reliabilityByCompetitor, marketByDate, rows, loading, reload };
+  // How far ahead the scan actually reaches. A competitor line that stops mid
+  // chart is missing data, not a price collapse, so the chart states where the
+  // data ends rather than letting the reader guess.
+  const coverageByCompetitor = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [id, byDate] of ratesByCompetitor) {
+      let last = "";
+      for (const date of byDate.keys()) if (date > last) last = date;
+      if (last) map.set(id, last);
+    }
+    return map;
+  }, [ratesByCompetitor]);
+
+  const coverageEnd = useMemo(() => {
+    let last = "";
+    for (const d of coverageByCompetitor.values()) if (d > last) last = d;
+    for (const [date, m] of marketByDate) if (m.sample_size > 0 && date > last) last = date;
+    return last || null;
+  }, [coverageByCompetitor, marketByDate]);
+
+  return {
+    competitors, ratesByCompetitor, reliabilityByCompetitor,
+    coverageByCompetitor, coverageEnd, marketByDate, rows, loading, reload,
+  };
+
 }
 
 /** How many prices a competitor currently holds in the loaded horizon. */
