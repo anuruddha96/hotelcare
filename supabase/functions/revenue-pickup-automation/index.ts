@@ -1372,6 +1372,8 @@ Deno.serve(async (req) => {
             }
           }
           console.log(`[ladder-repair] ${rule.hotel_id} candidates=${repairRows.length} queued=${ladderRepairActions}`);
+          await announcePass("ladder repair", ladderRepairActions);
+
         } catch (error) {
           console.log(`[ladder-repair] ${rule.hotel_id} failed: ${(error as Error)?.message ?? error}`);
         }
