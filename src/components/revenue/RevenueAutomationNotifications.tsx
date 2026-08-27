@@ -37,7 +37,9 @@ const money = (value: number | null | undefined, currency: string | null | undef
 /** Bell + inbox for revenue price-automation activity. */
 export function RevenueAutomationNotifications() {
   const canSee = useCanSeeAutomationNotifications();
+  const navigate = useNavigate();
   const { items, unreadCount, markRead, markAllRead } = useRevenueAutomationNotifications(canSee);
+
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<AutomationNotification | null>(null);
   const welcomed = useRef(false);
