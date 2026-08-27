@@ -15,11 +15,11 @@ interface FeedbackRow {
 interface IssueRow {
   id: string;
   title: string;
-  description: string | null;
+  user_description: string | null;
   category: string | null;
   severity: string | null;
   status: string | null;
-  route: string | null;
+  current_route: string | null;
   created_at: string;
 }
 
@@ -58,7 +58,7 @@ export default function AssistantInsights() {
       .then(({ data }) => setFeedback((data ?? []) as FeedbackRow[]));
     supabase
       .from("assistant_issue_reports")
-      .select("id,title,description,category,severity,status,route,created_at")
+      .select("id,title,user_description,category,severity,status,current_route,created_at")
       .order("created_at", { ascending: false })
       .limit(50)
       .then(({ data }) => setIssues((data ?? []) as IssueRow[]));
@@ -121,8 +121,8 @@ export default function AssistantInsights() {
                   {issue.status && <Badge variant="secondary">{issue.status}</Badge>}
                 </div>
               </div>
-              {issue.description && (
-                <p className="text-xs text-muted-foreground pl-[7.5rem] line-clamp-2">{issue.description}</p>
+              {issue.user_description && (
+                <p className="text-xs text-muted-foreground pl-[7.5rem] line-clamp-2">{issue.user_description}</p>
               )}
             </div>
           ))}
