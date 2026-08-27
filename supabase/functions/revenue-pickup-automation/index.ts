@@ -94,6 +94,14 @@ interface Rule {
   manual_markdown_hold_hours: number;
   version: number;
   last_run_at: string | null;
+  // Runaway-rise protection
+  max_daily_increase_pct: number | null;
+  max_increase_pct: number | null;
+  event_uplift_once_per_day: boolean | null;
+  market_ceiling_multiple: number | null;
+  manual_override_ai_enabled: boolean | null;
+  manual_override_review_hours: number | null;
+
   // Smart pricing (all optional, neutral defaults)
   smart_pricing_enabled: boolean;
   near_term_days: number;
