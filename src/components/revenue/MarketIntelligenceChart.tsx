@@ -454,74 +454,52 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
 
 
   /**
-   * Calendar-month KPIs for every property, measured over ONE identical window.
+   * Calendar-month KPIs for every property.
    *
-   * Snapshots do not start on the same day for every property (for 2026-08 this
-   * property held 27 nights from 5 Aug while the sister hotels held 21 from
-   * 11 Aug), so dividing each hotel's sold rooms by whatever nights it happened
-   * to have made the tiles look precise while comparing different periods. The
-   * window is now the intersection of the nights every compared property has
-   * captured inside the selected month, it is printed under the tiles, and
-   * money is normalised to euros using each property's own base currency.
+   * The tile for the open property is computed from exactly the same grid
+   * metrics that drive the "How <month> is performing" summary above, so the
+   * two can never disagree. Sister properties are measured over every night
+   * they reported inside the same calendar month (not an intersection window,
+   * which used to drop the softer early-month nights and inflate occupancy).
    */
   const comparison = useMemo(() => {
-    if (!compare) return { from: null as string | null, to: null as string | null, nights: 0, tiles: [] as Array<{ hotel_id: string; hotel_name: string; occ: number | null; adr: number | null; revpar: number | null }> };
+    if (!compare) return { nights: 0, tiles: [] as Array<{ hotel_id: string; hotel_name: string; occ: number | null; adr: number | null; revpar: number | null; nights: number }> };
 
-    /** Nights each property actually reported inside the month. */
-    const datesByHotel = new Map<string, Set<string>>();
-    for (const r of latestByHotelDate.values()) {
-      if (r.stay_date.slice(0, 7) !== selectedMonth) continue;
-      if (!Number(r.rooms_available)) continue;
-      const set = datesByHotel.get(r.hotel_id) ?? new Set<string>();
-      set.add(r.stay_date);
-      datesByHotel.set(r.hotel_id, set);
-    }
-    // The open property can fall back to the live grid when no snapshot landed.
     const gridRows = metrics.filter((m) => m.stay_date.slice(0, 7) === selectedMonth && m.roomsAvailable > 0);
-    if (hotelId && !datesByHotel.has(hotelId) && gridRows.length) {
-      datesByHotel.set(hotelId, new Set(gridRows.map((m) => m.stay_date)));
-    }
-
-    const reporting = hotels.filter((h) => (datesByHotel.get(h.hotel_id)?.size ?? 0) > 0);
-    let shared: string[] = [];
-    if (reporting.length) {
-      const first = datesByHotel.get(reporting[0].hotel_id)!;
-      shared = Array.from(first)
-        .filter((d) => reporting.every((h) => datesByHotel.get(h.hotel_id)!.has(d)))
-        .sort();
-    }
-    const sharedSet = new Set(shared);
 
     const tiles = hotels.map((h) => {
       const rate = eurRateByHotel.get(h.hotel_id) ?? 1;
-      const useGrid = !latestByHotelDate.has(`${h.hotel_id}|${shared[0] ?? ""}`) && h.hotel_id === hotelId;
-      let sold = 0, capacity = 0, revenue = 0;
-      if (useGrid) {
+      let sold = 0, capacity = 0, revenue = 0, nights = 0;
+      if (h.hotel_id === hotelId && gridRows.length) {
         for (const m of gridRows) {
-          if (!sharedSet.has(m.stay_date)) continue;
-          sold += m.roomsSold; capacity += m.roomsAvailable; revenue += m.revenueEur / rate;
+          sold += m.roomsSold; capacity += m.roomsAvailable; revenue += m.revenueEur / rate; nights += 1;
         }
       } else {
-        for (const date of shared) {
-          const r = latestByHotelDate.get(`${h.hotel_id}|${date}`);
-          if (!r) continue;
+        for (const r of latestByHotelDate.values()) {
+          if (r.hotel_id !== h.hotel_id) continue;
+          if (r.stay_date.slice(0, 7) !== selectedMonth) continue;
+          const cap = Number(r.rooms_available) || 0;
+          if (!cap) continue;
           sold += Number(r.rooms_sold) || 0;
-          capacity += Number(r.rooms_available) || 0;
+          capacity += cap;
           revenue += Number(r.revenue_eur ?? 0) / rate;
+          nights += 1;
         }
       }
       return {
         ...h,
+        nights,
         occ: capacity > 0 ? Math.round((sold / capacity) * 100) : null,
         adr: sold > 0 ? Math.round(revenue / sold) : null,
         revpar: capacity > 0 ? Math.round(revenue / capacity) : null,
       };
     }).sort((a, b) => (a.hotel_id === hotelId ? -1 : b.hotel_id === hotelId ? 1 : 0));
 
-    return { from: shared[0] ?? null, to: shared[shared.length - 1] ?? null, nights: shared.length, tiles };
+    return { nights: tiles.find((t) => t.hotel_id === hotelId)?.nights ?? 0, tiles };
   }, [compare, hotels, latestByHotelDate, hotelId, metrics, selectedMonth, eurRateByHotel]);
 
   const comparisonSummary = comparison.tiles;
+
 
 
 
