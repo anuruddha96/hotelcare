@@ -119,11 +119,9 @@ export function RevenueAutomationNotifications() {
                     </span>
                   </div>
                   <p className={cn('mt-1 text-xs', failed ? 'text-destructive font-medium' : 'text-muted-foreground')}>
-                    {failed
-                      ? `${item.failed_count} price${item.failed_count === 1 ? '' : 's'} need attention · ${item.pushed_count} sent`
-                      : item.summary ??
-                        `${item.changes.length} prices changed · ${item.pushed_count} sent · 0 failed`}
+                    {runPreview(item)}
                   </p>
+
                   <p className="mt-0.5 text-[11px] text-muted-foreground truncate">{item.actor_name}</p>
                 </button>
               );
