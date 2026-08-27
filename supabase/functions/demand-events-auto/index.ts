@@ -15,6 +15,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { searchEvents } from "../_shared/eventSearch.ts";
+import { aiFeatureEnabled, checkAiBudget } from "../_shared/aiBudget.ts";
 
 // Cost control: this sweep pays for a web search per month scanned. It now
 // runs weekly on a rotating 3-month window, so the full 12-month horizon is
