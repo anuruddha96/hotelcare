@@ -148,7 +148,9 @@ export async function searchEvents(opts: {
       input: compactRetry ? `${prompt} Prioritize high and medium impact events and produce compact JSON.` : prompt,
       text: { format: { type: "json_schema", name: "events", strict: true, schema } },
       max_output_tokens: compactRetry ? 10000 : 16000,
-      tools: [{ type: "web_search_preview", search_context_size: compactRetry ? "medium" : "high" }],
+      // "high" search context roughly triples the bill for a handful of extra
+      // events, so both the first attempt and the retry stay on "medium".
+      tools: [{ type: "web_search_preview", search_context_size: compactRetry ? "low" : "medium" }],
       tool_choice: "auto",
     };
 
