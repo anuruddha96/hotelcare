@@ -24,6 +24,10 @@ import {
   clampAiFactor,
   applyRounding,
   roundStep,
+  riseCeiling,
+  aboveMarket,
+
+
 
   shortWindowIncreaseAllowed,
   soldOutBlocksIncrease,
@@ -90,6 +94,14 @@ interface Rule {
   manual_markdown_hold_hours: number;
   version: number;
   last_run_at: string | null;
+  // Runaway-rise protection
+  max_daily_increase_pct: number | null;
+  max_increase_pct: number | null;
+  event_uplift_once_per_day: boolean | null;
+  market_ceiling_multiple: number | null;
+  manual_override_ai_enabled: boolean | null;
+  manual_override_review_hours: number | null;
+
   // Smart pricing (all optional, neutral defaults)
   smart_pricing_enabled: boolean;
   near_term_days: number;
@@ -237,6 +249,80 @@ async function aiScaleDeltas(candidates: AiCandidate[], rule: Rule): Promise<Map
   }
   return out;
 }
+
+interface ManualOverrideCase {
+  stay_date: string;
+  days_out: number;
+  occupancy_pct: number | null;
+  rooms_left: number | null;
+  manual_from: number;
+  manual_to: number;
+  manual_at: string;
+  market_median: number | null;
+  proposed_delta: number;
+}
+
+/**
+ * A human lowered a price on purpose. Once the hold expires the engine asks the
+ * advisor whether re-raising that date is commercially defensible. The answer
+ * can only KEEP (factor 1) or CANCEL (factor 0) the automated move — it can
+ * never make it bigger, and a missing/failing advisor cancels the move so the
+ * human decision stands.
+ */
+async function aiReviewManualOverrides(cases: ManualOverrideCase[], rule: Rule): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (cases.length === 0) return out;
+  const key = Deno.env.get("OPENAI_API_KEY");
+  // No advisor available: respect the human edit rather than overriding it.
+  if (!key) {
+    for (const c of cases) out.set(c.stay_date, 0);
+    return out;
+  }
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini",
+        temperature: 0.1,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a hotel revenue analyst. A revenue manager manually LOWERED the price for these stay dates. Automation now wants to raise them again. For each date decide whether the automated raise is still justified by demand (high occupancy, few rooms left, price far below the market median) or whether the manager's lower price should stand. Reply with JSON {\"dates\":[{\"d\":\"YYYY-MM-DD\",\"factor\":0 or 1,\"reason\":\"short\"}]}. factor 1 allows the raise, 0 keeps the manager's price. Prefer 0 when occupancy is soft, when rooms are plentiful, or when the price already sits at or above the market median.",
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              currency: rule.currency ?? "EUR",
+              floor: rule.minimum_adr,
+              dates: cases.slice(0, 80),
+            }),
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw new Error(`advisor ${res.status}`);
+    const body = await res.json();
+    const text = body?.choices?.[0]?.message?.content;
+    const parsed = typeof text === "string" ? JSON.parse(text) : null;
+    const decided = new Map<string, number>();
+    for (const row of (parsed?.dates ?? []) as any[]) {
+      const date = String(row?.d ?? "");
+      const factor = Number(row?.factor);
+      if (!date || !Number.isFinite(factor)) continue;
+      decided.set(date, factor >= 0.5 ? 1 : 0);
+    }
+    for (const c of cases) out.set(c.stay_date, decided.get(c.stay_date) ?? 0);
+  } catch (e) {
+    console.warn("manual override review unavailable", describeError(e));
+    for (const c of cases) out.set(c.stay_date, 0);
+  }
+  return out;
+}
+
 
 /**
  * Scale already-computed decisions by the advisor's factors, in place. Rows the
@@ -1403,19 +1489,27 @@ Deno.serve(async (req) => {
         const leadDays = Math.max(0, Number(rule.long_lead_days ?? 30));
         const highPct = Number(rule.high_occupancy_pct ?? 85);
 
+        const manualLookbackHours = Math.max(
+          Number(rule.manual_markdown_hold_hours || 0),
+          Number(rule.manual_override_review_hours ?? 24),
+        );
+
         const [
           { data: strongRates },
           { data: strongSnapshots },
           { data: strongToday },
           { data: strongManual },
           { data: strongPending },
+          { data: marketRows },
         ] = await Promise.all([
           pagedAll((f, t) => admin.from("revenue_room_type_rates").select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_at", { ascending: false }).order("stay_date").range(f, t)),
           pagedAll((f, t) => admin.from("revenue_daily_snapshots").select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).order("captured_date", { ascending: false }).order("stay_date").range(f, t)),
-          pagedAll((f, t) => admin.from("revenue_pickup_automation_actions").select("stay_date, increase_amount").eq("hotel_id", rule.hotel_id).eq("local_business_date", local.date).gt("increase_amount", 0).order("stay_date").range(f, t)),
-          pagedAll((f, t) => admin.from("rate_change_audit").select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).gte("performed_at", new Date(Date.now() - Math.max(0, Number(rule.manual_markdown_hold_hours || 0)) * 3_600_000).toISOString()).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("revenue_pickup_automation_actions").select("stay_date, obk_id, occupancy, increase_amount, decision_reason").eq("hotel_id", rule.hotel_id).eq("local_business_date", local.date).gt("increase_amount", 0).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("rate_change_audit").select("stay_date, performed_at, source, old_price, new_price").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).gte("performed_at", new Date(Date.now() - Math.max(0, manualLookbackHours) * 3_600_000).toISOString()).order("stay_date").range(f, t)),
           pagedAll((f, t) => admin.from("revenue_rate_drafts").select("id, stay_date, obk_id, occupancy, new_price, status, created_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).in("status", ["draft", "sending", "pushed"]).is("superseded_at", null).order("stay_date").range(f, t)),
+          pagedAll((f, t) => admin.from("competitor_rates").select("stay_date, rate, confidence, captured_at").eq("hotel_id", rule.hotel_id).gte("stay_date", local.date).lte("stay_date", horizonDate).gte("captured_at", new Date(Date.now() - 7 * 86_400_000).toISOString()).gt("rate", 0).order("stay_date").range(f, t)),
         ]);
+
 
         const occByDate = new Map<string, number | null>();
         const leftByDate = new Map<string, number | null>();
@@ -1515,16 +1609,55 @@ Deno.serve(async (req) => {
             }
           }
         }
-        const raisedTodayByDate = new Map<string, number>();
+        // What each individual cell already gained today. Summing per stay date
+        // over-counted the cap by the number of room types, which is how a
+        // single event could compound all day.
+        const raisedTodayByCell = new Map<string, number>();
+        const eventAppliedToday = new Set<string>();
         for (const row of (strongToday ?? []) as any[]) {
-          raisedTodayByDate.set(row.stay_date, (raisedTodayByDate.get(row.stay_date) ?? 0) + Math.abs(Number(row.increase_amount || 0)));
+          const key = `${row.stay_date}|${row.obk_id}|${row.occupancy}`;
+          raisedTodayByCell.set(key, (raisedTodayByCell.get(key) ?? 0) + Math.abs(Number(row.increase_amount || 0)));
+          if (String(row.decision_reason ?? "") === "event_demand") eventAppliedToday.add(row.stay_date);
+        }
+        // Dates that took a genuinely new booking in this observation window.
+        // Only these may take a second event-driven rise on the same day.
+        const freshPickupDates = new Set<string>();
+        for (const p of pickups) {
+          if (p.created_at_pms && p.created_at_pms >= evalWindow.from) freshPickupDates.add(p.stay_date);
+        }
+        // Local market median per stay date, for the above-market warning flag.
+        const marketByDate = new Map<string, number>();
+        {
+          const buckets = new Map<string, number[]>();
+          for (const row of (marketRows ?? []) as any[]) {
+            const confidence = row.confidence === null || row.confidence === undefined ? 1 : Number(row.confidence);
+            if (Number.isFinite(confidence) && confidence < 0.45) continue;
+            const rate = Number(row.rate);
+            if (!Number.isFinite(rate) || rate <= 0) continue;
+            const list = buckets.get(row.stay_date) ?? [];
+            list.push(rate);
+            buckets.set(row.stay_date, list);
+          }
+          for (const [date, list] of buckets) {
+            list.sort((a, b) => a - b);
+            const mid = Math.floor(list.length / 2);
+            marketByDate.set(date, list.length % 2 ? list[mid] : Math.round((list[mid - 1] + list[mid]) / 2));
+          }
         }
         const manualHold = new Map<string, string>();
+        const manualDrop = new Map<string, { at: string; from: number; to: number }>();
         for (const row of (strongManual ?? []) as any[]) {
           if (String(row.source ?? "").includes("automation")) continue;
           const seen = manualHold.get(row.stay_date);
           if (!seen || row.performed_at > seen) manualHold.set(row.stay_date, row.performed_at);
+          const from = Number(row.old_price);
+          const to = Number(row.new_price);
+          if (Number.isFinite(from) && Number.isFinite(to) && to < from) {
+            const prev = manualDrop.get(row.stay_date);
+            if (!prev || row.performed_at > prev.at) manualDrop.set(row.stay_date, { at: row.performed_at, from, to });
+          }
         }
+
         const strongPendingByCell = new Map<string, Array<{ new_price: number; created_at: string }>>();
         for (const row of (strongPending ?? []) as any[]) {
           const key = `${row.stay_date}|${row.obk_id}|${row.occupancy}`;
@@ -1541,13 +1674,34 @@ Deno.serve(async (req) => {
         const strongRows: any[] = [];
         const strongDrafts: any[] = [];
         const stepByDate = new Map<string, number>();
+        const manualReviewDates = new Set<string>();
+        let heldEventGate = 0;
+        let heldRiseCap = 0;
         for (const rate of newestRate.values()) {
           const holdMs = Math.max(0, Number(rule.manual_markdown_hold_hours ?? 6)) * 3_600_000;
           const editedAt = manualHold.get(rate.stay_date);
           if (editedAt && Date.now() - Date.parse(editedAt) < holdMs) continue;
 
+          // The hold has elapsed but a human recently pushed this date DOWN.
+          // Flag it so the advisor can veto an automatic re-raise.
+          const drop = manualDrop.get(rate.stay_date);
+          if (
+            drop && rule.manual_override_ai_enabled !== false &&
+            Date.now() - Date.parse(drop.at) <
+              Math.max(0, Number(rule.manual_override_review_hours ?? 24)) * 3_600_000
+          ) manualReviewDates.add(rate.stay_date);
+
           const spike = spikeByDate.get(rate.stay_date) ?? null;
-          const event = rule.event_surcharge_auto ? eventByDate.get(rate.stay_date) ?? null : null;
+          const eventRaw = rule.event_surcharge_auto ? eventByDate.get(rate.stay_date) ?? null : null;
+          // One event uplift per stay date per business day. A further rise on
+          // the same event needs a genuinely new booking, otherwise the same
+          // event compounds on every hourly cycle.
+          const eventGated = !!eventRaw &&
+            rule.event_uplift_once_per_day !== false &&
+            eventAppliedToday.has(rate.stay_date) &&
+            !freshPickupDates.has(rate.stay_date);
+          if (eventGated) heldEventGate++;
+          const event = eventGated ? null : eventRaw;
 
           // Final selling window: inside the cancellation tail neither a spike
           // nor an event may raise the price — the remaining rooms must sell.
@@ -1561,7 +1715,8 @@ Deno.serve(async (req) => {
           });
           if (tail.inWindow && !tail.allowIncrease) continue;
 
-          if (!stepByDate.has(rate.stay_date)) {
+          const stepKey = `${rate.stay_date}|${event ? "e" : "n"}`;
+          if (!stepByDate.has(stepKey)) {
             let base = strongDemandStep({
               occupancyPct: occByDate.get(rate.stay_date) ?? null,
               daysOut: dayDiff(local.date, rate.stay_date),
@@ -1569,17 +1724,13 @@ Deno.serve(async (req) => {
               highOccupancyPct: highPct,
               increase: Number(rule.strong_demand_increase || 0),
               maximumIncrease: rule.maximum_increase,
-              raisedToday: raisedTodayByDate.get(rate.stay_date) ?? 0,
+              raisedToday: 0,
               maxDailyIncreasePerDate: Number(rule.max_daily_increase_per_date || 0),
               markedDownToday: markdownDatesThisRun.has(rate.stay_date),
             });
 
             const blockedForRise = markdownDatesThisRun.has(rate.stay_date);
-            const room = Math.max(
-              0,
-              Number(rule.max_daily_increase_per_date || 0) -
-                Math.max(0, Number(raisedTodayByDate.get(rate.stay_date) ?? 0)) - base,
-            );
+            const room = Math.max(0, Number(rule.max_daily_increase_per_date || 0) - base);
 
             // A date filling ahead of pace is worth a step even when it has
             // not yet crossed the "already full" threshold.
@@ -1595,19 +1746,15 @@ Deno.serve(async (req) => {
                 impact: event.impact,
                 surcharge: Number(rule.event_surcharge_eur || 0),
                 maximumIncrease: rule.maximum_increase,
-                remainingDailyRoom: Math.max(
-                  0,
-                  Number(rule.max_daily_increase_per_date || 0) -
-                    Math.max(0, Number(raisedTodayByDate.get(rate.stay_date) ?? 0)) - base,
-                ),
+                remainingDailyRoom: Math.max(0, Number(rule.max_daily_increase_per_date || 0) - base),
               });
             }
 
             // Whole-unit steps only: an event/spike scaled step of 4.5 becomes
             // 4 rather than a decimal amount in the trail.
-            stepByDate.set(rate.stay_date, roundStep(base, rule.whole_number_prices !== false, "down"));
+            stepByDate.set(stepKey, roundStep(base, rule.whole_number_prices !== false, "down"));
           }
-          const step = stepByDate.get(rate.stay_date) ?? 0;
+          const step = stepByDate.get(stepKey) ?? 0;
           if (step <= 0) continue;
 
 
@@ -1624,12 +1771,53 @@ Deno.serve(async (req) => {
           const cell = `${rate.stay_date}|${rate.obk_id}|${rate.occupancy}`;
           const current = effectivePrice(Number(rate.price), strongPendingByCell.get(cell) ?? []);
           if (current === null) continue;
+
+          // Ceilings are measured against THIS cell's price and against what
+          // this cell already gained today, so a 165 room and an 800 room are
+          // both held to a sane percentage.
+          const moveCap = riseCeiling({
+            absolute: rule.maximum_increase, percent: rule.max_increase_pct, currentPrice: current,
+          });
+          const dailyCap = riseCeiling({
+            absolute: rule.max_daily_increase_per_date, percent: rule.max_daily_increase_pct, currentPrice: current,
+          });
+          const usedToday = Math.max(0, Number(raisedTodayByCell.get(cell) ?? 0));
+          const allowedStep = roundStep(
+            Math.min(step, moveCap, Math.max(0, dailyCap - usedToday)),
+            rule.whole_number_prices !== false,
+            "down",
+          );
+          if (allowedStep <= 0) { heldRiseCap++; continue; }
+
           const newPrice = applyRounding(
-            current + step, "increase", rule.whole_number_prices !== false,
+            current + allowedStep, "increase", rule.whole_number_prices !== false,
             rule.minimum_adr === null ? null : Number(rule.minimum_adr),
           );
           if (!(newPrice > current)) continue;
           const movedBy = roundStep(newPrice - current, rule.whole_number_prices !== false, "nearest");
+
+          const marketMedian = marketByDate.get(rate.stay_date) ?? null;
+          const overMarket = aboveMarket({
+            price: newPrice, marketMedian, multiple: rule.market_ceiling_multiple,
+          });
+          const currencyLabel = rate.currency ?? rule.currency ?? "EUR";
+          const baseReason = (spike || event)
+            ? demandSignalText({
+              amount: movedBy,
+              currency: currencyLabel,
+              spikeDeltaPct: spike?.deltaPct ?? null,
+              lookbackDays: Number(rule.spike_lookback_days ?? 7),
+              eventTitle: event?.title ?? null,
+              eventImpact: event?.impact ?? null,
+              daysOut: dayDiff(local.date, rate.stay_date),
+            })
+            : decisionReasonText({
+              kind: "strong_demand",
+              occupancyPct: occByDate.get(rate.stay_date) ?? null,
+              daysOut: dayDiff(local.date, rate.stay_date),
+              amount: movedBy,
+              currency: currencyLabel,
+            });
 
           strongDates.add(rate.stay_date);
           strongRows.push({
@@ -1640,33 +1828,55 @@ Deno.serve(async (req) => {
             status: rule.auto_publish ? "queued" : "suggested", decision_type: "smart_strong_demand",
             observation_from: evalWindow.from, observation_to: runStartedAt,
             net_pickup: 0, schedule_slot: slot, local_business_date: local.date, cap_applied: movedBy,
+            above_market: overMarket,
+            market_median: marketMedian,
 
             decision_reason: event ? "event_demand" : spike ? "demand_spike" : "strong_demand",
-            reason_detail: (spike || event)
-              ? demandSignalText({
-                amount: movedBy,
-                currency: rate.currency ?? rule.currency ?? "EUR",
-                spikeDeltaPct: spike?.deltaPct ?? null,
-                lookbackDays: Number(rule.spike_lookback_days ?? 7),
-                eventTitle: event?.title ?? null,
-                eventImpact: event?.impact ?? null,
-                daysOut: dayDiff(local.date, rate.stay_date),
-              })
-              : decisionReasonText({
-                kind: "strong_demand",
-                occupancyPct: occByDate.get(rate.stay_date) ?? null,
-                daysOut: dayDiff(local.date, rate.stay_date),
-                amount: movedBy,
-                currency: rate.currency ?? rule.currency ?? "EUR",
-              }),
+            reason_detail: overMarket
+              ? `${baseReason} Heads-up: ${currencyLabel} ${newPrice} is above the local market median of ${currencyLabel} ${marketMedian} for that night.`
+              : baseReason,
 
           });
+
           if (rule.auto_publish) strongDrafts.push({
             hotel_id: rule.hotel_id, organization_slug: rule.organization_slug, stay_date: rate.stay_date,
             obk_id: String(rate.obk_id), room_type_name: rate.room_type_name, occupancy: Number(rate.occupancy) || 2,
             old_price: current, new_price: newPrice, currency: rate.currency ?? rule.currency ?? "EUR", status: "draft",
             priority: priorityOf("pickup"), intent_source: "automation_smart_strong",
           });
+        }
+        if (heldEventGate > 0 || heldRiseCap > 0) {
+          console.log(`[${rule.hotel_id}] rise guards: event-gate ${heldEventGate}, cap ${heldRiseCap}`);
+        }
+
+
+        // A human lowered this date recently and the hold has just expired.
+        // Before automation re-raises it, the advisor reasons about whether
+        // that is commercially sensible; it may only keep or cancel the move.
+        if (manualReviewDates.size > 0 && strongRows.length > 0) {
+          const veto = await aiReviewManualOverrides(
+            Array.from(manualReviewDates)
+              .filter((d) => strongDates.has(d))
+              .map((d) => {
+                const drop = manualDrop.get(d)!;
+                return {
+                  stay_date: d,
+                  days_out: dayDiff(local.date, d),
+                  occupancy_pct: occByDate.get(d) ?? null,
+                  rooms_left: leftByDate.get(d) ?? null,
+                  manual_from: drop.from,
+                  manual_to: drop.to,
+                  manual_at: drop.at,
+                  market_median: marketByDate.get(d) ?? null,
+                  proposed_delta: Math.max(
+                    stepByDate.get(`${d}|e`) ?? 0,
+                    stepByDate.get(`${d}|n`) ?? 0,
+                  ),
+                };
+              }),
+            rule,
+          );
+          if (veto.size > 0) applyAiFactors(strongRows, strongDrafts, veto, "increase");
         }
 
         // Optional AI advisor: it may only confirm or SHRINK a deterministic
@@ -1676,13 +1886,14 @@ Deno.serve(async (req) => {
             Array.from(strongDates).map((d) => ({
               stay_date: d, days_out: dayDiff(local.date, d),
               occupancy_pct: occByDate.get(d) ?? null,
-              proposed_delta: stepByDate.get(d) ?? 0,
+              proposed_delta: Math.max(stepByDate.get(`${d}|e`) ?? 0, stepByDate.get(`${d}|n`) ?? 0),
               direction: "increase" as const,
             })),
             rule,
           );
           applyAiFactors(strongRows, strongDrafts, factors, "increase");
         }
+
 
         if (!dryRun && strongRows.length > 0) {
           const { data: insertedStrong, error: strongError } = await admin.from("revenue_pickup_automation_actions")

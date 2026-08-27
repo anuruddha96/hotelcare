@@ -27,6 +27,10 @@ interface Rule {
   booking_window_tiers: Tier[]; same_hour_window_minutes: number;
   second_pickup_surcharge: number; minimum_adr: number | null;
   maximum_increase: number | null; max_daily_increase_per_date: number;
+  max_increase_pct: number; max_daily_increase_pct: number;
+  event_uplift_once_per_day: boolean; market_ceiling_multiple: number;
+  manual_override_ai_enabled: boolean; manual_override_review_hours: number;
+
   application_scope: "booked_room_type" | "all_room_types";
   positive_pickup_enabled: boolean; pickup_lookback_hours: number;
   no_pickup_enabled: boolean; no_pickup_lookback_hours: number;
@@ -107,6 +111,10 @@ const DEFAULT_RULE: Rule = {
   booking_window_tiers: [{ max_days: 31, increase: 8 }, { max_days: 93, increase: 18 }, { max_days: null, increase: 22 }],
   same_hour_window_minutes: 60, second_pickup_surcharge: 25, minimum_adr: 120,
   maximum_increase: 25, max_daily_increase_per_date: 40,
+  max_increase_pct: 5, max_daily_increase_pct: 6,
+  event_uplift_once_per_day: true, market_ceiling_multiple: 1.4,
+  manual_override_ai_enabled: true, manual_override_review_hours: 24,
+
   application_scope: "booked_room_type", version: 1,
   positive_pickup_enabled: true, pickup_lookback_hours: 48,
   no_pickup_enabled: false, no_pickup_lookback_hours: 8,
@@ -162,6 +170,13 @@ function explain(rule: Rule, hotelName: string): string[] {
   if (rule.minimum_adr) lines.push(`Prices are never published below €${rule.minimum_adr}.`);
   if (rule.maximum_increase) lines.push(`One pickup can add at most €${rule.maximum_increase}.`);
   lines.push(`A single date can rise at most €${rule.max_daily_increase_per_date} in one day, no matter how many bookings arrive.`);
+  if (rule.max_daily_increase_pct > 0) {
+    lines.push(`No price may finish a day more than ${rule.max_daily_increase_pct}% above where it started, and a single move is capped at ${rule.max_increase_pct}%.`);
+  }
+  if (rule.event_uplift_once_per_day) {
+    lines.push(`An event lifts a date once per day; any further rise on that date needs a genuinely new booking.`);
+  }
+
   if (rule.no_pickup_enabled) {
     const step = rule.no_pickup_decrease ?? 0.5;
     const perDay = Math.max(1, Math.floor(1440 / Math.max(60, rule.evaluation_interval_minutes))) * step;
@@ -403,6 +418,13 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       minimum_adr: source.rule.minimum_adr,
       maximum_increase: source.rule.maximum_increase,
       max_daily_increase_per_date: source.rule.max_daily_increase_per_date,
+      max_increase_pct: source.rule.max_increase_pct ?? 5,
+      max_daily_increase_pct: source.rule.max_daily_increase_pct ?? 6,
+      event_uplift_once_per_day: source.rule.event_uplift_once_per_day ?? true,
+      market_ceiling_multiple: source.rule.market_ceiling_multiple ?? 1.4,
+      manual_override_ai_enabled: source.rule.manual_override_ai_enabled ?? true,
+      manual_override_review_hours: source.rule.manual_override_review_hours ?? 24,
+
       application_scope: source.rule.application_scope ?? "booked_room_type",
       auto_publish: source.rule.auto_publish,
       positive_pickup_enabled: source.rule.positive_pickup_enabled ?? true,
@@ -481,6 +503,13 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       minimum_adr: rule.minimum_adr,
       maximum_increase: rule.maximum_increase,
       max_daily_increase_per_date: rule.max_daily_increase_per_date,
+      max_increase_pct: rule.max_increase_pct,
+      max_daily_increase_pct: rule.max_daily_increase_pct,
+      event_uplift_once_per_day: rule.event_uplift_once_per_day,
+      market_ceiling_multiple: rule.market_ceiling_multiple,
+      manual_override_ai_enabled: rule.manual_override_ai_enabled,
+      manual_override_review_hours: rule.manual_override_review_hours,
+
       application_scope: rule.application_scope,
       positive_pickup_enabled: rule.positive_pickup_enabled,
       pickup_lookback_hours: rule.pickup_lookback_hours,
@@ -929,6 +958,27 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                   value={rule.event_surcharge_eur}
                   onChange={(e) => setRule({ ...rule, event_surcharge_eur: Number(e.target.value) })}
                 />
+                <ToggleRow
+                  title="One event uplift per date per day"
+                  desc="The same event may lift a date once a day; a further rise needs a new booking."
+                  hint={<>Without this the same concert adds its surcharge on every hourly run, which is how a date can climb hundreds of {cur} in a day with no extra demand.</>}
+                  checked={rule.event_uplift_once_per_day}
+                  onChange={(event_uplift_once_per_day) => setRule({ ...rule, event_uplift_once_per_day })}
+                />
+                <ToggleRow
+                  title="Ask AI before undoing a manual drop"
+                  desc="After your hold expires, a price you lowered by hand is only raised again if the advisor agrees."
+                  hint={<>Reviewed for {rule.manual_override_review_hours} hours after your edit. If the advisor is unavailable, your price stands.</>}
+                  checked={rule.manual_override_ai_enabled}
+                  onChange={(manual_override_ai_enabled) => setRule({ ...rule, manual_override_ai_enabled })}
+                />
+                <NumField
+                  label="Review a manual drop for" suffix="h" min={0} max={168}
+                  disabled={!rule.manual_override_ai_enabled}
+                  value={rule.manual_override_review_hours}
+                  onChange={(e) => setRule({ ...rule, manual_override_review_hours: Number(e.target.value) })}
+                />
+
               </Section>
 
               {/* 3 — Lowering prices */}
@@ -1071,6 +1121,30 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                     onChange={(e) => setRule({ ...rule, max_daily_increase_per_date: Number(e.target.value) })}
                   />
                 </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <NumField
+                    label="Most one move may add" suffix="%" min={0} max={50} step={0.5}
+                    hint={<>A share of the price being changed. The tighter of this and the {cur} ceiling wins, so expensive rooms cannot jump.</>}
+                    value={rule.max_increase_pct}
+                    onChange={(e) => setRule({ ...rule, max_increase_pct: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Most a price may rise in a day" suffix="%" min={0} max={100} step={0.5}
+                    hint={<><strong>Example:</strong> at 6% a {cur} 500 room can never finish the day above {cur} 530, however many signals fire.</>}
+                    value={rule.max_daily_increase_pct}
+                    onChange={(e) => setRule({ ...rule, max_daily_increase_pct: Number(e.target.value) })}
+                  />
+                </div>
+
+                <NumField
+                  label="Warn when above market by" suffix="×" min={1} max={4} step={0.05}
+                  hint={<>Compared with the median of your watched competitors for that night. Above this the price history is flagged — the move is still made.</>}
+                  value={rule.market_ceiling_multiple}
+                  onChange={(e) => setRule({ ...rule, market_ceiling_multiple: Number(e.target.value) })}
+                />
+
+
 
                 <ToggleRow
                   title="Last-minute guard"

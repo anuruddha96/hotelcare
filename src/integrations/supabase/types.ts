@@ -6331,6 +6331,7 @@ export type Database = {
       }
       revenue_pickup_automation_actions: {
         Row: {
+          above_market: boolean
           ai_reason: string | null
           cap_applied: number | null
           confirmed_at: string | null
@@ -6342,6 +6343,7 @@ export type Database = {
           id: string
           increase_amount: number
           local_business_date: string | null
+          market_median: number | null
           net_pickup: number | null
           new_price: number
           obk_id: string
@@ -6366,6 +6368,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          above_market?: boolean
           ai_reason?: string | null
           cap_applied?: number | null
           confirmed_at?: string | null
@@ -6377,6 +6380,7 @@ export type Database = {
           id?: string
           increase_amount: number
           local_business_date?: string | null
+          market_median?: number | null
           net_pickup?: number | null
           new_price: number
           obk_id: string
@@ -6401,6 +6405,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          above_market?: boolean
           ai_reason?: string | null
           cap_applied?: number | null
           confirmed_at?: string | null
@@ -6412,6 +6417,7 @@ export type Database = {
           id?: string
           increase_amount?: number
           local_business_date?: string | null
+          market_median?: number | null
           net_pickup?: number | null
           new_price?: number
           obk_id?: string
@@ -6466,6 +6472,7 @@ export type Database = {
           evaluation_interval_minutes: number
           event_surcharge_auto: boolean
           event_surcharge_eur: number
+          event_uplift_once_per_day: boolean
           far_out_days: number
           far_out_enabled: boolean
           far_out_floor_topup_amount: number
@@ -6496,9 +6503,14 @@ export type Database = {
           long_lead_days: number
           low_occupancy_pct: number
           manual_markdown_hold_hours: number
+          manual_override_ai_enabled: boolean
+          manual_override_review_hours: number
           markdown_max_occupancy_pct: number
+          market_ceiling_multiple: number
           max_daily_decrease_per_date: number
+          max_daily_increase_pct: number
           max_daily_increase_per_date: number
+          max_increase_pct: number
           maximum_increase: number | null
           minimum_adr: number | null
           name: string
@@ -6544,6 +6556,7 @@ export type Database = {
           evaluation_interval_minutes?: number
           event_surcharge_auto?: boolean
           event_surcharge_eur?: number
+          event_uplift_once_per_day?: boolean
           far_out_days?: number
           far_out_enabled?: boolean
           far_out_floor_topup_amount?: number
@@ -6574,9 +6587,14 @@ export type Database = {
           long_lead_days?: number
           low_occupancy_pct?: number
           manual_markdown_hold_hours?: number
+          manual_override_ai_enabled?: boolean
+          manual_override_review_hours?: number
           markdown_max_occupancy_pct?: number
+          market_ceiling_multiple?: number
           max_daily_decrease_per_date?: number
+          max_daily_increase_pct?: number
           max_daily_increase_per_date?: number
+          max_increase_pct?: number
           maximum_increase?: number | null
           minimum_adr?: number | null
           name?: string
@@ -6622,6 +6640,7 @@ export type Database = {
           evaluation_interval_minutes?: number
           event_surcharge_auto?: boolean
           event_surcharge_eur?: number
+          event_uplift_once_per_day?: boolean
           far_out_days?: number
           far_out_enabled?: boolean
           far_out_floor_topup_amount?: number
@@ -6652,9 +6671,14 @@ export type Database = {
           long_lead_days?: number
           low_occupancy_pct?: number
           manual_markdown_hold_hours?: number
+          manual_override_ai_enabled?: boolean
+          manual_override_review_hours?: number
           markdown_max_occupancy_pct?: number
+          market_ceiling_multiple?: number
           max_daily_decrease_per_date?: number
+          max_daily_increase_pct?: number
           max_daily_increase_per_date?: number
+          max_increase_pct?: number
           maximum_increase?: number | null
           minimum_adr?: number | null
           name?: string
