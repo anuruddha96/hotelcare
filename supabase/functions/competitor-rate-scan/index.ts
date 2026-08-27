@@ -264,6 +264,20 @@ Deno.serve(async (req) => {
 
       if (!competitors?.length) continue;
 
+      // Spend guard: the scheduled sweep stops when the organisation is over
+      // its AI budget or has switched the automatic scan off. The manual
+      // button still respects the budget, so a runaway cannot be clicked back
+      // into life.
+      const orgSlug = competitors[0]?.organization_slug ?? null;
+      const budget = await checkAiBudget(admin, orgSlug, { scheduled: isCron });
+      if (!budget.allowed) {
+        results.push({ competitor: "—", prices: 0, error: budget.reason ?? "AI budget reached" });
+        continue;
+      }
+      if (isCron && !(await aiFeatureEnabled(admin, orgSlug, "competitor_scan_enabled"))) {
+        continue;
+      }
+
       for (const c of competitors) {
         let stored = 0;
         let error: string | null = null;
