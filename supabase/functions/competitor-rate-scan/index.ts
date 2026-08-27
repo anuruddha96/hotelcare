@@ -76,7 +76,10 @@ async function askDates(
   dates: string[],
   strict = false,
   tier: "cheap" | "rich" = "rich",
-): Promise<{ rates: ScannedRate[]; currency: string | null; error: string | null; model: string | null }> {
+): Promise<{
+  rates: ScannedRate[]; currency: string | null; error: string | null; model: string | null;
+  usage: { model: string | null; inputTokens: number; outputTokens: number; searchContext: "low" | "medium" };
+}> {
   const prompt = strict ? [
     // Retry wording: short, no prose, one line per date. Long prompts are what
     // make the model answer in prose that cannot be parsed.
