@@ -181,6 +181,9 @@ verify_jwt = false
 [functions.assistant-save-abort]
 verify_jwt = false
 
+[functions.assistant-apply-action]
+verify_jwt = false
+
 [functions.previo-sync-daily-overview]
 verify_jwt = false
 
