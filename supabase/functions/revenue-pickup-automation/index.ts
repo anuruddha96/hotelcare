@@ -1267,8 +1267,10 @@ Deno.serve(async (req) => {
                 .is("push_run_id", null);
             }
           }
+          await announcePass("markdown", markdownActions);
         }
       }
+
 
       // ------------------------------------------------------------------
       // Occupancy ladder repair.
