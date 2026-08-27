@@ -459,28 +459,30 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
   /**
    * Calendar-month KPIs for every property.
    *
-   * The tile for the open property is computed from exactly the same grid
-   * metrics that drive the "How <month> is performing" summary above, so the
-   * two can never disagree. Sister properties are measured over every night
-   * they reported inside the same calendar month (not an intersection window,
-   * which used to drop the softer early-month nights and inflate occupancy).
+   * Every tile is measured over ONE window: the nights of the selected month
+   * the open property's grid actually covers (today → month end for the current
+   * month). Sister properties used to be summed over every night they had
+   * captured — including past nights the open property no longer reports — so
+   * their occupancy read 96% against an 84% summary. Same nights, same maths.
    */
   const comparison = useMemo(() => {
     if (!compare) return { nights: 0, tiles: [] as Array<{ hotel_id: string; hotel_name: string; occ: number | null; adr: number | null; revpar: number | null; nights: number }> };
 
     const gridRows = metrics.filter((m) => m.stay_date.slice(0, 7) === selectedMonth && m.roomsAvailable > 0);
+    const windowDates = new Set(gridRows.map((m) => m.stay_date));
 
     const tiles = hotels.map((h) => {
       const rate = eurRateByHotel.get(h.hotel_id) ?? 1;
       let sold = 0, capacity = 0, revenue = 0, nights = 0;
       if (h.hotel_id === hotelId && gridRows.length) {
         for (const m of gridRows) {
-          sold += m.roomsSold; capacity += m.roomsAvailable; revenue += m.revenueEur / rate; nights += 1;
+          sold += m.roomsSold; capacity += m.roomsAvailable; revenue += m.revenueEur; nights += 1;
         }
       } else {
         for (const r of latestByHotelDate.values()) {
           if (r.hotel_id !== h.hotel_id) continue;
-          if (r.stay_date.slice(0, 7) !== selectedMonth) continue;
+          // Only nights the open property also reports, so the tiles compare.
+          if (windowDates.size ? !windowDates.has(r.stay_date) : r.stay_date.slice(0, 7) !== selectedMonth) continue;
           const cap = Number(r.rooms_available) || 0;
           if (!cap) continue;
           sold += Number(r.rooms_sold) || 0;
@@ -498,10 +500,11 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
       };
     }).sort((a, b) => (a.hotel_id === hotelId ? -1 : b.hotel_id === hotelId ? 1 : 0));
 
-    return { nights: tiles.find((t) => t.hotel_id === hotelId)?.nights ?? 0, tiles };
+    return { nights: windowDates.size, tiles };
   }, [compare, hotels, latestByHotelDate, hotelId, metrics, selectedMonth, eurRateByHotel]);
 
   const comparisonSummary = comparison.tiles;
+
 
 
 
@@ -947,8 +950,9 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
         {compare && comparisonSummary.length > 0 && (
           <div className="mb-3 px-2">
             <p className="mb-1.5 text-[10px] text-muted-foreground">
-              Full month: <span className="font-medium text-foreground">{selectedMonth}</span> — this property matches the summary above; sister properties use the nights they reported.
+              <span className="font-medium text-foreground">{selectedMonth}</span> · {comparison.nights} night{comparison.nights === 1 ? "" : "s"} on the books — same nights for every property, matching the summary above.
             </p>
+
 
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
             {comparisonSummary.map((s) => {
