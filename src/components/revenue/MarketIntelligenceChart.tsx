@@ -77,19 +77,30 @@ function periodForWindow(windowDays: number, customDays: number): PeriodKey {
   return "custom";
 }
 
-/** Legend swatch for pickup — matches the typical positive-pickup bar. */
-const PICKUP_LEGEND_COLOR = "hsl(28 96% 60%)";
-const ADR_COLOR = "hsl(160 84% 39%)";
-const DEMAND_COLOR = "hsl(271 76% 53%)";
+/**
+ * Fixed series colours. Every important line owns a hue no other line uses —
+ * occupancy and our own rate used to share the primary token, which made the
+ * two most-read lines indistinguishable.
+ */
+const PICKUP_LEGEND_COLOR = "hsl(28 96% 60%)";   // booked bars — orange
+const CANCEL_COLOR = "hsl(199 89% 60%)";          // cancelled bars — light blue
+const OCC_COLOR = "hsl(221 83% 45%)";             // occupancy — deep blue
+const ADR_COLOR = "hsl(160 84% 39%)";             // ADR — green
+const DEMAND_COLOR = "hsl(271 76% 53%)";          // city demand — violet
 
-/** Owner-chosen colours, carried over from the portfolio comparison panel. */
+
+/**
+ * Sister-property colours. Kept far apart from each other and from the fixed
+ * series hues; sister lines are also dashed, so the two groups never read the
+ * same even on a small screen.
+ */
 const HOTEL_COLORS: Record<string, string> = {
   "mika-downtown": "#111111",
-  "memories-budapest": "#B5835A",
-  ottofiori: "#2E7D32",
-  "gozsdu-court": "#CD7F32",
+  "memories-budapest": "#A16207",
+  ottofiori: "#0F766E",
+  "gozsdu-court": "#B91C1C",
 };
-const FALLBACK = ["#3B82F6", "#9333EA", "#DC2626", "#0891B2"];
+const FALLBACK = ["#6D28D9", "#B45309", "#065F46", "#9D174D"];
 const colorFor = (id: string, i: number) => HOTEL_COLORS[id] ?? FALLBACK[i % FALLBACK.length];
 
 function barColor(pickup: number): string {
@@ -130,19 +141,33 @@ interface Props {
 }
 
 /**
- * Competitor colours are generated instead of cycled through a short list:
- * with a dozen watched hotels an eight-colour palette handed the same colour to
- * several lines, which made the chart impossible to read. The golden-angle
- * walk keeps neighbouring hues far apart, and alternating lightness separates
- * hotels that land on a similar hue.
+ * Competitor colours are generated instead of cycled through a short list, and
+ * the walk skips the hues already spoken for by the fixed series (occupancy,
+ * ADR, demand, our rate, the pickup bars) so a competitor can never be drawn
+ * in the same colour as one of the headline lines.
  */
-function competitorColor(index: number): string {
-  const hue = Math.round((index * 137.508) % 360);
-  const light = index % 2 === 0 ? 52 : 38;
-  return `hsl(${hue} 70% ${light}%)`;
+const RESERVED_HUES = [28, 199, 221, 160, 271, 330];
+function hueTaken(hue: number): boolean {
+  return RESERVED_HUES.some((r) => {
+    const d = Math.abs(((hue - r + 540) % 360) - 180);
+    return 180 - d < 16;
+  });
 }
-const MARKET_COLOR = "hsl(var(--foreground) / 0.75)";
-const OUR_RATE_COLOR = "hsl(var(--primary))";
+function competitorColor(index: number): string {
+  let hue = 0;
+  let step = 0;
+  for (let taken = 0; taken <= index; step++) {
+    hue = Math.round((step * 137.508 + 12) % 360);
+    if (hueTaken(hue)) continue;
+    taken++;
+  }
+  const light = index % 2 === 0 ? 52 : 34;
+  return `hsl(${hue} 72% ${light}%)`;
+}
+const MARKET_COLOR = "hsl(var(--foreground) / 0.85)";
+const MARKET_MEDIAN_COLOR = "hsl(var(--muted-foreground))";
+const OUR_RATE_COLOR = "hsl(330 78% 48%)";
+
 
 /** "11 Aug" — used for the comparison window caption. */
 function shortDate(date: string | null): string {
@@ -720,8 +745,8 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
   const legendItems = useMemo(() => {
     const items: Array<{ id: string; label: string; color: string; shape: "bar" | "line"; active: boolean; toggle?: () => void }> = [
       { id: "gained", label: "Booked", color: PICKUP_LEGEND_COLOR, shape: "bar", active: true },
-      { id: "lost", label: "Cancelled", color: "hsl(199 89% 60%)", shape: "bar", active: true },
-      { id: "occ", label: "Occupancy", color: "hsl(var(--primary))", shape: "line", active: showOcc, toggle: () => setShowOcc((v) => !v) },
+      { id: "lost", label: "Cancelled", color: CANCEL_COLOR, shape: "bar", active: true },
+      { id: "occ", label: "Occupancy", color: OCC_COLOR, shape: "line", active: showOcc, toggle: () => setShowOcc((v) => !v) },
       { id: "adr", label: "ADR", color: ADR_COLOR, shape: "line", active: showAdr, toggle: () => setShowAdr((v) => !v) },
     ];
     if (hasDemand) items.push({ id: "demand", label: "City demand", color: DEMAND_COLOR, shape: "line", active: showDemand, toggle: () => setShowDemand((v) => !v) });
@@ -733,7 +758,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
     }
     items.push({ id: "ourRate", label: `${baselineLabel} rate`, color: OUR_RATE_COLOR, shape: "line", active: prefs.ourRate, toggle: () => setPref("ourRate", !prefs.ourRate) });
     items.push({ id: "marketAvg", label: "Market average", color: MARKET_COLOR, shape: "line", active: prefs.marketAvg, toggle: () => setPref("marketAvg", !prefs.marketAvg) });
-    items.push({ id: "marketMedian", label: "Market median", color: MARKET_COLOR, shape: "line", active: prefs.marketMedian, toggle: () => setPref("marketMedian", !prefs.marketMedian) });
+    items.push({ id: "marketMedian", label: "Market median", color: MARKET_MEDIAN_COLOR, shape: "line", active: prefs.marketMedian, toggle: () => setPref("marketMedian", !prefs.marketMedian) });
     for (const c of marketData.competitors) {
       items.push({
         id: c.id, label: c.name, color: compColor(c.id), shape: "line",
@@ -1111,10 +1136,10 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                 )}
               </Bar>
               <Bar yAxisId="pickup" dataKey="lost" name="Cancelled" stackId="pickup" radius={[0, 0, 2, 2]}
-                maxBarSize={18} minPointSize={2} fill="hsl(199 89% 60%)" isAnimationActive animationDuration={550} />
+                maxBarSize={18} minPointSize={2} fill={CANCEL_COLOR} isAnimationActive animationDuration={550} />
 
               {showOcc && (
-                <Line yAxisId="right" type="monotone" dataKey="occ" name="Occupancy" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} opacity={0.85} />
+                <Line yAxisId="right" type="monotone" dataKey="occ" name="Occupancy" stroke={OCC_COLOR} strokeWidth={2} dot={false} opacity={0.85} />
               )}
               {showDemand && hasDemand && (
                 <>
@@ -1152,7 +1177,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                   strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls={false} />
               )}
               {prefs.marketMedian && (
-                <Line yAxisId="rate" type="monotone" dataKey="marketMedian" name="Market median" stroke={MARKET_COLOR}
+                <Line yAxisId="rate" type="monotone" dataKey="marketMedian" name="Market median" stroke={MARKET_MEDIAN_COLOR}
                   strokeWidth={1.5} strokeDasharray="2 3" dot={false} connectNulls={false} opacity={0.8} />
               )}
               {prefs.ourRate && (
@@ -1197,7 +1222,11 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
             {" · "}
             {viewData.length} of {data.length} nights
             {marketData.coverageEnd && (
-              <> · competitor prices only reach {shortDate(marketData.coverageEnd)}; lines break where no price was found</>
+              <>
+                {" · "}
+                {marketData.ratesByCompetitor.size} of {marketData.competitors.length} watched hotels reported,
+                prices reach {shortDate(marketData.coverageEnd)}; lines break where no price was found
+              </>
             )}
           </span>
 
