@@ -346,24 +346,40 @@ Deno.serve(async (req) => {
 
       }
     }
+    };
 
-    return json({ ok: true, captured, hotels: hotelIds.length, results });
-  } catch (e) {
-    if (e instanceof ScanBlocked) {
-      // Park the sweep rather than burn the key on questions that cannot work.
-      const minutes = e.status === 429 ? 60 : 12 * 60;
-      await admin.rpc("pause_competitor_scan", {
-        _id: LEASE_ID, _minutes: minutes, _reason: e.message.slice(0, 300),
+    const work = scanAll()
+      .catch(async (e) => {
+        if (e instanceof ScanBlocked) {
+          // Park the sweep rather than burn the key on questions that cannot work.
+          const minutes = e.status === 429 ? 60 : 12 * 60;
+          await admin.rpc("pause_competitor_scan", {
+            _id: LEASE_ID, _minutes: minutes, _reason: e.message.slice(0, 300),
+          }).catch(() => {});
+          leaseHeld = false;
+          console.error("competitor-rate-scan blocked", e.message);
+          return;
+        }
+        console.error("competitor-rate-scan error", e);
+      })
+      .finally(async () => {
+        console.log("competitor-rate-scan finished", { captured, hotels: hotelIds.length, results });
+        if (leaseHeld) {
+          leaseHeld = false;
+          await admin.rpc("release_competitor_scan_lease", { _id: LEASE_ID }).catch(() => {});
+        }
       });
-      leaseHeld = false;
-      console.error("competitor-rate-scan blocked", e.message);
-      return json({ error: e.message, paused_minutes: minutes }, e.status === 429 ? 429 : 402);
-    }
+
+    const rt = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
+    if (rt) rt.waitUntil(work); else await work;
+
+    return json({ ok: true, started: true, hotels: hotelIds.length });
+  } catch (e) {
     console.error("competitor-rate-scan error", e);
-    return json({ error: e instanceof Error ? e.message : String(e) }, 500);
-  } finally {
     if (leaseHeld) {
       await admin.rpc("release_competitor_scan_lease", { _id: LEASE_ID }).catch(() => {});
     }
+    return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
+
 });
