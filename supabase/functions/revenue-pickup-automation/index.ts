@@ -1853,7 +1853,10 @@ Deno.serve(async (req) => {
         // A human lowered this date recently and the hold has just expired.
         // Before automation re-raises it, the advisor reasons about whether
         // that is commercially sensible; it may only keep or cancel the move.
-        if (manualReviewDates.size > 0 && strongRows.length > 0) {
+        // Only when the advisor is switched on for this property. With it off
+        // the automated re-raise is simply cancelled, which is the same safe
+        // outcome the advisor produces when it is unavailable.
+        if (rule.ai_assist_enabled && manualReviewDates.size > 0 && strongRows.length > 0) {
           const veto = await aiReviewManualOverrides(
             Array.from(manualReviewDates)
               .filter((d) => strongDates.has(d))
