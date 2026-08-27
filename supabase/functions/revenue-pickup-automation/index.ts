@@ -1705,8 +1705,10 @@ Deno.serve(async (req) => {
                 .is("push_run_id", null);
             }
           }
+          await announcePass("strong-demand increase", strongActions);
         }
       }
+
 
       // ------------------------------------------------------------------
       // Far-out floor top-up.
