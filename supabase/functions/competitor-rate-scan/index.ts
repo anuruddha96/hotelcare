@@ -54,8 +54,16 @@ function extractJson(text: string): unknown {
   return null;
 }
 
-const CHUNK_DAYS = 10;
+// Cost control: web search is billed per call, so the scheduled sweep asks few,
+// wide questions with the cheap model, and only the manual button uses the
+// expensive one.
+const CHUNK_DAYS = 20;
 const LEASE_ID = "competitor-rate-scan";
+/** Scheduled sweep: near horizon every week, the full 60 nights fortnightly. */
+const CRON_NEAR_DAYS = 14;
+const CRON_FULL_DAYS = 60;
+/** A competitor scanned this recently is skipped by the scheduled sweep. */
+const CRON_FRESH_HOURS = 120;
 
 function isoAdd(base: Date, days: number) {
   return new Date(base.getTime() + days * 86_400_000).toISOString().slice(0, 10);
@@ -67,6 +75,7 @@ async function askDates(
   competitor: { name: string; source_url: string | null },
   dates: string[],
   strict = false,
+  tier: "cheap" | "rich" = "rich",
 ): Promise<{ rates: ScannedRate[]; currency: string | null; error: string | null; model: string | null }> {
   const prompt = strict ? [
     // Retry wording: short, no prose, one line per date. Long prompts are what
@@ -94,7 +103,13 @@ async function askDates(
   ].filter(Boolean).join(" ");
 
   let lastError: string | null = null;
-  for (const model of ["gpt-4o", "gpt-4.1"]) {
+  // The scheduled sweep runs on the cheap model with a small search context;
+  // the manual button keeps the stronger model. Only one model is tried per
+  // question — a second full web search for the same nights doubled the bill
+  // for very little extra coverage.
+  const models = tier === "cheap" ? ["gpt-4o-mini"] : ["gpt-4o"];
+  const searchContext = tier === "cheap" ? "low" : "medium";
+  for (const model of models) {
     try {
       const attempt = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
@@ -103,8 +118,8 @@ async function askDates(
         signal: AbortSignal.timeout(90_000),
         body: JSON.stringify({
           model,
-          tools: [{ type: "web_search_preview", search_context_size: "medium" }],
-          max_output_tokens: 6000,
+          tools: [{ type: "web_search_preview", search_context_size: searchContext }],
+          max_output_tokens: tier === "cheap" ? 4000 : 6000,
           input: prompt,
         }),
       });
