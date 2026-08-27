@@ -56,12 +56,17 @@ export interface MarketRatesResult {
   ratesByCompetitor: Map<string, Map<string, number>>;
   /** competitor id -> average reliability (0-1) of its plotted prices */
   reliabilityByCompetitor: Map<string, number>;
+  /** competitor id -> last stay date that actually has a plotted price */
+  coverageByCompetitor: Map<string, string>;
+  /** Last stay date any competitor has a price for — where the market data ends. */
+  coverageEnd: string | null;
   /** stay date -> market aggregate */
   marketByDate: Map<string, MarketDay>;
   rows: CompetitorRateRow[];
   loading: boolean;
   reload: () => void;
 }
+
 
 const HORIZON_DAYS = 200;
 
