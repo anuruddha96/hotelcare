@@ -98,6 +98,15 @@ serve(async (req) => {
         const month = monthKey(d);
         const slotKey = `${market.organizationSlug}|${market.city.toLowerCase()}|${month}`;
         if (done.has(slotKey)) continue;
+
+        // Spend guard: no paid search once the organisation is over budget or
+        // has switched the automatic sweep off.
+        const budget = await checkAiBudget(admin, market.organizationSlug, { scheduled: true });
+        if (!budget.allowed) {
+          results.push({ org: market.organizationSlug, city: market.city, month, skipped: budget.reason });
+          continue outer;
+        }
+        if (!(await aiFeatureEnabled(admin, market.organizationSlug, "event_sweep_enabled"))) continue outer;
         slots++;
 
         const result = await searchEvents({
