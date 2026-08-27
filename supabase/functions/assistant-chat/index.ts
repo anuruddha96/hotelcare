@@ -656,6 +656,129 @@ function buildTools(
     });
   }
 
+  if (scopes.has("housekeeping")) {
+    tools.get_housekeeping_team = tool({
+      description:
+        "List the housekeepers and supervisors at a property, with their exact staff id, so a room can be assigned to a named person. Never share phone numbers or emails.",
+      inputSchema: jsonSchema<{ hotelId: string | null }>(hotelArgSchema({}, [])),
+      execute: async ({ hotelId }) => {
+        const ids = resolve(hotelId);
+        const names = hotels.filter((h) => ids.includes(h.hotel_id)).map((h) => h.hotel_name);
+        const { data, error } = await service
+          .from("profiles")
+          .select("id,full_name,nickname,role,assigned_hotel")
+          .eq("organization_slug", orgSlug)
+          .in("assigned_hotel", [...new Set([...ids, ...names])])
+          .in("role", ["housekeeping", "housekeeping_manager", "supervisor"])
+          .is("deleted_at", null)
+          .order("full_name")
+          .limit(300);
+        if (error) throw new Error(`Team lookup failed: ${error.message}`);
+        return { staff: data ?? [] };
+      },
+    });
+
+    tools.get_lost_and_found = tool({
+      description: "Read recent lost-and-found items for the user's authorized properties.",
+      inputSchema: jsonSchema<{ hotelId: string | null; status: string | null }>(
+        hotelArgSchema({ status: { type: ["string", "null"], description: "pending, claimed, or null for all" } }, ["status"]),
+      ),
+      execute: async ({ hotelId, status }) => {
+        const ids = resolve(hotelId);
+        const names = hotels.filter((h) => ids.includes(h.hotel_id)).map((h) => h.hotel_name);
+        const rooms = await service
+          .from("rooms")
+          .select("id,room_number")
+          .eq("organization_slug", orgSlug)
+          .in("hotel", [...new Set([...ids, ...names])])
+          .limit(2000);
+        if (rooms.error) throw new Error(`Room lookup failed: ${rooms.error.message}`);
+        const roomIds = (rooms.data ?? []).map((room: any) => room.id);
+        if (!roomIds.length) return { items: [] };
+        let query = service
+          .from("lost_and_found")
+          .select("id,room_id,item_description,status,found_date,notes")
+          .eq("organization_slug", orgSlug)
+          .in("room_id", roomIds)
+          .order("found_date", { ascending: false })
+          .limit(100);
+        if (status) query = query.eq("status", status);
+        const { data, error } = await query;
+        if (error) throw new Error(`Lost and found lookup failed: ${error.message}`);
+        const roomNumbers = new Map((rooms.data ?? []).map((room: any) => [room.id, room.room_number]));
+        return { items: (data ?? []).map((row: any) => ({ ...row, room_number: roomNumbers.get(row.room_id) ?? null })) };
+      },
+    });
+
+    tools.get_staff_on_duty = tool({
+      description: "Who is currently signed in for work today at the user's authorized properties.",
+      inputSchema: jsonSchema<{ hotelId: string | null; date: string | null }>(
+        hotelArgSchema({ date: { type: ["string", "null"], description: "YYYY-MM-DD or null for today" } }, ["date"]),
+      ),
+      execute: async ({ hotelId, date }) => {
+        const ids = resolve(hotelId);
+        const names = hotels.filter((h) => ids.includes(h.hotel_id)).map((h) => h.hotel_name);
+        const target = date ?? today();
+        const { data, error } = await service
+          .from("staff_attendance")
+          .select("id,user_id,hotel,work_date,check_in_time,check_out_time,status")
+          .eq("organization_slug", orgSlug)
+          .in("hotel", [...new Set([...ids, ...names])])
+          .eq("work_date", target)
+          .limit(500);
+        if (error) throw new Error(`Attendance lookup failed: ${error.message}`);
+        return { date: target, attendance: data ?? [] };
+      },
+    });
+  }
+
+  const availableActions = actionsForRole(profile.role).filter((kind) =>
+    kind === "assign_room_cleaning" ? scopes.has("housekeeping") : scopes.has("maintenance") || scopes.has("housekeeping"),
+  );
+
+  if (availableActions.length) {
+    tools.propose_action = tool({
+      description:
+        `Propose an operational change for the user to confirm. This DOES NOT change anything: it returns a confirmation card and the user taps Confirm. Available actions: ${availableActions
+          .map((kind) => `${kind} — ${ACTION_LABEL[kind]}`)
+          .join("; ")}. Always read the relevant data first (rooms, team, tickets) and never claim the change is done.`,
+      inputSchema: jsonSchema<{ kind: string; input: Record<string, unknown>; reason: string }>({
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: availableActions as unknown as string[] },
+          reason: { type: "string", description: "One sentence: why this is the right thing to do" },
+          input: {
+            type: "object",
+            description:
+              "create_ticket: {hotelId, roomNumber, title, description, priority, department}. assign_room_cleaning: {hotelId, roomNumber, staffId, staffName, date, assignmentType}. update_ticket_status: {hotelId, ticketId, status, note}.",
+            additionalProperties: true,
+          },
+        },
+        required: ["kind", "input", "reason"],
+        additionalProperties: false,
+      }),
+      execute: async ({ kind, input, reason }) => {
+        if (!availableActions.includes(kind as any)) throw new Error("That action is not available for your role");
+        const requested = (input ?? {}) as Record<string, unknown>;
+        const ids = resolve(typeof requested.hotelId === "string" ? requested.hotelId : null);
+        if (ids.length !== 1) throw new Error("Name exactly one property for this action");
+        const validated = validateAction(kind, { ...requested, hotelId: ids[0] });
+        if (!validated.ok) throw new Error(validated.error);
+        return {
+          kind: "action_proposal",
+          action: validated.action.kind,
+          title: ACTION_LABEL[validated.action.kind],
+          hotelId: ids[0],
+          hotelName: hotels.find((h) => h.hotel_id === ids[0])?.hotel_name ?? ids[0],
+          reason,
+          fields: validated.action.fields,
+          input: validated.action.input,
+          requiresApproval: true,
+        };
+      },
+    });
+  }
+
   void hotelIds;
   return tools;
 }
