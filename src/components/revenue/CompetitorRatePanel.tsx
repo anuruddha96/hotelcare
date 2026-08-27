@@ -45,6 +45,7 @@ interface CompRate {
   stay_date: string;
   rate: number | null;
   currency: string;
+  confidence?: number | null;
 }
 
 interface Suggestion {
