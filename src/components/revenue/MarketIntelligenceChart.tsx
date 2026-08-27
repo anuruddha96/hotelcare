@@ -129,12 +129,18 @@ interface Props {
   ourRateByDate?: Map<string, number>;
 }
 
-/** Colours for the watched competitors, in list order. */
-const COMP_COLORS = [
-  "hsl(217 91% 60%)", "hsl(160 60% 45%)", "hsl(30 84% 55%)",
-  "hsl(280 65% 60%)", "hsl(340 75% 55%)", "hsl(190 80% 42%)",
-  "hsl(45 90% 45%)", "hsl(0 72% 55%)",
-];
+/**
+ * Competitor colours are generated instead of cycled through a short list:
+ * with a dozen watched hotels an eight-colour palette handed the same colour to
+ * several lines, which made the chart impossible to read. The golden-angle
+ * walk keeps neighbouring hues far apart, and alternating lightness separates
+ * hotels that land on a similar hue.
+ */
+function competitorColor(index: number): string {
+  const hue = Math.round((index * 137.508) % 360);
+  const light = index % 2 === 0 ? 52 : 38;
+  return `hsl(${hue} 70% ${light}%)`;
+}
 const MARKET_COLOR = "hsl(var(--foreground) / 0.75)";
 const OUR_RATE_COLOR = "hsl(var(--primary))";
 
@@ -146,9 +152,13 @@ interface MarketPrefs {
   band: boolean;
   competitors: string[];
 }
+// A chart that opens with everything drawn is unreadable. The default view is
+// pickup + occupancy + our rate against the market average; anything else is a
+// deliberate tick.
 const DEFAULT_PREFS: MarketPrefs = {
-  ourRate: true, marketAvg: true, marketMedian: false, band: true, competitors: [],
+  ourRate: true, marketAvg: true, marketMedian: false, band: false, competitors: [],
 };
+
 const prefsKey = (hotelId?: string | null) => `market-intel-series:${hotelId ?? "default"}`;
 function loadPrefs(hotelId?: string | null): MarketPrefs {
   if (typeof window === "undefined") return DEFAULT_PREFS;
