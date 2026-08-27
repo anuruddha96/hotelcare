@@ -548,22 +548,22 @@ export async function enforceRateSafety(
   changes: RateChange[],
 ): Promise<{ changes: RateChange[]; repairs: RateChange[]; dropped: Array<{ change: RateChange; reason: string }> }> {
   if (changes.length === 0) return { changes, repairs: [], dropped: [] };
-  await assertExactRateMappings(admin, hotelId, changes);
-  const ladderRepairs = await normalizeOccupancyLadder(admin, hotelId, changes);
+  // Unmapped room types are held back cell by cell; the rest of the batch still
+  // goes out, so one missing rate plan cannot cancel a month of pricing.
+  const { mapped: safeChanges, unmapped } = await partitionByExactRateMappings(admin, hotelId, changes);
+  if (safeChanges.length === 0) return { changes: [], repairs: [], dropped: unmapped };
+  const ladderRepairs = await normalizeOccupancyLadder(admin, hotelId, safeChanges);
   // Lift the tiers above before filtering, so a legitimate raise repairs the
   // room order instead of being thrown away.
-  const hierarchyRepairs = await liftHigherRooms(admin, hotelId, [...changes, ...ladderRepairs])
+  const hierarchyRepairs = await liftHigherRooms(admin, hotelId, [...safeChanges, ...ladderRepairs])
     .catch(() => [] as RateChange[]);
   // A lift we cannot map to an exact Previo rate plan is not safe to send.
-  const mappable: RateChange[] = [];
-  for (const lift of hierarchyRepairs.filter((c) => !!c.obk_id)) {
-    try {
-      await assertExactRateMappings(admin, hotelId, [lift]);
-      mappable.push(lift);
-    } catch { /* unmapped room type: leave it untouched */ }
-  }
+  const { mapped: mappable } = await partitionByExactRateMappings(
+    admin, hotelId, hierarchyRepairs.filter((c) => !!c.obk_id),
+  );
   const repairs = [...ladderRepairs, ...mappable];
-  return { changes: [...changes, ...repairs], repairs, dropped: [] };
+  return { changes: [...safeChanges, ...repairs], repairs, dropped: unmapped };
 }
+
 
 
