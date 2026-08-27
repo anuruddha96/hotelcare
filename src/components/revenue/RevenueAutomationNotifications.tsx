@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bell, AlertTriangle, Bot, User as UserIcon, ArrowRight } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Bell, AlertTriangle, Bot, User as UserIcon, ArrowRight, Info, ArrowUpRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
@@ -18,11 +20,19 @@ import {
   relativeTime,
   type AutomationNotification,
 } from '@/hooks/useRevenueAutomationNotifications';
+import {
+  runHeadline,
+  runPreview,
+  runReasons,
+  runStats,
+  runStatus,
+} from '@/lib/revenue/automationSummary';
 
 const money = (value: number | null | undefined, currency: string | null | undefined) =>
   value === null || value === undefined
     ? '—'
     : `${Math.round(Number(value))} ${currency ?? ''}`.trim();
+
 
 /** Bell + inbox for revenue price-automation activity. */
 export function RevenueAutomationNotifications() {
