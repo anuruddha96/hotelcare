@@ -169,6 +169,15 @@ export async function searchEvents(opts: {
     }
 
     const ai = await aiResp.json();
+    await logAiUsage(admin, {
+      organizationSlug,
+      functionName: "event-search",
+      model: String(payload.model ?? ""),
+      inputTokens: Number(ai?.usage?.input_tokens ?? 0),
+      outputTokens: Number(ai?.usage?.output_tokens ?? 0),
+      webSearches: 1,
+      searchContext: compactRetry ? "low" : "medium",
+    });
     if (ai.status === "incomplete") {
       console.error("event response incomplete", JSON.stringify(ai.incomplete_details ?? {}));
       return { events: [], error: "The event search answer was cut off.", retryable: true };
