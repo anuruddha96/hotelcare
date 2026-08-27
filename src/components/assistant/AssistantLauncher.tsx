@@ -35,6 +35,11 @@ export default function AssistantLauncher() {
     if (threadId) setOpen(true);
   }, [threadId]);
 
+  useEffect(() => {
+    setDebugOn(isAssistantDebugEnabled(profile?.role));
+  }, [profile?.role, open]);
+
+
   useLayoutEffect(() => {
     if (!open || typeof window === "undefined") return;
     const viewport = window.visualViewport;
