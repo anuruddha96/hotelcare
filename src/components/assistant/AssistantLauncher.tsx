@@ -9,6 +9,8 @@ import { useAssistant } from "@/hooks/useAssistant";
 import AssistantChat from "./AssistantChat";
 import AssistantAccessRequests, { canApproveAssistantAccess } from "./AssistantAccessRequests";
 import { canUseAssistant } from "@/lib/assistantAccess";
+import { isAssistantDebugEnabled, setAssistantDebug } from "@/lib/assistant/debugMode";
+
 import { cn } from "@/lib/utils";
 import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
 
