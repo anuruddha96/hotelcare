@@ -87,7 +87,7 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
         .eq("hotel_id", hotelId).order("name"),
       supabase
         .from("competitor_rates")
-        .select("competitor_id, stay_date, rate, currency")
+        .select("competitor_id, stay_date, rate, currency, confidence")
         .eq("hotel_id", hotelId)
         .gte("stay_date", new Date().toISOString().slice(0, 10))
         .order("stay_date"),
@@ -354,8 +354,18 @@ export default function CompetitorRatePanel({ hotelId, organizationSlug, canEdit
                     </p>
                   )}
                 </div>
-                <Badge variant="secondary" className="text-[10px]">
-                  {rates.filter((r) => r.competitor_id === c.id).length} prices
+                <Badge variant="secondary" className="whitespace-nowrap text-[10px]">
+                  {(() => {
+                    // Stored prices and how far ahead they reach — the badge used
+                    // to read the last run's count, so a hotel holding good data
+                    // could still show "0 prices" after one empty scan.
+                    const mine = rates.filter((r) => r.competitor_id === c.id);
+                    const usable = mine.filter((r) => r.confidence == null || Number(r.confidence) >= 0.45);
+                    const last = usable.reduce((a, r) => (r.stay_date > a ? r.stay_date : a), "");
+                    const held = mine.length - usable.length;
+                    if (!usable.length) return "0 prices";
+                    return `${usable.length} prices · to ${new Date(`${last}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: "UTC", day: "numeric", month: "short" })}${held ? ` · ${held} low confidence` : ""}`;
+                  })()}
                 </Badge>
                 {canEdit && (
                   <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => remove(c.id)}>
