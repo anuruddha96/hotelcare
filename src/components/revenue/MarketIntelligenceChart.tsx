@@ -222,10 +222,39 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
   const activeWindow = pickupWindowDays ?? PICKUP_WINDOW_48H;
   const [customDays, setCustomDays] = useState(7);
   const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
+  /** hotel id -> how many local units make one euro (1 for euro properties). */
+  const [eurRateByHotel, setEurRateByHotel] = useState<Map<string, number>>(new Map());
 
   const hotelIds = useMemo(() => hotels.map((h) => h.hotel_id), [hotels]);
   const idsKey = hotelIds.join(",");
   const horizonEnd = metrics.length ? metrics[Math.min(metrics.length, 190) - 1].stay_date : null;
+
+  /**
+   * Properties do not all publish euros — SLNT's Previo profile quotes forints,
+   * which turned its comparison tile into an ADR of 25 186. Each property's own
+   * base currency and rate normalise the money before the tiles are built.
+   */
+  useEffect(() => {
+    if (hotelIds.length === 0) { setEurRateByHotel(new Map()); return; }
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("hotel_revenue_settings")
+        .select("hotel_id, base_currency, eur_conversion_rate")
+        .in("hotel_id", hotelIds);
+      if (cancelled || error || !data) return;
+      const map = new Map<string, number>();
+      for (const r of data as Array<{ hotel_id: string; base_currency: string | null; eur_conversion_rate: number | null }>) {
+        const code = (r.base_currency ?? "EUR").toUpperCase();
+        const rate = Number(r.eur_conversion_rate);
+        map.set(r.hotel_id, code === "EUR" ? 1 : (rate > 0 ? rate : 1));
+      }
+      setEurRateByHotel(map);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey]);
+
 
   /** Portfolio snapshots power both the demand index and the comparison lines. */
   useEffect(() => {
