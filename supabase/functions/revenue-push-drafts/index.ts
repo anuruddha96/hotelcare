@@ -485,8 +485,29 @@ Deno.serve(async (req) => {
       }
     }
 
+    if (unmappedDrafts.length > 0) {
+      const groupsByReason = new Map<string, string[]>();
+      for (const u of unmappedDrafts) {
+        const list = groupsByReason.get(u.reason) ?? [];
+        list.push(u.id);
+        groupsByReason.set(u.reason, list);
+      }
+      for (const [reason, ids] of groupsByReason) {
+        for (let i = 0; i < ids.length; i += 300) {
+          await admin.from("revenue_rate_drafts").update({
+            status: "failed", confirmation_status: "blocked", push_error: reason.slice(0, 500),
+          }).in("id", ids.slice(i, i + 300));
+        }
+      }
+      drafts = (drafts as any[]).filter((d) => !unmappedDrafts.some((u) => u.id === d.id));
+    }
+
     const groupList = Array.from(groups.values());
+    if (groupList.length === 0) {
+      return json({ ok: true, pushed: 0, failed: unmappedDrafts.length, message: "No queued price had an exact Previo rate plan." });
+    }
     const stayDates = groupList.map((group) => group.stay_date).sort();
+
     const { data: storedRateRows } = await admin
       .from("revenue_room_type_rates")
       .select("stay_date, obk_id, occupancy, price")
