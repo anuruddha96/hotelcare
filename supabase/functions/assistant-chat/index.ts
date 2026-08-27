@@ -122,7 +122,10 @@ function buildTools(
 ) {
   const orgSlug = profile.organization_slug;
   const hotelIds = hotels.map((h) => h.hotel_id);
-  const today = () => new Date().toISOString().slice(0, 10);
+  // Hotel days run on Budapest time, not UTC.
+  const today = () =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Budapest", dateStyle: "short" }).format(new Date());
+
   const resolve = (requested: string | null | undefined) => {
     const picked = pickHotels(hotels, requested);
     if (!picked.ok) throw new Error(picked.error);
