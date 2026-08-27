@@ -196,7 +196,10 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
   const [showOcc, setShowOcc] = useState(true);
   const [showAdr, setShowAdr] = useState(false);
   const [showDemand, setShowDemand] = useState(false);
-  const [compare, setCompare] = useState(false);
+  // Desktop readers get the portfolio comparison on by default; they can untick it.
+  const [compare, setCompare] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches);
+
   /** Event shading can be switched off when it crowds the chart. */
   const [showEvents, setShowEvents] = useState(true);
 
