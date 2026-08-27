@@ -1845,6 +1845,10 @@ Deno.serve(async (req) => {
             priority: priorityOf("pickup"), intent_source: "automation_smart_strong",
           });
         }
+        if (heldEventGate > 0 || heldRiseCap > 0) {
+          console.log(`[${rule.hotel_id}] rise guards: event-gate ${heldEventGate}, cap ${heldRiseCap}`);
+        }
+
 
         // A human lowered this date recently and the hold has just expired.
         // Before automation re-raises it, the advisor reasons about whether
