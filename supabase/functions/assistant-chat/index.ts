@@ -621,20 +621,23 @@ function buildTools(
 
   if (scopes.has("reception")) {
     tools.get_reception_overview = tool({
-      description: "Read arrivals, departures and breakfast counts inside the user's authorized hotels and organization only. Never returns guest personal details.",
+      description:
+        "Read arrivals, departures, in-house rooms and breakfast counts for a date from the live PMS (Previo) daily overview, inside the user's authorized hotels only. Returns room-level rows without guest personal details.",
       inputSchema: jsonSchema<{ hotelId: string | null; date: string | null }>(
         hotelArgSchema({ date: { type: ["string", "null"], description: "YYYY-MM-DD or null for today" } }, ["date"]),
       ),
       execute: async ({ hotelId, date }) => {
         const ids = resolve(hotelId);
         const target = date ?? today();
-        const reservationsQuery = service
-          .from("reservations")
-          .select("id,hotel_id,check_in_date,check_out_date,status")
+        // The PMS daily overview repeats a stay once per business date, so the
+        // same arrival shows up under several rows. Dedupe by stay.
+        const snapshotQuery = service
+          .from("daily_overview_snapshots")
+          .select("hotel_id,business_date,room_label,room_number,arrival_date,departure_date,status,pax,breakfast")
           .eq("organization_slug", orgSlug)
           .in("hotel_id", ids)
-          .or(`check_in_date.eq.${target},check_out_date.eq.${target}`)
-          .limit(2000);
+          .or(`arrival_date.eq.${target},departure_date.eq.${target},business_date.eq.${target}`)
+          .limit(4000);
         const breakfastQuery = service
           .from("breakfast_roster")
           .select("id,hotel_id,stay_date,breakfast_count")
@@ -642,22 +645,72 @@ function buildTools(
           .in("hotel_id", ids)
           .eq("stay_date", target)
           .limit(2000);
-        const [reservations, breakfast] = await Promise.all([reservationsQuery, breakfastQuery]);
-        if (reservations.error) throw new Error(`Reservation lookup failed: ${reservations.error.message}`);
+        const reservationsQuery = service
+          .from("reservations")
+          .select("id,hotel_id,check_in_date,check_out_date,status")
+          .eq("organization_slug", orgSlug)
+          .in("hotel_id", ids)
+          .or(`check_in_date.eq.${target},check_out_date.eq.${target}`)
+          .limit(2000);
+        const [snapshots, breakfast, reservations] = await Promise.all([
+          snapshotQuery,
+          breakfastQuery,
+          reservationsQuery,
+        ]);
+        if (snapshots.error) throw new Error(`PMS overview lookup failed: ${snapshots.error.message}`);
         if (breakfast.error) throw new Error(`Breakfast lookup failed: ${breakfast.error.message}`);
-        const rows = reservations.data ?? [];
+
+        const seen = new Set<string>();
+        const stays: any[] = [];
+        for (const row of snapshots.data ?? []) {
+          const key = [row.hotel_id, row.room_label ?? row.room_number, row.arrival_date, row.departure_date].join("|");
+          if (seen.has(key)) continue;
+          seen.add(key);
+          stays.push(row);
+        }
+        const arrivals = stays.filter((s) => s.arrival_date === target);
+        const departures = stays.filter((s) => s.departure_date === target);
+        const inHouse = stays.filter(
+          (s) => s.arrival_date && s.departure_date && s.arrival_date <= target && s.departure_date > target,
+        );
+        const brief = (rows: any[]) =>
+          rows
+            .map((s) => ({
+              room: s.room_label ?? s.room_number ?? null,
+              pax: Number(s.pax) || 0,
+              arrival: s.arrival_date,
+              departure: s.departure_date,
+              status: s.status ?? null,
+            }))
+            .sort((a, b) => String(a.room).localeCompare(String(b.room)));
+        const pax = (rows: any[]) => rows.reduce((sum, s) => sum + (Number(s.pax) || 0), 0);
+
+        const reservationRows = reservations.error ? [] : (reservations.data ?? []);
         return {
           date: target,
           hotels: ids,
-          arrivals: rows.filter((row: any) => row.check_in_date === target).length,
-          departures: rows.filter((row: any) => row.check_out_date === target).length,
+          source: stays.length > 0 ? "previo_daily_overview" : "reservations_table",
+          arrivals: stays.length > 0 ? arrivals.length : reservationRows.filter((r: any) => r.check_in_date === target).length,
+          arrivalGuests: pax(arrivals),
+          departures:
+            stays.length > 0 ? departures.length : reservationRows.filter((r: any) => r.check_out_date === target).length,
+          departureGuests: pax(departures),
+          inHouseRooms: inHouse.length,
+          inHouseGuests: pax(inHouse),
+          arrivalRooms: brief(arrivals).slice(0, 60),
+          departureRooms: brief(departures).slice(0, 60),
           breakfastCount: (breakfast.data ?? []).reduce(
             (sum: number, row: any) => sum + (Number(row.breakfast_count) || 0),
             0,
           ),
+          note:
+            stays.length === 0
+              ? "No PMS daily-overview rows for this date — the nightly Previo sync may not have run yet, so counts may be incomplete."
+              : null,
         };
       },
     });
+
   }
 
   if (scopes.has("housekeeping")) {
