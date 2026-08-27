@@ -37,20 +37,27 @@ export function useAssistant(threadId: string | null) {
 
   const loadThreads = useCallback(async () => {
     if (!user) return;
-    const { data, error } = await supabase
+    // A user without an assigned property saves threads with a null hotel and
+    // organisation. Matching those with .eq("", ...) never hit a row, so their
+    // history looked wiped; null scopes are matched with .is() instead.
+    let query = supabase
       .from("assistant_threads")
       .select("id,title,updated_at")
-      .eq("user_id", user.id)
-      .eq("organization_slug", profile?.organization_slug ?? "")
-      .eq("hotel_id", profile?.assigned_hotel ?? "")
-      .order("updated_at", { ascending: false })
-      .limit(50);
+      .eq("user_id", user.id);
+    query = profile?.organization_slug
+      ? query.eq("organization_slug", profile.organization_slug)
+      : query.is("organization_slug", null);
+    query = profile?.assigned_hotel
+      ? query.eq("hotel_id", profile.assigned_hotel)
+      : query.is("hotel_id", null);
+    const { data, error } = await query.order("updated_at", { ascending: false }).limit(50);
     if (error) {
       console.error("Failed to load assistant threads", error);
       return;
     }
     setThreads((data ?? []) as AssistantThread[]);
   }, [user, profile?.organization_slug, profile?.assigned_hotel]);
+
 
   useEffect(() => {
     loadThreads();
