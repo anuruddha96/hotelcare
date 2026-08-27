@@ -110,10 +110,24 @@ export default function AssistantLauncher() {
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent
           side="right"
-          style={viewportHeight ? { height: `${viewportHeight}px`, maxHeight: `${viewportHeight}px` } : undefined}
+          style={
+            viewport
+              ? {
+                  // Keyboard open: pin the panel to the visible viewport so the
+                  // composer stays reachable instead of collapsing off-screen.
+                  top: `${viewport.top}px`,
+                  bottom: "auto",
+                  height: `${viewport.height}px`,
+                  maxHeight: `${viewport.height}px`,
+                  paddingTop: "0.75rem",
+                  paddingBottom: 0,
+                }
+              : undefined
+          }
           className="w-full sm:max-w-[480px] p-3 flex flex-col gap-2 h-[100dvh] max-h-[100dvh] overflow-hidden
                      pt-[max(0.75rem,env(safe-area-inset-top))] pb-0
                      duration-300 data-[state=open]:duration-300"
+
         >
           <SheetTitle className="sr-only">Hotel Care Assistant</SheetTitle>
           <SheetDescription className="sr-only">Role-aware assistant for Hotel Care</SheetDescription>
