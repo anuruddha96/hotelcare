@@ -130,7 +130,10 @@ Deno.serve(async (req) => {
   const { data: userData, error: userError } = await authClient.auth.getUser(authHeader.slice(7));
   if (userError || !userData.user) return json({ error: "Invalid session" }, 401);
 
+  if (kind === "issue_report") return await handleIssueReport(service, userData.user.id, body);
+
   const { data: thread, error: threadError } = await service
+
     .from("assistant_threads")
     .select("id")
     .eq("id", threadId)
