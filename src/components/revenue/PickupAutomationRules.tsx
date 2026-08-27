@@ -951,6 +951,27 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                   value={rule.event_surcharge_eur}
                   onChange={(e) => setRule({ ...rule, event_surcharge_eur: Number(e.target.value) })}
                 />
+                <ToggleRow
+                  title="One event uplift per date per day"
+                  desc="The same event may lift a date once a day; a further rise needs a new booking."
+                  hint={<>Without this the same concert adds its surcharge on every hourly run, which is how a date can climb hundreds of {cur} in a day with no extra demand.</>}
+                  checked={rule.event_uplift_once_per_day}
+                  onChange={(event_uplift_once_per_day) => setRule({ ...rule, event_uplift_once_per_day })}
+                />
+                <ToggleRow
+                  title="Ask AI before undoing a manual drop"
+                  desc="After your hold expires, a price you lowered by hand is only raised again if the advisor agrees."
+                  hint={<>Reviewed for {rule.manual_override_review_hours} hours after your edit. If the advisor is unavailable, your price stands.</>}
+                  checked={rule.manual_override_ai_enabled}
+                  onChange={(manual_override_ai_enabled) => setRule({ ...rule, manual_override_ai_enabled })}
+                />
+                <NumField
+                  label="Review a manual drop for" suffix="h" min={0} max={168}
+                  disabled={!rule.manual_override_ai_enabled}
+                  value={rule.manual_override_review_hours}
+                  onChange={(e) => setRule({ ...rule, manual_override_review_hours: Number(e.target.value) })}
+                />
+
               </Section>
 
               {/* 3 — Lowering prices */}
