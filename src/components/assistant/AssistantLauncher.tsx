@@ -42,18 +42,26 @@ export default function AssistantLauncher() {
 
   useLayoutEffect(() => {
     if (!open || typeof window === "undefined") return;
-    const viewport = window.visualViewport;
-    const update = () => setViewportHeight(Math.round(viewport?.height ?? window.innerHeight));
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      // Only take over sizing while the on-screen keyboard is actually shown.
+      const keyboardOpen = window.innerHeight - vv.height > 120;
+      setViewport(
+        keyboardOpen ? { height: Math.round(vv.height), top: Math.round(vv.offsetTop) } : null,
+      );
+    };
     update();
-    viewport?.addEventListener("resize", update);
-    viewport?.addEventListener("scroll", update);
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
     window.addEventListener("resize", update);
     return () => {
-      viewport?.removeEventListener("resize", update);
-      viewport?.removeEventListener("scroll", update);
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
     };
   }, [open]);
+
 
   const setThread = useCallback(
     (id: string | null) => {
