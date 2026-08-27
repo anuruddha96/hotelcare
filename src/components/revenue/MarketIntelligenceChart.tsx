@@ -1212,7 +1212,11 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
             {isMobile ? "Pinch to zoom, drag to pan" : "Scroll to zoom, drag to pan"}
             {" · "}
             {viewData.length} of {data.length} nights
+            {marketData.coverageEnd && (
+              <> · competitor prices only reach {shortDate(marketData.coverageEnd)}; lines break where no price was found</>
+            )}
           </span>
+
           {(view.start > 0 || view.count < data.length) && (
             <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={resetZoom}>
               Reset zoom
