@@ -66,8 +66,18 @@ async function askDates(
   apiKey: string,
   competitor: { name: string; source_url: string | null },
   dates: string[],
+  strict = false,
 ): Promise<{ rates: ScannedRate[]; currency: string | null; error: string | null; model: string | null }> {
-  const prompt = [
+  const prompt = strict ? [
+    // Retry wording: short, no prose, one line per date. Long prompts are what
+    // make the model answer in prose that cannot be parsed.
+    `Nightly public price, cheapest standard double room, 2 adults, 1 night,`,
+    `hotel "${competitor.name}" Budapest${competitor.source_url ? ` (${competitor.source_url})` : ""}.`,
+    `Dates: ${dates.join(", ")}.`,
+    `Answer with JSON only, no explanation:`,
+    `{"currency":"EUR","rates":[{"date":"YYYY-MM-DD","price":123,"confidence":0.8}]}.`,
+    `Use null for price when no public price is visible.`,
+  ].filter(Boolean).join(" ") : [
     `Find the publicly advertised nightly room price for the hotel "${competitor.name}" in Budapest`,
     competitor.source_url ? `(official page: ${competitor.source_url})` : "",
     `for each of these stay dates: ${dates.join(", ")}.`,
@@ -190,7 +200,7 @@ Deno.serve(async (req) => {
       hotelIds = [...new Set(((all ?? []) as { hotel_id: string }[]).map((r) => r.hotel_id))];
     }
 
-    const days = Math.min(Math.max(Number(body.days ?? 30), 1), 60);
+    const days = Math.min(Math.max(Number(body.days ?? 60), 1), 90);
     const apiKey = Deno.env.get("OPENAI_API_KEY");
     if (!apiKey) return json({ error: "OPENAI_API_KEY is not configured for this project." }, 500);
 
@@ -279,29 +289,36 @@ Deno.serve(async (req) => {
         };
 
 
-        // First pass: sequential short date windows.
-        for (let offset = 0; offset < days; offset += CHUNK_DAYS) {
-          const window = allDates.slice(offset, offset + CHUNK_DAYS);
-          const chunk = await askDates(apiKey, c, window);
+        /**
+         * One window, retried once when the model answers with something we
+         * cannot read. A single unreadable answer used to mark the whole
+         * competitor as failed even though the next attempt usually works.
+         */
+        const askWindow = async (window: string[]) => {
+          let chunk = await askDates(apiKey, c, window);
+          if (chunk.error || !chunk.rates.length) {
+            chunk = await askDates(apiKey, c, window, true);
+          }
           usedModel = chunk.model ?? usedModel;
-          if (chunk.error) { error = chunk.error; continue; }
+          if (chunk.error) { error = chunk.error; return; }
           const n = await persist(chunk);
           stored += n;
           captured += n;
+        };
+
+        // First pass: sequential short date windows.
+        for (let offset = 0; offset < days; offset += CHUNK_DAYS) {
+          await askWindow(allDates.slice(offset, offset + CHUNK_DAYS));
         }
 
         // Second pass: only the nights that came back empty, up to two windows,
         // so a partially answered competitor closes its gaps next.
         const missing = allDates.filter((d) => !filled.has(d));
         if (missing.length && missing.length < allDates.length) {
-          for (const window of [missing.slice(0, CHUNK_DAYS), missing.slice(CHUNK_DAYS, CHUNK_DAYS * 2)]) {
+          for (let offset = 0; offset < missing.length && offset < CHUNK_DAYS * 3; offset += CHUNK_DAYS) {
+            const window = missing.slice(offset, offset + CHUNK_DAYS);
             if (!window.length) continue;
-            const chunk = await askDates(apiKey, c, window);
-            usedModel = chunk.model ?? usedModel;
-            if (chunk.error) { error = chunk.error; continue; }
-            const n = await persist(chunk);
-            stored += n;
-            captured += n;
+            await askWindow(window);
           }
         }
 
