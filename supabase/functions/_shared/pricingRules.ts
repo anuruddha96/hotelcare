@@ -388,6 +388,40 @@ export function strongDemandStep(input: StrongDemandInput): number {
   return Math.max(0, Math.min(step, room));
 }
 
+/**
+ * A rise ceiling expressed both as a flat amount and as a share of the price
+ * being moved. The tighter of the two wins, so a 165 room and an 800 room are
+ * both protected — a flat cap alone let event steps compound all day.
+ */
+export function riseCeiling(input: {
+  absolute?: number | null;
+  percent?: number | null;
+  currentPrice: number;
+}): number {
+  const price = Math.max(0, Number(input.currentPrice) || 0);
+  const caps: number[] = [];
+  const absolute = Number(input.absolute);
+  if (Number.isFinite(absolute) && absolute > 0) caps.push(absolute);
+  const percent = Number(input.percent);
+  if (Number.isFinite(percent) && percent > 0 && price > 0) caps.push((price * percent) / 100);
+  if (caps.length === 0) return Number.POSITIVE_INFINITY;
+  return Math.max(0, roundMoney(Math.min(...caps)));
+}
+
+/** True when the automated price sits above the local market by too much. */
+export function aboveMarket(input: {
+  price: number;
+  marketMedian?: number | null;
+  multiple?: number | null;
+}): boolean {
+  const median = Number(input.marketMedian);
+  if (!Number.isFinite(median) || median <= 0) return false;
+  const multiple = Number(input.multiple);
+  const limit = Number.isFinite(multiple) && multiple > 0 ? multiple : 1.4;
+  return Number(input.price) > median * limit;
+}
+
+
 /** An advisor may only confirm or soften a move: factor is clamped to 0..1. */
 export function clampAiFactor(value: unknown): number {
   const factor = Number(value);
