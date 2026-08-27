@@ -411,6 +411,13 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       minimum_adr: source.rule.minimum_adr,
       maximum_increase: source.rule.maximum_increase,
       max_daily_increase_per_date: source.rule.max_daily_increase_per_date,
+      max_increase_pct: source.rule.max_increase_pct ?? 5,
+      max_daily_increase_pct: source.rule.max_daily_increase_pct ?? 6,
+      event_uplift_once_per_day: source.rule.event_uplift_once_per_day ?? true,
+      market_ceiling_multiple: source.rule.market_ceiling_multiple ?? 1.4,
+      manual_override_ai_enabled: source.rule.manual_override_ai_enabled ?? true,
+      manual_override_review_hours: source.rule.manual_override_review_hours ?? 24,
+
       application_scope: source.rule.application_scope ?? "booked_room_type",
       auto_publish: source.rule.auto_publish,
       positive_pickup_enabled: source.rule.positive_pickup_enabled ?? true,
