@@ -1772,6 +1772,35 @@ Deno.serve(async (req) => {
           });
         }
 
+        // A human lowered this date recently and the hold has just expired.
+        // Before automation re-raises it, the advisor reasons about whether
+        // that is commercially sensible; it may only keep or cancel the move.
+        if (manualReviewDates.size > 0 && strongRows.length > 0) {
+          const veto = await aiReviewManualOverrides(
+            Array.from(manualReviewDates)
+              .filter((d) => strongDates.has(d))
+              .map((d) => {
+                const drop = manualDrop.get(d)!;
+                return {
+                  stay_date: d,
+                  days_out: dayDiff(local.date, d),
+                  occupancy_pct: occByDate.get(d) ?? null,
+                  rooms_left: leftByDate.get(d) ?? null,
+                  manual_from: drop.from,
+                  manual_to: drop.to,
+                  manual_at: drop.at,
+                  market_median: marketByDate.get(d) ?? null,
+                  proposed_delta: Math.max(
+                    stepByDate.get(`${d}|e`) ?? 0,
+                    stepByDate.get(`${d}|n`) ?? 0,
+                  ),
+                };
+              }),
+            rule,
+          );
+          if (veto.size > 0) applyAiFactors(strongRows, strongDrafts, veto, "increase");
+        }
+
         // Optional AI advisor: it may only confirm or SHRINK a deterministic
         // move, never invent or exceed one.
         if (rule.ai_assist_enabled && strongRows.length > 0) {
@@ -1779,13 +1808,14 @@ Deno.serve(async (req) => {
             Array.from(strongDates).map((d) => ({
               stay_date: d, days_out: dayDiff(local.date, d),
               occupancy_pct: occByDate.get(d) ?? null,
-              proposed_delta: stepByDate.get(d) ?? 0,
+              proposed_delta: Math.max(stepByDate.get(`${d}|e`) ?? 0, stepByDate.get(`${d}|n`) ?? 0),
               direction: "increase" as const,
             })),
             rule,
           );
           applyAiFactors(strongRows, strongDrafts, factors, "increase");
         }
+
 
         if (!dryRun && strongRows.length > 0) {
           const { data: insertedStrong, error: strongError } = await admin.from("revenue_pickup_automation_actions")
