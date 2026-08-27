@@ -13,6 +13,7 @@
 // OpenAI key is rejected, out of credit, or rate limited.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { aiFeatureEnabled, checkAiBudget, logAiUsage } from "../_shared/aiBudget.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
