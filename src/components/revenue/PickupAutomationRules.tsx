@@ -111,6 +111,10 @@ const DEFAULT_RULE: Rule = {
   booking_window_tiers: [{ max_days: 31, increase: 8 }, { max_days: 93, increase: 18 }, { max_days: null, increase: 22 }],
   same_hour_window_minutes: 60, second_pickup_surcharge: 25, minimum_adr: 120,
   maximum_increase: 25, max_daily_increase_per_date: 40,
+  max_increase_pct: 5, max_daily_increase_pct: 6,
+  event_uplift_once_per_day: true, market_ceiling_multiple: 1.4,
+  manual_override_ai_enabled: true, manual_override_review_hours: 24,
+
   application_scope: "booked_room_type", version: 1,
   positive_pickup_enabled: true, pickup_lookback_hours: 48,
   no_pickup_enabled: false, no_pickup_lookback_hours: 8,
