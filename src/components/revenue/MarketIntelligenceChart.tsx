@@ -741,8 +741,8 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
   const legendItems = useMemo(() => {
     const items: Array<{ id: string; label: string; color: string; shape: "bar" | "line"; active: boolean; toggle?: () => void }> = [
       { id: "gained", label: "Booked", color: PICKUP_LEGEND_COLOR, shape: "bar", active: true },
-      { id: "lost", label: "Cancelled", color: "hsl(199 89% 60%)", shape: "bar", active: true },
-      { id: "occ", label: "Occupancy", color: "hsl(var(--primary))", shape: "line", active: showOcc, toggle: () => setShowOcc((v) => !v) },
+      { id: "lost", label: "Cancelled", color: CANCEL_COLOR, shape: "bar", active: true },
+      { id: "occ", label: "Occupancy", color: OCC_COLOR, shape: "line", active: showOcc, toggle: () => setShowOcc((v) => !v) },
       { id: "adr", label: "ADR", color: ADR_COLOR, shape: "line", active: showAdr, toggle: () => setShowAdr((v) => !v) },
     ];
     if (hasDemand) items.push({ id: "demand", label: "City demand", color: DEMAND_COLOR, shape: "line", active: showDemand, toggle: () => setShowDemand((v) => !v) });
@@ -754,7 +754,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
     }
     items.push({ id: "ourRate", label: `${baselineLabel} rate`, color: OUR_RATE_COLOR, shape: "line", active: prefs.ourRate, toggle: () => setPref("ourRate", !prefs.ourRate) });
     items.push({ id: "marketAvg", label: "Market average", color: MARKET_COLOR, shape: "line", active: prefs.marketAvg, toggle: () => setPref("marketAvg", !prefs.marketAvg) });
-    items.push({ id: "marketMedian", label: "Market median", color: MARKET_COLOR, shape: "line", active: prefs.marketMedian, toggle: () => setPref("marketMedian", !prefs.marketMedian) });
+    items.push({ id: "marketMedian", label: "Market median", color: MARKET_MEDIAN_COLOR, shape: "line", active: prefs.marketMedian, toggle: () => setPref("marketMedian", !prefs.marketMedian) });
     for (const c of marketData.competitors) {
       items.push({
         id: c.id, label: c.name, color: compColor(c.id), shape: "line",
@@ -1132,10 +1132,10 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                 )}
               </Bar>
               <Bar yAxisId="pickup" dataKey="lost" name="Cancelled" stackId="pickup" radius={[0, 0, 2, 2]}
-                maxBarSize={18} minPointSize={2} fill="hsl(199 89% 60%)" isAnimationActive animationDuration={550} />
+                maxBarSize={18} minPointSize={2} fill={CANCEL_COLOR} isAnimationActive animationDuration={550} />
 
               {showOcc && (
-                <Line yAxisId="right" type="monotone" dataKey="occ" name="Occupancy" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} opacity={0.85} />
+                <Line yAxisId="right" type="monotone" dataKey="occ" name="Occupancy" stroke={OCC_COLOR} strokeWidth={2} dot={false} opacity={0.85} />
               )}
               {showDemand && hasDemand && (
                 <>
@@ -1173,7 +1173,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                   strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls={false} />
               )}
               {prefs.marketMedian && (
-                <Line yAxisId="rate" type="monotone" dataKey="marketMedian" name="Market median" stroke={MARKET_COLOR}
+                <Line yAxisId="rate" type="monotone" dataKey="marketMedian" name="Market median" stroke={MARKET_MEDIAN_COLOR}
                   strokeWidth={1.5} strokeDasharray="2 3" dot={false} connectNulls={false} opacity={0.8} />
               )}
               {prefs.ourRate && (
