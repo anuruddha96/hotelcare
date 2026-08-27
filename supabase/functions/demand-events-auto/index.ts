@@ -86,9 +86,13 @@ serve(async (req) => {
     const results: Array<Record<string, unknown>> = [];
     let slots = 0;
 
+    // Rotating window: which quarter of the 12-month horizon this run covers.
+    const weekIndex = Math.floor(Date.now() / (7 * 86_400_000));
+    const windowStart = (weekIndex % WINDOW_SLOTS) * WINDOW_MONTHS;
+
     outer:
     for (const market of markets.values()) {
-      for (let i = 0; i < MONTHS_AHEAD; i++) {
+      for (let i = windowStart; i < windowStart + WINDOW_MONTHS; i++) {
         if (slots >= MAX_SLOTS) break outer;
         const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, 1));
         const month = monthKey(d);
