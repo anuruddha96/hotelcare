@@ -16,9 +16,13 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { searchEvents } from "../_shared/eventSearch.ts";
 
-const MONTHS_AHEAD = 12;
-const MAX_SLOTS = 6;          // AI searches per invocation
-const REFRESH_DAYS = 7;       // a month is re-checked once a week
+// Cost control: this sweep pays for a web search per month scanned. It now
+// runs weekly on a rotating 3-month window, so the full 12-month horizon is
+// still refreshed about once a month for a quarter of the old spend.
+const WINDOW_MONTHS = 3;      // months looked at per invocation
+const WINDOW_SLOTS = 4;       // rotating windows: months 1-3, 4-6, 7-9, 10-12
+const MAX_SLOTS = 3;          // AI searches per invocation
+const REFRESH_DAYS = 30;      // a month is re-checked at most once a month
 const LOCK_MINUTES = 10;
 
 const json = (body: unknown, status = 200) =>
