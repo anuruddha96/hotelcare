@@ -137,19 +137,33 @@ interface Props {
 }
 
 /**
- * Competitor colours are generated instead of cycled through a short list:
- * with a dozen watched hotels an eight-colour palette handed the same colour to
- * several lines, which made the chart impossible to read. The golden-angle
- * walk keeps neighbouring hues far apart, and alternating lightness separates
- * hotels that land on a similar hue.
+ * Competitor colours are generated instead of cycled through a short list, and
+ * the walk skips the hues already spoken for by the fixed series (occupancy,
+ * ADR, demand, our rate, the pickup bars) so a competitor can never be drawn
+ * in the same colour as one of the headline lines.
  */
-function competitorColor(index: number): string {
-  const hue = Math.round((index * 137.508) % 360);
-  const light = index % 2 === 0 ? 52 : 38;
-  return `hsl(${hue} 70% ${light}%)`;
+const RESERVED_HUES = [28, 199, 221, 160, 271, 330];
+function hueTaken(hue: number): boolean {
+  return RESERVED_HUES.some((r) => {
+    const d = Math.abs(((hue - r + 540) % 360) - 180);
+    return 180 - d < 16;
+  });
 }
-const MARKET_COLOR = "hsl(var(--foreground) / 0.75)";
-const OUR_RATE_COLOR = "hsl(var(--primary))";
+function competitorColor(index: number): string {
+  let hue = 0;
+  let step = 0;
+  for (let taken = 0; taken <= index; step++) {
+    hue = Math.round((step * 137.508 + 12) % 360);
+    if (hueTaken(hue)) continue;
+    taken++;
+  }
+  const light = index % 2 === 0 ? 52 : 34;
+  return `hsl(${hue} 72% ${light}%)`;
+}
+const MARKET_COLOR = "hsl(var(--foreground) / 0.85)";
+const MARKET_MEDIAN_COLOR = "hsl(var(--muted-foreground))";
+const OUR_RATE_COLOR = "hsl(330 78% 48%)";
+
 
 /** "11 Aug" — used for the comparison window caption. */
 function shortDate(date: string | null): string {
