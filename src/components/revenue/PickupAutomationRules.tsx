@@ -1094,6 +1094,30 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                   />
                 </div>
 
+                <div className="grid grid-cols-2 gap-3">
+                  <NumField
+                    label="Most one move may add" suffix="%" min={0} max={50} step={0.5}
+                    hint={<>A share of the price being changed. The tighter of this and the {cur} ceiling wins, so expensive rooms cannot jump.</>}
+                    value={rule.max_increase_pct}
+                    onChange={(e) => setRule({ ...rule, max_increase_pct: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Most a price may rise in a day" suffix="%" min={0} max={100} step={0.5}
+                    hint={<><strong>Example:</strong> at 6% a {cur} 500 room can never finish the day above {cur} 530, however many signals fire.</>}
+                    value={rule.max_daily_increase_pct}
+                    onChange={(e) => setRule({ ...rule, max_daily_increase_pct: Number(e.target.value) })}
+                  />
+                </div>
+
+                <NumField
+                  label="Warn when above market by" suffix="×" min={1} max={4} step={0.05}
+                  hint={<>Compared with the median of your watched competitors for that night. Above this the price history is flagged — the move is still made.</>}
+                  value={rule.market_ceiling_multiple}
+                  onChange={(e) => setRule({ ...rule, market_ceiling_multiple: Number(e.target.value) })}
+                />
+
+
+
                 <ToggleRow
                   title="Last-minute guard"
                   desc={`Inside ${rule.short_window_days} days a rise needs the date to be selling well already.`}
