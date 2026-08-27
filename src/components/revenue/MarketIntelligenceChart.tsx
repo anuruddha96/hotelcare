@@ -917,7 +917,8 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                         onChange={() => toggleCompetitor(c.id)}
                         hint={count === 0
                           ? (c.last_scan_status === "failed" ? "last check failed" : "no public price found")
-                          : `${count} prices · ${Math.round(reliability * 100)}% reliable · ${c.last_scan_at ? new Date(c.last_scan_at).toLocaleDateString() : "never checked"}`}
+                          : `${count} nights to ${shortDate(marketData.coverageByCompetitor.get(c.id) ?? null)} · ${Math.round(reliability * 100)}% reliable`}
+
                       />
                     );
                   })}
