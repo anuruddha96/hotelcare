@@ -117,7 +117,7 @@ Deno.serve(async (req) => {
     });
     if (runError) throw runError;
 
-    const rejected: Array<{ stay_date: string; room_type_name: string; occupancy: number; reason: string }> = [];
+    const rejected: Array<{ stay_date: string; room_type_name: string; occupancy: number; reason: string }> = [...preRejected];
     let queued = 0;
 
     try {
