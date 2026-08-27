@@ -56,12 +56,17 @@ export interface MarketRatesResult {
   ratesByCompetitor: Map<string, Map<string, number>>;
   /** competitor id -> average reliability (0-1) of its plotted prices */
   reliabilityByCompetitor: Map<string, number>;
+  /** competitor id -> last stay date that actually has a plotted price */
+  coverageByCompetitor: Map<string, string>;
+  /** Last stay date any competitor has a price for — where the market data ends. */
+  coverageEnd: string | null;
   /** stay date -> market aggregate */
   marketByDate: Map<string, MarketDay>;
   rows: CompetitorRateRow[];
   loading: boolean;
   reload: () => void;
 }
+
 
 const HORIZON_DAYS = 200;
 
@@ -142,7 +147,31 @@ export function useMarketRates(hotelId: string | null): MarketRatesResult {
     return map;
   }, [market]);
 
-  return { competitors, ratesByCompetitor, reliabilityByCompetitor, marketByDate, rows, loading, reload };
+  // How far ahead the scan actually reaches. A competitor line that stops mid
+  // chart is missing data, not a price collapse, so the chart states where the
+  // data ends rather than letting the reader guess.
+  const coverageByCompetitor = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const [id, byDate] of ratesByCompetitor) {
+      let last = "";
+      for (const date of byDate.keys()) if (date > last) last = date;
+      if (last) map.set(id, last);
+    }
+    return map;
+  }, [ratesByCompetitor]);
+
+  const coverageEnd = useMemo(() => {
+    let last = "";
+    for (const d of coverageByCompetitor.values()) if (d > last) last = d;
+    for (const [date, m] of marketByDate) if (m.sample_size > 0 && date > last) last = date;
+    return last || null;
+  }, [coverageByCompetitor, marketByDate]);
+
+  return {
+    competitors, ratesByCompetitor, reliabilityByCompetitor,
+    coverageByCompetitor, coverageEnd, marketByDate, rows, loading, reload,
+  };
+
 }
 
 /** How many prices a competitor currently holds in the loaded horizon. */

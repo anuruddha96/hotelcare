@@ -129,14 +129,32 @@ interface Props {
   ourRateByDate?: Map<string, number>;
 }
 
-/** Colours for the watched competitors, in list order. */
-const COMP_COLORS = [
-  "hsl(217 91% 60%)", "hsl(160 60% 45%)", "hsl(30 84% 55%)",
-  "hsl(280 65% 60%)", "hsl(340 75% 55%)", "hsl(190 80% 42%)",
-  "hsl(45 90% 45%)", "hsl(0 72% 55%)",
-];
+/**
+ * Competitor colours are generated instead of cycled through a short list:
+ * with a dozen watched hotels an eight-colour palette handed the same colour to
+ * several lines, which made the chart impossible to read. The golden-angle
+ * walk keeps neighbouring hues far apart, and alternating lightness separates
+ * hotels that land on a similar hue.
+ */
+function competitorColor(index: number): string {
+  const hue = Math.round((index * 137.508) % 360);
+  const light = index % 2 === 0 ? 52 : 38;
+  return `hsl(${hue} 70% ${light}%)`;
+}
 const MARKET_COLOR = "hsl(var(--foreground) / 0.75)";
 const OUR_RATE_COLOR = "hsl(var(--primary))";
+
+/** "11 Aug" — used for the comparison window caption. */
+function shortDate(date: string | null): string {
+  if (!date) return "—";
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: "UTC", day: "numeric", month: "short" });
+}
+
+/** Cross-property money is always normalised to euros, whatever each PMS quotes. */
+function eurMoney(value: number | null): string {
+  return value == null ? "—" : `€${Math.round(value).toLocaleString()}`;
+}
+
 
 /** Which of the competitive-set series the reader keeps ticked on. */
 interface MarketPrefs {
@@ -146,9 +164,13 @@ interface MarketPrefs {
   band: boolean;
   competitors: string[];
 }
+// A chart that opens with everything drawn is unreadable. The default view is
+// pickup + occupancy + our rate against the market average; anything else is a
+// deliberate tick.
 const DEFAULT_PREFS: MarketPrefs = {
-  ourRate: true, marketAvg: true, marketMedian: false, band: true, competitors: [],
+  ourRate: true, marketAvg: true, marketMedian: false, band: false, competitors: [],
 };
+
 const prefsKey = (hotelId?: string | null) => `market-intel-series:${hotelId ?? "default"}`;
 function loadPrefs(hotelId?: string | null): MarketPrefs {
   if (typeof window === "undefined") return DEFAULT_PREFS;
@@ -173,7 +195,7 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
   /** Optional series the user can layer on top of pickup. */
   const [showOcc, setShowOcc] = useState(true);
   const [showAdr, setShowAdr] = useState(false);
-  const [showDemand, setShowDemand] = useState(true);
+  const [showDemand, setShowDemand] = useState(false);
   const [compare, setCompare] = useState(false);
   /** Event shading can be switched off when it crowds the chart. */
   const [showEvents, setShowEvents] = useState(true);
@@ -212,10 +234,39 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
   const activeWindow = pickupWindowDays ?? PICKUP_WINDOW_48H;
   const [customDays, setCustomDays] = useState(7);
   const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
+  /** hotel id -> how many local units make one euro (1 for euro properties). */
+  const [eurRateByHotel, setEurRateByHotel] = useState<Map<string, number>>(new Map());
 
   const hotelIds = useMemo(() => hotels.map((h) => h.hotel_id), [hotels]);
   const idsKey = hotelIds.join(",");
   const horizonEnd = metrics.length ? metrics[Math.min(metrics.length, 190) - 1].stay_date : null;
+
+  /**
+   * Properties do not all publish euros — SLNT's Previo profile quotes forints,
+   * which turned its comparison tile into an ADR of 25 186. Each property's own
+   * base currency and rate normalise the money before the tiles are built.
+   */
+  useEffect(() => {
+    if (hotelIds.length === 0) { setEurRateByHotel(new Map()); return; }
+    let cancelled = false;
+    void (async () => {
+      const { data, error } = await supabase
+        .from("hotel_revenue_settings")
+        .select("hotel_id, base_currency, eur_conversion_rate")
+        .in("hotel_id", hotelIds);
+      if (cancelled || error || !data) return;
+      const map = new Map<string, number>();
+      for (const r of data as Array<{ hotel_id: string; base_currency: string | null; eur_conversion_rate: number | null }>) {
+        const code = (r.base_currency ?? "EUR").toUpperCase();
+        const rate = Number(r.eur_conversion_rate);
+        map.set(r.hotel_id, code === "EUR" ? 1 : (rate > 0 ? rate : 1));
+      }
+      setEurRateByHotel(map);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey]);
+
 
   /** Portfolio snapshots power both the demand index and the comparison lines. */
   useEffect(() => {
@@ -310,7 +361,8 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
     : hotels.find((h) => h.hotel_id === baseline)?.hotel_name ?? "Selected property";
 
   const compColor = (id: string) =>
-    COMP_COLORS[Math.max(0, marketData.competitors.findIndex((c) => c.id === id)) % COMP_COLORS.length];
+    competitorColor(Math.max(0, marketData.competitors.findIndex((c) => c.id === id)));
+
 
   const data = useMemo(() => metrics.slice(0, days).map((m) => {
     const actual = demandByDate.actual.get(m.stay_date);
@@ -402,41 +454,75 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
 
 
   /**
-   * Calendar-month KPIs for every property.
+   * Calendar-month KPIs for every property, measured over ONE identical window.
    *
-   * Every tile — including the property currently open — is computed from the
-   * same portfolio snapshots over the same date window. Reading the open
-   * property from the live grid metrics instead made its numbers disagree with
-   * the tile the very same hotel showed from another property's page, because
-   * the grid only covers today forward while the snapshots cover the whole
-   * selected month. The grid metrics are only used as a fallback when no
-   * snapshot has landed yet for the open property.
+   * Snapshots do not start on the same day for every property (for 2026-08 this
+   * property held 27 nights from 5 Aug while the sister hotels held 21 from
+   * 11 Aug), so dividing each hotel's sold rooms by whatever nights it happened
+   * to have made the tiles look precise while comparing different periods. The
+   * window is now the intersection of the nights every compared property has
+   * captured inside the selected month, it is printed under the tiles, and
+   * money is normalised to euros using each property's own base currency.
    */
-  const comparisonSummary = useMemo(() => {
-    if (!compare) return [];
-    const selectedRows = metrics.filter((m) => m.stay_date.slice(0, 7) === selectedMonth);
-    return hotels.map((h) => {
-      const mine = Array.from(latestByHotelDate.values()).filter(
-        (r) => r.hotel_id === h.hotel_id && r.stay_date.slice(0, 7) === selectedMonth,
-      );
-      const useFallback = mine.length === 0 && h.hotel_id === hotelId;
-      const sold = useFallback
-        ? selectedRows.reduce((s, r) => s + r.roomsSold, 0)
-        : mine.reduce((s, r) => s + (Number(r.rooms_sold) || 0), 0);
-      const capacity = useFallback
-        ? selectedRows.reduce((s, r) => s + r.roomsAvailable, 0)
-        : mine.reduce((s, r) => s + (Number(r.rooms_available) || 0), 0);
-      const revenue = useFallback
-        ? selectedRows.reduce((s, r) => s + r.revenueEur, 0)
-        : mine.reduce((s, r) => s + Number(r.revenue_eur ?? 0), 0);
+  const comparison = useMemo(() => {
+    if (!compare) return { from: null as string | null, to: null as string | null, nights: 0, tiles: [] as Array<{ hotel_id: string; hotel_name: string; occ: number | null; adr: number | null; revpar: number | null }> };
+
+    /** Nights each property actually reported inside the month. */
+    const datesByHotel = new Map<string, Set<string>>();
+    for (const r of latestByHotelDate.values()) {
+      if (r.stay_date.slice(0, 7) !== selectedMonth) continue;
+      if (!Number(r.rooms_available)) continue;
+      const set = datesByHotel.get(r.hotel_id) ?? new Set<string>();
+      set.add(r.stay_date);
+      datesByHotel.set(r.hotel_id, set);
+    }
+    // The open property can fall back to the live grid when no snapshot landed.
+    const gridRows = metrics.filter((m) => m.stay_date.slice(0, 7) === selectedMonth && m.roomsAvailable > 0);
+    if (hotelId && !datesByHotel.has(hotelId) && gridRows.length) {
+      datesByHotel.set(hotelId, new Set(gridRows.map((m) => m.stay_date)));
+    }
+
+    const reporting = hotels.filter((h) => (datesByHotel.get(h.hotel_id)?.size ?? 0) > 0);
+    let shared: string[] = [];
+    if (reporting.length) {
+      const first = datesByHotel.get(reporting[0].hotel_id)!;
+      shared = Array.from(first)
+        .filter((d) => reporting.every((h) => datesByHotel.get(h.hotel_id)!.has(d)))
+        .sort();
+    }
+    const sharedSet = new Set(shared);
+
+    const tiles = hotels.map((h) => {
+      const rate = eurRateByHotel.get(h.hotel_id) ?? 1;
+      const useGrid = !latestByHotelDate.has(`${h.hotel_id}|${shared[0] ?? ""}`) && h.hotel_id === hotelId;
+      let sold = 0, capacity = 0, revenue = 0;
+      if (useGrid) {
+        for (const m of gridRows) {
+          if (!sharedSet.has(m.stay_date)) continue;
+          sold += m.roomsSold; capacity += m.roomsAvailable; revenue += m.revenueEur / rate;
+        }
+      } else {
+        for (const date of shared) {
+          const r = latestByHotelDate.get(`${h.hotel_id}|${date}`);
+          if (!r) continue;
+          sold += Number(r.rooms_sold) || 0;
+          capacity += Number(r.rooms_available) || 0;
+          revenue += Number(r.revenue_eur ?? 0) / rate;
+        }
+      }
       return {
         ...h,
-        occ: capacity > 0 ? Math.round((sold / capacity) * 100) : 0,
-        adr: sold > 0 ? Math.round(revenue / sold) : 0,
-        revpar: capacity > 0 ? Math.round(revenue / capacity) : 0,
+        occ: capacity > 0 ? Math.round((sold / capacity) * 100) : null,
+        adr: sold > 0 ? Math.round(revenue / sold) : null,
+        revpar: capacity > 0 ? Math.round(revenue / capacity) : null,
       };
     }).sort((a, b) => (a.hotel_id === hotelId ? -1 : b.hotel_id === hotelId ? 1 : 0));
-  }, [compare, hotels, latestByHotelDate, hotelId, metrics, selectedMonth]);
+
+    return { from: shared[0] ?? null, to: shared[shared.length - 1] ?? null, nights: shared.length, tiles };
+  }, [compare, hotels, latestByHotelDate, hotelId, metrics, selectedMonth, eurRateByHotel]);
+
+  const comparisonSummary = comparison.tiles;
+
 
 
   // ------------------------------------------------------------- viewport
@@ -831,7 +917,8 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                         onChange={() => toggleCompetitor(c.id)}
                         hint={count === 0
                           ? (c.last_scan_status === "failed" ? "last check failed" : "no public price found")
-                          : `${count} prices · ${Math.round(reliability * 100)}% reliable · ${c.last_scan_at ? new Date(c.last_scan_at).toLocaleDateString() : "never checked"}`}
+                          : `${count} nights to ${shortDate(marketData.coverageByCompetitor.get(c.id) ?? null)} · ${Math.round(reliability * 100)}% reliable`}
+
                       />
                     );
                   })}
@@ -877,7 +964,13 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
 
       <CardContent className="px-1 sm:px-4">
         {compare && comparisonSummary.length > 0 && (
-          <div className="mb-3 grid grid-cols-2 gap-2 px-2 lg:grid-cols-4">
+          <div className="mb-3 px-2">
+            <p className="mb-1.5 text-[10px] text-muted-foreground">
+              {comparison.nights > 0
+                ? <>Same window for every property: <span className="font-medium text-foreground">{shortDate(comparison.from)} – {shortDate(comparison.to)}</span> ({comparison.nights} night{comparison.nights === 1 ? "" : "s"} captured in {selectedMonth})</>
+                : <>No overlapping nights captured for these properties in {selectedMonth}</>}
+            </p>
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
             {comparisonSummary.map((s) => {
               const on = !hiddenHotels.has(s.hotel_id);
               const color = colorFor(s.hotel_id, hotels.findIndex((h) => h.hotel_id === s.hotel_id));
@@ -902,23 +995,28 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                   <div className="mt-1.5 grid grid-cols-3 gap-1 tabular-nums">
                     <div>
                       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Occupancy</p>
-                      <p className="text-base font-semibold leading-tight">{s.occ}%</p>
+                      <p className="text-base font-semibold leading-tight">{s.occ == null ? "—" : `${s.occ}%`}</p>
                     </div>
                     <div>
                       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">ADR</p>
-                      <p className="text-base font-semibold leading-tight">{money(s.adr)}</p>
+                      <p className="text-base font-semibold leading-tight">{eurMoney(s.adr)}</p>
                     </div>
                     <div>
                       <p className="text-[10px] uppercase tracking-wide text-muted-foreground">RevPAR</p>
-                      <p className="text-base font-semibold leading-tight">{money(s.revpar)}</p>
+                      <p className="text-base font-semibold leading-tight">{eurMoney(s.revpar)}</p>
                     </div>
                   </div>
-                  <p className="mt-1 text-[10px] text-muted-foreground">{selectedMonth} · tap to {on ? "hide" : "show"}</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    {s.occ == null ? "no data in this window" : `tap to ${on ? "hide" : "show"}`}
+                  </p>
+
                 </button>
               );
             })}
+            </div>
           </div>
         )}
+
         <div ref={plotRef} className="h-[22rem] touch-pan-y select-none sm:h-72">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={viewData} margin={{ top: 16, right: 4, left: 0, bottom: 0 }}>
@@ -1049,34 +1147,39 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
                 <Line key={h.hotel_id} yAxisId="right" type="monotone" dataKey={`h_${h.hotel_id}`} name={h.hotel_name}
                   stroke={colorFor(h.hotel_id, hotels.findIndex((x) => x.hotel_id === h.hotel_id))}
                   strokeWidth={h.hotel_id === hotelId ? 2.5 : 1.5}
-                  dot={false} connectNulls opacity={0.85} />
+                  strokeDasharray={h.hotel_id === hotelId ? undefined : "6 3"}
+                  dot={false} connectNulls={false} opacity={0.85} />
               ))}
 
-              {/* ---- competitive set ------------------------------------- */}
+              {/* ---- competitive set -------------------------------------
+                  Nothing here is interpolated: where a scan found no price the
+                  line simply breaks, so a short competitor line reads as
+                  missing coverage rather than a price collapse. */}
               {prefs.band && (
                 <>
                   <Area yAxisId="rate" dataKey="bandLow" stackId="band" stroke="none" fill="transparent"
-                    legendType="none" name="Market floor" isAnimationActive={false} connectNulls />
+                    legendType="none" name="Market floor" isAnimationActive={false} connectNulls={false} />
                   <Area yAxisId="rate" dataKey="bandSpan" stackId="band" stroke="none"
-                    fill="hsl(var(--foreground) / 0.08)" name="Cheapest–dearest" isAnimationActive={false} connectNulls />
+                    fill="hsl(var(--foreground) / 0.08)" name="Cheapest–dearest" isAnimationActive={false} connectNulls={false} />
                 </>
               )}
               {prefs.marketAvg && (
                 <Line yAxisId="rate" type="monotone" dataKey="marketAvg" name="Market average" stroke={MARKET_COLOR}
-                  strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls />
+                  strokeWidth={2} strokeDasharray="5 3" dot={false} connectNulls={false} />
               )}
               {prefs.marketMedian && (
                 <Line yAxisId="rate" type="monotone" dataKey="marketMedian" name="Market median" stroke={MARKET_COLOR}
-                  strokeWidth={1.5} strokeDasharray="2 3" dot={false} connectNulls opacity={0.8} />
+                  strokeWidth={1.5} strokeDasharray="2 3" dot={false} connectNulls={false} opacity={0.8} />
               )}
               {prefs.ourRate && (
                 <Line yAxisId="rate" type="monotone" dataKey="ourRate" name={`${baselineLabel} rate`} stroke={OUR_RATE_COLOR}
-                  strokeWidth={2.5} dot={false} connectNulls />
+                  strokeWidth={2.5} dot={false} connectNulls={false} />
               )}
               {shownCompetitors.map((c) => (
                 <Line key={c.id} yAxisId="rate" type="monotone" dataKey={`c_${c.id}`} name={c.name}
-                  stroke={compColor(c.id)} strokeWidth={1.5} dot={false} connectNulls opacity={0.9} />
+                  stroke={compColor(c.id)} strokeWidth={1.5} dot={false} connectNulls={false} opacity={0.9} />
               ))}
+
 
             </ComposedChart>
           </ResponsiveContainer>
@@ -1109,7 +1212,11 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
             {isMobile ? "Pinch to zoom, drag to pan" : "Scroll to zoom, drag to pan"}
             {" · "}
             {viewData.length} of {data.length} nights
+            {marketData.coverageEnd && (
+              <> · competitor prices only reach {shortDate(marketData.coverageEnd)}; lines break where no price was found</>
+            )}
           </span>
+
           {(view.start > 0 || view.count < data.length) && (
             <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={resetZoom}>
               Reset zoom
