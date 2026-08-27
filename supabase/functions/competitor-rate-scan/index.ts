@@ -157,6 +157,7 @@ async function askDates(
         currency: parsed.currency ?? null,
         error: null,
         model,
+        usage,
       };
     } catch (e) {
       if (e instanceof ScanBlocked) throw e;
@@ -164,7 +165,7 @@ async function askDates(
       console.error("competitor-rate-scan", lastError);
     }
   }
-  return { rates: [], currency: null, error: lastError ?? "no answer", model: null };
+  return { rates: [], currency: null, error: lastError ?? "no answer", model: null, usage };
 }
 
 function normaliseBoard(v: string | null | undefined): string | null {
