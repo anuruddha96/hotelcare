@@ -9,6 +9,8 @@ import { useAssistant } from "@/hooks/useAssistant";
 import AssistantChat from "./AssistantChat";
 import AssistantAccessRequests, { canApproveAssistantAccess } from "./AssistantAccessRequests";
 import { canUseAssistant } from "@/lib/assistantAccess";
+import { isAssistantDebugEnabled, setAssistantDebug } from "@/lib/assistant/debugMode";
+
 import { cn } from "@/lib/utils";
 import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
 
@@ -21,6 +23,8 @@ export default function AssistantLauncher() {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("chat");
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+  const [debugOn, setDebugOn] = useState(false);
+
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -30,6 +34,11 @@ export default function AssistantLauncher() {
   useEffect(() => {
     if (threadId) setOpen(true);
   }, [threadId]);
+
+  useEffect(() => {
+    setDebugOn(isAssistantDebugEnabled(profile?.role));
+  }, [profile?.role, open]);
+
 
   useLayoutEffect(() => {
     if (!open || typeof window === "undefined") return;
@@ -94,7 +103,7 @@ export default function AssistantLauncher() {
         <SheetContent
           side="right"
           style={viewportHeight ? { height: `${viewportHeight}px`, maxHeight: `${viewportHeight}px` } : undefined}
-          className="w-full sm:max-w-md p-3 flex flex-col gap-2 h-[100dvh] max-h-[100dvh] overflow-hidden
+          className="w-full sm:max-w-[480px] p-3 flex flex-col gap-2 h-[100dvh] max-h-[100dvh] overflow-hidden
                      pt-[max(0.75rem,env(safe-area-inset-top))] pb-0
                      duration-300 data-[state=open]:duration-300"
         >
@@ -108,7 +117,21 @@ export default function AssistantLauncher() {
                 <p className="text-[11px] text-muted-foreground">Ask anything about your work</p>
               </div>
             </div>
+            {profile.role === "admin" && (
+              <button
+                type="button"
+                className="ml-auto rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent"
+                onClick={() => {
+                  const next = !isAssistantDebugEnabled(profile.role);
+                  setAssistantDebug(next);
+                  setDebugOn(next);
+                }}
+              >
+                {debugOn ? "Debug on" : "Debug off"}
+              </button>
+            )}
           </div>
+
 
           <Tabs value={tab} onValueChange={setTab} className="flex-1 min-h-0 flex flex-col">
             <TabsList className="w-full">
@@ -126,7 +149,13 @@ export default function AssistantLauncher() {
             </TabsList>
 
             <TabsContent value="chat" className="flex-1 min-h-0 mt-2">
-              <AssistantChat threadId={threadId} onNeedThread={newThread} onThreadUpdated={loadThreads} />
+              <AssistantChat
+                threadId={threadId}
+                onNeedThread={newThread}
+                onThreadUpdated={loadThreads}
+                onNavigate={() => setOpen(false)}
+              />
+
             </TabsContent>
 
             <TabsContent value="threads" className="flex-1 min-h-0 mt-2 overflow-y-auto">

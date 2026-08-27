@@ -102,11 +102,19 @@ function hotelArgSchema(extra: Record<string, unknown>, required: string[]) {
   } as const;
 }
 
+type Capabilities = {
+  destinations: { id: string; label: string; description: string; module: string; guide: string | null }[];
+  guides: { slug: string; name: string; description: string; steps: string[] }[];
+};
+
+type PageContext = Record<string, unknown> | null;
+
 function buildTools(
   service: any,
   profile: Profile,
   scopes: Set<Scope>,
   hotels: AssistantHotel[],
+  capabilities: Capabilities,
 ) {
   const orgSlug = profile.organization_slug;
   const hotelIds = hotels.map((h) => h.hotel_id);
@@ -148,7 +156,83 @@ function buildTools(
       }),
       execute: async ({ topic }) => ({ topic, guide: HOW_TO }),
     }),
+    find_destination: tool({
+      description:
+        "Find which Hotel Care screen the user needs. Returns destination ids this user is allowed to open, with the walkthrough available for each. Call this before offering to take the user somewhere.",
+      inputSchema: jsonSchema<{ query: string }>({
+        type: "object",
+        properties: { query: { type: "string", description: "What the user wants to do or see" } },
+        required: ["query"],
+        additionalProperties: false,
+      }),
+      execute: async ({ query }) => ({ query, destinations: capabilities.destinations }),
+    }),
+    get_training_guide: tool({
+      description:
+        "Read the step titles of a Hotel Care walkthrough so you can explain the workflow accurately, or decide whether to offer a 'Show me' walkthrough.",
+      inputSchema: jsonSchema<{ slug: string | null }>({
+        type: "object",
+        properties: { slug: { type: ["string", "null"], description: "Guide slug, or null to list all available guides" } },
+        required: ["slug"],
+        additionalProperties: false,
+      }),
+      execute: async ({ slug }) => {
+        if (!slug) return { guides: capabilities.guides.map((g) => ({ slug: g.slug, name: g.name, description: g.description })) };
+        const guide = capabilities.guides.find((g) => g.slug === slug);
+        return guide ? { guide } : { error: "That walkthrough is not available for this user", guides: capabilities.guides.map((g) => g.slug) };
+      },
+    }),
+    suggest_actions: tool({
+      description:
+        "Offer the user buttons under your answer: open a screen, start a walkthrough, or report a problem to the Hotel Care team. Use destination ids from find_destination and guide slugs from get_training_guide. Call this at most once per answer, with at most three actions, and still explain the answer in your message.",
+      inputSchema: jsonSchema<{ actions: unknown[] }>({
+        type: "object",
+        properties: {
+          actions: {
+            type: "array",
+            description:
+              "Up to 3 actions. navigate: {type,label,destination}. guide: {type,label,guide,destination}. report_issue: {type,label,title,summary,category,severity}.",
+            items: { type: "object", additionalProperties: true },
+          },
+        },
+        required: ["actions"],
+        additionalProperties: false,
+      }),
+      execute: async ({ actions }) => {
+        const allowed = new Set(capabilities.destinations.map((d) => d.id));
+        const guides = new Set(capabilities.guides.map((g) => g.slug));
+        const cleaned = (Array.isArray(actions) ? actions : [])
+          .slice(0, 3)
+          .map((raw: any) => {
+            if (raw?.type === "navigate" && allowed.has(raw.destination)) {
+              return { type: "navigate", label: String(raw.label ?? "").slice(0, 40), destination: raw.destination };
+            }
+            if (raw?.type === "guide" && guides.has(raw.guide)) {
+              return {
+                type: "guide",
+                label: String(raw.label ?? "Show me").slice(0, 40),
+                guide: raw.guide,
+                destination: allowed.has(raw.destination) ? raw.destination : undefined,
+              };
+            }
+            if (raw?.type === "report_issue") {
+              return {
+                type: "report_issue",
+                label: String(raw.label ?? "Report this").slice(0, 40),
+                title: String(raw.title ?? "Problem reported from the assistant").slice(0, 200),
+                summary: String(raw.summary ?? "").slice(0, 2000),
+                category: String(raw.category ?? "other").slice(0, 40),
+                severity: ["low", "normal", "high", "urgent"].includes(raw.severity) ? raw.severity : "normal",
+              };
+            }
+            return null;
+          })
+          .filter(Boolean);
+        return { kind: "assistant_actions", actions: cleaned };
+      },
+    }),
   };
+
 
   if (scopes.has("revenue")) {
     tools.get_revenue_metrics = tool({
@@ -654,6 +738,17 @@ Deno.serve(async (req) => {
     const languageCode = typeof body?.language === "string" ? body.language : profile.preferred_language ?? "en";
     const language = LANGUAGE_NAMES[languageCode] ?? LANGUAGE_NAMES.en;
 
+    // Where the user is standing. This is a UX hint only — it never widens
+    // what may be read; scopes and properties come from the profile above.
+    const page: PageContext =
+      body?.page && typeof body.page === "object" ? (body.page as Record<string, unknown>) : null;
+    const rawCapabilities = body?.capabilities ?? {};
+    const capabilities: Capabilities = {
+      destinations: Array.isArray(rawCapabilities.destinations) ? rawCapabilities.destinations.slice(0, 60) : [],
+      guides: Array.isArray(rawCapabilities.guides) ? rawCapabilities.guides.slice(0, 40) : [],
+    };
+
+
     const { error: userInsertError } = await service.from("assistant_messages").insert({
       thread_id: threadId,
       user_id: userData.user.id,
@@ -716,9 +811,13 @@ Properties you may read: ${hotels.map((h) => `${h.hotel_name} (${h.hotel_id})`).
 Use tools for live hotel facts. Never invent internal data. Never reveal another organization, hotel, venue, guest identity, credential, staff pay, or information outside the available tools.
 Unavailable tools are unavailable because of authorization. If asked for an unauthorized data area, say access is required without speculating about the data.
 Use markdown, and short tables when comparing dates or properties.
-For general knowledge, answer normally. For Hotel Care usage questions, use the workflow reference tool.${revenueBrain}`,
+For general knowledge, answer normally. For Hotel Care usage questions, use the workflow reference tool.
+Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}. Use it to interpret "this page", "this room" or "here", but never as proof of permission.
+You can guide people through the app: call find_destination to locate the right screen, get_training_guide for the real steps, and suggest_actions to offer up to three buttons (open a screen, start a walkthrough, or report a problem to the Hotel Care team). Offer a walkthrough when someone asks how to do something, and offer to report a problem when the app looks broken or you cannot answer.
+Never mention tools, tool names, JSON, ids or internal fields in your reply; write as a colleague would.${revenueBrain}`,
       messages: await convertToModelMessages(modelMessages),
-      tools: buildTools(service, profile as Profile, scopes, hotels),
+      tools: buildTools(service, profile as Profile, scopes, hotels, capabilities),
+
       stopWhen: stepCountIs(50),
       abortSignal: req.signal,
       providerOptions: {
