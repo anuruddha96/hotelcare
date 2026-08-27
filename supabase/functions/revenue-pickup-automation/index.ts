@@ -1535,16 +1535,55 @@ Deno.serve(async (req) => {
             }
           }
         }
-        const raisedTodayByDate = new Map<string, number>();
+        // What each individual cell already gained today. Summing per stay date
+        // over-counted the cap by the number of room types, which is how a
+        // single event could compound all day.
+        const raisedTodayByCell = new Map<string, number>();
+        const eventAppliedToday = new Set<string>();
         for (const row of (strongToday ?? []) as any[]) {
-          raisedTodayByDate.set(row.stay_date, (raisedTodayByDate.get(row.stay_date) ?? 0) + Math.abs(Number(row.increase_amount || 0)));
+          const key = `${row.stay_date}|${row.obk_id}|${row.occupancy}`;
+          raisedTodayByCell.set(key, (raisedTodayByCell.get(key) ?? 0) + Math.abs(Number(row.increase_amount || 0)));
+          if (String(row.decision_reason ?? "") === "event_demand") eventAppliedToday.add(row.stay_date);
+        }
+        // Dates that took a genuinely new booking in this observation window.
+        // Only these may take a second event-driven rise on the same day.
+        const freshPickupDates = new Set<string>();
+        for (const p of pickups) {
+          if (p.created_at_pms && p.created_at_pms >= evalWindow.from) freshPickupDates.add(p.stay_date);
+        }
+        // Local market median per stay date, for the above-market warning flag.
+        const marketByDate = new Map<string, number>();
+        {
+          const buckets = new Map<string, number[]>();
+          for (const row of (marketRows ?? []) as any[]) {
+            const confidence = row.confidence === null || row.confidence === undefined ? 1 : Number(row.confidence);
+            if (Number.isFinite(confidence) && confidence < 0.45) continue;
+            const rate = Number(row.rate);
+            if (!Number.isFinite(rate) || rate <= 0) continue;
+            const list = buckets.get(row.stay_date) ?? [];
+            list.push(rate);
+            buckets.set(row.stay_date, list);
+          }
+          for (const [date, list] of buckets) {
+            list.sort((a, b) => a - b);
+            const mid = Math.floor(list.length / 2);
+            marketByDate.set(date, list.length % 2 ? list[mid] : Math.round((list[mid - 1] + list[mid]) / 2));
+          }
         }
         const manualHold = new Map<string, string>();
+        const manualDrop = new Map<string, { at: string; from: number; to: number }>();
         for (const row of (strongManual ?? []) as any[]) {
           if (String(row.source ?? "").includes("automation")) continue;
           const seen = manualHold.get(row.stay_date);
           if (!seen || row.performed_at > seen) manualHold.set(row.stay_date, row.performed_at);
+          const from = Number(row.old_price);
+          const to = Number(row.new_price);
+          if (Number.isFinite(from) && Number.isFinite(to) && to < from) {
+            const prev = manualDrop.get(row.stay_date);
+            if (!prev || row.performed_at > prev.at) manualDrop.set(row.stay_date, { at: row.performed_at, from, to });
+          }
         }
+
         const strongPendingByCell = new Map<string, Array<{ new_price: number; created_at: string }>>();
         for (const row of (strongPending ?? []) as any[]) {
           const key = `${row.stay_date}|${row.obk_id}|${row.occupancy}`;
