@@ -140,6 +140,7 @@ export const AdminTabs = () => {
             <RevenueSyncMonitor />
             <RevenueEngineControls />
             <AiProviderStatus />
+            <AiSpendPanel />
             <PhotoCleanupManager />
 
           </div>
