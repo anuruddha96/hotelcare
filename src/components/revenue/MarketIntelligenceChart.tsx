@@ -944,10 +944,9 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
         {compare && comparisonSummary.length > 0 && (
           <div className="mb-3 px-2">
             <p className="mb-1.5 text-[10px] text-muted-foreground">
-              {comparison.nights > 0
-                ? <>Same window for every property: <span className="font-medium text-foreground">{shortDate(comparison.from)} – {shortDate(comparison.to)}</span> ({comparison.nights} night{comparison.nights === 1 ? "" : "s"} captured in {selectedMonth})</>
-                : <>No overlapping nights captured for these properties in {selectedMonth}</>}
+              Full month: <span className="font-medium text-foreground">{selectedMonth}</span> — this property matches the summary above; sister properties use the nights they reported.
             </p>
+
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
             {comparisonSummary.map((s) => {
               const on = !hiddenHotels.has(s.hotel_id);
