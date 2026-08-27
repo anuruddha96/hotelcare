@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type ChatStatus, type UIMessage } from "ai";
-import { Mic, MicOff, ShieldQuestion } from "lucide-react";
+import { Flag, Mic, MicOff, ShieldQuestion, ThumbsDown, ThumbsUp } from "lucide-react";
 import { toast } from "sonner";
 import {
   Conversation,
   ConversationContent,
-  ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
@@ -23,18 +22,19 @@ import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from "@/componen
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useAssistantContext } from "@/hooks/useAssistantContext";
 import {
   assistantRowsToUiMessages,
   requestAssistantAccess,
   useAssistant,
 } from "@/hooks/useAssistant";
+import { greeting, starterPrompts } from "@/lib/assistant/starters";
+import { isAssistantDebugEnabled } from "@/lib/assistant/debugMode";
+import { reportAssistantIssue, sendAssistantFeedback } from "@/lib/assistant/issueReports";
 import AutomationChangeCard, { isAutomationProposal } from "./AutomationChangeCard";
-
-const STARTER_PROMPTS = [
-  "How is the next 14 days pacing across my properties?",
-  "Which dates are at risk of not filling, and what would you change?",
-  "Review my automation rules and suggest one improvement.",
-];
+import AssistantActions, { isAssistantActions } from "./AssistantActions";
+import ActivityLine from "./ActivityLine";
+import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
 
 const SCOPE_LABEL: Record<string, string> = {
   revenue: "Revenue management",
@@ -100,24 +100,59 @@ function useDictation(onText: (text: string) => void) {
   return { listening, supported, toggle };
 }
 
+function AnswerFeedback({ threadId, messageId }: { threadId: string; messageId: string }) {
+  const { profile } = useAuth();
+  const [sent, setSent] = useState<null | boolean>(null);
+  if (sent !== null) {
+    return <p className="mt-2 text-xs text-muted-foreground">Thanks for the feedback.</p>;
+  }
+  const send = (helpful: boolean) => {
+    setSent(helpful);
+    void sendAssistantFeedback({
+      threadId,
+      messageId,
+      helpful,
+      organizationSlug: profile?.organization_slug ?? null,
+      hotelId: profile?.assigned_hotel ?? null,
+    });
+  };
+  return (
+    <div className="mt-2 flex items-center gap-1 opacity-60 transition-opacity hover:opacity-100">
+      <button aria-label="Helpful" className="rounded p-1 hover:bg-accent" onClick={() => send(true)}>
+        <ThumbsUp className="h-3.5 w-3.5" />
+      </button>
+      <button aria-label="Not helpful" className="rounded p-1 hover:bg-accent" onClick={() => send(false)}>
+        <ThumbsDown className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
 function ChatSession({
   threadId,
   initialMessages,
   language,
   initialPrompt,
   onThreadUpdated,
+  onNavigate,
 }: {
   threadId: string;
   initialMessages: AssistantUiMessage[];
   language: string;
   initialPrompt?: string | null;
   onThreadUpdated: () => void;
+  onNavigate?: () => void;
 }) {
   const { user, profile } = useAuth();
+  const { page, capabilities } = useAssistantContext();
   const [draft, setDraft] = useState("");
+  const [failed, setFailed] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const cancelSavedRef = useRef(false);
   const initialPromptSentRef = useRef(false);
+  const lastQuestionRef = useRef("");
+  const debug = isAssistantDebugEnabled(profile?.role);
+  const starters = useMemo(() => starterPrompts(profile?.role, page.module), [profile?.role, page.module]);
 
   const transport = useMemo(
     () =>
@@ -128,17 +163,20 @@ function ChatSession({
           return data.session ? { Authorization: `Bearer ${data.session.access_token}` } : {};
         },
         prepareSendMessagesRequest: ({ messages }) => ({
-          body: { messages, thread_id: threadId, language },
+          body: { messages, thread_id: threadId, language, page, capabilities },
         }),
       }),
-    [threadId, language],
+    [threadId, language, page, capabilities],
   );
 
   const { messages, sendMessage, status, stop } = useChat<AssistantUiMessage>({
     id: threadId,
     messages: initialMessages,
     transport,
-    onError: (error) => toast.error(error.message || "The assistant could not reply"),
+    onError: () => {
+      // Technical detail stays in the server logs; the user gets a plain line.
+      setFailed("I couldn’t finish that just now.");
+    },
     onFinish: async ({ message, isAbort }) => {
       if (isAbort && user && !cancelSavedRef.current) {
         cancelSavedRef.current = true;
@@ -162,7 +200,10 @@ function ChatSession({
   });
 
   useEffect(() => {
-    if (status === "submitted" || status === "streaming") cancelSavedRef.current = false;
+    if (status === "submitted" || status === "streaming") {
+      cancelSavedRef.current = false;
+      setFailed(null);
+    }
   }, [status]);
 
   useEffect(() => {
@@ -172,6 +213,7 @@ function ChatSession({
   useEffect(() => {
     if (!initialPrompt || initialPromptSentRef.current) return;
     initialPromptSentRef.current = true;
+    lastQuestionRef.current = initialPrompt;
     void sendMessage({ text: initialPrompt });
   }, [initialPrompt, sendMessage]);
 
@@ -196,7 +238,22 @@ function ChatSession({
     const value = text.trim();
     if (!value || status === "submitted" || status === "streaming") return;
     setDraft("");
+    setFailed(null);
+    lastQuestionRef.current = value;
     await sendMessage({ text: value });
+  };
+
+  const reportFailure = async () => {
+    const result = await reportAssistantIssue({
+      title: "The assistant could not answer",
+      description: lastQuestionRef.current || "No question captured",
+      category: "assistant",
+      severity: "normal",
+      threadId,
+      page,
+    });
+    if (result.ok) toast.success("Thanks — this has been sent to the Hotel Care team.");
+    else toast.error(result.error ?? "Could not send the report just now.");
   };
 
   const generating = status === "submitted" || status === "streaming";
@@ -206,38 +263,40 @@ function ChatSession({
       <Conversation className="min-h-0">
         <ConversationContent className="gap-4 px-2 py-4 sm:px-3">
           {messages.length === 0 && (
-            <ConversationEmptyState className="min-h-[48vh] px-5" title="How can I help?">
-              <div className="mx-auto max-w-sm space-y-4 text-center">
-                <img src="/icon-192.png" alt="Hotel Care" className="mx-auto h-12 w-12 rounded-lg" />
+            <div className="mx-auto w-full max-w-md space-y-5 px-2 py-6">
+              <div className="flex items-center gap-3">
+                <img src={hotelCareMark} alt="" className="h-11 w-11 rounded-xl" />
                 <div>
-                  <p className="font-medium text-foreground">How can I help?</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Ask about your work, your property, or Hotel Care. Answers respect your role.
+                  <p className="text-lg font-semibold leading-tight">{greeting(profile?.full_name)}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {profile?.assigned_hotel ? `${profile.assigned_hotel} · ` : ""}
+                    How can I help?
                   </p>
                 </div>
-                <div className="flex flex-col gap-2">
-                  {STARTER_PROMPTS.map((prompt) => (
-                    <button
-                      key={prompt}
-                      type="button"
-                      className="rounded-lg border bg-card px-3 py-2 text-left text-sm text-card-foreground
-                                 transition-colors hover:bg-accent hover:text-accent-foreground"
-                      onClick={() => void submit({ text: prompt })}
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
               </div>
-            </ConversationEmptyState>
+              <div className="grid gap-2">
+                {starters.map((starter) => (
+                  <button
+                    key={starter.prompt}
+                    type="button"
+                    className="rounded-xl border bg-card px-3.5 py-3 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
+                    onClick={() => void submit({ text: starter.prompt })}
+                  >
+                    <span className="block text-sm font-medium">{starter.label}</span>
+                    <span className="block text-xs text-muted-foreground">{starter.prompt}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
 
           {messages.map((message, index) => {
             const text = messageText(message);
             const needsScope = message.metadata?.needsScope;
             const previousQuestion = index > 0 ? messageText(messages[index - 1]) : "";
+            const isLast = index === messages.length - 1;
             return (
-              <Message key={message.id} from={message.role} className="max-w-[88%]">
+              <Message key={message.id} from={message.role} className="max-w-[92%]">
                 <MessageContent
                   className={
                     message.role === "user"
@@ -251,31 +310,49 @@ function ChatSession({
                       if (!(part.type.startsWith("tool-") || part.type === "dynamic-tool")) return null;
                       const toolPart = part as any;
                       const toolName = part.type === "dynamic-tool" ? toolPart.toolName : part.type.slice(5);
-                      // A rule change proposal renders as an approve/dismiss card.
+                      const key = `${message.id}-${partIndex}`;
+
                       if (isAutomationProposal(toolPart.output)) {
+                        return <AutomationChangeCard key={`${key}-proposal`} proposal={toolPart.output} />;
+                      }
+                      if (isAssistantActions(toolPart.output)) {
                         return (
-                          <AutomationChangeCard
-                            key={`${message.id}-proposal-${partIndex}`}
-                            proposal={toolPart.output}
+                          <AssistantActions
+                            key={`${key}-actions`}
+                            payload={toolPart.output}
+                            page={page}
+                            onNavigate={onNavigate}
                           />
                         );
                       }
+                      if (debug) {
+                        return (
+                          <Tool key={`${key}-debug`} defaultOpen={false}>
+                            <ToolHeader
+                              type={toolPart.type}
+                              state={toolPart.state}
+                              toolName={part.type === "dynamic-tool" ? toolName : undefined}
+                              title={`debug · ${toolName.replaceAll("_", " ")}`}
+                            />
+                            <ToolContent>
+                              <ToolInput input={toolPart.input} />
+                              <ToolOutput output={toolPart.output} errorText={toolPart.errorText} />
+                            </ToolContent>
+                          </Tool>
+                        );
+                      }
+                      // Normal users only ever see a plain activity line, and
+                      // only while the answer is still being written.
+                      if (!generating || !isLast) return null;
                       return (
-                        <Tool key={`${message.id}-tool-${partIndex}`} defaultOpen={false}>
-                          <ToolHeader
-                            type={toolPart.type}
-                            state={toolPart.state}
-                            toolName={part.type === "dynamic-tool" ? toolName : undefined}
-                            title={toolName.replaceAll("_", " ")}
-                          />
-                          <ToolContent>
-                            <ToolInput input={toolPart.input} />
-                            <ToolOutput output={toolPart.output} errorText={toolPart.errorText} />
-                          </ToolContent>
-                        </Tool>
+                        <ActivityLine
+                          key={`${key}-activity`}
+                          toolName={toolName}
+                          done={toolPart.state === "output-available" || toolPart.state === "output-error"}
+                        />
                       );
                     })}
-                  {needsScope && index === messages.length - 1 && (
+                  {needsScope && isLast && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -286,6 +363,9 @@ function ChatSession({
                       Request {SCOPE_LABEL[needsScope] ?? needsScope} access
                     </Button>
                   )}
+                  {message.role === "assistant" && !generating && text.length > 0 && (
+                    <AnswerFeedback threadId={threadId} messageId={message.id} />
+                  )}
                 </MessageContent>
               </Message>
             );
@@ -294,16 +374,30 @@ function ChatSession({
           {status === "submitted" && (
             <Message from="assistant">
               <MessageContent className="bg-transparent px-0 py-0">
-                <Shimmer>Hotel Care is thinking…</Shimmer>
+                <Shimmer>Thinking…</Shimmer>
               </MessageContent>
             </Message>
+          )}
+
+          {failed && (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2.5">
+              <p className="text-sm">{failed} Please try again in a moment.</p>
+              <div className="mt-2 flex gap-2">
+                <Button size="sm" variant="secondary" onClick={() => void submit({ text: lastQuestionRef.current })}>
+                  Try again
+                </Button>
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void reportFailure()}>
+                  <Flag className="h-3.5 w-3.5" /> Report a problem
+                </Button>
+              </div>
+            </div>
           )}
         </ConversationContent>
         <ConversationScrollButton />
       </Conversation>
 
       <div className="shrink-0 border-t bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-        <PromptInput onSubmit={submit} className="rounded-lg bg-background shadow-sm">
+        <PromptInput onSubmit={submit} className="rounded-xl bg-background shadow-sm">
           <PromptInputTextarea
             ref={textareaRef}
             value={draft}
@@ -329,7 +423,7 @@ function ChatSession({
               )}
             </PromptInputTools>
             <PromptInputSubmit
-              className="h-9 w-9 rounded-full"
+              className="h-10 w-10 rounded-full"
               status={status as ChatStatus}
               onStop={() => void stop()}
               disabled={!generating && !draft.trim()}
@@ -345,25 +439,32 @@ export default function AssistantChat({
   threadId,
   onNeedThread,
   onThreadUpdated,
+  onNavigate,
 }: {
   threadId: string | null;
   onNeedThread: () => Promise<string | null>;
   onThreadUpdated?: () => void;
+  onNavigate?: () => void;
 }) {
   const { language } = useTranslation();
+  const { profile } = useAuth();
+  const { page } = useAssistantContext();
   const { messages: rows, loadingMessages, loadThreads } = useAssistant(threadId);
   const [pendingThreadId, setPendingThreadId] = useState<string | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const activeThreadId = threadId ?? pendingThreadId;
+  const starters = useMemo(() => starterPrompts(profile?.role, page.module), [profile?.role, page.module]);
 
   const createAndSend = async ({ text }: { text: string }) => {
+    const value = text.trim();
+    if (!value) return;
     const id = await onNeedThread();
     if (!id) {
       toast.error("Could not start a conversation");
       return;
     }
     setPendingThreadId(id);
-    setPendingPrompt(text.trim());
+    setPendingPrompt(value);
   };
 
   useEffect(() => {
@@ -373,16 +474,38 @@ export default function AssistantChat({
   if (!activeThreadId) {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <Conversation>
-          <ConversationContent>
-            <ConversationEmptyState className="min-h-[48vh]" title="How can I help?" description="Start a new chat below." />
-          </ConversationContent>
-        </Conversation>
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="mx-auto w-full max-w-md space-y-5 px-3 py-6">
+            <div className="flex items-center gap-3">
+              <img src={hotelCareMark} alt="" className="h-11 w-11 rounded-xl" />
+              <div>
+                <p className="text-lg font-semibold leading-tight">{greeting(profile?.full_name)}</p>
+                <p className="text-sm text-muted-foreground">
+                  {profile?.assigned_hotel ? `${profile.assigned_hotel} · ` : ""}
+                  How can I help?
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-2">
+              {starters.map((starter) => (
+                <button
+                  key={starter.prompt}
+                  type="button"
+                  className="rounded-xl border bg-card px-3.5 py-3 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => void createAndSend({ text: starter.prompt })}
+                >
+                  <span className="block text-sm font-medium">{starter.label}</span>
+                  <span className="block text-xs text-muted-foreground">{starter.prompt}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
         <div className="shrink-0 border-t bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           <PromptInput onSubmit={createAndSend}>
             <PromptInputTextarea className="min-h-12 text-base" placeholder="Ask anything…" autoFocus />
             <PromptInputFooter className="justify-end">
-              <PromptInputSubmit className="h-9 w-9 rounded-full" />
+              <PromptInputSubmit className="h-10 w-10 rounded-full" />
             </PromptInputFooter>
           </PromptInput>
         </div>
@@ -401,6 +524,7 @@ export default function AssistantChat({
       initialMessages={assistantRowsToUiMessages(rows) as AssistantUiMessage[]}
       language={language}
       initialPrompt={pendingThreadId === activeThreadId ? pendingPrompt : null}
+      onNavigate={onNavigate}
       onThreadUpdated={() => {
         setPendingPrompt(null);
         void loadThreads();

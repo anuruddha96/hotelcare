@@ -223,6 +223,133 @@ export type Database = {
         }
         Relationships: []
       }
+      assistant_feedback: {
+        Row: {
+          created_at: string
+          helpful: boolean
+          hotel_id: string | null
+          id: string
+          message_id: string | null
+          organization_slug: string | null
+          reason: string | null
+          thread_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          helpful: boolean
+          hotel_id?: string | null
+          id?: string
+          message_id?: string | null
+          organization_slug?: string | null
+          reason?: string | null
+          thread_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          helpful?: boolean
+          hotel_id?: string | null
+          id?: string
+          message_id?: string | null
+          organization_slug?: string | null
+          reason?: string | null
+          thread_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assistant_feedback_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "assistant_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      assistant_issue_reports: {
+        Row: {
+          admin_notes: string | null
+          ai_summary: string | null
+          app_language: string | null
+          category: string
+          created_at: string
+          current_route: string | null
+          device: string | null
+          entity_id: string | null
+          entity_type: string | null
+          hotel_id: string | null
+          id: string
+          module: string | null
+          organization_slug: string | null
+          resolved_at: string | null
+          severity: string
+          status: string
+          tab: string | null
+          thread_id: string | null
+          title: string
+          updated_at: string
+          user_description: string | null
+          user_id: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          ai_summary?: string | null
+          app_language?: string | null
+          category?: string
+          created_at?: string
+          current_route?: string | null
+          device?: string | null
+          entity_id?: string | null
+          entity_type?: string | null
+          hotel_id?: string | null
+          id?: string
+          module?: string | null
+          organization_slug?: string | null
+          resolved_at?: string | null
+          severity?: string
+          status?: string
+          tab?: string | null
+          thread_id?: string | null
+          title: string
+          updated_at?: string
+          user_description?: string | null
+          user_id: string
+        }
+        Update: {
+          admin_notes?: string | null
+          ai_summary?: string | null
+          app_language?: string | null
+          category?: string
+          created_at?: string
+          current_route?: string | null
+          device?: string | null
+          entity_id?: string | null
+          entity_type?: string | null
+          hotel_id?: string | null
+          id?: string
+          module?: string | null
+          organization_slug?: string | null
+          resolved_at?: string | null
+          severity?: string
+          status?: string
+          tab?: string | null
+          thread_id?: string | null
+          title?: string
+          updated_at?: string
+          user_description?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "assistant_issue_reports_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "assistant_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       assistant_messages: {
         Row: {
           content: string
