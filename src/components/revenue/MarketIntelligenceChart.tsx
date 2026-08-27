@@ -1222,7 +1222,11 @@ export default function MarketIntelligenceChart({ metrics, pickupWindowDays, onP
             {" · "}
             {viewData.length} of {data.length} nights
             {marketData.coverageEnd && (
-              <> · competitor prices only reach {shortDate(marketData.coverageEnd)}; lines break where no price was found</>
+              <>
+                {" · "}
+                {marketData.ratesByCompetitor.size} of {marketData.competitors.length} watched hotels reported,
+                prices reach {shortDate(marketData.coverageEnd)}; lines break where no price was found
+              </>
             )}
           </span>
 
