@@ -144,7 +144,13 @@ export default function AssistantLauncher() {
             </TabsList>
 
             <TabsContent value="chat" className="flex-1 min-h-0 mt-2">
-              <AssistantChat threadId={threadId} onNeedThread={newThread} onThreadUpdated={loadThreads} />
+              <AssistantChat
+                threadId={threadId}
+                onNeedThread={newThread}
+                onThreadUpdated={loadThreads}
+                onNavigate={() => setOpen(false)}
+              />
+
             </TabsContent>
 
             <TabsContent value="threads" className="flex-1 min-h-0 mt-2 overflow-y-auto">
