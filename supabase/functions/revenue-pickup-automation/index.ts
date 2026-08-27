@@ -250,6 +250,80 @@ async function aiScaleDeltas(candidates: AiCandidate[], rule: Rule): Promise<Map
   return out;
 }
 
+interface ManualOverrideCase {
+  stay_date: string;
+  days_out: number;
+  occupancy_pct: number | null;
+  rooms_left: number | null;
+  manual_from: number;
+  manual_to: number;
+  manual_at: string;
+  market_median: number | null;
+  proposed_delta: number;
+}
+
+/**
+ * A human lowered a price on purpose. Once the hold expires the engine asks the
+ * advisor whether re-raising that date is commercially defensible. The answer
+ * can only KEEP (factor 1) or CANCEL (factor 0) the automated move — it can
+ * never make it bigger, and a missing/failing advisor cancels the move so the
+ * human decision stands.
+ */
+async function aiReviewManualOverrides(cases: ManualOverrideCase[], rule: Rule): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (cases.length === 0) return out;
+  const key = Deno.env.get("OPENAI_API_KEY");
+  // No advisor available: respect the human edit rather than overriding it.
+  if (!key) {
+    for (const c of cases) out.set(c.stay_date, 0);
+    return out;
+  }
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini",
+        temperature: 0.1,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a hotel revenue analyst. A revenue manager manually LOWERED the price for these stay dates. Automation now wants to raise them again. For each date decide whether the automated raise is still justified by demand (high occupancy, few rooms left, price far below the market median) or whether the manager's lower price should stand. Reply with JSON {\"dates\":[{\"d\":\"YYYY-MM-DD\",\"factor\":0 or 1,\"reason\":\"short\"}]}. factor 1 allows the raise, 0 keeps the manager's price. Prefer 0 when occupancy is soft, when rooms are plentiful, or when the price already sits at or above the market median.",
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              currency: rule.currency ?? "EUR",
+              floor: rule.minimum_adr,
+              dates: cases.slice(0, 80),
+            }),
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw new Error(`advisor ${res.status}`);
+    const body = await res.json();
+    const text = body?.choices?.[0]?.message?.content;
+    const parsed = typeof text === "string" ? JSON.parse(text) : null;
+    const decided = new Map<string, number>();
+    for (const row of (parsed?.dates ?? []) as any[]) {
+      const date = String(row?.d ?? "");
+      const factor = Number(row?.factor);
+      if (!date || !Number.isFinite(factor)) continue;
+      decided.set(date, factor >= 0.5 ? 1 : 0);
+    }
+    for (const c of cases) out.set(c.stay_date, decided.get(c.stay_date) ?? 0);
+  } catch (e) {
+    console.warn("manual override review unavailable", describeError(e));
+    for (const c of cases) out.set(c.stay_date, 0);
+  }
+  return out;
+}
+
+
 /**
  * Scale already-computed decisions by the advisor's factors, in place. Rows the
  * advisor effectively cancels (below a fifth of the deterministic move) are
