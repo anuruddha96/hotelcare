@@ -65,6 +65,8 @@ export interface RevenueHotelData {
   snapshots: DailySnapshot[];
   rates: RoomTypeRate[];
   cancellations: CancelledNight[];
+  /** Frozen closing prices for room type / date combinations that sold out. */
+  soldOutPrices: SoldOutPrice[];
   metrics: DayMetrics[];
   lastSyncAt: string | null;
   /** Who triggered the last revenue sync (null = automatic / unknown). */
