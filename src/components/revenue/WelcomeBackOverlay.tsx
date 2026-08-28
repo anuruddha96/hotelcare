@@ -82,6 +82,12 @@ function nextQuote(pool: Line[]): Line {
   return chosen;
 }
 
+/** Module-level pool + current quote so simultaneous overlays (app-level and
+ * page-level) show the same single line instead of two different ones. */
+let poolCache: Line[] | null = null;
+let activeLine: { line: Line; shownAt: number } | null = null;
+const QUOTE_HOLD_MS = 10_000; // one quote stays "the" quote across a refresh burst
+
 export function WelcomeBackOverlay({
   name,
   step,
