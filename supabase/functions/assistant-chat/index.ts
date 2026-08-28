@@ -190,18 +190,27 @@ function buildTools(
         additionalProperties: false,
       }),
       execute: async ({ query }) => {
+        let billed = false;
         try {
-          const dayStart = new Date();
-          dayStart.setUTCHours(0, 0, 0, 0);
-          const { count } = await service
+          // Budapest day, same as everywhere else in the app.
+          const dayKey = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Budapest", dateStyle: "short" })
+            .format(new Date());
+          const dayStart = new Date(`${dayKey}T00:00:00+02:00`).toISOString();
+          const { data: todayRows } = await service
             .from("assistant_audit_log")
-            .select("id", { count: "exact", head: true })
+            .select("scopes_used")
             .eq("user_id", profile.id)
-            .contains("scopes_used", ["tool-search_web"])
-            .gte("created_at", dayStart.toISOString());
-          if ((count ?? 0) >= WEB_SEARCH_DAILY_CAP) {
-            return { error: "The daily web search limit was reached. Please try again tomorrow.", confidence: "unverified" };
+            .gte("created_at", dayStart);
+          const usedToday = (todayRows ?? []).reduce(
+            (sum: number, row: any) =>
+              sum + (row?.scopes_used ?? []).filter((s: string) => s === "tool-search_web").length,
+            0,
+          );
+          // Free allowance is per day; anything beyond it is charged per question.
+          if (usedToday >= WEB_SEARCH_FREE_DAILY) {
+            billed = true;
           }
+
           const res = await fetch("https://api.openai.com/v1/responses", {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${openAiKey}` },
