@@ -1647,7 +1647,7 @@ GUIDANCE AND ACTIONS
 - For general (non Hotel Care) knowledge, answer normally. For Hotel Care usage questions, use the workflow reference tool.
 Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenueBrain}`,
       messages: await convertToModelMessages(modelMessages),
-      tools: buildTools(service, profile as Profile, scopes, hotels, capabilities),
+      tools: buildTools(service, profile as Profile, scopes, hotels, capabilities, openAiKey),
 
       // Most questions need 1-4 reads; this bound keeps answers fast and
       // predictable while still allowing a multi-source revenue recommendation.
