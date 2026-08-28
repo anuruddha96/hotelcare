@@ -52,6 +52,10 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
 
   const handleAssign = async () => {
     if (!selectedStaffId || selectedAreas.size === 0 || !user) return;
+    if (!profile?.organization_slug) {
+      toast.error('Organization access could not be verified');
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -68,7 +72,7 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
           hotel: hotelName,
           priority,
           status: 'assigned',
-          organization_slug: profile?.organization_slug || 'rdhotels',
+          organization_slug: profile.organization_slug,
         };
       });
 

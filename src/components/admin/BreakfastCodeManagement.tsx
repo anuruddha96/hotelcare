@@ -55,12 +55,15 @@ export const BreakfastCodeManagement = () => {
     if (!code) { toast.error("Code required"); return; }
     setBusy(true);
     const existing = codes.find(c => c.hotel_id === hotel_id);
-    const { data: prof } = await supabase.from("profiles").select("organization_slug").eq("id", (await supabase.auth.getUser()).data.user!.id).single();
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData.user) { toast.error("Your session has expired"); setBusy(false); return; }
+    const { data: prof } = await supabase.from("profiles").select("organization_slug").eq("id", authData.user.id).single();
+    if (!prof?.organization_slug) { toast.error("Organization access could not be verified"); setBusy(false); return; }
     if (existing) {
       const { error } = await supabase.from("hotel_breakfast_codes").update({ code, is_active: true }).eq("hotel_id", hotel_id);
       if (error) toast.error(error.message); else toast.success("Code updated");
     } else {
-      const { error } = await supabase.from("hotel_breakfast_codes").insert({ hotel_id, code, is_active: true, organization_slug: prof?.organization_slug ?? "rdhotels" });
+      const { error } = await supabase.from("hotel_breakfast_codes").insert({ hotel_id, code, is_active: true, organization_slug: prof.organization_slug });
       if (error) toast.error(error.message); else toast.success("Code created");
     }
     setBusy(false);

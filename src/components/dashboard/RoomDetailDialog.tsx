@@ -325,6 +325,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
 
           if (error) throw error;
         } else {
+          if (!profile?.organization_slug) throw new Error('Organization access could not be verified');
           const insertData: any = {
             room_id: room.id,
             minibar_item_id: itemId,
@@ -332,7 +333,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
             usage_date: new Date().toISOString(),
             recorded_by: profile?.id,
             source: 'staff',
-            organization_slug: profile?.organization_slug || 'rdhotels',
+            organization_slug: profile.organization_slug,
           };
           if (lateAddition) {
             insertData.added_after_completion = true;

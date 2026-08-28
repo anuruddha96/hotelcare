@@ -200,6 +200,10 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
 
   const handleCheckIn = async () => {
     if (!user) return;
+    if (!profile?.organization_slug) {
+      toast({ title: "Access error", description: "Organization access could not be verified.", variant: "destructive" });
+      return;
+    }
 
     // Resolve location on-demand: only prompt the browser when the user actually
     // tries to sign in. Other tasks never trigger the native permission prompt.
@@ -244,7 +248,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
           check_in_location: fix,
           notes: notes || null,
           status: 'checked_in',
-          organization_slug: profile?.organization_slug || 'rdhotels'
+          organization_slug: profile.organization_slug
         });
 
       if (error) {
@@ -387,6 +391,11 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
       now.getHours() >= 4;
 
     if (isEarlySignout) {
+      if (!profile?.organization_slug) {
+        toast({ title: "Access error", description: "Organization access could not be verified.", variant: "destructive" });
+        setIsLoading(false);
+        return;
+      }
       // Create an early sign-out request instead of checking out immediately
       try {
         const { error } = await supabase
@@ -394,7 +403,7 @@ export const AttendanceTracker = ({ onStatusChange }: { onStatusChange?: (status
           .insert({
             user_id: user?.id,
             attendance_id: currentRecord.id,
-            organization_slug: profile?.organization_slug || 'rdhotels'
+            organization_slug: profile.organization_slug
           });
 
         if (error) throw error;
