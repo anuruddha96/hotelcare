@@ -27,12 +27,15 @@ export default function AssistantLauncher() {
   const [tab, setTab] = useState("chat");
   const [viewport, setViewport] = useState<{ height: number; top: number } | null>(null);
   const [debugOn, setDebugOn] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
   const threadId = params.get("assistant");
-  const { threads, createThread, deleteThread, loadThreads } = useAssistant(threadId);
+  const { threads, loadingThreads, createThread, renameThread, deleteThread, loadThreads } =
+    useAssistant(threadId);
+
 
   // The thread id stays in the URL so a reload restores the conversation, but
   // it must never pop the panel open by itself — the assistant only opens when
