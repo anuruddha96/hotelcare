@@ -469,6 +469,36 @@ export type Database = {
           },
         ]
       }
+      assistant_paid_questions: {
+        Row: {
+          amount_eur: number
+          created_at: string
+          hotel_id: string | null
+          id: string
+          organization_slug: string | null
+          question: string | null
+          user_id: string
+        }
+        Insert: {
+          amount_eur?: number
+          created_at?: string
+          hotel_id?: string | null
+          id?: string
+          organization_slug?: string | null
+          question?: string | null
+          user_id: string
+        }
+        Update: {
+          amount_eur?: number
+          created_at?: string
+          hotel_id?: string | null
+          id?: string
+          organization_slug?: string | null
+          question?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       assistant_threads: {
         Row: {
           created_at: string
