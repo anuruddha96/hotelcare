@@ -830,8 +830,15 @@ export async function runPmsRefresh(
         updateData.pms_metadata.reservationStatusId = row.RawReservationStatusId ?? row.ReservationStatusId ?? null;
         updateData.pms_metadata.currentNight = nightTotal?.currentNight ?? row.CurrentNight ?? existingMetadata?.currentNight ?? null;
         updateData.pms_metadata.totalNights = nightTotal?.totalNights ?? row.TotalNights ?? existingMetadata?.totalNights ?? null;
-        // A manager's manual no-show mark for today wins over the PMS snapshot.
-        updateData.pms_metadata.isNoShow = manualNoShowOverride || classification.isNoShow;
+        // A manager's manual no-show mark for today wins over the PMS snapshot —
+        // but only while the PMS shows no occupancy. Once the guest is in-house
+        // (PMS says occupied / mid-stay), the no-show flag is cleared.
+        const pmsShowsOccupancy = classification.isDailyRoom
+          || classification.isStayThrough
+          || effectiveCheckoutFlag;
+        updateData.pms_metadata.isNoShow = !pmsShowsOccupancy
+          && (manualNoShowOverride || classification.isNoShow);
+
         updateData.pms_metadata.isCancelled = classification.isCancelled;
 
         // Arrival today (vacant room expecting a guest) — neither checkout nor
