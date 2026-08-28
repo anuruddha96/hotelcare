@@ -12,6 +12,8 @@ import {
 import { AUTOMATION_FIELDS, canChangeAutomation, validateChanges } from "../_shared/assistantAutomationFields.ts";
 import { pickHotels, resolveAssistantHotels, type AssistantHotel } from "../_shared/assistantHotels.ts";
 import { ACTION_LABEL, actionsForRole, validateAction } from "../_shared/assistantActions.ts";
+import { envelope, loadRevenueDataset, type RevenueDataset } from "../_shared/revenueMetrics.ts";
+
 
 type Profile = {
   id: string;
@@ -131,6 +133,24 @@ function buildTools(
     if (!picked.ok) throw new Error(picked.error);
     return picked.hotels.map((h) => h.hotel_id);
   };
+
+  // The published Revenue dataset is what the Revenue screen itself reads, so
+  // every revenue answer is derived from it with the same calculations.
+  // Cached per request: a multi-step answer loads each hotel only once.
+  const datasetCache = new Map<string, Promise<RevenueDataset | null>>();
+  const revenueDatasets = async (requested: string | null | undefined) => {
+    const picked = pickHotels(hotels, requested);
+    if (!picked.ok) throw new Error(picked.error);
+    return await Promise.all(
+      picked.hotels.map(async (hotel) => {
+        if (!datasetCache.has(hotel.hotel_id)) {
+          datasetCache.set(hotel.hotel_id, loadRevenueDataset(service, hotel.hotel_id, hotel.hotel_name));
+        }
+        return { hotel, dataset: await datasetCache.get(hotel.hotel_id)! };
+      }),
+    );
+  };
+
 
   const tools: Record<string, any> = {
     get_context_now: tool({
@@ -255,80 +275,109 @@ function buildTools(
         ),
       ),
       execute: async ({ hotelId, startDate, endDate }) => {
-        const ids = resolve(hotelId);
         const from = startDate ?? today();
         const to = endDate ?? from;
-        const { data, error } = await service
-          .from("revenue_daily_snapshots")
-          .select("hotel_id,stay_date,captured_date,occupancy_pct,adr_eur,revenue_eur,rooms_sold,rooms_available")
-          .gte("stay_date", from)
-          .lte("stay_date", to)
-          .eq("organization_slug", orgSlug)
-          .in("hotel_id", ids)
-          .order("stay_date")
-          .order("captured_date", { ascending: false })
-          .limit(4000);
-        if (error) throw new Error(`Revenue lookup failed: ${error.message}`);
-        // Newest capture per hotel + stay date.
-        const latest = new Map<string, any>();
-        for (const row of data ?? []) {
-          const key = `${row.hotel_id}|${row.stay_date}`;
-          if (!latest.has(key)) latest.set(key, row);
+        const picked = await revenueDatasets(hotelId);
+        const out: any[] = [];
+        const missing: string[] = [];
+        let lastSync: string | null = null;
+        for (const { hotel, dataset } of picked) {
+          if (!dataset) {
+            missing.push(hotel.hotel_name);
+            continue;
+          }
+          if (!lastSync || (dataset.lastSyncAt ?? "") > lastSync) lastSync = dataset.lastSyncAt;
+          const days = dataset.metricsFor(from, to).map((m) => ({
+            stay_date: m.stay_date,
+            rooms_sold: m.roomsSold,
+            rooms_available: m.roomsAvailable,
+            rooms_left: m.roomsLeft,
+            occupancy_pct: m.occupancyPct,
+            adr: m.adrEur,
+            revenue: m.revenueEur,
+            revpar: m.revparEur,
+            net_pickup: m.netPickup,
+            has_data: m.hasData,
+          }));
+          out.push({ hotel_id: hotel.hotel_id, hotel_name: hotel.hotel_name, currency: dataset.currency, days });
         }
-        return { from, to, hotels: ids, rows: [...latest.values()] };
+        if (out.length === 0) {
+          return envelope(
+            { from, to, hotels: [], missing },
+            { source: "revenue_published_payload", confidence: "unverified", note: "No completed Revenue dataset, so these figures cannot be verified." },
+          );
+        }
+        return envelope(
+          { from, to, hotels: out, missing },
+          {
+            source: "revenue_published_payload",
+            lastSyncAt: lastSync,
+            ...(missing.length ? { confidence: "partial" as const, note: `No completed dataset for: ${missing.join(", ")}.` } : {}),
+          },
+        );
       },
     });
 
     tools.get_pickup_and_pace = tool({
       description:
-        "Booking pace: rooms sold vs available by stay date plus the automation engine's recorded pickup actions, so you can judge whether a date is pacing ahead or behind.",
+        "Booking pace: rooms sold, rooms left and net pickup by stay date from the published Revenue dataset, plus the automation engine's recorded pickup actions.",
       inputSchema: jsonSchema<{ hotelId: string | null; days: number | null }>(
         hotelArgSchema({ days: { type: ["number", "null"], description: "Horizon in days from today, default 60, max 365" } }, ["days"]),
       ),
       execute: async ({ hotelId, days }) => {
-        const ids = resolve(hotelId);
         const horizon = Math.min(Math.max(Number(days ?? 60), 1), 365);
         const from = today();
         const to = new Date(Date.now() + horizon * 86_400_000).toISOString().slice(0, 10);
-        const [snapshots, actions] = await Promise.all([
-          service
-            .from("revenue_daily_snapshots")
-            .select("hotel_id,stay_date,captured_date,rooms_sold,rooms_available,occupancy_pct,adr_eur")
-            .eq("organization_slug", orgSlug)
-            .in("hotel_id", ids)
-            .gte("stay_date", from)
-            .lte("stay_date", to)
-            .order("stay_date")
-            .order("captured_date", { ascending: false })
-            .limit(6000),
-          service
-            .from("revenue_pickup_actions")
-            .select("hotel_id,stay_date,trigger_kind,trigger_detail,delta_eur,old_price,new_price,occurred_at")
-            .eq("organization_slug", orgSlug)
-            .in("hotel_id", ids)
-            .gte("stay_date", from)
-            .lte("stay_date", to)
-            .order("occurred_at", { ascending: false })
-            .limit(300),
-        ]);
-        if (snapshots.error) throw new Error(`Pace lookup failed: ${snapshots.error.message}`);
-        if (actions.error) throw new Error(`Pickup action lookup failed: ${actions.error.message}`);
-        const latest = new Map<string, any>();
-        for (const row of snapshots.data ?? []) {
-          const key = `${row.hotel_id}|${row.stay_date}`;
-          if (!latest.has(key)) latest.set(key, row);
+        const picked = await revenueDatasets(hotelId);
+        const ids = picked.map((p) => p.hotel.hotel_id);
+        const actions = await service
+          .from("revenue_pickup_actions")
+          .select("hotel_id,stay_date,trigger_kind,trigger_detail,delta_eur,old_price,new_price,occurred_at")
+          .eq("organization_slug", orgSlug)
+          .in("hotel_id", ids)
+          .gte("stay_date", from)
+          .lte("stay_date", to)
+          .order("occurred_at", { ascending: false })
+          .limit(300);
+        const out: any[] = [];
+        const missing: string[] = [];
+        let lastSync: string | null = null;
+        for (const { hotel, dataset } of picked) {
+          if (!dataset) {
+            missing.push(hotel.hotel_name);
+            continue;
+          }
+          if (!lastSync || (dataset.lastSyncAt ?? "") > lastSync) lastSync = dataset.lastSyncAt;
+          const pace = dataset.metricsFor(from, to).map((m) => ({
+            stay_date: m.stay_date,
+            rooms_sold: m.roomsSold,
+            rooms_available: m.roomsAvailable,
+            rooms_left: m.roomsLeft,
+            occupancy_pct: m.occupancyPct,
+            adr: m.adrEur,
+            net_pickup: m.netPickup,
+            pickup_gained: m.pickupGained,
+            pickup_lost: m.pickupLost,
+            has_data: m.hasData,
+          }));
+          out.push({ hotel_id: hotel.hotel_id, hotel_name: hotel.hotel_name, currency: dataset.currency, pace });
         }
-        const pace = [...latest.values()].map((r) => ({
-          hotel_id: r.hotel_id,
-          stay_date: r.stay_date,
-          rooms_sold: r.rooms_sold,
-          rooms_available: r.rooms_available,
-          rooms_left: Number(r.rooms_available ?? 0) - Number(r.rooms_sold ?? 0),
-          occupancy_pct: r.occupancy_pct,
-          adr_eur: r.adr_eur,
-        }));
-        return { from, to, pace, recentPickupActions: actions.data ?? [] };
+        if (out.length === 0) {
+          return envelope(
+            { from, to, hotels: [], missing },
+            { source: "revenue_published_payload", confidence: "unverified", note: "No completed Revenue dataset, so pace cannot be verified." },
+          );
+        }
+        return envelope(
+          { from, to, hotels: out, missing, recentPickupActions: actions.data ?? [] },
+          {
+            source: "revenue_published_payload",
+            lastSyncAt: lastSync,
+            ...(missing.length ? { confidence: "partial" as const, note: `No completed dataset for: ${missing.join(", ")}.` } : {}),
+          },
+        );
       },
+
     });
 
     tools.get_rate_calendar = tool({
@@ -344,21 +393,46 @@ function buildTools(
         ),
       ),
       execute: async ({ hotelId, startDate, endDate }) => {
-        const ids = resolve(hotelId);
         const from = startDate ?? today();
         const to = endDate ?? new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
-        const { data, error } = await service
-          .from("revenue_room_type_rates")
-          .select("hotel_id,stay_date,room_type_name,occupancy,price,currency,min_stay,closed_to_arrival,captured_at")
-          .eq("organization_slug", orgSlug)
-          .in("hotel_id", ids)
-          .gte("stay_date", from)
-          .lte("stay_date", to)
-          .order("stay_date")
-          .limit(4000);
-        if (error) throw new Error(`Rate lookup failed: ${error.message}`);
-        return { from, to, rates: data ?? [] };
+        const picked = await revenueDatasets(hotelId);
+        const out: any[] = [];
+        const missing: string[] = [];
+        let lastSync: string | null = null;
+        for (const { hotel, dataset } of picked) {
+          if (!dataset) {
+            missing.push(hotel.hotel_name);
+            continue;
+          }
+          if (!lastSync || (dataset.lastSyncAt ?? "") > lastSync) lastSync = dataset.lastSyncAt;
+          const rates = (dataset.payload.rates ?? [])
+            .filter((r) => r.stay_date >= from && r.stay_date <= to)
+            .map((r) => ({
+              stay_date: r.stay_date,
+              room_type_name: r.room_type_name,
+              occupancy: r.occupancy,
+              price: r.price,
+              currency: r.currency || dataset.currency,
+              captured_at: r.captured_at ?? null,
+            }));
+          out.push({ hotel_id: hotel.hotel_id, hotel_name: hotel.hotel_name, currency: dataset.currency, rates });
+        }
+        if (out.length === 0) {
+          return envelope(
+            { from, to, hotels: [], missing },
+            { source: "revenue_published_payload", confidence: "unverified", note: "No completed Revenue dataset, so current rates cannot be verified." },
+          );
+        }
+        return envelope(
+          { from, to, hotels: out, missing },
+          {
+            source: "revenue_published_payload",
+            lastSyncAt: lastSync,
+            ...(missing.length ? { confidence: "partial" as const, note: `No completed dataset for: ${missing.join(", ")}.` } : {}),
+          },
+        );
       },
+
     });
 
     tools.get_automation_rules = tool({
@@ -520,48 +594,56 @@ function buildTools(
         ),
       ),
       execute: async ({ hotelId, startDate, endDate }) => {
-        const ids = resolve(hotelId);
         const from = startDate ?? today();
         const to = endDate ?? from;
-        const { data, error } = await service
-          .from("revenue_daily_snapshots")
-          .select("hotel_id,stay_date,captured_date,occupancy_pct,rooms_sold,rooms_available")
-          .gte("stay_date", from)
-          .lte("stay_date", to)
-          .eq("organization_slug", orgSlug)
-          .in("hotel_id", ids)
-          .order("stay_date")
-          .order("captured_date", { ascending: false })
-          .limit(6000);
-        if (error) throw new Error(`Occupancy lookup failed: ${error.message}`);
-        // Keep only the newest capture per hotel + stay date so figures are current.
-        const latest = new Map<string, any>();
-        for (const row of data ?? []) {
-          const key = `${row.hotel_id}|${row.stay_date}`;
-          if (!latest.has(key)) latest.set(key, row);
+        const picked = await revenueDatasets(hotelId);
+        const out: any[] = [];
+        const missing: string[] = [];
+        let lastSync: string | null = null;
+        for (const { hotel, dataset } of picked) {
+          if (!dataset) {
+            missing.push(hotel.hotel_name);
+            continue;
+          }
+          if (!lastSync || (dataset.lastSyncAt ?? "") > lastSync) lastSync = dataset.lastSyncAt;
+          const days = dataset.metricsFor(from, to).map((m) => ({
+            stay_date: m.stay_date,
+            rooms_sold: m.roomsSold,
+            rooms_available: m.roomsAvailable,
+            rooms_left: m.roomsLeft,
+            occupancy_pct: m.occupancyPct,
+            has_data: m.hasData,
+          }));
+          const sold = days.reduce((s, d) => s + d.rooms_sold, 0);
+          const avail = days.reduce((s, d) => s + d.rooms_available, 0);
+          out.push({
+            hotel_id: hotel.hotel_id,
+            hotel_name: hotel.hotel_name,
+            rooms_available: dataset.roomsAvailable,
+            days,
+            totals: { rooms_sold: sold, rooms_available: avail, occupancy_pct: avail ? Math.round((sold / avail) * 1000) / 10 : null },
+          });
         }
-        const days = [...latest.values()].map((r) => ({
-          hotel_id: r.hotel_id,
-          stay_date: r.stay_date,
-          rooms_sold: r.rooms_sold,
-          rooms_available: r.rooms_available,
-          occupancy_pct:
-            r.occupancy_pct ??
-            (r.rooms_available ? Math.round((Number(r.rooms_sold) / Number(r.rooms_available)) * 1000) / 10 : null),
-        }));
-        const sold = days.reduce((s, d) => s + Number(d.rooms_sold ?? 0), 0);
-        const avail = days.reduce((s, d) => s + Number(d.rooms_available ?? 0), 0);
-        return {
-          from,
-          to,
-          days,
-          totals: {
-            rooms_sold: sold,
-            rooms_available: avail,
-            occupancy_pct: avail ? Math.round((sold / avail) * 1000) / 10 : null,
+        if (out.length === 0) {
+          return envelope(
+            { from, to, hotels: [], missing },
+            {
+              source: "revenue_published_payload",
+              confidence: "unverified",
+              note: "No completed Revenue dataset is available for these properties, so occupancy cannot be verified right now.",
+            },
+          );
+        }
+        return envelope(
+          { from, to, hotels: out, missing },
+          {
+            source: "revenue_published_payload",
+            lastSyncAt: lastSync,
+            ...(missing.length ? { confidence: "partial" as const, note: `No completed dataset for: ${missing.join(", ")}.` } : {}),
           },
-        };
+        );
       },
+
     });
   }
 
@@ -1320,11 +1402,16 @@ Deno.serve(async (req) => {
       .order("created_at", { ascending: true })
       .limit(200);
     if (storedError) return json({ error: `Could not load conversation history: ${storedError.message}` }, 500);
-    const storedMessages: UIMessage[] = (storedRows ?? []).map((row: any) => ({
+    // The full thread stays stored and visible in the app; the model only ever
+    // sees a bounded recent window, so old turns cannot add noise or be reused
+    // as if they were current operational facts.
+    const MODEL_HISTORY_TURNS = 40;
+    const storedMessages: UIMessage[] = (storedRows ?? []).slice(-MODEL_HISTORY_TURNS).map((row: any) => ({
       id: row.id,
       role: row.role,
       parts: [{ type: "text", text: row.content }],
     }));
+
     const modelMessages = [
       ...storedMessages,
       { id: latest?.id ?? crypto.randomUUID(), role: "user" as const, parts: [{ type: "text" as const, text: question }] },
@@ -1393,43 +1480,59 @@ Deno.serve(async (req) => {
     const hotels = await resolveAssistantHotels(service, profile as Profile);
     const revenueBrain = scopes.has("revenue")
       ? `
-You act as a revenue manager with twenty years of experience in city hotels.
-Objective: sell rooms early, build occupancy towards 100% for every single date, and protect ADR — never discount blindly.
-Method: before advising anything, read the data. Look at booking pace (rooms left versus days to arrival), recent pickup, day of week, events, current prices and what the automation engine has already been doing. Then say what you would do and why, with numbers.
-When a rule change would help, call propose_automation_change. It only creates a proposal: the user taps Apply to make it real, so never claim you have changed anything.
-Respect the app's guardrails and mention them when relevant: whole-number prices, room-type/occupancy price ladder safety, sold-out and high-occupancy guards, minimum ADR, far-out floors and top-ups, manual-price hold.
-Always state which hotel, which date range and which currency your numbers refer to. If data is missing or stale, say so instead of guessing.`
+You also act as an experienced city-hotel revenue manager: sell early, build occupancy for every date, protect ADR, never discount blindly.
+Simple factual revenue questions (occupancy, ADR, price, rooms left on a date) get ONE read and a direct one- or two-sentence answer. Do not turn them into an analysis.
+Only for advice questions ("should I raise prices for 18 Sep?") gather the supporting evidence — occupancy and rooms left, booking window, recent pickup, current rates and the room-type/occupancy ladder, demand or events, recent automation activity — then answer in three short parts: recommendation, reason with numbers, suggested action.
+All revenue numbers come from the published Revenue dataset, which is the same dataset the Revenue screen shows. Quote it as returned; never recompute occupancy or ADR yourself from other tables.
+When a rule change would help, call propose_automation_change. It only creates a proposal the user taps Apply on, so never claim you changed anything.
+Respect and mention the app's guardrails when relevant: whole-number prices, room-type/occupancy ladder safety, sold-out and high-occupancy guards, minimum ADR, far-out floors and top-ups, manual-price hold.
+Always say which hotel, date range and currency your numbers refer to.`
       : "";
     const result = streamText({
       model: openai.responses(modelId),
-      system: `You are the Hotel Care Assistant. Be concise, practical, and accurate.
+      system: `You are the Hotel Care Assistant, an expert hotel operations and revenue copilot inside the Hotel Care app.
 Reply in ${language}; if the latest user message is clearly in another language, reply in that language instead.
 The authenticated user's role is ${profile.role}. Their organization is ${profile.organization_slug ?? "none"}.
 Properties you may read: ${hotels.map((h) => `${h.hotel_name} (${h.hotel_id})`).join("; ") || "none"}. Never mention or read any other organization or property.
-If the user asks about their own shift, rooms or tickets ('what do I do now', 'my rooms', 'am I signed in'), call get_my_day first.
-For arrivals, departures, in-house rooms or breakfast, always call get_reception_overview (it reads the live PMS daily overview) before answering, and answer with the room-level detail it returns. Never state "no arrivals" unless that tool actually returned zero arrivals for that date and hotel; if it reports missing PMS rows, say the data has not synced yet instead of reporting zero. If the user says the numbers look wrong, re-run the tool for the exact date and hotel they mean rather than repeating your previous answer.
 
-How to answer operational questions — you are judged against an experienced hotel supervisor, so vagueness is a failure:
-- For any housekeeping question, call get_housekeeping_status; for a broad "how are we doing today" call get_housekeeping_briefing (housekeeping + PMS + maintenance in one read). Never answer housekeeping from memory or from bare status counts.
-- Lead with the concrete picture: checkout rooms versus daily rooms, how many are done / in progress / not started, overall progress percentage, and each housekeeper by name with their completed-of-assigned count.
-- Always call out the exceptions: DND rooms, no-service rooms, unassigned dirty rooms, rooms with unresolved notes, towel/linen changes due, SLA-breached tickets. Give the room numbers, not adjectives.
-- Never say things like "the team seems to be working efficiently". Say what is finished, what is left, who is behind and what to do next.
-- If a tool reports a data-freshness warning or returns zero assignments, say the data has not been assigned/synced yet — do not report it as good news.
-- If the user disputes a number, re-run the tool for the exact hotel and date and compare with what they see, instead of restating your previous answer.
+ANSWER STYLE
+- Lead with the answer. Be concise: normally 1-4 short paragraphs OR 3-6 bullets. Expand only when the user asks for detail, explanation, analysis, comparison or reasoning.
+- Use exact numbers, room numbers, names, hotel and dates. Never replace numbers with generic commentary such as "the team is progressing well".
+- Plain conversational text by default. Use a table only for several hotels, several dates, room-type comparison or KPI comparison. One value is one sentence, never a table.
+- Never mention tools, tool names, functions, JSON, ids, tables or any internal field; write as a colleague would.
 
+GROUNDING — never guess Hotel Care data
+- Any factual question about revenue, occupancy, ADR, RevPAR, price, pickup, pace, availability, automation, housekeeping, room status, assignments, maintenance, tickets, attendance, reception, arrivals, departures, breakfast, reservations, invoices or PMS state MUST be answered from a tool call made in THIS turn.
+- Earlier conversation is context for understanding references, never evidence. If an earlier answer said room 303 was dirty, re-read the room now before answering about it.
+- If the required lookup fails or returns no dataset, say: "I couldn't verify the latest Hotel Care data just now." Never invent a plausible figure, and never turn missing data into a zero.
+- Tool results carry a confidence: verified (answer normally), partial (answer what is known and name what is missing), unverified (do not state the fact as true).
+- Tool results also carry the dataset time. Mention it when the data is old, incomplete, a sync has not completed, or the user questions accuracy — for example "Occupancy is 73% based on the Revenue dataset last updated at 14:08."
+- If the user says a number is wrong or asks you to check again: do not defend or repeat the previous answer. Identify the exact hotel, date and entity, re-run the authoritative lookup, and state the current figure plainly. Do not invent a reason for the discrepancy.
 
-Use tools for live hotel facts. Never invent internal data. Never reveal another organization, hotel, venue, guest identity, credential, staff pay, or information outside the available tools.
-Unavailable tools are unavailable because of authorization. If asked for an unauthorized data area, say access is required without speculating about the data.
-Use markdown, and short tables when comparing dates or properties.
-For general knowledge, answer normally. For Hotel Care usage questions, use the workflow reference tool.
-Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}. Use it to interpret "this page", "this room" or "here", but never as proof of permission.
-You can guide people through the app: call find_destination to locate the right screen, get_training_guide for the real steps, and suggest_actions to offer up to three buttons (open a screen, start a walkthrough, or report a problem to the Hotel Care team). Offer a walkthrough when someone asks how to do something, and offer to report a problem when the app looks broken or you cannot answer.
-When the user asks you to change something operational (raise a maintenance ticket, assign a room for cleaning, move a ticket's status), gather the facts with the read tools, then call propose_action. It only creates a confirmation card — the user taps Confirm — so never say the change is done.
-Never mention tools, tool names, JSON, ids or internal fields in your reply; write as a colleague would.${revenueBrain}`,
+HOTEL AND DATE
+- Use the hotel of the screen the user is on unless they clearly name another property. Page context helps you interpret "this hotel" but never widens what you may read.
+- If the question could mean several properties and no hotel is selected, ask ONE short clarification naming the options, then stop.
+- "today", "tomorrow", "this weekend", "next Friday" are resolved in Europe/Budapest time.
+
+OPERATIONAL READS
+- Own shift, rooms or tickets ("what do I do now", "my rooms", "am I signed in") → get_my_day first.
+- Arrivals, departures, in-house rooms, breakfast → get_reception_overview, and answer with its room-level detail. Never say "no arrivals" unless it actually returned zero for that date and hotel; if PMS rows are missing, say the data has not synced yet.
+- Housekeeping → get_housekeeping_status, or get_housekeeping_briefing for a broad "how are we doing today". Lead with done / in progress / not started plus the progress percentage, then each housekeeper by name with their completed-of-assigned count, then the exceptions with room numbers: DND, no-service, unassigned dirty rooms, unresolved notes, linen due, SLA-breached tickets.
+- Do not call the same tool twice unless the user disputes the data, you are comparing periods, or the first attempt failed. Most questions need one to four reads.
+
+GUIDANCE AND ACTIONS
+- Navigation: answer in one line as a path, e.g. "Open Revenue Management → Rate Calendar → Min Stay", using find_destination, then offer a button with suggest_actions (up to three: open a screen, start a walkthrough, or report a problem). Use get_training_guide when the user asks how to do something step by step.
+- Operational changes (raise a ticket, assign a room, move a ticket's status): read the current state, then call propose_action. It only creates a confirmation card the user taps Confirm on — never say the change is done.
+- Unavailable tools are unavailable because of authorization. Say access is required, without speculating about the data. Never reveal another organization, hotel, venue, guest identity, credential or staff pay.
+- For general (non Hotel Care) knowledge, answer normally. For Hotel Care usage questions, use the workflow reference tool.
+Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenueBrain}`,
       messages: await convertToModelMessages(modelMessages),
       tools: buildTools(service, profile as Profile, scopes, hotels, capabilities),
 
-      stopWhen: stepCountIs(50),
+      // Most questions need 1-4 reads; this bound keeps answers fast and
+      // predictable while still allowing a multi-source revenue recommendation.
+      stopWhen: stepCountIs(12),
+
       abortSignal: req.signal,
       providerOptions: {
         openai: {
