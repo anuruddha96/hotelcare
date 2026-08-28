@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type ChatStatus, type UIMessage } from "ai";
-import { Flag, Mic, MicOff, ShieldQuestion, ThumbsDown, ThumbsUp } from "lucide-react";
+import { Flag, Loader2, Mic, MicOff, ShieldQuestion, ThumbsDown, ThumbsUp } from "lucide-react";
 import { toast } from "sonner";
 import {
   Conversation,
