@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { beginRevenueEdit } from "@/lib/revenueEditGuard";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,6 +82,13 @@ export default function BulkPriceEditor({
     setRange({ from: parse(today), to: parse(addDays(today, 29)) });
     setShowAll(false);
   }, [open, today]);
+
+  // While this editor is open it holds unsaved local values: a background
+  // resume refresh must wait rather than replace them.
+  useEffect(() => {
+    if (!open) return;
+    return beginRevenueEdit("bulk-price-editor");
+  }, [open]);
 
 
   const allTypes = useMemo(() => {

@@ -13,6 +13,8 @@ import {
 } from "@/lib/revenueAnalytics";
 import { DEFAULT_THRESHOLDS, type RevenueThresholds } from "@/lib/revenueThresholds";
 import { retryTransient } from "@/lib/transientRetry";
+import { runWhenRevenueEditorsClosed } from "@/lib/revenueEditGuard";
+import { EXECUTIVE_RESUME_EVENT } from "@/components/system/ExecutiveResumeRefresh";
 
 export interface RevenueRoomType {
   id: string;
@@ -153,6 +155,18 @@ export function useRevenueHotelData(
     void runLoad();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runLoad]);
+
+  // Executive resume: an admin / top manager came back after a couple of
+  // minutes away. Re-read the dataset HotelCare already published (no Previo
+  // call, no sync claim) and never clobber an open rate editor's local edits.
+  useEffect(() => {
+    if (!hotelId) return;
+    const onResume = () => {
+      runWhenRevenueEditorsClosed(() => { void runLoad(); });
+    };
+    window.addEventListener(EXECUTIVE_RESUME_EVENT, onResume);
+    return () => window.removeEventListener(EXECUTIVE_RESUME_EVENT, onResume);
+  }, [hotelId, runLoad]);
 
   // Physical inventory. Previo lists the same physical rooms twice (unit groups
   // AND rate-plan room types) plus non-room products, so summing every row

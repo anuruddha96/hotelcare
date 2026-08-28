@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { beginRevenueEdit } from "@/lib/revenueEditGuard";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,6 +50,12 @@ export default function QuickRateAdjustDialog({
     setAmount(2);
     setDirection(1);
     setOnlyType(!!target.roomTypeName);
+  }, [target]);
+
+  // Unsaved local adjustment: defer any background resume refresh.
+  useEffect(() => {
+    if (!target) return;
+    return beginRevenueEdit("quick-rate-adjust");
   }, [target]);
 
 

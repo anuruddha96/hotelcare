@@ -13,6 +13,7 @@ import { WelcomeBackOverlay } from "@/components/revenue/WelcomeBackOverlay";
 import { PointerEventsGuard } from "@/components/system/PointerEventsGuard";
 import { ServiceOutageBanner } from "@/components/system/ServiceOutageBanner";
 import { SystemAnnouncementBanner } from "@/components/system/SystemAnnouncementBanner";
+import ExecutiveResumeRefresh from "@/components/system/ExecutiveResumeRefresh";
 
 
 // Lazy load all pages to keep initial bundle small
@@ -179,6 +180,7 @@ const MainApp = () => (
         <TooltipProvider>
           <Toaster />
           <PointerEventsGuard />
+          <ExecutiveResumeRefresh />
           <ServiceOutageBanner />
           <SystemAnnouncementBanner />
           <BrowserRouter>
