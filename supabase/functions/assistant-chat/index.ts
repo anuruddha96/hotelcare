@@ -115,12 +115,17 @@ type Capabilities = {
 
 type PageContext = Record<string, unknown> | null;
 
+// Per-user daily cap on web lookups: each search bills OpenAI, so this keeps
+// the feature sustainable without blocking normal chat.
+const WEB_SEARCH_DAILY_CAP = 15;
+
 function buildTools(
   service: any,
   profile: Profile,
   scopes: Set<Scope>,
   hotels: AssistantHotel[],
   capabilities: Capabilities,
+  openAiKey: string,
 ) {
   const orgSlug = profile.organization_slug;
   const hotelIds = hotels.map((h) => h.hotel_id);
@@ -172,6 +177,64 @@ function buildTools(
       description: "List the hotels/venues this user is allowed to see. Always call this before comparing properties.",
       inputSchema: jsonSchema<Record<string, never>>({ type: "object", properties: {}, required: [], additionalProperties: false }),
       execute: async () => ({ organization: orgSlug, hotels }),
+    }),
+    search_web: tool({
+      description:
+        "Search the public web for facts that are NOT stored in Hotel Care: opening hours of cafés, restaurants and venues, city events, weather, transport, and general world facts. Returns a short answer with the source names. Never use this for Hotel Care operational data (rooms, revenue, housekeeping, maintenance, reservations) — those always come from the dedicated Hotel Care tools.",
+      inputSchema: jsonSchema<{ query: string }>({
+        type: "object",
+        properties: { query: { type: "string", description: "A precise, self-contained web search question" } },
+        required: ["query"],
+        additionalProperties: false,
+      }),
+      execute: async ({ query }) => {
+        try {
+          const dayStart = new Date();
+          dayStart.setUTCHours(0, 0, 0, 0);
+          const { count } = await service
+            .from("assistant_audit_log")
+            .select("id", { count: "exact", head: true })
+            .eq("user_id", profile.id)
+            .contains("scopes_used", ["tool-search_web"])
+            .gte("created_at", dayStart.toISOString());
+          if ((count ?? 0) >= WEB_SEARCH_DAILY_CAP) {
+            return { error: "The daily web search limit was reached. Please try again tomorrow.", confidence: "unverified" };
+          }
+          const res = await fetch("https://api.openai.com/v1/responses", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${openAiKey}` },
+            body: JSON.stringify({
+              model: "gpt-4o-mini",
+              tools: [{ type: "web_search_preview", search_context_size: "low" }],
+              input:
+                "Answer this question using web search in one short paragraph, and name the source(s) you relied on " +
+                "(for example the venue's official website or its Google listing). If the web has no reliable answer, say so plainly.\n\nQuestion: " +
+                String(query).slice(0, 500),
+            }),
+          });
+          if (!res.ok) {
+            const detail = await res.text();
+            console.error("search_web failed", res.status, detail.slice(0, 300));
+            return { error: "Web search is temporarily unavailable.", confidence: "unverified" };
+          }
+          const data = await res.json();
+          const text: string = typeof data?.output_text === "string" ? data.output_text.trim() : "";
+          const sources: string[] = [];
+          for (const item of data?.output ?? []) {
+            if (item?.type !== "message") continue;
+            for (const part of item?.content ?? []) {
+              for (const ann of part?.annotations ?? []) {
+                if (ann?.type === "url_citation" && ann?.url) sources.push(String(ann.url));
+              }
+            }
+          }
+          if (!text) return { error: "The web had no reliable answer for this.", confidence: "unverified" };
+          return { answer: text, sources: [...new Set(sources)].slice(0, 4), confidence: "partial" };
+        } catch (error) {
+          console.error("search_web error", error);
+          return { error: "Web search is temporarily unavailable.", confidence: "unverified" };
+        }
+      },
     }),
     get_app_howto: tool({
       description: "Read the Hotel Care workflow reference when the user asks how to use the app.",
@@ -1581,10 +1644,15 @@ GUIDANCE AND ACTIONS
 - Navigation: answer in one line as a path, e.g. "Open Revenue Management → Rate Calendar → Min Stay", using find_destination, then offer a button with suggest_actions (up to three: open a screen, start a walkthrough, or report a problem). Use get_training_guide when the user asks how to do something step by step.
 - Operational changes (raise a ticket, assign a room, move a ticket's status): read the current state, then call propose_action. It only creates a confirmation card the user taps Confirm on — never say the change is done.
 - Unavailable tools are unavailable because of authorization. Say access is required, without speculating about the data. Never reveal another organization, hotel, venue, guest identity, credential or staff pay.
-- For general (non Hotel Care) knowledge, answer normally. For Hotel Care usage questions, use the workflow reference tool.
+- For Hotel Care usage questions, use the workflow reference tool. For general (non Hotel Care) knowledge you already know confidently, answer normally.
+
+WEB SEARCH — for facts not stored in Hotel Care
+- When a question needs a live public fact — opening hours of a café, restaurant, museum or venue, city events, weather, transport, or anything the Hotel Care tools do not cover — call search_web instead of saying the data is missing. Do not use it for Hotel Care operational data; those answers come only from the dedicated tools above.
+- Answer plainly from the search result and name the source ("according to the venue's official website…"). Make clear this comes from the public web, not from Hotel Care.
+- If search_web returns no reliable answer or is unavailable, say so in one sentence; never guess an opening time or price.
 Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenueBrain}`,
       messages: await convertToModelMessages(modelMessages),
-      tools: buildTools(service, profile as Profile, scopes, hotels, capabilities),
+      tools: buildTools(service, profile as Profile, scopes, hotels, capabilities, openAiKey),
 
       // Most questions need 1-4 reads; this bound keeps answers fast and
       // predictable while still allowing a multi-source revenue recommendation.
