@@ -21,10 +21,14 @@ import {
   moduleEnabled,
   moduleLabel,
   trialEndsAt,
+  normaliseModule,
+  isRevenueModule,
+  vatCents,
+  type BillingSettings,
   type ModuleKey,
 } from "../_shared/billing.ts";
 
-const MODULES: ModuleKey[] = ["revenue", "operations"];
+const MODULES: ModuleKey[] = ["revenue_bi", "revenue_automation", "operations", "maintenance"];
 
 function stripeClient() {
   const key = Deno.env.get("STRIPE_SECRET_KEY");
@@ -34,6 +38,34 @@ function stripeClient() {
 
 import { rollupLastMonth, type UsageRow } from "../_shared/billingRollup.ts";
 export type { UsageRow };
+
+/**
+ * Fallback when Stripe Tax is not activated on the account: a plain VAT rate
+ * at the organization's percentage, reused across sessions.
+ */
+const vatRateCache = new Map<string, string>();
+async function fixedVatRate(stripe: Stripe, settings: BillingSettings): Promise<string | null> {
+  const percentage = Number(settings.vat_percent) || 0;
+  if (percentage <= 0) return null;
+  const cacheKey = `${settings.organization_slug}:${percentage}`;
+  const hit = vatRateCache.get(cacheKey);
+  if (hit) return hit;
+  const existing = await stripe.taxRates.list({ active: true, limit: 100 });
+  const found = existing.data.find(
+    (r) => Number(r.percentage) === percentage && r.inclusive === false && r.display_name === "VAT",
+  );
+  const rate =
+    found ??
+    (await stripe.taxRates.create({
+      display_name: "VAT",
+      percentage,
+      inclusive: false,
+      country: settings.billing_address_country || "HU",
+      description: `VAT ${percentage}%`,
+    }));
+  vatRateCache.set(cacheKey, rate.id);
+  return rate.id;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -114,6 +146,29 @@ Deno.serve(async (req) => {
       return json({ url: session.url });
     }
 
+    if (action === "invoices") {
+      if (!stripe) return json({ invoices: [] });
+      const customerId = (subs ?? []).find((s) => s.stripe_customer_id)?.stripe_customer_id;
+      if (!customerId) return json({ invoices: [] });
+      const list = await stripe.invoices.list({ customer: String(customerId), limit: 24 });
+      return json({
+        invoices: list.data.map((inv) => ({
+          id: inv.id,
+          number: inv.number,
+          created: inv.created,
+          period_start: inv.period_start,
+          period_end: inv.period_end,
+          currency: (inv.currency ?? settings.currency).toUpperCase(),
+          subtotal_cents: inv.subtotal ?? 0,
+          tax_cents: inv.tax ?? 0,
+          total_cents: inv.total ?? 0,
+          status: inv.status,
+          hosted_invoice_url: inv.hosted_invoice_url,
+          invoice_pdf: inv.invoice_pdf,
+        })),
+      });
+    }
+
     if (action === "checkout") {
       const selections: { hotel_id: string; module: ModuleKey }[] = Array.isArray(body.selections)
         ? body.selections
@@ -123,27 +178,31 @@ Deno.serve(async (req) => {
       const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
       const meta: Record<string, string> = { organization_slug: slug };
       const picked: string[] = [];
+      let netCents = 0;
 
       for (const sel of selections) {
-        const module = sel.module;
+        const module = normaliseModule(String(sel.module));
         if (!MODULES.includes(module)) continue;
+        // Maintenance is quoted individually — it never goes through checkout.
+        if (module === "maintenance" && settings.maintenance_pricing_mode !== "per_room") continue;
         const hotel = hotels.find((h) => h.hotel_id === sel.hotel_id);
         if (!hotel) continue;
         if (!moduleEnabled(settings, module)) continue;
 
         // Revenue Management can be sold as a share of realised revenue. The
         // subscription then carries a zero-amount monthly line and the real fee
-        // is invoiced monthly from the synced revenue (billing-usage-rollup).
-        if (module === "revenue" && settings.revenue_pricing_mode === "percent") {
+        // is invoiced monthly from the synced revenue.
+        if (isRevenueModule(module) && settings.revenue_pricing_mode !== "per_room") {
           const pct = (settings.revenue_percent_bps / 100).toFixed(2).replace(/\.00$/, "");
           lineItems.push({
             quantity: 1,
             price_data: {
               currency: settings.currency.toLowerCase(),
               unit_amount: 0,
+              tax_behavior: "exclusive",
               recurring: { interval: "month" },
               product_data: {
-                name: `Revenue Management — ${hotel.hotel_name}`,
+                name: `${moduleLabel(settings, module)} — ${hotel.hotel_name}`,
                 description: `${pct}% of realised room revenue, invoiced monthly (excl. VAT)`,
               },
             },
@@ -161,6 +220,7 @@ Deno.serve(async (req) => {
           price_data: {
             currency: settings.currency.toLowerCase(),
             unit_amount: unit,
+            tax_behavior: "exclusive",
             recurring: { interval: "month" },
             product_data: {
               name: `${moduleLabel(settings, module)} — ${hotel.hotel_name}`,
@@ -168,6 +228,7 @@ Deno.serve(async (req) => {
             },
           },
         });
+        netCents += unit * qty;
         picked.push(`${hotel.hotel_id}:${module}`);
       }
 
@@ -184,13 +245,15 @@ Deno.serve(async (req) => {
       const nowSec = Math.floor(Date.now() / 1000);
       const useTrial = trialEndSec > nowSec + 60;
 
-      const session = await stripe.checkout.sessions.create({
+      // Company details for the invoice: collected at checkout (name, address,
+      // tax number) so every Stripe invoice carries them.
+      const base: Stripe.Checkout.SessionCreateParams = {
         mode: "subscription",
         line_items: lineItems,
-        // In subscription mode Stripe always creates the customer itself;
-        // `customer_creation` is only valid in payment mode.
         customer: existingCustomer ?? undefined,
-        automatic_tax: { enabled: false },
+        billing_address_collection: "required",
+        tax_id_collection: { enabled: true },
+        ...(existingCustomer ? { customer_update: { name: "auto", address: "auto" } } : {}),
         metadata: meta,
         subscription_data: {
           metadata: meta,
@@ -198,9 +261,32 @@ Deno.serve(async (req) => {
         },
         success_url: `${origin}?billing=success`,
         cancel_url: `${origin}?billing=cancelled`,
-      });
+      };
 
-      return json({ url: session.url, trial_end: useTrial ? trialEnd : null });
+      let session: Stripe.Checkout.Session;
+      try {
+        // Preferred: Stripe Tax works out the correct VAT (27% in Hungary, and
+        // reverse charge for EU businesses that give a valid VAT number).
+        session = await stripe.checkout.sessions.create({
+          ...base,
+          automatic_tax: { enabled: true },
+        });
+      } catch (taxError) {
+        console.error("stripe automatic tax unavailable, falling back to a fixed VAT rate", taxError);
+        const rate = await fixedVatRate(stripe, settings);
+        session = await stripe.checkout.sessions.create({
+          ...base,
+          automatic_tax: { enabled: false },
+          line_items: lineItems.map((li) => ({ ...li, tax_rates: rate ? [rate] : undefined })),
+        });
+      }
+
+      return json({
+        url: session.url,
+        trial_end: useTrial ? trialEnd : null,
+        net_cents: netCents,
+        vat_cents: vatCents(settings, netCents),
+      });
     }
 
     return json({ error: "Unknown action" }, 400);
