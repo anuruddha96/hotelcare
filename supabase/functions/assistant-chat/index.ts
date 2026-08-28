@@ -115,9 +115,11 @@ type Capabilities = {
 
 type PageContext = Record<string, unknown> | null;
 
-// Per-user daily cap on web lookups: each search bills OpenAI, so this keeps
-// the feature sustainable without blocking normal chat.
-const WEB_SEARCH_DAILY_CAP = 15;
+// Web lookups cost money per search, so each user gets a few free ones a day.
+// Beyond that the search still runs, but the question is billable.
+const WEB_SEARCH_FREE_DAILY = 5;
+const EXTRA_QUESTION_PRICE_EUR = 1;
+
 
 function buildTools(
   service: any,
