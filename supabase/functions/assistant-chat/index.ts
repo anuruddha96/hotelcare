@@ -1448,7 +1448,10 @@ Deno.serve(async (req) => {
     });
     if (userInsertError) return json({ error: `Could not save your message: ${userInsertError.message}` }, 500);
 
-    if (thread.title === "New chat") {
+    // Interim title so the history list is never a bare "New chat"; it is
+    // replaced by a short AI topic title once the answer is finished.
+    const needsTopicTitle = thread.title === "New chat" && !thread.title_locked;
+    if (needsTopicTitle) {
       const title = question.replace(/\s+/g, " ").trim().slice(0, 60) || "New chat";
       const { error: titleError } = await service
         .from("assistant_threads")
@@ -1457,6 +1460,7 @@ Deno.serve(async (req) => {
         .eq("user_id", userData.user.id);
       if (titleError) console.error("assistant title update failed", titleError);
     }
+
 
     if (deniedScope) {
       const answer = `I can’t access ${deniedScope} information with your current role. You can request temporary access from an authorized manager.`;
