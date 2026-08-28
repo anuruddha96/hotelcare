@@ -482,15 +482,37 @@ function ChatSession({
             <PromptInputTools>
               {supported && (
                 <PromptInputButton
-                  tooltip={listening ? "Stop dictation" : "Dictate"}
-                  variant={listening ? "default" : "ghost"}
+                  tooltip={
+                    dictation === "recording"
+                      ? "Stop and transcribe"
+                      : dictation === "transcribing"
+                        ? "Writing your words…"
+                        : "Speak your question"
+                  }
+                  variant={dictation === "recording" ? "default" : "ghost"}
                   onClick={toggle}
-                  aria-label={listening ? "Stop dictation" : "Dictate"}
+                  disabled={dictation === "transcribing"}
+                  aria-label={dictation === "recording" ? "Stop dictation" : "Dictate"}
                 >
-                  {listening ? <MicOff /> : <Mic />}
+                  {dictation === "transcribing" ? (
+                    <Loader2 className="animate-spin" />
+                  ) : dictation === "recording" ? (
+                    <MicOff />
+                  ) : (
+                    <Mic />
+                  )}
                 </PromptInputButton>
               )}
+              {dictation === "recording" && (
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-destructive" /> Listening…
+                </span>
+              )}
+              {dictation === "transcribing" && (
+                <span className="text-xs text-muted-foreground">Writing your words…</span>
+              )}
             </PromptInputTools>
+
             <PromptInputSubmit
               className="h-10 w-10 rounded-full"
               status={status as ChatStatus}
