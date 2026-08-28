@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { MessageCircleQuestion, Plus, ShieldQuestion, Trash2 } from "lucide-react";
+import { Flag, MessageCircleQuestion, Pencil, Plus, ShieldQuestion, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
 import { useAssistant } from "@/hooks/useAssistant";
 import AssistantChat from "./AssistantChat";
 import AssistantAccessRequests, { canApproveAssistantAccess } from "./AssistantAccessRequests";
+import ReportProblemDialog from "./ReportProblemDialog";
 import { canUseAssistant } from "@/lib/assistantAccess";
 import { isAssistantDebugEnabled, setAssistantDebug } from "@/lib/assistant/debugMode";
 
 import { cn } from "@/lib/utils";
 import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
+
 
 /**
  * Floating assistant available on every authenticated page. The active thread
