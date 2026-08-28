@@ -921,7 +921,10 @@ export default function RevenueHotelDetail() {
         <MainTabsBar current="revenue" />
       </div>
       <div className="container mx-auto p-3 sm:p-4 space-y-3">
-          {/* Header — Revenue admins and executive users share the same tools. */}
+          {/* Header toolbar (Back / Sync now / Bulk Edit / Pull rates / Autopilot /
+              Push) — hidden for all users; refresh runs automatically. Flip
+              SHOW_ADMIN_TOOLBAR to true to restore it. */}
+          {SHOW_ADMIN_TOOLBAR && (
           <div className="flex items-center gap-2 flex-wrap">
             {isTechnicalAdmin && (
               <Button variant="ghost" size="sm" onClick={() => navigate(`/${organizationSlug}/revenue`)}>
