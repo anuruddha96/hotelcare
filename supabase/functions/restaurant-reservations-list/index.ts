@@ -74,7 +74,7 @@ Deno.serve(async (req) => {
 
     const { data, error } = await supabase
       .from("restaurant_reservations")
-      .select("id, guest_name, guest_phone, party_size, starts_at, ends_at, status, occasion, special_requests, notes, outlet_slug")
+      .select("id, guest_name, guest_phone, party_size, starts_at, ends_at, status, occasion, special_requests, notes, outlet_slug, status_marked_at, status_marked_by, dashboard_sync_state, dashboard_synced_at")
       .eq("hotel_id", reservationHotelId)
       .eq("service_date", serviceDate)
       .order("starts_at", { ascending: true });

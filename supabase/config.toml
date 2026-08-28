@@ -200,6 +200,11 @@ verify_jwt = false
 [functions.restaurant-reservations-list]
 verify_jwt = false
 
+[functions.restaurant-reservation-status]
+verify_jwt = false
+
+
+
 [functions.demand-events-auto]
 verify_jwt = false
 

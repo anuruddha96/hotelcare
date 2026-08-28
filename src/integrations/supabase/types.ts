@@ -5783,6 +5783,9 @@ export type Database = {
       restaurant_reservations: {
         Row: {
           created_at: string
+          dashboard_sync_error: string | null
+          dashboard_sync_state: string
+          dashboard_synced_at: string | null
           ends_at: string | null
           guest_email: string | null
           guest_name: string
@@ -5800,10 +5803,15 @@ export type Database = {
           special_requests: string | null
           starts_at: string
           status: string
+          status_marked_at: string | null
+          status_marked_by: string | null
           updated_at: string
         }
         Insert: {
           created_at?: string
+          dashboard_sync_error?: string | null
+          dashboard_sync_state?: string
+          dashboard_synced_at?: string | null
           ends_at?: string | null
           guest_email?: string | null
           guest_name?: string
@@ -5821,10 +5829,15 @@ export type Database = {
           special_requests?: string | null
           starts_at: string
           status?: string
+          status_marked_at?: string | null
+          status_marked_by?: string | null
           updated_at?: string
         }
         Update: {
           created_at?: string
+          dashboard_sync_error?: string | null
+          dashboard_sync_state?: string
+          dashboard_synced_at?: string | null
           ends_at?: string | null
           guest_email?: string | null
           guest_name?: string
@@ -5842,6 +5855,8 @@ export type Database = {
           special_requests?: string | null
           starts_at?: string
           status?: string
+          status_marked_at?: string | null
+          status_marked_by?: string | null
           updated_at?: string
         }
         Relationships: [

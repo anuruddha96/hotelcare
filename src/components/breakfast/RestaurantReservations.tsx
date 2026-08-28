@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Users, Clock, Phone, Gift, MessageSquare } from "lucide-react";
+import { RefreshCw, Users, Clock, Phone, Gift, MessageSquare, Check, UserX, CloudOff, CloudUpload } from "lucide-react";
+import { toast } from "sonner";
 import { bbT } from "@/lib/breakfast-translations";
 
 interface Props {
@@ -22,6 +23,7 @@ interface Reservation {
   occasion: string | null;
   special_requests: string | null;
   notes: string | null;
+  dashboard_sync_state?: string | null;
 }
 
 function timeLabel(iso: string): string {
@@ -34,6 +36,7 @@ export default function RestaurantReservations({ hotelId, date, language }: Prop
   const [loading, setLoading] = useState(false);
   const [covers, setCovers] = useState(0);
   const [count, setCount] = useState(0);
+  const [saving, setSaving] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -55,8 +58,34 @@ export default function RestaurantReservations({ hotelId, date, language }: Prop
     return () => clearInterval(id);
   }, [load]);
 
+  const mark = async (reservation: Reservation, next: "seated" | "no_show") => {
+    // Tapping the active status again clears it back to booked.
+    const target = reservation.status === next ? "booked" : next;
+    const previous = rows;
+    setSaving(reservation.id);
+    setRows((rs) => rs.map((r) => (r.id === reservation.id ? { ...r, status: target, dashboard_sync_state: "pending" } : r)));
+
+    const { data, error } = await supabase.functions.invoke("restaurant-reservation-status", {
+      body: { reservation_id: reservation.id, status: target },
+    });
+    setSaving(null);
+
+    if (error || data?.error) {
+      setRows(previous);
+      toast.error(tt("resStatusFailed"));
+      return;
+    }
+    setRows((rs) => rs.map((r) => (r.id === reservation.id
+      ? { ...r, status: data.status, dashboard_sync_state: data.dashboard_sync_state }
+      : r)));
+    toast.success(tt("resStatusSaved"));
+  };
+
   const active = rows.filter((r) => r.status !== "cancelled");
   const cancelled = rows.filter((r) => r.status === "cancelled");
+  const arrivedCount = active.filter((r) => r.status === "seated").length;
+  const noShowCount = active.filter((r) => r.status === "no_show").length;
+
 
   return (
     <div className="space-y-3">
@@ -65,6 +94,9 @@ export default function RestaurantReservations({ hotelId, date, language }: Prop
           <div className="font-semibold text-sm">{tt("resTitle")}</div>
           <div className="text-[11px] text-muted-foreground">
             {tt("resSummary", { n: count, covers })}
+            {(arrivedCount > 0 || noShowCount > 0) && (
+              <> · {tt("resSummaryStatus", { arrived: arrivedCount, noshow: noShowCount })}</>
+            )}
           </div>
         </div>
         <Button variant="ghost" size="sm" className="h-7" onClick={() => void load()} disabled={loading}>
@@ -119,6 +151,39 @@ export default function RestaurantReservations({ hotelId, date, language }: Prop
                       <MessageSquare className="h-3 w-3 mt-0.5 shrink-0" />
                       <span className="whitespace-pre-wrap">{[r.special_requests, r.notes].filter(Boolean).join(" · ")}</span>
                     </div>
+                  )}
+                </div>
+              )}
+
+              <div className="mt-2 pt-2 border-t flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={r.status === "seated" ? "default" : "outline"}
+                  className={`h-9 flex-1 gap-1.5 ${r.status === "seated" ? "bg-emerald-600 hover:bg-emerald-700" : ""}`}
+                  disabled={saving === r.id}
+                  onClick={() => void mark(r, "seated")}
+                >
+                  <Check className="h-4 w-4" />
+                  {r.status === "seated" ? tt("resUndo") : tt("resArrived")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant={r.status === "no_show" ? "destructive" : "outline"}
+                  className="h-9 flex-1 gap-1.5"
+                  disabled={saving === r.id}
+                  onClick={() => void mark(r, "no_show")}
+                >
+                  <UserX className="h-4 w-4" />
+                  {r.status === "no_show" ? tt("resUndo") : tt("resMarkNoShow")}
+                </Button>
+              </div>
+
+              {r.status !== "booked" && (
+                <div className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+                  {r.dashboard_sync_state === "synced" ? (
+                    <><CloudUpload className="h-3 w-3" /> {tt("resSynced")}</>
+                  ) : (
+                    <><CloudOff className="h-3 w-3" /> {tt("resSyncPending")}</>
                   )}
                 </div>
               )}
