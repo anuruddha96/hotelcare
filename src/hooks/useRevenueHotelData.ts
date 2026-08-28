@@ -33,6 +33,16 @@ export interface RevenueRoomType {
   name_translations: Record<string, string>;
 }
 
+/** The price a room type closed at, frozen when it first sold out. */
+export interface SoldOutPrice {
+  room_type_name: string;
+  stay_date: string;
+  occupancy: number;
+  price: number;
+  currency: string;
+  captured_at: string;
+}
+
 interface PublishedRevenuePayload {
   roomTypes: RevenueRoomType[];
   nights: BookingNight[];
@@ -40,6 +50,7 @@ interface PublishedRevenuePayload {
   rates: RoomTypeRate[];
   cancellations: CancelledNight[];
   movements: PickupMovement[];
+  soldOutPrices: SoldOutPrice[];
   settings: Record<string, unknown>;
 }
 
