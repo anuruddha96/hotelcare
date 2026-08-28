@@ -223,7 +223,8 @@ export default function Billing() {
       toast.error(payload?.error ?? err?.message ?? 'Billing portal unavailable');
       return;
     }
-    if (payload?.url) window.open(payload.url, '_blank');
+    if (payload?.url) window.location.assign(payload.url);
+    else toast.error('Billing portal could not be opened — please try again.');
   };
 
   const loadInvoices = async () => {
