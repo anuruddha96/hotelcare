@@ -249,7 +249,23 @@ function buildTools(
             console.error("search_web empty output", JSON.stringify(data).slice(0, 500));
             return { error: "The web had no reliable answer for this.", confidence: "unverified" };
           }
-          return { answer: text, sources: [...new Set(sources)].slice(0, 4), confidence: "partial" };
+          if (billed) {
+            await service.from("assistant_paid_questions").insert({
+              user_id: profile.id,
+              organization_slug: orgSlug,
+              question: String(query).slice(0, 500),
+              amount_eur: EXTRA_QUESTION_PRICE_EUR,
+            });
+          }
+          return {
+            answer: text,
+            sources: [...new Set(sources)].slice(0, 4),
+            confidence: "partial",
+            billing: billed
+              ? `This question is beyond today's ${WEB_SEARCH_FREE_DAILY} free questions and is charged at €${EXTRA_QUESTION_PRICE_EUR}. Tell the user this in one short closing line.`
+              : `Free question ${usedToday + 1} of ${WEB_SEARCH_FREE_DAILY} today. Do not mention billing.`,
+          };
+
 
         } catch (error) {
           console.error("search_web error", error);
