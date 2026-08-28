@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Users, Clock, Phone, Gift, MessageSquare } from "lucide-react";
+import { RefreshCw, Users, Clock, Phone, Gift, MessageSquare, Check, UserX, CloudOff, CloudCheck } from "lucide-react";
+import { toast } from "sonner";
 import { bbT } from "@/lib/breakfast-translations";
 
 interface Props {
@@ -22,6 +23,7 @@ interface Reservation {
   occasion: string | null;
   special_requests: string | null;
   notes: string | null;
+  dashboard_sync_state?: string | null;
 }
 
 function timeLabel(iso: string): string {
@@ -34,6 +36,7 @@ export default function RestaurantReservations({ hotelId, date, language }: Prop
   const [loading, setLoading] = useState(false);
   const [covers, setCovers] = useState(0);
   const [count, setCount] = useState(0);
+  const [saving, setSaving] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -55,8 +58,34 @@ export default function RestaurantReservations({ hotelId, date, language }: Prop
     return () => clearInterval(id);
   }, [load]);
 
+  const mark = async (reservation: Reservation, next: "seated" | "no_show") => {
+    // Tapping the active status again clears it back to booked.
+    const target = reservation.status === next ? "booked" : next;
+    const previous = rows;
+    setSaving(reservation.id);
+    setRows((rs) => rs.map((r) => (r.id === reservation.id ? { ...r, status: target, dashboard_sync_state: "pending" } : r)));
+
+    const { data, error } = await supabase.functions.invoke("restaurant-reservation-status", {
+      body: { reservation_id: reservation.id, status: target },
+    });
+    setSaving(null);
+
+    if (error || data?.error) {
+      setRows(previous);
+      toast.error(tt("resStatusFailed"));
+      return;
+    }
+    setRows((rs) => rs.map((r) => (r.id === reservation.id
+      ? { ...r, status: data.status, dashboard_sync_state: data.dashboard_sync_state }
+      : r)));
+    toast.success(tt("resStatusSaved"));
+  };
+
   const active = rows.filter((r) => r.status !== "cancelled");
   const cancelled = rows.filter((r) => r.status === "cancelled");
+  const arrivedCount = active.filter((r) => r.status === "seated").length;
+  const noShowCount = active.filter((r) => r.status === "no_show").length;
+
 
   return (
     <div className="space-y-3">
