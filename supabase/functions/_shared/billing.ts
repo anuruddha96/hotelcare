@@ -6,7 +6,18 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-export type ModuleKey = "revenue" | "operations";
+export type ModuleKey = "revenue_bi" | "revenue_automation" | "operations" | "maintenance";
+
+/** Legacy key kept for old rows/clients. */
+export const LEGACY_REVENUE = "revenue";
+
+export function normaliseModule(module: string): ModuleKey {
+  return module === "revenue" ? "revenue_automation" : (module as ModuleKey);
+}
+
+export function isRevenueModule(module: string) {
+  return ["revenue", "revenue_bi", "revenue_automation"].includes(module);
+}
 
 export const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -82,6 +93,22 @@ export type BillingSettings = {
   trial_start: string;
   stripe_publishable_key: string | null;
   payments_enabled: boolean;
+  /** Business Intelligence tier — analytics only, no automated price changes. */
+  revenue_bi_price_cents: number;
+  /** BI + Automation tier — includes the automated pricing engine. */
+  revenue_automation_price_cents: number;
+  maintenance_module_enabled: boolean;
+  maintenance_pricing_mode: "custom" | "per_room";
+  maintenance_price_cents: number;
+  /** VAT added on top of every quoted (net) amount. */
+  vat_percent: number;
+  billing_company_name: string | null;
+  billing_address_line1: string | null;
+  billing_address_line2: string | null;
+  billing_address_city: string | null;
+  billing_address_postal_code: string | null;
+  billing_address_country: string | null;
+  billing_tax_id: string | null;
   /** 'per_room' = fixed price per room, 'percent' = share of realised revenue. */
   revenue_pricing_mode: "per_room" | "percent";
   revenue_percent_bps: number;
@@ -161,15 +188,41 @@ export async function loadHotels(slug: string) {
 }
 
 export function priceFor(settings: BillingSettings, module: ModuleKey) {
-  return module === "revenue" ? settings.revenue_price_cents : settings.operations_price_cents;
+  switch (normaliseModule(module)) {
+    case "revenue_bi":
+      return settings.revenue_bi_price_cents;
+    case "revenue_automation":
+      return settings.revenue_automation_price_cents || settings.revenue_price_cents;
+    case "maintenance":
+      return settings.maintenance_pricing_mode === "per_room" ? settings.maintenance_price_cents : 0;
+    default:
+      return settings.operations_price_cents;
+  }
 }
 
 export function moduleEnabled(settings: BillingSettings, module: ModuleKey) {
-  return module === "revenue" ? settings.revenue_module_enabled : settings.operations_module_enabled;
+  const key = normaliseModule(module);
+  if (key === "maintenance") return settings.maintenance_module_enabled;
+  if (isRevenueModule(key)) return settings.revenue_module_enabled;
+  return settings.operations_module_enabled;
 }
 
 export function moduleLabel(settings: BillingSettings, module: ModuleKey) {
-  return module === "revenue" ? "Revenue Management" : settings.operations_module_label;
+  switch (normaliseModule(module)) {
+    case "revenue_bi":
+      return "Revenue — Business Intelligence";
+    case "revenue_automation":
+      return "Revenue — BI + Automation";
+    case "maintenance":
+      return "Maintenance";
+    default:
+      return settings.operations_module_label;
+  }
+}
+
+/** VAT amount for a net amount, using the organization's VAT rate. */
+export function vatCents(settings: BillingSettings, netCents: number) {
+  return Math.round((netCents * (Number(settings.vat_percent) || 0)) / 100);
 }
 
 /**
