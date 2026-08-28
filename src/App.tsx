@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -55,9 +55,53 @@ const PageLoader = () => (
   </div>
 );
 
+const MIN_WELCOME_DISPLAY_MS = 3000;
+
+/**
+ * Keeps the welcome overlay visible for at least `minDisplayMs` so users can
+ * read the motivational quote, even when the actual bootstrap finishes sooner.
+ */
+function useHeldLoading(loading: boolean, minDisplayMs = MIN_WELCOME_DISPLAY_MS): boolean {
+  const [held, setHeld] = useState(loading);
+  const shownAtRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (loading) {
+      setHeld(true);
+      if (shownAtRef.current === null) shownAtRef.current = Date.now();
+      return;
+    }
+
+    const shownAt = shownAtRef.current;
+    if (shownAt === null) {
+      setHeld(false);
+      return;
+    }
+
+    const elapsed = Date.now() - shownAt;
+    const remaining = Math.max(0, minDisplayMs - elapsed);
+
+    if (remaining === 0) {
+      setHeld(false);
+      shownAtRef.current = null;
+      return;
+    }
+
+    const id = window.setTimeout(() => {
+      setHeld(false);
+      shownAtRef.current = null;
+    }, remaining);
+
+    return () => window.clearTimeout(id);
+  }, [loading, minDisplayMs]);
+
+  return held;
+}
+
 const RootRedirect = () => {
   const { user, profile, loading, bootstrapProgress } = useAuth();
-  if (loading) return <WelcomeBackOverlay context="account" step="Checking your secure session…" progress={bootstrapProgress} />;
+  const heldLoading = useHeldLoading(loading);
+  if (heldLoading) return <WelcomeBackOverlay context="account" step="Checking your secure session…" progress={bootstrapProgress} />;
   if (!user) return <Navigate to="/auth" replace />;
   if (!profile?.organization_slug) return <Navigate to="/auth" replace />;
   if ((profile.role === "top_management" || profile.role === "top_management_manager") && profile.assigned_hotel) {
@@ -74,7 +118,8 @@ const TenantRouter = () => {
     return <Navigate to="/auth" replace />;
   }
 
-  if (loading) return <WelcomeBackOverlay context="account" step="Opening your workspace…" progress={bootstrapProgress} />;
+  const heldLoading = useHeldLoading(loading);
+  if (heldLoading) return <WelcomeBackOverlay context="account" step="Opening your workspace…" progress={bootstrapProgress} />;
 
   if (user && !profile?.organization_slug) {
     return <Navigate to="/auth" replace />;
