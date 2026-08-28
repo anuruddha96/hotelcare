@@ -4,7 +4,7 @@
 // around as the refresh landed. Now the page says hello, names the person,
 // and holds a calm message until the fresh Previo data is in.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
