@@ -289,6 +289,25 @@ export default function RateStrategyGrid({
   useRevenueCurrency(); // re-render when the Ft/€ switch flips
   const isMobile = useIsMobile();
 
+  /**
+   * The price a room type closed at, frozen when it first sold out. Keyed by
+   * `${roomTypeName}|${date}` and holding the highest guest count on record,
+   * so later bulk / manual / automation changes never rewrite history.
+   */
+  const soldOutByTypeDate = useMemo(() => {
+    const out = new Map<string, { price: number; occupancy: number; capturedAt: string }>();
+    for (const row of soldOutPrices) {
+      if (!Number.isFinite(row.price)) continue;
+      const key = `${row.room_type_name}|${row.stay_date}`;
+      const cur = out.get(key);
+      if (!cur || row.occupancy > cur.occupancy) {
+        out.set(key, { price: Number(row.price), occupancy: row.occupancy, capturedAt: row.captured_at });
+      }
+    }
+    return out;
+  }, [soldOutPrices]);
+
+
   /** Date whose demand breakdown and events are open in the detail dialog. */
   const [demandDay, setDemandDay] = useState<string | null>(null);
 
