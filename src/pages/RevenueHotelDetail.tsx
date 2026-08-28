@@ -84,6 +84,8 @@ interface Row {
 }
 
 const ALLOWED = ["admin", "top_management", "top_management_manager"];
+/** Owner request: the admin toolbar / reference banner / tab row are hidden for every user. */
+const SHOW_ADMIN_TOOLBAR = false;
 // Roles allowed to move the whole app to another property in their organization.
 const SWITCHABLE_ROLES = ["admin", "manager", "housekeeping_manager", "top_management", "top_management_manager"];
 
@@ -994,6 +996,7 @@ export default function RevenueHotelDetail() {
               </>
             )}
           </div>
+          )}
 
       {/* Calendar navigation only matters on the calendar-style admin tabs */}
       {isTechnicalAdmin && (tab === "prices" || tab === "calendar") && (
