@@ -1049,8 +1049,8 @@ export default function RevenueHotelDetail() {
         </Card>
       )}
 
-      {/* Reference price banner (admin detail — noise for executives) */}
-      {isTechnicalAdmin && refRoomInfo && (
+      {/* Reference price banner — hidden for all users (owner request). */}
+      {SHOW_ADMIN_TOOLBAR && isTechnicalAdmin && refRoomInfo && (
         <div className="rounded-lg border bg-muted/30 px-3 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
           <div>
             <span className="text-muted-foreground">Reference room: </span>
@@ -1066,8 +1066,8 @@ export default function RevenueHotelDetail() {
       )}
 
       <Tabs value={isTechnicalAdmin ? tab : "grid"} onValueChange={setTab}>
-        {/* All authorized Revenue users share the same workspace. */}
-        <TabsList className={`flex-wrap h-auto ${isTechnicalAdmin ? "" : "hidden"}`}>
+        {/* Tab row hidden for all users — everyone lands on the Rate Grid workspace. */}
+        <TabsList className={`flex-wrap h-auto ${SHOW_ADMIN_TOOLBAR && isTechnicalAdmin ? "" : "hidden"}`}>
           <TabsTrigger value="grid"><CalIcon className="h-4 w-4 mr-1" />Rate Grid</TabsTrigger>
           <TabsTrigger value="prices"><CalIcon className="h-4 w-4 mr-1" />Calendar</TabsTrigger>
           <TabsTrigger value="calendar"><CalIcon className="h-4 w-4 mr-1" />Strategy Calendar</TabsTrigger>
