@@ -132,6 +132,7 @@ export function useRevenueHotelData(
         rates: next.rates ?? [],
         cancellations: next.cancellations ?? [],
         movements: next.movements ?? [],
+        soldOutPrices: next.soldOutPrices ?? [],
         settings: next.settings ?? {},
       };
       payloadRef.current = completedPayload;
