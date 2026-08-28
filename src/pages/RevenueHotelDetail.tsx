@@ -920,76 +920,80 @@ export default function RevenueHotelDetail() {
         <MainTabsBar current="revenue" />
       </div>
       <div className="container mx-auto p-3 sm:p-4 space-y-3">
-      {/* Header — Revenue admins and executive users share the same tools. */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {isTechnicalAdmin && (
-          <Button variant="ghost" size="sm" onClick={() => navigate(`/${organizationSlug}/revenue`)}>
-            <ArrowLeft className="h-4 w-4 mr-1" /> Back
-          </Button>
-        )}
-        <div className="flex-1 min-w-0">
-          <h1 className="text-lg sm:text-xl font-semibold truncate">{hotelName}</h1>
-          <p className="text-[11px] text-muted-foreground truncate">
-            Revenue management
-            {live.lastSyncAt ? (
-              <>
-                {` · data from ${new Date(live.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
-                {!bgRefreshing && !bgFailed && !serverRefreshing && (
-                  <span className="hidden sm:inline"> · refreshes automatically every 30 minutes</span>
+      {!revenueSimplifiedHeader && (
+        <>
+          {/* Header — Revenue admins and executive users share the same tools. */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {isTechnicalAdmin && (
+              <Button variant="ghost" size="sm" onClick={() => navigate(`/${organizationSlug}/revenue`)}>
+                <ArrowLeft className="h-4 w-4 mr-1" /> Back
+              </Button>
+            )}
+            <div className="flex-1 min-w-0">
+              <h1 className="text-lg sm:text-xl font-semibold truncate">{hotelName}</h1>
+              <p className="text-[11px] text-muted-foreground truncate">
+                Revenue management
+                {live.lastSyncAt ? (
+                  <>
+                    {` · data from ${new Date(live.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`}
+                    {!bgRefreshing && !bgFailed && !serverRefreshing && (
+                      <span className="hidden sm:inline"> · refreshes automatically every 30 minutes</span>
+                    )}
+                  </>
+                ) : live.loading ? (
+                  <span className="ml-1 inline-block h-2 w-24 align-middle rounded bg-muted animate-pulse" />
+                ) : (
+                  " · never synced"
                 )}
-              </>
-            ) : live.loading ? (
-              <span className="ml-1 inline-block h-2 w-24 align-middle rounded bg-muted animate-pulse" />
-            ) : (
-              " · never synced"
-            )}
+                {(bgRefreshing || serverRefreshing) && (
+                  <span className="ml-1 animate-pulse text-primary">· updating in the background…</span>
+                )}
+                {bgFailed && !bgRefreshing && !serverRefreshing && (
+                  <>
+                    <span className="ml-1 text-destructive">· the last update didn't complete</span>
+                    <button
+                      type="button"
+                      className="ml-1 underline hover:no-underline"
+                      onClick={() => void runSync(true)}
+                    >
+                      Try again
+                    </button>
+                  </>
+                )}
+              </p>
+
+
+            </div>
             {(bgRefreshing || serverRefreshing) && (
-              <span className="ml-1 animate-pulse text-primary">· updating in the background…</span>
+              <div className="w-full sm:w-40 h-1 rounded-full overflow-hidden bg-primary/15" role="status" aria-label="Updating">
+                <div className="h-full w-1/3 rounded-full bg-primary animate-[fade-in_1.2s_ease-in-out_infinite_alternate]" />
+              </div>
             )}
-            {bgFailed && !bgRefreshing && !serverRefreshing && (
+            <Button variant="outline" size="sm" onClick={() => void requestSync()}
+              title="Pull fresh prices, reservations and occupancy from Previo now">
+              {syncing || syncWaiting || bgRefreshing || serverRefreshing
+                ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                : <RefreshCw className="h-4 w-4 mr-1" />}
+              {syncing || bgRefreshing || serverRefreshing || syncWaiting ? "Updating…" : "Sync now"}
+            </Button>
+
+            {isTechnicalAdmin && (
               <>
-                <span className="ml-1 text-destructive">· the last update didn't complete</span>
-                <button
-                  type="button"
-                  className="ml-1 underline hover:no-underline"
-                  onClick={() => void runSync(true)}
-                >
-                  Try again
-                </button>
+                <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}><Edit3 className="h-4 w-4 mr-1" />Bulk Edit</Button>
+                <Button variant="outline" size="sm" onClick={pullFromPrevio}>
+                  <RefreshCw className="h-4 w-4 mr-1" />Pull rates
+                </Button>
+                <Button variant="outline" size="sm" onClick={runAutopilot} disabled={autopilotBusy}>
+                  {autopilotBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Bot className="h-4 w-4 mr-1" />}Autopilot
+                </Button>
+                <Button size="sm" onClick={pushApproved} disabled={pushBusy}>
+                  {pushBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}Push
+                </Button>
               </>
             )}
-          </p>
-
-
-        </div>
-        {(bgRefreshing || serverRefreshing) && (
-          <div className="w-full sm:w-40 h-1 rounded-full overflow-hidden bg-primary/15" role="status" aria-label="Updating">
-            <div className="h-full w-1/3 rounded-full bg-primary animate-[fade-in_1.2s_ease-in-out_infinite_alternate]" />
           </div>
-        )}
-        <Button variant="outline" size="sm" onClick={() => void requestSync()}
-          title="Pull fresh prices, reservations and occupancy from Previo now">
-          {syncing || syncWaiting || bgRefreshing || serverRefreshing
-            ? <Loader2 className="h-4 w-4 animate-spin mr-1" />
-            : <RefreshCw className="h-4 w-4 mr-1" />}
-          {syncing || bgRefreshing || serverRefreshing || syncWaiting ? "Updating…" : "Sync now"}
-        </Button>
-
-        {isTechnicalAdmin && (
-          <>
-            <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)}><Edit3 className="h-4 w-4 mr-1" />Bulk Edit</Button>
-            <Button variant="outline" size="sm" onClick={pullFromPrevio}>
-              <RefreshCw className="h-4 w-4 mr-1" />Pull rates
-            </Button>
-            <Button variant="outline" size="sm" onClick={runAutopilot} disabled={autopilotBusy}>
-              {autopilotBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Bot className="h-4 w-4 mr-1" />}Autopilot
-            </Button>
-            <Button size="sm" onClick={pushApproved} disabled={pushBusy}>
-              {pushBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}Push
-            </Button>
-          </>
-        )}
-      </div>
+        </>
+      )}
 
       {/* Calendar navigation only matters on the calendar-style admin tabs */}
       {isTechnicalAdmin && (tab === "prices" || tab === "calendar") && (
