@@ -19,6 +19,8 @@ export type TenantFeatures = {
   nonDestructivePmsUpload: boolean;
   /** Two labelled PMS file slots (one per Previo account) run in sequence. */
   dualPmsUpload: boolean;
+  /** Hide the Revenue admin header (title, sync status, action buttons, reference-room banner). */
+  revenueSimplifiedHeader: boolean;
 };
 
 const DEFAULT_FEATURES: TenantFeatures = {
@@ -28,6 +30,7 @@ const DEFAULT_FEATURES: TenantFeatures = {
   housekeepingOnly: false,
   nonDestructivePmsUpload: false,
   dualPmsUpload: false,
+  revenueSimplifiedHeader: false,
 };
 
 const SLNT_FEATURES: Partial<TenantFeatures> = {
