@@ -13,6 +13,8 @@ import {
 } from "@/lib/revenueAnalytics";
 import { DEFAULT_THRESHOLDS, type RevenueThresholds } from "@/lib/revenueThresholds";
 import { retryTransient } from "@/lib/transientRetry";
+import { runWhenRevenueEditorsClosed } from "@/lib/revenueEditGuard";
+import { EXECUTIVE_RESUME_EVENT } from "@/components/system/ExecutiveResumeRefresh";
 
 export interface RevenueRoomType {
   id: string;
