@@ -944,9 +944,16 @@ export async function runPmsRefresh(
           { scheduledDepartureTomorrow: true, reason: "departure_tomorrow_daily_room" }, false);
       }
       const wasNoShow = existingMetadata?.isNoShow === true;
-      if (reservationDataAuthoritative && row.IsNoShow === true && !wasNoShow) {
+      const nowNoShow = updateData.pms_metadata?.isNoShow === true;
+      if (reservationDataAuthoritative && nowNoShow && !wasNoShow) {
         pushEvent("no_show_detected", { isNoShow: false }, { isNoShow: true }, false);
       }
+      if (reservationDataAuthoritative && wasNoShow && !nowNoShow) {
+        // Guest is in-house / PMS reports occupancy — the earlier no-show mark
+        // was wrong or stale, so it is cleared automatically.
+        pushEvent("no_show_cleared_auto", { isNoShow: true }, { isNoShow: false }, false);
+      }
+
       if (reservationDataAuthoritative && typeof room.guest_count === "number" && room.guest_count !== nextGuestCount) {
         const wasVacant = room.guest_count === 0;
         const nowOccupied = nextGuestCount > 0;
