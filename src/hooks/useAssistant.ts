@@ -91,20 +91,23 @@ export function useAssistant(threadId: string | null) {
 
   const createThread = useCallback(async (): Promise<string | null> => {
     if (!user) return null;
+    // Organization and hotel are filled in by the database from the signed-in
+    // profile. Sending them from the client broke chat creation whenever a
+    // manager had switched the hotel view (the local profile no longer matches
+    // the stored one, and the access rule rejected the row).
     const { data, error } = await supabase
       .from("assistant_threads")
-      .insert({
-        user_id: user.id,
-        organization_slug: profile?.organization_slug ?? null,
-        hotel_id: profile?.assigned_hotel ?? null,
-        title: "New chat",
-      })
+      .insert({ user_id: user.id, title: "New chat" })
       .select("id,title,updated_at")
       .single();
-    if (error || !data) return null;
+    if (error || !data) {
+      console.error("assistant: could not create thread", error);
+      return null;
+    }
     setThreads((t) => [data as AssistantThread, ...t]);
     return data.id;
-  }, [user, profile]);
+  }, [user]);
+
 
   const deleteThread = useCallback(async (id: string) => {
     const { error } = await supabase
