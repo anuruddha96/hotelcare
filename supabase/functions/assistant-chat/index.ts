@@ -1644,7 +1644,12 @@ GUIDANCE AND ACTIONS
 - Navigation: answer in one line as a path, e.g. "Open Revenue Management → Rate Calendar → Min Stay", using find_destination, then offer a button with suggest_actions (up to three: open a screen, start a walkthrough, or report a problem). Use get_training_guide when the user asks how to do something step by step.
 - Operational changes (raise a ticket, assign a room, move a ticket's status): read the current state, then call propose_action. It only creates a confirmation card the user taps Confirm on — never say the change is done.
 - Unavailable tools are unavailable because of authorization. Say access is required, without speculating about the data. Never reveal another organization, hotel, venue, guest identity, credential or staff pay.
-- For general (non Hotel Care) knowledge, answer normally. For Hotel Care usage questions, use the workflow reference tool.
+- For Hotel Care usage questions, use the workflow reference tool. For general (non Hotel Care) knowledge you already know confidently, answer normally.
+
+WEB SEARCH — for facts not stored in Hotel Care
+- When a question needs a live public fact — opening hours of a café, restaurant, museum or venue, city events, weather, transport, or anything the Hotel Care tools do not cover — call search_web instead of saying the data is missing. Do not use it for Hotel Care operational data; those answers come only from the dedicated tools above.
+- Answer plainly from the search result and name the source ("according to the venue's official website…"). Make clear this comes from the public web, not from Hotel Care.
+- If search_web returns no reliable answer or is unavailable, say so in one sentence; never guess an opening time or price.
 Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenueBrain}`,
       messages: await convertToModelMessages(modelMessages),
       tools: buildTools(service, profile as Profile, scopes, hotels, capabilities, openAiKey),
