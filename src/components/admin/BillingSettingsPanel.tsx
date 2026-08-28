@@ -31,6 +31,19 @@ interface Settings {
   revenue_percent_bps: number;
   revenue_percent_min_cents: number;
   revenue_percent_cap_cents: number;
+  revenue_bi_price_cents: number;
+  revenue_automation_price_cents: number;
+  maintenance_module_enabled: boolean;
+  maintenance_pricing_mode: 'custom' | 'per_room';
+  maintenance_price_cents: number;
+  vat_percent: number;
+  billing_company_name: string | null;
+  billing_address_line1: string | null;
+  billing_address_line2: string | null;
+  billing_address_city: string | null;
+  billing_address_postal_code: string | null;
+  billing_address_country: string | null;
+  billing_tax_id: string | null;
 }
 
 const BLANK = (slug: string): Settings => ({
@@ -50,6 +63,19 @@ const BLANK = (slug: string): Settings => ({
   revenue_percent_bps: 100,
   revenue_percent_min_cents: 0,
   revenue_percent_cap_cents: 0,
+  revenue_bi_price_cents: 1500,
+  revenue_automation_price_cents: 2200,
+  maintenance_module_enabled: true,
+  maintenance_pricing_mode: 'custom',
+  maintenance_price_cents: 0,
+  vat_percent: 27,
+  billing_company_name: '',
+  billing_address_line1: '',
+  billing_address_line2: '',
+  billing_address_city: '',
+  billing_address_postal_code: '',
+  billing_address_country: 'HU',
+  billing_tax_id: '',
 });
 
 export default function BillingSettingsPanel() {
@@ -216,14 +242,32 @@ export default function BillingSettingsPanel() {
                 </div>
 
                 {settings.revenue_pricing_mode === 'per_room' ? (
-                  <div className="space-y-2">
-                    <Label>Price per room / month</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={euros(settings.revenue_price_cents)}
-                      onChange={(e) => patch({ revenue_price_cents: toCents(e.target.value) })}
-                    />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Business Intelligence — per room / month</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={euros(settings.revenue_bi_price_cents)}
+                        onChange={(e) => patch({ revenue_bi_price_cents: toCents(e.target.value) })}
+                      />
+                      <p className="text-xs text-muted-foreground">Analytics only, no automatic price changes.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>BI + Automation — per room / month</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={euros(settings.revenue_automation_price_cents)}
+                        onChange={(e) =>
+                          patch({
+                            revenue_automation_price_cents: toCents(e.target.value),
+                            revenue_price_cents: toCents(e.target.value),
+                          })
+                        }
+                      />
+                      <p className="text-xs text-muted-foreground">Includes the automated pricing engine.</p>
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -302,6 +346,109 @@ export default function BillingSettingsPanel() {
                   maxLength={3}
                   className="max-w-[120px]"
                 />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Maintenance module</CardTitle>
+              <CardDescription>Sold on request unless a per-room price is agreed.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-3 items-end">
+              <div className="flex items-center gap-3">
+                <Switch
+                  checked={settings.maintenance_module_enabled}
+                  onCheckedChange={(v) => patch({ maintenance_module_enabled: v })}
+                />
+                <Label>Offer maintenance</Label>
+              </div>
+              <div className="space-y-2">
+                <Label>Pricing</Label>
+                <Select
+                  value={settings.maintenance_pricing_mode}
+                  onValueChange={(v) => patch({ maintenance_pricing_mode: v as Settings['maintenance_pricing_mode'] })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="custom">Custom / on request</SelectItem>
+                    <SelectItem value="per_room">Fixed price per room / month</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Agreed price per room / month</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  disabled={settings.maintenance_pricing_mode !== 'per_room'}
+                  value={euros(settings.maintenance_price_cents)}
+                  onChange={(e) => patch({ maintenance_price_cents: toCents(e.target.value) })}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">VAT &amp; invoice details</CardTitle>
+              <CardDescription>
+                VAT is added on top of every quoted price at checkout and printed on the Stripe invoice. Company name,
+                address and tax number are also collected at checkout; anything entered here is used as the default.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <Label>VAT rate (%)</Label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  value={String(settings.vat_percent ?? 27)}
+                  onChange={(e) => patch({ vat_percent: parseFloat(e.target.value) || 0 })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Company name</Label>
+                <Input
+                  value={settings.billing_company_name ?? ''}
+                  onChange={(e) => patch({ billing_company_name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Tax number</Label>
+                <Input
+                  value={settings.billing_tax_id ?? ''}
+                  onChange={(e) => patch({ billing_tax_id: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Address line 1</Label>
+                <Input
+                  value={settings.billing_address_line1 ?? ''}
+                  onChange={(e) => patch({ billing_address_line1: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>City</Label>
+                <Input
+                  value={settings.billing_address_city ?? ''}
+                  onChange={(e) => patch({ billing_address_city: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Postal code / country</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={settings.billing_address_postal_code ?? ''}
+                    onChange={(e) => patch({ billing_address_postal_code: e.target.value })}
+                  />
+                  <Input
+                    className="max-w-[90px]"
+                    maxLength={2}
+                    value={settings.billing_address_country ?? ''}
+                    onChange={(e) => patch({ billing_address_country: e.target.value.toUpperCase() })}
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
