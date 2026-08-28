@@ -344,21 +344,46 @@ function buildTools(
         ),
       ),
       execute: async ({ hotelId, startDate, endDate }) => {
-        const ids = resolve(hotelId);
         const from = startDate ?? today();
         const to = endDate ?? new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
-        const { data, error } = await service
-          .from("revenue_room_type_rates")
-          .select("hotel_id,stay_date,room_type_name,occupancy,price,currency,min_stay,closed_to_arrival,captured_at")
-          .eq("organization_slug", orgSlug)
-          .in("hotel_id", ids)
-          .gte("stay_date", from)
-          .lte("stay_date", to)
-          .order("stay_date")
-          .limit(4000);
-        if (error) throw new Error(`Rate lookup failed: ${error.message}`);
-        return { from, to, rates: data ?? [] };
+        const picked = await revenueDatasets(hotelId);
+        const out: any[] = [];
+        const missing: string[] = [];
+        let lastSync: string | null = null;
+        for (const { hotel, dataset } of picked) {
+          if (!dataset) {
+            missing.push(hotel.hotel_name);
+            continue;
+          }
+          if (!lastSync || (dataset.lastSyncAt ?? "") > lastSync) lastSync = dataset.lastSyncAt;
+          const rates = (dataset.payload.rates ?? [])
+            .filter((r) => r.stay_date >= from && r.stay_date <= to)
+            .map((r) => ({
+              stay_date: r.stay_date,
+              room_type_name: r.room_type_name,
+              occupancy: r.occupancy,
+              price: r.price,
+              currency: r.currency || dataset.currency,
+              captured_at: r.captured_at ?? null,
+            }));
+          out.push({ hotel_id: hotel.hotel_id, hotel_name: hotel.hotel_name, currency: dataset.currency, rates });
+        }
+        if (out.length === 0) {
+          return envelope(
+            { from, to, hotels: [], missing },
+            { source: "revenue_published_payload", confidence: "unverified", note: "No completed Revenue dataset, so current rates cannot be verified." },
+          );
+        }
+        return envelope(
+          { from, to, hotels: out, missing },
+          {
+            source: "revenue_published_payload",
+            lastSyncAt: lastSync,
+            ...(missing.length ? { confidence: "partial" as const, note: `No completed dataset for: ${missing.join(", ")}.` } : {}),
+          },
+        );
       },
+
     });
 
     tools.get_automation_rules = tool({
@@ -520,48 +545,56 @@ function buildTools(
         ),
       ),
       execute: async ({ hotelId, startDate, endDate }) => {
-        const ids = resolve(hotelId);
         const from = startDate ?? today();
         const to = endDate ?? from;
-        const { data, error } = await service
-          .from("revenue_daily_snapshots")
-          .select("hotel_id,stay_date,captured_date,occupancy_pct,rooms_sold,rooms_available")
-          .gte("stay_date", from)
-          .lte("stay_date", to)
-          .eq("organization_slug", orgSlug)
-          .in("hotel_id", ids)
-          .order("stay_date")
-          .order("captured_date", { ascending: false })
-          .limit(6000);
-        if (error) throw new Error(`Occupancy lookup failed: ${error.message}`);
-        // Keep only the newest capture per hotel + stay date so figures are current.
-        const latest = new Map<string, any>();
-        for (const row of data ?? []) {
-          const key = `${row.hotel_id}|${row.stay_date}`;
-          if (!latest.has(key)) latest.set(key, row);
+        const picked = await revenueDatasets(hotelId);
+        const out: any[] = [];
+        const missing: string[] = [];
+        let lastSync: string | null = null;
+        for (const { hotel, dataset } of picked) {
+          if (!dataset) {
+            missing.push(hotel.hotel_name);
+            continue;
+          }
+          if (!lastSync || (dataset.lastSyncAt ?? "") > lastSync) lastSync = dataset.lastSyncAt;
+          const days = dataset.metricsFor(from, to).map((m) => ({
+            stay_date: m.stay_date,
+            rooms_sold: m.roomsSold,
+            rooms_available: m.roomsAvailable,
+            rooms_left: m.roomsLeft,
+            occupancy_pct: m.occupancyPct,
+            has_data: m.hasData,
+          }));
+          const sold = days.reduce((s, d) => s + d.rooms_sold, 0);
+          const avail = days.reduce((s, d) => s + d.rooms_available, 0);
+          out.push({
+            hotel_id: hotel.hotel_id,
+            hotel_name: hotel.hotel_name,
+            rooms_available: dataset.roomsAvailable,
+            days,
+            totals: { rooms_sold: sold, rooms_available: avail, occupancy_pct: avail ? Math.round((sold / avail) * 1000) / 10 : null },
+          });
         }
-        const days = [...latest.values()].map((r) => ({
-          hotel_id: r.hotel_id,
-          stay_date: r.stay_date,
-          rooms_sold: r.rooms_sold,
-          rooms_available: r.rooms_available,
-          occupancy_pct:
-            r.occupancy_pct ??
-            (r.rooms_available ? Math.round((Number(r.rooms_sold) / Number(r.rooms_available)) * 1000) / 10 : null),
-        }));
-        const sold = days.reduce((s, d) => s + Number(d.rooms_sold ?? 0), 0);
-        const avail = days.reduce((s, d) => s + Number(d.rooms_available ?? 0), 0);
-        return {
-          from,
-          to,
-          days,
-          totals: {
-            rooms_sold: sold,
-            rooms_available: avail,
-            occupancy_pct: avail ? Math.round((sold / avail) * 1000) / 10 : null,
+        if (out.length === 0) {
+          return envelope(
+            { from, to, hotels: [], missing },
+            {
+              source: "revenue_published_payload",
+              confidence: "unverified",
+              note: "No completed Revenue dataset is available for these properties, so occupancy cannot be verified right now.",
+            },
+          );
+        }
+        return envelope(
+          { from, to, hotels: out, missing },
+          {
+            source: "revenue_published_payload",
+            lastSyncAt: lastSync,
+            ...(missing.length ? { confidence: "partial" as const, note: `No completed dataset for: ${missing.join(", ")}.` } : {}),
           },
-        };
+        );
       },
+
     });
   }
 
