@@ -54,52 +54,112 @@ function messageText(message: AssistantUiMessage) {
     .join("");
 }
 
-/** Speak-to-type using the browser's speech recognition. */
-function useDictation(onText: (text: string) => void) {
-  const recognitionRef = useRef<any>(null);
-  const [listening, setListening] = useState(false);
+type DictationState = "idle" | "recording" | "transcribing";
+
+/**
+ * Speak-to-type. iOS Safari's SpeechRecognition is unreliable, so the audio is
+ * recorded in the browser and transcribed server-side; the browser engine is
+ * only used when recording is unavailable.
+ */
+function useDictation(onText: (text: string) => void, language: string) {
+  const [state, setState] = useState<DictationState>("idle");
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const cancelledRef = useRef(false);
   const supported =
     typeof window !== "undefined" &&
-    Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+    typeof navigator !== "undefined" &&
+    Boolean(navigator.mediaDevices?.getUserMedia) &&
+    typeof MediaRecorder !== "undefined";
 
-  useEffect(
-    () => () => {
-      recognitionRef.current?.stop();
+  const cleanup = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    recorderRef.current = null;
+    chunksRef.current = [];
+  }, []);
+
+  useEffect(() => () => cleanup(), [cleanup]);
+
+  const transcribe = useCallback(
+    async (blob: Blob, mimeType: string) => {
+      setState("transcribing");
+      try {
+        const { supabase } = await import("@/integrations/supabase/client");
+        const extension = mimeType.includes("mp4") ? "mp4" : mimeType.includes("ogg") ? "ogg" : "webm";
+        const form = new FormData();
+        form.append("file", new File([blob], `speech.${extension}`, { type: mimeType }));
+        if (language) form.append("language", language);
+        const { data, error } = await supabase.functions.invoke("assistant-transcribe", { body: form });
+        if (error) throw error;
+        const text = String((data as any)?.text ?? "").trim();
+        if (text) onText(text);
+        else toast.error("I didn’t catch that. Try again a little closer to the microphone.");
+      } catch (error) {
+        console.error("dictation failed", error);
+        toast.error("Could not turn that recording into text.");
+      } finally {
+        setState("idle");
+      }
     },
-    [],
+    [language, onText],
   );
 
-  const toggle = useCallback(() => {
+  const start = useCallback(async () => {
     if (!supported) {
-      toast.error("Voice input is not supported in this browser");
+      toast.error("Voice input is not available in this browser");
       return;
     }
-    if (listening) {
-      recognitionRef.current?.stop();
-      setListening(false);
-      return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mimeType = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/mp4",
+        "audio/ogg;codecs=opus",
+      ].find((type) => MediaRecorder.isTypeSupported?.(type));
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      chunksRef.current = [];
+      cancelledRef.current = false;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const type = recorder.mimeType || mimeType || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type });
+        cleanup();
+        if (cancelledRef.current || blob.size < 1200) {
+          setState("idle");
+          return;
+        }
+        void transcribe(blob, type);
+      };
+      recorder.start();
+      recorderRef.current = recorder;
+      setState("recording");
+    } catch (error) {
+      console.error("microphone unavailable", error);
+      cleanup();
+      setState("idle");
+      toast.error("Microphone access is needed for voice input.");
     }
-    const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    const recognition = new Recognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = navigator.language || "en-US";
-    recognition.onresult = (event: any) => {
-      const text = Array.from(event.results)
-        .map((result: any) => result[0].transcript)
-        .join(" ")
-        .trim();
-      if (text) onText(text);
-    };
-    recognition.onerror = () => setListening(false);
-    recognition.onend = () => setListening(false);
-    recognitionRef.current = recognition;
-    recognition.start();
-    setListening(true);
-  }, [listening, onText, supported]);
+  }, [cleanup, supported, transcribe]);
 
-  return { listening, supported, toggle };
+  const stop = useCallback(() => {
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+    else setState("idle");
+  }, []);
+
+  const toggle = useCallback(() => {
+    if (state === "recording") stop();
+    else if (state === "idle") void start();
+  }, [start, state, stop]);
+
+  return { state, supported, toggle };
 }
+
 
 function AnswerFeedback({ threadId, messageId }: { threadId: string; messageId: string }) {
   const { profile } = useAuth();
