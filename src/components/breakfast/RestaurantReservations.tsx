@@ -154,6 +154,39 @@ export default function RestaurantReservations({ hotelId, date, language }: Prop
                   )}
                 </div>
               )}
+
+              <div className="mt-2 pt-2 border-t flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={r.status === "seated" ? "default" : "outline"}
+                  className={`h-9 flex-1 gap-1.5 ${r.status === "seated" ? "bg-emerald-600 hover:bg-emerald-700" : ""}`}
+                  disabled={saving === r.id}
+                  onClick={() => void mark(r, "seated")}
+                >
+                  <Check className="h-4 w-4" />
+                  {r.status === "seated" ? tt("resUndo") : tt("resArrived")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant={r.status === "no_show" ? "destructive" : "outline"}
+                  className="h-9 flex-1 gap-1.5"
+                  disabled={saving === r.id}
+                  onClick={() => void mark(r, "no_show")}
+                >
+                  <UserX className="h-4 w-4" />
+                  {r.status === "no_show" ? tt("resUndo") : tt("resMarkNoShow")}
+                </Button>
+              </div>
+
+              {r.status !== "booked" && (
+                <div className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+                  {r.dashboard_sync_state === "synced" ? (
+                    <><CloudUpload className="h-3 w-3" /> {tt("resSynced")}</>
+                  ) : (
+                    <><CloudOff className="h-3 w-3" /> {tt("resSyncPending")}</>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
