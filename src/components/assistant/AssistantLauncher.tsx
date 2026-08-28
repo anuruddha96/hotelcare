@@ -287,6 +287,9 @@ export default function AssistantLauncher() {
           </Tabs>
         </SheetContent>
       </Sheet>
+
+      <ReportProblemDialog open={reportOpen} onOpenChange={setReportOpen} threadId={threadId} />
+
     </>
   );
 }
