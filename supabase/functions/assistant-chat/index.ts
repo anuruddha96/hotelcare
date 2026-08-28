@@ -218,18 +218,28 @@ function buildTools(
             return { error: "Web search is temporarily unavailable.", confidence: "unverified" };
           }
           const data = await res.json();
-          const text: string = typeof data?.output_text === "string" ? data.output_text.trim() : "";
+          // The raw Responses API has no top-level `output_text` (that is an SDK
+          // convenience). Text lives in output[].content[].text.
+          const chunks: string[] = [];
           const sources: string[] = [];
           for (const item of data?.output ?? []) {
             if (item?.type !== "message") continue;
             for (const part of item?.content ?? []) {
+              if (typeof part?.text === "string" && part.text.trim()) chunks.push(part.text.trim());
               for (const ann of part?.annotations ?? []) {
                 if (ann?.type === "url_citation" && ann?.url) sources.push(String(ann.url));
               }
             }
           }
-          if (!text) return { error: "The web had no reliable answer for this.", confidence: "unverified" };
+          const text =
+            chunks.join("\n\n").trim() ||
+            (typeof data?.output_text === "string" ? data.output_text.trim() : "");
+          if (!text) {
+            console.error("search_web empty output", JSON.stringify(data).slice(0, 500));
+            return { error: "The web had no reliable answer for this.", confidence: "unverified" };
+          }
           return { answer: text, sources: [...new Set(sources)].slice(0, 4), confidence: "partial" };
+
         } catch (error) {
           console.error("search_web error", error);
           return { error: "Web search is temporarily unavailable.", confidence: "unverified" };
