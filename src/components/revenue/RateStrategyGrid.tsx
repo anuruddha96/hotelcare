@@ -25,7 +25,7 @@ import {
   DEFAULT_THRESHOLDS, type RevenueThresholds,
 } from "@/lib/revenueThresholds";
 import { getRevenueCurrency, moneyBase, useRevenueCurrency } from "@/lib/revenueCurrency";
-import type { RevenueRoomType } from "@/hooks/useRevenueHotelData";
+import type { RevenueRoomType, SoldOutPrice } from "@/hooks/useRevenueHotelData";
 import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 import { useRateAudit } from "@/hooks/useRateAudit";
 import { useRateCellMarkers } from "@/hooks/useRateCellMarkers";
