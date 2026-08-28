@@ -263,16 +263,25 @@ Deno.serve(async (req) => {
         cancel_url: `${origin}?billing=cancelled`,
       };
 
-      let session: Stripe.Checkout.Session;
+      // VAT must always show as a separate line on the checkout. Stripe Tax only
+      // computes it when the account has an active tax registration; without one
+      // it silently returns "Tax 0.00". So we check first and otherwise attach an
+      // explicit VAT rate so the customer sees net + VAT + gross.
+      let hasTaxRegistration = false;
       try {
-        // Preferred: Stripe Tax works out the correct VAT (27% in Hungary, and
-        // reverse charge for EU businesses that give a valid VAT number).
+        const regs = await stripe.tax.registrations.list({ status: "active", limit: 1 });
+        hasTaxRegistration = (regs.data?.length ?? 0) > 0;
+      } catch (regError) {
+        console.error("could not read stripe tax registrations", regError);
+      }
+
+      let session: Stripe.Checkout.Session;
+      if (hasTaxRegistration) {
         session = await stripe.checkout.sessions.create({
           ...base,
           automatic_tax: { enabled: true },
         });
-      } catch (taxError) {
-        console.error("stripe automatic tax unavailable, falling back to a fixed VAT rate", taxError);
+      } else {
         const rate = await fixedVatRate(stripe, settings);
         session = await stripe.checkout.sessions.create({
           ...base,
@@ -280,6 +289,7 @@ Deno.serve(async (req) => {
           line_items: lineItems.map((li) => ({ ...li, tax_rates: rate ? [rate] : undefined })),
         });
       }
+
 
       return json({
         url: session.url,
