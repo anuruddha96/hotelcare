@@ -115,12 +115,17 @@ type Capabilities = {
 
 type PageContext = Record<string, unknown> | null;
 
+// Per-user daily cap on web lookups: each search bills OpenAI, so this keeps
+// the feature sustainable without blocking normal chat.
+const WEB_SEARCH_DAILY_CAP = 15;
+
 function buildTools(
   service: any,
   profile: Profile,
   scopes: Set<Scope>,
   hotels: AssistantHotel[],
   capabilities: Capabilities,
+  openAiKey: string,
 ) {
   const orgSlug = profile.organization_slug;
   const hotelIds = hotels.map((h) => h.hotel_id);
