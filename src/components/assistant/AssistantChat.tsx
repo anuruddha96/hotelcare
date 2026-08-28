@@ -278,9 +278,14 @@ function ChatSession({
     void sendMessage({ text: initialPrompt });
   }, [initialPrompt, sendMessage]);
 
-  const { listening, supported, toggle } = useDictation(
-    useCallback((text: string) => setDraft((value) => (value ? `${value} ${text}` : text)), []),
+  const { state: dictation, supported, toggle } = useDictation(
+    useCallback((text: string) => {
+      setDraft((value) => (value ? `${value} ${text}` : text));
+      window.requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
+    }, []),
+    language,
   );
+
 
   const askForAccess = async (scope: string, question: string) => {
     if (!user) return;
