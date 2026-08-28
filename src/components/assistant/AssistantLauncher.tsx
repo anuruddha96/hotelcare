@@ -31,9 +31,10 @@ export default function AssistantLauncher() {
   const threadId = params.get("assistant");
   const { threads, createThread, deleteThread, loadThreads } = useAssistant(threadId);
 
-  useEffect(() => {
-    if (threadId) setOpen(true);
-  }, [threadId]);
+  // The thread id stays in the URL so a reload restores the conversation, but
+  // it must never pop the panel open by itself — the assistant only opens when
+  // the user taps Ask.
+
 
   useEffect(() => {
     setDebugOn(isAssistantDebugEnabled(profile?.role));
