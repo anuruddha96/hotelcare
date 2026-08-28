@@ -54,6 +54,15 @@ interface PublishedRevenuePayload {
   settings: Record<string, unknown>;
 }
 
+type CachedRevenuePayload = {
+  payload: PublishedRevenuePayload;
+  lastSyncAt: string | null;
+  lastSyncBy: string | null;
+};
+
+/** Keep the last verified dataset available during transient reload failures. */
+const revenuePayloadCache = new Map<string, CachedRevenuePayload>();
+
 export interface RevenueHotelData {
   loading: boolean;
   error: string | null;
@@ -88,10 +97,11 @@ export function useRevenueHotelData(
 ): RevenueHotelData {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [payload, setPayload] = useState<PublishedRevenuePayload | null>(null);
-  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
-  const [lastSyncBy, setLastSyncBy] = useState<string | null>(null);
-  const payloadRef = useRef<PublishedRevenuePayload | null>(null);
+  const initialCache = hotelId ? revenuePayloadCache.get(hotelId) : undefined;
+  const [payload, setPayload] = useState<PublishedRevenuePayload | null>(initialCache?.payload ?? null);
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(initialCache?.lastSyncAt ?? null);
+  const [lastSyncBy, setLastSyncBy] = useState<string | null>(initialCache?.lastSyncBy ?? null);
+  const payloadRef = useRef<PublishedRevenuePayload | null>(initialCache?.payload ?? null);
   const requestVersionRef = useRef(0);
   const inFlightRef = useRef<Promise<void> | null>(null);
 
@@ -137,8 +147,15 @@ export function useRevenueHotelData(
       };
       payloadRef.current = completedPayload;
       setPayload(completedPayload);
-      setLastSyncAt(row.sync_completed_at ?? null);
-      setLastSyncBy(row.sync_completed_by_name ?? null);
+      const nextSyncAt = row.sync_completed_at ?? null;
+      const nextSyncBy = row.sync_completed_by_name ?? null;
+      setLastSyncAt(nextSyncAt);
+      setLastSyncBy(nextSyncBy);
+      revenuePayloadCache.set(hotelId, {
+        payload: completedPayload,
+        lastSyncAt: nextSyncAt,
+        lastSyncBy: nextSyncBy,
+      });
     } catch (e) {
       if (requestVersion !== requestVersionRef.current) return;
       setError(e instanceof Error ? e.message : String(e));
@@ -160,8 +177,12 @@ export function useRevenueHotelData(
     // must keep the current calendar mounted (no blocking spinner).
     requestVersionRef.current += 1;
     inFlightRef.current = null;
-    payloadRef.current = null;
-    setPayload(null);
+    const cached = hotelId ? revenuePayloadCache.get(hotelId) : undefined;
+    payloadRef.current = cached?.payload ?? null;
+    setPayload(cached?.payload ?? null);
+    setLastSyncAt(cached?.lastSyncAt ?? null);
+    setLastSyncBy(cached?.lastSyncBy ?? null);
+    setError(null);
   }, [hotelId]);
 
 

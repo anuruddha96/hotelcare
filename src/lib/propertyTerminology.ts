@@ -69,7 +69,7 @@ const PROPERTY_TERMS: Record<LangCode, PropertyTerms> = {
 
 
 /** Orgs that use "Property" terminology. Extend when new rental-style orgs onboard. */
-const PROPERTY_ORG_SLUGS = new Set<string>(['slnt']);
+const PROPERTY_ORG_SLUGS = new Set<string>(['slnt', 'slnt-group']);
 
 export function propertyTermsFor(orgSlug: string | null | undefined, lang: LangCode = 'en'): PropertyTerms {
   const slug = (orgSlug ?? '').toLowerCase();
