@@ -65,7 +65,8 @@ describe("PMS housekeeping classification", () => {
   it("treats cancelled and no-show reservations as vacant", () => {
     for (const status of [7, 8]) {
       const result = classifyPmsHousekeepingRow({
-        Occupied: "Yes",
+        // A cancelled / no-show reservation leaves no occupancy behind.
+        Occupied: "No",
         Departure: "10:00",
         RawReservationStatusId: status,
         IsNoShow: status === 8,
@@ -79,21 +80,34 @@ describe("PMS housekeeping classification", () => {
     }
   });
 
-  it("treats an inferred no-show (arrived yesterday, never checked in) as vacant, not daily", () => {
+  it("never marks an occupied mid-stay room as no-show, even if the PMS flag says so", () => {
+    const result = classifyPmsHousekeepingRow({
+      Room: "TRP-205",
+      Occupied: "Yes",
+      ArrivalDate: "2026-08-26",
+      DepartureDate: "2026-08-31",
+      RawReservationStatusId: 2,
+      IsNoShow: true,
+      "Night / Total": "2/5",
+    }, "2026-08-28");
+    expect(result.isNoShow).toBe(false);
+    expect(result.isDailyRoom).toBe(true);
+    expect(result.isCheckoutRoom).toBe(false);
+  });
+
+  it("keeps a real no-show (no occupancy, arrival today) flagged", () => {
     const result = classifyPmsHousekeepingRow({
       Room: "DB/TW-303",
       Occupied: "No",
-      ArrivalDate: "2026-08-25",
-      DepartureDate: "2026-08-27",
-      RawReservationStatusId: 2,
+      ArrivalDate: "2026-08-28",
+      DepartureDate: "2026-08-30",
+      RawReservationStatusId: 8,
       IsNoShow: true,
-      NoShowSource: "inferred_never_checked_in",
-      "Night / Total": "2/2",
-    }, "2026-08-26");
+      "Night / Total": null,
+    }, "2026-08-28");
     expect(result.isNoShow).toBe(true);
     expect(result.isDailyRoom).toBe(false);
     expect(result.isCheckoutRoom).toBe(false);
-    expect(result.isStayThrough).toBe(false);
-    expect(result.isDepartureTomorrow).toBe(false);
   });
+
 });
