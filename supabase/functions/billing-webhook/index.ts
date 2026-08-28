@@ -14,7 +14,13 @@ function parseSelections(meta: Record<string, string> | null | undefined) {
       const [hotel_id, module] = pair.split(":");
       return { hotel_id, module };
     })
-    .filter((s) => s.hotel_id && (s.module === "revenue" || s.module === "operations"));
+    .filter(
+      (s) =>
+        s.hotel_id &&
+        ["revenue", "revenue_bi", "revenue_automation", "operations", "maintenance"].includes(String(s.module)),
+    )
+    // Legacy sessions used a single "revenue" key — it means the automation tier.
+    .map((s) => ({ ...s, module: s.module === "revenue" ? "revenue_automation" : s.module }));
 }
 
 Deno.serve(async (req) => {
