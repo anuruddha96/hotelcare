@@ -1620,11 +1620,18 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
           console.error("assistant reply persistence failed", assistantInsertError);
           return;
         }
+        const topicTitle = needsTopicTitle
+          ? await generateThreadTitle({ apiKey: openAiKey, question, answer, language })
+          : null;
         await service
           .from("assistant_threads")
-          .update({ updated_at: new Date().toISOString() })
+          .update({
+            updated_at: new Date().toISOString(),
+            ...(topicTitle ? { title: topicTitle } : {}),
+          })
           .eq("id", threadId)
           .eq("user_id", userData.user.id);
+
         const usedTools = responseMessage.parts
           .filter((part) => part.type.startsWith("tool-") || part.type === "dynamic-tool")
           .map((part) => part.type);
