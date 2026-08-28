@@ -25,7 +25,7 @@ import {
   DEFAULT_THRESHOLDS, type RevenueThresholds,
 } from "@/lib/revenueThresholds";
 import { getRevenueCurrency, moneyBase, useRevenueCurrency } from "@/lib/revenueCurrency";
-import type { RevenueRoomType } from "@/hooks/useRevenueHotelData";
+import type { RevenueRoomType, SoldOutPrice } from "@/hooks/useRevenueHotelData";
 import { BAND_LABEL, type DemandBand } from "@/lib/demandScore";
 import { useRateAudit } from "@/hooks/useRateAudit";
 import { useRateCellMarkers } from "@/hooks/useRateCellMarkers";
@@ -82,6 +82,8 @@ interface Props {
 
   /** Rooms still sellable per `${roomTypeLabel}|${date}`. */
   leftByTypeDate?: Map<string, number>;
+  /** Prices frozen at the moment each room type / date sold out. */
+  soldOutPrices?: SoldOutPrice[];
   /** Reload the hotel's rates after Previo confirms a price push. */
   onRatesUpdated?: () => void | Promise<void>;
   /** Tell the page how far ahead the calendar needs data loaded. */
@@ -281,11 +283,30 @@ interface PendingDraft {
 export default function RateStrategyGrid({
   loading, today, hotelId, organizationSlug, roomTypes, rates, metrics, nights = [],
   pickupWindowDays, onPickupWindowChange, thresholds = DEFAULT_THRESHOLDS, canEditRates = false,
-  demandByDate, eventsByDate, leftByTypeDate, onRatesUpdated, onHorizonDaysChange,
+  demandByDate, eventsByDate, leftByTypeDate, soldOutPrices = [], onRatesUpdated, onHorizonDaysChange,
 }: Props) {
   const { language } = useTranslation();
   useRevenueCurrency(); // re-render when the Ft/€ switch flips
   const isMobile = useIsMobile();
+
+  /**
+   * The price a room type closed at, frozen when it first sold out. Keyed by
+   * `${roomTypeName}|${date}` and holding the highest guest count on record,
+   * so later bulk / manual / automation changes never rewrite history.
+   */
+  const soldOutByTypeDate = useMemo(() => {
+    const out = new Map<string, { price: number; occupancy: number; capturedAt: string }>();
+    for (const row of soldOutPrices) {
+      if (!Number.isFinite(row.price)) continue;
+      const key = `${row.room_type_name}|${row.stay_date}`;
+      const cur = out.get(key);
+      if (!cur || row.occupancy > cur.occupancy) {
+        out.set(key, { price: Number(row.price), occupancy: row.occupancy, capturedAt: row.captured_at });
+      }
+    }
+    return out;
+  }, [soldOutPrices]);
+
 
   /** Date whose demand breakdown and events are open in the detail dialog. */
   const [demandDay, setDemandDay] = useState<string | null>(null);
@@ -3073,12 +3094,16 @@ export default function RateStrategyGrid({
                           </div>
                         );
                       }
-                      // When a room type closes out, show the price it closed
-                      // at — the full-occupancy rate live on that date.
+                      // The closing price is frozen when the room type first
+                      // sold out, so later bulk / manual / automation changes
+                      // never rewrite what the date actually sold for.
+                      const frozen = left === 0 ? soldOutByTypeDate.get(`${row.rawName}|${d}`) : undefined;
+                      const closedAt = frozen?.price ?? null;
+                      const topOcc = frozen?.occupancy ?? null;
                       const byOccType = row.obkOfType ? priceMap.get(row.obkOfType) : undefined;
-                      const topOcc = byOccType ? Math.max(...Array.from(byOccType.keys())) : null;
-                      const closedAt = left === 0 && byOccType && topOcc != null
-                        ? byOccType.get(topOcc)?.get(d) ?? null
+                      const liveTopOcc = byOccType ? Math.max(...Array.from(byOccType.keys())) : null;
+                      const liveNow = left === 0 && byOccType && liveTopOcc != null
+                        ? byOccType.get(liveTopOcc)?.get(d) ?? null
                         : null;
                       return (
                         <button
@@ -3088,7 +3113,7 @@ export default function RateStrategyGrid({
                           title={left === undefined
                             ? `${row.typeName} · availability not synced for ${d}`
                             : left === 0
-                              ? `${row.typeName} · sold out on ${d}${closedAt != null ? ` — closed at ${eur(closedAt)} for ${topOcc} ${topOcc === 1 ? "guest" : "guests"}` : ""}`
+                              ? `${row.typeName} · sold out on ${d}${closedAt != null ? ` — closed at ${eur(closedAt)} for ${topOcc} ${topOcc === 1 ? "guest" : "guests"}${frozen ? ` (captured ${formatWhen(frozen.capturedAt)})` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}`
                               : `${row.typeName} · ${left} of ${units} left on ${d} — rooms to sell can only be changed in Previo`}
                           className={`flex flex-col items-center justify-center leading-tight shrink-0 text-[10px] tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
                           style={{ width: CELL_W }}

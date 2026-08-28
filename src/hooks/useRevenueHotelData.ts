@@ -33,6 +33,16 @@ export interface RevenueRoomType {
   name_translations: Record<string, string>;
 }
 
+/** The price a room type closed at, frozen when it first sold out. */
+export interface SoldOutPrice {
+  room_type_name: string;
+  stay_date: string;
+  occupancy: number;
+  price: number;
+  currency: string;
+  captured_at: string;
+}
+
 interface PublishedRevenuePayload {
   roomTypes: RevenueRoomType[];
   nights: BookingNight[];
@@ -40,6 +50,7 @@ interface PublishedRevenuePayload {
   rates: RoomTypeRate[];
   cancellations: CancelledNight[];
   movements: PickupMovement[];
+  soldOutPrices: SoldOutPrice[];
   settings: Record<string, unknown>;
 }
 
@@ -54,6 +65,8 @@ export interface RevenueHotelData {
   snapshots: DailySnapshot[];
   rates: RoomTypeRate[];
   cancellations: CancelledNight[];
+  /** Frozen closing prices for room type / date combinations that sold out. */
+  soldOutPrices: SoldOutPrice[];
   metrics: DayMetrics[];
   lastSyncAt: string | null;
   /** Who triggered the last revenue sync (null = automatic / unknown). */
@@ -119,6 +132,7 @@ export function useRevenueHotelData(
         rates: next.rates ?? [],
         cancellations: next.cancellations ?? [],
         movements: next.movements ?? [],
+        soldOutPrices: next.soldOutPrices ?? [],
         settings: next.settings ?? {},
       };
       payloadRef.current = completedPayload;
@@ -179,6 +193,7 @@ export function useRevenueHotelData(
   const rates = useMemo(() => (payload?.rates ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const cancellations = useMemo(() => (payload?.cancellations ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const movements = useMemo(() => (payload?.movements ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
+  const soldOutPrices = useMemo(() => (payload?.soldOutPrices ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const settings = payload?.settings ?? {};
   const sellableOverride = (settings.sellable_rooms as number | null) ?? null;
   const baseCur = String(settings.base_currency ?? "EUR").toUpperCase();
@@ -222,7 +237,7 @@ export function useRevenueHotelData(
 
   return {
     loading, error, today, horizonEnd, roomTypes, roomsAvailable,
-    nights, snapshots, rates, cancellations, metrics, lastSyncAt, lastSyncBy, thresholds, reload,
+    nights, snapshots, rates, cancellations, soldOutPrices, metrics, lastSyncAt, lastSyncBy, thresholds, reload,
     extending: false,
   };
 }

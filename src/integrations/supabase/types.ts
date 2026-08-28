@@ -7398,6 +7398,51 @@ export type Database = {
         }
         Relationships: []
       }
+      revenue_soldout_prices: {
+        Row: {
+          captured_at: string
+          created_at: string
+          currency: string
+          hotel_id: string
+          id: string
+          occupancy: number
+          organization_slug: string
+          price: number
+          released_at: string | null
+          room_type_name: string
+          stay_date: string
+          updated_at: string
+        }
+        Insert: {
+          captured_at?: string
+          created_at?: string
+          currency?: string
+          hotel_id: string
+          id?: string
+          occupancy: number
+          organization_slug: string
+          price: number
+          released_at?: string | null
+          room_type_name: string
+          stay_date: string
+          updated_at?: string
+        }
+        Update: {
+          captured_at?: string
+          created_at?: string
+          currency?: string
+          hotel_id?: string
+          id?: string
+          occupancy?: number
+          organization_slug?: string
+          price?: number
+          released_at?: string | null
+          room_type_name?: string
+          stay_date?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       revenue_sync_state: {
         Row: {
           hotel_id: string
@@ -8917,6 +8962,10 @@ export type Database = {
       can_view_training_analytics: {
         Args: { _user_id: string }
         Returns: boolean
+      }
+      capture_revenue_soldout_prices: {
+        Args: { _hotel_id: string }
+        Returns: undefined
       }
       claim_automation_lock: {
         Args: { p_hotel: string; p_stale_minutes?: number }
