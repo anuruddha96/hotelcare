@@ -476,6 +476,7 @@ export type Database = {
           id: string
           organization_slug: string | null
           title: string
+          title_locked: boolean
           updated_at: string
           user_id: string
         }
@@ -485,6 +486,7 @@ export type Database = {
           id?: string
           organization_slug?: string | null
           title?: string
+          title_locked?: boolean
           updated_at?: string
           user_id: string
         }
@@ -494,6 +496,7 @@ export type Database = {
           id?: string
           organization_slug?: string | null
           title?: string
+          title_locked?: boolean
           updated_at?: string
           user_id?: string
         }

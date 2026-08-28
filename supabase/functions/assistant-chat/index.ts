@@ -1329,6 +1329,54 @@ function buildTools(
   return tools;
 }
 
+/**
+ * Short topic title (3-6 words) for the history list, in the user's own
+ * language. Falls back silently: a title is never worth failing a chat over.
+ */
+async function generateThreadTitle(params: {
+  apiKey: string;
+  question: string;
+  answer: string;
+  language: string;
+}): Promise<string | null> {
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${params.apiKey}` },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        temperature: 0.2,
+        max_tokens: 24,
+        messages: [
+          {
+            role: "system",
+            content:
+              `Write a title for a hotel-operations chat: 3-6 words, in ${params.language}, describing the topic. ` +
+              "No quotes, no final punctuation, no words like 'chat' or 'conversation'. Title case is not required.",
+          },
+          {
+            role: "user",
+            content: `Question: ${params.question.slice(0, 600)}\n\nAnswer: ${params.answer.slice(0, 600)}`,
+          },
+        ],
+      }),
+    });
+    if (!response.ok) return null;
+    const data = await response.json().catch(() => null);
+    const raw = String(data?.choices?.[0]?.message?.content ?? "")
+      .replace(/["“”'`]/g, "")
+      .replace(/\s+/g, " ")
+      .replace(/[.]+$/, "")
+      .trim();
+    return raw ? raw.slice(0, 60) : null;
+  } catch (error) {
+    console.error("assistant title generation failed", error);
+    return null;
+  }
+}
+
+
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -1372,7 +1420,7 @@ Deno.serve(async (req) => {
         .single(),
       service
         .from("assistant_threads")
-        .select("id,user_id,organization_slug,hotel_id,title")
+        .select("id,user_id,organization_slug,hotel_id,title,title_locked")
         .eq("id", threadId)
         .eq("user_id", userData.user.id)
         .single(),
@@ -1448,7 +1496,10 @@ Deno.serve(async (req) => {
     });
     if (userInsertError) return json({ error: `Could not save your message: ${userInsertError.message}` }, 500);
 
-    if (thread.title === "New chat") {
+    // Interim title so the history list is never a bare "New chat"; it is
+    // replaced by a short AI topic title once the answer is finished.
+    const needsTopicTitle = thread.title === "New chat" && !thread.title_locked;
+    if (needsTopicTitle) {
       const title = question.replace(/\s+/g, " ").trim().slice(0, 60) || "New chat";
       const { error: titleError } = await service
         .from("assistant_threads")
@@ -1457,6 +1508,7 @@ Deno.serve(async (req) => {
         .eq("user_id", userData.user.id);
       if (titleError) console.error("assistant title update failed", titleError);
     }
+
 
     if (deniedScope) {
       const answer = `I can’t access ${deniedScope} information with your current role. You can request temporary access from an authorized manager.`;
@@ -1568,11 +1620,18 @@ Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenu
           console.error("assistant reply persistence failed", assistantInsertError);
           return;
         }
+        const topicTitle = needsTopicTitle
+          ? await generateThreadTitle({ apiKey: openAiKey, question, answer, language })
+          : null;
         await service
           .from("assistant_threads")
-          .update({ updated_at: new Date().toISOString() })
+          .update({
+            updated_at: new Date().toISOString(),
+            ...(topicTitle ? { title: topicTitle } : {}),
+          })
           .eq("id", threadId)
           .eq("user_id", userData.user.id);
+
         const usedTools = responseMessage.parts
           .filter((part) => part.type.startsWith("tool-") || part.type === "dynamic-tool")
           .map((part) => part.type);
