@@ -948,7 +948,7 @@ export async function runPmsRefresh(
       if (reservationDataAuthoritative && nowNoShow && !wasNoShow) {
         pushEvent("no_show_detected", { isNoShow: false }, { isNoShow: true }, false);
       }
-      if (reservationDataAuthoritative && wasNoShow && !nowNoShow) {
+      if (reservationDataAuthoritative && !!updateData.pms_metadata && wasNoShow && !nowNoShow) {
         // Guest is in-house / PMS reports occupancy — the earlier no-show mark
         // was wrong or stale, so it is cleared automatically.
         pushEvent("no_show_cleared_auto", { isNoShow: true }, { isNoShow: false }, false);
