@@ -1372,7 +1372,7 @@ Deno.serve(async (req) => {
         .single(),
       service
         .from("assistant_threads")
-        .select("id,user_id,organization_slug,hotel_id,title")
+        .select("id,user_id,organization_slug,hotel_id,title,title_locked")
         .eq("id", threadId)
         .eq("user_id", userData.user.id)
         .single(),
