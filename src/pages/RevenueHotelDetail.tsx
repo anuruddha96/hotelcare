@@ -84,6 +84,8 @@ interface Row {
 }
 
 const ALLOWED = ["admin", "top_management", "top_management_manager"];
+/** Owner request: the admin toolbar / reference banner / tab row are hidden for every user. */
+const SHOW_ADMIN_TOOLBAR = false;
 // Roles allowed to move the whole app to another property in their organization.
 const SWITCHABLE_ROLES = ["admin", "manager", "housekeeping_manager", "top_management", "top_management_manager"];
 
@@ -921,7 +923,10 @@ export default function RevenueHotelDetail() {
         <MainTabsBar current="revenue" />
       </div>
       <div className="container mx-auto p-3 sm:p-4 space-y-3">
-          {/* Header — Revenue admins and executive users share the same tools. */}
+          {/* Header toolbar (Back / Sync now / Bulk Edit / Pull rates / Autopilot /
+              Push) — hidden for all users; refresh runs automatically. Flip
+              SHOW_ADMIN_TOOLBAR to true to restore it. */}
+          {SHOW_ADMIN_TOOLBAR && (
           <div className="flex items-center gap-2 flex-wrap">
             {isTechnicalAdmin && (
               <Button variant="ghost" size="sm" onClick={() => navigate(`/${organizationSlug}/revenue`)}>
@@ -991,6 +996,7 @@ export default function RevenueHotelDetail() {
               </>
             )}
           </div>
+          )}
 
       {/* Calendar navigation only matters on the calendar-style admin tabs */}
       {isTechnicalAdmin && (tab === "prices" || tab === "calendar") && (
@@ -1043,8 +1049,8 @@ export default function RevenueHotelDetail() {
         </Card>
       )}
 
-      {/* Reference price banner (admin detail — noise for executives) */}
-      {isTechnicalAdmin && refRoomInfo && (
+      {/* Reference price banner — hidden for all users (owner request). */}
+      {SHOW_ADMIN_TOOLBAR && isTechnicalAdmin && refRoomInfo && (
         <div className="rounded-lg border bg-muted/30 px-3 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
           <div>
             <span className="text-muted-foreground">Reference room: </span>
@@ -1060,8 +1066,8 @@ export default function RevenueHotelDetail() {
       )}
 
       <Tabs value={isTechnicalAdmin ? tab : "grid"} onValueChange={setTab}>
-        {/* All authorized Revenue users share the same workspace. */}
-        <TabsList className={`flex-wrap h-auto ${isTechnicalAdmin ? "" : "hidden"}`}>
+        {/* Tab row hidden for all users — everyone lands on the Rate Grid workspace. */}
+        <TabsList className={`flex-wrap h-auto ${SHOW_ADMIN_TOOLBAR && isTechnicalAdmin ? "" : "hidden"}`}>
           <TabsTrigger value="grid"><CalIcon className="h-4 w-4 mr-1" />Rate Grid</TabsTrigger>
           <TabsTrigger value="prices"><CalIcon className="h-4 w-4 mr-1" />Calendar</TabsTrigger>
           <TabsTrigger value="calendar"><CalIcon className="h-4 w-4 mr-1" />Strategy Calendar</TabsTrigger>
