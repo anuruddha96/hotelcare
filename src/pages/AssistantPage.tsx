@@ -1,11 +1,13 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Flag, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/useAuth";
 import { useAssistant } from "@/hooks/useAssistant";
 import AssistantChat from "@/components/assistant/AssistantChat";
+import ReportProblemDialog from "@/components/assistant/ReportProblemDialog";
 import { canUseAssistant } from "@/lib/assistantAccess";
 import { cn } from "@/lib/utils";
 import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
@@ -15,7 +17,8 @@ export default function AssistantPage() {
   const { threadId } = useParams<{ threadId: string }>();
   const { profile } = useAuth();
   const navigate = useNavigate();
-  const { threads, createThread, deleteThread } = useAssistant(threadId ?? null);
+  const { threads, loadingThreads, createThread, renameThread, deleteThread } = useAssistant(threadId ?? null);
+  const [reportOpen, setReportOpen] = useState(false);
   const base = `/${profile?.organization_slug}/assistant`;
 
   useEffect(() => {
@@ -51,6 +54,9 @@ export default function AssistantPage() {
           <h1 className="text-lg font-semibold leading-tight">Hotel Care Assistant</h1>
           <p className="text-xs text-muted-foreground">Answers stay inside your role and your property.</p>
         </div>
+        <Button size="sm" variant="ghost" className="ml-auto gap-1.5" onClick={() => setReportOpen(true)}>
+          <Flag className="h-3.5 w-3.5" /> Report a problem
+        </Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-[240px_1fr]">
@@ -59,20 +65,35 @@ export default function AssistantPage() {
             <Plus className="h-3.5 w-3.5" /> New chat
           </Button>
           <div className="space-y-1 max-h-[50vh] overflow-y-auto">
+            {loadingThreads && threads.length === 0 &&
+              [0, 1, 2].map((row) => <Skeleton key={row} className="h-10 w-full rounded-lg" />)}
             {threads.map((t) => (
               <div
                 key={t.id}
                 className={cn(
-                  "flex items-center gap-2 rounded-lg border px-2 py-1.5",
+                  "flex items-start gap-1.5 rounded-lg border px-2 py-1.5",
                   t.id === threadId && "border-primary bg-primary/5",
                 )}
               >
-                <button className="flex-1 text-left text-sm truncate" onClick={() => navigate(`${base}/${t.id}`)}>
-                  {t.title}
+                <button className="min-w-0 flex-1 text-left" onClick={() => navigate(`${base}/${t.id}`)}>
+                  <span className="block truncate text-sm">{t.title}</span>
+                  {t.preview && (
+                    <span className="block truncate text-[11px] text-muted-foreground">{t.preview}</span>
+                  )}
+                </button>
+                <button
+                  aria-label="Rename chat"
+                  className="mt-0.5 text-muted-foreground hover:text-foreground"
+                  onClick={() => {
+                    const next = window.prompt("Rename this conversation", t.title);
+                    if (next) void renameThread(t.id, next);
+                  }}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
                 </button>
                 <button
                   aria-label="Delete chat"
-                  className="text-muted-foreground hover:text-destructive"
+                  className="mt-0.5 text-muted-foreground hover:text-destructive"
                   onClick={async () => {
                     await deleteThread(t.id);
                     if (t.id === threadId) navigate(base);
@@ -89,6 +110,8 @@ export default function AssistantPage() {
           <AssistantChat threadId={threadId ?? null} onNeedThread={newThread} />
         </Card>
       </div>
+
+      <ReportProblemDialog open={reportOpen} onOpenChange={setReportOpen} threadId={threadId ?? null} />
     </div>
   );
 }
