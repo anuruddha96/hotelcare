@@ -41,6 +41,7 @@ const SLNT_FEATURES: Partial<TenantFeatures> = {
   housekeepingOnly: false,
   nonDestructivePmsUpload: true,
   dualPmsUpload: true,
+  revenueSimplifiedHeader: true,
 };
 
 const ORG_FEATURES: Record<string, Partial<TenantFeatures>> = {
@@ -70,6 +71,7 @@ export function tenantFeaturesFor(
     housekeepingOnly: overrides.housekeepingOnly ?? base.housekeepingOnly,
     nonDestructivePmsUpload: overrides.nonDestructivePmsUpload ?? base.nonDestructivePmsUpload,
     dualPmsUpload: overrides.dualPmsUpload ?? base.dualPmsUpload,
+    revenueSimplifiedHeader: overrides.revenueSimplifiedHeader ?? base.revenueSimplifiedHeader,
   };
 }
 
