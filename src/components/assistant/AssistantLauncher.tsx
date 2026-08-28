@@ -157,7 +157,7 @@ export default function AssistantLauncher() {
 
               <button
                 type="button"
-                className="ml-auto rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent"
+                className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent"
                 onClick={() => {
                   const next = !isAssistantDebugEnabled(profile.role);
                   setAssistantDebug(next);
