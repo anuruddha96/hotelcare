@@ -54,6 +54,7 @@ import RevenueIntelligencePanel from "@/components/revenue/RevenueIntelligencePa
 
 
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
+import { useTenantFeatures } from "@/hooks/useTenantFeatures";
 import { WelcomeBackOverlay } from "@/components/revenue/WelcomeBackOverlay";
 import { isRevenueAdmin } from "@/lib/roleAccess";
 import { Header } from "@/components/layout/Header";
