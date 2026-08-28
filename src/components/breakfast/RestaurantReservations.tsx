@@ -94,6 +94,9 @@ export default function RestaurantReservations({ hotelId, date, language }: Prop
           <div className="font-semibold text-sm">{tt("resTitle")}</div>
           <div className="text-[11px] text-muted-foreground">
             {tt("resSummary", { n: count, covers })}
+            {(arrivedCount > 0 || noShowCount > 0) && (
+              <> · {tt("resSummaryStatus", { arrived: arrivedCount, noshow: noShowCount })}</>
+            )}
           </div>
         </div>
         <Button variant="ghost" size="sm" className="h-7" onClick={() => void load()} disabled={loading}>
