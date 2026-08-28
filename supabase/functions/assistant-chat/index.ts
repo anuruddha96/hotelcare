@@ -1379,8 +1379,13 @@ Deno.serve(async (req) => {
     ]);
     if (profileError || !profile) return json({ error: "Profile not found" }, 403);
     if (threadError || !thread) return json({ error: "Conversation not found" }, 404);
-    if (thread.organization_slug !== profile.organization_slug || thread.hotel_id !== profile.assigned_hotel) {
-      return json({ error: "Conversation is outside your current property scope" }, 403);
+    // Ownership is already enforced by the user_id filter above. Only the
+    // organization is checked here: a thread may have been started while the
+    // user was on another property of the same organization (hotel switching
+    // is per tab), and that must not block the conversation. What may be READ
+    // is still scoped per request by the profile's role/organization/hotels.
+    if (thread.organization_slug && thread.organization_slug !== profile.organization_slug) {
+      return json({ error: "Conversation is outside your current organization" }, 403);
     }
 
     // Fair-use guard: bounded number of assistant turns per user per 5 minutes.
