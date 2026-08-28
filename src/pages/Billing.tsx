@@ -203,7 +203,9 @@ export default function Billing() {
       toast.error(payload?.error ?? err?.message ?? 'Could not start checkout');
       return;
     }
-    if (payload?.url) window.open(payload.url, '_blank');
+    // Same-tab redirect: mobile browsers block window.open after an await.
+    if (payload?.url) window.location.assign(payload.url);
+    else toast.error('Checkout could not be started — please try again.');
   };
 
   const openPortal = async () => {
