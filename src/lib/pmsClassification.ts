@@ -69,8 +69,17 @@ export const classifyPmsHousekeepingRow = (
   const nightTotal = parseNightTotal(row["Night / Total"]);
   const rawStatusId = Number(row.RawReservationStatusId ?? row.ReservationStatusId ?? 0);
   const isCancelled = rawStatusId === 7 || row.IsCancelled === true;
-  const isNoShow = rawStatusId === 8 || row.IsNoShow === true;
+  // Occupancy guard: a guest who is physically in the room (PMS says Occupied,
+  // or the stay started before today and runs past today) can never be a
+  // no-show. Only a reservation with no occupancy today may be flagged.
+  const arrivalDateRaw = row.ArrivalDate ? String(row.ArrivalDate).slice(0, 10) : null;
+  const departureDateRaw = row.DepartureDate ? String(row.DepartureDate).slice(0, 10) : null;
+  const hasOccupancyToday = occupiedYes(row.Occupied)
+    || (!!today && !!arrivalDateRaw && !!departureDateRaw
+      && arrivalDateRaw < today && departureDateRaw > today);
+  const isNoShow = (rawStatusId === 8 || row.IsNoShow === true) && !hasOccupancyToday;
   const inactiveReservation = isCancelled || isNoShow;
+
   const isScheduledDeparture = !inactiveReservation && departureTime !== null;
   const isCheckedOut = !inactiveReservation && (row.CheckedOut === true
     || statusLooksCheckedOut(row.Status ?? row.ReservationStatus ?? row.ReservationStatusId));
