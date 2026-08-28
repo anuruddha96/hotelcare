@@ -115,9 +115,11 @@ type Capabilities = {
 
 type PageContext = Record<string, unknown> | null;
 
-// Per-user daily cap on web lookups: each search bills OpenAI, so this keeps
-// the feature sustainable without blocking normal chat.
-const WEB_SEARCH_DAILY_CAP = 15;
+// Web lookups cost money per search, so each user gets a few free ones a day.
+// Beyond that the search still runs, but the question is billable.
+const WEB_SEARCH_FREE_DAILY = 5;
+const EXTRA_QUESTION_PRICE_EUR = 1;
+
 
 function buildTools(
   service: any,
@@ -188,18 +190,27 @@ function buildTools(
         additionalProperties: false,
       }),
       execute: async ({ query }) => {
+        let billed = false;
         try {
-          const dayStart = new Date();
-          dayStart.setUTCHours(0, 0, 0, 0);
-          const { count } = await service
+          // Budapest day, same as everywhere else in the app.
+          const dayKey = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Budapest", dateStyle: "short" })
+            .format(new Date());
+          const dayStart = new Date(`${dayKey}T00:00:00+02:00`).toISOString();
+          const { data: todayRows } = await service
             .from("assistant_audit_log")
-            .select("id", { count: "exact", head: true })
+            .select("scopes_used")
             .eq("user_id", profile.id)
-            .contains("scopes_used", ["tool-search_web"])
-            .gte("created_at", dayStart.toISOString());
-          if ((count ?? 0) >= WEB_SEARCH_DAILY_CAP) {
-            return { error: "The daily web search limit was reached. Please try again tomorrow.", confidence: "unverified" };
+            .gte("created_at", dayStart);
+          const usedToday = (todayRows ?? []).reduce(
+            (sum: number, row: any) =>
+              sum + (row?.scopes_used ?? []).filter((s: string) => s === "tool-search_web").length,
+            0,
+          );
+          // Free allowance is per day; anything beyond it is charged per question.
+          if (usedToday >= WEB_SEARCH_FREE_DAILY) {
+            billed = true;
           }
+
           const res = await fetch("https://api.openai.com/v1/responses", {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${openAiKey}` },
@@ -238,7 +249,23 @@ function buildTools(
             console.error("search_web empty output", JSON.stringify(data).slice(0, 500));
             return { error: "The web had no reliable answer for this.", confidence: "unverified" };
           }
-          return { answer: text, sources: [...new Set(sources)].slice(0, 4), confidence: "partial" };
+          if (billed) {
+            await service.from("assistant_paid_questions").insert({
+              user_id: profile.id,
+              organization_slug: orgSlug,
+              question: String(query).slice(0, 500),
+              amount_eur: EXTRA_QUESTION_PRICE_EUR,
+            });
+          }
+          return {
+            answer: text,
+            sources: [...new Set(sources)].slice(0, 4),
+            confidence: "partial",
+            billing: billed
+              ? `This question is beyond today's ${WEB_SEARCH_FREE_DAILY} free questions and is charged at €${EXTRA_QUESTION_PRICE_EUR}. Tell the user this in one short closing line.`
+              : `Free question ${usedToday + 1} of ${WEB_SEARCH_FREE_DAILY} today. Do not mention billing.`,
+          };
+
 
         } catch (error) {
           console.error("search_web error", error);
@@ -1657,9 +1684,11 @@ GUIDANCE AND ACTIONS
 - For Hotel Care usage questions, use the workflow reference tool. For general (non Hotel Care) knowledge you already know confidently, answer normally.
 
 WEB SEARCH — for facts not stored in Hotel Care
-- When a question needs a live public fact — opening hours of a café, restaurant, museum or venue, city events, weather, transport, or anything the Hotel Care tools do not cover — call search_web instead of saying the data is missing. Do not use it for Hotel Care operational data; those answers come only from the dedicated tools above.
+- NEVER answer "the system does not provide this" or "the current data does not specify" for a question about the public world. If Hotel Care tools cannot answer it, call search_web first — always. This includes: opening and breakfast hours, menus, à la carte vs buffet, prices, branches and locations of a café/restaurant/venue, company or people information published online, city events, weather, transport, and any general knowledge question.
+- Only after search_web has actually run and returned nothing useful may you say the information could not be found.
 - Answer plainly from the search result and name the source ("according to the venue's official website…"). Make clear this comes from the public web, not from Hotel Care.
-- If search_web returns no reliable answer or is unavailable, say so in one sentence; never guess an opening time or price.
+- Never use search_web for Hotel Care operational data (rooms, revenue, housekeeping, maintenance, reservations); those answers come only from the dedicated tools above.
+- Each user gets ${WEB_SEARCH_FREE_DAILY} free questions with web search per day. If a search result carries a billing note saying the question is charged, end your answer with one short line telling the user this question costs €${EXTRA_QUESTION_PRICE_EUR}. Otherwise never mention billing.
 Where the user is right now: ${page ? JSON.stringify(page) : "unknown"}.${revenueBrain}`,
       messages: await convertToModelMessages(modelMessages),
       tools: buildTools(service, profile as Profile, scopes, hotels, capabilities, openAiKey),
