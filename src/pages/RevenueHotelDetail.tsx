@@ -1104,6 +1104,7 @@ export default function RevenueHotelDetail() {
             demandByDate={demandByDate}
             eventsByDate={eventsByDate}
             leftByTypeDate={leftByTypeDate}
+            soldOutPrices={live.soldOutPrices}
             onRatesUpdated={live.reload}
             onHorizonDaysChange={growHorizon}
           />
