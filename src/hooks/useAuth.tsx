@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
-import { getTabHotel, setTabHotel, withTabHotel } from '@/lib/tabHotel';
+import { clearTabHotels, getTabHotel, setTabHotel, withTabHotel } from '@/lib/tabHotel';
 import { retryTransient } from '@/lib/transientRetry';
 
 interface Profile {
@@ -92,15 +92,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (activeUserIdRef.current !== userId) return null;
       if (profileData) {
         console.log('Profile fetched:', profileData);
-        const tabHotel = getTabHotel();
-        if (tabHotel) {
+        const organizationSlug = profileData.organization_slug;
+        const tabHotel = organizationSlug ? getTabHotel(organizationSlug) : null;
+        if (tabHotel && organizationSlug) {
           void supabase
             .from('hotel_configurations')
-            .select('hotel_id')
+            .select('hotel_id, organizations!inner(slug)')
             .or(`hotel_id.eq.${tabHotel},hotel_name.eq.${tabHotel}`)
+            .eq('organizations.slug', organizationSlug)
             .maybeSingle()
             .then(({ data: allowedHotel, error }) => {
-              if (!error && !allowedHotel) setTabHotel(null);
+              if (!error && !allowedHotel) setTabHotel(organizationSlug, null);
             });
         }
         setProfile(withTabHotel(profileData as any) as any);
@@ -348,6 +350,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     profileRequestRef.current = null;
     updateProfileStatus('idle');
     setBootstrapProgress(18);
+    clearTabHotels();
+    try {
+      sessionStorage.removeItem('hotel_selected');
+      localStorage.removeItem('hotel_selected_date');
+    } catch { /* storage unavailable */ }
     try {
       // Use 'local' scope to ensure complete sign out
       const { error } = await supabase.auth.signOut({ scope: 'local' });
@@ -365,6 +372,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(null);
       setProfile(null);
     }
+    window.location.replace('/');
   };
 
   // Switching property is a client-state change: move the in-memory profile so

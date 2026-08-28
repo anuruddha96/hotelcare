@@ -92,12 +92,14 @@ export interface RevenueHotelData {
  */
 export function useRevenueHotelData(
   hotelId: string | null,
+  organizationSlug: string | null,
   horizonDays = 365,
   pickupWindowDays = 1,
 ): RevenueHotelData {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const initialCache = hotelId ? revenuePayloadCache.get(hotelId) : undefined;
+  const cacheKey = hotelId && organizationSlug ? `${organizationSlug}:${hotelId}` : null;
+  const initialCache = cacheKey ? revenuePayloadCache.get(cacheKey) : undefined;
   const [payload, setPayload] = useState<PublishedRevenuePayload | null>(initialCache?.payload ?? null);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(initialCache?.lastSyncAt ?? null);
   const [lastSyncBy, setLastSyncBy] = useState<string | null>(initialCache?.lastSyncBy ?? null);
@@ -109,7 +111,7 @@ export function useRevenueHotelData(
   const horizonEnd = addDays(today, horizonDays);
 
   const runLoad = useCallback(async () => {
-    if (!hotelId) { setLoading(false); return; }
+    if (!hotelId || !organizationSlug || !cacheKey) { setLoading(false); return; }
     if (inFlightRef.current) return inFlightRef.current;
     const requestVersion = ++requestVersionRef.current;
     const request = (async () => {
@@ -151,7 +153,7 @@ export function useRevenueHotelData(
       const nextSyncBy = row.sync_completed_by_name ?? null;
       setLastSyncAt(nextSyncAt);
       setLastSyncBy(nextSyncBy);
-      revenuePayloadCache.set(hotelId, {
+      revenuePayloadCache.set(cacheKey, {
         payload: completedPayload,
         lastSyncAt: nextSyncAt,
         lastSyncBy: nextSyncBy,
@@ -167,7 +169,7 @@ export function useRevenueHotelData(
     try { await request; } finally {
       if (inFlightRef.current === request) inFlightRef.current = null;
     }
-  }, [hotelId]);
+  }, [hotelId, organizationSlug, cacheKey]);
 
   /** A full re-read: used after a sync or a price push. */
   const reload = useCallback(async () => { await runLoad(); }, [runLoad]);
@@ -177,13 +179,13 @@ export function useRevenueHotelData(
     // must keep the current calendar mounted (no blocking spinner).
     requestVersionRef.current += 1;
     inFlightRef.current = null;
-    const cached = hotelId ? revenuePayloadCache.get(hotelId) : undefined;
+    const cached = cacheKey ? revenuePayloadCache.get(cacheKey) : undefined;
     payloadRef.current = cached?.payload ?? null;
     setPayload(cached?.payload ?? null);
     setLastSyncAt(cached?.lastSyncAt ?? null);
     setLastSyncBy(cached?.lastSyncBy ?? null);
     setError(null);
-  }, [hotelId]);
+  }, [cacheKey]);
 
 
   useEffect(() => {

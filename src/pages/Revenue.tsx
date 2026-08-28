@@ -72,7 +72,7 @@ export default function Revenue() {
   useEffect(() => {
     if (loading) return;
     if (!profile || !ALLOWED.includes(profile.role)) {
-      navigate(`/${organizationSlug || "rdhotels"}`);
+      navigate(organizationSlug ? `/${organizationSlug}` : "/");
       return;
     }
     // Only the admin oversees every hotel. Everyone else (top management)
@@ -90,7 +90,8 @@ export default function Revenue() {
           .maybeSingle();
         const hid = data?.hotel_id ?? profile.assigned_hotel;
         if (hid) {
-          navigate(`/${organizationSlug || profile.organization_slug || "rdhotels"}/revenue/${hid}`, { replace: true });
+          const slug = organizationSlug || profile.organization_slug;
+          if (slug) navigate(`/${slug}/revenue/${hid}`, { replace: true });
         }
       })();
       return;

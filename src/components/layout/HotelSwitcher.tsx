@@ -24,6 +24,7 @@ export function HotelSwitcher() {
   const { hotels } = useTenant();
   const navigate = useNavigate();
   const location = useLocation();
+  const organizationSlug = profile?.organization_slug ?? null;
 
   const [currentHotel, setCurrentHotel] = useState<string | null>(profile?.assigned_hotel || null);
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
@@ -44,7 +45,7 @@ export function HotelSwitcher() {
   }
 
   const handleSwitchHotel = async (hotelId: string) => {
-    if (hotelId === currentHotel || switchingTo) return;
+    if (!organizationSlug || hotelId === currentHotel || switchingTo) return;
     const selectedHotelData = hotels.find(h => h.hotel_id === hotelId);
     const hotelName = selectedHotelData?.hotel_name || hotelId;
 
@@ -61,7 +62,7 @@ export function HotelSwitcher() {
 
     // Remember the choice for THIS tab only, so a second window can stay on a
     // different property.
-    setTabHotel(hotelId);
+    setTabHotel(organizationSlug, hotelId);
 
     try {
       // A tab that was backgrounded may be holding an expired token; refresh
@@ -97,7 +98,7 @@ export function HotelSwitcher() {
     } catch (error: any) {
       window.clearTimeout(safety);
       setSwitchingTo(null);
-      setTabHotel(currentHotel);
+      setTabHotel(organizationSlug, currentHotel);
       toast.error(error?.message || 'Failed to switch hotel');
       console.error(error);
     }

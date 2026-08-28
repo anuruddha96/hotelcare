@@ -11,32 +11,49 @@
  * account default.
  */
 
-const KEY = "hotelcare.tabHotel";
+const KEY_PREFIX = "hotelcare.tabHotel";
 
-export function getTabHotel(): string | null {
+function keyFor(organizationSlug: string): string {
+  return `${KEY_PREFIX}:${organizationSlug.trim().toLowerCase()}`;
+}
+
+export function getTabHotel(organizationSlug: string): string | null {
   try {
-    return sessionStorage.getItem(KEY);
+    return sessionStorage.getItem(keyFor(organizationSlug));
   } catch {
     return null;
   }
 }
 
-export function setTabHotel(hotelId: string | null): void {
+export function setTabHotel(organizationSlug: string, hotelId: string | null): void {
   try {
-    if (hotelId) sessionStorage.setItem(KEY, hotelId);
-    else sessionStorage.removeItem(KEY);
+    const key = keyFor(organizationSlug);
+    if (hotelId) sessionStorage.setItem(key, hotelId);
+    else sessionStorage.removeItem(key);
   } catch {
     /* private mode — fall back to the account default */
   }
 }
 
 /** Apply this tab's property choice to a freshly loaded profile row. */
-export function withTabHotel<T extends { assigned_hotel?: string | null }>(profile: T): T {
-  let tabHotel = getTabHotel();
+export function withTabHotel<T extends { assigned_hotel?: string | null; organization_slug?: string | null }>(profile: T): T {
+  if (!profile.organization_slug) return profile;
+  let tabHotel = getTabHotel(profile.organization_slug);
   if (!tabHotel && profile?.assigned_hotel) {
-    setTabHotel(profile.assigned_hotel);
+    setTabHotel(profile.organization_slug, profile.assigned_hotel);
     tabHotel = profile.assigned_hotel;
   }
   if (!tabHotel) return profile;
   return { ...profile, assigned_hotel: tabHotel };
+}
+
+export function clearTabHotels(): void {
+  try {
+    for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
+      const key = sessionStorage.key(i);
+      if (key === KEY_PREFIX || key?.startsWith(`${KEY_PREFIX}:`)) sessionStorage.removeItem(key);
+    }
+  } catch {
+    /* storage unavailable */
+  }
 }
