@@ -193,6 +193,7 @@ export function useRevenueHotelData(
   const rates = useMemo(() => (payload?.rates ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const cancellations = useMemo(() => (payload?.cancellations ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const movements = useMemo(() => (payload?.movements ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
+  const soldOutPrices = useMemo(() => (payload?.soldOutPrices ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const settings = payload?.settings ?? {};
   const sellableOverride = (settings.sellable_rooms as number | null) ?? null;
   const baseCur = String(settings.base_currency ?? "EUR").toUpperCase();
