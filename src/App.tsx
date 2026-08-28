@@ -180,6 +180,7 @@ const MainApp = () => (
         <TooltipProvider>
           <Toaster />
           <PointerEventsGuard />
+          <ExecutiveResumeRefresh />
           <ServiceOutageBanner />
           <SystemAnnouncementBanner />
           <BrowserRouter>
