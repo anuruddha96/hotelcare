@@ -82,6 +82,8 @@ interface Props {
 
   /** Rooms still sellable per `${roomTypeLabel}|${date}`. */
   leftByTypeDate?: Map<string, number>;
+  /** Prices frozen at the moment each room type / date sold out. */
+  soldOutPrices?: SoldOutPrice[];
   /** Reload the hotel's rates after Previo confirms a price push. */
   onRatesUpdated?: () => void | Promise<void>;
   /** Tell the page how far ahead the calendar needs data loaded. */
