@@ -118,7 +118,8 @@ const TenantRouter = () => {
     return <Navigate to="/auth" replace />;
   }
 
-  if (loading) return <WelcomeBackOverlay context="account" step="Opening your workspace…" progress={bootstrapProgress} />;
+  const heldLoading = useHeldLoading(loading);
+  if (heldLoading) return <WelcomeBackOverlay context="account" step="Opening your workspace…" progress={bootstrapProgress} />;
 
   if (user && !profile?.organization_slug) {
     return <Navigate to="/auth" replace />;
