@@ -1047,7 +1047,7 @@ export default function RevenueHotelDetail() {
       )}
 
       {/* Reference price banner (admin detail — noise for executives) */}
-      {isTechnicalAdmin && refRoomInfo && (
+      {isTechnicalAdmin && !revenueSimplifiedHeader && refRoomInfo && (
         <div className="rounded-lg border bg-muted/30 px-3 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
           <div>
             <span className="text-muted-foreground">Reference room: </span>
