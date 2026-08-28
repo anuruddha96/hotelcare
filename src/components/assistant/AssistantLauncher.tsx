@@ -146,7 +146,15 @@ export default function AssistantLauncher() {
                 <p className="text-[11px] text-muted-foreground">Ask anything about your work</p>
               </div>
             </div>
+            <button
+              type="button"
+              className="ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent"
+              onClick={() => setReportOpen(true)}
+            >
+              <Flag className="h-3.5 w-3.5" /> Report
+            </button>
             {profile.role === "admin" && (
+
               <button
                 type="button"
                 className="ml-auto rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent"
