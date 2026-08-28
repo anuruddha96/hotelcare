@@ -55,7 +55,7 @@ const PageLoader = () => (
   </div>
 );
 
-const MIN_WELCOME_DISPLAY_MS = 3000;
+const MIN_WELCOME_DISPLAY_MS = 7000;
 
 /**
  * Keeps the welcome overlay visible for at least `minDisplayMs` so users can
