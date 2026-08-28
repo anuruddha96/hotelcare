@@ -90,6 +90,10 @@ export function MinibarQuickAdd({ open, onOpenChange, onRecorded, source = 'rece
       toast({ title: 'Error', description: 'Please select a room and item', variant: 'destructive' });
       return;
     }
+    if (!profile?.organization_slug) {
+      toast({ title: 'Access error', description: 'Organization access could not be verified', variant: 'destructive' });
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -140,7 +144,7 @@ export function MinibarQuickAdd({ open, onOpenChange, onRecorded, source = 'rece
         quantity_used: quantity,
         recorded_by: profile?.id || null,
         source,
-        organization_slug: profile?.organization_slug || 'rdhotels',
+        organization_slug: profile.organization_slug,
       });
 
       if (error) throw error;

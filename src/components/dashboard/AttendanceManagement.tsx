@@ -222,6 +222,10 @@ export const AttendanceManagement = () => {
         .eq('id', selectedUserForCheckIn)
         .single();
 
+      if (!profile?.organization_slug) {
+        throw new Error('The employee organization could not be verified');
+      }
+
       const { error } = await supabase
         .from('staff_attendance')
         .insert({
@@ -230,7 +234,7 @@ export const AttendanceManagement = () => {
           work_date: format(new Date(), 'yyyy-MM-dd'),
           status: 'checked_in',
           notes: 'Manually checked in by admin',
-          organization_slug: profile?.organization_slug || 'rdhotels'
+          organization_slug: profile.organization_slug
         });
 
       if (error) throw error;

@@ -38,7 +38,7 @@ describe("useRevenueHotelData — executive resume", () => {
   afterEach(() => __resetRevenueEditGuard());
 
   it("re-reads only the published payload, with no sync/push/PMS call", async () => {
-    const { result } = renderHook(() => useRevenueHotelData("hotel-1"));
+    const { result } = renderHook(() => useRevenueHotelData("hotel-1", "org-1"));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(rpc).toHaveBeenCalledTimes(1);
 
@@ -53,7 +53,7 @@ describe("useRevenueHotelData — executive resume", () => {
   });
 
   it("keeps the selected hotel and does not clear the current dataset", async () => {
-    const { result } = renderHook(() => useRevenueHotelData("hotel-1"));
+    const { result } = renderHook(() => useRevenueHotelData("hotel-1", "org-1"));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await act(async () => { fireResume(); });
@@ -65,7 +65,7 @@ describe("useRevenueHotelData — executive resume", () => {
   });
 
   it("defers the refresh while a rate editor holds unsaved values", async () => {
-    const { result } = renderHook(() => useRevenueHotelData("hotel-1"));
+    const { result } = renderHook(() => useRevenueHotelData("hotel-1", "org-1"));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     const release = beginRevenueEdit("bulk-price-editor");
@@ -77,7 +77,7 @@ describe("useRevenueHotelData — executive resume", () => {
   });
 
   it("keeps the previous data when the refresh fails", async () => {
-    const { result } = renderHook(() => useRevenueHotelData("hotel-1"));
+    const { result } = renderHook(() => useRevenueHotelData("hotel-1", "org-1"));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     rpc.mockResolvedValue({ data: null, error: { message: "offline" } });

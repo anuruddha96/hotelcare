@@ -54,7 +54,6 @@ import RevenueIntelligencePanel from "@/components/revenue/RevenueIntelligencePa
 
 
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
-import { useTenantFeatures } from "@/hooks/useTenantFeatures";
 import { WelcomeBackOverlay } from "@/components/revenue/WelcomeBackOverlay";
 import { isRevenueAdmin } from "@/lib/roleAccess";
 import { Header } from "@/components/layout/Header";
@@ -101,8 +100,8 @@ function iso(d: Date) { return d.toISOString().slice(0,10); }
 export default function RevenueHotelDetail() {
   const { profile, loading, applyAssignedHotel } = useAuth();
   const { hotels: tenantHotels, loading: tenantLoading } = useTenant();
-  const { revenueSimplifiedHeader } = useTenantFeatures();
   const { organizationSlug, hotelId } = useParams<{ organizationSlug: string; hotelId: string }>();
+  const revenueOrgSlug = organizationSlug ?? null;
   const navigate = useNavigate();
   // The URL property and the property shown in the header must never disagree:
   // editing Memories' price list while the app context says Ottofiori is a
@@ -140,7 +139,7 @@ export default function RevenueHotelDetail() {
   const growHorizon = useCallback((days: number) => {
     setHorizonDays((current) => (days > current ? Math.min(365, days) : current));
   }, []);
-  const live = useRevenueHotelData(hotelId ?? null, horizonDays, pickupWindow);
+  const live = useRevenueHotelData(hotelId ?? null, revenueOrgSlug, horizonDays, pickupWindow);
 
   // Internal demand grade per date (booking pace, pickup, pressure, lead time).
   const demandByDate = useMemo(() => {
@@ -442,7 +441,8 @@ export default function RevenueHotelDetail() {
     // (a reload on mobile is what used to end on a white screen).
     const target = tenantHotels.find((h) => h.hotel_id === hotelId);
     setAlignTo(target?.hotel_name || hotelId);
-    setTabHotel(hotelId);
+    if (!organizationSlug) return;
+    setTabHotel(organizationSlug, hotelId);
     applyAssignedHotel(hotelId);
     void supabase.from("profiles").update({ assigned_hotel: hotelId }).eq("id", profile.id);
 
@@ -451,7 +451,7 @@ export default function RevenueHotelDetail() {
   useEffect(() => {
     if (loading) return;
     if (!profile || !ALLOWED.includes(profile.role)) {
-      navigate(`/${organizationSlug || "rdhotels"}`);
+      navigate(organizationSlug ? `/${organizationSlug}` : "/");
       return;
     }
     if (contextMismatch) return;
@@ -791,11 +791,12 @@ export default function RevenueHotelDetail() {
 
   // --- Actions ---
   async function approve(rec: Rec) {
+    if (!revenueOrgSlug || !hotelId) return;
     const { error } = await supabase.from("rate_recommendations")
       .update({ status: "approved", reviewed_by: profile?.id, reviewed_at: new Date().toISOString() }).eq("id", rec.id);
     if (error) { toast.error(error.message); return; }
     await supabase.from("rate_history").insert({
-      hotel_id: hotelId!, organization_slug: profile?.organization_slug ?? "rdhotels",
+      hotel_id: hotelId, organization_slug: revenueOrgSlug,
       stay_date: rec.stay_date, old_rate_eur: rec.current_rate_eur,
       new_rate_eur: rec.recommended_rate_eur, source: "engine", changed_by: profile?.id, notes: rec.reason ?? null,
     });
@@ -804,9 +805,9 @@ export default function RevenueHotelDetail() {
   }
 
   async function createRecFromSuggestion(row: Row) {
-    if (row.suggestedRate == null || row.rate == null) return;
+    if (!revenueOrgSlug || !hotelId || row.suggestedRate == null || row.rate == null) return;
     const { error } = await supabase.from("rate_recommendations").insert({
-      hotel_id: hotelId!, organization_slug: profile?.organization_slug ?? "rdhotels",
+      hotel_id: hotelId, organization_slug: revenueOrgSlug,
       stay_date: row.date, current_rate_eur: row.rate,
       recommended_rate_eur: row.suggestedRate, delta_eur: row.suggestedDelta!,
       reason: `Engine: pickup Δ ${row.pickupDelta}`, status: "pending",
@@ -920,8 +921,6 @@ export default function RevenueHotelDetail() {
         <MainTabsBar current="revenue" />
       </div>
       <div className="container mx-auto p-3 sm:p-4 space-y-3">
-      {!revenueSimplifiedHeader && (
-        <>
           {/* Header — Revenue admins and executive users share the same tools. */}
           <div className="flex items-center gap-2 flex-wrap">
             {isTechnicalAdmin && (
@@ -992,8 +991,6 @@ export default function RevenueHotelDetail() {
               </>
             )}
           </div>
-        </>
-      )}
 
       {/* Calendar navigation only matters on the calendar-style admin tabs */}
       {isTechnicalAdmin && (tab === "prices" || tab === "calendar") && (
@@ -1047,7 +1044,7 @@ export default function RevenueHotelDetail() {
       )}
 
       {/* Reference price banner (admin detail — noise for executives) */}
-      {isTechnicalAdmin && !revenueSimplifiedHeader && refRoomInfo && (
+      {isTechnicalAdmin && refRoomInfo && (
         <div className="rounded-lg border bg-muted/30 px-3 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
           <div>
             <span className="text-muted-foreground">Reference room: </span>
@@ -1275,7 +1272,7 @@ export default function RevenueHotelDetail() {
 
 
         <TabsContent value="events">
-          <EventsTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"} events={events} onChange={load} />
+          <EventsTab hotelId={hotelId!} orgSlug={revenueOrgSlug!} events={events} onChange={load} />
         </TabsContent>
 
         <TabsContent value="analyst">
@@ -1288,7 +1285,7 @@ export default function RevenueHotelDetail() {
             decisions={decisions}
             settings={settings as any}
             hotelId={hotelId!}
-            orgSlug={profile?.organization_slug ?? "rdhotels"}
+            orgSlug={revenueOrgSlug!}
             profileId={profile?.id}
             onChange={load}
           />
@@ -1312,22 +1309,22 @@ export default function RevenueHotelDetail() {
               <TabsTrigger value="lead">Lead Time</TabsTrigger>
             </TabsList>
             <TabsContent value="rooms">
-              <RoomsSetupTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"} />
+              <RoomsSetupTab hotelId={hotelId!} orgSlug={revenueOrgSlug!} />
             </TabsContent>
             <TabsContent value="dow">
-              <PercentAdjustmentTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"}
+              <PercentAdjustmentTab hotelId={hotelId!} orgSlug={revenueOrgSlug!}
                 table="dow_adjustments" keyColumn="dow"
                 slots={[{key:0,label:"Mon"},{key:1,label:"Tue"},{key:2,label:"Wed"},{key:3,label:"Thu"},{key:4,label:"Fri"},{key:5,label:"Sat"},{key:6,label:"Sun"}]}
                 title="Day-of-Week Adjustments" description="Boost or discount specific weekdays. Applied as a multiplier on top of base price." />
             </TabsContent>
             <TabsContent value="month">
-              <PercentAdjustmentTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"}
+              <PercentAdjustmentTab hotelId={hotelId!} orgSlug={revenueOrgSlug!}
                 table="monthly_adjustments" keyColumn="month"
                 slots={MONTH_NAMES.map((m, i) => ({ key: i + 1, label: m }))}
                 title="Monthly Adjustments" description="Seasonal multipliers per calendar month." />
             </TabsContent>
             <TabsContent value="lead">
-              <PercentAdjustmentTab hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"}
+              <PercentAdjustmentTab hotelId={hotelId!} orgSlug={revenueOrgSlug!}
                 table="lead_time_adjustments" keyColumn="bucket"
                 slots={Object.entries(LEAD_LABELS).map(([k, v]) => ({ key: k, label: v }))}
                 title="Lead Time Adjustments" description="Modify price based on how far ahead the booking is made." />
@@ -1390,7 +1387,7 @@ export default function RevenueHotelDetail() {
                         reviewed_by: profile?.id, reviewed_at: new Date().toISOString(),
                       }).eq("id", selectedRow.rec!.id);
                       await supabase.from("rate_history").insert({
-                        hotel_id: hotelId!, organization_slug: profile?.organization_slug ?? "rdhotels",
+                        hotel_id: hotelId!, organization_slug: revenueOrgSlug!,
                         stay_date: selectedRow.rec!.stay_date, old_rate_eur: selectedRow.rec!.current_rate_eur,
                         new_rate_eur: newRate, source: "manual", changed_by: profile?.id, notes: "manual override",
                       });
@@ -1440,7 +1437,7 @@ export default function RevenueHotelDetail() {
 
               <GuestsOnDate hotelId={hotelId!} date={selectedDate!} />
 
-              <DayMinStayEditor hotelId={hotelId!} orgSlug={profile?.organization_slug ?? "rdhotels"}
+              <DayMinStayEditor hotelId={hotelId!} orgSlug={revenueOrgSlug!}
                 date={selectedDate!} value={selectedRow.minNights ?? 1} onSaved={load} />
             </div>
           )}
@@ -1448,7 +1445,7 @@ export default function RevenueHotelDetail() {
       </Sheet>
 
       <BulkEditDialog open={bulkOpen} onClose={() => setBulkOpen(false)} hotelId={hotelId!}
-        orgSlug={profile?.organization_slug ?? "rdhotels"} userId={profile?.id} rowsByDate={rowsByDate} onSaved={load} />
+        orgSlug={revenueOrgSlug!} userId={profile?.id} rowsByDate={rowsByDate} onSaved={load} />
       </div>
     </div>
   );
