@@ -242,6 +242,7 @@ export function AutoRoomAssignment({
   const fetchData = async () => {
     setLoading(true);
     try {
+      if (!profile?.organization_slug) throw new Error('Organization access could not be verified');
       // Get manager's hotel
       const hotelName = await getManagerHotel();
       if (!hotelName) {
@@ -330,7 +331,7 @@ export function AutoRoomAssignment({
         .from('assignment_patterns')
         .select('room_number_a, room_number_b, pair_count')
         .eq('hotel', hotelName)
-        .eq('organization_slug', profile?.organization_slug || 'rdhotels');
+        .eq('organization_slug', profile.organization_slug);
 
       if (patternData && patternData.length > 0) {
         setRoomAffinity(buildAffinityMap(patternData));
@@ -548,6 +549,10 @@ export function AutoRoomAssignment({
 
   const handleConfirmAssignment = async () => {
     if (!user) return;
+    if (!profile?.organization_slug) {
+      toast.error('Organization access could not be verified');
+      return;
+    }
     
     setSubmitting(true);
     try {
@@ -588,7 +593,7 @@ export function AutoRoomAssignment({
             assignment_type: (isCheckout ? 'checkout_cleaning' : 'daily_cleaning') as 'checkout_cleaning' | 'daily_cleaning',
             status: 'assigned' as const,
             priority: getRoomPriority(room),
-            organization_slug: profile?.organization_slug,
+            organization_slug: profile.organization_slug,
             ready_to_clean: rtc,
           };
         });
@@ -620,7 +625,7 @@ export function AutoRoomAssignment({
                 hotel: hotelName,
                 room_number_a: a,
                 room_number_b: b,
-                organization_slug: profile?.organization_slug || 'rdhotels',
+                organization_slug: profile.organization_slug,
               });
             }
           }
@@ -656,7 +661,7 @@ export function AutoRoomAssignment({
           .from('assignment_patterns')
           .select('room_number_a, room_number_b, pair_count')
           .eq('hotel', hotelName || '')
-          .eq('organization_slug', profile?.organization_slug || 'rdhotels')
+          .eq('organization_slug', profile.organization_slug)
           .order('pair_count', { ascending: false })
           .limit(50);
 
@@ -712,6 +717,10 @@ export function AutoRoomAssignment({
       onOpenChange(false);
       return;
     }
+    if (!profile?.organization_slug) {
+      toast.error('Organization access could not be verified');
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -730,7 +739,7 @@ export function AutoRoomAssignment({
           hotel: hotelName || '',
           priority: 1,
           status: 'assigned',
-          organization_slug: profile?.organization_slug || '',
+          organization_slug: profile.organization_slug,
         };
       });
 
