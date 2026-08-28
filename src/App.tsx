@@ -100,7 +100,8 @@ function useHeldLoading(loading: boolean, minDisplayMs = MIN_WELCOME_DISPLAY_MS)
 
 const RootRedirect = () => {
   const { user, profile, loading, bootstrapProgress } = useAuth();
-  if (loading) return <WelcomeBackOverlay context="account" step="Checking your secure session…" progress={bootstrapProgress} />;
+  const heldLoading = useHeldLoading(loading);
+  if (heldLoading) return <WelcomeBackOverlay context="account" step="Checking your secure session…" progress={bootstrapProgress} />;
   if (!user) return <Navigate to="/auth" replace />;
   if (!profile?.organization_slug) return <Navigate to="/auth" replace />;
   if ((profile.role === "top_management" || profile.role === "top_management_manager") && profile.assigned_hotel) {
