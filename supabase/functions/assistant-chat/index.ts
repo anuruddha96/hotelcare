@@ -1402,11 +1402,16 @@ Deno.serve(async (req) => {
       .order("created_at", { ascending: true })
       .limit(200);
     if (storedError) return json({ error: `Could not load conversation history: ${storedError.message}` }, 500);
-    const storedMessages: UIMessage[] = (storedRows ?? []).map((row: any) => ({
+    // The full thread stays stored and visible in the app; the model only ever
+    // sees a bounded recent window, so old turns cannot add noise or be reused
+    // as if they were current operational facts.
+    const MODEL_HISTORY_TURNS = 40;
+    const storedMessages: UIMessage[] = (storedRows ?? []).slice(-MODEL_HISTORY_TURNS).map((row: any) => ({
       id: row.id,
       role: row.role,
       parts: [{ type: "text", text: row.content }],
     }));
+
     const modelMessages = [
       ...storedMessages,
       { id: latest?.id ?? crypto.randomUUID(), role: "user" as const, parts: [{ type: "text" as const, text: question }] },
