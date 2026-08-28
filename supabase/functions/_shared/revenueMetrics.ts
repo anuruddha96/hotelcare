@@ -358,16 +358,32 @@ export function envelope<T>(
  * Load the authoritative Revenue dataset for one hotel. Authorization is the
  * caller's responsibility: only pass hotel ids already resolved from the
  * signed-in profile.
+ *
+ * `get_revenue_published_payload` gates on `auth.uid()`, which is NULL for a
+ * service-role client, so a service-role RPC call always returns zero rows.
+ * When that happens we read the same `revenue_published_payloads` row directly.
  */
 export async function loadRevenueDataset(
-  client: { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> },
+  client: {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
+    from?: (table: string) => any;
+  },
   hotelId: string,
   hotelName: string,
 ): Promise<RevenueDataset | null> {
+  let row: any = null;
   const { data, error } = await client.rpc("get_revenue_published_payload", { _hotel_id: hotelId });
-  if (error) return null;
-  const row: any = Array.isArray(data) ? data[0] : data;
+  if (!error) row = Array.isArray(data) ? data[0] : data;
+  if (!row?.payload && typeof client.from === "function") {
+    const fallback = await client
+      .from("revenue_published_payloads")
+      .select("sync_completed_at,sync_completed_by_name,horizon_from,horizon_to,payload")
+      .eq("hotel_id", hotelId)
+      .maybeSingle();
+    if (!fallback.error && fallback.data?.payload) row = fallback.data;
+  }
   if (!row?.payload) return null;
+
   const payload = row.payload as PublishedRevenuePayload;
   const roomsAvailable = resolveRoomsAvailable(payload);
   const settings = payload.settings ?? {};
