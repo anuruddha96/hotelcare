@@ -12,6 +12,8 @@ import {
 import { AUTOMATION_FIELDS, canChangeAutomation, validateChanges } from "../_shared/assistantAutomationFields.ts";
 import { pickHotels, resolveAssistantHotels, type AssistantHotel } from "../_shared/assistantHotels.ts";
 import { ACTION_LABEL, actionsForRole, validateAction } from "../_shared/assistantActions.ts";
+import { envelope, loadRevenueDataset, type RevenueDataset } from "../_shared/revenueMetrics.ts";
+
 
 type Profile = {
   id: string;
@@ -131,6 +133,24 @@ function buildTools(
     if (!picked.ok) throw new Error(picked.error);
     return picked.hotels.map((h) => h.hotel_id);
   };
+
+  // The published Revenue dataset is what the Revenue screen itself reads, so
+  // every revenue answer is derived from it with the same calculations.
+  // Cached per request: a multi-step answer loads each hotel only once.
+  const datasetCache = new Map<string, Promise<RevenueDataset | null>>();
+  const revenueDatasets = async (requested: string | null | undefined) => {
+    const picked = pickHotels(hotels, requested);
+    if (!picked.ok) throw new Error(picked.error);
+    return await Promise.all(
+      picked.hotels.map(async (hotel) => {
+        if (!datasetCache.has(hotel.hotel_id)) {
+          datasetCache.set(hotel.hotel_id, loadRevenueDataset(service, hotel.hotel_id, hotel.hotel_name));
+        }
+        return { hotel, dataset: await datasetCache.get(hotel.hotel_id)! };
+      }),
+    );
+  };
+
 
   const tools: Record<string, any> = {
     get_context_now: tool({
@@ -255,80 +275,109 @@ function buildTools(
         ),
       ),
       execute: async ({ hotelId, startDate, endDate }) => {
-        const ids = resolve(hotelId);
         const from = startDate ?? today();
         const to = endDate ?? from;
-        const { data, error } = await service
-          .from("revenue_daily_snapshots")
-          .select("hotel_id,stay_date,captured_date,occupancy_pct,adr_eur,revenue_eur,rooms_sold,rooms_available")
-          .gte("stay_date", from)
-          .lte("stay_date", to)
-          .eq("organization_slug", orgSlug)
-          .in("hotel_id", ids)
-          .order("stay_date")
-          .order("captured_date", { ascending: false })
-          .limit(4000);
-        if (error) throw new Error(`Revenue lookup failed: ${error.message}`);
-        // Newest capture per hotel + stay date.
-        const latest = new Map<string, any>();
-        for (const row of data ?? []) {
-          const key = `${row.hotel_id}|${row.stay_date}`;
-          if (!latest.has(key)) latest.set(key, row);
+        const picked = await revenueDatasets(hotelId);
+        const out: any[] = [];
+        const missing: string[] = [];
+        let lastSync: string | null = null;
+        for (const { hotel, dataset } of picked) {
+          if (!dataset) {
+            missing.push(hotel.hotel_name);
+            continue;
+          }
+          if (!lastSync || (dataset.lastSyncAt ?? "") > lastSync) lastSync = dataset.lastSyncAt;
+          const days = dataset.metricsFor(from, to).map((m) => ({
+            stay_date: m.stay_date,
+            rooms_sold: m.roomsSold,
+            rooms_available: m.roomsAvailable,
+            rooms_left: m.roomsLeft,
+            occupancy_pct: m.occupancyPct,
+            adr: m.adrEur,
+            revenue: m.revenueEur,
+            revpar: m.revparEur,
+            net_pickup: m.netPickup,
+            has_data: m.hasData,
+          }));
+          out.push({ hotel_id: hotel.hotel_id, hotel_name: hotel.hotel_name, currency: dataset.currency, days });
         }
-        return { from, to, hotels: ids, rows: [...latest.values()] };
+        if (out.length === 0) {
+          return envelope(
+            { from, to, hotels: [], missing },
+            { source: "revenue_published_payload", confidence: "unverified", note: "No completed Revenue dataset, so these figures cannot be verified." },
+          );
+        }
+        return envelope(
+          { from, to, hotels: out, missing },
+          {
+            source: "revenue_published_payload",
+            lastSyncAt: lastSync,
+            ...(missing.length ? { confidence: "partial" as const, note: `No completed dataset for: ${missing.join(", ")}.` } : {}),
+          },
+        );
       },
     });
 
     tools.get_pickup_and_pace = tool({
       description:
-        "Booking pace: rooms sold vs available by stay date plus the automation engine's recorded pickup actions, so you can judge whether a date is pacing ahead or behind.",
+        "Booking pace: rooms sold, rooms left and net pickup by stay date from the published Revenue dataset, plus the automation engine's recorded pickup actions.",
       inputSchema: jsonSchema<{ hotelId: string | null; days: number | null }>(
         hotelArgSchema({ days: { type: ["number", "null"], description: "Horizon in days from today, default 60, max 365" } }, ["days"]),
       ),
       execute: async ({ hotelId, days }) => {
-        const ids = resolve(hotelId);
         const horizon = Math.min(Math.max(Number(days ?? 60), 1), 365);
         const from = today();
         const to = new Date(Date.now() + horizon * 86_400_000).toISOString().slice(0, 10);
-        const [snapshots, actions] = await Promise.all([
-          service
-            .from("revenue_daily_snapshots")
-            .select("hotel_id,stay_date,captured_date,rooms_sold,rooms_available,occupancy_pct,adr_eur")
-            .eq("organization_slug", orgSlug)
-            .in("hotel_id", ids)
-            .gte("stay_date", from)
-            .lte("stay_date", to)
-            .order("stay_date")
-            .order("captured_date", { ascending: false })
-            .limit(6000),
-          service
-            .from("revenue_pickup_actions")
-            .select("hotel_id,stay_date,trigger_kind,trigger_detail,delta_eur,old_price,new_price,occurred_at")
-            .eq("organization_slug", orgSlug)
-            .in("hotel_id", ids)
-            .gte("stay_date", from)
-            .lte("stay_date", to)
-            .order("occurred_at", { ascending: false })
-            .limit(300),
-        ]);
-        if (snapshots.error) throw new Error(`Pace lookup failed: ${snapshots.error.message}`);
-        if (actions.error) throw new Error(`Pickup action lookup failed: ${actions.error.message}`);
-        const latest = new Map<string, any>();
-        for (const row of snapshots.data ?? []) {
-          const key = `${row.hotel_id}|${row.stay_date}`;
-          if (!latest.has(key)) latest.set(key, row);
+        const picked = await revenueDatasets(hotelId);
+        const ids = picked.map((p) => p.hotel.hotel_id);
+        const actions = await service
+          .from("revenue_pickup_actions")
+          .select("hotel_id,stay_date,trigger_kind,trigger_detail,delta_eur,old_price,new_price,occurred_at")
+          .eq("organization_slug", orgSlug)
+          .in("hotel_id", ids)
+          .gte("stay_date", from)
+          .lte("stay_date", to)
+          .order("occurred_at", { ascending: false })
+          .limit(300);
+        const out: any[] = [];
+        const missing: string[] = [];
+        let lastSync: string | null = null;
+        for (const { hotel, dataset } of picked) {
+          if (!dataset) {
+            missing.push(hotel.hotel_name);
+            continue;
+          }
+          if (!lastSync || (dataset.lastSyncAt ?? "") > lastSync) lastSync = dataset.lastSyncAt;
+          const pace = dataset.metricsFor(from, to).map((m) => ({
+            stay_date: m.stay_date,
+            rooms_sold: m.roomsSold,
+            rooms_available: m.roomsAvailable,
+            rooms_left: m.roomsLeft,
+            occupancy_pct: m.occupancyPct,
+            adr: m.adrEur,
+            net_pickup: m.netPickup,
+            pickup_gained: m.pickupGained,
+            pickup_lost: m.pickupLost,
+            has_data: m.hasData,
+          }));
+          out.push({ hotel_id: hotel.hotel_id, hotel_name: hotel.hotel_name, currency: dataset.currency, pace });
         }
-        const pace = [...latest.values()].map((r) => ({
-          hotel_id: r.hotel_id,
-          stay_date: r.stay_date,
-          rooms_sold: r.rooms_sold,
-          rooms_available: r.rooms_available,
-          rooms_left: Number(r.rooms_available ?? 0) - Number(r.rooms_sold ?? 0),
-          occupancy_pct: r.occupancy_pct,
-          adr_eur: r.adr_eur,
-        }));
-        return { from, to, pace, recentPickupActions: actions.data ?? [] };
+        if (out.length === 0) {
+          return envelope(
+            { from, to, hotels: [], missing },
+            { source: "revenue_published_payload", confidence: "unverified", note: "No completed Revenue dataset, so pace cannot be verified." },
+          );
+        }
+        return envelope(
+          { from, to, hotels: out, missing, recentPickupActions: actions.data ?? [] },
+          {
+            source: "revenue_published_payload",
+            lastSyncAt: lastSync,
+            ...(missing.length ? { confidence: "partial" as const, note: `No completed dataset for: ${missing.join(", ")}.` } : {}),
+          },
+        );
       },
+
     });
 
     tools.get_rate_calendar = tool({
