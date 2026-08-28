@@ -200,25 +200,51 @@ export default function AssistantLauncher() {
                 <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={newThread}>
                   <Plus className="h-3.5 w-3.5" /> New chat
                 </Button>
+                {loadingThreads && threads.length === 0 && (
+                  <div className="space-y-2">
+                    {[0, 1, 2, 3].map((row) => (
+                      <div key={row} className="rounded-lg border px-2.5 py-2">
+                        <Skeleton className="h-3.5 w-2/3" />
+                        <Skeleton className="mt-2 h-3 w-full" />
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {threads.map((t) => (
                   <div
                     key={t.id}
                     className={cn(
-                      "flex items-center gap-2 rounded-lg border px-2 py-1.5",
+                      "flex items-start gap-2 rounded-lg border px-2.5 py-2",
                       t.id === threadId && "border-primary bg-primary/5",
                     )}
                   >
                     <button
-                      className="flex-1 text-left text-sm truncate"
+                      className="min-w-0 flex-1 text-left"
                       onClick={() => {
                         setThread(t.id);
                         setTab("chat");
                       }}
                     >
-                      {t.title}
+                      <span className="block truncate text-sm font-medium">{t.title}</span>
+                      {t.preview && (
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">{t.preview}</span>
+                      )}
+                      <span className="mt-0.5 block text-[10px] text-muted-foreground">
+                        {new Date(t.updated_at).toLocaleString()}
+                      </span>
                     </button>
                     <button
-                      className="text-muted-foreground hover:text-destructive"
+                      className="mt-0.5 text-muted-foreground hover:text-foreground"
+                      aria-label="Rename chat"
+                      onClick={() => {
+                        const next = window.prompt("Rename this conversation", t.title);
+                        if (next) void renameThread(t.id, next);
+                      }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      className="mt-0.5 text-muted-foreground hover:text-destructive"
                       aria-label="Delete chat"
                       onClick={async () => {
                         await deleteThread(t.id);
@@ -229,9 +255,10 @@ export default function AssistantLauncher() {
                     </button>
                   </div>
                 ))}
-                {threads.length === 0 && (
+                {!loadingThreads && threads.length === 0 && (
                   <p className="text-sm text-muted-foreground px-1">No conversations yet.</p>
                 )}
+
                 <Button
                   size="sm"
                   variant="ghost"
