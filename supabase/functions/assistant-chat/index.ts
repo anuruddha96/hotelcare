@@ -1329,6 +1329,54 @@ function buildTools(
   return tools;
 }
 
+/**
+ * Short topic title (3-6 words) for the history list, in the user's own
+ * language. Falls back silently: a title is never worth failing a chat over.
+ */
+async function generateThreadTitle(params: {
+  apiKey: string;
+  question: string;
+  answer: string;
+  language: string;
+}): Promise<string | null> {
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${params.apiKey}` },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        temperature: 0.2,
+        max_tokens: 24,
+        messages: [
+          {
+            role: "system",
+            content:
+              `Write a title for a hotel-operations chat: 3-6 words, in ${params.language}, describing the topic. ` +
+              "No quotes, no final punctuation, no words like 'chat' or 'conversation'. Title case is not required.",
+          },
+          {
+            role: "user",
+            content: `Question: ${params.question.slice(0, 600)}\n\nAnswer: ${params.answer.slice(0, 600)}`,
+          },
+        ],
+      }),
+    });
+    if (!response.ok) return null;
+    const data = await response.json().catch(() => null);
+    const raw = String(data?.choices?.[0]?.message?.content ?? "")
+      .replace(/["“”'`]/g, "")
+      .replace(/\s+/g, " ")
+      .replace(/[.]+$/, "")
+      .trim();
+    return raw ? raw.slice(0, 60) : null;
+  } catch (error) {
+    console.error("assistant title generation failed", error);
+    return null;
+  }
+}
+
+
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
