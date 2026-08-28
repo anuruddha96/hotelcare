@@ -821,15 +821,17 @@ serve(async (req) => {
       const isCancelled = !!res && isCancelledStatus(res.statusId);
       const isArrival = !!res && res.arrivalDate === today;
       const isCheckedIn = !!res && isInHouseStatus(res.statusId);
-      // Occupancy guard: a reservation that covers tonight IS occupancy, so the
-      // room can never be a no-show, whatever the check-in status workflow says.
-      const staysTonight = !!res && !isCancelled
-        && res.arrivalDate <= today && res.departureDate > today;
+      // Occupancy guard: a guest who already slept here (arrival before today,
+      // departure still ahead) or who is checked in IS occupancy, so the room
+      // can never be a no-show, whatever the check-in status workflow says.
+      const hasOccupancyToday = !!res && !isCancelled
+        && (isCheckedIn || (res.arrivalDate < today && res.departureDate > today));
       // A no-show is a reservation state Previo owns (statusId 8). We never
       // infer it from a pre-arrival status: many properties simply do not check
       // guests in, so an in-house guest would be wrongly flagged.
-      const isNoShow = !!res && isNoShowStatus(res.statusId) && !staysTonight;
+      const isNoShow = !!res && isNoShowStatus(res.statusId) && !hasOccupancyToday;
       const noShowSource = isNoShow ? "previo_status_8" : null;
+
 
       const isNotArrived = !!res && isArrival && !isCancelled && !isNoShow && !isCheckedIn;
       const isOccupied = !!res && !isCancelled && !isNoShow && !isNotArrived
