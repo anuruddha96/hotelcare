@@ -254,9 +254,9 @@ export default function RevenueHotelDetail() {
   });
 
   const revAdmin = isRevenueAdmin(profile?.role);
-  // Top management keeps its rate-editing powers on the grid, but the admin
-  // tooling row and the extra tabs stay hidden for them as designed.
-  const isTechnicalAdmin = profile?.role === "admin";
+  // Revenue administrators and executive users receive the same Revenue
+  // workspace. Tenant isolation is enforced by the database access boundary.
+  const isTechnicalAdmin = revAdmin;
   const [syncing, setSyncing] = useState(false);
   const [syncStep, setSyncStep] = useState("Connecting to Previo…");
   const [syncPct, setSyncPct] = useState(0);
@@ -890,7 +890,11 @@ export default function RevenueHotelDetail() {
             <CardContent className="py-8 text-center">
               <AlertTriangle className="mx-auto h-7 w-7 text-destructive" />
               <h1 className="mt-3 font-semibold">Revenue data could not be opened</h1>
-              <p className="mt-1 text-sm text-muted-foreground">No partial figures are being shown. Please reload shortly.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Your verified property data is temporarily unavailable. No figures from another property will be shown.</p>
+              <Button className="mt-4" variant="outline" onClick={() => void live.reload()} disabled={live.loading}>
+                {live.loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                Try again
+              </Button>
             </CardContent>
           </Card>
         </main>
@@ -914,7 +918,7 @@ export default function RevenueHotelDetail() {
         <MainTabsBar current="revenue" />
       </div>
       <div className="container mx-auto p-3 sm:p-4 space-y-3">
-      {/* Header — quiet by default, tools only for revenue admins */}
+      {/* Header — Revenue admins and executive users share the same tools. */}
       <div className="flex items-center gap-2 flex-wrap">
         {isTechnicalAdmin && (
           <Button variant="ghost" size="sm" onClick={() => navigate(`/${organizationSlug}/revenue`)}>
@@ -1053,7 +1057,7 @@ export default function RevenueHotelDetail() {
       )}
 
       <Tabs value={isTechnicalAdmin ? tab : "grid"} onValueChange={setTab}>
-        {/* Top management works from the rate grid alone; the other views are admin tooling. */}
+        {/* All authorized Revenue users share the same workspace. */}
         <TabsList className={`flex-wrap h-auto ${isTechnicalAdmin ? "" : "hidden"}`}>
           <TabsTrigger value="grid"><CalIcon className="h-4 w-4 mr-1" />Rate Grid</TabsTrigger>
           <TabsTrigger value="prices"><CalIcon className="h-4 w-4 mr-1" />Calendar</TabsTrigger>
