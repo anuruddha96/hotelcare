@@ -102,13 +102,23 @@ export function WelcomeBackOverlay({
   onSignOut?: () => void;
   context?: "account" | "revenue";
 }) {
-  // Start on a fallback line immediately, then upgrade once the shared pool
-  // arrives — the overlay never waits on the network to show something.
-  const pickedRef = useRef(false);
-  const [line, setLine] = useState<Line>(() => nextQuote(FALLBACK_LINES));
+  // One quote per showing: pick from the cached pool when we have it,
+  // otherwise a fallback line — and never swap mid-display, so two lines
+  // never appear one after another during a single overlay.
+  const [line] = useState<Line>(() => {
+    if (activeLine && Date.now() - activeLine.shownAt < QUOTE_HOLD_MS) {
+      return activeLine.line;
+    }
+    const pool = poolCache ?? FALLBACK_LINES;
+    const picked = nextQuote(pool);
+    activeLine = { line: picked, shownAt: Date.now() };
+    return picked;
+  });
 
-  // Pull the shared pool once; the monthly AI refresh keeps it fresh.
+  // Warm the shared pool in the background for the NEXT showing; the monthly
+  // AI refresh keeps it fresh. Never changes the quote currently on screen.
   useEffect(() => {
+    if (poolCache) return;
     let cancelled = false;
     void (async () => {
       const { data } = await supabase
@@ -117,9 +127,8 @@ export function WelcomeBackOverlay({
         .eq("is_active", true)
         .order("created_at", { ascending: true })
         .limit(300);
-      if (cancelled || !data?.length || pickedRef.current) return;
-      pickedRef.current = true;
-      setLine(nextQuote(data.map((r) => ({ id: String(r.id), quote: r.quote, by: r.author }))));
+      if (cancelled || !data?.length) return;
+      poolCache = data.map((r) => ({ id: String(r.id), quote: r.quote, by: r.author }));
     })();
     return () => { cancelled = true; };
   }, []);
