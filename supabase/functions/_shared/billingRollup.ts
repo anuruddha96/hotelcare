@@ -9,6 +9,7 @@ import {
   lastMonthRange,
   percentFeeCents,
   realisedRevenueCents,
+  isRevenueModule,
   trialCoversPeriod,
   type BillingSettings,
 } from "./billing.ts";
@@ -75,7 +76,7 @@ export async function rollupLastMonth(
 
     let invoiced = Boolean(existing?.billed_at);
     const sub = (subs ?? []).find(
-      (s) => s.hotel_id === hotel.hotel_id && s.module === "revenue" && s.stripe_customer_id,
+      (s) => s.hotel_id === hotel.hotel_id && isRevenueModule(String(s.module)) && s.stripe_customer_id,
     );
     const chargeable =
       !inTrial && !invoiced && feeCents > 0 && stripe && sub &&

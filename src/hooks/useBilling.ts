@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
-export type BillingModule = 'revenue' | 'operations';
+export type BillingModule = 'revenue_bi' | 'revenue_automation' | 'operations' | 'maintenance';
+
+/** Old rows/clients used a single 'revenue' key — it means the automation tier. */
+export function normaliseModule(module: string): BillingModule {
+  return (module === 'revenue' ? 'revenue_automation' : module) as BillingModule;
+}
+
+export function isRevenueModule(module: string) {
+  return ['revenue', 'revenue_bi', 'revenue_automation'].includes(module);
+}
 
 export interface BillingSettings {
   organization_slug: string;
@@ -17,6 +26,22 @@ export interface BillingSettings {
   stripe_publishable_key: string | null;
   payments_enabled: boolean;
   stripe_secret_configured?: boolean;
+  /** Analytics-only Revenue tier. */
+  revenue_bi_price_cents: number;
+  /** Revenue tier including the automated pricing engine. */
+  revenue_automation_price_cents: number;
+  maintenance_module_enabled: boolean;
+  maintenance_pricing_mode: 'custom' | 'per_room';
+  maintenance_price_cents: number;
+  /** VAT added on top of every net amount (27% in Hungary). */
+  vat_percent: number;
+  billing_company_name: string | null;
+  billing_address_line1: string | null;
+  billing_address_line2: string | null;
+  billing_address_city: string | null;
+  billing_address_postal_code: string | null;
+  billing_address_country: string | null;
+  billing_tax_id: string | null;
   /** 'per_room' = fixed price per room, 'percent' = share of realised revenue. */
   revenue_pricing_mode: 'per_room' | 'percent';
   revenue_percent_bps: number;
@@ -57,6 +82,21 @@ export interface ModuleSubscription {
   cancel_at_period_end: boolean;
 }
 
+export interface BillingInvoice {
+  id: string;
+  number: string | null;
+  created: number;
+  period_start: number;
+  period_end: number;
+  currency: string;
+  subtotal_cents: number;
+  tax_cents: number;
+  total_cents: number;
+  status: string | null;
+  hosted_invoice_url: string | null;
+  invoice_pdf: string | null;
+}
+
 export interface BillingSummary {
   settings: BillingSettings;
   hotels: BillingHotel[];
@@ -81,8 +121,32 @@ export function moduleUnlocked(summary: BillingSummary | null, hotelId: string, 
   if (!summary) return true;
   if (trialIsRunning(summary)) return true;
   return isSubscriptionActive(
-    summary.subscriptions.find((s) => s.hotel_id === hotelId && s.module === module),
+    summary.subscriptions.find(
+      (s) => s.hotel_id === hotelId && normaliseModule(s.module) === normaliseModule(module),
+    ),
   );
+}
+
+/** Any Revenue tier unlocks the revenue screens. */
+export function revenueUnlocked(summary: BillingSummary | null, hotelId: string) {
+  if (!summary) return true;
+  if (trialIsRunning(summary)) return true;
+  return summary.subscriptions.some(
+    (s) => s.hotel_id === hotelId && isRevenueModule(s.module) && isSubscriptionActive(s),
+  );
+}
+
+/** Only the BI + Automation tier unlocks the automated pricing engine. */
+export function automationUnlocked(summary: BillingSummary | null, hotelId: string) {
+  if (!summary) return true;
+  if (trialIsRunning(summary)) return true;
+  return moduleUnlocked(summary, hotelId, 'revenue_automation');
+}
+
+/** VAT for a net amount, using the organization's rate. */
+export function vatCents(summary: BillingSummary | null, netCents: number) {
+  const pct = Number(summary?.settings?.vat_percent ?? 27) || 0;
+  return Math.round((netCents * pct) / 100);
 }
 
 export function formatMoney(cents: number, currency: string) {
