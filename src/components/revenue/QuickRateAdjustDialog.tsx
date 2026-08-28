@@ -51,6 +51,12 @@ export default function QuickRateAdjustDialog({
     setOnlyType(!!target.roomTypeName);
   }, [target]);
 
+  // Unsaved local adjustment: defer any background resume refresh.
+  useEffect(() => {
+    if (!target) return;
+    return beginRevenueEdit("quick-rate-adjust");
+  }, [target]);
+
 
   const changes = useMemo(() => {
     if (!target || !from || !to) return [];

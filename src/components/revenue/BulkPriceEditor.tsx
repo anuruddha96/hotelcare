@@ -82,6 +82,13 @@ export default function BulkPriceEditor({
     setShowAll(false);
   }, [open, today]);
 
+  // While this editor is open it holds unsaved local values: a background
+  // resume refresh must wait rather than replace them.
+  useEffect(() => {
+    if (!open) return;
+    return beginRevenueEdit("bulk-price-editor");
+  }, [open]);
+
 
   const allTypes = useMemo(() => {
     const s = new Set<string>();
