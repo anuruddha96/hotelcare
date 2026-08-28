@@ -684,14 +684,26 @@ export type Database = {
       }
       billing_settings: {
         Row: {
+          billing_address_city: string | null
+          billing_address_country: string | null
+          billing_address_line1: string | null
+          billing_address_line2: string | null
+          billing_address_postal_code: string | null
+          billing_company_name: string | null
+          billing_tax_id: string | null
           created_at: string
           currency: string
           id: string
+          maintenance_module_enabled: boolean
+          maintenance_price_cents: number
+          maintenance_pricing_mode: string
           operations_module_enabled: boolean
           operations_module_label: string
           operations_price_cents: number
           organization_slug: string
           payments_enabled: boolean
+          revenue_automation_price_cents: number
+          revenue_bi_price_cents: number
           revenue_module_enabled: boolean
           revenue_percent_bps: number
           revenue_percent_cap_cents: number
@@ -703,16 +715,29 @@ export type Database = {
           trial_months: number
           trial_start: string
           updated_at: string
+          vat_percent: number
         }
         Insert: {
+          billing_address_city?: string | null
+          billing_address_country?: string | null
+          billing_address_line1?: string | null
+          billing_address_line2?: string | null
+          billing_address_postal_code?: string | null
+          billing_company_name?: string | null
+          billing_tax_id?: string | null
           created_at?: string
           currency?: string
           id?: string
+          maintenance_module_enabled?: boolean
+          maintenance_price_cents?: number
+          maintenance_pricing_mode?: string
           operations_module_enabled?: boolean
           operations_module_label?: string
           operations_price_cents?: number
           organization_slug: string
           payments_enabled?: boolean
+          revenue_automation_price_cents?: number
+          revenue_bi_price_cents?: number
           revenue_module_enabled?: boolean
           revenue_percent_bps?: number
           revenue_percent_cap_cents?: number
@@ -724,16 +749,29 @@ export type Database = {
           trial_months?: number
           trial_start?: string
           updated_at?: string
+          vat_percent?: number
         }
         Update: {
+          billing_address_city?: string | null
+          billing_address_country?: string | null
+          billing_address_line1?: string | null
+          billing_address_line2?: string | null
+          billing_address_postal_code?: string | null
+          billing_company_name?: string | null
+          billing_tax_id?: string | null
           created_at?: string
           currency?: string
           id?: string
+          maintenance_module_enabled?: boolean
+          maintenance_price_cents?: number
+          maintenance_pricing_mode?: string
           operations_module_enabled?: boolean
           operations_module_label?: string
           operations_price_cents?: number
           organization_slug?: string
           payments_enabled?: boolean
+          revenue_automation_price_cents?: number
+          revenue_bi_price_cents?: number
           revenue_module_enabled?: boolean
           revenue_percent_bps?: number
           revenue_percent_cap_cents?: number
@@ -745,6 +783,7 @@ export type Database = {
           trial_months?: number
           trial_start?: string
           updated_at?: string
+          vat_percent?: number
         }
         Relationships: []
       }
