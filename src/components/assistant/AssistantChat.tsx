@@ -636,10 +636,10 @@ export default function AssistantChat({
       threadId={activeThreadId}
       initialMessages={assistantRowsToUiMessages(rows) as AssistantUiMessage[]}
       language={language}
-      initialPrompt={pendingThreadId === activeThreadId ? pendingPrompt : null}
+      initialPrompt={pending?.id === activeThreadId ? pending.text : null}
       onNavigate={onNavigate}
       onThreadUpdated={() => {
-        setPendingPrompt(null);
+        setPending(null);
         void loadThreads();
         onThreadUpdated?.();
       }}
