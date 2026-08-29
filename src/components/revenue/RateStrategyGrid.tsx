@@ -345,7 +345,23 @@ export default function RateStrategyGrid({
   /** The events band can be folded away when the reader wants a plain grid. */
   const [showEventBand, setShowEventBand] = useState(true);
 
-  const CELL_W = Math.round(BASE_CELL_W * zoom);
+  /**
+   * One-month view: when a month chip is picked the calendar shows only that
+   * month and squeezes its columns so all 28-31 days fit without scrolling.
+   */
+  const [monthFilter, setMonthFilter] = useState<string | null>(null);
+  const [viewportW, setViewportW] = useState(0);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setViewportW(el.clientWidth));
+    ro.observe(el);
+    setViewportW(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+
+  const ZOOM_CELL_W = Math.round(BASE_CELL_W * zoom);
+
   const ROW_H = Math.round(BASE_ROW_H * zoom);
   const GROUP_H = Math.round(BASE_GROUP_H * zoom);
   const MONTH_H = Math.round(BASE_MONTH_H * zoom);
