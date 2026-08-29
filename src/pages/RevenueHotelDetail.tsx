@@ -36,6 +36,8 @@ import AnalystPanel from "@/components/revenue/AnalystPanel";
 import StrategyCalendar from "@/components/revenue/StrategyCalendar";
 import StrategyRecommendationsPanel from "@/components/revenue/StrategyRecommendationsPanel";
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
+import { AutomationStatusLine } from "@/components/revenue/AutomationStatusLine";
+
 import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
 import EventsPanel from "@/components/revenue/EventsPanel";
 
@@ -1108,6 +1110,10 @@ export default function RevenueHotelDetail() {
               </Button>
             </div>
           </div>
+
+          <AutomationStatusLine hotelId={hotelId ?? null} />
+
+
 
           <Dialog open={syncHistoryOpen} onOpenChange={setSyncHistoryOpen}>
             <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
