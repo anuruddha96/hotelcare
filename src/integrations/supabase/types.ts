@@ -9763,6 +9763,16 @@ export type Database = {
           sync_completed_by_name: string
         }[]
       }
+      get_revenue_published_payload_window: {
+        Args: { _horizon_days?: number; _hotel_id: string }
+        Returns: {
+          horizon_from: string
+          horizon_to: string
+          payload: Json
+          sync_completed_at: string
+          sync_completed_by_name: string
+        }[]
+      }
       get_user_access_config: {
         Args: { user_role: Database["public"]["Enums"]["user_role"] }
         Returns: {
@@ -10066,6 +10076,10 @@ export type Database = {
           last_success_at: string
           scope: string
         }[]
+      }
+      revenue_trim_by_stay_date: {
+        Args: { _arr: Json; _cutoff: string }
+        Returns: Json
       }
       revenue_v2_safety_gate: { Args: never; Returns: Json }
       run_auto_signout: { Args: never; Returns: number }
