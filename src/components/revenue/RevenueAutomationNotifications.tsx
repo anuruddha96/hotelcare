@@ -225,7 +225,7 @@ export function RevenueAutomationNotifications() {
                       ? 'Shadow test only — no prices were sent to Previo.'
                       : detail.run.status === 'completed'
                         ? 'Live run completed.'
-                        : `Run status: ${detail.run.status.replaceAll('_', ' ')}`}
+                        : `Run status: ${detail.run.status.replace(/_/g, ' ')}`}
                   </p>
                   {detail.run.failure_reason && <p className="mt-1 text-destructive">{detail.run.failure_reason}</p>}
                 </div>
@@ -235,7 +235,7 @@ export function RevenueAutomationNotifications() {
                 <div className="flex flex-wrap gap-1.5">
                   {Object.entries(reasonCounts).map(([reason, count]) => (
                     <Badge key={reason} variant="outline" className="text-[10px] font-normal">
-                      {reason.replaceAll('_', ' ')} · {count}
+                      {reason.replace(/_/g, ' ')} · {count}
                     </Badge>
                   ))}
                 </div>
@@ -270,7 +270,7 @@ export function RevenueAutomationNotifications() {
                             )}
                           </td>
                           <td className="px-2 py-2">
-                            <p className="font-medium capitalize">{row.decision_reason.replaceAll('_', ' ')}</p>
+                            <p className="font-medium capitalize">{row.decision_reason.replace(/_/g, ' ')}</p>
                             {row.reason_detail && <p className="mt-0.5 text-muted-foreground">{row.reason_detail}</p>}
                           </td>
                         </tr>
