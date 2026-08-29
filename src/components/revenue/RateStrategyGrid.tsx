@@ -2622,8 +2622,7 @@ export default function RateStrategyGrid({
             ref={scrollRef}
             onScroll={onScroll}
             className={`relative overflow-auto overscroll-x-contain ${dragging || cellDragging ? "select-none" : ""}`}
-            style={{ fontSize: fz(11) }}
-            style={{ maxHeight: expanded ? "calc(100vh - 190px)" : isMobile ? "68vh" : "72vh", WebkitOverflowScrolling: "touch", touchAction: cellDragging ? "none" : undefined } as React.CSSProperties}
+            style={{ fontSize: fz(11), maxHeight: expanded ? "calc(100vh - 190px)" : isMobile ? "68vh" : "72vh", WebkitOverflowScrolling: "touch", touchAction: cellDragging ? "none" : undefined } as React.CSSProperties}
 
           >
 
