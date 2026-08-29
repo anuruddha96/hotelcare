@@ -13,6 +13,7 @@ import { TrainingAdminPanel } from './TrainingAdminPanel';
 import AiProviderStatus from './AiProviderStatus';
 import AiSpendPanel from './AiSpendPanel';
 import RevenueEngineControls from './RevenueEngineControls';
+import RevenueEngineV2Status from './RevenueEngineV2Status';
 import RevenueSyncMonitor from './RevenueSyncMonitor';
 import EmailSettingsPanel from './EmailSettingsPanel';
 
@@ -140,6 +141,7 @@ export const AdminTabs = () => {
             </div>
             <RevenueSyncMonitor />
             <RevenueEngineControls />
+            <RevenueEngineV2Status />
             <AiProviderStatus />
             <AiSpendPanel />
             <PhotoCleanupManager />
