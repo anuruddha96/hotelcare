@@ -43,6 +43,7 @@ function daySeed(): number {
 /* ------------------------------------------------------------------ */
 
 const ROTATION_KEY = "hc.quoteRotation.v1";
+const POOL_KEY = "hc.quotePool.v1";
 type Rotation = { seen: string[] };
 
 function readRotation(): Rotation {
@@ -52,6 +53,22 @@ function readRotation(): Rotation {
     if (parsed && Array.isArray(parsed.seen)) return { seen: parsed.seen };
   } catch { /* corrupt or unavailable storage — start a fresh cycle */ }
   return { seen: [] };
+}
+
+/** The live pool, remembered across reloads. Without this the very first
+ * overlay of every page load fell back to the same five hard-coded lines,
+ * which is why people kept seeing the same quote again and again. */
+function readStoredPool(): Line[] | null {
+  try {
+    const raw = localStorage.getItem(POOL_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Line[]) : null;
+    if (Array.isArray(parsed) && parsed.length) return parsed;
+  } catch { /* ignore */ }
+  return null;
+}
+
+function writeStoredPool(pool: Line[]) {
+  try { localStorage.setItem(POOL_KEY, JSON.stringify(pool)); } catch { /* ignore */ }
 }
 
 /**
@@ -84,7 +101,7 @@ function nextQuote(pool: Line[]): Line {
 
 /** Module-level pool + current quote so simultaneous overlays (app-level and
  * page-level) show the same single line instead of two different ones. */
-let poolCache: Line[] | null = null;
+let poolCache: Line[] | null = readStoredPool();
 let activeLine: { line: Line; shownAt: number } | null = null;
 const QUOTE_HOLD_MS = 10_000; // one quote stays "the" quote across a refresh burst
 
@@ -121,10 +138,9 @@ export function WelcomeBackOverlay({
     return picked;
   });
 
-  // Warm the shared pool in the background for the NEXT showing; the monthly
-  // AI refresh keeps it fresh. Never changes the quote currently on screen.
+  // Refresh the shared pool in the background for the NEXT showing and keep a
+  // copy on disk, so a cold load already has the full pool to rotate through.
   useEffect(() => {
-    if (poolCache) return;
     let cancelled = false;
     void (async () => {
       const { data } = await supabase
@@ -134,10 +150,13 @@ export function WelcomeBackOverlay({
         .order("created_at", { ascending: true })
         .limit(300);
       if (cancelled || !data?.length) return;
-      poolCache = data.map((r) => ({ id: String(r.id), quote: r.quote, by: r.author }));
+      const pool = data.map((r) => ({ id: String(r.id), quote: r.quote, by: r.author }));
+      poolCache = pool;
+      writeStoredPool(pool);
     })();
     return () => { cancelled = true; };
   }, []);
+
 
   const greeting = useMemo(() => GREETINGS[daySeed() % GREETINGS.length], []);
   const [dots, setDots] = useState(1);
