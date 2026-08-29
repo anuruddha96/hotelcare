@@ -36,6 +36,8 @@ import AnalystPanel from "@/components/revenue/AnalystPanel";
 import StrategyCalendar from "@/components/revenue/StrategyCalendar";
 import StrategyRecommendationsPanel from "@/components/revenue/StrategyRecommendationsPanel";
 import RevenueSyncHistory from "@/components/revenue/RevenueSyncHistory";
+import { AutomationStatusLine } from "@/components/revenue/AutomationStatusLine";
+
 import RateStrategyGrid from "@/components/revenue/RateStrategyGrid";
 import EventsPanel from "@/components/revenue/EventsPanel";
 
