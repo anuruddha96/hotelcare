@@ -238,6 +238,9 @@ interface RunResult {
   hotelName: string; actor: string; pickups: number; actions: number;
   queued: number; pushed: number; failed: number; autoPublish: boolean;
   pushError?: string | null; changed: ChangedRow[];
+  engine?: string; mode?: string; runId?: string; datesEvaluated?: number;
+  increases?: number; decreases?: number; held?: number; cellsSimulated?: number;
+  timedOut?: boolean;
 }
 
 /** A tap-friendly "what does this mean?" hint — works on mobile, unlike hover tooltips. */
@@ -641,6 +644,31 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
             ? `Previo reservation refresh failed for ${hotelName} — no price was changed`
             : `Skipped ${hotelName}: ${errorMessage(summary.detail, "no reason given")}`,
         );
+        return;
+      }
+      if (summary.engine === "v2") {
+        const actions = Number(summary.increases ?? 0) + Number(summary.decreases ?? 0);
+        setRunResult({
+          hotelName,
+          actor: (auth.user?.user_metadata?.full_name as string) || payload.actor || auth.user?.email || "You",
+          pickups: Number(summary.increases ?? 0),
+          actions,
+          queued: Number(summary.cells_queued ?? 0),
+          pushed: 0,
+          failed: summary.timed_out || summary.paused ? 1 : 0,
+          autoPublish: summary.mode === "live",
+          pushError: summary.paused ? "Unsafe simulated prices were blocked and automation returned to shadow mode." : null,
+          changed: [],
+          engine: "v2",
+          mode: summary.mode,
+          runId: summary.run_id,
+          datesEvaluated: Number(summary.dates_evaluated ?? 0),
+          increases: Number(summary.increases ?? 0),
+          decreases: Number(summary.decreases ?? 0),
+          held: Number(summary.held ?? 0),
+          cellsSimulated: Number(summary.cells_simulated ?? 0),
+          timedOut: Boolean(summary.timed_out),
+        });
         return;
       }
       const pickups = Number(summary.pickups ?? 0);
@@ -1444,13 +1472,30 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
             </DialogHeader>
             {runResult && (
               <div className="space-y-3">
+                {runResult.engine === "v2" && (
+                  <div className="rounded-md border bg-muted/40 p-3 text-sm">
+                    <p className="font-medium">
+                      {runResult.mode === "shadow"
+                        ? "Shadow test only — no prices were sent to Previo."
+                        : runResult.timedOut
+                          ? "The run reached its time limit; completed decisions remain recorded."
+                          : "Live automation run completed."}
+                    </p>
+                    {runResult.runId && <p className="mt-1 text-[11px] text-muted-foreground">Run {runResult.runId}</p>}
+                  </div>
+                )}
                 <div className="grid grid-cols-4 gap-2 text-center">
-                  {[
+                  {(runResult.engine === "v2" ? [
+                    { label: "Dates checked", value: runResult.datesEvaluated ?? 0 },
+                    { label: "Increased", value: runResult.increases ?? 0 },
+                    { label: "Decreased", value: runResult.decreases ?? 0 },
+                    { label: runResult.mode === "shadow" ? "Cells simulated" : "Cells queued", value: runResult.mode === "shadow" ? runResult.cellsSimulated ?? 0 : runResult.queued },
+                  ] : [
                     { label: "Pickups checked", value: runResult.pickups },
                     { label: "Cells matched", value: runResult.actions },
                     { label: runResult.autoPublish ? "Queued safely" : "Suggested", value: runResult.autoPublish ? runResult.queued : runResult.actions },
                     { label: "Failed", value: runResult.failed },
-                  ].map((item) => (
+                  ]).map((item) => (
                     <div key={item.label} className="rounded-md border p-2">
                       <p className="text-lg font-semibold tabular-nums">{item.value}</p>
                       <p className="text-[10px] leading-tight text-muted-foreground">{item.label}</p>

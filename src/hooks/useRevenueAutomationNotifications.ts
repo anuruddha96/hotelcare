@@ -27,8 +27,39 @@ export interface AutomationNotification {
   currency: string | null;
   severity: string;
   summary: string | null;
+  automation_run_id: string | null;
+  run: AutomationRunSummary | null;
   changes: AutomationChangeRow[];
   read: boolean;
+}
+
+export interface AutomationRunSummary {
+  id: string;
+  mode: string;
+  status: string;
+  started_at: string;
+  finished_at: string | null;
+  dates_evaluated: number;
+  dates_increased: number;
+  dates_decreased: number;
+  dates_held: number;
+  cells_queued: number;
+  cells_published: number;
+  cells_failed: number;
+  failure_reason: string | null;
+}
+
+export interface AutomationDecision {
+  id: string;
+  stay_date: string;
+  direction: string;
+  movement: number;
+  current_price: number | null;
+  target_price: number | null;
+  status: string;
+  decision_reason: string;
+  reason_detail: string | null;
+  cells_simulated: number;
 }
 
 const REVENUE_ROLES = new Set([
@@ -78,6 +109,15 @@ export function useRevenueAutomationNotifications(enabled: boolean) {
       }
 
       const ids = list.map((r) => r.id);
+      const runIds = Array.from(new Set(list.map((r) => r.automation_run_id).filter(Boolean)));
+      const runsById = new Map<string, AutomationRunSummary>();
+      if (runIds.length > 0) {
+        const { data: runs } = await supabase
+          .from('revenue_automation_runs')
+          .select('id, mode, status, started_at, finished_at, dates_evaluated, dates_increased, dates_decreased, dates_held, cells_queued, cells_published, cells_failed, failure_reason')
+          .in('id', runIds);
+        for (const run of (runs ?? []) as AutomationRunSummary[]) runsById.set(run.id, run);
+      }
       const readIds = new Set<string>();
       if (ids.length > 0) {
         const { data: reads } = await supabase
@@ -104,6 +144,8 @@ export function useRevenueAutomationNotifications(enabled: boolean) {
           currency: r.currency ?? null,
           severity: r.severity ?? 'info',
           summary: r.summary ?? null,
+          automation_run_id: r.automation_run_id ?? null,
+          run: r.automation_run_id ? runsById.get(r.automation_run_id) ?? null : null,
           changes: Array.isArray(r.changes) ? (r.changes as AutomationChangeRow[]) : [],
           read: readIds.has(r.id),
         })),
@@ -159,7 +201,18 @@ export function useRevenueAutomationNotifications(enabled: boolean) {
 
   const unreadCount = useMemo(() => items.filter((n) => !n.read).length, [items]);
 
-  return { items, loading, unreadCount, reload: load, markRead, markAllRead };
+  const loadDecisions = useCallback(async (runId: string): Promise<AutomationDecision[]> => {
+    const { data, error } = await supabase
+      .from('revenue_date_decisions')
+      .select('id, stay_date, direction, movement, current_price, target_price, status, decision_reason, reason_detail, cells_simulated')
+      .eq('run_id', runId)
+      .order('stay_date', { ascending: true })
+      .limit(400);
+    if (error) throw error;
+    return (data ?? []) as AutomationDecision[];
+  }, []);
+
+  return { items, loading, unreadCount, reload: load, markRead, markAllRead, loadDecisions };
 }
 
 export function relativeTime(iso: string): string {

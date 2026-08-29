@@ -271,6 +271,7 @@ export default function RevenueHotelDetail() {
   const [bgRefreshing, setBgRefreshing] = useState(false);
   const [bgFailed, setBgFailed] = useState(false);
   const [freshConfirm, setFreshConfirm] = useState<{ minutes: number } | null>(null);
+  const [syncHistoryOpen, setSyncHistoryOpen] = useState(false);
   const [syncStartedAt, setSyncStartedAt] = useState<number | null>(null);
   const autoSyncedHotelRef = useRef<string | null>(null);
   const syncingRef = useRef(false);
@@ -1081,6 +1082,40 @@ export default function RevenueHotelDetail() {
         <TabsContent value="grid" className="space-y-3 min-w-0 overflow-x-hidden">
           {/* Order: headline analytics → price list (the hero) → today's sales
               → pickup charts → everything else behind the tools row. */}
+          <div className="flex flex-wrap items-center gap-2 border-b pb-2 text-xs">
+            <RefreshCw className={`h-3.5 w-3.5 text-muted-foreground ${(syncing || syncWaiting || bgRefreshing || serverRefreshing) ? "animate-spin" : ""}`} />
+            <span className="text-muted-foreground">
+              {syncing || bgRefreshing || serverRefreshing
+                ? syncStep || "Updating from Previo…"
+                : syncWaiting
+                  ? "Refresh queued — this page will update automatically."
+                  : syncError || bgFailed
+                    ? "The last refresh did not complete."
+                    : live.lastSyncAt
+                      ? `Last synced ${new Date(live.lastSyncAt).toLocaleString()}${live.lastSyncBy ? ` by ${live.lastSyncBy}` : ""}`
+                      : "No successful revenue sync recorded yet."}
+            </span>
+            <div className="ml-auto flex items-center gap-1.5">
+              {isTechnicalAdmin && (
+                <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setSyncHistoryOpen(true)}>
+                  <HistoryIcon className="h-3.5 w-3.5" /> History
+                </Button>
+              )}
+              <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => void requestSync()}
+                disabled={syncing || syncWaiting || bgRefreshing || serverRefreshing}>
+                {(syncing || syncWaiting || bgRefreshing || serverRefreshing) && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Sync now
+              </Button>
+            </div>
+          </div>
+
+          <Dialog open={syncHistoryOpen} onOpenChange={setSyncHistoryOpen}>
+            <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
+              <DialogHeader><DialogTitle>Revenue sync history</DialogTitle></DialogHeader>
+              {hotelId && <RevenueSyncHistory hotelId={hotelId} limit={30} />}
+            </DialogContent>
+          </Dialog>
+
           <MonthPerformanceHeader
             today={live.today}
             metrics={live.metrics}

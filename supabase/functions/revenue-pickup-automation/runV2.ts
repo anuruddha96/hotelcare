@@ -132,6 +132,36 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
   if (runError) throw runError;
   const runId: string = runRow.id;
 
+  const notifyRun = async (input: {
+    severity?: "info" | "warning" | "error";
+    summary: string;
+    pickups?: number;
+    actions?: number;
+    pushed?: number;
+    failed?: number;
+  }) => {
+    const { error } = await admin.from("revenue_automation_notifications").insert({
+      hotel_id: rule.hotel_id,
+      organization_slug: rule.organization_slug,
+      notification_type: "engine_v2_run",
+      run_source: deps.isEngine ? "automatic" : "manual",
+      actor_name: deps.isEngine ? "Automatic pricing" : (deps.actorName ?? "Manual run"),
+      actor_user_id: deps.isEngine ? null : deps.actorUserId,
+      rule_id: rule.id,
+      automation_run_id: runId,
+      action_ids: [],
+      pickups_count: input.pickups ?? 0,
+      actions_count: input.actions ?? 0,
+      pushed_count: input.pushed ?? 0,
+      failed_count: input.failed ?? 0,
+      currency: rule.currency ?? "EUR",
+      severity: input.severity ?? "info",
+      summary: input.summary,
+      changes: [],
+    });
+    if (error) console.error("Engine V2 run notification insert failed", error);
+  };
+
   const finish = async (patch: Record<string, unknown>) => {
     await admin.from("revenue_automation_runs").update({
       finished_at: new Date().toISOString(),
@@ -158,7 +188,12 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     const dataAgeHours = freshest > 0 ? (now.getTime() - freshest) / 3_600_000 : null;
     if (dataAgeHours != null && dataAgeHours > 6) {
       await finish({ status: "stopped_stale_data", failure_reason: `Booking data is ${Math.round(dataAgeHours)}h old.` });
-      return { hotel_id: rule.hotel_id, skipped: true, reason: "stale_data", data_age_hours: Math.round(dataAgeHours) };
+      await notifyRun({
+        severity: "warning",
+        failed: 1,
+        summary: `Run stopped safely: booking data is ${Math.round(dataAgeHours)}h old. No prices were sent.`,
+      });
+      return { hotel_id: rule.hotel_id, engine: "v2", mode, run_id: runId, skipped: true, reason: "stale_data", data_age_hours: Math.round(dataAgeHours) };
     }
 
     const ledgerRows = nights.map((n) => ({
@@ -618,6 +653,12 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         last_evaluation_error: "unsafe_prices",
         next_run_at: new Date(now.getTime() + 60 * 60_000).toISOString(),
       }).eq("id", rule.id);
+      await notifyRun({
+        severity: "error",
+        actions: decisions.filter((d) => !d.blocked).length,
+        failed: violations.length,
+        summary: `Run blocked ${violations.length} unsafe price${violations.length === 1 ? "" : "s"} and returned automation to shadow mode. No prices were sent.`,
+      });
       return { hotel_id: rule.hotel_id, engine: "v2", mode, run_id: runId, paused: true, violations: violations.slice(0, 20) };
     }
 
@@ -673,27 +714,20 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       admin, rule, now, mode, sellableRooms, violations: violations.length, budgetHit, liveHours,
     });
 
-    // Shadow runs are silent by design; a live run announces what it did.
-    if (mode === "live" && payload.length > 0 && !dryRun) {
-      await admin.from("revenue_automation_notifications").insert({
-        hotel_id: rule.hotel_id,
-        organization_slug: rule.organization_slug,
-        notification_type: "pickup_automation",
-        run_source: deps.isEngine ? "automatic" : "manual",
-        actor_name: deps.isEngine ? "Automatic pricing" : (deps.actorName ?? "Manual run"),
-        actor_user_id: deps.isEngine ? null : deps.actorUserId,
-        rule_id: rule.id,
-        action_ids: [],
-        pickups_count: increases,
-        actions_count: increases + decreases,
-        pushed_count: payload.length,
-        failed_count: 0,
-        currency: rule.currency ?? "EUR",
-        severity: "info",
-        summary: `${increases} date${increases === 1 ? "" : "s"} priced up, ${decreases} priced down, ${held} left alone`,
-        changes: decisions.filter((d) => !d.blocked).slice(0, 50).map(explainDecision),
-      });
-    }
+    const runStatus = budgetHit ? "Run reached its time limit" : "Run completed";
+    const delivery = mode === "shadow" || dryRun
+      ? `Shadow test only — ${simulatedCells} price cell${simulatedCells === 1 ? " was" : "s were"} simulated and none were sent to Previo.`
+      : payload.length > 0
+        ? `${payload.length} price cell${payload.length === 1 ? " was" : "s were"} queued for Previo.`
+        : "No prices needed to be sent to Previo.";
+    await notifyRun({
+      severity: budgetHit ? "warning" : "info",
+      pickups: decisions.filter((d) => d.reason.includes("pickup")).length,
+      actions: increases + decreases,
+      pushed: mode === "live" && !dryRun ? payload.length : 0,
+      failed: budgetHit ? 1 : 0,
+      summary: `${runStatus}: ${decisions.length} dates checked, ${increases} increased, ${decreases} decreased, ${held} held. ${delivery}`,
+    });
 
     return {
       hotel_id: rule.hotel_id,
@@ -724,6 +758,11 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       last_evaluation_error: message.slice(0, 500),
       next_run_at: new Date(now.getTime() + Math.max(60, Number(rule.evaluation_interval_minutes || 60)) * 60_000).toISOString(),
     }).eq("id", rule.id);
+    await notifyRun({
+      severity: "error",
+      failed: 1,
+      summary: `Run failed: ${message.slice(0, 350)} No prices were sent by this run.`,
+    });
     throw e;
   }
 }
