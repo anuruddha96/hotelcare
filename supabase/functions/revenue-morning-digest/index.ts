@@ -121,7 +121,7 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
 
 
   const list = (nights ?? []) as Night[];
-  const since = new Date(`${addDays(today, -1)}T00:00:00Z`).getTime();
+  const since = Date.parse(windowStart);
   let pickupNights = 0;
   let pickupRevenue = 0;
   const pickupRes = new Set<string>();
