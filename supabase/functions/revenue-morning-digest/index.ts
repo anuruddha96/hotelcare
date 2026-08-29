@@ -162,8 +162,13 @@ function renderHtml(
   today: string,
   d: Awaited<ReturnType<typeof buildDigest>>,
   meta: Meta,
+  currency = "EUR",
 ) {
-  const money = (n: number | null) => (n == null ? "—" : `€${Math.round(n).toLocaleString("en-US")}`);
+  const money = (n: number | null) => {
+    if (n == null) return "—";
+    const v = Math.round(n);
+    return currency === "HUF" ? `${v.toLocaleString("hu-HU").replace(/,/g, " ")} Ft` : `€${v.toLocaleString("en-US")}`;
+  };
   const BLUE = "#1d4ed8";
   const INK = "#0f172a";
   const MUTED = "#64748b";
@@ -262,8 +267,8 @@ function renderHtml(
   </div>`;
 }
 
-function renderText(hotelName: string, today: string, d: Awaited<ReturnType<typeof buildDigest>>, meta: Meta) {
-  const money = (n: number | null) => (n == null ? "-" : `EUR ${Math.round(n).toLocaleString("en-US")}`);
+function renderText(hotelName: string, today: string, d: Awaited<ReturnType<typeof buildDigest>>, meta: Meta, currency = "EUR") {
+  const money = (n: number | null) => (n == null ? "-" : `${currency} ${Math.round(n).toLocaleString("en-US")}`);
   const lines = [
     `${hotelName} — morning revenue summary (${today}, ${meta.asOf} Budapest time)`,
     "",
@@ -413,8 +418,16 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const html = renderHtml(hotelName, now.date, digest, meta);
-      const text = renderText(hotelName, now.date, digest, meta);
+      // Each hotel prices in its own base currency (SLNT = HUF, Ottofiori = EUR).
+      const { data: revSettings } = await admin
+        .from("hotel_revenue_settings")
+        .select("base_currency")
+        .eq("hotel_id", s.hotel_id)
+        .maybeSingle();
+      const currency = ((revSettings?.base_currency as string | undefined) ?? "EUR").toUpperCase();
+
+      const html = renderHtml(hotelName, now.date, digest, meta, currency);
+      const text = renderText(hotelName, now.date, digest, meta, currency);
       const subject = `${hotelName} — morning revenue summary (${now.date})`;
 
       // One message per recipient: nobody sees the other addresses.
