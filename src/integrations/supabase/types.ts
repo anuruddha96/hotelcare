@@ -6438,6 +6438,7 @@ export type Database = {
         Row: {
           cancellations_24h: number
           cap_applied: number | null
+          cells_simulated: number
           created_at: string
           current_price: number | null
           days_out: number
@@ -6462,14 +6463,17 @@ export type Database = {
           rooms_remaining: number | null
           rooms_sold: number | null
           run_id: string
+          simulated_cells: Json | null
           status: string
           stay_date: string
           target_price: number | null
           updated_at: string
+          window_id: string | null
         }
         Insert: {
           cancellations_24h?: number
           cap_applied?: number | null
+          cells_simulated?: number
           created_at?: string
           current_price?: number | null
           days_out: number
@@ -6494,14 +6498,17 @@ export type Database = {
           rooms_remaining?: number | null
           rooms_sold?: number | null
           run_id: string
+          simulated_cells?: Json | null
           status?: string
           stay_date: string
           target_price?: number | null
           updated_at?: string
+          window_id?: string | null
         }
         Update: {
           cancellations_24h?: number
           cap_applied?: number | null
+          cells_simulated?: number
           created_at?: string
           current_price?: number | null
           days_out?: number
@@ -6526,10 +6533,12 @@ export type Database = {
           rooms_remaining?: number | null
           rooms_sold?: number | null
           run_id?: string
+          simulated_cells?: Json | null
           status?: string
           stay_date?: string
           target_price?: number | null
           updated_at?: string
+          window_id?: string | null
         }
         Relationships: []
       }
@@ -7019,6 +7028,7 @@ export type Database = {
           event_surcharge_auto: boolean
           event_surcharge_eur: number
           event_uplift_once_per_day: boolean
+          expected_sellable_rooms: number | null
           far_out_days: number
           far_out_enabled: boolean
           far_out_floor_topup_amount: number
@@ -7116,6 +7126,7 @@ export type Database = {
           event_surcharge_auto?: boolean
           event_surcharge_eur?: number
           event_uplift_once_per_day?: boolean
+          expected_sellable_rooms?: number | null
           far_out_days?: number
           far_out_enabled?: boolean
           far_out_floor_topup_amount?: number
@@ -7213,6 +7224,7 @@ export type Database = {
           event_surcharge_auto?: boolean
           event_surcharge_eur?: number
           event_uplift_once_per_day?: boolean
+          expected_sellable_rooms?: number | null
           far_out_days?: number
           far_out_enabled?: boolean
           far_out_floor_topup_amount?: number
@@ -7465,6 +7477,8 @@ export type Database = {
           created_at: string
           created_by: string | null
           currency: string
+          decision_id: string | null
+          decision_reason: string | null
           hotel_id: string
           id: string
           intent_source: string | null
@@ -7479,6 +7493,7 @@ export type Database = {
           push_error: string | null
           push_run_id: string | null
           pushed_at: string | null
+          reason_detail: string | null
           reconcile_attempts: number
           reconcile_error: string | null
           reconcile_next_at: string | null
@@ -7498,6 +7513,8 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           currency?: string
+          decision_id?: string | null
+          decision_reason?: string | null
           hotel_id: string
           id?: string
           intent_source?: string | null
@@ -7512,6 +7529,7 @@ export type Database = {
           push_error?: string | null
           push_run_id?: string | null
           pushed_at?: string | null
+          reason_detail?: string | null
           reconcile_attempts?: number
           reconcile_error?: string | null
           reconcile_next_at?: string | null
@@ -7531,6 +7549,8 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           currency?: string
+          decision_id?: string | null
+          decision_reason?: string | null
           hotel_id?: string
           id?: string
           intent_source?: string | null
@@ -7545,6 +7565,7 @@ export type Database = {
           push_error?: string | null
           push_run_id?: string | null
           pushed_at?: string | null
+          reason_detail?: string | null
           reconcile_attempts?: number
           reconcile_error?: string | null
           reconcile_next_at?: string | null
@@ -7556,7 +7577,15 @@ export type Database = {
           superseded_by?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "revenue_rate_drafts_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "revenue_date_decisions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       revenue_rate_push_items: {
         Row: {
