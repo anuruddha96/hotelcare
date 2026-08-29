@@ -55,13 +55,18 @@ interface Snap {
 
 async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: string, orgSlug: string | null, today: string) {
   const horizon = addDays(today, 60);
-  const yesterday = `${addDays(today, -1)}T00:00:00Z`;
+  // A true rolling 24 hours — not "since midnight yesterday", which used to
+  // stretch the window to as much as 48 hours and inflate every total.
+  const windowStart = new Date(Date.now() - 24 * 3_600_000).toISOString();
   const [
     { data: nights },
     { data: actions },
     { data: decisions },
     { count: raisedCells },
     { count: loweredCells },
+    { count: raisedDates },
+    { count: loweredDates },
+    { data: runs },
     { data: snaps },
     { data: events },
   ] = await Promise.all([
@@ -72,7 +77,7 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
     admin.from("revenue_pickup_automation_actions")
       .select("stay_date, old_price, new_price, decision_reason, created_at, room_type_name")
       .eq("hotel_id", hotelId)
-      .gte("created_at", yesterday)
+      .gte("created_at", windowStart)
       .order("created_at", { ascending: false })
       .limit(400),
     // Engine V2 decides once per stay date, which is what the email should report.
@@ -80,16 +85,30 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
       .select("stay_date, direction, current_price, target_price, reason_detail")
       .eq("hotel_id", hotelId)
       .eq("status", "published")
-      .gte("created_at", yesterday)
+      .gte("created_at", windowStart)
       .neq("direction", "hold")
+      .order("created_at", { ascending: false })
       .limit(2000),
     // Exact totals, so a capped list can never understate or overstate the day.
     admin.from("revenue_pickup_automation_actions")
       .select("id", { count: "exact", head: true })
-      .eq("hotel_id", hotelId).gte("created_at", yesterday).eq("decision_type", "pickup_increase"),
+      .eq("hotel_id", hotelId).gte("created_at", windowStart).eq("decision_type", "pickup_increase"),
     admin.from("revenue_pickup_automation_actions")
       .select("id", { count: "exact", head: true })
-      .eq("hotel_id", hotelId).gte("created_at", yesterday).eq("decision_type", "no_pickup_markdown"),
+      .eq("hotel_id", hotelId).gte("created_at", windowStart).eq("decision_type", "no_pickup_markdown"),
+    admin.from("revenue_date_decisions")
+      .select("id", { count: "exact", head: true })
+      .eq("hotel_id", hotelId).eq("status", "published")
+      .gte("created_at", windowStart).eq("direction", "increase"),
+    admin.from("revenue_date_decisions")
+      .select("id", { count: "exact", head: true })
+      .eq("hotel_id", hotelId).eq("status", "published")
+      .gte("created_at", windowStart).eq("direction", "decrease"),
+    // Runs are reported separately: a failed run is news, not a silent zero.
+    admin.from("revenue_automation_runs")
+      .select("status, mode, started_at, failure_reason")
+      .eq("hotel_id", hotelId).gte("started_at", windowStart)
+      .order("started_at", { ascending: false }).limit(50),
     admin.from("revenue_daily_snapshots")
       .select("stay_date, captured_date, rooms_sold, rooms_available, occupancy_pct, revenue_eur, adr_eur")
       .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", addDays(today, 30)).limit(2000),
