@@ -140,7 +140,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     pushed?: number;
     failed?: number;
   }) => {
-    const { error } = await admin.from("revenue_automation_notifications").insert({
+    const row: Record<string, unknown> = {
       hotel_id: rule.hotel_id,
       organization_slug: rule.organization_slug,
       notification_type: "engine_v2_run",
@@ -158,9 +158,22 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       severity: input.severity ?? "info",
       summary: input.summary,
       changes: [],
-    });
-    if (error) console.error("Engine V2 run notification insert failed", error);
+    };
+    const { error } = await admin.from("revenue_automation_notifications").insert(row);
+    if (!error) return;
+    console.error("Engine V2 run notification insert failed", error);
+    // Never let a run go silent: retry once without the newer column, then
+    // record the failure on the run itself so the gap is visible in history
+    // instead of only in the function log.
+    const { automation_run_id: _drop, ...legacy } = row;
+    const retry = await admin.from("revenue_automation_notifications").insert(legacy);
+    if (!retry.error) return;
+    console.error("Engine V2 run notification retry failed", retry.error);
+    await admin.from("revenue_automation_runs")
+      .update({ failure_reason: `Run activity item could not be written: ${String(error.message ?? error)}`.slice(0, 500) })
+      .eq("id", runId).is("failure_reason", null);
   };
+
 
   const finish = async (patch: Record<string, unknown>) => {
     await admin.from("revenue_automation_runs").update({
