@@ -198,13 +198,16 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
         stay_date: string; old_price: number | null; new_price: number | null;
         decision_reason: string | null; room_type_name: string | null;
       }[]);
-  const raised = dateDecisions.length > 0
-    ? dateDecisions.filter((d) => d.direction === "increase").length
-    : (raisedCells ?? 0);
-  const lowered = dateDecisions.length > 0
-    ? dateDecisions.filter((d) => d.direction === "decrease").length
-    : (loweredCells ?? 0);
+  // Exact counts come from the database, never from a capped list.
+  const usedDecisions = (raisedDates ?? 0) + (loweredDates ?? 0) > 0 || dateDecisions.length > 0;
+  const raised = usedDecisions ? (raisedDates ?? 0) : (raisedCells ?? 0);
+  const lowered = usedDecisions ? (loweredDates ?? 0) : (loweredCells ?? 0);
+  const changeUnit = usedDecisions ? "date" : "price";
 
+  const runRows = (runs ?? []) as { status: string; mode: string | null; started_at: string; failure_reason: string | null }[];
+  const runsTotal = runRows.length;
+  const runsFailed = runRows.filter((r) => r.status === "failed" || r.status === "timed_out" || r.status === "stopped_stale_data");
+  const shadowRuns = runRows.filter((r) => r.mode === "shadow").length;
 
   const upcoming = ((events ?? []) as {
     title: string; event_date: string; end_date: string | null; category: string | null;
@@ -217,6 +220,11 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
     pickupNights, pickupRevenue, pickupRes: pickupRes.size, topPickup,
     soldToday, availTonight, occTonight, adrTonight, revparTonight,
     occ14, adr14, rev14, attention, changes, raised, lowered, upcoming,
+    changeUnit, runsTotal, shadowRuns,
+    runsFailedCount: runsFailed.length,
+    runFailures: runsFailed.slice(0, 5).map((r) => ({
+      at: r.started_at, status: r.status, reason: r.failure_reason ?? "no reason recorded",
+    })),
   };
 }
 
