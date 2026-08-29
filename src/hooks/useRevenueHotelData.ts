@@ -63,6 +63,14 @@ type CachedRevenuePayload = {
 /** Keep the last verified dataset available during transient reload failures. */
 const revenuePayloadCache = new Map<string, CachedRevenuePayload>();
 
+/**
+ * First paint only needs the months a user actually looks at first. Large
+ * properties (SLNT's merged two-account property publishes ~6 MB of JSON) then
+ * finish the full horizon in the background, so nobody waits on data that is
+ * off screen.
+ */
+const FIRST_WINDOW_DAYS = 90;
+
 export interface RevenueHotelData {
   loading: boolean;
   error: string | null;
