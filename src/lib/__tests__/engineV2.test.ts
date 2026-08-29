@@ -71,10 +71,20 @@ const input = (patch: Partial<DecisionInput> = {}): DecisionInput => ({
 });
 
 describe("the €25 bug can never come back", () => {
-  it("clamps to the €500 safety ceiling, never to a step limit", () => {
-    const d = decideDate(input({ pickup24h: 3, currentPrice: 613, minPrice: 110, maxPrice: 500 }), settings());
+  it("uses the €500 safety ceiling, never a step limit, to cap a rise", () => {
+    const d = decideDate(input({ pickup24h: 3, currentPrice: 492, minPrice: 110, maxPrice: 500 }), settings());
     expect(d.targetPrice).toBe(500);
-    expect(d.targetPrice).toBeGreaterThan(400);
+  });
+
+  it("leaves a price that already sits above the ceiling alone instead of snapping it to €500", () => {
+    const rise = decideDate(input({ pickup24h: 3, currentPrice: 775, minPrice: 110, maxPrice: 500 }), settings());
+    expect(rise.blocked).toBe(true);
+    const cut = decideDate(input({
+      daysOut: 124, occupancyPct: 0, hoursSinceLastPickup: 300, currentPrice: 775, anchorPrice: 150,
+      minPrice: 110, maxPrice: 500,
+    }), settings());
+    expect(cut.movement).toBe(-3);
+    expect(cut.targetPrice).toBe(772);
   });
 
   it("refuses to decide when bounds are missing rather than inventing them", () => {
