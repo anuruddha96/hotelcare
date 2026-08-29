@@ -6158,6 +6158,78 @@ export type Database = {
         }
         Relationships: []
       }
+      revenue_automation_runs: {
+        Row: {
+          cells_failed: number
+          cells_published: number
+          cells_queued: number
+          cells_verified: number
+          created_at: string
+          dates_blocked: number
+          dates_decreased: number
+          dates_evaluated: number
+          dates_held: number
+          dates_increased: number
+          duration_ms: number | null
+          failure_reason: string | null
+          finished_at: string | null
+          hotel_id: string
+          id: string
+          mode: string
+          organization_slug: string
+          rule_id: string | null
+          skip_reasons: Json
+          started_at: string
+          status: string
+        }
+        Insert: {
+          cells_failed?: number
+          cells_published?: number
+          cells_queued?: number
+          cells_verified?: number
+          created_at?: string
+          dates_blocked?: number
+          dates_decreased?: number
+          dates_evaluated?: number
+          dates_held?: number
+          dates_increased?: number
+          duration_ms?: number | null
+          failure_reason?: string | null
+          finished_at?: string | null
+          hotel_id: string
+          id?: string
+          mode?: string
+          organization_slug: string
+          rule_id?: string | null
+          skip_reasons?: Json
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          cells_failed?: number
+          cells_published?: number
+          cells_queued?: number
+          cells_verified?: number
+          created_at?: string
+          dates_blocked?: number
+          dates_decreased?: number
+          dates_evaluated?: number
+          dates_held?: number
+          dates_increased?: number
+          duration_ms?: number | null
+          failure_reason?: string | null
+          finished_at?: string | null
+          hotel_id?: string
+          id?: string
+          mode?: string
+          organization_slug?: string
+          rule_id?: string | null
+          skip_reasons?: Json
+          started_at?: string
+          status?: string
+        }
+        Relationships: []
+      }
       revenue_booking_nights: {
         Row: {
           captured_at: string
@@ -6362,6 +6434,105 @@ export type Database = {
         }
         Relationships: []
       }
+      revenue_date_decisions: {
+        Row: {
+          cancellations_24h: number
+          cap_applied: number | null
+          created_at: string
+          current_price: number | null
+          days_out: number
+          decision_reason: string
+          direction: string
+          event_signal: Json | null
+          hotel_id: string
+          id: string
+          manual_hold_until: string | null
+          market_signal: Json | null
+          movement: number
+          occupancy_pct: number | null
+          organization_slug: string
+          pace_gap_pct: number | null
+          pace_target_pct: number | null
+          pickup_1h: number
+          pickup_24h: number
+          pickup_48h: number
+          pickup_6h: number
+          pickup_7d: number
+          reason_detail: string | null
+          rooms_remaining: number | null
+          rooms_sold: number | null
+          run_id: string
+          status: string
+          stay_date: string
+          target_price: number | null
+          updated_at: string
+        }
+        Insert: {
+          cancellations_24h?: number
+          cap_applied?: number | null
+          created_at?: string
+          current_price?: number | null
+          days_out: number
+          decision_reason?: string
+          direction?: string
+          event_signal?: Json | null
+          hotel_id: string
+          id?: string
+          manual_hold_until?: string | null
+          market_signal?: Json | null
+          movement?: number
+          occupancy_pct?: number | null
+          organization_slug: string
+          pace_gap_pct?: number | null
+          pace_target_pct?: number | null
+          pickup_1h?: number
+          pickup_24h?: number
+          pickup_48h?: number
+          pickup_6h?: number
+          pickup_7d?: number
+          reason_detail?: string | null
+          rooms_remaining?: number | null
+          rooms_sold?: number | null
+          run_id: string
+          status?: string
+          stay_date: string
+          target_price?: number | null
+          updated_at?: string
+        }
+        Update: {
+          cancellations_24h?: number
+          cap_applied?: number | null
+          created_at?: string
+          current_price?: number | null
+          days_out?: number
+          decision_reason?: string
+          direction?: string
+          event_signal?: Json | null
+          hotel_id?: string
+          id?: string
+          manual_hold_until?: string | null
+          market_signal?: Json | null
+          movement?: number
+          occupancy_pct?: number | null
+          organization_slug?: string
+          pace_gap_pct?: number | null
+          pace_target_pct?: number | null
+          pickup_1h?: number
+          pickup_24h?: number
+          pickup_48h?: number
+          pickup_6h?: number
+          pickup_7d?: number
+          reason_detail?: string | null
+          rooms_remaining?: number | null
+          rooms_sold?: number | null
+          run_id?: string
+          status?: string
+          stay_date?: string
+          target_price?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       revenue_demand_ratings: {
         Row: {
           created_at: string
@@ -6485,6 +6656,39 @@ export type Database = {
         }
         Relationships: []
       }
+      revenue_event_applications: {
+        Row: {
+          applied_at: string
+          event_key: string
+          hotel_id: string
+          id: string
+          impact: string
+          organization_slug: string
+          stay_date: string
+          uplift_eur: number
+        }
+        Insert: {
+          applied_at?: string
+          event_key: string
+          hotel_id: string
+          id?: string
+          impact: string
+          organization_slug: string
+          stay_date: string
+          uplift_eur?: number
+        }
+        Update: {
+          applied_at?: string
+          event_key?: string
+          hotel_id?: string
+          id?: string
+          impact?: string
+          organization_slug?: string
+          stay_date?: string
+          uplift_eur?: number
+        }
+        Relationships: []
+      }
       revenue_ingest_runs: {
         Row: {
           duration_ms: number | null
@@ -6570,6 +6774,45 @@ export type Database = {
           },
         ]
       }
+      revenue_pace_targets: {
+        Row: {
+          created_at: string
+          hotel_id: string
+          id: string
+          max_days_out: number
+          min_days_out: number
+          month: number | null
+          organization_slug: string
+          target_occupancy_pct: number
+          updated_at: string
+          weekday: number | null
+        }
+        Insert: {
+          created_at?: string
+          hotel_id: string
+          id?: string
+          max_days_out: number
+          min_days_out: number
+          month?: number | null
+          organization_slug: string
+          target_occupancy_pct: number
+          updated_at?: string
+          weekday?: number | null
+        }
+        Update: {
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          max_days_out?: number
+          min_days_out?: number
+          month?: number | null
+          organization_slug?: string
+          target_occupancy_pct?: number
+          updated_at?: string
+          weekday?: number | null
+        }
+        Relationships: []
+      }
       revenue_pickup_actions: {
         Row: {
           clamped_by_min_adr: boolean
@@ -6625,6 +6868,7 @@ export type Database = {
           cap_applied: number | null
           confirmed_at: string | null
           created_at: string
+          decision_id: string | null
           decision_reason: string | null
           decision_type: string
           hold_until: string | null
@@ -6662,6 +6906,7 @@ export type Database = {
           cap_applied?: number | null
           confirmed_at?: string | null
           created_at?: string
+          decision_id?: string | null
           decision_reason?: string | null
           decision_type?: string
           hold_until?: string | null
@@ -6699,6 +6944,7 @@ export type Database = {
           cap_applied?: number | null
           confirmed_at?: string | null
           created_at?: string
+          decision_id?: string | null
           decision_reason?: string | null
           decision_type?: string
           hold_until?: string | null
@@ -6732,6 +6978,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "revenue_pickup_automation_actions_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "revenue_date_decisions"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "revenue_pickup_automation_actions_push_run_id_fkey"
             columns: ["push_run_id"]
             isOneToOne: false
@@ -6749,8 +7002,10 @@ export type Database = {
       }
       revenue_pickup_automation_rules: {
         Row: {
+          abnormal_pickup_threshold: number
           ai_assist_enabled: boolean
           application_scope: string
+          auto_pause_reason: string | null
           auto_publish: boolean
           booking_window_tiers: Json
           cancellation_markdown_enabled: boolean
@@ -6758,6 +7013,8 @@ export type Database = {
           created_at: string
           created_by: string | null
           currency: string
+          direction_change_hours: number
+          engine_version: number
           evaluation_interval_minutes: number
           event_surcharge_auto: boolean
           event_surcharge_eur: number
@@ -6775,6 +7032,7 @@ export type Database = {
           final_window_days: number
           final_window_enabled: boolean
           future_booking_window_days: number
+          gate_results: Json | null
           high_occupancy_pct: number
           hotel_id: string
           id: string
@@ -6789,19 +7047,24 @@ export type Database = {
           last_run_at: string | null
           last_successful_evaluation_at: string | null
           lead_bands_enabled: boolean
+          live_activated_at: string | null
           long_lead_days: number
           low_occupancy_pct: number
+          manual_hold_hours: number
           manual_markdown_hold_hours: number
           manual_override_ai_enabled: boolean
           manual_override_review_hours: number
           markdown_max_occupancy_pct: number
           market_ceiling_multiple: number
+          market_validation: Json | null
           max_daily_decrease_per_date: number
           max_daily_increase_pct: number
           max_daily_increase_per_date: number
           max_increase_pct: number
           maximum_increase: number | null
+          min_movement_eur: number
           minimum_adr: number | null
+          mode: string
           name: string
           near_term_days: number
           next_run_at: string | null
@@ -6814,9 +7077,11 @@ export type Database = {
           pickup_lookback_hours: number
           positive_pickup_enabled: boolean
           protect_high_occupancy: boolean
+          run_budget_ms: number
           run_timezone: string
           same_hour_window_minutes: number
           second_pickup_surcharge: number
+          shadow_started_at: string | null
           short_window_days: number
           short_window_guard_enabled: boolean
           short_window_min_occupancy_pct: number
@@ -6831,10 +7096,13 @@ export type Database = {
           updated_by: string | null
           version: number
           whole_number_prices: boolean
+          window_rules: Json | null
         }
         Insert: {
+          abnormal_pickup_threshold?: number
           ai_assist_enabled?: boolean
           application_scope?: string
+          auto_pause_reason?: string | null
           auto_publish?: boolean
           booking_window_tiers?: Json
           cancellation_markdown_enabled?: boolean
@@ -6842,6 +7110,8 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           currency?: string
+          direction_change_hours?: number
+          engine_version?: number
           evaluation_interval_minutes?: number
           event_surcharge_auto?: boolean
           event_surcharge_eur?: number
@@ -6859,6 +7129,7 @@ export type Database = {
           final_window_days?: number
           final_window_enabled?: boolean
           future_booking_window_days?: number
+          gate_results?: Json | null
           high_occupancy_pct?: number
           hotel_id: string
           id?: string
@@ -6873,19 +7144,24 @@ export type Database = {
           last_run_at?: string | null
           last_successful_evaluation_at?: string | null
           lead_bands_enabled?: boolean
+          live_activated_at?: string | null
           long_lead_days?: number
           low_occupancy_pct?: number
+          manual_hold_hours?: number
           manual_markdown_hold_hours?: number
           manual_override_ai_enabled?: boolean
           manual_override_review_hours?: number
           markdown_max_occupancy_pct?: number
           market_ceiling_multiple?: number
+          market_validation?: Json | null
           max_daily_decrease_per_date?: number
           max_daily_increase_pct?: number
           max_daily_increase_per_date?: number
           max_increase_pct?: number
           maximum_increase?: number | null
+          min_movement_eur?: number
           minimum_adr?: number | null
+          mode?: string
           name?: string
           near_term_days?: number
           next_run_at?: string | null
@@ -6898,9 +7174,11 @@ export type Database = {
           pickup_lookback_hours?: number
           positive_pickup_enabled?: boolean
           protect_high_occupancy?: boolean
+          run_budget_ms?: number
           run_timezone?: string
           same_hour_window_minutes?: number
           second_pickup_surcharge?: number
+          shadow_started_at?: string | null
           short_window_days?: number
           short_window_guard_enabled?: boolean
           short_window_min_occupancy_pct?: number
@@ -6915,10 +7193,13 @@ export type Database = {
           updated_by?: string | null
           version?: number
           whole_number_prices?: boolean
+          window_rules?: Json | null
         }
         Update: {
+          abnormal_pickup_threshold?: number
           ai_assist_enabled?: boolean
           application_scope?: string
+          auto_pause_reason?: string | null
           auto_publish?: boolean
           booking_window_tiers?: Json
           cancellation_markdown_enabled?: boolean
@@ -6926,6 +7207,8 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           currency?: string
+          direction_change_hours?: number
+          engine_version?: number
           evaluation_interval_minutes?: number
           event_surcharge_auto?: boolean
           event_surcharge_eur?: number
@@ -6943,6 +7226,7 @@ export type Database = {
           final_window_days?: number
           final_window_enabled?: boolean
           future_booking_window_days?: number
+          gate_results?: Json | null
           high_occupancy_pct?: number
           hotel_id?: string
           id?: string
@@ -6957,19 +7241,24 @@ export type Database = {
           last_run_at?: string | null
           last_successful_evaluation_at?: string | null
           lead_bands_enabled?: boolean
+          live_activated_at?: string | null
           long_lead_days?: number
           low_occupancy_pct?: number
+          manual_hold_hours?: number
           manual_markdown_hold_hours?: number
           manual_override_ai_enabled?: boolean
           manual_override_review_hours?: number
           markdown_max_occupancy_pct?: number
           market_ceiling_multiple?: number
+          market_validation?: Json | null
           max_daily_decrease_per_date?: number
           max_daily_increase_pct?: number
           max_daily_increase_per_date?: number
           max_increase_pct?: number
           maximum_increase?: number | null
+          min_movement_eur?: number
           minimum_adr?: number | null
+          mode?: string
           name?: string
           near_term_days?: number
           next_run_at?: string | null
@@ -6982,9 +7271,11 @@ export type Database = {
           pickup_lookback_hours?: number
           positive_pickup_enabled?: boolean
           protect_high_occupancy?: boolean
+          run_budget_ms?: number
           run_timezone?: string
           same_hour_window_minutes?: number
           second_pickup_surcharge?: number
+          shadow_started_at?: string | null
           short_window_days?: number
           short_window_guard_enabled?: boolean
           short_window_min_occupancy_pct?: number
@@ -6999,6 +7290,94 @@ export type Database = {
           updated_by?: string | null
           version?: number
           whole_number_prices?: boolean
+          window_rules?: Json | null
+        }
+        Relationships: []
+      }
+      revenue_pickup_ledger: {
+        Row: {
+          cancelled_at: string | null
+          created_at: string
+          first_seen_at: string
+          hotel_id: string
+          id: string
+          increase_spent_at: string | null
+          organization_slug: string
+          pms_created_at: string | null
+          reservation_id: string
+          room_nights: number
+          stay_date: string
+        }
+        Insert: {
+          cancelled_at?: string | null
+          created_at?: string
+          first_seen_at?: string
+          hotel_id: string
+          id?: string
+          increase_spent_at?: string | null
+          organization_slug: string
+          pms_created_at?: string | null
+          reservation_id: string
+          room_nights?: number
+          stay_date: string
+        }
+        Update: {
+          cancelled_at?: string | null
+          created_at?: string
+          first_seen_at?: string
+          hotel_id?: string
+          id?: string
+          increase_spent_at?: string | null
+          organization_slug?: string
+          pms_created_at?: string | null
+          reservation_id?: string
+          room_nights?: number
+          stay_date?: string
+        }
+        Relationships: []
+      }
+      revenue_price_floors: {
+        Row: {
+          created_at: string
+          hotel_id: string
+          id: string
+          is_global_safety_max: boolean
+          max_price: number | null
+          min_price: number | null
+          notes: string | null
+          occupancy: number | null
+          occupancy_supplement: number | null
+          organization_slug: string
+          room_type_name: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          hotel_id: string
+          id?: string
+          is_global_safety_max?: boolean
+          max_price?: number | null
+          min_price?: number | null
+          notes?: string | null
+          occupancy?: number | null
+          occupancy_supplement?: number | null
+          organization_slug: string
+          room_type_name?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          is_global_safety_max?: boolean
+          max_price?: number | null
+          min_price?: number | null
+          notes?: string | null
+          occupancy?: number | null
+          occupancy_supplement?: number | null
+          organization_slug?: string
+          room_type_name?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
@@ -9648,6 +10027,7 @@ export type Database = {
           scope: string
         }[]
       }
+      revenue_v2_safety_gate: { Args: never; Returns: Json }
       run_auto_signout: { Args: never; Returns: number }
       slnt_venue_visible: {
         Args: { _user_id: string; _venue_id: string }
