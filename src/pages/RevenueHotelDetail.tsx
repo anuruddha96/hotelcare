@@ -1109,6 +1109,10 @@ export default function RevenueHotelDetail() {
             </div>
           </div>
 
+          <AutomationStatusLine hotelId={hotelId ?? null} />
+
+
+
           <Dialog open={syncHistoryOpen} onOpenChange={setSyncHistoryOpen}>
             <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
               <DialogHeader><DialogTitle>Revenue sync history</DialogTitle></DialogHeader>
