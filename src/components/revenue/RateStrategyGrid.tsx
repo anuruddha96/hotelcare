@@ -415,6 +415,16 @@ export default function RateStrategyGrid({
     return Math.max(MIN_MONTH_CELL_W, Math.min(ZOOM_CELL_W, Math.floor(avail / daysInMonth)));
   }, [monthFilter, viewportW, LEFT_W, ZOOM_CELL_W]);
 
+  /**
+   * Font scale follows the actual column width (zoom and month-fit both
+   * change CELL_W), so zooming out shrinks the text with the cells instead
+   * of letting fixed pixel sizes overlap the neighbouring column.
+   */
+  const fontScale = Math.min(1.15, Math.max(0.55, CELL_W / BASE_CELL_W));
+  const fz = (px: number) => Math.max(7, Math.round(px * fontScale));
+
+
+
 
   /** Drag the divider to give the room-type names more or less room. */
   const startResize = useCallback((startX: number, startW: number) => {
@@ -2611,7 +2621,8 @@ export default function RateStrategyGrid({
           <div
             ref={scrollRef}
             onScroll={onScroll}
-            className={`relative overflow-auto overscroll-x-contain text-[11px] sm:text-xs ${dragging || cellDragging ? "select-none" : ""}`}
+            className={`relative overflow-auto overscroll-x-contain ${dragging || cellDragging ? "select-none" : ""}`}
+            style={{ fontSize: fz(11) }}
             style={{ maxHeight: expanded ? "calc(100vh - 190px)" : isMobile ? "68vh" : "72vh", WebkitOverflowScrolling: "touch", touchAction: cellDragging ? "none" : undefined } as React.CSSProperties}
 
           >
@@ -2716,10 +2727,10 @@ export default function RateStrategyGrid({
                         style={{ width: CELL_W, height: DAY_H }}
                       >
 
-                        <span className={`text-[10px] ${isWeekendTrading(d) ? "font-bold text-foreground" : "text-muted-foreground"}`}>
+                        <span className={`${isWeekendTrading(d) ? "font-bold text-foreground" : "text-muted-foreground"}`} style={{ fontSize: fz(10) }}>
                           {formatWeekday(d)}
                         </span>
-                        <span className="font-medium">{formatDay(d)}</span>
+                        <span className="font-medium" style={{ fontSize: fz(12) }}>{formatDay(d)}</span>
                         {dayOrigins.length > 0 && (
                           <span
                             className="absolute bottom-0 left-1/2 flex h-3 w-6 -translate-x-1/2 cursor-pointer items-end justify-center gap-[2px]"
@@ -2851,14 +2862,14 @@ export default function RateStrategyGrid({
                           ? `${d} · pickup not available yet`
                           : `${d} · net ${pickup > 0 ? "+" : ""}${pickup} (${tone.label}) — ${m?.newBookings ?? 0} in, ${lost} out, counted over ${pickupWindowLabel(pickupWindowDays).toLowerCase()}${latestLabel ? ` · last movement ${latestLabel}` : ""}${isAutomationWindow ? "" : " · the automation reacts to the last 48 hours, so this window can disagree with the purple dots"}`}
                         className={`flex flex-col items-center justify-center shrink-0 font-semibold tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)}`}
-                        style={{ width: CELL_W, contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
+                        style={{ width: CELL_W, fontSize: fz(11), contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
                       >
                         <span>{pickup === null || pickup === 0 ? "·" : `${pickup > 0 ? "+" : ""}${pickup}`}</span>
                         {lost > 0 && (
-                          <span className="text-[8px] font-medium text-destructive">-{lost} lost</span>
+                          <span className="font-medium text-destructive" style={{ fontSize: fz(8) }}>-{lost} lost</span>
                         )}
                         {lost === 0 && latestLabel && pickup !== 0 && (
-                          <span className="max-w-[56px] truncate text-[8px] font-normal opacity-80">{latestLabel}</span>
+                          <span className="max-w-[56px] truncate font-normal opacity-80" style={{ fontSize: fz(8) }}>{latestLabel}</span>
                         )}
                       </div>
                     );
@@ -2887,7 +2898,7 @@ export default function RateStrategyGrid({
                         key={d}
                         title={`${m?.roomsSold ?? 0} / ${m?.roomsAvailable ?? 0} rooms · ${tone.label}`}
                         className={`flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)}`}
-                        style={{ width: CELL_W, contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
+                        style={{ width: CELL_W, fontSize: fz(11), contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px 24px` }}
                       >
                         {pct ? `${Math.round(pct)}%` : "—"}
                       </div>
@@ -2917,7 +2928,7 @@ export default function RateStrategyGrid({
                         key={d}
                         title={`${left} of ${units} rooms left to sell on ${d}`}
                         className={`flex flex-col items-center justify-center shrink-0 tabular-nums ${leftTone(left, units)} ${dayBg(d, i)} ${dayEdge(d)}`}
-                        style={{ width: CELL_W }}
+                        style={{ width: CELL_W, fontSize: fz(11) }}
                       >
                         <span className="leading-none">{units ? (left === 0 ? "Sold out" : left) : "—"}</span>
                         {units > 0 && (
@@ -2961,7 +2972,8 @@ export default function RateStrategyGrid({
                             min={1}
                             max={30}
                             inputMode="numeric"
-                            className="h-5 w-[85%] rounded border bg-background px-1 text-center text-[10px] tabular-nums"
+                            className="h-5 w-[85%] rounded border bg-background px-1 text-center tabular-nums"
+                            style={{ fontSize: fz(10) }}
                             value={restrictionEdit.value}
                             onChange={(e) => setRestrictionEdit({ key, value: e.target.value })}
                             onBlur={(e) => commitMinStay(d, e.target.value)}
@@ -2992,12 +3004,12 @@ export default function RateStrategyGrid({
                         title={nights && nights > 1
                           ? `${d} · minimum ${nights} nights${canEditRates ? " — tap to change, drag for a range" : ""}`
                           : `${d} · no minimum stay${canEditRates ? " — tap to set one, drag for a range" : ""}`}
-                        className={`flex items-center justify-center shrink-0 tabular-nums text-[10px] ${
+                        className={`flex items-center justify-center shrink-0 tabular-nums ${
                           nights && nights > 1 ? "font-semibold text-amber-700 dark:text-amber-400" : "text-muted-foreground"
                         } ${dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:bg-accent/60" : ""} ${
                           inDrag ? "ring-1 ring-inset ring-primary bg-primary/15" : ""
                         }`}
-                        style={{ width: CELL_W, touchAction: canEditRates ? "pan-y" : undefined }}
+                        style={{ width: CELL_W, fontSize: fz(10), touchAction: canEditRates ? "pan-y" : undefined }}
                       >
                         {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : nights && nights > 1 ? `${nights}N` : "·"}
                       </button>
@@ -3033,8 +3045,8 @@ export default function RateStrategyGrid({
                         title={evs.length
                           ? `${demandLine}\n\nEvents:\n${evs.map(e => `• ${e.title} (${e.impact} impact)`).join("\n")}\n\nClick for details`
                           : `${demandLine}\n\nClick for details`}
-                        className={`relative flex items-center justify-center shrink-0 text-[10px] font-semibold hover:ring-1 hover:ring-inset hover:ring-primary/50 ${dem ? demandTone(dem.band) : `text-muted-foreground ${dayBg(d, i)}`} ${dayEdge(d)}`}
-                        style={{ width: CELL_W, height: "100%" }}
+                        className={`relative flex items-center justify-center shrink-0 font-semibold hover:ring-1 hover:ring-inset hover:ring-primary/50 ${dem ? demandTone(dem.band) : `text-muted-foreground ${dayBg(d, i)}`} ${dayEdge(d)}`}
+                        style={{ width: CELL_W, height: "100%", fontSize: fz(10) }}
                       >
                         {dem ? DEMAND_SHORT[dem.band] : "·"}
                         {!showEventBand && evs.length > 0 && (
@@ -3118,17 +3130,17 @@ export default function RateStrategyGrid({
                       scrolling date cells read through it. */}
                   <div
                     className={`sticky left-0 z-20 flex items-center border-r px-2 ${row.kind === "group" ? "bg-muted font-semibold" : row.kind === "rate" ? "bg-card text-muted-foreground" : "bg-muted border-l-2 border-l-primary font-semibold text-foreground"}`}
-                    style={{ width: LEFT_W }}
+                    style={{ width: LEFT_W, fontSize: fz(11) }}
 
                   >
                     {railed ? (
-                      <span className="w-full truncate text-center text-[10px]" title={row.label}>
+                      <span className="w-full truncate text-center" style={{ fontSize: fz(10) }} title={row.label}>
                         {row.kind === "rate" ? `${row.occ}g` : railLabel(row.label)}
                       </span>
                     ) : row.kind === "group" ? (
                       <span className="leading-tight line-clamp-2 break-words" title={row.label}>
                         {row.label}
-                        <span className="ml-1 text-[10px] font-normal text-muted-foreground">{row.note}</span>
+                        <span className="ml-1 font-normal text-muted-foreground" style={{ fontSize: fz(10) }}>{row.note}</span>
                       </span>
                     ) : (
                       <span className="truncate" title={row.label}>{row.label}</span>
@@ -3201,14 +3213,14 @@ export default function RateStrategyGrid({
                             : left === 0
                               ? `${row.typeName} · sold out on ${d}${closedAt != null ? ` — closed at ${eur(closedAt)} for ${topOcc} ${topOcc === 1 ? "guest" : "guests"}${frozen ? ` (captured ${formatWhen(frozen.capturedAt)})` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}`
                               : `${row.typeName} · ${left} of ${units} left on ${d} — rooms to sell can only be changed in Previo`}
-                          className={`flex flex-col items-center justify-center leading-tight shrink-0 text-[10px] tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
-                          style={{ width: CELL_W }}
+                          className={`flex flex-col items-center justify-center leading-tight shrink-0 tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
+                          style={{ width: CELL_W, fontSize: fz(10) }}
                         >
                           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : left === undefined ? (canEditRates ? "·" : "") : left === 0 ? (
                             <>
                               <span>Sold out</span>
                               {closedAt != null && (
-                                <span className="text-[9px] font-semibold opacity-80">{priceLabel(closedAt)}</span>
+                                <span className="font-semibold opacity-80" style={{ fontSize: fz(9) }}>{priceLabel(closedAt)}</span>
                               )}
                             </>
                           ) : `${left} left`}
@@ -3225,7 +3237,7 @@ export default function RateStrategyGrid({
                           key={d}
                           title={value === null ? `${d} · no data` : `${d} · ${eur(value)}`}
                           className={`flex items-center justify-center shrink-0 tabular-nums ${dayEdge(d)}`}
-                          style={{ width: CELL_W }}
+                          style={{ width: CELL_W, fontSize: fz(11) }}
                         >
                           {value === null ? eur(null) : priceLabel(value)}
                         </div>
@@ -3375,7 +3387,7 @@ export default function RateStrategyGrid({
                            bubble can't fight it for the same pixels. */
                         aria-label={inverted ? `${d} · ${row.roomTypeName} · ${row.occ} guests · ${eur(shown ?? null)} · below a lower guest count, will be lifted` : soldOut ? `${d} · ${row.roomTypeName} · sold out · price still editable` : `${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
                         className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
-                        style={{ width: CELL_W }}
+                         style={{ width: CELL_W, fontSize: fz(11) }}
 
                       >
                         {shown === undefined ? (
