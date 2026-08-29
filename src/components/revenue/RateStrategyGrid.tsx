@@ -2723,7 +2723,7 @@ export default function RateStrategyGrid({
                         }}
                         title={canEditRates ? (multiMode ? `Tap to add ${d} to the selection` : `Change every price on ${d}`) : d}
                         className={`group relative flex flex-col items-center justify-center shrink-0 select-none ${multiMode || isMobile ? "" : "touch-none"} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : dayBg(d, i)} ${dayEdge(d)} ${d === today ? "ring-1 ring-inset ring-primary/60" : ""} ${canEditRates ? "hover:bg-primary/10 cursor-pointer" : ""}`}
-                        style={{ width: CELL_W, height: DAY_H }}
+                        style={{ width: CELL_W, height: DAY_H , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${DAY_H}px` }}
                       >
 
                         <span className={`${isWeekendTrading(d) ? "font-bold text-foreground" : "text-muted-foreground"}`} style={{ fontSize: fz(10) }}>
@@ -2927,7 +2927,7 @@ export default function RateStrategyGrid({
                         key={d}
                         title={`${left} of ${units} rooms left to sell on ${d}`}
                         className={`flex flex-col items-center justify-center shrink-0 tabular-nums ${leftTone(left, units)} ${dayBg(d, i)} ${dayEdge(d)}`}
-                        style={{ width: CELL_W, fontSize: fz(11) }}
+                        style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                       >
                         <span className="leading-none">{units ? (left === 0 ? "Sold out" : left) : "—"}</span>
                         {units > 0 && (
@@ -3045,7 +3045,7 @@ export default function RateStrategyGrid({
                           ? `${demandLine}\n\nEvents:\n${evs.map(e => `• ${e.title} (${e.impact} impact)`).join("\n")}\n\nClick for details`
                           : `${demandLine}\n\nClick for details`}
                         className={`relative flex items-center justify-center shrink-0 font-semibold hover:ring-1 hover:ring-inset hover:ring-primary/50 ${dem ? demandTone(dem.band) : `text-muted-foreground ${dayBg(d, i)}`} ${dayEdge(d)}`}
-                        style={{ width: CELL_W, height: "100%", fontSize: fz(10) }}
+                        style={{ width: CELL_W, height: "100%", fontSize: fz(10) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                       >
                         {dem ? DEMAND_SHORT[dem.band] : "·"}
                         {!showEventBand && evs.length > 0 && (
@@ -3213,7 +3213,7 @@ export default function RateStrategyGrid({
                               ? `${row.typeName} · sold out on ${d}${closedAt != null ? ` — closed at ${eur(closedAt)} for ${topOcc} ${topOcc === 1 ? "guest" : "guests"}${frozen ? ` (captured ${formatWhen(frozen.capturedAt)})` : ""}` : ""}${liveNow != null ? ` · current rate ${eur(liveNow)}` : ""}`
                               : `${row.typeName} · ${left} of ${units} left on ${d} — rooms to sell can only be changed in Previo`}
                           className={`flex flex-col items-center justify-center leading-tight shrink-0 tabular-nums ${left === undefined ? "text-muted-foreground" : leftTone(left, units)} ${dayEdge(d)}`}
-                          style={{ width: CELL_W, fontSize: fz(10) }}
+                          style={{ width: CELL_W, fontSize: fz(10) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                         >
                           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : left === undefined ? (canEditRates ? "·" : "") : left === 0 ? (
                             <>
@@ -3236,7 +3236,7 @@ export default function RateStrategyGrid({
                           key={d}
                           title={value === null ? `${d} · no data` : `${d} · ${eur(value)}`}
                           className={`flex items-center justify-center shrink-0 tabular-nums ${dayEdge(d)}`}
-                          style={{ width: CELL_W, fontSize: fz(11) }}
+                          style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
                         >
                           {value === null ? eur(null) : priceLabel(value)}
                         </div>
@@ -3386,7 +3386,7 @@ export default function RateStrategyGrid({
                            bubble can't fight it for the same pixels. */
                         aria-label={inverted ? `${d} · ${row.roomTypeName} · ${row.occ} guests · ${eur(shown ?? null)} · below a lower guest count, will be lifted` : soldOut ? `${d} · ${row.roomTypeName} · sold out · price still editable` : `${d} · ${row.roomTypeName} · ${row.occ} guests · ${shown === undefined ? "no price" : eur(shown)} · ${tone.label} · ${originLabel}`}
                         className={`relative flex items-center justify-center shrink-0 tabular-nums ${tone.className || dayBg(d, i)} ${dayEdge(d)} ${canEditRates ? "hover:ring-1 hover:ring-inset hover:ring-primary/50" : "cursor-default"} ${soldOut ? "italic opacity-80" : ""} ${draft !== undefined ? "underline decoration-dotted underline-offset-2" : ""} ${cellOrigin?.origin === "different" ? "ring-1 ring-inset ring-destructive/70" : ""} ${inverted ? "ring-1 ring-inset ring-amber-500" : ""} ${picked ? "bg-primary/25 ring-1 ring-inset ring-primary" : ""} ${flashKind === "team" ? "animate-rate-flash" : flashKind === "confirm" ? "animate-rate-confirm" : ""} transition-colors`}
-                         style={{ width: CELL_W, fontSize: fz(11) }}
+                         style={{ width: CELL_W, fontSize: fz(11) , contentVisibility: "auto", containIntrinsicSize: `${CELL_W}px ${ROW_H}px` }}
 
                       >
                         {shown === undefined ? (
