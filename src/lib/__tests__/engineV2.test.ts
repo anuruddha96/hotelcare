@@ -382,7 +382,13 @@ describe("automatic activation, watchdog and supervised caps", () => {
   });
 
   it("a markdown flood keeps the engine in shadow", () => {
-    expect(evaluateGates({ ...clean, datesIncreased: 2, datesDecreased: 200 }).failing).toContain("markdown_share_sane");
+    expect(evaluateGates({ ...clean, datesEvaluated: 219, datesIncreased: 2, datesDecreased: 500 }).failing)
+      .toContain("markdown_share_sane");
+  });
+
+  it("a quiet far-out calendar drifting down does not block activation", () => {
+    expect(evaluateGates({ ...clean, datesEvaluated: 219, datesIncreased: 11, datesDecreased: 56 }).failing)
+      .not.toContain("markdown_share_sane");
   });
 
   const quiet = {
