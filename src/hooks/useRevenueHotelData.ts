@@ -105,9 +105,10 @@ export function useRevenueHotelData(
   pickupWindowDays = 1,
 ): RevenueHotelData {
   const [loading, setLoading] = useState(true);
+  const [extending, setExtending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cacheKey = hotelId && organizationSlug ? `${organizationSlug}:${hotelId}` : null;
-  const initialCache = cacheKey ? revenuePayloadCache.get(cacheKey) : undefined;
+  const initialCache = cacheKey ? readAnyCache(cacheKey) : undefined;
   const [payload, setPayload] = useState<PublishedRevenuePayload | null>(initialCache?.payload ?? null);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(initialCache?.lastSyncAt ?? null);
   const [lastSyncBy, setLastSyncBy] = useState<string | null>(initialCache?.lastSyncBy ?? null);
@@ -122,26 +123,30 @@ export function useRevenueHotelData(
     if (!hotelId || !organizationSlug || !cacheKey) { setLoading(false); return; }
     if (inFlightRef.current) return inFlightRef.current;
     const requestVersion = ++requestVersionRef.current;
-    const request = (async () => {
-    if (!payloadRef.current) setLoading(true);
-    setError(null);
-    try {
-      // SLNT's combined two-account payload is several megabytes. Mobile
-      // connections can occasionally drop that first response even though the
-      // completed dataset is healthy. Retry only transport/5xx failures; auth,
-      // access and missing-data errors remain terminal.
+
+    // SLNT's combined two-account payload is several megabytes. Mobile
+    // connections can occasionally drop that first response even though the
+    // completed dataset is healthy. Retry only transport/5xx failures; auth,
+    // access and missing-data errors remain terminal.
+    const fetchStage = async (windowDays: number | null) => {
       const { data } = await retryTransient(async () => {
-        const result = await (supabase as any).rpc("get_revenue_published_payload", {
-          _hotel_id: hotelId,
-        });
+        const result = windowDays === null
+          ? await (supabase as any).rpc("get_revenue_published_payload", { _hotel_id: hotelId })
+          : await (supabase as any).rpc("get_revenue_published_payload_window", {
+              _hotel_id: hotelId,
+              _horizon_days: windowDays,
+            });
         if (result.error) throw result.error;
         return result;
       }, { attempts: 3, baseDelayMs: 500, maxDelayMs: 1800, timeoutMs: 30000 });
-      if (requestVersion !== requestVersionRef.current) return;
       const row = Array.isArray(data) ? data[0] : data;
       if (!row?.payload) throw new Error("No completed Revenue dataset is available yet");
+      return row;
+    };
+
+    const apply = (row: any, windowed: boolean) => {
       const next = row.payload as PublishedRevenuePayload;
-      const completedPayload = {
+      const completedPayload: PublishedRevenuePayload = {
         ...next,
         roomTypes: (next.roomTypes ?? []).map((room) => ({
           ...room,
@@ -155,10 +160,10 @@ export function useRevenueHotelData(
         soldOutPrices: next.soldOutPrices ?? [],
         settings: next.settings ?? {},
       };
-      payloadRef.current = completedPayload;
-      setPayload(completedPayload);
       const nextSyncAt = row.sync_completed_at ?? null;
       const nextSyncBy = row.sync_completed_by_name ?? null;
+      payloadRef.current = completedPayload;
+      setPayload(completedPayload);
       setLastSyncAt(nextSyncAt);
       setLastSyncBy(nextSyncBy);
       revenuePayloadCache.set(cacheKey, {
@@ -166,18 +171,49 @@ export function useRevenueHotelData(
         lastSyncAt: nextSyncAt,
         lastSyncBy: nextSyncBy,
       });
-    } catch (e) {
-      if (requestVersion !== requestVersionRef.current) return;
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      if (requestVersion === requestVersionRef.current) setLoading(false);
-    }
+      // Only the small first window goes to per-tab storage: it is what makes a
+      // reload paint instantly, and it stays inside the storage quota.
+      if (windowed) {
+        writeCachedRevenuePayload<PublishedRevenuePayload>(cacheKey, {
+          payload: completedPayload,
+          lastSyncAt: nextSyncAt,
+          lastSyncBy: nextSyncBy,
+        });
+      }
+    };
+
+    const request = (async () => {
+      const hadData = !!payloadRef.current;
+      if (!hadData) setLoading(true);
+      setError(null);
+      const wantsWindow = !hadData && horizonDays > FIRST_WINDOW_DAYS;
+      try {
+        if (wantsWindow) {
+          const first = await fetchStage(FIRST_WINDOW_DAYS);
+          if (requestVersion !== requestVersionRef.current) return;
+          apply(first, true);
+          setLoading(false);
+          setExtending(true);
+        }
+        const full = await fetchStage(null);
+        if (requestVersion !== requestVersionRef.current) return;
+        apply(full, false);
+      } catch (e) {
+        if (requestVersion !== requestVersionRef.current) return;
+        // A background failure must never blank a calendar that already paints.
+        if (!payloadRef.current) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (requestVersion === requestVersionRef.current) {
+          setLoading(false);
+          setExtending(false);
+        }
+      }
     })();
     inFlightRef.current = request;
     try { await request; } finally {
       if (inFlightRef.current === request) inFlightRef.current = null;
     }
-  }, [hotelId, organizationSlug, cacheKey]);
+  }, [hotelId, organizationSlug, cacheKey, horizonDays]);
 
   /** A full re-read: used after a sync or a price push. */
   const reload = useCallback(async () => { await runLoad(); }, [runLoad]);
@@ -187,7 +223,7 @@ export function useRevenueHotelData(
     // must keep the current calendar mounted (no blocking spinner).
     requestVersionRef.current += 1;
     inFlightRef.current = null;
-    const cached = cacheKey ? revenuePayloadCache.get(cacheKey) : undefined;
+    const cached = cacheKey ? readAnyCache(cacheKey) : undefined;
     payloadRef.current = cached?.payload ?? null;
     setPayload(cached?.payload ?? null);
     setLastSyncAt(cached?.lastSyncAt ?? null);
