@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { clearTabHotels, getTabHotel, setTabHotel, withTabHotel } from '@/lib/tabHotel';
+import { clearCachedRevenuePayloads } from '@/lib/revenuePayloadCache';
 import { retryTransient } from '@/lib/transientRetry';
 
 interface Profile {
