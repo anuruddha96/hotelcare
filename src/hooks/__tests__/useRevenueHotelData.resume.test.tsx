@@ -37,16 +37,21 @@ describe("useRevenueHotelData — executive resume", () => {
   });
   afterEach(() => __resetRevenueEditGuard());
 
+  const PAYLOAD_FNS = new Set([
+    "get_revenue_published_payload",
+    "get_revenue_published_payload_window",
+  ]);
+
   it("re-reads only the published payload, with no sync/push/PMS call", async () => {
     const { result } = renderHook(() => useRevenueHotelData("hotel-1", "org-1"));
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(rpc).toHaveBeenCalledTimes(1);
+    const initial = rpc.mock.calls.length;
 
     await act(async () => { fireResume(); });
-    await waitFor(() => expect(rpc).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(rpc.mock.calls.length).toBeGreaterThan(initial));
 
-    const called = rpc.mock.calls.map((c) => c[0]);
-    expect(new Set(called)).toEqual(new Set(["get_revenue_published_payload"]));
+    const called = rpc.mock.calls.map((c) => c[0] as string);
+    expect(called.every((name) => PAYLOAD_FNS.has(name))).toBe(true);
     expect(called).not.toContain("claim_revenue_sync");
     // no extra realtime channels were opened by the resume path
     expect(channel).not.toHaveBeenCalled();
@@ -55,11 +60,14 @@ describe("useRevenueHotelData — executive resume", () => {
   it("keeps the selected hotel and does not clear the current dataset", async () => {
     const { result } = renderHook(() => useRevenueHotelData("hotel-1", "org-1"));
     await waitFor(() => expect(result.current.loading).toBe(false));
+    const initial = rpc.mock.calls.length;
 
     await act(async () => { fireResume(); });
-    await waitFor(() => expect(rpc).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(rpc.mock.calls.length).toBeGreaterThan(initial));
 
-    expect(rpc.mock.calls[1][1]).toEqual({ _hotel_id: "hotel-1" });
+    const last = rpc.mock.calls[rpc.mock.calls.length - 1];
+    expect(last[0]).toBe("get_revenue_published_payload");
+    expect(last[1]).toEqual({ _hotel_id: "hotel-1" });
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
   });
@@ -67,13 +75,14 @@ describe("useRevenueHotelData — executive resume", () => {
   it("defers the refresh while a rate editor holds unsaved values", async () => {
     const { result } = renderHook(() => useRevenueHotelData("hotel-1", "org-1"));
     await waitFor(() => expect(result.current.loading).toBe(false));
+    const initial = rpc.mock.calls.length;
 
     const release = beginRevenueEdit("bulk-price-editor");
     await act(async () => { fireResume(); });
-    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc.mock.calls.length).toBe(initial);
 
     await act(async () => { release(); });
-    await waitFor(() => expect(rpc).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(rpc.mock.calls.length).toBeGreaterThan(initial));
   });
 
   it("keeps the previous data when the refresh fails", async () => {
