@@ -2582,6 +2582,32 @@ export default function RateStrategyGrid({
           </div>
         ) : (
           <div className="relative">
+          {/* Month chips — jump straight to one month, fitted to the screen. */}
+          {monthChips.length > 1 && (
+            <div className="flex flex-wrap items-center gap-1 border-b px-2 py-1.5">
+              <Button
+                size="sm"
+                variant={monthFilter ? "ghost" : "secondary"}
+                className="h-7 px-2 text-[11px]"
+                onClick={() => selectMonth(null)}
+              >
+                All
+              </Button>
+              {monthChips.map((m) => (
+                <Button
+                  key={m.value}
+                  size="sm"
+                  variant={monthFilter === m.value ? "default" : "ghost"}
+                  className="h-7 px-2 text-[11px]"
+                  title={`Show only ${m.label}`}
+                  onClick={() => selectMonth(monthFilter === m.value ? null : m.value)}
+                >
+                  {m.label}
+                </Button>
+              ))}
+            </div>
+          )}
+
           <div
             ref={scrollRef}
             onScroll={onScroll}
