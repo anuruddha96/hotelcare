@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.revenue_v2_safety_gate() FROM authenticated;

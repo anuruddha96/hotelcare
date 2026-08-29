@@ -49,6 +49,8 @@ import {
   farOutFloorTopUpText,
 } from "../_shared/pricingRules.ts";
 import { enforceRateSafety, loadGuestStep, repairLadder } from "../_shared/rateSafety.ts";
+import { runEngineV2 } from "./runV2.ts";
+
 
 
 
@@ -742,6 +744,21 @@ Deno.serve(async (req) => {
       let heldSoldOut = 0;
       const today = new Date().toISOString().slice(0, 10);
       const intervalMinutes = Math.max(60, Number(rule.evaluation_interval_minutes || 60));
+
+      // Engine V2: same function, same lock, same publisher — a different and
+      // far simpler decision path (one decision per stay date, target based).
+      // Properties still on version 1 fall through to the legacy passes below.
+      if (Number((rule as any).engine_version ?? 1) >= 2) {
+        const v2 = await runEngineV2({
+          admin, rule, isEngine, actorName, actorUserId, dryRun,
+          pagedAll, localParts, loadTypeAvailability,
+          queue: (payload, priority) => queueIntents(admin, rule, payload, priority),
+        });
+        summary.push(v2);
+        continue;
+      }
+
+
 
       // Fresh reservations before any decision. The probe mode of the revenue
       // sync pulls new/changed bookings and cancellations only — it does not

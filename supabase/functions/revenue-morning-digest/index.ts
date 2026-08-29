@@ -55,15 +55,41 @@ interface Snap {
 
 async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: string, orgSlug: string | null, today: string) {
   const horizon = addDays(today, 60);
-  const [{ data: nights }, { data: actions }, { data: snaps }, { data: events }] = await Promise.all([
+  const yesterday = `${addDays(today, -1)}T00:00:00Z`;
+  const [
+    { data: nights },
+    { data: actions },
+    { data: decisions },
+    { count: raisedCells },
+    { count: loweredCells },
+    { data: snaps },
+    { data: events },
+  ] = await Promise.all([
     admin.from("revenue_booking_nights")
       .select("stay_date, res_id, nightly_price_eur, created_at_pms")
       .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizon).limit(20000),
+    // A readable sample for the "what changed" list — never the source of the totals.
     admin.from("revenue_pickup_automation_actions")
       .select("stay_date, old_price, new_price, decision_reason, created_at, room_type_name")
       .eq("hotel_id", hotelId)
-      .gte("created_at", `${addDays(today, -1)}T00:00:00Z`)
+      .gte("created_at", yesterday)
+      .order("created_at", { ascending: false })
       .limit(400),
+    // Engine V2 decides once per stay date, which is what the email should report.
+    admin.from("revenue_date_decisions")
+      .select("stay_date, direction, current_price, target_price, reason_detail")
+      .eq("hotel_id", hotelId)
+      .eq("status", "published")
+      .gte("created_at", yesterday)
+      .neq("direction", "hold")
+      .limit(2000),
+    // Exact totals, so a capped list can never understate or overstate the day.
+    admin.from("revenue_pickup_automation_actions")
+      .select("id", { count: "exact", head: true })
+      .eq("hotel_id", hotelId).gte("created_at", yesterday).eq("decision_type", "pickup_increase"),
+    admin.from("revenue_pickup_automation_actions")
+      .select("id", { count: "exact", head: true })
+      .eq("hotel_id", hotelId).gte("created_at", yesterday).eq("decision_type", "no_pickup_markdown"),
     admin.from("revenue_daily_snapshots")
       .select("stay_date, captured_date, rooms_sold, rooms_available, occupancy_pct, revenue_eur, adr_eur")
       .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", addDays(today, 30)).limit(2000),
@@ -73,6 +99,7 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
       .gte("event_date", today).lte("event_date", addDays(today, 45))
       .order("event_date", { ascending: true }).limit(12),
   ]);
+
 
   const list = (nights ?? []) as Night[];
   const since = new Date(`${addDays(today, -1)}T00:00:00Z`).getTime();
@@ -134,12 +161,31 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
     .filter((s) => s.occ != null && s.occ < 60)
     .slice(0, 14);
 
-  const changes = (actions ?? []) as {
-    stay_date: string; old_price: number | null; new_price: number | null;
-    decision_reason: string | null; room_type_name: string | null;
+  // Prefer stay-date decisions (engine V2): "18 dates priced up" is what a
+  // revenue manager acts on, and the count is exact rather than page-capped.
+  const dateDecisions = (decisions ?? []) as {
+    stay_date: string; direction: string; current_price: number | null;
+    target_price: number | null; reason_detail: string | null;
   }[];
-  const raised = changes.filter((c) => Number(c.new_price ?? 0) > Number(c.old_price ?? 0)).length;
-  const lowered = changes.filter((c) => Number(c.new_price ?? 0) < Number(c.old_price ?? 0)).length;
+  const changes = dateDecisions.length > 0
+    ? dateDecisions.map((d) => ({
+        stay_date: d.stay_date,
+        old_price: d.current_price,
+        new_price: d.target_price,
+        decision_reason: d.reason_detail,
+        room_type_name: null as string | null,
+      }))
+    : ((actions ?? []) as {
+        stay_date: string; old_price: number | null; new_price: number | null;
+        decision_reason: string | null; room_type_name: string | null;
+      }[]);
+  const raised = dateDecisions.length > 0
+    ? dateDecisions.filter((d) => d.direction === "increase").length
+    : (raisedCells ?? 0);
+  const lowered = dateDecisions.length > 0
+    ? dateDecisions.filter((d) => d.direction === "decrease").length
+    : (loweredCells ?? 0);
+
 
   const upcoming = ((events ?? []) as {
     title: string; event_date: string; end_date: string | null; category: string | null;
