@@ -541,30 +541,33 @@ export default function AssistantChat({
   const { profile } = useAuth();
   const { page } = useAssistantContext();
   const { messages: rows, loadingMessages, loadThreads } = useAssistant(threadId);
-  const [pendingThreadId, setPendingThreadId] = useState<string | null>(null);
-  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
-  const activeThreadId = threadId ?? pendingThreadId;
+  // The first question of a brand-new chat is kept together with the thread it
+  // belongs to. Keeping them in one value means the URL update that follows
+  // thread creation can no longer race the transcript into dropping it.
+  const [pending, setPending] = useState<{ id: string; text: string } | null>(null);
+  const [starting, setStarting] = useState(false);
+  const activeThreadId = threadId ?? pending?.id ?? null;
   const starters = useMemo(() => starterPrompts(profile?.role, page.module), [profile?.role, page.module]);
 
   const createAndSend = async ({ text }: { text: string }) => {
     const value = text.trim();
-    if (!value) return;
-    const id = await onNeedThread();
-    if (!id) {
-      toast.error("Could not start a conversation");
-      return;
+    if (!value || starting) return;
+    setStarting(true);
+    try {
+      const id = await onNeedThread();
+      if (!id) {
+        toast.error("Could not start a conversation");
+        return;
+      }
+      setPending({ id, text: value });
+    } finally {
+      setStarting(false);
     }
-    setPendingThreadId(id);
-    setPendingPrompt(value);
   };
-
-  useEffect(() => {
-    if (threadId) setPendingThreadId(null);
-  }, [threadId]);
 
   if (!activeThreadId) {
     return (
-      <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className="mx-auto w-full max-w-md space-y-5 px-3 py-6">
             <div className="flex items-center gap-3">
@@ -582,7 +585,8 @@ export default function AssistantChat({
                 <button
                   key={starter.prompt}
                   type="button"
-                  className="rounded-xl border bg-card px-3.5 py-3 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
+                  disabled={starting}
+                  className="rounded-xl border bg-card px-3.5 py-3 text-left transition-colors hover:bg-accent hover:text-accent-foreground disabled:opacity-60"
                   onClick={() => void createAndSend({ text: starter.prompt })}
                 >
                   <span className="block text-sm font-medium">{starter.label}</span>
@@ -593,10 +597,21 @@ export default function AssistantChat({
           </div>
         </div>
         <div className="shrink-0 border-t bg-background px-1 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          <PromptInput onSubmit={createAndSend}>
-            <PromptInputTextarea className="min-h-12 text-base" placeholder="Ask anything…" autoFocus />
+          <PromptInput onSubmit={createAndSend} className="rounded-xl bg-background shadow-sm">
+            <PromptInputTextarea
+              rows={1}
+              enterKeyHint="send"
+              autoCapitalize="sentences"
+              autoCorrect="on"
+              className="min-h-12 max-h-32 text-base leading-snug"
+              placeholder="Ask anything…"
+              autoFocus
+            />
             <PromptInputFooter className="justify-end">
-              <PromptInputSubmit className="h-10 w-10 rounded-full" />
+              <PromptInputSubmit
+                className="h-10 w-10 rounded-full"
+                status={starting ? "submitted" : undefined}
+              />
             </PromptInputFooter>
           </PromptInput>
         </div>
@@ -604,8 +619,15 @@ export default function AssistantChat({
     );
   }
 
-  if (loadingMessages && threadId) {
-    return <div className="grid h-full place-items-center text-sm text-muted-foreground">Loading conversation…</div>;
+  // A freshly created thread has nothing stored yet, so the loading gate would
+  // only hide the question the user just asked.
+  if (loadingMessages && threadId && pending?.id !== threadId) {
+    return (
+      <div className="grid h-full place-items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="mx-auto h-4 w-4 animate-spin" />
+        Loading conversation…
+      </div>
+    );
   }
 
   return (
