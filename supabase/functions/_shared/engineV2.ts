@@ -499,8 +499,12 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   let target = whole(current + movement);
   const floor = whole(input.minPrice);
   const ceiling = whole(input.maxPrice);
-  if (target < floor) { target = floor; capApplied = floor; }
-  if (target > ceiling) { target = ceiling; capApplied = ceiling; }
+  // Bounds limit where automation may MOVE a price; they never force a move of
+  // their own. A rise stops at the ceiling, a cut stops at the floor, and a
+  // price already outside its band (a manual New Year's Eve rate, say) is left
+  // exactly where the human put it.
+  if (target > current && target > ceiling) { target = Math.max(current, ceiling); capApplied = ceiling; }
+  if (target < current && target < floor) { target = Math.min(current, floor); capApplied = floor; }
 
   const marketCap = marketCeiling(input.market, input.occupancyPct, hasPickup, settings.marketValidation);
   if (marketCap != null && target > marketCap && target > current) {
