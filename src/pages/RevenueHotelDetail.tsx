@@ -1097,6 +1097,9 @@ export default function RevenueHotelDetail() {
                       ? `Last synced ${new Date(live.lastSyncAt).toLocaleString()}${live.lastSyncBy ? ` by ${live.lastSyncBy}` : ""}`
                       : "No successful revenue sync recorded yet."}
             </span>
+            {live.extending && (
+              <span className="text-muted-foreground">· loading the rest of the year…</span>
+            )}
             <div className="ml-auto flex items-center gap-1.5">
               {isTechnicalAdmin && (
                 <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setSyncHistoryOpen(true)}>
