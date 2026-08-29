@@ -64,7 +64,6 @@ export interface AutomationDecision {
 
 const REVENUE_ROLES = new Set([
   'admin',
-  'manager',
   'top_management',
   'top_management_manager',
 ]);

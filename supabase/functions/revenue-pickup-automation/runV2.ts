@@ -720,13 +720,18 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       : payload.length > 0
         ? `${payload.length} price cell${payload.length === 1 ? " was" : "s were"} queued for Previo.`
         : "No prices needed to be sent to Previo.";
+    const activation = gate.phase === "shadow" && gate.passed
+      ? " The 24-hour safety review passed; live mode is enabled for the next run."
+      : gate.phase === "live" && gate.paused
+        ? ` Automation returned to shadow mode${gate.reason ? `: ${gate.reason}` : "."}`
+        : "";
     await notifyRun({
       severity: budgetHit ? "warning" : "info",
       pickups: decisions.filter((d) => d.reason.includes("pickup")).length,
       actions: increases + decreases,
       pushed: mode === "live" && !dryRun ? payload.length : 0,
       failed: budgetHit ? 1 : 0,
-      summary: `${runStatus}: ${decisions.length} dates checked, ${increases} increased, ${decreases} decreased, ${held} held. ${delivery}`,
+      summary: `${runStatus}: ${decisions.length} dates checked, ${increases} increased, ${decreases} decreased, ${held} held. ${delivery}${activation}`,
     });
 
     return {
@@ -824,21 +829,6 @@ async function evaluateActivation(ctx: {
       gate_results: { ...gate.checks, evaluated_at: now.toISOString(), shadow_hours: Math.round(shadowHours) },
       ...(gate.passed ? { mode: "live", auto_publish: true, live_activated_at: now.toISOString(), auto_pause_reason: null } : {}),
     }).eq("id", rule.id);
-    if (gate.passed) {
-      await admin.from("revenue_automation_notifications").insert({
-        hotel_id: rule.hotel_id,
-        organization_slug: rule.organization_slug,
-        notification_type: "pickup_automation",
-        run_source: "automatic",
-        actor_name: "Automatic pricing",
-        rule_id: rule.id,
-        action_ids: [],
-        severity: "info",
-        currency: rule.currency ?? "EUR",
-        summary: "Automatic pricing passed its 24-hour test period and is now live.",
-        changes: [],
-      });
-    }
     return { phase: "shadow", passed: gate.passed, failing: gate.failing, shadow_hours: Math.round(shadowHours) };
   }
 
@@ -861,19 +851,6 @@ async function evaluateActivation(ctx: {
       auto_pause_reason: watchdog.reason,
       shadow_started_at: now.toISOString(),
     }).eq("id", rule.id);
-    await admin.from("revenue_automation_notifications").insert({
-      hotel_id: rule.hotel_id,
-      organization_slug: rule.organization_slug,
-      notification_type: "pickup_automation",
-      run_source: "automatic",
-      actor_name: "Automatic pricing",
-      rule_id: rule.id,
-      action_ids: [],
-      severity: "warning",
-      currency: rule.currency ?? "EUR",
-      summary: watchdog.reason ?? "Automatic pricing paused.",
-      changes: [],
-    });
   }
   return { phase: "live", supervised: watchdog.supervised, paused: watchdog.pause, reason: watchdog.reason };
 }
