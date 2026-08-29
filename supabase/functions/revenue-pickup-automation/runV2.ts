@@ -528,7 +528,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
           });
         }
         const cellViolations = validateCells(cellPrices);
-        if (cellViolations.length > 0) violations.push(...cellViolations);
+        for (const v of cellViolations) violations.push({ ...v });
         simulatedCells += cellPrices.length;
       }
 
