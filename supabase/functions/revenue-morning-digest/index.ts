@@ -304,7 +304,7 @@ function renderHtml(
         <table style="width:100%;border-spacing:8px 0"><tr>
           ${card("Pickup", `${d.pickupNights} nights`, `${d.pickupRes} reservation${d.pickupRes === 1 ? "" : "s"}`)}
           ${card("Room revenue", money(d.pickupRevenue), "new bookings")}
-          ${card("Automation", `${d.raised}↑ ${d.lowered}↓`, `${d.changes.length} price move${d.changes.length === 1 ? "" : "s"}`)}
+          ${card("Automation", `${d.raised}↑ ${d.lowered}↓`, `${d.raised + d.lowered} ${d.changeUnit}${d.raised + d.lowered === 1 ? "" : "s"} moved · ${d.runsTotal} run${d.runsTotal === 1 ? "" : "s"}${d.runsFailedCount ? `, ${d.runsFailedCount} failed` : ""}`)}
         </tr></table>
 
         ${h3("Tonight")}
