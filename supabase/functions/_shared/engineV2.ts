@@ -501,6 +501,11 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   const ceiling = whole(input.maxPrice);
   if (target < floor) { target = floor; capApplied = floor; }
   if (target > ceiling) { target = ceiling; capApplied = ceiling; }
+  // A price that already sits outside its band (a manual New Year's Eve rate,
+  // say) is never yanked back by the ceiling or the floor: bounds limit where
+  // automation may MOVE a price, they do not force a move of their own.
+  if (wantsIncrease) target = Math.max(current, Math.min(target, Math.max(current, ceiling)));
+  else target = Math.min(current, Math.max(target, Math.min(current, floor)));
 
   const marketCap = marketCeiling(input.market, input.occupancyPct, hasPickup, settings.marketValidation);
   if (marketCap != null && target > marketCap && target > current) {
