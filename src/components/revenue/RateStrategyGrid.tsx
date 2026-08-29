@@ -1918,10 +1918,39 @@ export default function RateStrategyGrid({
     return map;
   }, [nights]);
   const dates = useMemo(() => allDates.filter((d) => {
+    if (monthFilter && !d.startsWith(monthFilter)) return false;
     if (reviewOnly && flagged.dateKeys.size && !flagged.dateKeys.has(d)) return false;
     if (pickupOnly && (metricByDate.get(d)?.netPickup ?? 0) === 0) return false;
     return true;
-  }), [allDates, reviewOnly, pickupOnly, flagged.dateKeys, metricByDate]);
+  }), [allDates, monthFilter, reviewOnly, pickupOnly, flagged.dateKeys, metricByDate]);
+
+  /** Months covered by the loaded horizon, for the quick month chips. */
+  const monthChips = useMemo(() => {
+    const seen = new Map<string, string>();
+    const multiYear = allDates.length
+      ? allDates[0].slice(0, 4) !== allDates[allDates.length - 1].slice(0, 4)
+      : false;
+    for (const d of allDates) {
+      const key = d.slice(0, 7);
+      if (seen.has(key)) continue;
+      const dt = new Date(`${key}-01T00:00:00Z`);
+      const label = dt.toLocaleString("en-US", { month: "short", timeZone: "UTC" })
+        + (multiYear ? ` ${key.slice(2, 4)}` : "");
+      seen.set(key, label);
+    }
+    return Array.from(seen, ([value, label]) => ({ value, label }));
+  }, [allDates]);
+
+  const selectMonth = useCallback((value: string | null) => {
+    setMonthFilter(value);
+    requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollLeft = 0; });
+  }, []);
+
+  // A month that falls outside a newly narrowed range must not hide everything.
+  useEffect(() => {
+    if (monthFilter && !monthChips.some((m) => m.value === monthFilter)) setMonthFilter(null);
+  }, [monthFilter, monthChips]);
+
   // Selection helpers read this so a drag only ever covers what is on screen.
   visibleDatesRef.current = dates;
 
