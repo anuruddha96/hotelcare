@@ -43,8 +43,11 @@ export function evaluateGates(i: GateInputs): GateResult {
     shadow_24h_complete: i.shadowHours >= 24,
     runs_healthy: i.runsTotal >= 12 && i.runsFailed === 0,
     dates_evaluated: i.datesEvaluated > 0,
-    markdown_share_sane: i.datesDecreased === 0
-      || i.datesDecreased <= Math.max(5, Math.round((i.datesIncreased + i.datesDecreased) * 0.6)),
+    // This catches a markdown EXPLOSION (the incident: tens of thousands of
+    // cuts a day), not the ordinary case of a quiet far-out calendar drifting
+    // down by €3 a date.
+    markdown_share_sane: i.datesDecreased <= Math.max(60, Math.round(i.datesEvaluated * 0.5))
+      && i.datesDecreased <= 400,
     whole_euro_only: i.allWholeEuro,
     within_floor_and_ceiling: i.allWithinBounds,
     no_dual_direction_dates: i.noDualDirection,
