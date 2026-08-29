@@ -15,6 +15,7 @@ import { DEFAULT_THRESHOLDS, type RevenueThresholds } from "@/lib/revenueThresho
 import { retryTransient } from "@/lib/transientRetry";
 import { runWhenRevenueEditorsClosed } from "@/lib/revenueEditGuard";
 import { EXECUTIVE_RESUME_EVENT } from "@/components/system/ExecutiveResumeRefresh";
+import { readCachedRevenuePayload, writeCachedRevenuePayload } from "@/lib/revenuePayloadCache";
 
 export interface RevenueRoomType {
   id: string;
@@ -70,6 +71,21 @@ const revenuePayloadCache = new Map<string, CachedRevenuePayload>();
  * off screen.
  */
 const FIRST_WINDOW_DAYS = 90;
+
+/** In-memory first (complete horizon), then the per-tab window from storage. */
+function readAnyCache(cacheKey: string): CachedRevenuePayload | undefined {
+  const memory = revenuePayloadCache.get(cacheKey);
+  if (memory) return memory;
+  const stored = readCachedRevenuePayload<PublishedRevenuePayload>(cacheKey);
+  if (!stored) return undefined;
+  const restored: CachedRevenuePayload = {
+    payload: stored.payload,
+    lastSyncAt: stored.lastSyncAt,
+    lastSyncBy: stored.lastSyncBy,
+  };
+  revenuePayloadCache.set(cacheKey, restored);
+  return restored;
+}
 
 export interface RevenueHotelData {
   loading: boolean;
