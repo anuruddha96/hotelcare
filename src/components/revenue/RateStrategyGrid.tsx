@@ -401,6 +401,21 @@ export default function RateStrategyGrid({
 
   const LEFT_W = railed ? RAIL_W : leftW;
 
+  /**
+   * Column width. Normally it follows the reader's zoom; in one-month view it
+   * shrinks (never below a legible 34px) so the whole month fits on screen.
+   */
+  const MIN_MONTH_CELL_W = 34;
+  const CELL_W = useMemo(() => {
+    if (!monthFilter || !viewportW) return ZOOM_CELL_W;
+    const [y, m] = monthFilter.split("-").map(Number);
+    const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const avail = viewportW - LEFT_W - 2;
+    if (avail <= 0) return ZOOM_CELL_W;
+    return Math.max(MIN_MONTH_CELL_W, Math.min(ZOOM_CELL_W, Math.floor(avail / daysInMonth)));
+  }, [monthFilter, viewportW, LEFT_W, ZOOM_CELL_W]);
+
+
   /** Drag the divider to give the room-type names more or less room. */
   const startResize = useCallback((startX: number, startW: number) => {
     setDragging(true);
