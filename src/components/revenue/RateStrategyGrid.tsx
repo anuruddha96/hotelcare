@@ -345,7 +345,23 @@ export default function RateStrategyGrid({
   /** The events band can be folded away when the reader wants a plain grid. */
   const [showEventBand, setShowEventBand] = useState(true);
 
-  const CELL_W = Math.round(BASE_CELL_W * zoom);
+  /**
+   * One-month view: when a month chip is picked the calendar shows only that
+   * month and squeezes its columns so all 28-31 days fit without scrolling.
+   */
+  const [monthFilter, setMonthFilter] = useState<string | null>(null);
+  const [viewportW, setViewportW] = useState(0);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setViewportW(el.clientWidth));
+    ro.observe(el);
+    setViewportW(el.clientWidth);
+    return () => ro.disconnect();
+  }, []);
+
+  const ZOOM_CELL_W = Math.round(BASE_CELL_W * zoom);
+
   const ROW_H = Math.round(BASE_ROW_H * zoom);
   const GROUP_H = Math.round(BASE_GROUP_H * zoom);
   const MONTH_H = Math.round(BASE_MONTH_H * zoom);
@@ -384,6 +400,21 @@ export default function RateStrategyGrid({
   }, [LEFT_STORAGE_KEY, leftW, railed]);
 
   const LEFT_W = railed ? RAIL_W : leftW;
+
+  /**
+   * Column width. Normally it follows the reader's zoom; in one-month view it
+   * shrinks (never below a legible 34px) so the whole month fits on screen.
+   */
+  const MIN_MONTH_CELL_W = 34;
+  const CELL_W = useMemo(() => {
+    if (!monthFilter || !viewportW) return ZOOM_CELL_W;
+    const [y, m] = monthFilter.split("-").map(Number);
+    const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const avail = viewportW - LEFT_W - 2;
+    if (avail <= 0) return ZOOM_CELL_W;
+    return Math.max(MIN_MONTH_CELL_W, Math.min(ZOOM_CELL_W, Math.floor(avail / daysInMonth)));
+  }, [monthFilter, viewportW, LEFT_W, ZOOM_CELL_W]);
+
 
   /** Drag the divider to give the room-type names more or less room. */
   const startResize = useCallback((startX: number, startW: number) => {
@@ -1887,10 +1918,39 @@ export default function RateStrategyGrid({
     return map;
   }, [nights]);
   const dates = useMemo(() => allDates.filter((d) => {
+    if (monthFilter && !d.startsWith(monthFilter)) return false;
     if (reviewOnly && flagged.dateKeys.size && !flagged.dateKeys.has(d)) return false;
     if (pickupOnly && (metricByDate.get(d)?.netPickup ?? 0) === 0) return false;
     return true;
-  }), [allDates, reviewOnly, pickupOnly, flagged.dateKeys, metricByDate]);
+  }), [allDates, monthFilter, reviewOnly, pickupOnly, flagged.dateKeys, metricByDate]);
+
+  /** Months covered by the loaded horizon, for the quick month chips. */
+  const monthChips = useMemo(() => {
+    const seen = new Map<string, string>();
+    const multiYear = allDates.length
+      ? allDates[0].slice(0, 4) !== allDates[allDates.length - 1].slice(0, 4)
+      : false;
+    for (const d of allDates) {
+      const key = d.slice(0, 7);
+      if (seen.has(key)) continue;
+      const dt = new Date(`${key}-01T00:00:00Z`);
+      const label = dt.toLocaleString("en-US", { month: "short", timeZone: "UTC" })
+        + (multiYear ? ` ${key.slice(2, 4)}` : "");
+      seen.set(key, label);
+    }
+    return Array.from(seen, ([value, label]) => ({ value, label }));
+  }, [allDates]);
+
+  const selectMonth = useCallback((value: string | null) => {
+    setMonthFilter(value);
+    requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollLeft = 0; });
+  }, []);
+
+  // A month that falls outside a newly narrowed range must not hide everything.
+  useEffect(() => {
+    if (monthFilter && !monthChips.some((m) => m.value === monthFilter)) setMonthFilter(null);
+  }, [monthFilter, monthChips]);
+
   // Selection helpers read this so a drag only ever covers what is on screen.
   visibleDatesRef.current = dates;
 
@@ -2522,6 +2582,32 @@ export default function RateStrategyGrid({
           </div>
         ) : (
           <div className="relative">
+          {/* Month chips — jump straight to one month, fitted to the screen. */}
+          {monthChips.length > 1 && (
+            <div className="flex flex-wrap items-center gap-1 border-b px-2 py-1.5">
+              <Button
+                size="sm"
+                variant={monthFilter ? "ghost" : "secondary"}
+                className="h-7 px-2 text-[11px]"
+                onClick={() => selectMonth(null)}
+              >
+                All
+              </Button>
+              {monthChips.map((m) => (
+                <Button
+                  key={m.value}
+                  size="sm"
+                  variant={monthFilter === m.value ? "default" : "ghost"}
+                  className="h-7 px-2 text-[11px]"
+                  title={`Show only ${m.label}`}
+                  onClick={() => selectMonth(monthFilter === m.value ? null : m.value)}
+                >
+                  {m.label}
+                </Button>
+              ))}
+            </div>
+          )}
+
           <div
             ref={scrollRef}
             onScroll={onScroll}
