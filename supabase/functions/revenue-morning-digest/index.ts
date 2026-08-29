@@ -418,8 +418,16 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const html = renderHtml(hotelName, now.date, digest, meta);
-      const text = renderText(hotelName, now.date, digest, meta);
+      // Each hotel prices in its own base currency (SLNT = HUF, Ottofiori = EUR).
+      const { data: revSettings } = await admin
+        .from("hotel_revenue_settings")
+        .select("base_currency")
+        .eq("hotel_id", s.hotel_id)
+        .maybeSingle();
+      const currency = ((revSettings?.base_currency as string | undefined) ?? "EUR").toUpperCase();
+
+      const html = renderHtml(hotelName, now.date, digest, meta, currency);
+      const text = renderText(hotelName, now.date, digest, meta, currency);
       const subject = `${hotelName} — morning revenue summary (${now.date})`;
 
       // One message per recipient: nobody sees the other addresses.
