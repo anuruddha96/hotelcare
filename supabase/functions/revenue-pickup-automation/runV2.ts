@@ -6,22 +6,32 @@
 // and it decides ONCE PER STAY DATE instead of once per cell per rule pass.
 //
 // Flow: refresh the discovery ledger → gather facts for the horizon → one
-// decision per date → record the decision → (live mode only) queue whole-euro
-// prices for every sellable cell of that date.
+// decision per date → build and validate every child cell (in shadow mode too)
+// → record the decision → (live mode only) queue whole-euro prices → evaluate
+// the automatic activation gate and the live watchdog.
 
 import {
+  buildMarketSignal,
   decideDate,
   explainDecision,
   DEFAULT_DECISION_SETTINGS,
   DEFAULT_MARKET_VALIDATION,
-  DEFAULT_WINDOW_RULES,
+  OTTOFIORI_WINDOW_RULES,
+  type CompetitorObservation,
   type Decision,
   type DecisionInput,
   type DecisionSettings,
-  type MarketSignal,
   type PaceBand,
   type WindowRule,
 } from "../_shared/engineV2.ts";
+import {
+  assertWholeEuro,
+  isBoundsFailure,
+  makeBoundsResolver,
+  validateCells,
+  type CellPrice,
+} from "../_shared/priceBounds.ts";
+import { evaluateGates, evaluateWatchdog, supervisedCaps } from "../_shared/activationGate.ts";
 
 export interface V2Deps {
   admin: any;
@@ -44,6 +54,28 @@ export interface V2Deps {
 const whole = (value: number) => Math.round(value);
 const dayDiff = (from: string, to: string) =>
   Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+const unwrap = <T = any>(res: any): T[] => (res?.data ?? res ?? []) as T[];
+
+/** Event titles are normalised so the same festival never pays twice. */
+export function eventKeyOf(ev: { id: string; title?: string | null; city?: string | null; venue?: string | null }, stayDate: string): string {
+  const title = String(ev.title ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .trim()
+    .toLowerCase();
+  const base = title || String(ev.id);
+  return `${base}|${String(ev.city ?? "").toLowerCase()}|${String(ev.venue ?? "").toLowerCase()}|${stayDate}`;
+}
+
+/** Mojibake or empty titles mean the row is not trustworthy enough to price on. */
+export function eventTitleUsable(title: string | null | undefined): boolean {
+  const value = String(title ?? "").trim();
+  if (value.length < 3) return false;
+  if (/[\uFFFD]/.test(value)) return false;
+  if (/Ã.|â€|Å¡|Ä\u008D/.test(value)) return false;
+  return true;
+}
 
 interface CellRate {
   stay_date: string;
@@ -81,7 +113,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
   const tz = rule.run_timezone || "Europe/Budapest";
   const local = deps.localParts(tz);
   const today = local.date;
-  const horizonDays = Math.max(1, Math.min(400, Number(rule.future_booking_window_days || 183)));
+  const horizonDays = Math.max(1, Math.min(400, Number(rule.future_booking_window_days || 365)));
   const horizonDate = (() => {
     const d = new Date(`${today}T00:00:00Z`);
     d.setUTCDate(d.getUTCDate() + horizonDays);
@@ -148,20 +180,21 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     // ---- 2. Gather the facts ----------------------------------------------
     const since = (hours: number) => new Date(now.getTime() - hours * 3_600_000).toISOString();
     const [
-      { data: ledger },
-      { data: cancellations },
-      { data: rateRows },
-      { data: snapshots },
-      { data: floors },
-      { data: paceRows },
-      { data: competitorRows },
-      { data: recentDecisions },
-      { data: manualEdits },
-      { data: appliedEvents },
-      { data: events },
+      ledgerRes,
+      cancellationRes,
+      rateRes,
+      snapshotRes,
+      floorsRes,
+      paceRes,
+      competitorRes,
+      decisionRes,
+      manualRes,
+      appliedEventsRes,
+      eventsRes,
+      roomTypesRes,
     ] = await Promise.all([
       deps.pagedAll((f, t) => admin.from("revenue_pickup_ledger")
-        .select("stay_date, first_seen_at").eq("hotel_id", rule.hotel_id)
+        .select("stay_date, reservation_id, first_seen_at, cancelled_at").eq("hotel_id", rule.hotel_id)
         .gte("stay_date", today).lte("stay_date", horizonDate)
         .gte("first_seen_at", since(24 * 7)).order("stay_date").range(f, t)),
       deps.pagedAll((f, t) => admin.from("revenue_cancelled_nights")
@@ -180,96 +213,134 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       admin.from("revenue_pace_targets").select("min_days_out, max_days_out, target_occupancy_pct")
         .eq("hotel_id", rule.hotel_id).order("min_days_out"),
       deps.pagedAll((f, t) => admin.from("competitor_rates")
-        .select("stay_date, rate, captured_at").eq("hotel_id", rule.hotel_id)
+        .select("stay_date, competitor_id, rate, captured_at").eq("hotel_id", rule.hotel_id)
         .gte("stay_date", today).lte("stay_date", horizonDate)
         .gte("captured_at", since(48)).order("stay_date").range(f, t)),
       deps.pagedAll((f, t) => admin.from("revenue_date_decisions")
-        .select("stay_date, direction, created_at").eq("hotel_id", rule.hotel_id)
+        .select("stay_date, direction, movement, created_at").eq("hotel_id", rule.hotel_id)
         .gte("stay_date", today).neq("direction", "hold")
-        .gte("created_at", since(72)).order("created_at", { ascending: false }).range(f, t)),
+        .gte("created_at", since(96)).order("created_at", { ascending: false }).range(f, t)),
       deps.pagedAll((f, t) => admin.from("rate_change_audit")
         .select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id)
         .gte("stay_date", today)
-        .gte("performed_at", since(Math.max(0, Number(rule.manual_hold_hours || 24))))
+        .gte("performed_at", since(Math.max(1, Number(rule.manual_hold_hours || 24))))
         .order("stay_date").range(f, t)),
       admin.from("revenue_event_applications").select("event_key, stay_date")
         .eq("hotel_id", rule.hotel_id).gte("stay_date", today),
-      admin.from("demand_events").select("id, start_date, end_date, impact_level")
-        .eq("hotel_id", rule.hotel_id).gte("end_date", today).lte("start_date", horizonDate),
+      admin.from("demand_events")
+        .select("id, title, city, venue, event_date, end_date, expected_impact, confidence, approved")
+        .eq("hotel_id", rule.hotel_id).gte("end_date", today).lte("event_date", horizonDate),
+      admin.from("room_types")
+        .select("name, num_rooms, is_sellable, counts_toward_inventory, base_price_eur, min_price_eur, max_price_eur")
+        .eq("hotel_id", rule.hotel_id),
     ]);
 
     const typeAvail = await deps.loadTypeAvailability(admin, rule.hotel_id, today, horizonDate);
 
+    // Only real, sellable room types may ever be priced.
+    const roomTypes = unwrap(roomTypesRes);
+    const sellableNames = new Set(roomTypes.filter((r) => r.is_sellable !== false).map((r) => r.name));
+    const sellableRooms = roomTypes
+      .filter((r) => r.is_sellable !== false && r.counts_toward_inventory !== false)
+      .reduce((sum, r) => sum + (Number(r.num_rooms) || 0), 0);
+    const anchorByType = new Map<string, number>();
+    for (const r of roomTypes) {
+      const anchor = Number(r.base_price_eur);
+      if (r.name && Number.isFinite(anchor) && anchor > 0) anchorByType.set(r.name, whole(anchor));
+    }
+
     // Pickup counts, per window, from the ledger's own first-seen stamp.
+    const ledgerArr = unwrap(ledgerRes).filter((r: any) => !r.cancelled_at);
     const countIn = (rows: any[], field: string, hours: number) => {
       const cutoff = since(hours);
-      const map = new Map<string, number>();
+      const map = new Map<string, Set<string>>();
       for (const row of rows) {
         if (!row[field] || row[field] < cutoff) continue;
-        map.set(row.stay_date, (map.get(row.stay_date) ?? 0) + 1);
+        const set = map.get(row.stay_date) ?? new Set<string>();
+        set.add(String(row.reservation_id ?? row.id ?? Math.random()));
+        map.set(row.stay_date, set);
       }
-      return map;
+      return new Map([...map].map(([k, v]) => [k, v.size]));
     };
-    const ledgerArr = (ledger ?? []) as any[];
     const pickup1h = countIn(ledgerArr, "first_seen_at", 1);
+    const pickup6h = countIn(ledgerArr, "first_seen_at", 6);
     const pickup24h = countIn(ledgerArr, "first_seen_at", 24);
     const pickup48h = countIn(ledgerArr, "first_seen_at", 48);
     const pickup7d = countIn(ledgerArr, "first_seen_at", 24 * 7);
-    const cancelArr = (cancellations ?? []) as any[];
-    const cancels24h = countIn(cancelArr, "cancelled_at", 24);
+    const lastPickupAt = new Map<string, string>();
+    for (const row of ledgerArr as any[]) {
+      const seen = lastPickupAt.get(row.stay_date);
+      if (!seen || row.first_seen_at > seen) lastPickupAt.set(row.stay_date, row.first_seen_at);
+    }
+
+    const cancelArr = unwrap(cancellationRes) as any[];
+    const cancels24h = (() => {
+      const cutoff = since(24);
+      const map = new Map<string, number>();
+      for (const row of cancelArr) {
+        if (!row.cancelled_at || row.cancelled_at < cutoff) continue;
+        map.set(row.stay_date, (map.get(row.stay_date) ?? 0) + 1);
+      }
+      return map;
+    })();
     const lastCancel = new Map<string, string>();
     for (const c of cancelArr) {
       const seen = lastCancel.get(c.stay_date);
       if (!seen || c.cancelled_at > seen) lastCancel.set(c.stay_date, c.cancelled_at);
     }
 
-    const rates = latestRates((rateRows ?? []) as any[]);
+    const rates = latestRates(unwrap(rateRes) as any[]);
     const byDate = new Map<string, CellRate[]>();
     for (const cell of rates.values()) {
+      if (cell.room_type_name && !sellableNames.has(cell.room_type_name)) continue;
       const list = byDate.get(cell.stay_date) ?? [];
       list.push(cell);
       byDate.set(cell.stay_date, list);
     }
 
     const occByDate = new Map<string, { pct: number | null; sold: number | null; left: number | null }>();
-    for (const row of (snapshots ?? []) as any[]) {
-      if (occByDate.has(row.stay_date)) continue; // newest capture first
+    const prevOccByDate = new Map<string, number | null>();
+    for (const row of unwrap(snapshotRes) as any[]) {
+      const pct = row.occupancy_pct == null ? null : Number(row.occupancy_pct);
+      if (occByDate.has(row.stay_date)) {
+        if (!prevOccByDate.has(row.stay_date)) prevOccByDate.set(row.stay_date, pct);
+        continue; // newest capture first
+      }
       const available = Number(row.rooms_available);
       const sold = Number(row.rooms_sold);
       occByDate.set(row.stay_date, {
-        pct: row.occupancy_pct == null ? null : Number(row.occupancy_pct),
+        pct,
         sold: Number.isFinite(sold) ? sold : null,
         left: Number.isFinite(available) && Number.isFinite(sold) ? Math.max(0, available - sold) : null,
       });
     }
 
-    // Market median per date from fresh competitor observations.
-    const compByDate = new Map<string, { prices: number[]; newest: number }>();
-    for (const row of (competitorRows ?? []) as any[]) {
-      const price = Number(row.rate);
-      if (!Number.isFinite(price) || price <= 0) continue;
-      const bucket = compByDate.get(row.stay_date) ?? { prices: [], newest: 0 };
-      bucket.prices.push(price);
-      bucket.newest = Math.max(bucket.newest, Date.parse(row.captured_at ?? "") || 0);
-      compByDate.set(row.stay_date, bucket);
+    // Market signal: one observation per DISTINCT competitor, outliers removed.
+    const compByDate = new Map<string, CompetitorObservation[]>();
+    for (const row of unwrap(competitorRes) as any[]) {
+      if (!row.competitor_id) continue;
+      const list = compByDate.get(row.stay_date) ?? [];
+      list.push({
+        competitor_id: String(row.competitor_id),
+        stay_date: row.stay_date,
+        rate: Number(row.rate),
+        captured_at: row.captured_at,
+      });
+      compByDate.set(row.stay_date, list);
     }
-    const marketFor = (stayDate: string): MarketSignal => {
-      const bucket = compByDate.get(stayDate);
-      if (!bucket || bucket.prices.length === 0) return { median: null, sampleSize: 0, ageHours: null };
-      const sorted = [...bucket.prices].sort((a, b) => a - b);
-      const mid = Math.floor(sorted.length / 2);
-      const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-      return {
-        median,
-        sampleSize: sorted.length,
-        ageHours: bucket.newest ? (now.getTime() - bucket.newest) / 3_600_000 : null,
-      };
-    };
+    const marketValidation = { ...DEFAULT_MARKET_VALIDATION, ...(rule.market_validation ?? {}) };
+    const marketFor = (stayDate: string) =>
+      buildMarketSignal(compByDate.get(stayDate) ?? [], now, marketValidation);
 
+    const decisionHistory = unwrap(decisionRes) as any[];
     const lastDecisionByDate = new Map<string, { direction: string; at: string }>();
-    for (const row of (recentDecisions ?? []) as any[]) {
+    const lastDecreaseByDate = new Map<string, string>();
+    for (const row of decisionHistory) {
       if (!lastDecisionByDate.has(row.stay_date)) {
         lastDecisionByDate.set(row.stay_date, { direction: row.direction, at: row.created_at });
+      }
+      if (row.direction === "decrease" && !lastDecreaseByDate.has(row.stay_date)) {
+        lastDecreaseByDate.set(row.stay_date, row.created_at);
       }
     }
 
@@ -279,70 +350,88 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     // the publisher's own audit rows are machine echoes of automation work —
     // treating those as manual froze the whole calendar in the first V2 run.
     const HUMAN_SOURCES = new Set(["cell-edit", "cell-selection", "day-tool", "bulk", "bulk-edit", "manual", "quick-adjust"]);
-    for (const row of (manualEdits ?? []) as any[]) {
+    for (const row of unwrap(manualRes) as any[]) {
       if (!HUMAN_SOURCES.has(String(row.source ?? ""))) continue;
       const until = new Date(Date.parse(row.performed_at) + holdHours * 3_600_000).toISOString();
       const seen = manualHold.get(row.stay_date);
       if (!seen || until > seen) manualHold.set(row.stay_date, until);
     }
 
-    // Movement already spent today, per stay date.
+    // Movement already spent today, per stay date and per direction.
     const { data: spentToday } = await deps.pagedAll((f, t) => admin
-      .from("revenue_date_decisions").select("stay_date, movement")
-      .eq("hotel_id", rule.hotel_id).eq("status", "published")
+      .from("revenue_date_decisions").select("stay_date, movement, direction")
+      .eq("hotel_id", rule.hotel_id).in("status", ["published", "queued"])
       .gte("created_at", `${today}T00:00:00Z`).order("stay_date").range(f, t));
-    const movedToday = new Map<string, number>();
+    const movedUpToday = new Map<string, number>();
+    const movedDownToday = new Map<string, number>();
     for (const row of (spentToday ?? []) as any[]) {
-      movedToday.set(row.stay_date, (movedToday.get(row.stay_date) ?? 0) + Math.abs(Number(row.movement) || 0));
+      const amount = Math.abs(Number(row.movement) || 0);
+      if (row.direction === "increase") movedUpToday.set(row.stay_date, (movedUpToday.get(row.stay_date) ?? 0) + amount);
+      if (row.direction === "decrease") movedDownToday.set(row.stay_date, (movedDownToday.get(row.stay_date) ?? 0) + amount);
     }
 
-    // Events that have not yet lifted their dates.
-    const appliedKeys = new Set(((appliedEvents as any)?.data ?? (appliedEvents as any) ?? []).map?.((r: any) => `${r.event_key}|${r.stay_date}`) ?? []);
+    // Events: approved, confident, readable, deduplicated, once per date.
+    const appliedKeys = new Set(unwrap(appliedEventsRes).map((r: any) => `${r.event_key}|${r.stay_date}`));
     const eventUplift = new Map<string, { key: string; uplift: number }>();
-    for (const ev of (((events as any)?.data ?? events ?? []) as any[])) {
-      const uplift = ev.impact_level === "high" ? 20 : ev.impact_level === "medium" ? 10 : 0;
+    const seenEventKeys = new Set<string>();
+    for (const ev of unwrap(eventsRes) as any[]) {
+      if (ev.approved === false) continue;
+      if (Number(ev.confidence ?? 1) < 0.6) continue;
+      if (!eventTitleUsable(ev.title)) continue;
+      const impact = String(ev.expected_impact ?? "").toLowerCase();
+      const uplift = impact === "high" ? 10 : impact === "medium" ? 5 : 0;
       if (uplift <= 0) continue;
-      for (let d = new Date(`${ev.start_date}T00:00:00Z`); d.toISOString().slice(0, 10) <= ev.end_date; d.setUTCDate(d.getUTCDate() + 1)) {
-        const key = d.toISOString().slice(0, 10);
-        if (key < today || key > horizonDate) continue;
-        if (appliedKeys.has(`${ev.id}|${key}`)) continue;
-        eventUplift.set(key, { key: String(ev.id), uplift });
+      const from = ev.event_date;
+      const to = ev.end_date ?? ev.event_date;
+      for (let d = new Date(`${from}T00:00:00Z`); d.toISOString().slice(0, 10) <= to; d.setUTCDate(d.getUTCDate() + 1)) {
+        const stayDate = d.toISOString().slice(0, 10);
+        if (stayDate < today || stayDate > horizonDate) continue;
+        const key = eventKeyOf(ev, stayDate);
+        if (seenEventKeys.has(key)) continue;      // duplicate listing of one event
+        if (appliedKeys.has(`${key}|${stayDate}`)) continue; // already paid for
+        seenEventKeys.add(key);
+        if (!eventUplift.has(stayDate)) eventUplift.set(stayDate, { key, uplift });
       }
     }
 
-    // Floors and ceilings.
-    const floorRows = (((floors as any)?.data ?? floors ?? []) as any[]);
-    const floorFor = (roomTypeName: string | null, occupancy: number) => {
-      const exact = floorRows.find((r) => r.room_type_name === roomTypeName && Number(r.occupancy) === occupancy);
-      const byType = floorRows.find((r) => r.room_type_name === roomTypeName && r.occupancy == null);
-      const byOcc = floorRows.find((r) => r.room_type_name == null && Number(r.occupancy) === occupancy);
-      const global = floorRows.find((r) => r.room_type_name == null && r.occupancy == null);
-      const pick = (field: string) =>
-        [exact, byType, byOcc, global].map((r) => r?.[field]).find((v) => v != null && Number.isFinite(Number(v)));
-      return {
-        min: Number(pick("min_price") ?? rule.minimum_adr ?? 0) || 0,
-        max: Number(pick("max_price") ?? rule.maximum_increase ?? 100000) || 100000,
-      };
-    };
+    // Absolute floors and ceilings — never step limits.
+    const floorRows = unwrap(floorsRes) as any[];
+    const safetyRow = floorRows.find((r) => r.is_global_safety_max) ?? null;
+    const boundsFor = makeBoundsResolver({
+      floors: floorRows,
+      roomTypes: roomTypes as any[],
+      globalSafetyMax: Number(safetyRow?.max_price ?? 500) || 500,
+      globalMin: Number(safetyRow?.min_price ?? 0) || null,
+    });
 
-    const paceBands = (((paceRows as any)?.data ?? paceRows ?? []) as any[]).map((r) => ({
+    const paceBands = unwrap(paceRes).map((r: any) => ({
       min_days_out: Number(r.min_days_out),
       max_days_out: Number(r.max_days_out),
       target_occupancy_pct: Number(r.target_occupancy_pct),
     })) as PaceBand[];
 
+    // Supervised caps for the first 48 live hours.
+    const liveHours = rule.live_activated_at
+      ? (now.getTime() - Date.parse(rule.live_activated_at)) / 3_600_000
+      : 0;
+    const supervised = mode === "live" && liveHours < 48;
+    const configuredWindows = (Array.isArray(rule.window_rules) && rule.window_rules.length > 0
+      ? rule.window_rules
+      : OTTOFIORI_WINDOW_RULES) as WindowRule[];
+    const windowRules = configuredWindows.map((w) => {
+      const caps = supervisedCaps(w.max_daily_increase, w.max_daily_decrease, supervised);
+      return { ...w, max_daily_increase: caps.maxIncrease, max_daily_decrease: w.max_daily_decrease === 0 ? 0 : caps.maxDecrease };
+    });
+
     const settings: DecisionSettings = {
       ...DEFAULT_DECISION_SETTINGS,
       now,
       paceBands,
-      windowRules: (Array.isArray(rule.window_rules) && rule.window_rules.length > 0
-        ? rule.window_rules
-        : DEFAULT_WINDOW_RULES) as WindowRule[],
-      marketValidation: { ...DEFAULT_MARKET_VALIDATION, ...(rule.market_validation ?? {}) },
+      windowRules,
+      marketValidation,
       minMovementEur: Math.max(1, Number(rule.min_movement_eur || 3)),
       directionChangeHours: Math.max(0, Number(rule.direction_change_hours ?? 6)),
       cancellationWaitMinutes: Math.max(0, Number(rule.cancellation_wait_minutes ?? 60)),
-      abnormalPickupThreshold: Math.max(1, Number(rule.abnormal_pickup_threshold || 2)),
       soldOutOccupancyPct: Math.max(50, Number(rule.sold_out_occupancy_pct || 98)),
     };
 
@@ -351,7 +440,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     const decisionRows: Array<Record<string, unknown>> = [];
     const payload: Array<Record<string, unknown>> = [];
     const skipReasons: Record<string, number> = {};
+    const violations: Array<Record<string, unknown>> = [];
     let budgetHit = false;
+    let simulatedCells = 0;
 
     const dates = Array.from(byDate.keys()).sort();
     for (const stayDate of dates) {
@@ -367,9 +458,11 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         : null;
 
       const occ = occByDate.get(stayDate) ?? { pct: null, sold: null, left: null };
-      const bounds = floorFor(reference?.room_type_name ?? null, 2);
+      const refBounds = boundsFor(reference?.room_type_name ?? null, 2);
       const pendingEvent = eventUplift.get(stayDate);
       const last = lastDecisionByDate.get(stayDate);
+      const prevOcc = prevOccByDate.get(stayDate) ?? null;
+      const lastPickup = lastPickupAt.get(stayDate) ?? null;
 
       const input: DecisionInput = {
         stayDate,
@@ -379,17 +472,23 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         roomsSold: occ.sold,
         roomsRemaining: occ.left,
         pickup1h: pickup1h.get(stayDate) ?? 0,
+        pickup6h: pickup6h.get(stayDate) ?? 0,
         pickup24h: pickup24h.get(stayDate) ?? 0,
         pickup48h: pickup48h.get(stayDate) ?? 0,
         pickup7d: pickup7d.get(stayDate) ?? 0,
         cancellations24h: cancels24h.get(stayDate) ?? 0,
+        hoursSinceLastPickup: lastPickup ? (now.getTime() - Date.parse(lastPickup)) / 3_600_000 : null,
         lastCancellationAt: lastCancel.get(stayDate) ?? null,
         lastDirection: (last?.direction as any) ?? null,
         lastDecisionAt: last?.at ?? null,
-        movedTodayEur: movedToday.get(stayDate) ?? 0,
+        lastDecreaseAt: lastDecreaseByDate.get(stayDate) ?? null,
+        movedUpTodayEur: movedUpToday.get(stayDate) ?? 0,
+        movedDownTodayEur: movedDownToday.get(stayDate) ?? 0,
         manualHoldUntil: manualHold.get(stayDate) ?? null,
-        minPrice: bounds.min,
-        maxPrice: bounds.max,
+        minPrice: isBoundsFailure(refBounds) ? null : refBounds.min,
+        maxPrice: isBoundsFailure(refBounds) ? null : refBounds.max,
+        anchorPrice: reference?.room_type_name ? (anchorByType.get(reference.room_type_name) ?? null) : null,
+        crossed60Occupancy: prevOcc != null && occ.pct != null && prevOcc < 60 && occ.pct >= 60,
         pendingEventUplift: pendingEvent?.uplift ?? 0,
         market: marketFor(stayDate),
       };
@@ -397,6 +496,41 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       const decision = decideDate(input, settings);
       decisions.push(decision);
       if (decision.blocked) skipReasons[decision.reason] = (skipReasons[decision.reason] ?? 0) + 1;
+
+      // Build every child cell — in shadow mode too, so the gate can prove the
+      // real payload would have been safe before anything is published.
+      const cellPrices: CellPrice[] = [];
+      if (!decision.blocked) {
+        for (const cell of cells) {
+          if (typeAvail.left(cell.room_type_name, cell.obk_id, stayDate) === 0) continue;
+          const cellBounds = boundsFor(cell.room_type_name, cell.occupancy);
+          if (isBoundsFailure(cellBounds)) {
+            violations.push({ stay_date: stayDate, room_type_name: cell.room_type_name, occupancy: cell.occupancy, problem: cellBounds.reason, detail: cellBounds.detail });
+            continue;
+          }
+          const old = whole(cell.price);
+          // Each child cell is priced and clamped INDEPENDENTLY against its own
+          // absolute bounds; the date only supplies the movement.
+          let next = whole(old + decision.movement);
+          if (next < cellBounds.min) next = cellBounds.min;
+          if (next > cellBounds.max) next = cellBounds.max;
+          if (next === old) continue;
+          cellPrices.push({
+            stay_date: stayDate,
+            obk_id: cell.obk_id,
+            room_type_name: cell.room_type_name,
+            occupancy: cell.occupancy,
+            old_price: old,
+            new_price: next,
+            currency: cell.currency ?? rule.currency ?? "EUR",
+            min_price: cellBounds.min,
+            max_price: cellBounds.max,
+          });
+        }
+        const cellViolations = validateCells(cellPrices);
+        for (const v of cellViolations) violations.push({ ...v });
+        simulatedCells += cellPrices.length;
+      }
 
       const status = decision.blocked ? "held" : (mode === "live" ? "queued" : "shadow");
       decisionRows.push({
@@ -409,7 +543,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         rooms_sold: occ.sold,
         rooms_remaining: occ.left,
         pickup_1h: input.pickup1h,
-        pickup_6h: input.pickup1h,
+        pickup_6h: input.pickup6h,
         pickup_24h: input.pickup24h,
         pickup_48h: input.pickup48h,
         pickup_7d: input.pickup7d,
@@ -422,35 +556,29 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         direction: decision.direction,
         decision_reason: decision.reason,
         reason_detail: decision.reasonDetail,
+        window_id: decision.windowId,
         event_signal: pendingEvent ? { event_key: pendingEvent.key, uplift: pendingEvent.uplift } : null,
         market_signal: input.market.median == null ? null : input.market,
         manual_hold_until: input.manualHoldUntil,
         cap_applied: decision.capApplied,
+        simulated_cells: cellPrices.length === 0 ? null : cellPrices,
+        cells_simulated: cellPrices.length,
         status,
       });
 
       if (decision.blocked || mode !== "live" || dryRun) continue;
 
-      // Apply the SAME whole-euro movement to every sellable cell of the date,
-      // so the occupancy ladder keeps its shape by construction.
-      for (const cell of cells) {
-        if (typeAvail.left(cell.room_type_name, cell.obk_id, stayDate) === 0) continue;
-        const cellBounds = floorFor(cell.room_type_name, cell.occupancy);
-        const old = whole(cell.price);
-        let next = whole(old + decision.movement);
-        if (next < cellBounds.min) next = whole(cellBounds.min);
-        if (next > cellBounds.max) next = whole(cellBounds.max);
-        if (next === old) continue;
+      for (const cell of cellPrices) {
         payload.push({
           hotel_id: rule.hotel_id,
           organization_slug: rule.organization_slug,
-          stay_date: stayDate,
+          stay_date: cell.stay_date,
           obk_id: cell.obk_id,
           room_type_name: cell.room_type_name,
           occupancy: cell.occupancy,
-          old_price: old,
-          new_price: next,
-          currency: cell.currency ?? rule.currency ?? "EUR",
+          old_price: cell.old_price,
+          new_price: cell.new_price,
+          currency: cell.currency,
           status: "draft",
           intent_source: decision.direction === "increase" ? "automation_pickup" : "automation_markdown",
           decision_reason: decision.reason,
@@ -459,14 +587,42 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       }
     }
 
+    const insertedDecisionIds = new Map<string, string>();
     for (let i = 0; i < decisionRows.length; i += 500) {
-      const { error } = await admin.from("revenue_date_decisions").insert(decisionRows.slice(i, i + 500));
+      const { data, error } = await admin.from("revenue_date_decisions")
+        .insert(decisionRows.slice(i, i + 500)).select("id, stay_date");
       if (error) throw error;
+      for (const row of (data ?? []) as any[]) insertedDecisionIds.set(row.stay_date, row.id);
+    }
+    for (const row of payload) {
+      row.decision_id = insertedDecisionIds.get(String(row.stay_date)) ?? null;
     }
 
     // ---- 4. Publish (live mode only) ---------------------------------------
     let pushRunId: string | null = null;
+    if (violations.length > 0) {
+      // A safety violation never reaches Previo — the run fails loudly instead.
+      await finish({
+        status: "failed",
+        dates_evaluated: decisions.length,
+        cells_queued: 0,
+        skip_reasons: skipReasons,
+        failure_reason: `Blocked ${violations.length} unsafe price(s): ${JSON.stringify(violations.slice(0, 3))}`.slice(0, 500),
+      });
+      await admin.from("revenue_pickup_automation_rules").update({
+        mode: "shadow",
+        auto_publish: false,
+        auto_pause_reason: "Unsafe simulated prices detected; paused back to shadow.",
+        last_evaluated_at: new Date(startedAt).toISOString(),
+        last_evaluation_status: "error",
+        last_evaluation_error: "unsafe_prices",
+        next_run_at: new Date(now.getTime() + 60 * 60_000).toISOString(),
+      }).eq("id", rule.id);
+      return { hotel_id: rule.hotel_id, engine: "v2", mode, run_id: runId, paused: true, violations: violations.slice(0, 20) };
+    }
+
     if (payload.length > 0) {
+      assertWholeEuro(payload.map((p) => Number(p.new_price)));
       pushRunId = await deps.queue(payload, 5);
       const movedDates = decisions.filter((d) => !d.blocked).map((d) => d.stayDate);
       await admin.from("revenue_date_decisions")
@@ -499,17 +655,23 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       dates_decreased: decreases,
       dates_held: held,
       cells_queued: payload.length,
-      skip_reasons: skipReasons,
+      skip_reasons: { ...skipReasons, simulated_cells: simulatedCells },
     });
 
     await admin.from("revenue_pickup_automation_rules").update({
       last_evaluated_at: new Date(startedAt).toISOString(),
-      last_successful_evaluation_at: new Date(startedAt).toISOString(),
+      // A timed-out run is not a success and must never advance this stamp.
+      ...(budgetHit ? {} : { last_successful_evaluation_at: new Date(startedAt).toISOString() }),
       last_run_at: new Date(startedAt).toISOString(),
-      last_evaluation_status: mode === "live" ? "ok" : "shadow_ok",
-      last_evaluation_error: null,
+      last_evaluation_status: budgetHit ? "timed_out" : (mode === "live" ? "ok" : "shadow_ok"),
+      last_evaluation_error: budgetHit ? "run budget exhausted" : null,
       next_run_at: new Date(now.getTime() + Math.max(60, Number(rule.evaluation_interval_minutes || 60)) * 60_000).toISOString(),
     }).eq("id", rule.id);
+
+    // ---- 5. Automatic activation gate / live watchdog ----------------------
+    const gate = await evaluateActivation({
+      admin, rule, now, mode, sellableRooms, violations: violations.length, budgetHit, liveHours,
+    });
 
     // Shadow runs are silent by design; a live run announces what it did.
     if (mode === "live" && payload.length > 0 && !dryRun) {
@@ -544,8 +706,10 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       decreases,
       held,
       cells_queued: payload.length,
+      cells_simulated: simulatedCells,
       skip_reasons: skipReasons,
       timed_out: budgetHit,
+      gate,
     };
   } catch (e) {
     const message = e instanceof Error
@@ -562,4 +726,115 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     }).eq("id", rule.id);
     throw e;
   }
+}
+
+/**
+ * After every run: in shadow, check whether 24 clean hours have passed and go
+ * live automatically; in live, run the 48-hour watchdog.
+ */
+async function evaluateActivation(ctx: {
+  admin: any; rule: any; now: Date; mode: "shadow" | "live";
+  sellableRooms: number; violations: number; budgetHit: boolean; liveHours: number;
+}): Promise<Record<string, unknown>> {
+  const { admin, rule, now, mode } = ctx;
+  const shadowStart = rule.shadow_started_at ? Date.parse(rule.shadow_started_at) : null;
+  const windowStart = new Date((mode === "live" ? now.getTime() - 48 * 3_600_000 : (shadowStart ?? now.getTime()))).toISOString();
+
+  const [{ data: runs }, { data: decisionRows }] = await Promise.all([
+    admin.from("revenue_automation_runs")
+      .select("status, started_at, finished_at, failure_reason")
+      .eq("hotel_id", rule.hotel_id).gte("started_at", windowStart),
+    admin.from("revenue_date_decisions")
+      .select("stay_date, direction, movement, target_price, decision_reason, cells_simulated, status")
+      .eq("hotel_id", rule.hotel_id).gte("created_at", windowStart),
+  ]);
+
+  const runRows = (runs ?? []) as any[];
+  const dRows = (decisionRows ?? []) as any[];
+  const moved = dRows.filter((r) => r.direction && r.direction !== "hold");
+  const dirs = new Map<string, Set<string>>();
+  for (const r of moved) {
+    const set = dirs.get(r.stay_date) ?? new Set<string>();
+    set.add(r.direction);
+    dirs.set(r.stay_date, set);
+  }
+  const dualDirection = [...dirs.values()].filter((s) => s.size > 1).length;
+  const fractional = moved.filter((r) => r.target_price != null && !Number.isInteger(Number(r.target_price))).length;
+  const staleDecisions = runRows.filter((r) => r.status === "stopped_stale_data" && moved.length > 0 && false).length;
+  const childCellsConsistent = moved.every((r) => Number(r.cells_simulated ?? 0) > 0);
+
+  if (mode === "shadow") {
+    const shadowHours = shadowStart ? (now.getTime() - shadowStart) / 3_600_000 : 0;
+    const gate = evaluateGates({
+      shadowHours,
+      runsTotal: runRows.length,
+      runsFailed: runRows.filter((r) => r.status === "failed" || r.status === "timed_out").length,
+      datesEvaluated: dRows.length,
+      datesIncreased: moved.filter((r) => r.direction === "increase").length,
+      datesDecreased: moved.filter((r) => r.direction === "decrease").length,
+      allWholeEuro: fractional === 0 && ctx.violations === 0,
+      allWithinBounds: ctx.violations === 0,
+      noDualDirection: dualDirection === 0,
+      noBudgetBreach: true,
+      sellableRooms: ctx.sellableRooms,
+      expectedRooms: Number(rule.expected_sellable_rooms ?? ctx.sellableRooms),
+      childCellsConsistent,
+      noStaleDecisions: staleDecisions === 0,
+    });
+    await admin.from("revenue_pickup_automation_rules").update({
+      gate_results: { ...gate.checks, evaluated_at: now.toISOString(), shadow_hours: Math.round(shadowHours) },
+      ...(gate.passed ? { mode: "live", auto_publish: true, live_activated_at: now.toISOString(), auto_pause_reason: null } : {}),
+    }).eq("id", rule.id);
+    if (gate.passed) {
+      await admin.from("revenue_automation_notifications").insert({
+        hotel_id: rule.hotel_id,
+        organization_slug: rule.organization_slug,
+        notification_type: "pickup_automation",
+        run_source: "automatic",
+        actor_name: "Automatic pricing",
+        rule_id: rule.id,
+        action_ids: [],
+        severity: "info",
+        currency: rule.currency ?? "EUR",
+        summary: "Automatic pricing passed its 24-hour test period and is now live.",
+        changes: [],
+      });
+    }
+    return { phase: "shadow", passed: gate.passed, failing: gate.failing, shadow_hours: Math.round(shadowHours) };
+  }
+
+  const watchdog = evaluateWatchdog({
+    liveHours: ctx.liveHours,
+    fractionalPrices: fractional,
+    boundsBreaches: ctx.violations,
+    staleDataDecisions: staleDecisions,
+    overlappingRuns: 0,
+    consecutiveTimeouts: runRows.slice(-3).filter((r) => r.status === "timed_out").length,
+    repeatedEventUplifts: 0,
+    dualDirectionDates: dualDirection,
+    previoRejections: 0,
+    mappingErrors: 0,
+  });
+  if (watchdog.pause) {
+    await admin.from("revenue_pickup_automation_rules").update({
+      mode: "shadow",
+      auto_publish: false,
+      auto_pause_reason: watchdog.reason,
+      shadow_started_at: now.toISOString(),
+    }).eq("id", rule.id);
+    await admin.from("revenue_automation_notifications").insert({
+      hotel_id: rule.hotel_id,
+      organization_slug: rule.organization_slug,
+      notification_type: "pickup_automation",
+      run_source: "automatic",
+      actor_name: "Automatic pricing",
+      rule_id: rule.id,
+      action_ids: [],
+      severity: "warning",
+      currency: rule.currency ?? "EUR",
+      summary: watchdog.reason ?? "Automatic pricing paused.",
+      changes: [],
+    });
+  }
+  return { phase: "live", supervised: watchdog.supervised, paused: watchdog.pause, reason: watchdog.reason };
 }

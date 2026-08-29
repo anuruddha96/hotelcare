@@ -55,13 +55,18 @@ interface Snap {
 
 async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: string, orgSlug: string | null, today: string) {
   const horizon = addDays(today, 60);
-  const yesterday = `${addDays(today, -1)}T00:00:00Z`;
+  // A true rolling 24 hours — not "since midnight yesterday", which used to
+  // stretch the window to as much as 48 hours and inflate every total.
+  const windowStart = new Date(Date.now() - 24 * 3_600_000).toISOString();
   const [
     { data: nights },
     { data: actions },
     { data: decisions },
     { count: raisedCells },
     { count: loweredCells },
+    { count: raisedDates },
+    { count: loweredDates },
+    { data: runs },
     { data: snaps },
     { data: events },
   ] = await Promise.all([
@@ -72,7 +77,7 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
     admin.from("revenue_pickup_automation_actions")
       .select("stay_date, old_price, new_price, decision_reason, created_at, room_type_name")
       .eq("hotel_id", hotelId)
-      .gte("created_at", yesterday)
+      .gte("created_at", windowStart)
       .order("created_at", { ascending: false })
       .limit(400),
     // Engine V2 decides once per stay date, which is what the email should report.
@@ -80,16 +85,30 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
       .select("stay_date, direction, current_price, target_price, reason_detail")
       .eq("hotel_id", hotelId)
       .eq("status", "published")
-      .gte("created_at", yesterday)
+      .gte("created_at", windowStart)
       .neq("direction", "hold")
+      .order("created_at", { ascending: false })
       .limit(2000),
     // Exact totals, so a capped list can never understate or overstate the day.
     admin.from("revenue_pickup_automation_actions")
       .select("id", { count: "exact", head: true })
-      .eq("hotel_id", hotelId).gte("created_at", yesterday).eq("decision_type", "pickup_increase"),
+      .eq("hotel_id", hotelId).gte("created_at", windowStart).eq("decision_type", "pickup_increase"),
     admin.from("revenue_pickup_automation_actions")
       .select("id", { count: "exact", head: true })
-      .eq("hotel_id", hotelId).gte("created_at", yesterday).eq("decision_type", "no_pickup_markdown"),
+      .eq("hotel_id", hotelId).gte("created_at", windowStart).eq("decision_type", "no_pickup_markdown"),
+    admin.from("revenue_date_decisions")
+      .select("id", { count: "exact", head: true })
+      .eq("hotel_id", hotelId).eq("status", "published")
+      .gte("created_at", windowStart).eq("direction", "increase"),
+    admin.from("revenue_date_decisions")
+      .select("id", { count: "exact", head: true })
+      .eq("hotel_id", hotelId).eq("status", "published")
+      .gte("created_at", windowStart).eq("direction", "decrease"),
+    // Runs are reported separately: a failed run is news, not a silent zero.
+    admin.from("revenue_automation_runs")
+      .select("status, mode, started_at, failure_reason")
+      .eq("hotel_id", hotelId).gte("started_at", windowStart)
+      .order("started_at", { ascending: false }).limit(50),
     admin.from("revenue_daily_snapshots")
       .select("stay_date, captured_date, rooms_sold, rooms_available, occupancy_pct, revenue_eur, adr_eur")
       .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", addDays(today, 30)).limit(2000),
@@ -102,7 +121,7 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
 
 
   const list = (nights ?? []) as Night[];
-  const since = new Date(`${addDays(today, -1)}T00:00:00Z`).getTime();
+  const since = Date.parse(windowStart);
   let pickupNights = 0;
   let pickupRevenue = 0;
   const pickupRes = new Set<string>();
@@ -179,13 +198,16 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
         stay_date: string; old_price: number | null; new_price: number | null;
         decision_reason: string | null; room_type_name: string | null;
       }[]);
-  const raised = dateDecisions.length > 0
-    ? dateDecisions.filter((d) => d.direction === "increase").length
-    : (raisedCells ?? 0);
-  const lowered = dateDecisions.length > 0
-    ? dateDecisions.filter((d) => d.direction === "decrease").length
-    : (loweredCells ?? 0);
+  // Exact counts come from the database, never from a capped list.
+  const usedDecisions = (raisedDates ?? 0) + (loweredDates ?? 0) > 0 || dateDecisions.length > 0;
+  const raised = usedDecisions ? (raisedDates ?? 0) : (raisedCells ?? 0);
+  const lowered = usedDecisions ? (loweredDates ?? 0) : (loweredCells ?? 0);
+  const changeUnit = usedDecisions ? "date" : "price";
 
+  const runRows = (runs ?? []) as { status: string; mode: string | null; started_at: string; failure_reason: string | null }[];
+  const runsTotal = runRows.length;
+  const runsFailed = runRows.filter((r) => r.status === "failed" || r.status === "timed_out" || r.status === "stopped_stale_data");
+  const shadowRuns = runRows.filter((r) => r.mode === "shadow").length;
 
   const upcoming = ((events ?? []) as {
     title: string; event_date: string; end_date: string | null; category: string | null;
@@ -198,6 +220,11 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
     pickupNights, pickupRevenue, pickupRes: pickupRes.size, topPickup,
     soldToday, availTonight, occTonight, adrTonight, revparTonight,
     occ14, adr14, rev14, attention, changes, raised, lowered, upcoming,
+    changeUnit, runsTotal, shadowRuns,
+    runsFailedCount: runsFailed.length,
+    runFailures: runsFailed.slice(0, 5).map((r) => ({
+      at: r.started_at, status: r.status, reason: r.failure_reason ?? "no reason recorded",
+    })),
   };
 }
 
@@ -277,7 +304,7 @@ function renderHtml(
         <table style="width:100%;border-spacing:8px 0"><tr>
           ${card("Pickup", `${d.pickupNights} nights`, `${d.pickupRes} reservation${d.pickupRes === 1 ? "" : "s"}`)}
           ${card("Room revenue", money(d.pickupRevenue), "new bookings")}
-          ${card("Automation", `${d.raised}↑ ${d.lowered}↓`, `${d.changes.length} price move${d.changes.length === 1 ? "" : "s"}`)}
+          ${card("Automation", `${d.raised}↑ ${d.lowered}↓`, `${d.raised + d.lowered} ${d.changeUnit}${d.raised + d.lowered === 1 ? "" : "s"} moved · ${d.runsTotal} run${d.runsTotal === 1 ? "" : "s"}${d.runsFailedCount ? `, ${d.runsFailedCount} failed` : ""}`)}
         </tr></table>
 
         ${h3("Tonight")}
@@ -304,6 +331,15 @@ function renderHtml(
 
         ${h3("What the automation changed")}
         <ul style="margin:0;padding-left:18px;font-size:14px">${changes}</ul>
+
+        ${h3("Automation health")}
+        <p style="margin:0;color:${INK};font-size:14px">
+          ${d.runsTotal} run${d.runsTotal === 1 ? "" : "s"} in the last 24 hours${d.shadowRuns ? ` (${d.shadowRuns} in test mode, no prices sent)` : ""}.
+          ${d.runsFailedCount === 0 ? "All runs completed." : `<strong style="color:#b91c1c">${d.runsFailedCount} did not complete.</strong>`}
+        </p>
+        ${d.runFailures.length
+          ? `<ul style="margin:6px 0 0;padding-left:18px;font-size:13px;color:${MUTED}">${d.runFailures.map((f) => `<li>${f.at.slice(0, 16).replace("T", " ")} — ${f.status}: ${f.reason}</li>`).join("")}</ul>`
+          : ""}
       </div>
       <div style="padding:16px 24px;background:#f8fafc;border-top:1px solid ${LINE};color:${MUTED};font-size:12px;line-height:1.5">
         Figures as of ${meta.asOf} Budapest time${meta.syncedAt ? `, data last synced ${meta.syncedAt}` : ""}.<br />
@@ -319,7 +355,9 @@ function renderText(hotelName: string, today: string, d: Awaited<ReturnType<type
     `${hotelName} — morning revenue summary (${today}, ${meta.asOf} Budapest time)`,
     "",
     `Last 24 hours: ${d.pickupNights} nights / ${d.pickupRes} reservations / ${money(d.pickupRevenue)}`,
-    `Automation: ${d.raised} up, ${d.lowered} down (${d.changes.length} price moves)`,
+    `Automation: ${d.raised} up, ${d.lowered} down (${d.raised + d.lowered} ${d.changeUnit}s moved)`,
+    `Automation health: ${d.runsTotal} runs, ${d.runsFailedCount} did not complete${d.shadowRuns ? `, ${d.shadowRuns} in test mode` : ""}`,
+    ...d.runFailures.map((f) => `  ${f.at.slice(0, 16).replace("T", " ")} ${f.status}: ${f.reason}`),
     `Tonight: ${d.occTonight != null ? `${d.occTonight}%` : "-"} occupancy, ADR ${money(d.adrTonight)}, RevPAR ${money(d.revparTonight)}`,
     `Next 14 nights: ${d.occ14 != null ? `${d.occ14}%` : "-"} occupancy, ADR ${money(d.adr14)}, revenue ${money(d.rev14)}`,
     "",
