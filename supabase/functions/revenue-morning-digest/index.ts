@@ -331,6 +331,15 @@ function renderHtml(
 
         ${h3("What the automation changed")}
         <ul style="margin:0;padding-left:18px;font-size:14px">${changes}</ul>
+
+        ${h3("Automation health")}
+        <p style="margin:0;color:${INK};font-size:14px">
+          ${d.runsTotal} run${d.runsTotal === 1 ? "" : "s"} in the last 24 hours${d.shadowRuns ? ` (${d.shadowRuns} in test mode, no prices sent)` : ""}.
+          ${d.runsFailedCount === 0 ? "All runs completed." : `<strong style="color:#b91c1c">${d.runsFailedCount} did not complete.</strong>`}
+        </p>
+        ${d.runFailures.length
+          ? `<ul style="margin:6px 0 0;padding-left:18px;font-size:13px;color:${MUTED}">${d.runFailures.map((f) => `<li>${f.at.slice(0, 16).replace("T", " ")} — ${f.status}: ${f.reason}</li>`).join("")}</ul>`
+          : ""}
       </div>
       <div style="padding:16px 24px;background:#f8fafc;border-top:1px solid ${LINE};color:${MUTED};font-size:12px;line-height:1.5">
         Figures as of ${meta.asOf} Budapest time${meta.syncedAt ? `, data last synced ${meta.syncedAt}` : ""}.<br />
