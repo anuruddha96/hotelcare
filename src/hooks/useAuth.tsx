@@ -351,6 +351,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     updateProfileStatus('idle');
     setBootstrapProgress(18);
     clearTabHotels();
+    clearCachedRevenuePayloads();
     try {
       sessionStorage.removeItem('hotel_selected');
       localStorage.removeItem('hotel_selected_date');
