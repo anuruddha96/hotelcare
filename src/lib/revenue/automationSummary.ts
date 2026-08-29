@@ -14,6 +14,15 @@ export interface AutomationRunLike {
   pickups_count?: number;
   summary?: string | null;
   changes?: Array<{ old_price?: number | null; new_price?: number | null }>;
+  run?: {
+    mode: string;
+    status: string;
+    dates_evaluated: number;
+    dates_increased: number;
+    dates_decreased: number;
+    dates_held: number;
+    cells_queued: number;
+  } | null;
 }
 
 export interface RunReason {
@@ -109,6 +118,15 @@ const plural = (count: number, word: string) => `${count.toLocaleString()} ${wor
 
 export function runHeadline(run: AutomationRunLike): string {
   const who = run.run_source === "automatic" ? "Automatic pricing" : "A manual run";
+  if (run.run) {
+    if (run.run.status === "failed") return `${who} stopped with an error`;
+    if (run.run.status === "timed_out") return `${who} reached its time limit`;
+    if (run.run.mode === "shadow") return `${who} completed a shadow safety test`;
+    const changed = run.run.dates_increased + run.run.dates_decreased;
+    return changed === 0
+      ? `${who} reviewed the calendar and left prices unchanged`
+      : `${who} changed ${plural(changed, "stay date")}`;
+  }
   const count = run.actions_count ?? 0;
   if (count === 0) {
     return `${who} reviewed your calendar and left prices as they are`;
@@ -119,6 +137,18 @@ export function runHeadline(run: AutomationRunLike): string {
 }
 
 export function runStatus(run: AutomationRunLike): { text: string; tone: RunTone } {
+  if (run.run) {
+    if (run.run.status === "failed" || run.run.status === "timed_out") {
+      return { text: run.summary ?? "The run needs attention", tone: "attention" };
+    }
+    if (run.run.mode === "shadow") {
+      return { text: "Safety test only — nothing was sent to Previo", tone: "quiet" };
+    }
+    if (run.run.cells_queued > 0) {
+      return { text: `${run.run.cells_queued.toLocaleString()} price cells queued for Previo`, tone: "working" };
+    }
+    return { text: "No prices needed to be sent", tone: "done" };
+  }
   const failed = run.failed_count ?? 0;
   const sent = run.pushed_count ?? 0;
   const total = run.actions_count ?? 0;
@@ -135,6 +165,15 @@ export function runStatus(run: AutomationRunLike): { text: string; tone: RunTone
 
 /** One-line preview used in the bell list. */
 export function runPreview(run: AutomationRunLike): string {
+  if (run.run) {
+    if (run.run.status === "failed") return `Failed · ${run.run.dates_evaluated.toLocaleString()} dates checked`;
+    if (run.run.status === "timed_out") return `Timed out · ${run.run.dates_evaluated.toLocaleString()} dates checked`;
+    const changed = run.run.dates_increased + run.run.dates_decreased;
+    if (run.run.mode === "shadow") {
+      return `Shadow test · ${changed.toLocaleString()} dates would change · ${run.run.dates_held.toLocaleString()} held`;
+    }
+    return `${changed.toLocaleString()} dates changed · ${run.run.cells_queued.toLocaleString()} price cells queued`;
+  }
   const failed = run.failed_count ?? 0;
   if (failed > 0) return `${plural(failed, "price")} need attention`;
   const status = runStatus(run);

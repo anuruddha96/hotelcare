@@ -6095,6 +6095,7 @@ export type Database = {
           actions_count: number
           actor_name: string
           actor_user_id: string | null
+          automation_run_id: string | null
           changes: Json
           created_at: string
           currency: string | null
@@ -6117,6 +6118,7 @@ export type Database = {
           actions_count?: number
           actor_name?: string
           actor_user_id?: string | null
+          automation_run_id?: string | null
           changes?: Json
           created_at?: string
           currency?: string | null
@@ -6139,6 +6141,7 @@ export type Database = {
           actions_count?: number
           actor_name?: string
           actor_user_id?: string | null
+          automation_run_id?: string | null
           changes?: Json
           created_at?: string
           currency?: string | null
@@ -6156,7 +6159,15 @@ export type Database = {
           summary?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "revenue_automation_notifications_automation_run_id_fkey"
+            columns: ["automation_run_id"]
+            isOneToOne: false
+            referencedRelation: "revenue_automation_runs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       revenue_automation_runs: {
         Row: {

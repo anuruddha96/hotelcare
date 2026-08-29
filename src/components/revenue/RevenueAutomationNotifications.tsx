@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, AlertTriangle, Bot, User as UserIcon, ArrowRight, Info, ArrowUpRight } from 'lucide-react';
+import { Bell, AlertTriangle, Bot, User as UserIcon, ArrowRight, Info, ArrowUpRight, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,6 +19,7 @@ import {
   useRevenueAutomationNotifications,
   relativeTime,
   type AutomationNotification,
+  type AutomationDecision,
 } from '@/hooks/useRevenueAutomationNotifications';
 import {
   runHeadline,
@@ -38,10 +39,13 @@ const money = (value: number | null | undefined, currency: string | null | undef
 export function RevenueAutomationNotifications() {
   const canSee = useCanSeeAutomationNotifications();
   const navigate = useNavigate();
-  const { items, unreadCount, markRead, markAllRead } = useRevenueAutomationNotifications(canSee);
+  const { items, unreadCount, markRead, markAllRead, loadDecisions } = useRevenueAutomationNotifications(canSee);
 
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<AutomationNotification | null>(null);
+  const [decisions, setDecisions] = useState<AutomationDecision[]>([]);
+  const [decisionsLoading, setDecisionsLoading] = useState(false);
+  const [decisionsError, setDecisionsError] = useState<string | null>(null);
   const welcomed = useRef(false);
 
   // One tasteful catch-up message per session — never one toast per change.
@@ -63,8 +67,23 @@ export function RevenueAutomationNotifications() {
 
   const openDetail = (item: AutomationNotification) => {
     setDetail(item);
+    setDecisions([]);
+    setDecisionsError(null);
     if (!item.read) void markRead(item.id);
+    if (item.automation_run_id) {
+      setDecisionsLoading(true);
+      void loadDecisions(item.automation_run_id)
+        .then(setDecisions)
+        .catch(() => setDecisionsError('The date-by-date breakdown could not be loaded.'))
+        .finally(() => setDecisionsLoading(false));
+    }
   };
+
+  const reasonCounts = decisions.reduce<Record<string, number>>((counts, row) => {
+    const key = row.decision_reason || 'other';
+    counts[key] = (counts[key] ?? 0) + 1;
+    return counts;
+  }, {});
 
   return (
     <>
@@ -180,12 +199,17 @@ export function RevenueAutomationNotifications() {
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {runStats(detail).map((kpi) => (
+                {(detail.run ? [
+                  { label: 'Dates checked', value: detail.run.dates_evaluated },
+                  { label: 'Increased', value: detail.run.dates_increased },
+                  { label: 'Decreased', value: detail.run.dates_decreased },
+                  { label: detail.run.mode === 'shadow' ? 'Cells simulated' : 'Cells queued', value: detail.run.mode === 'shadow' ? decisions.reduce((sum, row) => sum + row.cells_simulated, 0) : detail.run.cells_queued },
+                ] : runStats(detail)).map((kpi) => (
                   <div
                     key={kpi.label}
                     className={cn(
                       'rounded-lg border p-2 text-center',
-                      kpi.danger && 'border-destructive/50 bg-destructive/5',
+                      'danger' in kpi && kpi.danger && 'border-destructive/50 bg-destructive/5',
                     )}
                   >
                     <div className="text-lg font-semibold">{kpi.value.toLocaleString()}</div>
@@ -194,7 +218,67 @@ export function RevenueAutomationNotifications() {
                 ))}
               </div>
 
-              {detail.changes.length > 0 ? (
+              {detail.run && (
+                <div className={cn('rounded-lg border px-3 py-2 text-xs', detail.run.mode === 'shadow' ? 'border-primary/30 bg-primary/5' : 'bg-muted/30')}>
+                  <p className="font-medium">
+                    {detail.run.mode === 'shadow'
+                      ? 'Shadow test only — no prices were sent to Previo.'
+                      : detail.run.status === 'completed'
+                        ? 'Live run completed.'
+                        : `Run status: ${detail.run.status.replace(/_/g, ' ')}`}
+                  </p>
+                  {detail.run.failure_reason && <p className="mt-1 text-destructive">{detail.run.failure_reason}</p>}
+                </div>
+              )}
+
+              {decisions.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(reasonCounts).map(([reason, count]) => (
+                    <Badge key={reason} variant="outline" className="text-[10px] font-normal">
+                      {reason.replace(/_/g, ' ')} · {count}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+
+              {decisionsLoading ? (
+                <div className="flex min-h-28 items-center justify-center rounded-lg border text-sm text-muted-foreground">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading run breakdown…
+                </div>
+              ) : decisionsError ? (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">{decisionsError}</div>
+              ) : decisions.length > 0 ? (
+                <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                      <tr className="text-left">
+                        <th className="px-2 py-1.5 font-medium">Stay date</th>
+                        <th className="px-2 py-1.5 font-medium">Decision</th>
+                        <th className="px-2 py-1.5 font-medium">Price</th>
+                        <th className="px-2 py-1.5 font-medium">Why</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {decisions.map((row) => (
+                        <tr key={row.id} className="border-t align-top">
+                          <td className="px-2 py-2 whitespace-nowrap">{row.stay_date}</td>
+                          <td className="px-2 py-2 capitalize">{row.direction}</td>
+                          <td className="px-2 py-2 whitespace-nowrap">
+                            {row.current_price == null ? '—' : money(row.current_price, detail.currency)}
+                            {row.target_price != null && row.target_price !== row.current_price && (
+                              <><ArrowRight className="mx-1 inline h-3 w-3" /><span className="font-medium">{money(row.target_price, detail.currency)}</span></>
+                            )}
+                          </td>
+                          <td className="px-2 py-2">
+                            <p className="font-medium capitalize">{row.decision_reason.replace(/_/g, ' ')}</p>
+                            {row.reason_detail && <p className="mt-0.5 text-muted-foreground">{row.reason_detail}</p>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : detail.changes.length > 0 ? (
                 <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border">
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 bg-muted/80 backdrop-blur">
