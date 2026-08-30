@@ -124,8 +124,21 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     d.setUTCDate(d.getUTCDate() + horizonDays);
     return d.toISOString().slice(0, 10);
   })();
-  const mode: "shadow" | "live" = rule.mode === "live" && rule.auto_publish ? "live" : "shadow";
+  const liveStateConsistent = rule.mode === "live" && rule.auto_publish === true;
+  const mode: "shadow" | "live" = liveStateConsistent ? "live" : "shadow";
   const runBudgetMs = Math.max(5_000, Number(rule.run_budget_ms || 30_000));
+
+  // Never leave a misleading half-live state behind. Engine V2 publishes only
+  // when both flags agree; any mixed state is normalised to an honest shadow
+  // state before calculation begins.
+  if ((rule.mode === "live") !== (rule.auto_publish === true)) {
+    await admin.from("revenue_pickup_automation_rules").update({
+      mode: "shadow",
+      auto_publish: false,
+      auto_pause_reason: "Publishing state was inconsistent and was reset safely before evaluation.",
+      shadow_started_at: new Date().toISOString(),
+    }).eq("id", rule.id);
+  }
 
   const { data: runRow, error: runError } = await admin.from("revenue_automation_runs").insert({
     hotel_id: rule.hotel_id,
@@ -709,12 +722,10 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
             }
 
             for (const p of prepared) {
-              let next = whole(p.old + dir * step);
-              // Self-healing: a cell that already sits under its floor (legacy
-              // price, floor raised later) is lifted at least to the floor on
-              // an upward day instead of publishing another illegal price.
-              if (dir > 0 && p.old < p.bounds.min) next = Math.max(next, Math.round(p.bounds.min));
-              if (dir < 0 && p.old > p.bounds.max) next = Math.min(next, Math.round(p.bounds.max));
+              // The stay date is the unit of change. A legacy cell outside its
+              // bounds may improve gradually, but it must take exactly the same
+              // step as every sibling — never snap one occupancy to its floor.
+              const next = whole(p.old + dir * step);
               if (next === p.old) continue;
               cellPrices.push({
                 stay_date: stayDate,
@@ -847,7 +858,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       pushRunId = await deps.queue(payload, 5);
       const movedDates = decisions.filter((d) => !d.blocked).map((d) => d.stayDate);
       await admin.from("revenue_date_decisions")
-        .update({ status: "published" }).eq("run_id", runId).in("stay_date", movedDates);
+        .update({ status: "queued" }).eq("run_id", runId).in("stay_date", movedDates);
       // Record event uplifts so an event can never lift the same date twice.
       const eventApplications = decisions
         .filter((d) => !d.blocked && eventUplift.has(d.stayDate))
@@ -929,7 +940,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       severity: budgetHit ? "warning" : "info",
       pickups: decisions.filter((d) => d.reason.includes("pickup")).length,
       actions: increases + decreases,
-      pushed: mode === "live" && !dryRun ? payload.length : 0,
+      pushed: 0,
       failed: budgetHit ? 1 : 0,
       summary: `${runStatus}: ${decisions.length} dates checked, ${increases} increased, ${decreases} decreased, ${held} held. ${delivery}${activation}`,
     });
@@ -1004,7 +1015,7 @@ async function evaluateActivation(ctx: {
   }
   const dualDirection = [...dirs.values()].filter((s) => s.size > 1).length;
   const fractional = moved.filter((r) => r.target_price != null && !Number.isInteger(Number(r.target_price))).length;
-  const staleDecisions = runRows.filter((r) => r.status === "stopped_stale_data" && moved.length > 0 && false).length;
+  const staleDecisions = runRows.filter((r) => r.status === "stopped_stale_data").length;
   const childCellsConsistent = moved.every((r) => Number(r.cells_simulated ?? 0) > 0);
 
   if (mode === "shadow") {

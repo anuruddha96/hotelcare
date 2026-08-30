@@ -203,7 +203,15 @@ export function RevenueAutomationNotifications() {
                   { label: 'Dates checked', value: detail.run.dates_evaluated },
                   { label: 'Increased', value: detail.run.dates_increased },
                   { label: 'Decreased', value: detail.run.dates_decreased },
-                  { label: detail.run.mode === 'shadow' ? 'Cells simulated' : 'Cells queued', value: detail.run.mode === 'shadow' ? decisions.reduce((sum, row) => sum + row.cells_simulated, 0) : detail.run.cells_queued },
+                  detail.run.mode === 'shadow'
+                    ? { label: 'Cells simulated', value: decisions.reduce((sum, row) => sum + row.cells_simulated, 0) }
+                    : detail.run.cells_failed > 0
+                      ? { label: 'Failed', value: detail.run.cells_failed, danger: true }
+                      : detail.run.cells_verified > 0
+                        ? { label: 'Confirmed', value: detail.run.cells_verified }
+                        : detail.run.cells_published > 0
+                          ? { label: 'Accepted', value: detail.run.cells_published }
+                          : { label: 'Cells queued', value: detail.run.cells_queued },
                 ] : runStats(detail)).map((kpi) => (
                   <div
                     key={kpi.label}
@@ -224,7 +232,7 @@ export function RevenueAutomationNotifications() {
                     {detail.run.mode === 'shadow'
                       ? 'Shadow test only — no prices were sent to Previo.'
                       : detail.run.status === 'completed'
-                        ? 'Live run completed.'
+                        ? runStatus(detail).text
                         : `Run status: ${detail.run.status.replace(/_/g, ' ')}`}
                   </p>
                   {detail.run.failure_reason && <p className="mt-1 text-destructive">{detail.run.failure_reason}</p>}

@@ -22,6 +22,9 @@ export interface AutomationRunLike {
     dates_decreased: number;
     dates_held: number;
     cells_queued: number;
+    cells_published?: number;
+    cells_verified?: number;
+    cells_failed?: number;
   } | null;
 }
 
@@ -145,6 +148,12 @@ export function runStatus(run: AutomationRunLike): { text: string; tone: RunTone
       return { text: "Safety test only — nothing was sent to Previo", tone: "quiet" };
     }
     if (run.run.cells_queued > 0) {
+      const failed = run.run.cells_failed ?? 0;
+      const verified = run.run.cells_verified ?? 0;
+      const accepted = run.run.cells_published ?? 0;
+      if (failed > 0) return { text: `${accepted.toLocaleString()} accepted · ${verified.toLocaleString()} confirmed · ${failed.toLocaleString()} failed`, tone: "attention" };
+      if (verified >= run.run.cells_queued) return { text: `All ${verified.toLocaleString()} price cells confirmed in Previo`, tone: "done" };
+      if (accepted > 0) return { text: `${accepted.toLocaleString()} accepted by Previo · ${verified.toLocaleString()} confirmed`, tone: "working" };
       return { text: `${run.run.cells_queued.toLocaleString()} price cells queued for Previo`, tone: "working" };
     }
     return { text: "No prices needed to be sent", tone: "done" };
@@ -172,6 +181,12 @@ export function runPreview(run: AutomationRunLike): string {
     if (run.run.mode === "shadow") {
       return `Shadow test · ${changed.toLocaleString()} dates would change · ${run.run.dates_held.toLocaleString()} held`;
     }
+    const verified = run.run.cells_verified ?? 0;
+    const accepted = run.run.cells_published ?? 0;
+    const failed = run.run.cells_failed ?? 0;
+    if (failed > 0) return `${changed.toLocaleString()} dates changed · ${accepted.toLocaleString()} accepted · ${failed.toLocaleString()} failed`;
+    if (verified >= run.run.cells_queued && verified > 0) return `${changed.toLocaleString()} dates changed · ${verified.toLocaleString()} confirmed in Previo`;
+    if (accepted > 0) return `${changed.toLocaleString()} dates changed · ${accepted.toLocaleString()} accepted by Previo`;
     return `${changed.toLocaleString()} dates changed · ${run.run.cells_queued.toLocaleString()} price cells queued`;
   }
   const failed = run.failed_count ?? 0;
