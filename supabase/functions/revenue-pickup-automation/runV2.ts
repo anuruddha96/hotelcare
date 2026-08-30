@@ -27,6 +27,7 @@ import {
 import {
   assertWholeEuro,
   headroom,
+  uniformDateStep,
   isBoundsFailure,
   makeBoundsResolver,
   validateCells,
