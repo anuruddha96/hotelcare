@@ -250,6 +250,12 @@ export interface DecisionInput {
   market: MarketSignal;
   /** True when the PMS feed for this date is stale or failed. */
   dataStale?: boolean;
+  /**
+   * Highest reference price this date carried recently. Fill mode never lets a
+   * date fall more than the configured percentage below it, however many runs
+   * happen. Null disables the campaign drop budget for the date.
+   */
+  campaignStartPrice?: number | null;
 }
 
 export interface DecisionSettings {
@@ -267,6 +273,8 @@ export interface DecisionSettings {
   soldOutOccupancyPct: number;
   /** Rooms left at or below which 8–30 day markdowns are switched off. */
   minRoomsForMarkdown: number;
+  /** Occupancy campaign for the near horizon; off by default. */
+  fill?: FillSettings | null;
 }
 
 export const DEFAULT_DECISION_SETTINGS: Omit<DecisionSettings, "now" | "paceBands"> = {
@@ -277,7 +285,9 @@ export const DEFAULT_DECISION_SETTINGS: Omit<DecisionSettings, "now" | "paceBand
   cancellationWaitMinutes: 60,
   soldOutOccupancyPct: 98,
   minRoomsForMarkdown: 5,
+  fill: DEFAULT_FILL_SETTINGS,
 };
+
 
 export interface Decision {
   stayDate: string;
