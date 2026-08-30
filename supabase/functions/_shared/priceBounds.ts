@@ -142,3 +142,15 @@ export function assertWholeEuro(prices: number[]): void {
     throw new Error(`Refusing to send ${bad.length} fractional price(s): ${bad.slice(0, 5).join(", ")}`);
   }
 }
+
+/**
+ * How far one cell can still move in a direction before it hits its own
+ * absolute floor or ceiling. Used to throttle a whole stay date to a single
+ * uniform step, so every room type of the day moves by the same amount.
+ */
+export function headroom(bounds: Bounds, oldPrice: number, direction: number): number {
+  if (direction === 0) return 0;
+  return direction > 0
+    ? Math.max(0, Math.round(bounds.max) - Math.round(oldPrice))
+    : Math.max(0, Math.round(oldPrice) - Math.round(bounds.min));
+}
