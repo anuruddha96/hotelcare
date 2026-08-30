@@ -418,10 +418,14 @@ async function queueIntents(
   rule: Rule,
   payload: Array<Record<string, unknown>>,
   priority: number,
+  context?: { automationRunId: string; dateManifest: Record<string, unknown> },
 ): Promise<string | null> {
   if (payload.length === 0) return null;
   {
     const safe = await enforceRateSafety(admin, rule.hotel_id, payload as any[]);
+    if (context && (safe.repairs.length > 0 || safe.dropped.length > 0 || safe.changes.length !== payload.length)) {
+      throw new Error("A date-column price set required an individual ladder or mapping repair, so it was held instead of being published unevenly.");
+    }
     if (safe.repairs.length > 0) {
       console.log(`[ladder] ${rule.hotel_id} repaired ${safe.repairs.length} occupancy sibling(s) alongside ${payload.length} intent(s)`);
       payload = safe.changes as Array<Record<string, unknown>>;
@@ -431,6 +435,8 @@ async function queueIntents(
   const { error: runError } = await admin.from("revenue_rate_push_runs").insert({
     id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
     source: "automation", requested_count: payload.length, priority,
+    automation_run_id: context?.automationRunId ?? null,
+    date_manifest: context?.dateManifest ?? {},
   });
   if (runError) throw runError;
 
@@ -471,7 +477,7 @@ async function queueIntents(
       run_id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
       stay_date: row.stay_date, obk_id: row.obk_id, room_type_name: row.room_type_name,
       occupancy: row.occupancy, old_price: row.old_price, target_price: row.new_price,
-      currency: row.currency, draft_id: draftMap.get(keyOf(row)),
+      currency: row.currency, draft_id: draftMap.get(keyOf(row)), decision_id: row.decision_id ?? null,
     })));
     if (itemError) throw itemError;
   }
@@ -752,7 +758,7 @@ Deno.serve(async (req) => {
         const v2 = await runEngineV2({
           admin, rule, isEngine, actorName, actorUserId, dryRun,
           pagedAll, localParts, loadTypeAvailability,
-          queue: (payload, priority) => queueIntents(admin, rule, payload, priority),
+          queue: (payload, priority, context) => queueIntents(admin, rule, payload, priority, context),
         });
         summary.push(v2);
         continue;

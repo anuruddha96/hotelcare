@@ -53,7 +53,11 @@ export interface V2Deps {
     fromDate: string,
     toDate: string,
   ) => Promise<{ left: (roomTypeName: unknown, obkId: unknown, stayDate: string) => number | null }>;
-  queue: (payload: Array<Record<string, unknown>>, priority: number) => Promise<string | null>;
+  queue: (
+    payload: Array<Record<string, unknown>>,
+    priority: number,
+    context?: { automationRunId: string; dateManifest: Record<string, unknown> },
+  ) => Promise<string | null>;
 }
 
 const whole = (value: number) => Math.round(value);
@@ -124,19 +128,16 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     d.setUTCDate(d.getUTCDate() + horizonDays);
     return d.toISOString().slice(0, 10);
   })();
-  const liveStateConsistent = rule.mode === "live" && rule.auto_publish === true;
-  const mode: "shadow" | "live" = liveStateConsistent ? "live" : "shadow";
+  // `mode` is the operator's deliberate state. Keep the legacy auto_publish
+  // flag in lockstep instead of silently demoting an explicitly-live property
+  // to another shadow review.
+  const mode: "shadow" | "live" = rule.mode === "live" ? "live" : "shadow";
   const runBudgetMs = Math.max(5_000, Number(rule.run_budget_ms || 30_000));
 
-  // Never leave a misleading half-live state behind. Engine V2 publishes only
-  // when both flags agree; any mixed state is normalised to an honest shadow
-  // state before calculation begins.
-  if ((rule.mode === "live") !== (rule.auto_publish === true)) {
+  if (rule.auto_publish !== (mode === "live")) {
     await admin.from("revenue_pickup_automation_rules").update({
-      mode: "shadow",
-      auto_publish: false,
-      auto_pause_reason: "Publishing state was inconsistent and was reset safely before evaluation.",
-      shadow_started_at: new Date().toISOString(),
+      auto_publish: mode === "live",
+      auto_pause_reason: mode === "live" ? null : rule.auto_pause_reason,
     }).eq("id", rule.id);
   }
 
@@ -827,7 +828,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     // ---- 4. Publish (live mode only) ---------------------------------------
     let pushRunId: string | null = null;
     if (violations.length > 0) {
-      // A safety violation never reaches Previo — the run fails loudly instead.
+      // A safety violation never reaches Previo. It is recorded for attention,
+      // but a date-level problem must not silently change the property's live
+      // operating state or restart a shadow gate.
       await finish({
         status: "failed",
         dates_evaluated: decisions.length,
@@ -836,9 +839,6 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         failure_reason: `Blocked ${violations.length} unsafe price(s): ${JSON.stringify(violations.slice(0, 3))}`.slice(0, 500),
       });
       await admin.from("revenue_pickup_automation_rules").update({
-        mode: "shadow",
-        auto_publish: false,
-        auto_pause_reason: "Unsafe simulated prices detected; paused back to shadow.",
         last_evaluated_at: new Date(startedAt).toISOString(),
         last_evaluation_status: "error",
         last_evaluation_error: "unsafe_prices",
@@ -848,14 +848,28 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         severity: "error",
         actions: decisions.filter((d) => !d.blocked).length,
         failed: violations.length,
-        summary: `Run blocked ${violations.length} unsafe price${violations.length === 1 ? "" : "s"} and returned automation to shadow mode. No prices were sent.`,
+        summary: `Run held ${violations.length} unsafe price${violations.length === 1 ? "" : "s"}. No prices from the affected date were sent; automatic pricing remains ${mode}.`,
       });
       return { hotel_id: rule.hotel_id, engine: "v2", mode, run_id: runId, paused: true, violations: violations.slice(0, 20) };
     }
 
     if (payload.length > 0) {
       assertWholeEuro(payload.map((p) => Number(p.new_price)));
-      pushRunId = await deps.queue(payload, 5);
+      const dateManifest = Object.fromEntries(
+        decisionRows
+          .filter((row) => row.status === "queued")
+          .map((row) => {
+            const stayDate = String(row.stay_date);
+            const cells = payload.filter((cell) => cell.stay_date === stayDate);
+            return [stayDate, {
+              movement: row.movement,
+              movement_requested: row.movement_requested,
+              expected_cells: cells.length,
+              decision_id: insertedDecisionIds.get(stayDate) ?? null,
+            }];
+          }),
+      );
+      pushRunId = await deps.queue(payload, 5, { automationRunId: runId, dateManifest });
       const movedDates = decisions.filter((d) => !d.blocked).map((d) => d.stayDate);
       await admin.from("revenue_date_decisions")
         .update({ status: "queued" }).eq("run_id", runId).in("stay_date", movedDates);

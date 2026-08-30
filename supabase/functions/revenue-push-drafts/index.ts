@@ -77,8 +77,12 @@ Deno.serve(async (req) => {
     // Keep the pricing run and activity feed tied to what Previo actually did,
     // not merely to what the engine placed on the queue.
     const syncAutomationOutcome = async (pushRunId: string) => {
+      const { data: pushRun } = await admin.from("revenue_rate_push_runs")
+        .select("automation_run_id").eq("id", pushRunId).maybeSingle();
       const { data: automationRun } = await admin.from("revenue_automation_runs")
-        .select("id, cells_queued").eq("push_run_id", pushRunId).maybeSingle();
+        .select("id, cells_queued")
+        .eq("id", pushRun?.automation_run_id ?? "00000000-0000-0000-0000-000000000000")
+        .maybeSingle();
       if (!automationRun?.id) return;
       const [acceptedRes, verifiedRes, failedRes] = await Promise.all([
         admin.from("revenue_rate_push_items").select("id", { count: "exact", head: true })
@@ -101,9 +105,25 @@ Deno.serve(async (req) => {
           pushed_count: accepted,
           failed_count: failed,
         }).eq("automation_run_id", automationRun.id),
-        admin.from("revenue_date_decisions").update({
-          status: failed > 0 ? (accepted > 0 ? "partial" : "failed") : accepted > 0 ? "published" : "queued",
-        }).eq("run_id", automationRun.id),
+        (async () => {
+          const { data: decisions } = await admin.from("revenue_date_decisions")
+            .select("id").eq("run_id", automationRun.id);
+          await Promise.all(((decisions ?? []) as any[]).map(async (decision) => {
+            const [{ count: total }, { count: confirmed }, { count: acceptedForDate }, { count: failedForDate }] = await Promise.all([
+              admin.from("revenue_rate_push_items").select("id", { count: "exact", head: true }).eq("run_id", pushRunId).eq("decision_id", decision.id),
+              admin.from("revenue_rate_push_items").select("id", { count: "exact", head: true }).eq("run_id", pushRunId).eq("decision_id", decision.id).eq("status", "confirmed"),
+              admin.from("revenue_rate_push_items").select("id", { count: "exact", head: true }).eq("run_id", pushRunId).eq("decision_id", decision.id).in("status", ["accepted", "confirmed"]),
+              admin.from("revenue_rate_push_items").select("id", { count: "exact", head: true }).eq("run_id", pushRunId).eq("decision_id", decision.id).in("status", ["failed", "different"]),
+            ]);
+            if ((total ?? 0) === 0) return;
+            const status = (failedForDate ?? 0) > 0
+              ? ((acceptedForDate ?? 0) > 0 ? "partial" : "failed")
+              : (confirmed ?? 0) === total ? "confirmed"
+                : (acceptedForDate ?? 0) === total ? "accepted"
+                  : "queued";
+            await admin.from("revenue_date_decisions").update({ status }).eq("id", decision.id);
+          }));
+        })(),
       ]);
     };
 
@@ -252,6 +272,11 @@ Deno.serve(async (req) => {
       return json({ ok: true, pushed: 0, failed: 0, message: "Nothing to push." });
     }
 
+    const { data: pushRunMeta } = requestedRunId
+      ? await admin.from("revenue_rate_push_runs").select("automation_run_id, date_manifest").eq("id", requestedRunId).maybeSingle()
+      : { data: null };
+    const dateAtomic = Boolean(pushRunMeta?.automation_run_id);
+
     // Revalidate immediately before delivery. This protects legacy callers and
     // queued work created before the enqueue-time safety checks existed. A
     // single unsafe cell must not cancel the whole run: the offenders are
@@ -278,7 +303,23 @@ Deno.serve(async (req) => {
           }
         }
       }
-      drafts = mapped as any[];
+      if (dateAtomic && unmapped.length > 0) {
+        const failedDates = new Set(unmapped.map((entry) => String((entry.change as any).stay_date)));
+        const blocked = (drafts as any[]).filter((draft) => failedDates.has(String(draft.stay_date)));
+        const blockedIds = blocked.map((draft) => draft.id);
+        if (blockedIds.length > 0) {
+          await admin.from("revenue_rate_drafts").update({
+            status: "failed", confirmation_status: "blocked",
+            push_error: "The whole stay date was held because one price lacked an exact Previo mapping.",
+          }).in("id", blockedIds);
+          await admin.from("revenue_rate_push_items").update({
+            status: "failed", error: "The whole stay date was held because one price lacked an exact Previo mapping.",
+          }).eq("run_id", requestedRunId).in("draft_id", blockedIds);
+        }
+        drafts = mapped.filter((draft: any) => !failedDates.has(String(draft.stay_date))) as any[];
+      } else {
+        drafts = mapped as any[];
+      }
       if (drafts.length === 0) {
         return json({ ok: true, pushed: 0, failed: unmapped.length, message: "No queued price had an exact Previo rate plan." });
       }
@@ -286,7 +327,7 @@ Deno.serve(async (req) => {
     // A raise that would leave a cheaper room above the next tier used to be
     // discarded, which left the inversion in place. The tiers above are lifted
     // with it instead, as extra drafts inside the same run.
-    try {
+    if (!dateAtomic) try {
       const lifts = await liftHigherRooms(admin, hotelId, drafts as any[]);
       const insertable: any[] = [];
       const { mapped: mappableLifts } = await partitionByExactRateMappings(
@@ -580,6 +621,9 @@ Deno.serve(async (req) => {
       // can arrive from Previo's own pricelist or from a per-cell floor lifting
       // one level only. Repairs go upward, so no floor is undercut.
       const repaired = repairLadder(levels);
+      if (dateAtomic && levels.some((level) => (repaired.get(level.occupancy) ?? level.price) !== level.price)) {
+        throw new Error("The complete date-column price set would require an individual occupancy repair, so the date was held.");
+      }
       return levels.map((l) => ({ occupancy: l.occupancy, price: repaired.get(l.occupancy) ?? l.price }));
     };
 
