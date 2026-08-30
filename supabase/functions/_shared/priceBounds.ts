@@ -122,15 +122,29 @@ export interface PriceViolation {
   problem: "fractional" | "below_floor" | "above_ceiling" | "non_positive";
 }
 
-/** Validate every child-cell price independently. Nothing is auto-corrected. */
+/**
+ * Validate every child-cell price independently. Nothing is auto-corrected.
+ *
+ * A price that was ALREADY outside its bounds before the run (e.g. a legacy
+ * 1-pax price sitting under a newly raised floor) is not the engine's doing.
+ * Blocking the whole run for it froze Ottofiori in shadow mode while the very
+ * cells complained about were being moved back towards their floor. So an
+ * out-of-bounds price only counts as a violation when the run made it worse:
+ * moving a below-floor price UP (or an above-ceiling price DOWN) is a repair.
+ */
 export function validateCells(cells: CellPrice[]): PriceViolation[] {
   const out: PriceViolation[] = [];
   for (const cell of cells) {
     const base = { stay_date: cell.stay_date, room_type_name: cell.room_type_name, occupancy: cell.occupancy, price: cell.new_price };
+    const wasBelow = Number.isFinite(cell.old_price) && cell.old_price < cell.min_price;
+    const wasAbove = Number.isFinite(cell.old_price) && cell.old_price > cell.max_price;
     if (!Number.isFinite(cell.new_price) || cell.new_price <= 0) out.push({ ...base, problem: "non_positive" });
     else if (!Number.isInteger(cell.new_price)) out.push({ ...base, problem: "fractional" });
-    else if (cell.new_price < cell.min_price) out.push({ ...base, problem: "below_floor" });
-    else if (cell.new_price > cell.max_price) out.push({ ...base, problem: "above_ceiling" });
+    else if (cell.new_price < cell.min_price) {
+      if (!(wasBelow && cell.new_price > cell.old_price)) out.push({ ...base, problem: "below_floor" });
+    } else if (cell.new_price > cell.max_price) {
+      if (!(wasAbove && cell.new_price < cell.old_price)) out.push({ ...base, problem: "above_ceiling" });
+    }
   }
   return out;
 }
@@ -150,9 +164,12 @@ export function assertWholeEuro(prices: number[]): void {
  */
 export function headroom(bounds: Bounds, oldPrice: number, direction: number): number {
   if (direction === 0) return 0;
-  return direction > 0
-    ? Math.max(0, Math.round(bounds.max) - Math.round(oldPrice))
-    : Math.max(0, Math.round(oldPrice) - Math.round(bounds.min));
+  const old = Math.round(oldPrice);
+  // A price that starts outside its bounds keeps full headroom in the
+  // direction that brings it back, and none in the direction that makes it
+  // worse — otherwise a single stale cell holds the whole date forever.
+  if (direction > 0) return Math.max(0, Math.round(bounds.max) - old);
+  return Math.max(0, old - Math.round(bounds.min));
 }
 
 export interface DateStepCell {

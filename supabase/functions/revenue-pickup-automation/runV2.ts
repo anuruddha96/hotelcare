@@ -709,7 +709,12 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
             }
 
             for (const p of prepared) {
-              const next = whole(p.old + dir * step);
+              let next = whole(p.old + dir * step);
+              // Self-healing: a cell that already sits under its floor (legacy
+              // price, floor raised later) is lifted at least to the floor on
+              // an upward day instead of publishing another illegal price.
+              if (dir > 0 && p.old < p.bounds.min) next = Math.max(next, Math.round(p.bounds.min));
+              if (dir < 0 && p.old > p.bounds.max) next = Math.min(next, Math.round(p.bounds.max));
               if (next === p.old) continue;
               cellPrices.push({
                 stay_date: stayDate,

@@ -298,6 +298,18 @@ describe("safety rails", () => {
     ]);
     expect(violations.map((v) => v.problem)).toEqual(["below_floor", "fractional"]);
   });
+
+  it("a price that was already below its floor is not blocked while it climbs back", () => {
+    const climbing = validateCells([
+      { stay_date: "2026-09-01", obk_id: "a", room_type_name: "Deluxe Queen Room", occupancy: 1, old_price: 85, new_price: 91, currency: "EUR", min_price: 110, max_price: 350 },
+    ]);
+    expect(climbing).toEqual([]);
+
+    const sinking = validateCells([
+      { stay_date: "2026-09-01", obk_id: "a", room_type_name: "Deluxe Queen Room", occupancy: 1, old_price: 100, new_price: 91, currency: "EUR", min_price: 110, max_price: 350 },
+    ]);
+    expect(sinking.map((v) => v.problem)).toEqual(["below_floor"]);
+  });
 });
 
 describe("events and market validation", () => {
