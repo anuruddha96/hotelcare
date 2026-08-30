@@ -18,6 +18,8 @@ import {
   validateCells,
   assertWholeEuro,
   isBoundsFailure,
+  headroom,
+  uniformDateStep,
 } from "../../../supabase/functions/_shared/priceBounds";
 import { evaluateGates, evaluateWatchdog, supervisedCaps } from "../../../supabase/functions/_shared/activationGate";
 import { eventKeyOf, eventTitleUsable } from "../../../supabase/functions/revenue-pickup-automation/runV2";
@@ -437,5 +439,46 @@ describe("the configured window rules are the agreed ones", () => {
     expect(byId.w181_365.max_daily_decrease).toBe(0);
     expect(byId.w0_2.max_daily_decrease).toBe(15);
     expect(byId.w8_30.max_daily_increase).toBe(15);
+  });
+});
+
+describe("a stay date moves as one block", () => {
+  const cells = (...allowed: number[]) => allowed.map((a, i) => ({ room_type_name: `RT${i}`, allowed: a }));
+
+  it("measures how far a cell can still move", () => {
+    expect(headroom({ min: 100, max: 200 }, 180, 1)).toBe(20);
+    expect(headroom({ min: 100, max: 200 }, 180, -1)).toBe(80);
+    expect(headroom({ min: 100, max: 200 }, 200, 1)).toBe(0);
+    expect(headroom({ min: 100, max: 200 }, 180, 0)).toBe(0);
+  });
+
+  it("gives every room type the full step when all have room", () => {
+    expect(uniformDateStep(cells(50, 40, 30), 10, 3)).toEqual({ step: 10, limitedBy: null, held: false });
+  });
+
+  it("throttles the whole date to the tightest room type", () => {
+    expect(uniformDateStep(cells(50, 6, 30), 10, 3)).toEqual({ step: 6, limitedBy: "RT1", held: false });
+  });
+
+  it("holds the entire date when one room type has no headroom", () => {
+    const r = uniformDateStep(cells(50, 0, 30), 10, 3);
+    expect(r.held).toBe(true);
+    expect(r.step).toBe(0);
+    expect(r.limitedBy).toBe("RT1");
+  });
+
+  it("holds rather than publishing below the minimum movement", () => {
+    expect(uniformDateStep(cells(2), 10, 3).held).toBe(true);
+  });
+
+  it("holds a date with no priceable cells", () => {
+    expect(uniformDateStep([], 10, 3)).toEqual({ step: 0, limitedBy: null, held: true });
+  });
+
+  it("never lets one room type move while another stays put", () => {
+    const allowed = [12, 4, 9];
+    const { step, held } = uniformDateStep(cells(...allowed), 12, 3);
+    expect(held).toBe(false);
+    expect(allowed.every((a) => a >= step)).toBe(true);
   });
 });
