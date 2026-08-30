@@ -743,7 +743,18 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
           }
         }
         const cellViolations = validateCells(cellPrices);
-        for (const v of cellViolations) violations.push({ ...v });
+        if (cellViolations.length > 0) {
+          // Hold only the affected date. Other safe date-columns can continue
+          // to Previo in the same run.
+          violations.push(...cellViolations.map((v) => ({ stay_date: stayDate, ...v })));
+          decision.blocked = true;
+          decision.direction = "hold";
+          decision.movement = 0;
+          decision.targetPrice = decision.currentPrice;
+          decision.reason = "price_safety";
+          decision.reasonDetail = `Held: ${cellViolations.length} price${cellViolations.length === 1 ? " was" : "s were"} outside the configured limits.`;
+          cellPrices.splice(0, cellPrices.length);
+        }
         simulatedCells += cellPrices.length;
       }
       if (!wasBlocked && decision.blocked) {
@@ -827,32 +838,6 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
     // ---- 4. Publish (live mode only) ---------------------------------------
     let pushRunId: string | null = null;
-    if (violations.length > 0) {
-      // A safety violation never reaches Previo. It is recorded for attention,
-      // but a date-level problem must not silently change the property's live
-      // operating state or restart a shadow gate.
-      await finish({
-        status: "failed",
-        dates_evaluated: decisions.length,
-        cells_queued: 0,
-        skip_reasons: skipReasons,
-        failure_reason: `Blocked ${violations.length} unsafe price(s): ${JSON.stringify(violations.slice(0, 3))}`.slice(0, 500),
-      });
-      await admin.from("revenue_pickup_automation_rules").update({
-        last_evaluated_at: new Date(startedAt).toISOString(),
-        last_evaluation_status: "error",
-        last_evaluation_error: "unsafe_prices",
-        next_run_at: new Date(now.getTime() + 60 * 60_000).toISOString(),
-      }).eq("id", rule.id);
-      await notifyRun({
-        severity: "error",
-        actions: decisions.filter((d) => !d.blocked).length,
-        failed: violations.length,
-        summary: `Run held ${violations.length} unsafe price${violations.length === 1 ? "" : "s"}. No prices from the affected date were sent; automatic pricing remains ${mode}.`,
-      });
-      return { hotel_id: rule.hotel_id, engine: "v2", mode, run_id: runId, paused: true, violations: violations.slice(0, 20) };
-    }
-
     if (payload.length > 0) {
       assertWholeEuro(payload.map((p) => Number(p.new_price)));
       const dateManifest = Object.fromEntries(
@@ -870,7 +855,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
           }),
       );
       pushRunId = await deps.queue(payload, 5, { automationRunId: runId, dateManifest });
-      const movedDates = decisions.filter((d) => !d.blocked).map((d) => d.stayDate);
+      const movedDates = Object.keys(dateManifest);
       await admin.from("revenue_date_decisions")
         .update({ status: "queued" }).eq("run_id", runId).in("stay_date", movedDates);
       // Record event uplifts so an event can never lift the same date twice.
@@ -1069,13 +1054,8 @@ async function evaluateActivation(ctx: {
     previoRejections: 0,
     mappingErrors: 0,
   });
-  if (watchdog.pause) {
-    await admin.from("revenue_pickup_automation_rules").update({
-      mode: "shadow",
-      auto_publish: false,
-      auto_pause_reason: watchdog.reason,
-      shadow_started_at: now.toISOString(),
-    }).eq("id", rule.id);
-  }
+  // Live mode is an explicit operator setting. Unsafe date-columns are held
+  // individually; the watchdog reports issues but must not silently disable
+  // publishing or restart a shadow countdown.
   return { phase: "live", supervised: watchdog.supervised, paused: watchdog.pause, reason: watchdog.reason };
 }

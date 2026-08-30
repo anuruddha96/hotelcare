@@ -374,7 +374,12 @@ Deno.serve(async (req) => {
       const { kept, dropped } = await filterRoomHierarchy(admin, hotelId, drafts as any[]);
       if (dropped.length > 0) {
         const keptIds = new Set(kept.map((change: any) => change.id));
-        const blocked = (drafts as any[]).filter((draft) => !keptIds.has(draft.id));
+        let blocked = (drafts as any[]).filter((draft) => !keptIds.has(draft.id));
+        if (dateAtomic) {
+          const failedDates = new Set(blocked.map((draft) => String(draft.stay_date)));
+          blocked = (drafts as any[]).filter((draft) => failedDates.has(String(draft.stay_date)));
+          drafts = kept.filter((draft: any) => !failedDates.has(String(draft.stay_date))) as any[];
+        }
         console.log(`[safety] ${hotelId} dropped ${blocked.length} draft(s) that would deepen a room-order inversion`);
         // Each blocked draft carries the reason for its own date and room type.
         // Copying the first reason onto every row made the whole list look like
@@ -402,7 +407,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      drafts = kept as any[];
+      if (!dateAtomic) drafts = kept as any[];
     }
     if (drafts.length === 0) {
       return json({ ok: true, pushed: 0, failed: 0, message: "Every queued price was blocked by the price order guard." });

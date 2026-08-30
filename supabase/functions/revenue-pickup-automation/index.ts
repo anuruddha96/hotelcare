@@ -447,7 +447,9 @@ async function queueIntents(
       }
       delete context.dateManifest[stayDate];
     }
-    payload = safeDates;
+    // Keep the caller's array in sync so run totals and notifications report
+    // only cells that actually entered the durable queue.
+    payload.splice(0, payload.length, ...safeDates);
     if (payload.length === 0) return null;
   } else {
     const safe = await enforceRateSafety(admin, rule.hotel_id, payload as any[]);
