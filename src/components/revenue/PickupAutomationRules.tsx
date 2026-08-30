@@ -56,6 +56,10 @@ interface Rule {
   whole_number_prices: boolean;
   sold_out_guard_enabled: boolean;
   sold_out_occupancy_pct: number;
+  fill_mode_enabled: boolean;
+  fill_window_days: number;
+  fill_max_total_drop_pct: number;
+
   cancellation_markdown_enabled: boolean;
   cancellation_wait_minutes: number;
   immediate_sell_mode_enabled: boolean;
