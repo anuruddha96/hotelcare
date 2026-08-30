@@ -29,40 +29,53 @@ export function TrainingFirstLoginPrompt() {
   const { pendingAutoStart, acceptAutoStart, snoozeAutoStart, skipAutoStart, lang } = useTrainingV2();
   if (!pendingAutoStart) return null;
 
+  const stepCount = pendingAutoStart.steps?.length ?? 0;
+  const minutes = Math.max(1, Math.round(stepCount * 0.25));
+
   return (
     <Dialog open onOpenChange={(open) => { if (!open) void snoozeAutoStart(); }}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <div className="mx-auto mb-3 p-3 rounded-full bg-primary/10">
-            <GraduationCap className="h-8 w-8 text-primary" aria-hidden="true" />
-          </div>
-          <DialogTitle className="text-center text-xl">{txt(TXT.title, lang)}</DialogTitle>
-          <DialogDescription className="text-center">
-            {txt(TXT.body, lang)}
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="py-2 text-center">
-          <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted text-sm font-medium">
-            {txt(pendingAutoStart.name, lang)}
-          </span>
+      <DialogContent className="sm:max-w-[440px] p-0 overflow-hidden gap-0">
+        <div className="bg-gradient-to-b from-primary/10 to-transparent px-6 pt-7 pb-5">
+          <DialogHeader className="space-y-2.5">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-primary/15 ring-1 ring-primary/20">
+              <GraduationCap className="h-6 w-6 text-primary" aria-hidden="true" />
+            </div>
+            <DialogTitle className="text-center text-lg font-semibold tracking-tight">
+              {txt(TXT.title, lang)}
+            </DialogTitle>
+            <DialogDescription className="text-center text-sm leading-relaxed text-muted-foreground max-w-[36ch] mx-auto">
+              {txt(TXT.body, lang)}
+            </DialogDescription>
+          </DialogHeader>
         </div>
 
-        <DialogFooter className="flex-col sm:flex-row gap-2">
-          <Button variant="ghost" onClick={() => void skipAutoStart()} className="flex-1 min-h-11">
-            <X className="h-4 w-4 mr-1.5" aria-hidden="true" />
-            {txt(TXT.skip, lang)}
-          </Button>
-          <Button variant="outline" onClick={() => void snoozeAutoStart()} className="flex-1 min-h-11">
-            <Clock className="h-4 w-4 mr-1.5" aria-hidden="true" />
-            {txt(TXT.later, lang)}
-          </Button>
-          <Button onClick={acceptAutoStart} className="flex-1 min-h-11">
+        <div className="mx-6 rounded-lg border bg-muted/40 px-4 py-3">
+          <p className="text-sm font-medium leading-snug">{txt(pendingAutoStart.name, lang)}</p>
+          {stepCount > 0 && (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {stepCount} steps · ~{minutes} min
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2 px-6 pb-6 pt-4">
+          <Button onClick={acceptAutoStart} className="w-full min-h-11">
             <Play className="h-4 w-4 mr-1.5" aria-hidden="true" />
             {txt(TXT.start, lang)}
           </Button>
-        </DialogFooter>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => void snoozeAutoStart()} className="flex-1 min-h-10 text-xs sm:text-sm">
+              <Clock className="h-4 w-4 mr-1.5 shrink-0" aria-hidden="true" />
+              {txt(TXT.later, lang)}
+            </Button>
+            <Button variant="ghost" onClick={() => void skipAutoStart()} className="flex-1 min-h-10 text-xs sm:text-sm text-muted-foreground">
+              <X className="h-4 w-4 mr-1.5 shrink-0" aria-hidden="true" />
+              {txt(TXT.skip, lang)}
+            </Button>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );
 }
+
