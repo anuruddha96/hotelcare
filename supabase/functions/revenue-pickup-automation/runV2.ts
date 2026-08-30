@@ -26,11 +26,13 @@ import {
 } from "../_shared/engineV2.ts";
 import {
   assertWholeEuro,
+  headroom,
   isBoundsFailure,
   makeBoundsResolver,
   validateCells,
   type CellPrice,
 } from "../_shared/priceBounds.ts";
+
 import { evaluateGates, evaluateWatchdog, supervisedCaps } from "../_shared/activationGate.ts";
 import { computeAdrGuard, type AdrGuardNight } from "../_shared/adrGuard.ts";
 import { anchorFor, buildAnchorTable } from "../_shared/seasonalAnchor.ts";
