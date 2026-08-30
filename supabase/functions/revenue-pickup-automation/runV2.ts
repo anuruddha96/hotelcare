@@ -755,6 +755,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         current_price: decision.currentPrice,
         target_price: decision.targetPrice,
         movement: decision.movement,
+        movement_requested: requestedMovement,
+        limited_by_room_type: limitedBy,
+
         direction: decision.direction,
         decision_reason: decision.reason,
         reason_detail: decision.reasonDetail,
