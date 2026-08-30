@@ -54,6 +54,8 @@ export interface AutomationDecision {
   stay_date: string;
   direction: string;
   movement: number;
+  movement_requested: number | null;
+  limited_by_room_type: string | null;
   current_price: number | null;
   target_price: number | null;
   status: string;
@@ -61,6 +63,7 @@ export interface AutomationDecision {
   reason_detail: string | null;
   cells_simulated: number;
 }
+
 
 const REVENUE_ROLES = new Set([
   'admin',
