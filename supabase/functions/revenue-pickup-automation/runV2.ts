@@ -253,10 +253,13 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         .select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at")
         .eq("hotel_id", rule.hotel_id).gte("stay_date", today).lte("stay_date", horizonDate)
         .order("captured_at", { ascending: false }).order("stay_date").range(f, t)),
-      deps.pagedAll((f, t) => admin.from("revenue_daily_snapshots")
-        .select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date")
-        .eq("hotel_id", rule.hotel_id).gte("stay_date", today).lte("stay_date", horizonDate)
-        .order("captured_date", { ascending: false }).order("stay_date").range(f, t)),
+      // Occupancy: only the two newest captures per stay date. Reading the raw
+      // history (Ottofiori alone holds ~237k rows in the horizon) paged the
+      // engine into a statement timeout every run.
+      admin.rpc("revenue_latest_snapshots", {
+        p_hotel_id: rule.hotel_id, p_from: today, p_to: horizonDate,
+      }),
+
       admin.from("revenue_price_floors").select("*").eq("hotel_id", rule.hotel_id),
       admin.from("revenue_pace_targets").select("min_days_out, max_days_out, target_occupancy_pct")
         .eq("hotel_id", rule.hotel_id).order("min_days_out"),
@@ -268,11 +271,14 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         .select("stay_date, direction, movement, created_at").eq("hotel_id", rule.hotel_id)
         .gte("stay_date", today).neq("direction", "hold")
         .gte("created_at", since(96)).order("created_at", { ascending: false }).range(f, t)),
-      deps.pagedAll((f, t) => admin.from("rate_change_audit")
-        .select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id)
-        .gte("stay_date", today)
-        .gte("performed_at", since(Math.max(1, Number(rule.manual_hold_hours || 24))))
-        .order("stay_date").range(f, t)),
+      // Manual holds: one row per stay date, aggregated in the database. The
+      // audit table holds >1.3M rows, so paging it row by row timed the run out.
+      admin.rpc("revenue_manual_hold_dates", {
+        p_hotel_id: rule.hotel_id,
+        p_since: since(Math.max(1, Number(rule.manual_hold_hours || 24))),
+        p_sources: ["cell-edit", "cell-selection", "day-tool", "bulk", "bulk-edit", "manual", "quick-adjust"],
+      }),
+
       admin.from("revenue_event_applications").select("event_key, stay_date")
         .eq("hotel_id", rule.hotel_id).gte("stay_date", today),
       admin.from("demand_events")
@@ -348,7 +354,11 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
     const occByDate = new Map<string, { pct: number | null; sold: number | null; left: number | null }>();
     const prevOccByDate = new Map<string, number | null>();
-    for (const row of unwrap(snapshotRes) as any[]) {
+    const snapshotRows = (unwrap(snapshotRes) as any[])
+      .slice()
+      .sort((a, b) => (Number(a.rn ?? 1) - Number(b.rn ?? 1)));
+    for (const row of snapshotRows) {
+
       const pct = row.occupancy_pct == null ? null : Number(row.occupancy_pct);
       if (occByDate.has(row.stay_date)) {
         if (!prevOccByDate.has(row.stay_date)) prevOccByDate.set(row.stay_date, pct);
@@ -394,16 +404,16 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
     const holdHours = Math.max(0, Number(rule.manual_hold_hours || 24));
     const manualHold = new Map<string, string>();
-    // Only a change a PERSON made protects a date. Previo confirmations and
-    // the publisher's own audit rows are machine echoes of automation work —
-    // treating those as manual froze the whole calendar in the first V2 run.
-    const HUMAN_SOURCES = new Set(["cell-edit", "cell-selection", "day-tool", "bulk", "bulk-edit", "manual", "quick-adjust"]);
+    // Only a change a PERSON made protects a date; the database lookup already
+    // filters to human sources and returns the latest edit per stay date.
     for (const row of unwrap(manualRes) as any[]) {
-      if (!HUMAN_SOURCES.has(String(row.source ?? ""))) continue;
-      const until = new Date(Date.parse(row.performed_at) + holdHours * 3_600_000).toISOString();
+      const at = Date.parse(row.performed_at);
+      if (!Number.isFinite(at)) continue;
+      const until = new Date(at + holdHours * 3_600_000).toISOString();
       const seen = manualHold.get(row.stay_date);
       if (!seen || until > seen) manualHold.set(row.stay_date, until);
     }
+
 
     // Movement already spent today, per stay date and per direction.
     const { data: spentToday } = await deps.pagedAll((f, t) => admin
