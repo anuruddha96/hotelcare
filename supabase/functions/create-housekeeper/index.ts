@@ -69,7 +69,14 @@ export const handler = async (req: Request): Promise<Response> => {
     const callerOrgSlug = roleRow?.organization_slug as string | undefined;
     console.log('🎭 Caller role:', callerRole, 'Org:', callerOrgSlug);
     
-    if (!callerRole || !['admin', 'housekeeping_manager', 'manager', 'top_management'].includes(callerRole)) {
+    const CREATOR_ROLES = [
+      'admin',
+      'housekeeping_manager',
+      'manager',
+      'top_management',
+      'top_management_manager',
+    ];
+    if (!callerRole || !CREATOR_ROLES.includes(callerRole)) {
       console.error('❌ Insufficient permissions for role:', callerRole);
       return new Response(
         JSON.stringify({ success: false, error: 'Insufficient permissions' }),
