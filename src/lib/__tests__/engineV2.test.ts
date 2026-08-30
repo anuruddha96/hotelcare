@@ -252,7 +252,7 @@ describe("safety rails", () => {
       input({ pickup24h: 3, manualHoldUntil: "2026-08-30T10:00:00Z", holdKind: "hard" }),
       settings(),
     );
-    expect(d.reason).toBe("manual_hold");
+    expect(d.reason).toBe("manual_lock");
     expect(d.direction).toBe("hold");
   });
 
