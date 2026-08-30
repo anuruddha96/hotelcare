@@ -456,14 +456,79 @@ export function windowIntent(
   }
 }
 
+/**
+ * Fill-mode rules for the selling window. Increases are exactly the ordinary
+ * ones — a booking is still rewarded — but a shortfall against pace is acted
+ * on sooner and a little harder, because an empty room earns nothing.
+ */
+export function fillIntent(
+  input: DecisionInput,
+  win: WindowRule,
+  gap: number | null,
+  settings: DecisionSettings,
+): RawIntent {
+  const occ = input.occupancyPct;
+  const pickup = Math.max(0, input.pickup24h - input.cancellations24h);
+  const waited = win.no_pickup_wait_hours != null
+    && (input.hoursSinceLastPickup == null || input.hoursSinceLastPickup >= win.no_pickup_wait_hours);
+
+  const dec = (amount: number, detail: string): RawIntent => ({ raw: -amount, reason: "fill_markdown", detail });
+  const none = (reason: string, detail: string): RawIntent => ({ raw: 0, reason, detail, blockReason: reason, blockDetail: detail });
+
+  // Pickup always wins, and uses the ordinary rules so a selling date climbs
+  // straight back up.
+  if (pickup > 0) return windowIntent(input, win, gap, settings);
+
+  if (!waited) {
+    return none("awaiting_no_pickup_window", `Filling: waiting ${win.no_pickup_wait_hours}h without a booking before stepping down.`);
+  }
+  if (occ == null) return none("no_occupancy", "No occupancy reading for this date.");
+  const behind = gap == null ? null : -gap;
+
+  switch (win.id) {
+    case "w0_2":
+    case "w3_7": {
+      if (occ >= 95) return none("occupancy_protected", `${occ}% sold: the last rooms keep their price.`);
+      if (input.roomsRemaining != null && input.roomsRemaining <= 2) {
+        return none("low_inventory", `${input.roomsRemaining} rooms left: the price holds.`);
+      }
+      if (occ < 60) return dec(6, `Filling: ${occ}% sold, ${win.id === "w0_2" ? "0–2" : "3–7"} days out and no new booking.`);
+      if (occ < 80) return dec(4, `Filling: ${occ}% sold, ${win.id === "w0_2" ? "0–2" : "3–7"} days out and no new booking.`);
+      return dec(3, `Filling: ${occ}% sold, ${win.id === "w0_2" ? "0–2" : "3–7"} days out and no new booking.`);
+    }
+    case "w8_30": {
+      if (occ >= 90) return none("occupancy_protected", `${occ}% sold: no markdown 8–30 days out.`);
+      if (input.roomsRemaining != null && input.roomsRemaining <= Math.min(3, settings.minRoomsForMarkdown)) {
+        return none("low_inventory", `${input.roomsRemaining} rooms left: no markdown 8–30 days out.`);
+      }
+      if (behind == null) return none("no_pace_data", "No pace target or occupancy for this date.");
+      if (behind >= 15) return dec(6, `Filling: ${Math.round(behind)} points behind pace, 8–30 days out.`);
+      if (behind >= 5) return dec(4, `Filling: ${Math.round(behind)} points behind pace, 8–30 days out.`);
+      return none("on_pace", "On pace for this lead time: the price holds.");
+    }
+    default: {
+      // 31 days out to the edge of the fill window.
+      if (occ >= 85) return none("occupancy_protected", `${occ}% sold this far out: the price holds.`);
+      if (behind == null) return none("no_pace_data", "No pace target or occupancy for this date.");
+      if (behind >= 15) return dec(5, `Filling: ${Math.round(behind)} points behind pace, ${win.min_days_out}+ days out.`);
+      if (behind >= 8) return dec(3, `Filling: ${Math.round(behind)} points behind pace, ${win.min_days_out}+ days out.`);
+      return none("on_pace", "Less than 8 points behind pace: the price holds.");
+    }
+  }
+}
+
 export function decideDate(input: DecisionInput, settings: DecisionSettings): Decision {
   const { now } = settings;
-  const win = windowFor(input.daysOut, settings.windowRules);
+  const fill = settings.fill?.enabled ? settings.fill : null;
+  const inFillWindow = fill != null && input.daysOut <= Math.max(0, fill.windowDays);
+  const baseWin = windowFor(input.daysOut, settings.windowRules);
+  const win = inFillWindow ? fillWindowRule(baseWin) : baseWin;
   const paceTarget = paceTargetFor(input.daysOut, settings.paceBands);
   const gap = paceTarget != null && input.occupancyPct != null
     ? Math.round((input.occupancyPct - paceTarget) * 10) / 10
     : null;
   const blocked = (reason: string, detail: string) => hold(input, win.id, reason, detail, paceTarget, gap);
+
 
   if (input.dataStale) {
     return blocked("stale_data", "The PMS feed is stale; no price may change.");
