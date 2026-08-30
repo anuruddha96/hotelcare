@@ -154,3 +154,38 @@ export function headroom(bounds: Bounds, oldPrice: number, direction: number): n
     ? Math.max(0, Math.round(bounds.max) - Math.round(oldPrice))
     : Math.max(0, Math.round(oldPrice) - Math.round(bounds.min));
 }
+
+export interface DateStepCell {
+  room_type_name: string | null;
+  /** How far this cell can still move in the wanted direction. */
+  allowed: number;
+}
+
+export interface DateStepResult {
+  /** Absolute whole-euro step that EVERY cell of the date can take. */
+  step: number;
+  /** The room type that limited the step, when it was reduced. */
+  limitedBy: string | null;
+  /** True when the date must be held instead of moved. */
+  held: boolean;
+}
+
+/**
+ * A stay date moves as one block: the step is throttled to the smallest
+ * headroom on the date so every room type moves by the same amount. When that
+ * leaves less than the minimum publishable movement, the whole date is held.
+ */
+export function uniformDateStep(cells: DateStepCell[], wanted: number, minMovement: number): DateStepResult {
+  const want = Math.abs(Math.round(wanted));
+  if (cells.length === 0) return { step: 0, limitedBy: null, held: true };
+  let step = want;
+  let limitedBy: string | null = null;
+  for (const cell of cells) {
+    if (cell.allowed < step) {
+      step = Math.max(0, Math.round(cell.allowed));
+      limitedBy = cell.room_type_name;
+    }
+  }
+  if (step < minMovement) return { step: 0, limitedBy, held: true };
+  return { step, limitedBy: step < want ? limitedBy : null, held: false };
+}
