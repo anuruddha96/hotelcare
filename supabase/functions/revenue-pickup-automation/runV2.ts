@@ -728,10 +728,10 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         for (const v of cellViolations) violations.push({ ...v });
         simulatedCells += cellPrices.length;
       }
-      if (decision.blocked) {
+      if (!wasBlocked && decision.blocked) {
         skipReasons[decision.reason] = (skipReasons[decision.reason] ?? 0) + 1;
-        requestedMovement = requestedMovement || 0;
       }
+
 
 
       const status = decision.blocked ? "held" : (mode === "live" ? "queued" : "shadow");
