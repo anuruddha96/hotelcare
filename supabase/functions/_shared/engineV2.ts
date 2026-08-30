@@ -649,7 +649,19 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   // may sell a date down, but never below the rate the next few nights still
   // need to hold the average rate target.
   const adrFloor = input.adrFloor != null && Number.isFinite(input.adrFloor) ? whole(input.adrFloor) : null;
-  const floor = adrFloor != null ? Math.max(whole(input.minPrice), adrFloor) : whole(input.minPrice);
+  // Fill mode may push sales, never dump them: a date can only fall so far
+  // below the price it started the campaign at.
+  const campaignFloor = inFillWindow
+    && input.campaignStartPrice != null && Number.isFinite(input.campaignStartPrice)
+    && input.campaignStartPrice > 0
+    ? whole(input.campaignStartPrice * (1 - Math.max(0, fill!.maxTotalDropPct) / 100))
+    : null;
+  const floor = Math.max(
+    whole(input.minPrice),
+    adrFloor ?? 0,
+    campaignFloor ?? 0,
+  );
+
   const ceiling = whole(input.maxPrice);
   // Bounds limit where automation may MOVE a price; they never force a move of
   // their own. A rise stops at the ceiling, a cut stops at the floor, and a
