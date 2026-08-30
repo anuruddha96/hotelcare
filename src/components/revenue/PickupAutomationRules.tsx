@@ -134,6 +134,8 @@ const DEFAULT_RULE: Rule = {
   short_window_guard_enabled: true, short_window_days: 7,
   short_window_min_occupancy_pct: 70, whole_number_prices: true,
   sold_out_guard_enabled: true, sold_out_occupancy_pct: 100,
+  fill_mode_enabled: false, fill_window_days: 60, fill_max_total_drop_pct: 15,
+
   cancellation_markdown_enabled: true, cancellation_wait_minutes: 60,
   immediate_sell_mode_enabled: true, immediate_window_days: 14, immediate_markdown_step: 2,
   final_window_enabled: true, final_window_days: 7, final_window_allow_event_increase: false,
