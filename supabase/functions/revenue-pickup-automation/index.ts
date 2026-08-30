@@ -418,9 +418,40 @@ async function queueIntents(
   rule: Rule,
   payload: Array<Record<string, unknown>>,
   priority: number,
+  context?: { automationRunId: string; dateManifest: Record<string, unknown> },
 ): Promise<string | null> {
   if (payload.length === 0) return null;
-  {
+  if (context) {
+    const byDate = new Map<string, Array<Record<string, unknown>>>();
+    for (const row of payload) {
+      const stayDate = String(row.stay_date);
+      const rows = byDate.get(stayDate) ?? [];
+      rows.push(row);
+      byDate.set(stayDate, rows);
+    }
+    const safeDates: Array<Record<string, unknown>> = [];
+    for (const [stayDate, rows] of byDate) {
+      const safe = await enforceRateSafety(admin, rule.hotel_id, rows as any[]);
+      const changedShape = safe.repairs.length > 0 || safe.dropped.length > 0 || safe.changes.length !== rows.length;
+      if (!changedShape) {
+        safeDates.push(...rows);
+        continue;
+      }
+      const manifest = context.dateManifest[stayDate] as { decision_id?: string | null } | undefined;
+      if (manifest?.decision_id) {
+        await admin.from("revenue_date_decisions").update({
+          status: "held",
+          decision_reason: "date_integrity",
+          reason_detail: "Held: this date required an individual mapping or ladder repair, so no price from the date was sent.",
+        }).eq("id", manifest.decision_id);
+      }
+      delete context.dateManifest[stayDate];
+    }
+    // Keep the caller's array in sync so run totals and notifications report
+    // only cells that actually entered the durable queue.
+    payload.splice(0, payload.length, ...safeDates);
+    if (payload.length === 0) return null;
+  } else {
     const safe = await enforceRateSafety(admin, rule.hotel_id, payload as any[]);
     if (safe.repairs.length > 0) {
       console.log(`[ladder] ${rule.hotel_id} repaired ${safe.repairs.length} occupancy sibling(s) alongside ${payload.length} intent(s)`);
@@ -431,6 +462,8 @@ async function queueIntents(
   const { error: runError } = await admin.from("revenue_rate_push_runs").insert({
     id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
     source: "automation", requested_count: payload.length, priority,
+    automation_run_id: context?.automationRunId ?? null,
+    date_manifest: context?.dateManifest ?? {},
   });
   if (runError) throw runError;
 
@@ -471,7 +504,7 @@ async function queueIntents(
       run_id: runId, hotel_id: rule.hotel_id, organization_slug: rule.organization_slug,
       stay_date: row.stay_date, obk_id: row.obk_id, room_type_name: row.room_type_name,
       occupancy: row.occupancy, old_price: row.old_price, target_price: row.new_price,
-      currency: row.currency, draft_id: draftMap.get(keyOf(row)),
+      currency: row.currency, draft_id: draftMap.get(keyOf(row)), decision_id: row.decision_id ?? null,
     })));
     if (itemError) throw itemError;
   }
@@ -752,7 +785,7 @@ Deno.serve(async (req) => {
         const v2 = await runEngineV2({
           admin, rule, isEngine, actorName, actorUserId, dryRun,
           pagedAll, localParts, loadTypeAvailability,
-          queue: (payload, priority) => queueIntents(admin, rule, payload, priority),
+          queue: (payload, priority, context) => queueIntents(admin, rule, payload, priority, context),
         });
         summary.push(v2);
         continue;

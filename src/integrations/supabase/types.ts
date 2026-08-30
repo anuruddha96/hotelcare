@@ -7685,6 +7685,7 @@ export type Database = {
           confirmed_at: string | null
           created_at: string
           currency: string | null
+          decision_id: string | null
           draft_id: string | null
           error: string | null
           hotel_id: string
@@ -7708,6 +7709,7 @@ export type Database = {
           confirmed_at?: string | null
           created_at?: string
           currency?: string | null
+          decision_id?: string | null
           draft_id?: string | null
           error?: string | null
           hotel_id: string
@@ -7731,6 +7733,7 @@ export type Database = {
           confirmed_at?: string | null
           created_at?: string
           currency?: string | null
+          decision_id?: string | null
           draft_id?: string | null
           error?: string | null
           hotel_id?: string
@@ -7747,6 +7750,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "revenue_rate_push_items_decision_id_fkey"
+            columns: ["decision_id"]
+            isOneToOne: false
+            referencedRelation: "revenue_date_decisions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "revenue_rate_push_items_draft_id_fkey"
             columns: ["draft_id"]
@@ -7766,9 +7776,11 @@ export type Database = {
       revenue_rate_push_runs: {
         Row: {
           accepted_count: number
+          automation_run_id: string | null
           compressed_message_count: number
           created_at: string
           created_by: string | null
+          date_manifest: Json
           failed_count: number
           finished_at: string | null
           hotel_id: string
@@ -7785,9 +7797,11 @@ export type Database = {
         }
         Insert: {
           accepted_count?: number
+          automation_run_id?: string | null
           compressed_message_count?: number
           created_at?: string
           created_by?: string | null
+          date_manifest?: Json
           failed_count?: number
           finished_at?: string | null
           hotel_id: string
@@ -7804,9 +7818,11 @@ export type Database = {
         }
         Update: {
           accepted_count?: number
+          automation_run_id?: string | null
           compressed_message_count?: number
           created_at?: string
           created_by?: string | null
+          date_manifest?: Json
           failed_count?: number
           finished_at?: string | null
           hotel_id?: string
@@ -7821,7 +7837,15 @@ export type Database = {
           status?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "revenue_rate_push_runs_automation_run_id_fkey"
+            columns: ["automation_run_id"]
+            isOneToOne: false
+            referencedRelation: "revenue_automation_runs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       revenue_room_type_rates: {
         Row: {
