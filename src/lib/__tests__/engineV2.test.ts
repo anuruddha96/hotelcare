@@ -446,10 +446,10 @@ describe("a stay date moves as one block", () => {
   const cells = (...allowed: number[]) => allowed.map((a, i) => ({ room_type_name: `RT${i}`, allowed: a }));
 
   it("measures how far a cell can still move", () => {
-    expect(headroom({ min: 100, max: 200 }, 180, 1)).toBe(20);
-    expect(headroom({ min: 100, max: 200 }, 180, -1)).toBe(80);
-    expect(headroom({ min: 100, max: 200 }, 200, 1)).toBe(0);
-    expect(headroom({ min: 100, max: 200 }, 180, 0)).toBe(0);
+    expect(headroom({ min: 100, max: 200, source: "test" }, 180, 1)).toBe(20);
+    expect(headroom({ min: 100, max: 200, source: "test" }, 180, -1)).toBe(80);
+    expect(headroom({ min: 100, max: 200, source: "test" }, 200, 1)).toBe(0);
+    expect(headroom({ min: 100, max: 200, source: "test" }, 180, 0)).toBe(0);
   });
 
   it("gives every room type the full step when all have room", () => {
