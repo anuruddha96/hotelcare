@@ -24,6 +24,7 @@ const MANAGER_ROLES = new Set([
   'top_management_manager',
   'manager',
   'housekeeping_manager',
+  'reception_manager',
   'front_office',
 ]);
 
