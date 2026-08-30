@@ -1270,6 +1270,7 @@ export type Database = {
           name: string
           notes: string | null
           organization_slug: string
+          scan_tier: number
           source_url: string | null
           updated_at: string
         }
@@ -1286,6 +1287,7 @@ export type Database = {
           name: string
           notes?: string | null
           organization_slug: string
+          scan_tier?: number
           source_url?: string | null
           updated_at?: string
         }
@@ -1302,6 +1304,7 @@ export type Database = {
           name?: string
           notes?: string | null
           organization_slug?: string
+          scan_tier?: number
           source_url?: string | null
           updated_at?: string
         }
@@ -6188,6 +6191,7 @@ export type Database = {
           id: string
           mode: string
           organization_slug: string
+          push_run_id: string | null
           rule_id: string | null
           skip_reasons: Json
           started_at: string
@@ -6211,6 +6215,7 @@ export type Database = {
           id?: string
           mode?: string
           organization_slug: string
+          push_run_id?: string | null
           rule_id?: string | null
           skip_reasons?: Json
           started_at?: string
@@ -6234,6 +6239,7 @@ export type Database = {
           id?: string
           mode?: string
           organization_slug?: string
+          push_run_id?: string | null
           rule_id?: string | null
           skip_reasons?: Json
           started_at?: string
@@ -6447,6 +6453,9 @@ export type Database = {
       }
       revenue_date_decisions: {
         Row: {
+          adr_feasible: boolean | null
+          adr_required_rate: number | null
+          anchor_price: number | null
           cancellations_24h: number
           cap_applied: number | null
           cells_simulated: number
@@ -6456,6 +6465,7 @@ export type Database = {
           decision_reason: string
           direction: string
           event_signal: Json | null
+          hold_kind: string | null
           hotel_id: string
           id: string
           manual_hold_until: string | null
@@ -6482,6 +6492,9 @@ export type Database = {
           window_id: string | null
         }
         Insert: {
+          adr_feasible?: boolean | null
+          adr_required_rate?: number | null
+          anchor_price?: number | null
           cancellations_24h?: number
           cap_applied?: number | null
           cells_simulated?: number
@@ -6491,6 +6504,7 @@ export type Database = {
           decision_reason?: string
           direction?: string
           event_signal?: Json | null
+          hold_kind?: string | null
           hotel_id: string
           id?: string
           manual_hold_until?: string | null
@@ -6517,6 +6531,9 @@ export type Database = {
           window_id?: string | null
         }
         Update: {
+          adr_feasible?: boolean | null
+          adr_required_rate?: number | null
+          anchor_price?: number | null
           cancellations_24h?: number
           cap_applied?: number | null
           cells_simulated?: number
@@ -6526,6 +6543,7 @@ export type Database = {
           decision_reason?: string
           direction?: string
           event_signal?: Json | null
+          hold_kind?: string | null
           hotel_id?: string
           id?: string
           manual_hold_until?: string | null
@@ -6755,6 +6773,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      revenue_manual_locks: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          hotel_id: string
+          id: string
+          locked_until: string
+          organization_slug: string
+          reason: string | null
+          stay_date: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          hotel_id: string
+          id?: string
+          locked_until: string
+          organization_slug: string
+          reason?: string | null
+          stay_date: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          hotel_id?: string
+          id?: string
+          locked_until?: string
+          organization_slug?: string
+          reason?: string | null
+          stay_date?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       revenue_notification_reads: {
         Row: {
@@ -7023,6 +7077,9 @@ export type Database = {
       revenue_pickup_automation_rules: {
         Row: {
           abnormal_pickup_threshold: number
+          adr_guard_enabled: boolean
+          adr_target_eur: number | null
+          adr_window_days: number
           ai_assist_enabled: boolean
           application_scope: string
           auto_pause_reason: string | null
@@ -7030,6 +7087,8 @@ export type Database = {
           booking_window_tiers: Json
           cancellation_markdown_enabled: boolean
           cancellation_wait_minutes: number
+          competitor_max_age_hours_far: number
+          competitor_max_age_hours_near: number
           created_at: string
           created_by: string | null
           currency: string
@@ -7101,6 +7160,7 @@ export type Database = {
           run_budget_ms: number
           run_timezone: string
           same_hour_window_minutes: number
+          seasonal_anchor_enabled: boolean
           second_pickup_surcharge: number
           shadow_started_at: string | null
           short_window_days: number
@@ -7121,6 +7181,9 @@ export type Database = {
         }
         Insert: {
           abnormal_pickup_threshold?: number
+          adr_guard_enabled?: boolean
+          adr_target_eur?: number | null
+          adr_window_days?: number
           ai_assist_enabled?: boolean
           application_scope?: string
           auto_pause_reason?: string | null
@@ -7128,6 +7191,8 @@ export type Database = {
           booking_window_tiers?: Json
           cancellation_markdown_enabled?: boolean
           cancellation_wait_minutes?: number
+          competitor_max_age_hours_far?: number
+          competitor_max_age_hours_near?: number
           created_at?: string
           created_by?: string | null
           currency?: string
@@ -7199,6 +7264,7 @@ export type Database = {
           run_budget_ms?: number
           run_timezone?: string
           same_hour_window_minutes?: number
+          seasonal_anchor_enabled?: boolean
           second_pickup_surcharge?: number
           shadow_started_at?: string | null
           short_window_days?: number
@@ -7219,6 +7285,9 @@ export type Database = {
         }
         Update: {
           abnormal_pickup_threshold?: number
+          adr_guard_enabled?: boolean
+          adr_target_eur?: number | null
+          adr_window_days?: number
           ai_assist_enabled?: boolean
           application_scope?: string
           auto_pause_reason?: string | null
@@ -7226,6 +7295,8 @@ export type Database = {
           booking_window_tiers?: Json
           cancellation_markdown_enabled?: boolean
           cancellation_wait_minutes?: number
+          competitor_max_age_hours_far?: number
+          competitor_max_age_hours_near?: number
           created_at?: string
           created_by?: string | null
           currency?: string
@@ -7297,6 +7368,7 @@ export type Database = {
           run_budget_ms?: number
           run_timezone?: string
           same_hour_window_minutes?: number
+          seasonal_anchor_enabled?: boolean
           second_pickup_surcharge?: number
           shadow_started_at?: string | null
           short_window_days?: number
@@ -10053,8 +10125,10 @@ export type Database = {
       revenue_latest_snapshots: {
         Args: { p_from: string; p_hotel_id: string; p_to: string }
         Returns: {
+          adr_eur: number
           captured_date: string
           occupancy_pct: number
+          revenue_eur: number
           rn: number
           rooms_available: number
           rooms_sold: number
@@ -10065,6 +10139,14 @@ export type Database = {
         Args: { p_hotel_id: string; p_since: string; p_sources: string[] }
         Returns: {
           performed_at: string
+          stay_date: string
+        }[]
+      }
+      revenue_manual_hold_state: {
+        Args: { p_hotel_id: string; p_since: string; p_sources: string[] }
+        Returns: {
+          hold_kind: string
+          hold_until: string
           stay_date: string
         }[]
       }
@@ -10086,6 +10168,15 @@ export type Database = {
           rooms_available: number
           rooms_sold: number
           stay_date: string
+        }[]
+      }
+      revenue_seasonal_anchor: {
+        Args: { p_hotel_id: string; p_min_samples?: number }
+        Returns: {
+          anchor_eur: number
+          dow: number
+          month: number
+          samples: number
         }[]
       }
       revenue_sync_wait_state: {

@@ -61,7 +61,7 @@ function extractJson(text: string): unknown {
 const CHUNK_DAYS = 20;
 const LEASE_ID = "competitor-rate-scan";
 /** Scheduled sweep: near horizon every week, the full 60 nights fortnightly. */
-const CRON_NEAR_DAYS = 14;
+const CRON_NEAR_DAYS = 30;
 const CRON_FULL_DAYS = 60;
 /** A competitor scanned this recently is skipped by the scheduled sweep. */
 const CRON_FRESH_HOURS = 120;
@@ -252,16 +252,23 @@ Deno.serve(async (req) => {
 
       const { data: competitorRows } = await admin
         .from("competitor_properties")
-        .select("id, name, source_url, organization_slug, last_scan_at")
+        .select("id, name, source_url, organization_slug, last_scan_at, scan_tier")
         .eq("hotel_id", hotelId)
         .eq("active", true);
 
-      // Freshness skip: a competitor already scanned in the last few days costs
-      // money to re-ask and tells us nothing new.
-      const freshCutoff = new Date(Date.now() - CRON_FRESH_HOURS * 3_600_000).toISOString();
+      // Two tiers. The core comparable set (tier 1) is refreshed every day for
+      // the near horizon, because pricing the next month needs current market
+      // evidence. Everything else is staggered on the old economical cadence.
+      const tierOf = (c: { scan_tier?: number | null }) => (Number(c.scan_tier) === 1 ? 1 : 2);
+      const freshHoursFor = (t: number) => (t === 1 ? 20 : CRON_FRESH_HOURS);
       const competitors = ((competitorRows ?? []) as Array<{
-        id: string; name: string; source_url: string | null; organization_slug: string; last_scan_at: string | null;
-      }>).filter((c) => !isCron || !c.last_scan_at || c.last_scan_at < freshCutoff);
+        id: string; name: string; source_url: string | null; organization_slug: string;
+        last_scan_at: string | null; scan_tier: number | null;
+      }>).filter((c) => {
+        if (!isCron) return true;
+        const cutoff = new Date(Date.now() - freshHoursFor(tierOf(c)) * 3_600_000).toISOString();
+        return !c.last_scan_at || c.last_scan_at < cutoff;
+      });
 
       if (!competitors?.length) continue;
 
@@ -285,13 +292,19 @@ Deno.serve(async (req) => {
         let usedModel: string | null = null;
         const filled = new Set<string>();
 
+        // The daily core scan concentrates on the next 30 nights — those are the
+        // dates the pricing engine is allowed to act on with market evidence.
+        const compDays = isCron && tierOf(c) === 1 ? Math.min(days, 30) : days;
+        const compDates = allDates.slice(0, compDays);
+        const compEndIso = compDates[compDates.length - 1] ?? endIso;
+
         const { data: runRow } = await admin.from("competitor_scan_runs").insert({
           hotel_id: hotelId,
           organization_slug: c.organization_slug,
           competitor_id: c.id,
           window_from: startIso,
-          window_to: endIso,
-          dates_requested: allDates.length,
+          window_to: compEndIso,
+          dates_requested: compDates.length,
           status: "running",
         }).select("id").maybeSingle();
         const runId = (runRow as { id?: string } | null)?.id ?? null;
@@ -308,7 +321,7 @@ Deno.serve(async (req) => {
         ) => {
           const rows = chunk.rates
             .filter((r) => r && typeof r.date === "string" && r.price != null && Number.isFinite(Number(r.price)))
-            .filter((r) => r.date >= startIso && r.date <= endIso)
+            .filter((r) => r.date >= startIso && r.date <= compEndIso)
             .filter((r) => (r.confidence == null ? true : Number(r.confidence) >= 0.3))
             .map((r) => ({
               competitor_id: c.id,
@@ -379,8 +392,8 @@ Deno.serve(async (req) => {
         // One pass of wide date windows. The old "fill the blanks" third pass
         // is gone: it tripled the number of paid web searches for nights the
         // next scheduled run covers anyway.
-        for (let offset = 0; offset < days; offset += CHUNK_DAYS) {
-          await askWindow(allDates.slice(offset, offset + CHUNK_DAYS));
+        for (let offset = 0; offset < compDays; offset += CHUNK_DAYS) {
+          await askWindow(compDates.slice(offset, offset + CHUNK_DAYS));
         }
 
         // Reconcile: cross-check this scrape against the observations of the
@@ -389,7 +402,7 @@ Deno.serve(async (req) => {
         let reconciled = 0;
         if (stored > 0) {
           const { data: rec, error: recErr } = await admin.rpc("reconcile_competitor_rates", {
-            _competitor_id: c.id, _from: startIso, _to: endIso, _window_hours: 96,
+            _competitor_id: c.id, _from: startIso, _to: compEndIso, _window_hours: 96,
           });
           if (recErr) {
             error = recErr.message;
