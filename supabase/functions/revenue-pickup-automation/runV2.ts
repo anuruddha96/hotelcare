@@ -682,7 +682,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         crossed60Occupancy: prevOcc != null && occ.pct != null && prevOcc < 60 && occ.pct >= 60,
         pendingEventUplift: pendingEvent?.uplift ?? 0,
         market: marketFor(stayDate),
+        campaignStartPrice: campaignStartByDate.get(stayDate) ?? null,
       };
+
 
       const decision = decideDate(input, settings);
       decisions.push(decision);
