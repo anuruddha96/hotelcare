@@ -684,14 +684,14 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
           decision.reason = "no_cells";
           decision.reasonDetail = "Held: no live prices for this date.";
         } else {
-          let step = wanted;
-          for (const p of prepared) {
-            if (p.allowed < step) {
-              step = p.allowed;
-              limitedBy = p.cell.room_type_name ?? null;
-            }
-          }
-          if (step < settings.minMovementEur) {
+          const uniform = uniformDateStep(
+            prepared.map((p) => ({ room_type_name: p.cell.room_type_name, allowed: p.allowed })),
+            wanted,
+            settings.minMovementEur,
+          );
+          const step = uniform.step;
+          limitedBy = uniform.limitedBy;
+          if (uniform.held) {
             decision.blocked = true;
             decision.direction = "hold";
             decision.movement = 0;
@@ -705,9 +705,8 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
               decision.movement = dir * step;
               decision.targetPrice = decision.currentPrice == null ? null : whole(decision.currentPrice + dir * step);
               decision.reasonDetail = `${decision.reasonDetail} Step reduced to €${step} so every room type moves together${limitedBy ? ` (${limitedBy} is closest to its limit)` : ""}.`;
-            } else {
-              limitedBy = null;
             }
+
             for (const p of prepared) {
               const next = whole(p.old + dir * step);
               if (next === p.old) continue;
