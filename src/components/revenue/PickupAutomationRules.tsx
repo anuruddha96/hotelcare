@@ -1240,6 +1240,30 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                 </div>
 
                 <ToggleRow
+                  title="Fill mode (push occupancy near arrival)"
+                  desc="Inside the window below, act sooner on a shortfall to sell the last rooms."
+                  hint={<>New bookings still lift the price straight away. A date can never fall further than the total drop limit below the price it started this campaign at, so the average rate is protected.</>}
+                  checked={rule.fill_mode_enabled}
+                  onChange={(fill_mode_enabled) => setRule({ ...rule, fill_mode_enabled })}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <NumField
+                    label="Fill window" suffix="days" min={0} max={365}
+                    disabled={!rule.fill_mode_enabled}
+                    value={rule.fill_window_days}
+                    onChange={(e) => setRule({ ...rule, fill_window_days: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Most a price may drop in total" suffix="%" min={0} max={50}
+                    disabled={!rule.fill_mode_enabled}
+                    value={rule.fill_max_total_drop_pct}
+                    onChange={(e) => setRule({ ...rule, fill_max_total_drop_pct: Number(e.target.value) })}
+                  />
+                </div>
+
+
+
+                <ToggleRow
                   title="Whole prices only"
                   desc="Never send cents to Previo — rises round up, markdowns round down."
                   checked={rule.whole_number_prices}
