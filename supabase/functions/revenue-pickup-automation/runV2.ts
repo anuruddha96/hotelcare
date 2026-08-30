@@ -253,10 +253,13 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         .select("stay_date, obk_id, room_type_name, occupancy, price, currency, captured_at")
         .eq("hotel_id", rule.hotel_id).gte("stay_date", today).lte("stay_date", horizonDate)
         .order("captured_at", { ascending: false }).order("stay_date").range(f, t)),
-      deps.pagedAll((f, t) => admin.from("revenue_daily_snapshots")
-        .select("stay_date, occupancy_pct, rooms_sold, rooms_available, captured_date")
-        .eq("hotel_id", rule.hotel_id).gte("stay_date", today).lte("stay_date", horizonDate)
-        .order("captured_date", { ascending: false }).order("stay_date").range(f, t)),
+      // Occupancy: only the two newest captures per stay date. Reading the raw
+      // history (Ottofiori alone holds ~237k rows in the horizon) paged the
+      // engine into a statement timeout every run.
+      admin.rpc("revenue_latest_snapshots", {
+        p_hotel_id: rule.hotel_id, p_from: today, p_to: horizonDate,
+      }),
+
       admin.from("revenue_price_floors").select("*").eq("hotel_id", rule.hotel_id),
       admin.from("revenue_pace_targets").select("min_days_out, max_days_out, target_occupancy_pct")
         .eq("hotel_id", rule.hotel_id).order("min_days_out"),
