@@ -45,6 +45,7 @@ export interface AutomationRunSummary {
   dates_held: number;
   cells_queued: number;
   cells_published: number;
+  cells_verified: number;
   cells_failed: number;
   failure_reason: string | null;
 }
@@ -116,7 +117,7 @@ export function useRevenueAutomationNotifications(enabled: boolean) {
       if (runIds.length > 0) {
         const { data: runs } = await supabase
           .from('revenue_automation_runs')
-          .select('id, mode, status, started_at, finished_at, dates_evaluated, dates_increased, dates_decreased, dates_held, cells_queued, cells_published, cells_failed, failure_reason')
+          .select('id, mode, status, started_at, finished_at, dates_evaluated, dates_increased, dates_decreased, dates_held, cells_queued, cells_published, cells_verified, cells_failed, failure_reason')
           .in('id', runIds);
         for (const run of (runs ?? []) as AutomationRunSummary[]) runsById.set(run.id, run);
       }
