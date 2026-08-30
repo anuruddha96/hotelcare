@@ -329,6 +329,7 @@ Deno.serve(async (req) => {
         drafts = mapped as any[];
       }
       if (drafts.length === 0) {
+        if (requestedRunId) await syncAutomationOutcome(requestedRunId);
         return json({ ok: true, pushed: 0, failed: unmapped.length, message: "No queued price had an exact Previo rate plan." });
       }
     }
@@ -405,11 +406,18 @@ Deno.serve(async (req) => {
             }).in("id", ids.slice(i, i + 300));
           }
         }
+        if (dateAtomic && blocked.length > 0) {
+          await admin.from("revenue_rate_push_items").update({
+            status: "failed",
+            error: "The whole stay date was held because its room-price order could not be preserved.",
+          }).eq("run_id", requestedRunId).in("draft_id", blocked.map((draft) => draft.id));
+        }
       }
 
       if (!dateAtomic) drafts = kept as any[];
     }
     if (drafts.length === 0) {
+      if (requestedRunId) await syncAutomationOutcome(requestedRunId);
       return json({ ok: true, pushed: 0, failed: 0, message: "Every queued price was blocked by the price order guard." });
     }
 
@@ -591,6 +599,7 @@ Deno.serve(async (req) => {
 
     const groupList = Array.from(groups.values());
     if (groupList.length === 0) {
+      if (requestedRunId) await syncAutomationOutcome(requestedRunId);
       return json({ ok: true, pushed: 0, failed: unmappedDrafts.length, message: "No queued price had an exact Previo rate plan." });
     }
     const stayDates = groupList.map((group) => group.stay_date).sort();

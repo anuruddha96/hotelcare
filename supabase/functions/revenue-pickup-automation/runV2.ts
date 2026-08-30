@@ -838,6 +838,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
     // ---- 4. Publish (live mode only) ---------------------------------------
     let pushRunId: string | null = null;
+    const queuedDates = new Set<string>();
     if (payload.length > 0) {
       assertWholeEuro(payload.map((p) => Number(p.new_price)));
       const dateManifest = Object.fromEntries(
@@ -856,11 +857,12 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       );
       pushRunId = await deps.queue(payload, 5, { automationRunId: runId, dateManifest });
       const movedDates = Object.keys(dateManifest);
+      for (const stayDate of movedDates) queuedDates.add(stayDate);
       await admin.from("revenue_date_decisions")
         .update({ status: "queued" }).eq("run_id", runId).in("stay_date", movedDates);
       // Record event uplifts so an event can never lift the same date twice.
       const eventApplications = decisions
-        .filter((d) => !d.blocked && eventUplift.has(d.stayDate))
+        .filter((d) => queuedDates.has(d.stayDate) && eventUplift.has(d.stayDate))
         .map((d) => ({
           hotel_id: rule.hotel_id,
           organization_slug: rule.organization_slug ?? "",
@@ -877,7 +879,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       // Each booking pays for exactly one increase: stamp the ledger rows that
       // justified the rises this run so the next run cannot spend them again.
       const spentIds = decisions
-        .filter((d) => !d.blocked && d.direction === "increase")
+        .filter((d) => queuedDates.has(d.stayDate) && d.direction === "increase")
         .flatMap((d) => unspentIdsByDate.get(d.stayDate) ?? []);
       for (let i = 0; i < spentIds.length; i += 500) {
         await admin.from("revenue_pickup_ledger")
@@ -886,9 +888,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       }
     }
 
-    const increases = decisions.filter((d) => d.direction === "increase" && !d.blocked).length;
-    const decreases = decisions.filter((d) => d.direction === "decrease" && !d.blocked).length;
-    const held = decisions.filter((d) => d.blocked).length;
+    const increases = decisions.filter((d) => d.direction === "increase" && (mode !== "live" ? !d.blocked : queuedDates.has(d.stayDate))).length;
+    const decreases = decisions.filter((d) => d.direction === "decrease" && (mode !== "live" ? !d.blocked : queuedDates.has(d.stayDate))).length;
+    const held = decisions.length - increases - decreases;
 
     await finish({
       status: budgetHit ? "timed_out" : "completed",
