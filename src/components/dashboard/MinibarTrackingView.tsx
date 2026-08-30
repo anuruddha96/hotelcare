@@ -506,7 +506,8 @@ export function MinibarTrackingView() {
     setMinibarLogoUploading(true);
     try {
       const fileExt = file.name.split('.').pop();
-      const fileName = `minibar-logo-${profile.assigned_hotel}-${Date.now()}.${fileExt}`;
+      // Store under a hotel-scoped folder so storage RLS can verify tenant access
+      const fileName = `${profile.assigned_hotel}/minibar-logo-${Date.now()}.${fileExt}`;
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('hotel-assets')
         .upload(fileName, file, { upsert: true });
