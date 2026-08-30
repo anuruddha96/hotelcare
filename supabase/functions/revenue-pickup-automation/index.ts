@@ -421,11 +421,36 @@ async function queueIntents(
   context?: { automationRunId: string; dateManifest: Record<string, unknown> },
 ): Promise<string | null> {
   if (payload.length === 0) return null;
-  {
-    const safe = await enforceRateSafety(admin, rule.hotel_id, payload as any[]);
-    if (context && (safe.repairs.length > 0 || safe.dropped.length > 0 || safe.changes.length !== payload.length)) {
-      throw new Error("A date-column price set required an individual ladder or mapping repair, so it was held instead of being published unevenly.");
+  if (context) {
+    const byDate = new Map<string, Array<Record<string, unknown>>>();
+    for (const row of payload) {
+      const stayDate = String(row.stay_date);
+      const rows = byDate.get(stayDate) ?? [];
+      rows.push(row);
+      byDate.set(stayDate, rows);
     }
+    const safeDates: Array<Record<string, unknown>> = [];
+    for (const [stayDate, rows] of byDate) {
+      const safe = await enforceRateSafety(admin, rule.hotel_id, rows as any[]);
+      const changedShape = safe.repairs.length > 0 || safe.dropped.length > 0 || safe.changes.length !== rows.length;
+      if (!changedShape) {
+        safeDates.push(...rows);
+        continue;
+      }
+      const manifest = context.dateManifest[stayDate] as { decision_id?: string | null } | undefined;
+      if (manifest?.decision_id) {
+        await admin.from("revenue_date_decisions").update({
+          status: "held",
+          decision_reason: "date_integrity",
+          reason_detail: "Held: this date required an individual mapping or ladder repair, so no price from the date was sent.",
+        }).eq("id", manifest.decision_id);
+      }
+      delete context.dateManifest[stayDate];
+    }
+    payload = safeDates;
+    if (payload.length === 0) return null;
+  } else {
+    const safe = await enforceRateSafety(admin, rule.hotel_id, payload as any[]);
     if (safe.repairs.length > 0) {
       console.log(`[ladder] ${rule.hotel_id} repaired ${safe.repairs.length} occupancy sibling(s) alongside ${payload.length} intent(s)`);
       payload = safe.changes as Array<Record<string, unknown>>;

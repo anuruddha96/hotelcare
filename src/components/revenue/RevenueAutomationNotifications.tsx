@@ -230,7 +230,7 @@ export function RevenueAutomationNotifications() {
                 <div className={cn('rounded-lg border px-3 py-2 text-xs', detail.run.mode === 'shadow' ? 'border-primary/30 bg-primary/5' : 'bg-muted/30')}>
                   <p className="font-medium">
                     {detail.run.mode === 'shadow'
-                      ? 'Shadow test only — no prices were sent to Previo.'
+                      ? 'Review only — no prices were sent to Previo.'
                       : detail.run.status === 'completed'
                         ? runStatus(detail).text
                         : `Run status: ${detail.run.status.replace(/_/g, ' ')}`}

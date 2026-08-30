@@ -106,23 +106,31 @@ Deno.serve(async (req) => {
           failed_count: failed,
         }).eq("automation_run_id", automationRun.id),
         (async () => {
-          const { data: decisions } = await admin.from("revenue_date_decisions")
-            .select("id").eq("run_id", automationRun.id);
-          await Promise.all(((decisions ?? []) as any[]).map(async (decision) => {
-            const [{ count: total }, { count: confirmed }, { count: acceptedForDate }, { count: failedForDate }] = await Promise.all([
-              admin.from("revenue_rate_push_items").select("id", { count: "exact", head: true }).eq("run_id", pushRunId).eq("decision_id", decision.id),
-              admin.from("revenue_rate_push_items").select("id", { count: "exact", head: true }).eq("run_id", pushRunId).eq("decision_id", decision.id).eq("status", "confirmed"),
-              admin.from("revenue_rate_push_items").select("id", { count: "exact", head: true }).eq("run_id", pushRunId).eq("decision_id", decision.id).in("status", ["accepted", "confirmed"]),
-              admin.from("revenue_rate_push_items").select("id", { count: "exact", head: true }).eq("run_id", pushRunId).eq("decision_id", decision.id).in("status", ["failed", "different"]),
-            ]);
-            if ((total ?? 0) === 0) return;
-            const status = (failedForDate ?? 0) > 0
-              ? ((acceptedForDate ?? 0) > 0 ? "partial" : "failed")
-              : (confirmed ?? 0) === total ? "confirmed"
-                : (acceptedForDate ?? 0) === total ? "accepted"
+          const { data: items } = await admin.from("revenue_rate_push_items")
+            .select("decision_id, status").eq("run_id", pushRunId).not("decision_id", "is", null);
+          const outcomes = new Map<string, { total: number; accepted: number; confirmed: number; failed: number }>();
+          for (const item of (items ?? []) as any[]) {
+            const current = outcomes.get(item.decision_id) ?? { total: 0, accepted: 0, confirmed: 0, failed: 0 };
+            current.total += 1;
+            if (["accepted", "confirmed"].includes(item.status)) current.accepted += 1;
+            if (item.status === "confirmed") current.confirmed += 1;
+            if (["failed", "different"].includes(item.status)) current.failed += 1;
+            outcomes.set(item.decision_id, current);
+          }
+          const statusBuckets = new Map<string, string[]>();
+          for (const [decisionId, outcome] of outcomes) {
+            const status = outcome.failed > 0
+              ? (outcome.accepted > 0 ? "partial" : "failed")
+              : outcome.confirmed === outcome.total ? "confirmed"
+                : outcome.accepted === outcome.total ? "accepted"
                   : "queued";
-            await admin.from("revenue_date_decisions").update({ status }).eq("id", decision.id);
-          }));
+            const ids = statusBuckets.get(status) ?? [];
+            ids.push(decisionId);
+            statusBuckets.set(status, ids);
+          }
+          await Promise.all(Array.from(statusBuckets.entries()).map(([status, ids]) =>
+            admin.from("revenue_date_decisions").update({ status }).in("id", ids)
+          ));
         })(),
       ]);
     };

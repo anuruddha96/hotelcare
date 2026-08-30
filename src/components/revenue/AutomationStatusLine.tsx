@@ -75,7 +75,7 @@ export function AutomationStatusLine({ hotelId }: { hotelId: string | null }) {
           {nextRun ? ` · next run ${nextRun}` : ""}
           {rule.last_evaluation_status ? ` · ${rule.last_evaluation_status.replace(/_/g, " ")}` : ""}
         </div>
-        {rule.last_evaluation_error && (
+        {live && rule.last_evaluation_error && (
           <div className="text-destructive">Last run reported: {rule.last_evaluation_error}</div>
         )}
         {needsAttention && rule.last_evaluation_error && (

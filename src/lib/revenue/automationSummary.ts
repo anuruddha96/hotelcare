@@ -124,7 +124,7 @@ export function runHeadline(run: AutomationRunLike): string {
   if (run.run) {
     if (run.run.status === "failed") return `${who} stopped with an error`;
     if (run.run.status === "timed_out") return `${who} reached its time limit`;
-    if (run.run.mode === "shadow") return `${who} completed a shadow safety test`;
+    if (run.run.mode === "shadow") return `${who} reviewed the calendar without publishing`;
     const changed = run.run.dates_increased + run.run.dates_decreased;
     return changed === 0
       ? `${who} reviewed the calendar and left prices unchanged`
@@ -145,7 +145,7 @@ export function runStatus(run: AutomationRunLike): { text: string; tone: RunTone
       return { text: run.summary ?? "The run needs attention", tone: "attention" };
     }
     if (run.run.mode === "shadow") {
-      return { text: "Safety test only — nothing was sent to Previo", tone: "quiet" };
+      return { text: "Review only — nothing was sent to Previo", tone: "quiet" };
     }
     if (run.run.cells_queued > 0) {
       const failed = run.run.cells_failed ?? 0;
@@ -179,7 +179,7 @@ export function runPreview(run: AutomationRunLike): string {
     if (run.run.status === "timed_out") return `Timed out · ${run.run.dates_evaluated.toLocaleString()} dates checked`;
     const changed = run.run.dates_increased + run.run.dates_decreased;
     if (run.run.mode === "shadow") {
-      return `Shadow test · ${changed.toLocaleString()} dates would change · ${run.run.dates_held.toLocaleString()} held`;
+      return `Review only · ${changed.toLocaleString()} dates identified · ${run.run.dates_held.toLocaleString()} held`;
     }
     const verified = run.run.cells_verified ?? 0;
     const accepted = run.run.cells_published ?? 0;
