@@ -52,6 +52,49 @@ export const OTTOFIORI_WINDOW_RULES: WindowRule[] = [
 /** Kept as the exported default so callers never fall back to generic bands. */
 export const DEFAULT_WINDOW_RULES = OTTOFIORI_WINDOW_RULES;
 
+/**
+ * "Fill mode": inside the selling window the property is trying to reach a
+ * full house, so the engine is allowed to react to a smaller shortfall, waits
+ * less before acting and may take a slightly larger step down each day.
+ * Increases are untouched — a booking still lifts the price immediately — and
+ * the total drop per date is capped so pushing sales never becomes dumping.
+ */
+export interface FillSettings {
+  enabled: boolean;
+  /** Days before arrival inside which fill mode applies. */
+  windowDays: number;
+  /** Most a date may fall, as a percentage of its recent starting price. */
+  maxTotalDropPct: number;
+}
+
+export const DEFAULT_FILL_SETTINGS: FillSettings = {
+  enabled: false,
+  windowDays: 60,
+  maxTotalDropPct: 15,
+};
+
+/** Looser daily allowances for a window that is inside the fill campaign. */
+export function fillWindowRule(win: WindowRule): WindowRule {
+  switch (win.id) {
+    case "w0_2":
+      return { ...win, no_pickup_wait_hours: 4, max_daily_decrease: Math.max(win.max_daily_decrease, 15) };
+    case "w3_7":
+      return { ...win, no_pickup_wait_hours: 6, max_daily_decrease: Math.max(win.max_daily_decrease, 12) };
+    case "w8_30":
+      return { ...win, no_pickup_wait_hours: 8, max_daily_decrease: Math.max(win.max_daily_decrease, 10) };
+    case "w31_90":
+      return {
+        ...win,
+        no_pickup_wait_hours: 24,
+        max_daily_decrease: Math.max(win.max_daily_decrease, 6),
+        min_hours_between_decreases: Math.min(win.min_hours_between_decreases || 24, 24),
+        require_above_anchor: false,
+      };
+    default:
+      return win;
+  }
+}
+
 export function windowFor(daysOut: number, rules: WindowRule[] = OTTOFIORI_WINDOW_RULES): WindowRule {
   for (const rule of rules) {
     const withinLower = daysOut >= rule.min_days_out;
@@ -60,6 +103,7 @@ export function windowFor(daysOut: number, rules: WindowRule[] = OTTOFIORI_WINDO
   }
   return rules[rules.length - 1] ?? OTTOFIORI_WINDOW_RULES[OTTOFIORI_WINDOW_RULES.length - 1];
 }
+
 
 /** Expected occupancy for this lead time; null when no band covers it. */
 export function paceTargetFor(daysOut: number, bands: PaceBand[]): number | null {
@@ -206,6 +250,12 @@ export interface DecisionInput {
   market: MarketSignal;
   /** True when the PMS feed for this date is stale or failed. */
   dataStale?: boolean;
+  /**
+   * Highest reference price this date carried recently. Fill mode never lets a
+   * date fall more than the configured percentage below it, however many runs
+   * happen. Null disables the campaign drop budget for the date.
+   */
+  campaignStartPrice?: number | null;
 }
 
 export interface DecisionSettings {
@@ -223,6 +273,8 @@ export interface DecisionSettings {
   soldOutOccupancyPct: number;
   /** Rooms left at or below which 8–30 day markdowns are switched off. */
   minRoomsForMarkdown: number;
+  /** Occupancy campaign for the near horizon; off by default. */
+  fill?: FillSettings | null;
 }
 
 export const DEFAULT_DECISION_SETTINGS: Omit<DecisionSettings, "now" | "paceBands"> = {
@@ -233,7 +285,9 @@ export const DEFAULT_DECISION_SETTINGS: Omit<DecisionSettings, "now" | "paceBand
   cancellationWaitMinutes: 60,
   soldOutOccupancyPct: 98,
   minRoomsForMarkdown: 5,
+  fill: DEFAULT_FILL_SETTINGS,
 };
+
 
 export interface Decision {
   stayDate: string;
@@ -402,14 +456,79 @@ export function windowIntent(
   }
 }
 
+/**
+ * Fill-mode rules for the selling window. Increases are exactly the ordinary
+ * ones — a booking is still rewarded — but a shortfall against pace is acted
+ * on sooner and a little harder, because an empty room earns nothing.
+ */
+export function fillIntent(
+  input: DecisionInput,
+  win: WindowRule,
+  gap: number | null,
+  settings: DecisionSettings,
+): RawIntent {
+  const occ = input.occupancyPct;
+  const pickup = Math.max(0, input.pickup24h - input.cancellations24h);
+  const waited = win.no_pickup_wait_hours != null
+    && (input.hoursSinceLastPickup == null || input.hoursSinceLastPickup >= win.no_pickup_wait_hours);
+
+  const dec = (amount: number, detail: string): RawIntent => ({ raw: -amount, reason: "fill_markdown", detail });
+  const none = (reason: string, detail: string): RawIntent => ({ raw: 0, reason, detail, blockReason: reason, blockDetail: detail });
+
+  // Pickup always wins, and uses the ordinary rules so a selling date climbs
+  // straight back up.
+  if (pickup > 0) return windowIntent(input, win, gap, settings);
+
+  if (!waited) {
+    return none("awaiting_no_pickup_window", `Filling: waiting ${win.no_pickup_wait_hours}h without a booking before stepping down.`);
+  }
+  if (occ == null) return none("no_occupancy", "No occupancy reading for this date.");
+  const behind = gap == null ? null : -gap;
+
+  switch (win.id) {
+    case "w0_2":
+    case "w3_7": {
+      if (occ >= 95) return none("occupancy_protected", `${occ}% sold: the last rooms keep their price.`);
+      if (input.roomsRemaining != null && input.roomsRemaining <= 2) {
+        return none("low_inventory", `${input.roomsRemaining} rooms left: the price holds.`);
+      }
+      if (occ < 60) return dec(6, `Filling: ${occ}% sold, ${win.id === "w0_2" ? "0–2" : "3–7"} days out and no new booking.`);
+      if (occ < 80) return dec(4, `Filling: ${occ}% sold, ${win.id === "w0_2" ? "0–2" : "3–7"} days out and no new booking.`);
+      return dec(3, `Filling: ${occ}% sold, ${win.id === "w0_2" ? "0–2" : "3–7"} days out and no new booking.`);
+    }
+    case "w8_30": {
+      if (occ >= 90) return none("occupancy_protected", `${occ}% sold: no markdown 8–30 days out.`);
+      if (input.roomsRemaining != null && input.roomsRemaining <= Math.min(3, settings.minRoomsForMarkdown)) {
+        return none("low_inventory", `${input.roomsRemaining} rooms left: no markdown 8–30 days out.`);
+      }
+      if (behind == null) return none("no_pace_data", "No pace target or occupancy for this date.");
+      if (behind >= 15) return dec(6, `Filling: ${Math.round(behind)} points behind pace, 8–30 days out.`);
+      if (behind >= 5) return dec(4, `Filling: ${Math.round(behind)} points behind pace, 8–30 days out.`);
+      return none("on_pace", "On pace for this lead time: the price holds.");
+    }
+    default: {
+      // 31 days out to the edge of the fill window.
+      if (occ >= 85) return none("occupancy_protected", `${occ}% sold this far out: the price holds.`);
+      if (behind == null) return none("no_pace_data", "No pace target or occupancy for this date.");
+      if (behind >= 15) return dec(5, `Filling: ${Math.round(behind)} points behind pace, ${win.min_days_out}+ days out.`);
+      if (behind >= 8) return dec(3, `Filling: ${Math.round(behind)} points behind pace, ${win.min_days_out}+ days out.`);
+      return none("on_pace", "Less than 8 points behind pace: the price holds.");
+    }
+  }
+}
+
 export function decideDate(input: DecisionInput, settings: DecisionSettings): Decision {
   const { now } = settings;
-  const win = windowFor(input.daysOut, settings.windowRules);
+  const fill = settings.fill?.enabled ? settings.fill : null;
+  const inFillWindow = fill != null && input.daysOut <= Math.max(0, fill.windowDays);
+  const baseWin = windowFor(input.daysOut, settings.windowRules);
+  const win = inFillWindow ? fillWindowRule(baseWin) : baseWin;
   const paceTarget = paceTargetFor(input.daysOut, settings.paceBands);
   const gap = paceTarget != null && input.occupancyPct != null
     ? Math.round((input.occupancyPct - paceTarget) * 10) / 10
     : null;
   const blocked = (reason: string, detail: string) => hold(input, win.id, reason, detail, paceTarget, gap);
+
 
   if (input.dataStale) {
     return blocked("stale_data", "The PMS feed is stale; no price may change.");
@@ -442,7 +561,10 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   }
 
   // --- Pickup is always evaluated before any markdown branch -----------------
-  const intent = windowIntent(input, win, gap, settings);
+  const intent = inFillWindow
+    ? fillIntent(input, win, gap, settings)
+    : windowIntent(input, win, gap, settings);
+
   let raw = intent.raw;
   let reason = intent.reason;
   let detail = intent.detail;
@@ -527,7 +649,19 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   // may sell a date down, but never below the rate the next few nights still
   // need to hold the average rate target.
   const adrFloor = input.adrFloor != null && Number.isFinite(input.adrFloor) ? whole(input.adrFloor) : null;
-  const floor = adrFloor != null ? Math.max(whole(input.minPrice), adrFloor) : whole(input.minPrice);
+  // Fill mode may push sales, never dump them: a date can only fall so far
+  // below the price it started the campaign at.
+  const campaignFloor = inFillWindow
+    && input.campaignStartPrice != null && Number.isFinite(input.campaignStartPrice)
+    && input.campaignStartPrice > 0
+    ? whole(input.campaignStartPrice * (1 - Math.max(0, fill!.maxTotalDropPct) / 100))
+    : null;
+  const floor = Math.max(
+    whole(input.minPrice),
+    adrFloor ?? 0,
+    campaignFloor ?? 0,
+  );
+
   const ceiling = whole(input.maxPrice);
   // Bounds limit where automation may MOVE a price; they never force a move of
   // their own. A rise stops at the ceiling, a cut stops at the floor, and a

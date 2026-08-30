@@ -388,7 +388,8 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       if (!seen || c.cancelled_at > seen) lastCancel.set(c.stay_date, c.cancelled_at);
     }
 
-    const rates = latestRates(unwrap(rateRes) as any[]);
+    const rateRows = unwrap(rateRes) as any[];
+    const rates = latestRates(rateRows);
     const byDate = new Map<string, CellRate[]>();
     for (const cell of rates.values()) {
       if (cell.room_type_name && !sellableNames.has(cell.room_type_name)) continue;
@@ -396,6 +397,33 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       list.push(cell);
       byDate.set(cell.stay_date, list);
     }
+
+    // Campaign start price per date: the highest 2-pax reference price the date
+    // carried in the last 30 days. Fill mode is not allowed to take a date more
+    // than the configured percentage below it, however many runs happen.
+    const campaignStartByDate = (() => {
+      const cutoff = since(24 * 30);
+      const peakByCell = new Map<string, number>();
+      for (const row of rateRows) {
+        if (Number(row.occupancy) !== 2) continue;
+        if (row.captured_at && row.captured_at < cutoff) continue;
+        const name = row.room_type_name ?? "";
+        if (name && !sellableNames.has(name)) continue;
+        const price = Number(row.price);
+        if (!Number.isFinite(price) || price <= 0) continue;
+        const key = `${row.stay_date}|${name}`;
+        peakByCell.set(key, Math.max(peakByCell.get(key) ?? 0, price));
+      }
+      const out = new Map<string, number>();
+      for (const [key, price] of peakByCell) {
+        const stayDate = key.split("|")[0];
+        const seen = out.get(stayDate);
+        // The cheapest room type is the reference cell, so take the lowest peak.
+        if (seen == null || price < seen) out.set(stayDate, price);
+      }
+      return out;
+    })();
+
 
     const occByDate = new Map<string, {
       pct: number | null; sold: number | null; left: number | null; revenue: number | null;
@@ -556,7 +584,13 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       directionChangeHours: Math.max(0, Number(rule.direction_change_hours ?? 6)),
       cancellationWaitMinutes: Math.max(0, Number(rule.cancellation_wait_minutes ?? 60)),
       soldOutOccupancyPct: Math.max(50, Number(rule.sold_out_occupancy_pct || 98)),
+      fill: {
+        enabled: Boolean(rule.fill_mode_enabled),
+        windowDays: Math.max(0, Number(rule.fill_window_days ?? 60)),
+        maxTotalDropPct: Math.min(50, Math.max(0, Number(rule.fill_max_total_drop_pct ?? 15))),
+      },
     };
+
 
     // Rolling ADR guard: the next few nights must still average the target rate,
     // so a sell-down can never dump the week below what it needs to earn.
@@ -648,7 +682,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         crossed60Occupancy: prevOcc != null && occ.pct != null && prevOcc < 60 && occ.pct >= 60,
         pendingEventUplift: pendingEvent?.uplift ?? 0,
         market: marketFor(stayDate),
+        campaignStartPrice: campaignStartByDate.get(stayDate) ?? null,
       };
+
 
       const decision = decideDate(input, settings);
       decisions.push(decision);

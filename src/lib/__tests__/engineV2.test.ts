@@ -506,3 +506,59 @@ describe("a stay date moves as one block", () => {
     expect(allowed.every((a) => a >= step)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fill mode: push occupancy near arrival without giving the rate away.
+// ---------------------------------------------------------------------------
+
+const FILL = { enabled: true, windowDays: 60, maxTotalDropPct: 15 };
+
+describe("fill mode", () => {
+  it("marks a date down that is behind pace, where the ordinary rules would hold", () => {
+    const base = input({ daysOut: 17, occupancyPct: 60, roomsRemaining: 9, hoursSinceLastPickup: 30 });
+    const ordinary = decideDate(base, settings());
+    const filling = decideDate({ ...base, campaignStartPrice: 180 }, settings({ fill: FILL }));
+    expect(ordinary.blocked || ordinary.direction === "decrease").toBe(true);
+    expect(filling.blocked).toBe(false);
+    expect(filling.direction).toBe("decrease");
+  });
+
+  it("still lifts the price the moment a genuine booking lands", () => {
+    const d = decideDate(
+      input({ daysOut: 17, occupancyPct: 60, pickup24h: 2, pickup1h: 1, hoursSinceLastPickup: 0.5, campaignStartPrice: 180 }),
+      settings({ fill: FILL }),
+    );
+    expect(d.blocked).toBe(false);
+    expect(d.direction).toBe("increase");
+  });
+
+  it("never takes a date more than the total drop limit below its campaign start", () => {
+    const d = decideDate(
+      input({ daysOut: 5, occupancyPct: 40, currentPrice: 155, campaignStartPrice: 180, hoursSinceLastPickup: 40 }),
+      settings({ fill: FILL }),
+    );
+    // Floor is 180 - 15% = 153, so at most €2 is left — under the minimum move.
+    expect(d.blocked).toBe(true);
+    expect(d.reason).toBe("below_min_movement");
+  });
+
+  it("leaves dates outside the fill window on the ordinary rules", () => {
+    const patch = { daysOut: 120, occupancyPct: 10, hoursSinceLastPickup: 200, campaignStartPrice: 180 };
+    expect(decideDate(input(patch), settings({ fill: FILL })))
+      .toEqual(decideDate(input(patch), settings()));
+  });
+
+  it("protects a nearly full date even while filling", () => {
+    const d = decideDate(
+      input({ daysOut: 4, occupancyPct: 96, roomsRemaining: 1, hoursSinceLastPickup: 40, campaignStartPrice: 180 }),
+      settings({ fill: FILL }),
+    );
+    expect(d.blocked).toBe(true);
+  });
+
+  it("is off unless the property switches it on", () => {
+    const patch = { daysOut: 17, occupancyPct: 60, hoursSinceLastPickup: 30 };
+    expect(decideDate(input(patch), settings({ fill: { ...FILL, enabled: false } })))
+      .toEqual(decideDate(input(patch), settings()));
+  });
+});

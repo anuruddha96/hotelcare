@@ -56,6 +56,10 @@ interface Rule {
   whole_number_prices: boolean;
   sold_out_guard_enabled: boolean;
   sold_out_occupancy_pct: number;
+  fill_mode_enabled: boolean;
+  fill_window_days: number;
+  fill_max_total_drop_pct: number;
+
   cancellation_markdown_enabled: boolean;
   cancellation_wait_minutes: number;
   immediate_sell_mode_enabled: boolean;
@@ -130,6 +134,8 @@ const DEFAULT_RULE: Rule = {
   short_window_guard_enabled: true, short_window_days: 7,
   short_window_min_occupancy_pct: 70, whole_number_prices: true,
   sold_out_guard_enabled: true, sold_out_occupancy_pct: 100,
+  fill_mode_enabled: false, fill_window_days: 60, fill_max_total_drop_pct: 15,
+
   cancellation_markdown_enabled: true, cancellation_wait_minutes: 60,
   immediate_sell_mode_enabled: true, immediate_window_days: 14, immediate_markdown_step: 2,
   final_window_enabled: true, final_window_days: 7, final_window_allow_event_increase: false,
@@ -458,6 +464,10 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       whole_number_prices: source.rule.whole_number_prices ?? true,
       sold_out_guard_enabled: source.rule.sold_out_guard_enabled ?? true,
       sold_out_occupancy_pct: source.rule.sold_out_occupancy_pct ?? 100,
+      fill_mode_enabled: source.rule.fill_mode_enabled ?? false,
+      fill_window_days: source.rule.fill_window_days ?? 60,
+      fill_max_total_drop_pct: source.rule.fill_max_total_drop_pct ?? 15,
+
       cancellation_markdown_enabled: source.rule.cancellation_markdown_enabled ?? true,
       cancellation_wait_minutes: source.rule.cancellation_wait_minutes ?? 60,
       immediate_sell_mode_enabled: source.rule.immediate_sell_mode_enabled ?? true,
@@ -540,6 +550,10 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       whole_number_prices: rule.whole_number_prices,
       sold_out_guard_enabled: rule.sold_out_guard_enabled,
       sold_out_occupancy_pct: rule.sold_out_occupancy_pct,
+      fill_mode_enabled: rule.fill_mode_enabled,
+      fill_window_days: rule.fill_window_days,
+      fill_max_total_drop_pct: rule.fill_max_total_drop_pct,
+
       cancellation_markdown_enabled: rule.cancellation_markdown_enabled,
       cancellation_wait_minutes: rule.cancellation_wait_minutes,
       immediate_sell_mode_enabled: rule.immediate_sell_mode_enabled,
@@ -1224,6 +1238,30 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                     onChange={(e) => setRule({ ...rule, markdown_max_occupancy_pct: Number(e.target.value) })}
                   />
                 </div>
+
+                <ToggleRow
+                  title="Fill mode (push occupancy near arrival)"
+                  desc="Inside the window below, act sooner on a shortfall to sell the last rooms."
+                  hint={<>New bookings still lift the price straight away. A date can never fall further than the total drop limit below the price it started this campaign at, so the average rate is protected.</>}
+                  checked={rule.fill_mode_enabled}
+                  onChange={(fill_mode_enabled) => setRule({ ...rule, fill_mode_enabled })}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <NumField
+                    label="Fill window" suffix="days" min={0} max={365}
+                    disabled={!rule.fill_mode_enabled}
+                    value={rule.fill_window_days}
+                    onChange={(e) => setRule({ ...rule, fill_window_days: Number(e.target.value) })}
+                  />
+                  <NumField
+                    label="Most a price may drop in total" suffix="%" min={0} max={50}
+                    disabled={!rule.fill_mode_enabled}
+                    value={rule.fill_max_total_drop_pct}
+                    onChange={(e) => setRule({ ...rule, fill_max_total_drop_pct: Number(e.target.value) })}
+                  />
+                </div>
+
+
 
                 <ToggleRow
                   title="Whole prices only"
