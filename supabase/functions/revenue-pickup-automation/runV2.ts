@@ -271,11 +271,14 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         .select("stay_date, direction, movement, created_at").eq("hotel_id", rule.hotel_id)
         .gte("stay_date", today).neq("direction", "hold")
         .gte("created_at", since(96)).order("created_at", { ascending: false }).range(f, t)),
-      deps.pagedAll((f, t) => admin.from("rate_change_audit")
-        .select("stay_date, performed_at, source").eq("hotel_id", rule.hotel_id)
-        .gte("stay_date", today)
-        .gte("performed_at", since(Math.max(1, Number(rule.manual_hold_hours || 24))))
-        .order("stay_date").range(f, t)),
+      // Manual holds: one row per stay date, aggregated in the database. The
+      // audit table holds >1.3M rows, so paging it row by row timed the run out.
+      admin.rpc("revenue_manual_hold_dates", {
+        p_hotel_id: rule.hotel_id,
+        p_since: since(Math.max(1, Number(rule.manual_hold_hours || 24))),
+        p_sources: ["cell-edit", "cell-selection", "day-tool", "bulk", "bulk-edit", "manual", "quick-adjust"],
+      }),
+
       admin.from("revenue_event_applications").select("event_key, stay_date")
         .eq("hotel_id", rule.hotel_id).gte("stay_date", today),
       admin.from("demand_events")
