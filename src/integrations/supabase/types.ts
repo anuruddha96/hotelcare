@@ -7113,6 +7113,9 @@ export type Database = {
           far_out_floor_topup_threshold: number
           far_out_notify: boolean
           far_out_surcharge: number
+          fill_max_total_drop_pct: number
+          fill_mode_enabled: boolean
+          fill_window_days: number
           final_window_abnormal_pickup_rooms: number
           final_window_allow_event_increase: boolean
           final_window_days: number
@@ -7217,6 +7220,9 @@ export type Database = {
           far_out_floor_topup_threshold?: number
           far_out_notify?: boolean
           far_out_surcharge?: number
+          fill_max_total_drop_pct?: number
+          fill_mode_enabled?: boolean
+          fill_window_days?: number
           final_window_abnormal_pickup_rooms?: number
           final_window_allow_event_increase?: boolean
           final_window_days?: number
@@ -7321,6 +7327,9 @@ export type Database = {
           far_out_floor_topup_threshold?: number
           far_out_notify?: boolean
           far_out_surcharge?: number
+          fill_max_total_drop_pct?: number
+          fill_mode_enabled?: boolean
+          fill_window_days?: number
           final_window_abnormal_pickup_rooms?: number
           final_window_allow_event_increase?: boolean
           final_window_days?: number
