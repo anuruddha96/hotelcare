@@ -52,6 +52,49 @@ export const OTTOFIORI_WINDOW_RULES: WindowRule[] = [
 /** Kept as the exported default so callers never fall back to generic bands. */
 export const DEFAULT_WINDOW_RULES = OTTOFIORI_WINDOW_RULES;
 
+/**
+ * "Fill mode": inside the selling window the property is trying to reach a
+ * full house, so the engine is allowed to react to a smaller shortfall, waits
+ * less before acting and may take a slightly larger step down each day.
+ * Increases are untouched — a booking still lifts the price immediately — and
+ * the total drop per date is capped so pushing sales never becomes dumping.
+ */
+export interface FillSettings {
+  enabled: boolean;
+  /** Days before arrival inside which fill mode applies. */
+  windowDays: number;
+  /** Most a date may fall, as a percentage of its recent starting price. */
+  maxTotalDropPct: number;
+}
+
+export const DEFAULT_FILL_SETTINGS: FillSettings = {
+  enabled: false,
+  windowDays: 60,
+  maxTotalDropPct: 15,
+};
+
+/** Looser daily allowances for a window that is inside the fill campaign. */
+export function fillWindowRule(win: WindowRule): WindowRule {
+  switch (win.id) {
+    case "w0_2":
+      return { ...win, no_pickup_wait_hours: 4, max_daily_decrease: Math.max(win.max_daily_decrease, 15) };
+    case "w3_7":
+      return { ...win, no_pickup_wait_hours: 6, max_daily_decrease: Math.max(win.max_daily_decrease, 12) };
+    case "w8_30":
+      return { ...win, no_pickup_wait_hours: 8, max_daily_decrease: Math.max(win.max_daily_decrease, 10) };
+    case "w31_90":
+      return {
+        ...win,
+        no_pickup_wait_hours: 24,
+        max_daily_decrease: Math.max(win.max_daily_decrease, 6),
+        min_hours_between_decreases: Math.min(win.min_hours_between_decreases || 24, 24),
+        require_above_anchor: false,
+      };
+    default:
+      return win;
+  }
+}
+
 export function windowFor(daysOut: number, rules: WindowRule[] = OTTOFIORI_WINDOW_RULES): WindowRule {
   for (const rule of rules) {
     const withinLower = daysOut >= rule.min_days_out;
@@ -60,6 +103,7 @@ export function windowFor(daysOut: number, rules: WindowRule[] = OTTOFIORI_WINDO
   }
   return rules[rules.length - 1] ?? OTTOFIORI_WINDOW_RULES[OTTOFIORI_WINDOW_RULES.length - 1];
 }
+
 
 /** Expected occupancy for this lead time; null when no band covers it. */
 export function paceTargetFor(daysOut: number, bands: PaceBand[]): number | null {
