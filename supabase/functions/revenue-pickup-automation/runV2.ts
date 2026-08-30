@@ -663,10 +663,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
             break;
           }
           const old = whole(cell.price);
-          const allowed = dir > 0
-            ? Math.max(0, cellBounds.max - old)
-            : Math.max(0, old - cellBounds.min);
+          const allowed = headroom(cellBounds, old, dir);
           prepared.push({ cell, bounds: { min: cellBounds.min, max: cellBounds.max }, old, allowed });
+
         }
 
         if (boundsProblem) {
