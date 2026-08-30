@@ -639,38 +639,98 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
       // Build every child cell — in shadow mode too, so the gate can prove the
       // real payload would have been safe before anything is published.
+      //
+      // THE DATE IS THE UNIT OF CHANGE: every cell of the day moves by exactly
+      // the same whole-euro amount, or the day does not move at all. The step
+      // is throttled to the smallest headroom on the date (never clamped per
+      // cell), so a day can never end up half-moved or moved unevenly.
       const cellPrices: CellPrice[] = [];
+      let requestedMovement = decision.movement;
+      let limitedBy: string | null = null;
       if (!decision.blocked) {
+        const dir = Math.sign(decision.movement);
+        const wanted = Math.abs(decision.movement);
+        let boundsProblem: string | null = null;
+        const prepared: Array<{ cell: typeof cells[number]; bounds: { min: number; max: number }; old: number; allowed: number }> = [];
         for (const cell of cells) {
-          if (typeAvail.left(cell.room_type_name, cell.obk_id, stayDate) === 0) continue;
           const cellBounds = boundsFor(cell.room_type_name, cell.occupancy);
           if (isBoundsFailure(cellBounds)) {
-            violations.push({ stay_date: stayDate, room_type_name: cell.room_type_name, occupancy: cell.occupancy, problem: cellBounds.reason, detail: cellBounds.detail });
-            continue;
+            boundsProblem = `${cell.room_type_name ?? "unknown room type"} / ${cell.occupancy} pax — ${cellBounds.detail}`;
+            break;
           }
           const old = whole(cell.price);
-          // Each child cell is priced and clamped INDEPENDENTLY against its own
-          // absolute bounds; the date only supplies the movement.
-          let next = whole(old + decision.movement);
-          if (next < cellBounds.min) next = cellBounds.min;
-          if (next > cellBounds.max) next = cellBounds.max;
-          if (next === old) continue;
-          cellPrices.push({
-            stay_date: stayDate,
-            obk_id: cell.obk_id,
-            room_type_name: cell.room_type_name,
-            occupancy: cell.occupancy,
-            old_price: old,
-            new_price: next,
-            currency: cell.currency ?? rule.currency ?? "EUR",
-            min_price: cellBounds.min,
-            max_price: cellBounds.max,
-          });
+          const allowed = dir > 0
+            ? Math.max(0, cellBounds.max - old)
+            : Math.max(0, old - cellBounds.min);
+          prepared.push({ cell, bounds: { min: cellBounds.min, max: cellBounds.max }, old, allowed });
+        }
+
+        if (boundsProblem) {
+          // One unusable cell holds the WHOLE date — never publish a partial day.
+          decision.blocked = true;
+          decision.direction = "hold";
+          decision.movement = 0;
+          decision.targetPrice = decision.currentPrice;
+          decision.reason = "bounds_missing";
+          decision.reasonDetail = `Held: no usable price limits for ${boundsProblem}`;
+        } else if (prepared.length === 0) {
+          decision.blocked = true;
+          decision.direction = "hold";
+          decision.movement = 0;
+          decision.targetPrice = decision.currentPrice;
+          decision.reason = "no_cells";
+          decision.reasonDetail = "Held: no live prices for this date.";
+        } else {
+          let step = wanted;
+          for (const p of prepared) {
+            if (p.allowed < step) {
+              step = p.allowed;
+              limitedBy = p.cell.room_type_name ?? null;
+            }
+          }
+          if (step < settings.minMovementEur) {
+            decision.blocked = true;
+            decision.direction = "hold";
+            decision.movement = 0;
+            decision.targetPrice = decision.currentPrice;
+            decision.reason = "bounds_headroom";
+            decision.reasonDetail = limitedBy
+              ? `Held: ${limitedBy} is at its price limit, so the whole day stayed put.`
+              : "Held: no room left to move every price of this date together.";
+          } else {
+            if (step < wanted) {
+              decision.movement = dir * step;
+              decision.targetPrice = decision.currentPrice == null ? null : whole(decision.currentPrice + dir * step);
+              decision.reasonDetail = `${decision.reasonDetail} Step reduced to €${step} so every room type moves together${limitedBy ? ` (${limitedBy} is closest to its limit)` : ""}.`;
+            } else {
+              limitedBy = null;
+            }
+            for (const p of prepared) {
+              const next = whole(p.old + dir * step);
+              if (next === p.old) continue;
+              cellPrices.push({
+                stay_date: stayDate,
+                obk_id: p.cell.obk_id,
+                room_type_name: p.cell.room_type_name,
+                occupancy: p.cell.occupancy,
+                old_price: p.old,
+                new_price: next,
+                currency: p.cell.currency ?? rule.currency ?? "EUR",
+                min_price: p.bounds.min,
+                max_price: p.bounds.max,
+              });
+            }
+          }
         }
         const cellViolations = validateCells(cellPrices);
         for (const v of cellViolations) violations.push({ ...v });
         simulatedCells += cellPrices.length;
       }
+      if (decision.blocked) {
+        skipReasons[decision.reason] = (skipReasons[decision.reason] ?? 0) + 1;
+        requestedMovement = requestedMovement || 0;
+      }
+
 
       const status = decision.blocked ? "held" : (mode === "live" ? "queued" : "shadow");
       decisionRows.push({
