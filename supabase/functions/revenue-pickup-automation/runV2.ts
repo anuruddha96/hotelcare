@@ -635,7 +635,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
       const decision = decideDate(input, settings);
       decisions.push(decision);
-      if (decision.blocked) skipReasons[decision.reason] = (skipReasons[decision.reason] ?? 0) + 1;
+      const wasBlocked = decision.blocked;
+      if (wasBlocked) skipReasons[decision.reason] = (skipReasons[decision.reason] ?? 0) + 1;
+
 
       // Build every child cell — in shadow mode too, so the gate can prove the
       // real payload would have been safe before anything is published.
