@@ -183,9 +183,20 @@ export interface DecisionInput {
   movedDownTodayEur: number;
   /** A human touched this date recently; automation stands back until then. */
   manualHoldUntil: string | null;
+  /**
+   * "soft" — an ordinary manual price edit: markdowns wait, but genuine new
+   * pickup may still raise the price once.
+   * "hard" — a manager lock: nothing moves until it expires.
+   */
+  holdKind?: "soft" | "hard" | null;
   /** Whole-euro floor and ceiling for the reference cell; null = unresolved. */
   minPrice: number | null;
   maxPrice: number | null;
+  /**
+   * Lowest price this date may be sold at without breaking the rolling ADR
+   * target across the guard window. Null when the guard is off or infeasible.
+   */
+  adrFloor?: number | null;
   /** Validated weekday/seasonal anchor price for this date. */
   anchorPrice: number | null;
   /** Occupancy crossed 60% since the last decision (31–90 day rule). */
@@ -416,8 +427,12 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   }
   const current = whole(input.currentPrice);
 
-  if (input.manualHoldUntil && Date.parse(input.manualHoldUntil) > now.getTime()) {
-    return blocked("manual_hold", "A manual price change is protected for now.");
+  // A manager lock stops everything; an ordinary manual edit only protects the
+  // price from being marked down, and genuine new pickup may still lift it.
+  const holdActive = Boolean(input.manualHoldUntil && Date.parse(input.manualHoldUntil) > now.getTime());
+  const hardLock = holdActive && input.holdKind === "hard";
+  if (hardLock) {
+    return blocked("manual_lock", "A manager locked this date; automation leaves it alone.");
   }
 
   const soldOut = (input.roomsRemaining != null && input.roomsRemaining <= 0)
@@ -432,6 +447,17 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   let reason = intent.reason;
   let detail = intent.detail;
   if (raw === 0) return blocked(intent.blockReason ?? "hold", intent.blockDetail ?? detail);
+
+  if (holdActive) {
+    const genuinePickup = Math.max(0, input.pickup24h - input.cancellations24h) > 0;
+    if (raw < 0) {
+      return blocked("manual_hold", "A manual price change is protected for now; no markdown.");
+    }
+    if (!genuinePickup) {
+      return blocked("manual_hold", "A manual price change is protected for now.");
+    }
+    detail += " Manual protection overridden by genuine new pickup.";
+  }
 
   const hasPickup = Math.max(0, input.pickup24h - input.cancellations24h) > 0;
 
@@ -497,7 +523,11 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   }
 
   let target = whole(current + movement);
-  const floor = whole(input.minPrice);
+  // The rolling ADR guard raises the effective floor for markdowns: the engine
+  // may sell a date down, but never below the rate the next few nights still
+  // need to hold the average rate target.
+  const adrFloor = input.adrFloor != null && Number.isFinite(input.adrFloor) ? whole(input.adrFloor) : null;
+  const floor = adrFloor != null ? Math.max(whole(input.minPrice), adrFloor) : whole(input.minPrice);
   const ceiling = whole(input.maxPrice);
   // Bounds limit where automation may MOVE a price; they never force a move of
   // their own. A rise stops at the ceiling, a cut stops at the floor, and a

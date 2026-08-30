@@ -32,6 +32,8 @@ import {
   type CellPrice,
 } from "../_shared/priceBounds.ts";
 import { evaluateGates, evaluateWatchdog, supervisedCaps } from "../_shared/activationGate.ts";
+import { computeAdrGuard, type AdrGuardNight } from "../_shared/adrGuard.ts";
+import { anchorFor, buildAnchorTable } from "../_shared/seasonalAnchor.ts";
 
 export interface V2Deps {
   admin: any;
@@ -240,9 +242,10 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       appliedEventsRes,
       eventsRes,
       roomTypesRes,
+      anchorRes,
     ] = await Promise.all([
       deps.pagedAll((f, t) => admin.from("revenue_pickup_ledger")
-        .select("stay_date, reservation_id, first_seen_at, cancelled_at").eq("hotel_id", rule.hotel_id)
+        .select("id, stay_date, reservation_id, first_seen_at, cancelled_at, increase_spent_at").eq("hotel_id", rule.hotel_id)
         .gte("stay_date", today).lte("stay_date", horizonDate)
         .gte("first_seen_at", since(24 * 7)).order("stay_date").range(f, t)),
       deps.pagedAll((f, t) => admin.from("revenue_cancelled_nights")
@@ -271,11 +274,11 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         .select("stay_date, direction, movement, created_at").eq("hotel_id", rule.hotel_id)
         .gte("stay_date", today).neq("direction", "hold")
         .gte("created_at", since(96)).order("created_at", { ascending: false }).range(f, t)),
-      // Manual holds: one row per stay date, aggregated in the database. The
-      // audit table holds >1.3M rows, so paging it row by row timed the run out.
-      admin.rpc("revenue_manual_hold_dates", {
+      // Manual protection: manager locks (hard) and ordinary human price edits
+      // (soft), aggregated in the database — the audit table holds >1.3M rows.
+      admin.rpc("revenue_manual_hold_state", {
         p_hotel_id: rule.hotel_id,
-        p_since: since(Math.max(1, Number(rule.manual_hold_hours || 24))),
+        p_since: since(Math.max(1, Number(rule.manual_hold_hours || 2))),
         p_sources: ["cell-edit", "cell-selection", "day-tool", "bulk", "bulk-edit", "manual", "quick-adjust"],
       }),
 
@@ -287,6 +290,10 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       admin.from("room_types")
         .select("name, num_rooms, is_sellable, counts_toward_inventory, base_price_eur, min_price_eur, max_price_eur")
         .eq("hotel_id", rule.hotel_id),
+      // Seasonal anchor from the hotel's own realised ADR, by month and weekday.
+      rule.seasonal_anchor_enabled === false
+        ? Promise.resolve({ data: [] })
+        : admin.rpc("revenue_seasonal_anchor", { p_hotel_id: rule.hotel_id, p_min_samples: 4 }),
     ]);
 
     const typeAvail = await deps.loadTypeAvailability(admin, rule.hotel_id, today, horizonDate);
@@ -303,6 +310,16 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       if (r.name && Number.isFinite(anchor) && anchor > 0) anchorByType.set(r.name, whole(anchor));
     }
 
+    // Seasonal anchor: the hotel's own realised ADR per month and weekday. It
+    // replaces the old generic floor, so a quiet Tuesday in February and a busy
+    // Friday in September no longer share one anchor.
+    const anchorTable = buildAnchorTable(
+      (unwrap(anchorRes) as any[]).map((r) => ({
+        month: Number(r.month), dow: Number(r.dow),
+        anchorEur: Number(r.anchor_eur), samples: Number(r.samples),
+      })),
+    );
+
     // Pickup counts, per window, from the ledger's own first-seen stamp.
     const ledgerArr = unwrap(ledgerRes).filter((r: any) => !r.cancelled_at);
     const countIn = (rows: any[], field: string, hours: number) => {
@@ -316,9 +333,20 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       }
       return new Map([...map].map(([k, v]) => [k, v.size]));
     };
-    const pickup1h = countIn(ledgerArr, "first_seen_at", 1);
-    const pickup6h = countIn(ledgerArr, "first_seen_at", 6);
-    const pickup24h = countIn(ledgerArr, "first_seen_at", 24);
+    // Each booking may drive at most ONE increase. Rows already consumed by an
+    // earlier run keep their stamp, so the same reservation can never be paid
+    // for twice, however often the engine runs.
+    const unspentLedger = (ledgerArr as any[]).filter((r) => !r.increase_spent_at);
+    const unspentIdsByDate = new Map<string, string[]>();
+    for (const row of unspentLedger) {
+      if (!row.id) continue;
+      const list = unspentIdsByDate.get(row.stay_date) ?? [];
+      list.push(String(row.id));
+      unspentIdsByDate.set(row.stay_date, list);
+    }
+    const pickup1h = countIn(unspentLedger, "first_seen_at", 1);
+    const pickup6h = countIn(unspentLedger, "first_seen_at", 6);
+    const pickup24h = countIn(unspentLedger, "first_seen_at", 24);
     const pickup48h = countIn(ledgerArr, "first_seen_at", 48);
     const pickup7d = countIn(ledgerArr, "first_seen_at", 24 * 7);
     const lastPickupAt = new Map<string, string>();
@@ -352,7 +380,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       byDate.set(cell.stay_date, list);
     }
 
-    const occByDate = new Map<string, { pct: number | null; sold: number | null; left: number | null }>();
+    const occByDate = new Map<string, {
+      pct: number | null; sold: number | null; left: number | null; revenue: number | null;
+    }>();
     const prevOccByDate = new Map<string, number | null>();
     const snapshotRows = (unwrap(snapshotRes) as any[])
       .slice()
@@ -366,10 +396,15 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       }
       const available = Number(row.rooms_available);
       const sold = Number(row.rooms_sold);
+      const revenue = Number(row.revenue_eur);
+      const adr = Number(row.adr_eur);
       occByDate.set(row.stay_date, {
         pct,
         sold: Number.isFinite(sold) ? sold : null,
         left: Number.isFinite(available) && Number.isFinite(sold) ? Math.max(0, available - sold) : null,
+        revenue: Number.isFinite(revenue) && revenue > 0
+          ? revenue
+          : (Number.isFinite(adr) && Number.isFinite(sold) ? adr * sold : null),
       });
     }
 
@@ -402,24 +437,37 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       }
     }
 
-    const holdHours = Math.max(0, Number(rule.manual_hold_hours || 24));
-    const manualHold = new Map<string, string>();
-    // Only a change a PERSON made protects a date; the database lookup already
-    // filters to human sources and returns the latest edit per stay date.
+    const holdHours = Math.max(0, Number(rule.manual_hold_hours || 2));
+    const manualHold = new Map<string, { until: string; kind: "soft" | "hard" }>();
+    // Two kinds of protection: a manager lock stops everything until it expires,
+    // an ordinary human price edit only protects the price for a short while.
     for (const row of unwrap(manualRes) as any[]) {
-      const at = Date.parse(row.performed_at);
+      const kind: "soft" | "hard" = row.hold_kind === "hard" ? "hard" : "soft";
+      const at = Date.parse(row.hold_until);
       if (!Number.isFinite(at)) continue;
-      const until = new Date(at + holdHours * 3_600_000).toISOString();
+      const until = kind === "hard"
+        ? new Date(at).toISOString()
+        : new Date(at + holdHours * 3_600_000).toISOString();
       const seen = manualHold.get(row.stay_date);
-      if (!seen || until > seen) manualHold.set(row.stay_date, until);
+      // A hard lock always wins over a soft hold for the same date.
+      if (!seen || seen.kind !== "hard" && (kind === "hard" || until > seen.until)) {
+        manualHold.set(row.stay_date, { until, kind });
+      }
     }
 
+    // The daily movement allowance resets at the property's local midnight, not
+    // at UTC midnight — otherwise Budapest loses one or two hours of allowance.
+    const localDayStart = (() => {
+      const [hh, mm] = String(local.time || "00:00").split(":").map(Number);
+      const elapsed = ((hh || 0) * 60 + (mm || 0)) * 60_000;
+      return new Date(now.getTime() - elapsed).toISOString();
+    })();
 
-    // Movement already spent today, per stay date and per direction.
+    // Movement already spent in the local day, per stay date and per direction.
     const { data: spentToday } = await deps.pagedAll((f, t) => admin
       .from("revenue_date_decisions").select("stay_date, movement, direction")
       .eq("hotel_id", rule.hotel_id).in("status", ["published", "queued"])
-      .gte("created_at", `${today}T00:00:00Z`).order("stay_date").range(f, t));
+      .gte("created_at", localDayStart).order("stay_date").range(f, t));
     const movedUpToday = new Map<string, number>();
     const movedDownToday = new Map<string, number>();
     for (const row of (spentToday ?? []) as any[]) {
@@ -493,6 +541,33 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       soldOutOccupancyPct: Math.max(50, Number(rule.sold_out_occupancy_pct || 98)),
     };
 
+    // Rolling ADR guard: the next few nights must still average the target rate,
+    // so a sell-down can never dump the week below what it needs to earn.
+    const adrGuard = rule.adr_guard_enabled
+      ? computeAdrGuard(
+        Array.from(byDate.keys()).sort().map((stayDate): AdrGuardNight => {
+          const occ = occByDate.get(stayDate);
+          const cells = byDate.get(stayDate) ?? [];
+          const ref = cells.filter((c) => c.occupancy === 2).sort((a, b) => a.price - b.price)[0] ?? null;
+          const bounds = boundsFor(ref?.room_type_name ?? null, 2);
+          return {
+            stayDate,
+            daysOut: dayDiff(today, stayDate),
+            roomsSold: occ?.sold ?? null,
+            roomsRemaining: occ?.left ?? null,
+            revenueOnBooks: occ?.revenue ?? null,
+            currentPrice: ref ? whole(ref.price) : null,
+            maxPrice: isBoundsFailure(bounds) ? null : bounds.max,
+          };
+        }),
+        {
+          targetAdr: Number(rule.adr_target_eur ?? 0),
+          windowDays: Math.max(1, Number(rule.adr_window_days ?? 7)),
+        },
+      )
+      : { floors: {}, projectedAdr: null, requiredRate: null, feasible: false, reason: "guard_off" };
+
+
     // ---- 3. One decision per stay date -------------------------------------
     const decisions: Decision[] = [];
     const decisionRows: Array<Record<string, unknown>> = [];
@@ -515,7 +590,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         ? referenceCells.reduce((min, c) => (c.price < min.price ? c : min))
         : null;
 
-      const occ = occByDate.get(stayDate) ?? { pct: null, sold: null, left: null };
+      const occ = occByDate.get(stayDate) ?? { pct: null, sold: null, left: null, revenue: null };
       const refBounds = boundsFor(reference?.room_type_name ?? null, 2);
       const pendingEvent = eventUplift.get(stayDate);
       const last = lastDecisionByDate.get(stayDate);
@@ -542,10 +617,17 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         lastDecreaseAt: lastDecreaseByDate.get(stayDate) ?? null,
         movedUpTodayEur: movedUpToday.get(stayDate) ?? 0,
         movedDownTodayEur: movedDownToday.get(stayDate) ?? 0,
-        manualHoldUntil: manualHold.get(stayDate) ?? null,
+        manualHoldUntil: manualHold.get(stayDate)?.until ?? null,
+        holdKind: manualHold.get(stayDate)?.kind ?? null,
         minPrice: isBoundsFailure(refBounds) ? null : refBounds.min,
         maxPrice: isBoundsFailure(refBounds) ? null : refBounds.max,
-        anchorPrice: reference?.room_type_name ? (anchorByType.get(reference.room_type_name) ?? null) : null,
+        adrFloor: adrGuard.floors[stayDate] ?? null,
+        // Seasonal anchor first (the hotel's own history), room-type base price
+        // only as a fallback so a date is never left without an anchor.
+        anchorPrice: anchorFor(stayDate, anchorTable, {
+          min: isBoundsFailure(refBounds) ? null : refBounds.min,
+          max: isBoundsFailure(refBounds) ? null : refBounds.max,
+        }) ?? (reference?.room_type_name ? (anchorByType.get(reference.room_type_name) ?? null) : null),
         crossed60Occupancy: prevOcc != null && occ.pct != null && prevOcc < 60 && occ.pct >= 60,
         pendingEventUplift: pendingEvent?.uplift ?? 0,
         market: marketFor(stayDate),
@@ -618,6 +700,10 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         event_signal: pendingEvent ? { event_key: pendingEvent.key, uplift: pendingEvent.uplift } : null,
         market_signal: input.market.median == null ? null : input.market,
         manual_hold_until: input.manualHoldUntil,
+        hold_kind: input.holdKind ?? null,
+        adr_required_rate: adrGuard.requiredRate,
+        adr_feasible: rule.adr_guard_enabled ? adrGuard.feasible : null,
+        anchor_price: input.anchorPrice,
         cap_applied: decision.capApplied,
         simulated_cells: cellPrices.length === 0 ? null : cellPrices,
         cells_simulated: cellPrices.length,
@@ -706,6 +792,17 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         await admin.from("revenue_event_applications")
           .upsert(eventApplications, { onConflict: "hotel_id,event_key,stay_date", ignoreDuplicates: true });
       }
+
+      // Each booking pays for exactly one increase: stamp the ledger rows that
+      // justified the rises this run so the next run cannot spend them again.
+      const spentIds = decisions
+        .filter((d) => !d.blocked && d.direction === "increase")
+        .flatMap((d) => unspentIdsByDate.get(d.stayDate) ?? []);
+      for (let i = 0; i < spentIds.length; i += 500) {
+        await admin.from("revenue_pickup_ledger")
+          .update({ increase_spent_at: new Date().toISOString() })
+          .in("id", spentIds.slice(i, i + 500));
+      }
     }
 
     const increases = decisions.filter((d) => d.direction === "increase" && !d.blocked).length;
@@ -719,7 +816,16 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       dates_decreased: decreases,
       dates_held: held,
       cells_queued: payload.length,
-      skip_reasons: { ...skipReasons, simulated_cells: simulatedCells },
+      // The delivery batch this run produced, so the activity feed can show
+      // real Previo outcomes instead of "queued and hope".
+      push_run_id: pushRunId,
+      skip_reasons: {
+        ...skipReasons,
+        simulated_cells: simulatedCells,
+        adr_guard: rule.adr_guard_enabled
+          ? { required_rate: adrGuard.requiredRate, projected_adr: adrGuard.projectedAdr, feasible: adrGuard.feasible, reason: adrGuard.reason }
+          : null,
+      },
     });
 
     await admin.from("revenue_pickup_automation_rules").update({
