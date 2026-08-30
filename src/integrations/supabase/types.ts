@@ -6468,9 +6468,11 @@ export type Database = {
           hold_kind: string | null
           hotel_id: string
           id: string
+          limited_by_room_type: string | null
           manual_hold_until: string | null
           market_signal: Json | null
           movement: number
+          movement_requested: number | null
           occupancy_pct: number | null
           organization_slug: string
           pace_gap_pct: number | null
@@ -6507,9 +6509,11 @@ export type Database = {
           hold_kind?: string | null
           hotel_id: string
           id?: string
+          limited_by_room_type?: string | null
           manual_hold_until?: string | null
           market_signal?: Json | null
           movement?: number
+          movement_requested?: number | null
           occupancy_pct?: number | null
           organization_slug: string
           pace_gap_pct?: number | null
@@ -6546,9 +6550,11 @@ export type Database = {
           hold_kind?: string | null
           hotel_id?: string
           id?: string
+          limited_by_room_type?: string | null
           manual_hold_until?: string | null
           market_signal?: Json | null
           movement?: number
+          movement_requested?: number | null
           occupancy_pct?: number | null
           organization_slug?: string
           pace_gap_pct?: number | null
