@@ -36,11 +36,16 @@ interface LiveSyncContextValue {
   openChangesDrawer: () => void;
 }
 
+// Keep in sync with MANAGER_ROLES in components/dashboard/PmsRefreshButton.tsx —
+// anyone who can see the PMS refresh control must also get a live sync context,
+// otherwise the button reports "PMS not connected" on a perfectly wired hotel.
 const ELIGIBLE_ROLES = new Set([
   "admin",
   "top_management",
+  "top_management_manager",
   "manager",
   "housekeeping_manager",
+  "reception_manager",
   "front_office",
 ]);
 
