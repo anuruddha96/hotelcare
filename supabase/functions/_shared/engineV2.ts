@@ -561,7 +561,10 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   }
 
   // --- Pickup is always evaluated before any markdown branch -----------------
-  const intent = windowIntent(input, win, gap, settings);
+  const intent = inFillWindow
+    ? fillIntent(input, win, gap, settings)
+    : windowIntent(input, win, gap, settings);
+
   let raw = intent.raw;
   let reason = intent.reason;
   let detail = intent.detail;
