@@ -404,16 +404,16 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
     const holdHours = Math.max(0, Number(rule.manual_hold_hours || 24));
     const manualHold = new Map<string, string>();
-    // Only a change a PERSON made protects a date. Previo confirmations and
-    // the publisher's own audit rows are machine echoes of automation work —
-    // treating those as manual froze the whole calendar in the first V2 run.
-    const HUMAN_SOURCES = new Set(["cell-edit", "cell-selection", "day-tool", "bulk", "bulk-edit", "manual", "quick-adjust"]);
+    // Only a change a PERSON made protects a date; the database lookup already
+    // filters to human sources and returns the latest edit per stay date.
     for (const row of unwrap(manualRes) as any[]) {
-      if (!HUMAN_SOURCES.has(String(row.source ?? ""))) continue;
-      const until = new Date(Date.parse(row.performed_at) + holdHours * 3_600_000).toISOString();
+      const at = Date.parse(row.performed_at);
+      if (!Number.isFinite(at)) continue;
+      const until = new Date(at + holdHours * 3_600_000).toISOString();
       const seen = manualHold.get(row.stay_date);
       if (!seen || until > seen) manualHold.set(row.stay_date, until);
     }
+
 
     // Movement already spent today, per stay date and per direction.
     const { data: spentToday } = await deps.pagedAll((f, t) => admin
