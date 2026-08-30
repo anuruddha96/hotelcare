@@ -240,10 +240,13 @@ Deno.serve(async (req) => {
 
       // Subscribing during the trial is allowed and must not charge early:
       // billing starts the day the trial ends.
+      // Stripe rejects a `trial_end` that is less than 48 hours away, so only
+      // pass it when the trial still has more than two days to run. Closer to
+      // the end (or past it) billing simply starts immediately.
       const trialEnd = trialEndsAt(settings);
       const trialEndSec = trialEnd ? Math.floor(new Date(trialEnd).getTime() / 1000) : 0;
       const nowSec = Math.floor(Date.now() / 1000);
-      const useTrial = trialEndSec > nowSec + 60;
+      const useTrial = trialEndSec > nowSec + 48 * 3600 + 300;
 
       // Company details for the invoice: collected at checkout (name, address,
       // tax number) so every Stripe invoice carries them.
