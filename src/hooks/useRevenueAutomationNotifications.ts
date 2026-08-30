@@ -54,6 +54,8 @@ export interface AutomationDecision {
   stay_date: string;
   direction: string;
   movement: number;
+  movement_requested: number | null;
+  limited_by_room_type: string | null;
   current_price: number | null;
   target_price: number | null;
   status: string;
@@ -61,6 +63,7 @@ export interface AutomationDecision {
   reason_detail: string | null;
   cells_simulated: number;
 }
+
 
 const REVENUE_ROLES = new Set([
   'admin',
@@ -203,7 +206,7 @@ export function useRevenueAutomationNotifications(enabled: boolean) {
   const loadDecisions = useCallback(async (runId: string): Promise<AutomationDecision[]> => {
     const { data, error } = await supabase
       .from('revenue_date_decisions')
-      .select('id, stay_date, direction, movement, current_price, target_price, status, decision_reason, reason_detail, cells_simulated')
+      .select('id, stay_date, direction, movement, movement_requested, limited_by_room_type, current_price, target_price, status, decision_reason, reason_detail, cells_simulated')
       .eq('run_id', runId)
       .order('stay_date', { ascending: true })
       .limit(400);
