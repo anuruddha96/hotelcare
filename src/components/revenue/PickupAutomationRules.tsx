@@ -464,6 +464,10 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       whole_number_prices: source.rule.whole_number_prices ?? true,
       sold_out_guard_enabled: source.rule.sold_out_guard_enabled ?? true,
       sold_out_occupancy_pct: source.rule.sold_out_occupancy_pct ?? 100,
+      fill_mode_enabled: source.rule.fill_mode_enabled ?? false,
+      fill_window_days: source.rule.fill_window_days ?? 60,
+      fill_max_total_drop_pct: source.rule.fill_max_total_drop_pct ?? 15,
+
       cancellation_markdown_enabled: source.rule.cancellation_markdown_enabled ?? true,
       cancellation_wait_minutes: source.rule.cancellation_wait_minutes ?? 60,
       immediate_sell_mode_enabled: source.rule.immediate_sell_mode_enabled ?? true,
