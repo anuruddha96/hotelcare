@@ -236,9 +236,24 @@ describe("safety rails", () => {
     expect(decideDate(input({ pickup24h: 3, occupancyPct: 99 }), settings()).reason).toBe("sold_out");
   });
 
-  it("a manual edit holds automation off", () => {
-    const d = decideDate(input({ pickup24h: 3, manualHoldUntil: "2026-08-30T10:00:00Z" }), settings());
+  it("a manual edit blocks a markdown", () => {
+    const d = decideDate(input({ pickup24h: 0, occupancyPct: 10, manualHoldUntil: "2026-08-30T10:00:00Z" }), settings());
     expect(d.reason).toBe("manual_hold");
+  });
+
+  it("genuine pickup may still lift a softly held date", () => {
+    const d = decideDate(input({ pickup24h: 3, manualHoldUntil: "2026-08-30T10:00:00Z" }), settings());
+    expect(d.reason).toBe("genuine_pickup");
+    expect(d.direction).toBe("increase");
+  });
+
+  it("a hard lock blocks every move, pickup included", () => {
+    const d = decideDate(
+      input({ pickup24h: 3, manualHoldUntil: "2026-08-30T10:00:00Z", holdKind: "hard" }),
+      settings(),
+    );
+    expect(d.reason).toBe("manual_hold");
+    expect(d.direction).toBe("hold");
   });
 
   it("stale data can never move a price", () => {
