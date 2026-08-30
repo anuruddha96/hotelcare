@@ -74,6 +74,39 @@ Deno.serve(async (req) => {
       Number.isFinite(Number(body.continuationBudget)) ? Number(body.continuationBudget) : 12));
     if (!hotelId) return json({ error: "hotelId is required" }, 400);
 
+    // Keep the pricing run and activity feed tied to what Previo actually did,
+    // not merely to what the engine placed on the queue.
+    const syncAutomationOutcome = async (pushRunId: string) => {
+      const { data: automationRun } = await admin.from("revenue_automation_runs")
+        .select("id, cells_queued").eq("push_run_id", pushRunId).maybeSingle();
+      if (!automationRun?.id) return;
+      const [acceptedRes, verifiedRes, failedRes] = await Promise.all([
+        admin.from("revenue_rate_push_items").select("id", { count: "exact", head: true })
+          .eq("run_id", pushRunId).in("status", ["accepted", "confirmed", "different"]),
+        admin.from("revenue_rate_push_items").select("id", { count: "exact", head: true })
+          .eq("run_id", pushRunId).eq("status", "confirmed"),
+        admin.from("revenue_rate_push_items").select("id", { count: "exact", head: true })
+          .eq("run_id", pushRunId).in("status", ["failed", "different"]),
+      ]);
+      const accepted = acceptedRes.count ?? 0;
+      const verified = verifiedRes.count ?? 0;
+      const failed = failedRes.count ?? 0;
+      await Promise.all([
+        admin.from("revenue_automation_runs").update({
+          cells_published: accepted,
+          cells_verified: verified,
+          cells_failed: failed,
+        }).eq("id", automationRun.id),
+        admin.from("revenue_automation_notifications").update({
+          pushed_count: accepted,
+          failed_count: failed,
+        }).eq("automation_run_id", automationRun.id),
+        admin.from("revenue_date_decisions").update({
+          status: failed > 0 ? (accepted > 0 ? "partial" : "failed") : accepted > 0 ? "published" : "queued",
+        }).eq("run_id", automationRun.id),
+      ]);
+    };
+
     if (profile && profile.role !== "admin" && profile.assigned_hotel && profile.assigned_hotel !== hotelId) {
       return json({ error: "You can only push rates for your own hotel" }, 403);
     }
@@ -769,6 +802,7 @@ Deno.serve(async (req) => {
               onConflict: "hotel_id,stay_date,obk_id,rate_plan_id,occupancy",
             });
             if (auditRows.length > 0) await admin.from("rate_change_audit").insert(auditRows);
+            await syncAutomationOutcome(pushRunId);
           } catch (error) {
             console.error("background rate verification failed", b.from, b.to, b.obkId, error);
           }
@@ -866,6 +900,7 @@ Deno.serve(async (req) => {
         pushed_at: totalAccepted > 0 ? new Date().toISOString() : null,
         push_error: totalFailed > 0 ? errors[0]?.error?.slice(0, 500) ?? "Previo rejected one or more prices" : null,
       }).eq("push_run_id", pushRunId);
+      await syncAutomationOutcome(pushRunId);
     }
 
     if (more) {

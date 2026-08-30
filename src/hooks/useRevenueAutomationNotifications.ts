@@ -176,6 +176,22 @@ export function useRevenueAutomationNotifications(enabled: boolean) {
     return () => { supabase.removeChannel(channel); };
   }, [enabled, user?.id, load]);
 
+  // Publisher confirmation arrives after the notification insert. Refresh the
+  // same item when its linked run changes so “queued” becomes accepted or
+  // confirmed without requiring a page reload.
+  useEffect(() => {
+    if (!enabled || !user?.id) return;
+    const channel = supabase
+      .channel('revenue-automation-run-outcomes')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'revenue_automation_runs' },
+        () => { void load(); },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [enabled, user?.id, load]);
+
   const markRead = useCallback(async (id: string) => {
     if (!user?.id) return;
     setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
