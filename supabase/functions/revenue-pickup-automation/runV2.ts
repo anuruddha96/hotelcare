@@ -388,7 +388,8 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       if (!seen || c.cancelled_at > seen) lastCancel.set(c.stay_date, c.cancelled_at);
     }
 
-    const rates = latestRates(unwrap(rateRes) as any[]);
+    const rateRows = unwrap(rateRes) as any[];
+    const rates = latestRates(rateRows);
     const byDate = new Map<string, CellRate[]>();
     for (const cell of rates.values()) {
       if (cell.room_type_name && !sellableNames.has(cell.room_type_name)) continue;
@@ -396,6 +397,33 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       list.push(cell);
       byDate.set(cell.stay_date, list);
     }
+
+    // Campaign start price per date: the highest 2-pax reference price the date
+    // carried in the last 30 days. Fill mode is not allowed to take a date more
+    // than the configured percentage below it, however many runs happen.
+    const campaignStartByDate = (() => {
+      const cutoff = since(24 * 30);
+      const peakByCell = new Map<string, number>();
+      for (const row of rateRows) {
+        if (Number(row.occupancy) !== 2) continue;
+        if (row.captured_at && row.captured_at < cutoff) continue;
+        const name = row.room_type_name ?? "";
+        if (name && !sellableNames.has(name)) continue;
+        const price = Number(row.price);
+        if (!Number.isFinite(price) || price <= 0) continue;
+        const key = `${row.stay_date}|${name}`;
+        peakByCell.set(key, Math.max(peakByCell.get(key) ?? 0, price));
+      }
+      const out = new Map<string, number>();
+      for (const [key, price] of peakByCell) {
+        const stayDate = key.split("|")[0];
+        const seen = out.get(stayDate);
+        // The cheapest room type is the reference cell, so take the lowest peak.
+        if (seen == null || price < seen) out.set(stayDate, price);
+      }
+      return out;
+    })();
+
 
     const occByDate = new Map<string, {
       pct: number | null; sold: number | null; left: number | null; revenue: number | null;
