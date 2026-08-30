@@ -354,7 +354,11 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
     const occByDate = new Map<string, { pct: number | null; sold: number | null; left: number | null }>();
     const prevOccByDate = new Map<string, number | null>();
-    for (const row of unwrap(snapshotRes) as any[]) {
+    const snapshotRows = (unwrap(snapshotRes) as any[])
+      .slice()
+      .sort((a, b) => (Number(a.rn ?? 1) - Number(b.rn ?? 1)));
+    for (const row of snapshotRows) {
+
       const pct = row.occupancy_pct == null ? null : Number(row.occupancy_pct);
       if (occByDate.has(row.stay_date)) {
         if (!prevOccByDate.has(row.stay_date)) prevOccByDate.set(row.stay_date, pct);
