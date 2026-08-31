@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,10 @@ import {
   trialIsRunning,
   normaliseModule,
   vatCents,
+  earlyBirdActive,
+  listPriceFor,
+  inGracePeriod,
+  graceEndsAt,
   type BillingInvoice,
   type BillingModule,
 } from '@/hooks/useBilling';
@@ -89,9 +93,21 @@ export default function Billing() {
   const [busy, setBusy] = useState(false);
   const [quoteFor, setQuoteFor] = useState<string | null>(null);
   const [invoices, setInvoices] = useState<BillingInvoice[] | null>(null);
+  const [searchParams] = useSearchParams();
+  const preHotel = searchParams.get('hotel');
+  const preModule = searchParams.get('module');
+
+  // Arriving from the automation gate: the property and module the user was
+  // trying to switch on are already ticked, so they only confirm.
+  useEffect(() => {
+    if (!preHotel || !preModule) return;
+    setSelected((s) => (s[`${preHotel}|${preModule}`] ? s : { ...s, [`${preHotel}|${preModule}`]: true }));
+  }, [preHotel, preModule]);
 
   const settings = summary?.settings;
   const currency = settings?.currency ?? 'EUR';
+  const promoOn = earlyBirdActive(settings);
+  const listFor = (module: BillingModule) => listPriceFor(settings, module);
   const vatPercent = Number(settings?.vat_percent ?? 27);
   const percentMode = settings?.revenue_pricing_mode !== 'per_room' && Boolean(settings?.revenue_pricing_mode);
   const percentLabel = `${((settings?.revenue_percent_bps ?? 0) / 100).toFixed(2).replace(/\.00$/, '')}%`;
@@ -330,6 +346,28 @@ export default function Billing() {
           </CardContent>
         </Card>
 
+        {inGracePeriod(summary) && !activeSubs.length && (
+          <Alert className="border-primary/40">
+            <Sparkles className="h-4 w-4" />
+            <AlertTitle>Your free trial has ended — access stays open until {fmtDate(graceEndsAt(summary))}</AlertTitle>
+            <AlertDescription>
+              Nothing has been switched off. Add your payment details below to keep Revenue Management and your other
+              modules running without interruption.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {promoOn && (
+          <Alert className="border-primary/40">
+            <Sparkles className="h-4 w-4" />
+            <AlertTitle>{settings?.early_bird_label ?? 'Early bird'} pricing for your group</AlertTitle>
+            <AlertDescription>
+              {settings?.early_bird_note ??
+                'Limited-time founding-partner pricing, exclusive to your organization.'}
+            </AlertDescription>
+          </Alert>
+        )}
+
         {error && (
           <Alert variant="destructive">
             <AlertTitle>Couldn't load billing</AlertTitle>
@@ -395,6 +433,8 @@ export default function Billing() {
                             const on = Boolean(selected[key]) || active;
                             const unit = priceFor(module);
                             const isPercent = module.startsWith('revenue') && percentMode;
+                            const list = listFor(module);
+                            const discounted = promoOn && !quoteOnly && !isPercent && unit > 0 && list > unit;
                             const priceText = quoteOnly
                               ? 'Custom price'
                               : isPercent
@@ -419,7 +459,18 @@ export default function Billing() {
                                   {labelFor(module)}
                                   {active && <Check className="h-3.5 w-3.5 ml-auto text-primary" />}
                                 </span>
-                                <span className="block text-xs text-muted-foreground mt-0.5">{priceText}</span>
+                                <span className="block text-xs text-muted-foreground mt-0.5">
+                                  {discounted && (
+                                    <span className="line-through mr-1 opacity-70">{formatMoney(list, currency)}</span>
+                                  )}
+                                  {priceText}
+                                </span>
+                                {discounted && (
+                                  <Badge variant="secondary" className="mt-1 text-[10px] gap-1">
+                                    <Sparkles className="h-3 w-3" />
+                                    {settings?.early_bird_label ?? 'Early bird'}
+                                  </Badge>
+                                )}
                                 <span className="block text-[11px] text-muted-foreground/80 mt-0.5 leading-snug">
                                   {active ? 'Active' : hintFor(module)}
                                 </span>
@@ -496,6 +547,36 @@ export default function Billing() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Why there is a fee — stated plainly, once. */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-primary" /> What your subscription covers
+            </CardTitle>
+            <CardDescription>
+              The monthly fee keeps the service running and improving — here is exactly where it goes.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2 text-sm text-muted-foreground">
+            <p>
+              <span className="font-medium text-foreground">Secure hosting and data</span> — servers, encrypted
+              backups and monitoring for your property data.
+            </p>
+            <p>
+              <span className="font-medium text-foreground">PMS and channel connections</span> — the Previo and
+              channel-manager API links that keep rates and reservations in sync.
+            </p>
+            <p>
+              <span className="font-medium text-foreground">Market and competitor data</span> — daily rate, demand
+              and event intelligence used by the pricing engine.
+            </p>
+            <p>
+              <span className="font-medium text-foreground">Development and support</span> — continuous product
+              improvements, onboarding and help when you need it.
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Sticky checkout bar — net, VAT and gross always visible. */}
@@ -520,13 +601,14 @@ export default function Billing() {
             </div>
             <div className="ml-auto flex items-center gap-2">
               {trialActive && (
-                <span className="hidden sm:block text-xs text-muted-foreground max-w-[220px]">
-                  First charge on {fmtDate(summary?.trial_ends_at)} — the rest of your trial stays free.
+                <span className="hidden sm:block text-xs text-muted-foreground max-w-[240px]">
+                  Due today: <span className="font-medium text-foreground">{formatMoney(0, currency)}</span> — we only
+                  save your card. First charge on {fmtDate(summary?.trial_ends_at)}.
                 </span>
               )}
               <Button onClick={startCheckout} disabled={busy}>
                 {busy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Continue to checkout
+                {trialActive ? 'Start free trial — add card' : 'Continue to checkout'}
               </Button>
             </div>
           </div>

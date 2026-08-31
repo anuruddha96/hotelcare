@@ -44,6 +44,14 @@ interface Settings {
   billing_address_postal_code: string | null;
   billing_address_country: string | null;
   billing_tax_id: string | null;
+  standard_revenue_bi_price_cents: number;
+  standard_revenue_automation_price_cents: number;
+  standard_operations_price_cents: number;
+  early_bird_enabled: boolean;
+  early_bird_label: string;
+  early_bird_note: string;
+  early_bird_ends_at: string | null;
+  grace_days: number;
 }
 
 const BLANK = (slug: string): Settings => ({
@@ -76,6 +84,14 @@ const BLANK = (slug: string): Settings => ({
   billing_address_postal_code: '',
   billing_address_country: 'HU',
   billing_tax_id: '',
+  standard_revenue_bi_price_cents: 1900,
+  standard_revenue_automation_price_cents: 2900,
+  standard_operations_price_cents: 800,
+  early_bird_enabled: true,
+  early_bird_label: 'Early bird',
+  early_bird_note: 'Founding-partner pricing, locked for 12 months from activation.',
+  early_bird_ends_at: null,
+  grace_days: 14,
 });
 
 export default function BillingSettingsPanel() {
@@ -267,6 +283,70 @@ export default function BillingSettingsPanel() {
                         }
                       />
                       <p className="text-xs text-muted-foreground">Includes the automated pricing engine.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Standard BI price (strike-through)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={euros(settings.standard_revenue_bi_price_cents)}
+                        onChange={(e) => patch({ standard_revenue_bi_price_cents: toCents(e.target.value) })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Standard BI + Automation price (strike-through)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={euros(settings.standard_revenue_automation_price_cents)}
+                        onChange={(e) => patch({ standard_revenue_automation_price_cents: toCents(e.target.value) })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Standard Housekeeping price (strike-through)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={euros(settings.standard_operations_price_cents)}
+                        onChange={(e) => patch({ standard_operations_price_cents: toCents(e.target.value) })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Promotion label</Label>
+                      <Input
+                        value={settings.early_bird_label ?? ''}
+                        onChange={(e) => patch({ early_bird_label: e.target.value })}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Shown as a badge next to the discounted prices.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Promotion note</Label>
+                      <Input
+                        value={settings.early_bird_note ?? ''}
+                        onChange={(e) => patch({ early_bird_note: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Promotion ends (optional)</Label>
+                      <Input
+                        type="date"
+                        value={settings.early_bird_ends_at ?? ''}
+                        onChange={(e) => patch({ early_bird_ends_at: e.target.value || null })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Grace period after trial (days)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={String(settings.grace_days ?? 14)}
+                        onChange={(e) => patch({ grace_days: parseInt(e.target.value, 10) || 0 })}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Access stays open for this many days after the trial, with a friendly reminder to pay.
+                      </p>
                     </div>
                   </div>
                 ) : (

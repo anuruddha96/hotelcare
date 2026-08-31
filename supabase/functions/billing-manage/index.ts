@@ -243,8 +243,14 @@ Deno.serve(async (req) => {
       // Stripe rejects a `trial_end` that is less than 48 hours away, so only
       // pass it when the trial still has more than two days to run. Closer to
       // the end (or past it) billing simply starts immediately.
+      // The courtesy (grace) window after the trial counts as free time too, so
+      // a customer who adds a card during it is only charged once it runs out.
       const trialEnd = trialEndsAt(settings);
-      const trialEndSec = trialEnd ? Math.floor(new Date(trialEnd).getTime() / 1000) : 0;
+      const graceDays = Math.max(0, Number(settings.grace_days ?? 0));
+      const freeUntil = trialEnd
+        ? new Date(new Date(trialEnd).getTime() + graceDays * 86400000).toISOString()
+        : null;
+      const trialEndSec = freeUntil ? Math.floor(new Date(freeUntil).getTime() / 1000) : 0;
       const nowSec = Math.floor(Date.now() / 1000);
       const useTrial = trialEndSec > nowSec + 48 * 3600 + 300;
 
@@ -255,6 +261,9 @@ Deno.serve(async (req) => {
         line_items: lineItems,
         customer: existingCustomer ?? undefined,
         billing_address_collection: "required",
+        // Card details are always captured, even when nothing is due today, so
+        // the subscription can start by itself when the free period ends.
+        payment_method_collection: "always",
         tax_id_collection: { enabled: true },
         ...(existingCustomer ? { customer_update: { name: "auto", address: "auto" } } : {}),
         metadata: meta,
@@ -296,7 +305,7 @@ Deno.serve(async (req) => {
 
       return json({
         url: session.url,
-        trial_end: useTrial ? trialEnd : null,
+        trial_end: useTrial ? freeUntil : null,
         net_cents: netCents,
         vat_cents: vatCents(settings, netCents),
       });

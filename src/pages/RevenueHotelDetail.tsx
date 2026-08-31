@@ -59,6 +59,7 @@ import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
 import { WelcomeBackOverlay } from "@/components/revenue/WelcomeBackOverlay";
 import { isRevenueAdmin } from "@/lib/roleAccess";
 import { Header } from "@/components/layout/Header";
+import TrialEndedNotice from "@/components/revenue/TrialEndedNotice";
 import { MainTabsBar } from "@/components/layout/MainTabsBar";
 import { formatDistance } from "date-fns";
 import { setTabHotel } from "@/lib/tabHotel";
@@ -926,6 +927,7 @@ export default function RevenueHotelDetail() {
         <MainTabsBar current="revenue" />
       </div>
       <div className="container mx-auto p-3 sm:p-4 space-y-3">
+          <TrialEndedNotice organizationSlug={revenueOrgSlug} />
           {/* Header toolbar (Back / Sync now / Bulk Edit / Pull rates / Autopilot /
               Push) — hidden for all users; refresh runs automatically. Flip
               SHOW_ADMIN_TOOLBAR to true to restore it. */}
