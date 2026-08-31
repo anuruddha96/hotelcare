@@ -430,6 +430,33 @@ interface RawIntent {
   /** Set when the window explicitly refuses to move. */
   blockReason?: string;
   blockDetail?: string;
+  /** Daily allowance this intent brings with it (pickup ladder), if any. */
+  maxDailyOverride?: number;
+}
+
+/**
+ * A genuine new booking always lifts the price, and the further out the stay
+ * date is the larger the lift. This runs before every per-window rule, so no
+ * occupancy test can ever swallow a real booking.
+ */
+export function pickupLadderIntent(input: DecisionInput, settings: DecisionSettings): RawIntent | null {
+  if (settings.raiseOnAnyPickup === false) return null;
+  const bookings = Math.max(0, input.pickup24h - input.cancellations24h);
+  if (bookings <= 0) return null;
+  const ladder = settings.pickupLadder && settings.pickupLadder.length > 0
+    ? settings.pickupLadder
+    : DEFAULT_PICKUP_LADDER;
+  const band = pickupLadderFor(input.daysOut, ladder);
+  const step = pickupStep(band, bookings, input.occupancyPct, settings.strongOccupancyPct ?? 85);
+  if (step <= 0) return null;
+  const occText = input.occupancyPct != null ? ` at ${Math.round(input.occupancyPct)}% sold` : "";
+  const strong = input.occupancyPct != null && input.occupancyPct >= (settings.strongOccupancyPct ?? 85);
+  return {
+    raw: step,
+    reason: "genuine_pickup",
+    detail: `${bookings} new booking${bookings === 1 ? "" : "s"} for a date ${input.daysOut} days out${occText}: +${step}${strong ? " (strong demand surcharge)" : ""}.`,
+    maxDailyOverride: Math.max(step, Number(band.max_per_day) || 0),
+  };
 }
 
 /** The agreed per-window rule set, expressed exactly as specified. */
@@ -446,9 +473,13 @@ export function windowIntent(
   const noPickupNow = pickup <= 0;
   const aboveAnchor = input.anchorPrice == null ? false : (input.currentPrice ?? 0) > input.anchorPrice;
 
+  const ladderIntent = pickupLadderIntent(input, settings);
+  if (ladderIntent) return ladderIntent;
+
   const inc = (amount: number, detail: string): RawIntent => ({ raw: amount, reason: "genuine_pickup", detail });
   const dec = (amount: number, detail: string): RawIntent => ({ raw: -amount, reason: "no_pickup_markdown", detail });
   const none = (reason: string, detail: string): RawIntent => ({ raw: 0, reason, detail, blockReason: reason, blockDetail: detail });
+
 
   switch (win.id) {
     case "w0_2": {
