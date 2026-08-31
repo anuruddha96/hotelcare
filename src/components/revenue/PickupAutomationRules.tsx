@@ -19,6 +19,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { errorMessage } from "@/lib/errorMessage";
+import {
+  DEFAULT_PICKUP_LADDER, bandLabel, normaliseLadder, type PickupLadderBand,
+} from "@/lib/revenue/reasonSettings";
 
 interface Props { hotelId: string | null; organizationSlug: string | null; }
 interface Tier { max_days: number | null; increase: number; }
@@ -138,6 +141,7 @@ const DEFAULT_RULE: Rule = {
   short_window_min_occupancy_pct: 70, whole_number_prices: true,
   sold_out_guard_enabled: true, sold_out_occupancy_pct: 100,
   fill_mode_enabled: false, fill_window_days: 60, fill_max_total_drop_pct: 15,
+  pickup_increase_ladder: DEFAULT_PICKUP_LADDER.map((b) => ({ ...b })), raise_on_any_pickup: true,
 
   cancellation_markdown_enabled: true, cancellation_wait_minutes: 60,
   immediate_sell_mode_enabled: true, immediate_window_days: 14, immediate_markdown_step: 2,
@@ -470,6 +474,8 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       fill_mode_enabled: source.rule.fill_mode_enabled ?? false,
       fill_window_days: source.rule.fill_window_days ?? 60,
       fill_max_total_drop_pct: source.rule.fill_max_total_drop_pct ?? 15,
+      pickup_increase_ladder: normaliseLadder(source.rule.pickup_increase_ladder),
+      raise_on_any_pickup: source.rule.raise_on_any_pickup !== false,
 
       cancellation_markdown_enabled: source.rule.cancellation_markdown_enabled ?? true,
       cancellation_wait_minutes: source.rule.cancellation_wait_minutes ?? 60,
@@ -556,6 +562,8 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       fill_mode_enabled: rule.fill_mode_enabled,
       fill_window_days: rule.fill_window_days,
       fill_max_total_drop_pct: rule.fill_max_total_drop_pct,
+      pickup_increase_ladder: rule.pickup_increase_ladder,
+      raise_on_any_pickup: rule.raise_on_any_pickup,
 
       cancellation_markdown_enabled: rule.cancellation_markdown_enabled,
       cancellation_wait_minutes: rule.cancellation_wait_minutes,
