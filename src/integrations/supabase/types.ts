@@ -7163,9 +7163,11 @@ export type Database = {
           no_pickup_run_times: string[]
           no_pickup_scope: string
           organization_slug: string
+          pickup_increase_ladder: Json | null
           pickup_lookback_hours: number
           positive_pickup_enabled: boolean
           protect_high_occupancy: boolean
+          raise_on_any_pickup: boolean
           run_budget_ms: number
           run_timezone: string
           same_hour_window_minutes: number
@@ -7270,9 +7272,11 @@ export type Database = {
           no_pickup_run_times?: string[]
           no_pickup_scope?: string
           organization_slug: string
+          pickup_increase_ladder?: Json | null
           pickup_lookback_hours?: number
           positive_pickup_enabled?: boolean
           protect_high_occupancy?: boolean
+          raise_on_any_pickup?: boolean
           run_budget_ms?: number
           run_timezone?: string
           same_hour_window_minutes?: number
@@ -7377,9 +7381,11 @@ export type Database = {
           no_pickup_run_times?: string[]
           no_pickup_scope?: string
           organization_slug?: string
+          pickup_increase_ladder?: Json | null
           pickup_lookback_hours?: number
           positive_pickup_enabled?: boolean
           protect_high_occupancy?: boolean
+          raise_on_any_pickup?: boolean
           run_budget_ms?: number
           run_timezone?: string
           same_hour_window_minutes?: number
