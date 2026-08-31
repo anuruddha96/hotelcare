@@ -243,14 +243,23 @@ export function RevenueAutomationNotifications() {
               )}
 
               {decisions.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   {Object.entries(reasonCounts).map(([reason, count]) => (
-                    <Badge key={reason} variant="outline" className="text-[10px] font-normal">
-                      {reason.replace(/_/g, ' ')} · {count}
-                    </Badge>
+                    <span key={reason} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]">
+                      {reasonInfo(reason).title} · {count}
+                      <ReasonSettingEditor
+                        hotelId={detail.hotel_id}
+                        hotelName={detail.hotel_name}
+                        reason={reason}
+                        stayDate={decisions.find((d) => d.decision_reason === reason)?.stay_date ?? null}
+                        currency={detail.currency}
+                        compact
+                      />
+                    </span>
                   ))}
                 </div>
               )}
+
 
               {decisionsLoading ? (
                 <div className="flex min-h-28 items-center justify-center rounded-lg border text-sm text-muted-foreground">
