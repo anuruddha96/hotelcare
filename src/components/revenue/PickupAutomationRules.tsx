@@ -59,6 +59,9 @@ interface Rule {
   fill_mode_enabled: boolean;
   fill_window_days: number;
   fill_max_total_drop_pct: number;
+  pickup_increase_ladder: PickupLadderBand[];
+  raise_on_any_pickup: boolean;
+
 
   cancellation_markdown_enabled: boolean;
   cancellation_wait_minutes: number;
