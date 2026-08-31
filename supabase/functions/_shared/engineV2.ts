@@ -728,9 +728,16 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   let capApplied: number | null = null;
   let movement = whole(raw);
 
+  // A pickup surcharge brings its own daily allowance from the ladder, so a
+  // long-lead raise is never clipped down to the ordinary window step.
+  const dailyIncreaseAllowance = Math.max(
+    win.max_daily_increase,
+    intent.maxDailyOverride ?? 0,
+  );
   const budget = wantsIncrease
-    ? Math.max(0, win.max_daily_increase - Math.abs(input.movedUpTodayEur))
+    ? Math.max(0, dailyIncreaseAllowance - Math.abs(input.movedUpTodayEur))
     : Math.max(0, win.max_daily_decrease - Math.abs(input.movedDownTodayEur));
+
   if (budget <= 0) {
     return blocked(
       "daily_budget_spent",
