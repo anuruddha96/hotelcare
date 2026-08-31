@@ -19,6 +19,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { errorMessage } from "@/lib/errorMessage";
+import {
+  DEFAULT_PICKUP_LADDER, bandLabel, normaliseLadder, type PickupLadderBand,
+} from "@/lib/revenue/reasonSettings";
 
 interface Props { hotelId: string | null; organizationSlug: string | null; }
 interface Tier { max_days: number | null; increase: number; }
@@ -59,6 +62,9 @@ interface Rule {
   fill_mode_enabled: boolean;
   fill_window_days: number;
   fill_max_total_drop_pct: number;
+  pickup_increase_ladder: PickupLadderBand[];
+  raise_on_any_pickup: boolean;
+
 
   cancellation_markdown_enabled: boolean;
   cancellation_wait_minutes: number;
@@ -135,6 +141,7 @@ const DEFAULT_RULE: Rule = {
   short_window_min_occupancy_pct: 70, whole_number_prices: true,
   sold_out_guard_enabled: true, sold_out_occupancy_pct: 100,
   fill_mode_enabled: false, fill_window_days: 60, fill_max_total_drop_pct: 15,
+  pickup_increase_ladder: DEFAULT_PICKUP_LADDER.map((b) => ({ ...b })), raise_on_any_pickup: true,
 
   cancellation_markdown_enabled: true, cancellation_wait_minutes: 60,
   immediate_sell_mode_enabled: true, immediate_window_days: 14, immediate_markdown_step: 2,
@@ -386,7 +393,14 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       setHotelName(names.get(hotelId) ?? hotelId);
 
       if (ruleRes.data) {
-        setRule(ruleRes.data as unknown as Rule);
+        {
+          const loaded = ruleRes.data as unknown as Rule;
+          setRule({
+            ...loaded,
+            pickup_increase_ladder: normaliseLadder((loaded as any).pickup_increase_ladder),
+            raise_on_any_pickup: (loaded as any).raise_on_any_pickup !== false,
+          });
+        }
         setHasSavedRule(true);
         setSavedEnabled(Boolean((ruleRes.data as any).is_enabled));
       } else {
@@ -467,6 +481,8 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       fill_mode_enabled: source.rule.fill_mode_enabled ?? false,
       fill_window_days: source.rule.fill_window_days ?? 60,
       fill_max_total_drop_pct: source.rule.fill_max_total_drop_pct ?? 15,
+      pickup_increase_ladder: normaliseLadder(source.rule.pickup_increase_ladder),
+      raise_on_any_pickup: source.rule.raise_on_any_pickup !== false,
 
       cancellation_markdown_enabled: source.rule.cancellation_markdown_enabled ?? true,
       cancellation_wait_minutes: source.rule.cancellation_wait_minutes ?? 60,
@@ -553,6 +569,8 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       fill_mode_enabled: rule.fill_mode_enabled,
       fill_window_days: rule.fill_window_days,
       fill_max_total_drop_pct: rule.fill_max_total_drop_pct,
+      pickup_increase_ladder: rule.pickup_increase_ladder,
+      raise_on_any_pickup: rule.raise_on_any_pickup,
 
       cancellation_markdown_enabled: rule.cancellation_markdown_enabled,
       cancellation_wait_minutes: rule.cancellation_wait_minutes,
@@ -601,7 +619,14 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
     if (stepError) toast.error(errorMessage(stepError, "Could not save the occupancy price step"));
     setSaving(false);
     if (error) { toast.error(errorMessage(error, "Could not save these settings")); return; }
-    setRule(data as unknown as Rule);
+    {
+      const saved = data as unknown as Rule;
+      setRule({
+        ...saved,
+        pickup_increase_ladder: normaliseLadder((saved as any).pickup_increase_ladder),
+        raise_on_any_pickup: (saved as any).raise_on_any_pickup !== false,
+      });
+    }
     setHasSavedRule(true);
     setSavedEnabled(Boolean((data as any).is_enabled));
 
@@ -1262,6 +1287,43 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                 </div>
 
 
+
+
+                <div className="space-y-2 rounded-lg border p-3">
+                  <div className="flex items-center gap-1">
+                    <Label className="text-xs font-semibold">Pickup surcharge ladder</Label>
+                    <Hint>How much a genuine new booking lifts a date. The further out the stay date, the bigger the lift — there is more time left to sell the rest of the rooms higher.</Hint>
+                  </div>
+                  <div className="space-y-2">
+                    {rule.pickup_increase_ladder.map((band, index) => (
+                      <div key={`${band.min_days_out}-${index}`} className="grid grid-cols-5 items-end gap-2">
+                        <div className="text-[11px] text-muted-foreground pb-2">{bandLabel(band)}</div>
+                        {(["one", "two", "three_plus", "max_per_day"] as const).map((key) => (
+                          <NumField
+                            key={key}
+                            label={key === "one" ? "1 booking" : key === "two" ? "2 bookings" : key === "three_plus" ? "3+" : "Max/day"}
+                            suffix={rule.currency}
+                            min={0}
+                            max={500}
+                            value={band[key]}
+                            onChange={(e) => setRule({
+                              ...rule,
+                              pickup_increase_ladder: rule.pickup_increase_ladder.map((row, i) =>
+                                i === index ? { ...row, [key]: Math.max(0, Number(e.target.value) || 0) } : row),
+                            })}
+                          />
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <ToggleRow
+                  title="Any new booking raises the price"
+                  desc="A single genuine reservation always lifts the date — occupancy only decides how much."
+                  checked={rule.raise_on_any_pickup}
+                  onChange={(raise_on_any_pickup) => setRule({ ...rule, raise_on_any_pickup })}
+                />
 
                 <ToggleRow
                   title="Whole prices only"

@@ -53,6 +53,63 @@ export const OTTOFIORI_WINDOW_RULES: WindowRule[] = [
 export const DEFAULT_WINDOW_RULES = OTTOFIORI_WINDOW_RULES;
 
 /**
+ * How much a genuine new booking lifts a stay date. The further out the stay
+ * date is, the larger the surcharge: a booking taken six months ahead says far
+ * more about demand than one taken tomorrow, and there is time to sell the
+ * remaining rooms higher.
+ */
+export interface PickupLadderBand {
+  min_days_out: number;
+  /** Inclusive; null means "to the end of the horizon". */
+  max_days_out: number | null;
+  /** Whole-currency step for one, two, and three-or-more genuine bookings. */
+  one: number;
+  two: number;
+  three_plus: number;
+  /** Largest total pickup-driven rise for this date in one local day. */
+  max_per_day: number;
+}
+
+export const DEFAULT_PICKUP_LADDER: PickupLadderBand[] = [
+  { min_days_out: 0, max_days_out: 2, one: 4, two: 6, three_plus: 8, max_per_day: 12 },
+  { min_days_out: 3, max_days_out: 7, one: 6, two: 9, three_plus: 12, max_per_day: 18 },
+  { min_days_out: 8, max_days_out: 30, one: 8, two: 12, three_plus: 16, max_per_day: 24 },
+  { min_days_out: 31, max_days_out: 90, one: 12, two: 18, three_plus: 24, max_per_day: 36 },
+  { min_days_out: 91, max_days_out: 180, one: 18, two: 27, three_plus: 36, max_per_day: 50 },
+  { min_days_out: 181, max_days_out: null, one: 25, two: 38, three_plus: 50, max_per_day: 60 },
+];
+
+export function pickupLadderFor(
+  daysOut: number,
+  ladder: PickupLadderBand[] = DEFAULT_PICKUP_LADDER,
+): PickupLadderBand {
+  for (const band of ladder) {
+    const lower = daysOut >= Number(band.min_days_out);
+    const upper = band.max_days_out == null || daysOut <= Number(band.max_days_out);
+    if (lower && upper) return band;
+  }
+  return ladder[ladder.length - 1] ?? DEFAULT_PICKUP_LADDER[DEFAULT_PICKUP_LADDER.length - 1];
+}
+
+/** Whole-currency rise for `bookings` genuine reservations at this lead time. */
+export function pickupStep(
+  band: PickupLadderBand,
+  bookings: number,
+  occupancyPct: number | null,
+  strongOccupancyPct: number,
+): number {
+  const base = bookings >= 3
+    ? Number(band.three_plus)
+    : bookings === 2
+      ? Number(band.two)
+      : Number(band.one);
+  const step = Number.isFinite(base) ? Math.max(0, base) : 0;
+  const strong = occupancyPct != null && occupancyPct >= strongOccupancyPct;
+  return Math.round(strong ? step * 1.5 : step);
+}
+
+
+/**
  * "Fill mode": inside the selling window the property is trying to reach a
  * full house, so the engine is allowed to react to a smaller shortfall, waits
  * less before acting and may take a slightly larger step down each day.
@@ -275,6 +332,12 @@ export interface DecisionSettings {
   minRoomsForMarkdown: number;
   /** Occupancy campaign for the near horizon; off by default. */
   fill?: FillSettings | null;
+  /** Lead-time surcharge ladder for genuine new bookings. */
+  pickupLadder?: PickupLadderBand[] | null;
+  /** When true (default) a single genuine booking always raises the price. */
+  raiseOnAnyPickup?: boolean;
+  /** Occupancy at or above which a pickup surcharge is increased by half. */
+  strongOccupancyPct?: number;
 }
 
 export const DEFAULT_DECISION_SETTINGS: Omit<DecisionSettings, "now" | "paceBands"> = {
@@ -286,7 +349,11 @@ export const DEFAULT_DECISION_SETTINGS: Omit<DecisionSettings, "now" | "paceBand
   soldOutOccupancyPct: 98,
   minRoomsForMarkdown: 5,
   fill: DEFAULT_FILL_SETTINGS,
+  pickupLadder: DEFAULT_PICKUP_LADDER,
+  raiseOnAnyPickup: true,
+  strongOccupancyPct: 85,
 };
+
 
 
 export interface Decision {
@@ -363,6 +430,33 @@ interface RawIntent {
   /** Set when the window explicitly refuses to move. */
   blockReason?: string;
   blockDetail?: string;
+  /** Daily allowance this intent brings with it (pickup ladder), if any. */
+  maxDailyOverride?: number;
+}
+
+/**
+ * A genuine new booking always lifts the price, and the further out the stay
+ * date is the larger the lift. This runs before every per-window rule, so no
+ * occupancy test can ever swallow a real booking.
+ */
+export function pickupLadderIntent(input: DecisionInput, settings: DecisionSettings): RawIntent | null {
+  if (settings.raiseOnAnyPickup === false) return null;
+  const bookings = Math.max(0, input.pickup24h - input.cancellations24h);
+  if (bookings <= 0) return null;
+  const ladder = settings.pickupLadder && settings.pickupLadder.length > 0
+    ? settings.pickupLadder
+    : DEFAULT_PICKUP_LADDER;
+  const band = pickupLadderFor(input.daysOut, ladder);
+  const step = pickupStep(band, bookings, input.occupancyPct, settings.strongOccupancyPct ?? 85);
+  if (step <= 0) return null;
+  const occText = input.occupancyPct != null ? ` at ${Math.round(input.occupancyPct)}% sold` : "";
+  const strong = input.occupancyPct != null && input.occupancyPct >= (settings.strongOccupancyPct ?? 85);
+  return {
+    raw: step,
+    reason: "genuine_pickup",
+    detail: `${bookings} new booking${bookings === 1 ? "" : "s"} for a date ${input.daysOut} days out${occText}: +${step}${strong ? " (strong demand surcharge)" : ""}.`,
+    maxDailyOverride: Math.max(step, Number(band.max_per_day) || 0),
+  };
 }
 
 /** The agreed per-window rule set, expressed exactly as specified. */
@@ -379,9 +473,13 @@ export function windowIntent(
   const noPickupNow = pickup <= 0;
   const aboveAnchor = input.anchorPrice == null ? false : (input.currentPrice ?? 0) > input.anchorPrice;
 
+  const ladderIntent = pickupLadderIntent(input, settings);
+  if (ladderIntent) return ladderIntent;
+
   const inc = (amount: number, detail: string): RawIntent => ({ raw: amount, reason: "genuine_pickup", detail });
   const dec = (amount: number, detail: string): RawIntent => ({ raw: -amount, reason: "no_pickup_markdown", detail });
   const none = (reason: string, detail: string): RawIntent => ({ raw: 0, reason, detail, blockReason: reason, blockDetail: detail });
+
 
   switch (win.id) {
     case "w0_2": {
@@ -630,9 +728,16 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   let capApplied: number | null = null;
   let movement = whole(raw);
 
+  // A pickup surcharge brings its own daily allowance from the ladder, so a
+  // long-lead raise is never clipped down to the ordinary window step.
+  const dailyIncreaseAllowance = Math.max(
+    win.max_daily_increase,
+    intent.maxDailyOverride ?? 0,
+  );
   const budget = wantsIncrease
-    ? Math.max(0, win.max_daily_increase - Math.abs(input.movedUpTodayEur))
+    ? Math.max(0, dailyIncreaseAllowance - Math.abs(input.movedUpTodayEur))
     : Math.max(0, win.max_daily_decrease - Math.abs(input.movedDownTodayEur));
+
   if (budget <= 0) {
     return blocked(
       "daily_budget_spent",
