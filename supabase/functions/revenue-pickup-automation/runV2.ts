@@ -579,7 +579,14 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
     const settings: DecisionSettings = {
       ...DEFAULT_DECISION_SETTINGS,
+    const pickupLadder = (Array.isArray(rule.pickup_increase_ladder) && rule.pickup_increase_ladder.length > 0
+      ? rule.pickup_increase_ladder
+      : DEFAULT_PICKUP_LADDER) as PickupLadderBand[];
+
+    const settings: DecisionSettings = {
+      ...DEFAULT_DECISION_SETTINGS,
       now,
+
       paceBands,
       windowRules,
       marketValidation,
