@@ -577,8 +577,6 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       return { ...w, max_daily_increase: caps.maxIncrease, max_daily_decrease: w.max_daily_decrease === 0 ? 0 : caps.maxDecrease };
     });
 
-    const settings: DecisionSettings = {
-      ...DEFAULT_DECISION_SETTINGS,
     const pickupLadder = (Array.isArray(rule.pickup_increase_ladder) && rule.pickup_increase_ladder.length > 0
       ? rule.pickup_increase_ladder
       : DEFAULT_PICKUP_LADDER) as PickupLadderBand[];
@@ -586,7 +584,6 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
     const settings: DecisionSettings = {
       ...DEFAULT_DECISION_SETTINGS,
       now,
-
       paceBands,
       windowRules,
       marketValidation,
@@ -594,11 +591,15 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       directionChangeHours: Math.max(0, Number(rule.direction_change_hours ?? 6)),
       cancellationWaitMinutes: Math.max(0, Number(rule.cancellation_wait_minutes ?? 60)),
       soldOutOccupancyPct: Math.max(50, Number(rule.sold_out_occupancy_pct || 98)),
+      pickupLadder,
+      raiseOnAnyPickup: rule.raise_on_any_pickup !== false,
+      strongOccupancyPct: Math.max(50, Number(rule.high_occupancy_pct ?? 85)),
       fill: {
         enabled: Boolean(rule.fill_mode_enabled),
         windowDays: Math.max(0, Number(rule.fill_window_days ?? 60)),
         maxTotalDropPct: Math.min(50, Math.max(0, Number(rule.fill_max_total_drop_pct ?? 15))),
       },
+
     };
 
 
