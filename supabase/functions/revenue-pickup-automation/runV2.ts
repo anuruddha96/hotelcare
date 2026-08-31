@@ -17,13 +17,16 @@ import {
   DEFAULT_DECISION_SETTINGS,
   DEFAULT_MARKET_VALIDATION,
   OTTOFIORI_WINDOW_RULES,
+  DEFAULT_PICKUP_LADDER,
   type CompetitorObservation,
   type Decision,
   type DecisionInput,
   type DecisionSettings,
   type PaceBand,
+  type PickupLadderBand,
   type WindowRule,
 } from "../_shared/engineV2.ts";
+
 import {
   assertWholeEuro,
   headroom,
