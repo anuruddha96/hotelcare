@@ -520,8 +520,25 @@ export default function Breakfast() {
                 </>
               )}
               {result.status === "not_found" && (
-                <Badge variant="outline">{tt("notFound")}</Badge>
+                <div className="space-y-2">
+                  <Badge variant="outline">{tt("notFound")}</Badge>
+                  <div className="text-xs text-muted-foreground">{tt("notFoundHint")}</div>
+                  {lastSyncedAt && (
+                    <div className="text-[10px] text-muted-foreground">
+                      {tt("liveFrom", { time: new Date(lastSyncedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) })}
+                    </div>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={syncing}
+                    onClick={async () => { await syncFromPms(); if (room) void openRoom(room); }}
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 mr-1 ${syncing ? "animate-spin" : ""}`} /> {tt("syncNow")}
+                  </Button>
+                </div>
               )}
+
               {result.status === "invalid_code" && (
                 <Badge variant="destructive">{tt("invalidCode")}</Badge>
               )}
