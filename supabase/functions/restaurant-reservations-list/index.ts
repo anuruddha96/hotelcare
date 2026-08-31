@@ -1,9 +1,13 @@
 // Public read endpoint for the /bb page: today's restaurant (brunch) reservations
 // for one hotel. Mirrors the access model of breakfast-public-lookup — the BB page
 // is used by restaurant staff on shared devices without a login.
+//
+// Before reading, it pulls the latest bookings from the Sales Dashboard (the
+// source of truth for every RD property), throttled per hotel+date.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { syncHotelReservations } from "../_shared/syncReservations.ts";
 
 const ipHits = new Map<string, { count: number; reset: number }>();
 function rateLimit(ip: string, limit = 60, windowMs = 60_000): boolean {
@@ -13,6 +17,17 @@ function rateLimit(ip: string, limit = 60, windowMs = 60_000): boolean {
   e.count++;
   return e.count <= limit;
 }
+
+// Throttle dashboard pulls: at most one per hotel+date per 45s per instance.
+const lastSync = new Map<string, number>();
+function shouldSync(key: string, force: boolean): boolean {
+  const now = Date.now();
+  const prev = lastSync.get(key) ?? 0;
+  if (!force && now - prev < 45_000) return false;
+  lastSync.set(key, now);
+  return true;
+}
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
