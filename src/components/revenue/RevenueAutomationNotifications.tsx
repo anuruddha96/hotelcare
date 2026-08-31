@@ -278,7 +278,8 @@ export function RevenueAutomationNotifications() {
                             )}
                           </td>
                           <td className="px-2 py-2">
-                            <p className="font-medium capitalize">{row.decision_reason.replace(/_/g, ' ')}</p>
+                            <p className="font-medium">{reasonInfo(row.decision_reason).title}</p>
+                            <p className="mt-0.5 text-muted-foreground">{reasonInfo(row.decision_reason).explain}</p>
                             {row.movement !== 0 && row.cells_simulated > 0 && (
                               <p className="mt-0.5">
                                 All {row.cells_simulated} price{row.cells_simulated === 1 ? '' : 's'} moved by the same {row.movement > 0 ? '+' : '−'}
@@ -289,7 +290,18 @@ export function RevenueAutomationNotifications() {
                               </p>
                             )}
                             {row.reason_detail && <p className="mt-0.5 text-muted-foreground">{row.reason_detail}</p>}
+                            <div className="mt-1">
+                              <ReasonSettingEditor
+                                hotelId={detail.hotel_id}
+                                hotelName={detail.hotel_name}
+                                reason={row.decision_reason}
+                                stayDate={row.stay_date}
+                                currency={detail.currency}
+                                compact
+                              />
+                            </div>
                           </td>
+
 
                         </tr>
                       ))}
