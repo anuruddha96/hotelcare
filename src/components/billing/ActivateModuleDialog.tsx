@@ -44,7 +44,7 @@ export function ActivateModuleDialog({
     if (hotelId) params.set('hotel', hotelId);
     params.set('module', 'revenue_automation');
     onOpenChange(false);
-    navigate(`/${organizationSlug ?? ''}/payments?${params.toString()}`);
+    navigate(`/billing?${params.toString()}`);
   };
 
   return (
