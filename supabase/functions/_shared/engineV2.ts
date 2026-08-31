@@ -53,6 +53,63 @@ export const OTTOFIORI_WINDOW_RULES: WindowRule[] = [
 export const DEFAULT_WINDOW_RULES = OTTOFIORI_WINDOW_RULES;
 
 /**
+ * How much a genuine new booking lifts a stay date. The further out the stay
+ * date is, the larger the surcharge: a booking taken six months ahead says far
+ * more about demand than one taken tomorrow, and there is time to sell the
+ * remaining rooms higher.
+ */
+export interface PickupLadderBand {
+  min_days_out: number;
+  /** Inclusive; null means "to the end of the horizon". */
+  max_days_out: number | null;
+  /** Whole-currency step for one, two, and three-or-more genuine bookings. */
+  one: number;
+  two: number;
+  three_plus: number;
+  /** Largest total pickup-driven rise for this date in one local day. */
+  max_per_day: number;
+}
+
+export const DEFAULT_PICKUP_LADDER: PickupLadderBand[] = [
+  { min_days_out: 0, max_days_out: 2, one: 4, two: 6, three_plus: 8, max_per_day: 12 },
+  { min_days_out: 3, max_days_out: 7, one: 6, two: 9, three_plus: 12, max_per_day: 18 },
+  { min_days_out: 8, max_days_out: 30, one: 8, two: 12, three_plus: 16, max_per_day: 24 },
+  { min_days_out: 31, max_days_out: 90, one: 12, two: 18, three_plus: 24, max_per_day: 36 },
+  { min_days_out: 91, max_days_out: 180, one: 18, two: 27, three_plus: 36, max_per_day: 50 },
+  { min_days_out: 181, max_days_out: null, one: 25, two: 38, three_plus: 50, max_per_day: 60 },
+];
+
+export function pickupLadderFor(
+  daysOut: number,
+  ladder: PickupLadderBand[] = DEFAULT_PICKUP_LADDER,
+): PickupLadderBand {
+  for (const band of ladder) {
+    const lower = daysOut >= Number(band.min_days_out);
+    const upper = band.max_days_out == null || daysOut <= Number(band.max_days_out);
+    if (lower && upper) return band;
+  }
+  return ladder[ladder.length - 1] ?? DEFAULT_PICKUP_LADDER[DEFAULT_PICKUP_LADDER.length - 1];
+}
+
+/** Whole-currency rise for `bookings` genuine reservations at this lead time. */
+export function pickupStep(
+  band: PickupLadderBand,
+  bookings: number,
+  occupancyPct: number | null,
+  strongOccupancyPct: number,
+): number {
+  const base = bookings >= 3
+    ? Number(band.three_plus)
+    : bookings === 2
+      ? Number(band.two)
+      : Number(band.one);
+  const step = Number.isFinite(base) ? Math.max(0, base) : 0;
+  const strong = occupancyPct != null && occupancyPct >= strongOccupancyPct;
+  return Math.round(strong ? step * 1.5 : step);
+}
+
+
+/**
  * "Fill mode": inside the selling window the property is trying to reach a
  * full house, so the engine is allowed to react to a smaller shortfall, waits
  * less before acting and may take a slightly larger step down each day.
