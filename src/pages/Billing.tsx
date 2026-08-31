@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,10 @@ import {
   trialIsRunning,
   normaliseModule,
   vatCents,
+  earlyBirdActive,
+  listPriceFor,
+  inGracePeriod,
+  graceEndsAt,
   type BillingInvoice,
   type BillingModule,
 } from '@/hooks/useBilling';
@@ -89,9 +93,21 @@ export default function Billing() {
   const [busy, setBusy] = useState(false);
   const [quoteFor, setQuoteFor] = useState<string | null>(null);
   const [invoices, setInvoices] = useState<BillingInvoice[] | null>(null);
+  const [searchParams] = useSearchParams();
+  const preHotel = searchParams.get('hotel');
+  const preModule = searchParams.get('module');
+
+  // Arriving from the automation gate: the property and module the user was
+  // trying to switch on are already ticked, so they only confirm.
+  useEffect(() => {
+    if (!preHotel || !preModule) return;
+    setSelected((s) => (s[`${preHotel}|${preModule}`] ? s : { ...s, [`${preHotel}|${preModule}`]: true }));
+  }, [preHotel, preModule]);
 
   const settings = summary?.settings;
   const currency = settings?.currency ?? 'EUR';
+  const promoOn = earlyBirdActive(settings);
+  const listFor = (module: BillingModule) => listPriceFor(settings, module);
   const vatPercent = Number(settings?.vat_percent ?? 27);
   const percentMode = settings?.revenue_pricing_mode !== 'per_room' && Boolean(settings?.revenue_pricing_mode);
   const percentLabel = `${((settings?.revenue_percent_bps ?? 0) / 100).toFixed(2).replace(/\.00$/, '')}%`;
@@ -395,6 +411,8 @@ export default function Billing() {
                             const on = Boolean(selected[key]) || active;
                             const unit = priceFor(module);
                             const isPercent = module.startsWith('revenue') && percentMode;
+                            const list = listFor(module);
+                            const discounted = promoOn && !quoteOnly && !isPercent && unit > 0 && list > unit;
                             const priceText = quoteOnly
                               ? 'Custom price'
                               : isPercent
@@ -419,7 +437,18 @@ export default function Billing() {
                                   {labelFor(module)}
                                   {active && <Check className="h-3.5 w-3.5 ml-auto text-primary" />}
                                 </span>
-                                <span className="block text-xs text-muted-foreground mt-0.5">{priceText}</span>
+                                <span className="block text-xs text-muted-foreground mt-0.5">
+                                  {discounted && (
+                                    <span className="line-through mr-1 opacity-70">{formatMoney(list, currency)}</span>
+                                  )}
+                                  {priceText}
+                                </span>
+                                {discounted && (
+                                  <Badge variant="secondary" className="mt-1 text-[10px] gap-1">
+                                    <Sparkles className="h-3 w-3" />
+                                    {settings?.early_bird_label ?? 'Early bird'}
+                                  </Badge>
+                                )}
                                 <span className="block text-[11px] text-muted-foreground/80 mt-0.5 leading-snug">
                                   {active ? 'Active' : hintFor(module)}
                                 </span>
