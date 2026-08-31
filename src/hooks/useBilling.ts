@@ -47,7 +47,18 @@ export interface BillingSettings {
   revenue_percent_bps: number;
   revenue_percent_min_cents: number;
   revenue_percent_cap_cents: number;
+  /** Standard (list) prices — shown struck through while the promotion runs. */
+  standard_revenue_bi_price_cents: number;
+  standard_revenue_automation_price_cents: number;
+  standard_operations_price_cents: number;
+  early_bird_enabled: boolean;
+  early_bird_label: string;
+  early_bird_note: string;
+  early_bird_ends_at: string | null;
+  /** Days of continued access after the free trial ends. */
+  grace_days: number;
 }
+
 
 /** Last full month's realised revenue and the resulting percentage fee. */
 export interface RevenueUsage {
