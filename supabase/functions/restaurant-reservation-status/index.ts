@@ -9,6 +9,8 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { pushStatusToDashboard } from "../_shared/syncReservations.ts";
+
 
 const ALLOWED = new Set(["booked", "seated", "no_show"]);
 
