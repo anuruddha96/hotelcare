@@ -87,6 +87,19 @@ Deno.serve(async (req) => {
       source = resolvedSource;
     }
 
+
+    // Pull the latest bookings from the Sales Dashboard before reading.
+    let syncError: string | null = null;
+    if (source && shouldSync(`${reservationHotelId}:${serviceDate}`, body?.force === true)) {
+      try {
+        const result = await syncHotelReservations(supabase, reservationHotelId, serviceDate);
+        syncError = result.error ?? null;
+      } catch (e) {
+        syncError = e instanceof Error ? e.message : String(e);
+        console.error("dashboard sync failed", syncError);
+      }
+    }
+
     const { data, error } = await supabase
       .from("restaurant_reservations")
       .select("id, guest_name, guest_phone, party_size, starts_at, ends_at, status, occasion, special_requests, notes, outlet_slug, status_marked_at, status_marked_by, dashboard_sync_state, dashboard_synced_at")
@@ -104,7 +117,9 @@ Deno.serve(async (req) => {
       total_reservations: active.length,
       total_covers: active.reduce((a, r) => a + (r.party_size || 0), 0),
       configured: Boolean(source),
+      sync_error: syncError,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
   } catch (e: any) {
     return new Response(JSON.stringify({ error: e.message ?? String(e) }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
