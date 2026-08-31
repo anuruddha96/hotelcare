@@ -22,6 +22,8 @@ import { errorMessage } from "@/lib/errorMessage";
 import {
   DEFAULT_PICKUP_LADDER, bandLabel, normaliseLadder, type PickupLadderBand,
 } from "@/lib/revenue/reasonSettings";
+import ActivateModuleDialog from "@/components/billing/ActivateModuleDialog";
+import { automationUnlocked, fetchBillingSummary, type BillingSummary } from "@/hooks/useBilling";
 
 interface Props { hotelId: string | null; organizationSlug: string | null; }
 interface Tier { max_days: number | null; increase: number; }
@@ -364,6 +366,10 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmOn, setConfirmOn] = useState(false);
+  // Turning automation on requires an active Revenue subscription (or a
+  // running trial). Without one the user is taken to Payments instead.
+  const [billing, setBilling] = useState<BillingSummary | null>(null);
+  const [activateOpen, setActivateOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [stats, setStats] = useState({ pushed: 0, failed: 0, lastActionAt: null as string | null });
   const [runResult, setRunResult] = useState<RunResult | null>(null);
@@ -743,6 +749,14 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
   const cur = rule.currency;
 
   return (
+    <>
+    <ActivateModuleDialog
+      open={activateOpen}
+      onOpenChange={setActivateOpen}
+      summary={billing}
+      hotelId={hotelId}
+      hotelName={hotelName}
+    />
     <Sheet>
       <SheetTrigger asChild>
         <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs">
@@ -787,7 +801,20 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                       : "Nothing changes automatically. Turn this on and save to start."}
                   </p>
                 </div>
-                <Switch checked={rule.is_enabled} onCheckedChange={(is_enabled) => setRule({ ...rule, is_enabled })} />
+                <Switch
+                  checked={rule.is_enabled}
+                  onCheckedChange={async (is_enabled) => {
+                    if (is_enabled) {
+                      const summary = billing ?? (await fetchBillingSummary(organizationSlug));
+                      if (summary) setBilling(summary);
+                      if (hotelId && summary && !automationUnlocked(summary, hotelId)) {
+                        setActivateOpen(true);
+                        return;
+                      }
+                    }
+                    setRule({ ...rule, is_enabled });
+                  }}
+                />
               </div>
 
               {!hasSavedRule && (
