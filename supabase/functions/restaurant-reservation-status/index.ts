@@ -150,10 +150,13 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (syncError) {
+    if (syncState === "synced") {
+      syncError = null;
+    } else if (syncError) {
       syncState = "failed";
       console.error("restaurant-reservation-status sync failed", syncError);
     }
+
 
     await supabase
       .from("restaurant_reservations")
