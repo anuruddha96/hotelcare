@@ -88,17 +88,20 @@ Deno.serve(async (req) => {
     }
 
 
-    // Pull the latest bookings from the Sales Dashboard before reading.
+    // Optional: if an outbound-pull source is configured for this deployment,
+    // refresh before reading. Reservations normally arrive by signed webhook,
+    // so a missing pull configuration is not an error.
     let syncError: string | null = null;
-    if (source && shouldSync(`${reservationHotelId}:${serviceDate}`, body?.force === true)) {
+    if (source && Deno.env.get("SALES_DASHBOARD_SERVICE_KEY") && shouldSync(`${reservationHotelId}:${serviceDate}`, body?.force === true)) {
       try {
         const result = await syncHotelReservations(supabase, reservationHotelId, serviceDate);
         syncError = result.error ?? null;
       } catch (e) {
         syncError = e instanceof Error ? e.message : String(e);
-        console.error("dashboard sync failed", syncError);
+        console.error("reservation pull failed", syncError);
       }
     }
+
 
     const { data, error } = await supabase
       .from("restaurant_reservations")
