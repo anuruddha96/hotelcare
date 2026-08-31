@@ -21,14 +21,12 @@ export function ActivateModuleDialog({
   summary,
   hotelId,
   hotelName,
-  organizationSlug,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   summary: BillingSummary | null;
   hotelId: string | null;
   hotelName: string;
-  organizationSlug: string | null;
 }) {
   const navigate = useNavigate();
   const settings = summary?.settings;
