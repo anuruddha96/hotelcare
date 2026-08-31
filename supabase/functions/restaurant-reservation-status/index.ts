@@ -9,6 +9,8 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { pushStatusToDashboard } from "../_shared/syncReservations.ts";
+
 
 const ALLOWED = new Set(["booked", "seated", "no_show"]);
 
@@ -62,7 +64,7 @@ Deno.serve(async (req) => {
 
     const { data: reservation, error: loadError } = await supabase
       .from("restaurant_reservations")
-      .select("id, hotel_id, source_project, source_reservation_id, outlet_slug, guest_name, guest_email, guest_phone, party_size, starts_at, ends_at, occasion, special_requests, notes, status")
+      .select("id, hotel_id, source_project, source_reservation_id, outlet_slug, guest_name, guest_email, guest_phone, party_size, starts_at, ends_at, occasion, special_requests, notes, status, raw_payload")
       .eq("id", reservationId)
       .maybeSingle();
     if (loadError) throw loadError;
@@ -76,7 +78,7 @@ Deno.serve(async (req) => {
       .from("restaurant_reservations")
       .update({
         status,
-        status_marked_at: status === "booked" ? null : nowIso,
+        status_marked_at: nowIso,
         status_marked_by: status === "booked" ? null : markedBy,
         dashboard_sync_state: "pending",
         dashboard_sync_error: null,
@@ -84,13 +86,29 @@ Deno.serve(async (req) => {
       .eq("id", reservationId);
     if (updateError) throw updateError;
 
-    // 2. Forward to the Sales Dashboard.
-    const webhookUrl = Deno.env.get("SALES_DASHBOARD_WEBHOOK_URL");
-    const webhookSecret = Deno.env.get("SALES_DASHBOARD_WEBHOOK_SECRET");
+    // 2a. Preferred path — write the status straight onto the Sales Dashboard
+    // reservation row (works for every property mirrored from the dashboard).
     let syncState = "pending";
     let syncError: string | null = null;
+    const dashboardId = (reservation.raw_payload as Record<string, unknown> | null)?.dashboard_id;
+    if (typeof dashboardId === "string" && dashboardId) {
+      const direct = await pushStatusToDashboard(dashboardId, status);
+      if (direct.ok) {
+        syncState = "synced";
+      } else {
+        syncError = direct.error ?? "Dashboard update failed";
+      }
+    }
 
-    if (!webhookUrl || !webhookSecret) {
+    // 2b. Fallback — the signed webhook path used by reservations that arrived
+    // from a hotel website rather than a dashboard pull.
+    const webhookUrl = Deno.env.get("SALES_DASHBOARD_WEBHOOK_URL");
+    const webhookSecret = Deno.env.get("SALES_DASHBOARD_WEBHOOK_SECRET");
+
+    if (syncState === "synced") {
+      // nothing more to do
+    } else if (!webhookUrl || !webhookSecret) {
+
       syncError = "Sales Dashboard webhook is not configured";
     } else if (!reservation.source_project || !reservation.source_reservation_id) {
       syncError = "Reservation has no dashboard source reference";
@@ -132,10 +150,13 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (syncError) {
+    if (syncState === "synced") {
+      syncError = null;
+    } else if (syncError) {
       syncState = "failed";
       console.error("restaurant-reservation-status sync failed", syncError);
     }
+
 
     await supabase
       .from("restaurant_reservations")

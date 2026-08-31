@@ -1,9 +1,13 @@
 // Public read endpoint for the /bb page: today's restaurant (brunch) reservations
 // for one hotel. Mirrors the access model of breakfast-public-lookup — the BB page
 // is used by restaurant staff on shared devices without a login.
+//
+// Before reading, it pulls the latest bookings from the Sales Dashboard (the
+// source of truth for every RD property), throttled per hotel+date.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
+import { syncHotelReservations } from "../_shared/syncReservations.ts";
 
 const ipHits = new Map<string, { count: number; reset: number }>();
 function rateLimit(ip: string, limit = 60, windowMs = 60_000): boolean {
@@ -13,6 +17,17 @@ function rateLimit(ip: string, limit = 60, windowMs = 60_000): boolean {
   e.count++;
   return e.count <= limit;
 }
+
+// Throttle dashboard pulls: at most one per hotel+date per 45s per instance.
+const lastSync = new Map<string, number>();
+function shouldSync(key: string, force: boolean): boolean {
+  const now = Date.now();
+  const prev = lastSync.get(key) ?? 0;
+  if (!force && now - prev < 45_000) return false;
+  lastSync.set(key, now);
+  return true;
+}
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -72,6 +87,19 @@ Deno.serve(async (req) => {
       source = resolvedSource;
     }
 
+
+    // Pull the latest bookings from the Sales Dashboard before reading.
+    let syncError: string | null = null;
+    if (source && shouldSync(`${reservationHotelId}:${serviceDate}`, body?.force === true)) {
+      try {
+        const result = await syncHotelReservations(supabase, reservationHotelId, serviceDate);
+        syncError = result.error ?? null;
+      } catch (e) {
+        syncError = e instanceof Error ? e.message : String(e);
+        console.error("dashboard sync failed", syncError);
+      }
+    }
+
     const { data, error } = await supabase
       .from("restaurant_reservations")
       .select("id, guest_name, guest_phone, party_size, starts_at, ends_at, status, occasion, special_requests, notes, outlet_slug, status_marked_at, status_marked_by, dashboard_sync_state, dashboard_synced_at")
@@ -89,7 +117,9 @@ Deno.serve(async (req) => {
       total_reservations: active.length,
       total_covers: active.reduce((a, r) => a + (r.party_size || 0), 0),
       configured: Boolean(source),
+      sync_error: syncError,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
   } catch (e: any) {
     return new Response(JSON.stringify({ error: e.message ?? String(e) }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
