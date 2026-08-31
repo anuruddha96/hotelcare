@@ -1687,5 +1687,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
         </AlertDialog>
       </SheetContent>
     </Sheet>
+    </>
   );
 }
