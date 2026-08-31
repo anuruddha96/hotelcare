@@ -723,6 +723,11 @@ export type Database = {
           billing_tax_id: string | null
           created_at: string
           currency: string
+          early_bird_enabled: boolean
+          early_bird_ends_at: string | null
+          early_bird_label: string
+          early_bird_note: string
+          grace_days: number
           id: string
           maintenance_module_enabled: boolean
           maintenance_price_cents: number
@@ -740,6 +745,9 @@ export type Database = {
           revenue_percent_min_cents: number
           revenue_price_cents: number
           revenue_pricing_mode: string
+          standard_operations_price_cents: number
+          standard_revenue_automation_price_cents: number
+          standard_revenue_bi_price_cents: number
           stripe_publishable_key: string | null
           trial_enabled: boolean
           trial_months: number
@@ -757,6 +765,11 @@ export type Database = {
           billing_tax_id?: string | null
           created_at?: string
           currency?: string
+          early_bird_enabled?: boolean
+          early_bird_ends_at?: string | null
+          early_bird_label?: string
+          early_bird_note?: string
+          grace_days?: number
           id?: string
           maintenance_module_enabled?: boolean
           maintenance_price_cents?: number
@@ -774,6 +787,9 @@ export type Database = {
           revenue_percent_min_cents?: number
           revenue_price_cents?: number
           revenue_pricing_mode?: string
+          standard_operations_price_cents?: number
+          standard_revenue_automation_price_cents?: number
+          standard_revenue_bi_price_cents?: number
           stripe_publishable_key?: string | null
           trial_enabled?: boolean
           trial_months?: number
@@ -791,6 +807,11 @@ export type Database = {
           billing_tax_id?: string | null
           created_at?: string
           currency?: string
+          early_bird_enabled?: boolean
+          early_bird_ends_at?: string | null
+          early_bird_label?: string
+          early_bird_note?: string
+          grace_days?: number
           id?: string
           maintenance_module_enabled?: boolean
           maintenance_price_cents?: number
@@ -808,6 +829,9 @@ export type Database = {
           revenue_percent_min_cents?: number
           revenue_price_cents?: number
           revenue_pricing_mode?: string
+          standard_operations_price_cents?: number
+          standard_revenue_automation_price_cents?: number
+          standard_revenue_bi_price_cents?: number
           stripe_publishable_key?: string | null
           trial_enabled?: boolean
           trial_months?: number
