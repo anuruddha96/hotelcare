@@ -332,6 +332,12 @@ export interface DecisionSettings {
   minRoomsForMarkdown: number;
   /** Occupancy campaign for the near horizon; off by default. */
   fill?: FillSettings | null;
+  /** Lead-time surcharge ladder for genuine new bookings. */
+  pickupLadder?: PickupLadderBand[] | null;
+  /** When true (default) a single genuine booking always raises the price. */
+  raiseOnAnyPickup?: boolean;
+  /** Occupancy at or above which a pickup surcharge is increased by half. */
+  strongOccupancyPct?: number;
 }
 
 export const DEFAULT_DECISION_SETTINGS: Omit<DecisionSettings, "now" | "paceBands"> = {
@@ -343,7 +349,11 @@ export const DEFAULT_DECISION_SETTINGS: Omit<DecisionSettings, "now" | "paceBand
   soldOutOccupancyPct: 98,
   minRoomsForMarkdown: 5,
   fill: DEFAULT_FILL_SETTINGS,
+  pickupLadder: DEFAULT_PICKUP_LADDER,
+  raiseOnAnyPickup: true,
+  strongOccupancyPct: 85,
 };
+
 
 
 export interface Decision {
