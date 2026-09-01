@@ -562,3 +562,83 @@ describe("fill mode", () => {
       .toEqual(decideDate(input(patch), settings()));
   });
 });
+
+describe("ADR-first rules", () => {
+  it("lifts a date sitting below the grid price needed to bank the ADR target", () => {
+    const d = decideDate(
+      input({ currentPrice: 114, occupancyPct: 40, hardAdrFloor: 158, maxPrice: 500 }),
+      settings(),
+    );
+    expect(d.blocked).toBe(false);
+    expect(d.direction).toBe("increase");
+    expect(d.reason).toBe("net_adr_floor");
+    expect(d.targetPrice).toBe(158);
+  });
+
+  it("raises a well-selling date on occupancy alone, with no new pickup", () => {
+    const d = decideDate(
+      input({ daysOut: 17, currentPrice: 114, occupancyPct: 86, hoursSinceLastPickup: 300 }),
+      settings(),
+    );
+    expect(d.reason).toBe("occupancy_lift");
+    expect(d.movement).toBeGreaterThanOrEqual(9);
+  });
+
+  it("freezes markdowns for a month that is behind its rate target", () => {
+    const d = decideDate(
+      input({ daysOut: 124, occupancyPct: 5, hoursSinceLastPickup: 400, monthMarkdownsFrozen: true }),
+      settings(),
+    );
+    expect(d.blocked).toBe(true);
+    expect(d.reason).toBe("month_adr_pace");
+  });
+
+  it("never marks down a date that just took a booking", () => {
+    const d = decideDate(
+      input({ daysOut: 124, occupancyPct: 5, hoursSinceLastPickup: 5, pickup24h: 0 }),
+      settings(),
+    );
+    expect(d.blocked).toBe(true);
+    expect(d.reason).toBe("booked_date_brake");
+  });
+
+  it("holds the sold price through the rebooking window after a cancellation", () => {
+    const d = decideDate(
+      input({
+        daysOut: 124, occupancyPct: 5, hoursSinceLastPickup: 400,
+        lastCancellationAt: new Date(NOW.getTime() - 3 * 3_600_000).toISOString(),
+      }),
+      settings(),
+    );
+    expect(d.blocked).toBe(true);
+    expect(d.reason).toBe("rebook_window");
+  });
+
+  it("allows only one markdown per date per day", () => {
+    const d = decideDate(
+      input({ daysOut: 124, occupancyPct: 5, hoursSinceLastPickup: 400, markdownsToday: 1 }),
+      settings(),
+    );
+    expect(d.reason).toBe("markdown_limit");
+  });
+
+  it("never cuts a date back on a day it already went up", () => {
+    const d = decideDate(
+      input({ daysOut: 124, occupancyPct: 5, hoursSinceLastPickup: 400, movedUpTodayEur: 8 }),
+      settings(),
+    );
+    expect(d.reason).toBe("one_way_day");
+  });
+
+  it("stops a markdown at the month floor and at the recent-peak depth floor", () => {
+    const d = decideDate(
+      input({
+        daysOut: 124, occupancyPct: 5, hoursSinceLastPickup: 400,
+        currentPrice: 150, monthFloor: 149, minPrice: 110,
+      }),
+      settings(),
+    );
+    expect(d.blocked).toBe(true);
+    expect(["below_min_movement", "month_adr_pace"]).toContain(d.reason);
+  });
+});
