@@ -619,6 +619,17 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       fill_max_total_drop_pct: rule.fill_max_total_drop_pct,
       pickup_increase_ladder: rule.pickup_increase_ladder,
       raise_on_any_pickup: rule.raise_on_any_pickup,
+      net_rate_factor_enabled: rule.net_rate_factor_enabled,
+      net_rate_factor_override: rule.net_rate_factor_override,
+      month_pace_guard_enabled: rule.month_pace_guard_enabled,
+      adr_target_eur: rule.adr_target_eur,
+      occupancy_lift_enabled: rule.occupancy_lift_enabled,
+      occupancy_lift_ladder: rule.occupancy_lift_ladder,
+      booked_date_brake_hours: rule.booked_date_brake_hours,
+      rebook_window_hours: rule.rebook_window_hours,
+      max_markdowns_per_day: rule.max_markdowns_per_day,
+      markdown_depth_pct: rule.markdown_depth_pct,
+
 
       cancellation_markdown_enabled: rule.cancellation_markdown_enabled,
       cancellation_wait_minutes: rule.cancellation_wait_minutes,
