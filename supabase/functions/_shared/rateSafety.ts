@@ -159,15 +159,17 @@ export async function partitionByExactRateMappings(
 export function repairLadder(
   levels: Array<{ occupancy: number; price: number }>,
   step = 0,
+  maxGap = 0,
 ): Map<number, number> {
-  const sorted = [...levels].sort((a, b) => a.occupancy - b.occupancy);
+  const sorted = [...levels]
+    .filter((level) => Number.isFinite(Number(level.price)))
+    .sort((a, b) => a.occupancy - b.occupancy);
   const out = new Map<number, number>();
   const gap = Math.max(0, Math.round(step));
   let runningMax = -Infinity;
   let previousOccupancy: number | null = null;
   for (const level of sorted) {
     const price = Number(level.price);
-    if (!Number.isFinite(price)) continue;
     const occupancy = Number(level.occupancy);
     // More guests must cost more, not the same: the required step is applied
     // per guest level, so a repaired ladder never repeats one number.
@@ -178,6 +180,28 @@ export function repairLadder(
     runningMax = target;
     previousOccupancy = occupancy;
     out.set(occupancy, Math.round(target));
+  }
+
+  // Second pass — the "fill the higher pillars" rule. A lower guest count may
+  // never sit further than `maxGap` per guest below the level above it: a
+  // 1-guest rate 40 below the 2-guest rate simply sells the room cheap. The
+  // repair always LIFTS the lower level (never cuts the stronger one), so no
+  // floor, min-ADR or markdown cap can be undercut by a repair.
+  const cap = Math.max(0, Math.round(maxGap));
+  if (cap > 0 && sorted.length > 1) {
+    for (let i = sorted.length - 1; i > 0; i--) {
+      const higherOcc = Number(sorted[i].occupancy);
+      const lowerOcc = Number(sorted[i - 1].occupancy);
+      const higher = out.get(higherOcc);
+      const lower = out.get(lowerOcc);
+      if (higher === undefined || lower === undefined) continue;
+      const span = Math.max(1, higherOcc - lowerOcc);
+      const wanted = higher - cap * span;
+      // Never lift the lower level so high that the minimum guest step breaks.
+      const ceiling = higher - gap * span;
+      const target = Math.min(wanted, Math.max(lower, ceiling));
+      if (target > lower) out.set(lowerOcc, Math.round(target));
+    }
   }
   return out;
 }
@@ -196,6 +220,21 @@ export async function loadGuestStep(admin: any, hotelId: string): Promise<number
     return 0;
   }
 }
+
+/**
+ * Largest allowed distance between two neighbouring guest counts. EUR hotels
+ * use the operator rule of thumb (15); other currencies use the equivalent
+ * share of the price so the rule travels to HUF without a conversion table.
+ */
+export const MAX_GUEST_GAP_EUR = 15;
+
+export function maxGuestGapFor(basePrice: number, currency?: string | null): number {
+  const price = Number(basePrice);
+  if ((currency ?? "EUR").toUpperCase() === "EUR") return MAX_GUEST_GAP_EUR;
+  if (!Number.isFinite(price) || price <= 0) return 0;
+  return Math.max(1, Math.round(price * 0.15));
+}
+
 
 
 /**
