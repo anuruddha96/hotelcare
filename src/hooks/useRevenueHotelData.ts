@@ -73,7 +73,7 @@ const revenuePayloadCache = new Map<string, CachedRevenuePayload>();
  * First paint only needs the dates a manager can immediately act on. The rest
  * of the selected horizon is fetched after that first useful paint.
  */
-const FIRST_WINDOW_DAYS = 60;
+const FIRST_WINDOW_DAYS = 45;
 
 /** In-memory first (complete requested horizon), then the per-tab window. */
 function readAnyCache(cacheKey: string): CachedRevenuePayload | undefined {
@@ -149,8 +149,6 @@ export function useRevenueHotelData(
     if (inFlightRef.current) return inFlightRef.current;
     const requestVersion = ++requestVersionRef.current;
 
-    // Only request the horizon the UI asked for. The old second stage fetched
-    // the entire published JSON even when the manager was looking at 90/180d.
     const fetchStage = async (windowDays: number) => {
       const { data } = await retryTransient(async () => {
         const result = await (supabase as any).rpc("get_revenue_published_payload_window", {
@@ -197,7 +195,6 @@ export function useRevenueHotelData(
         lastSyncAt: nextSyncAt,
         lastSyncBy: nextSyncBy,
       });
-      // The small first window is enough to make a new tab paint quickly.
       if (cacheFirstWindow) {
         writeCachedRevenuePayload<PublishedRevenuePayload>(cacheKey, {
           payload: completedPayload,
@@ -221,8 +218,6 @@ export function useRevenueHotelData(
           setExtending(true);
         }
 
-        // If the first stage already matches the requested horizon, do not make
-        // a duplicate network request. Otherwise extend only to what is needed.
         if (!wantsWindow || horizonDays > FIRST_WINDOW_DAYS) {
           const requested = await fetchStage(horizonDays);
           if (requestVersion !== requestVersionRef.current) return;
@@ -230,7 +225,6 @@ export function useRevenueHotelData(
         }
       } catch (e) {
         if (requestVersion !== requestVersionRef.current) return;
-        // A background failure must never blank a calendar that already paints.
         if (!payloadRef.current) setError(e instanceof Error ? e.message : String(e));
       } finally {
         if (requestVersion === requestVersionRef.current) {
@@ -249,8 +243,6 @@ export function useRevenueHotelData(
   const reload = useCallback(async () => { await runLoad(); }, [runLoad]);
 
   useEffect(() => {
-    // Only a property switch invalidates what is on screen. Growing the horizon
-    // must keep the current calendar mounted (no blocking spinner).
     requestVersionRef.current += 1;
     inFlightRef.current = null;
     const cached = cacheKey ? readAnyCache(cacheKey) : undefined;
@@ -268,9 +260,6 @@ export function useRevenueHotelData(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runLoad]);
 
-  // Executive resume: an admin / top manager came back after a couple of
-  // minutes away. Re-read the dataset HotelCare already published (no Previo
-  // call, no sync claim) and never clobber an open rate editor's local edits.
   useEffect(() => {
     if (!hotelId) return;
     const onResume = () => {
@@ -280,9 +269,12 @@ export function useRevenueHotelData(
     return () => window.removeEventListener(EXECUTIVE_RESUME_EVENT, onResume);
   }, [hotelId, runLoad]);
 
-  // Keep the structural room rail available even while rates are still on the
-  // wire. Prices/occupancy stay empty until verified payload data arrives.
-  const roomTypes = payload?.roomTypes?.length ? payload.roomTypes : roomMetadata;
+  // Local room metadata is intentionally NOT exposed as a half-built calendar.
+  // It remains cached so the next verified payload can be normalised quickly,
+  // but the page shows its stable skeleton until room types and their real rate
+  // rows arrive together. This prevents the confusing first paint where the
+  // date table was visible and the room/guest structure appeared afterwards.
+  const roomTypes = payload?.roomTypes?.length ? payload.roomTypes : [];
   const nights = useMemo(() => (payload?.nights ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const snapshots = useMemo(() => (payload?.snapshots ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const rates = useMemo(() => (payload?.rates ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
