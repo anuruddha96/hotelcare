@@ -264,7 +264,7 @@ describe("safety rails", () => {
 
   it("a date cannot reverse direction inside the cooldown without new demand", () => {
     const d = decideDate(input({
-      daysOut: 20, occupancyPct: 45, hoursSinceLastPickup: 30,
+      daysOut: 20, occupancyPct: 45, hoursSinceLastPickup: 100,
       lastDirection: "increase", lastDecisionAt: "2026-08-29T08:00:00Z",
     }), settings());
     expect(d.reason).toBe("direction_cooldown");
@@ -515,7 +515,7 @@ const FILL = { enabled: true, windowDays: 60, maxTotalDropPct: 15 };
 
 describe("fill mode", () => {
   it("marks a date down that is behind pace, where the ordinary rules would hold", () => {
-    const base = input({ daysOut: 17, occupancyPct: 60, roomsRemaining: 9, hoursSinceLastPickup: 30 });
+    const base = input({ daysOut: 17, occupancyPct: 60, roomsRemaining: 9, hoursSinceLastPickup: 100 });
     const ordinary = decideDate(base, settings());
     const filling = decideDate({ ...base, campaignStartPrice: 180 }, settings({ fill: FILL }));
     expect(ordinary.blocked || ordinary.direction === "decrease").toBe(true);
@@ -534,7 +534,7 @@ describe("fill mode", () => {
 
   it("never takes a date more than the total drop limit below its campaign start", () => {
     const d = decideDate(
-      input({ daysOut: 5, occupancyPct: 40, currentPrice: 155, campaignStartPrice: 180, hoursSinceLastPickup: 40 }),
+      input({ daysOut: 5, occupancyPct: 40, currentPrice: 155, campaignStartPrice: 180, hoursSinceLastPickup: 100 }),
       settings({ fill: FILL }),
     );
     // Floor is 180 - 15% = 153, so at most €2 is left — under the minimum move.
@@ -550,7 +550,7 @@ describe("fill mode", () => {
 
   it("protects a nearly full date even while filling", () => {
     const d = decideDate(
-      input({ daysOut: 4, occupancyPct: 96, roomsRemaining: 1, hoursSinceLastPickup: 40, campaignStartPrice: 180 }),
+      input({ daysOut: 4, occupancyPct: 96, roomsRemaining: 1, hoursSinceLastPickup: 100, campaignStartPrice: 180 }),
       settings({ fill: FILL }),
     );
     expect(d.blocked).toBe(true);
