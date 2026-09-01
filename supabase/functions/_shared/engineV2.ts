@@ -108,6 +108,42 @@ export function pickupStep(
   return Math.round(strong ? step * 1.5 : step);
 }
 
+/**
+ * Occupancy-led lift. A date that is already selling well does not have to
+ * produce a booking in the current run to earn a higher price: the occupancy
+ * itself is the evidence. This is the rule that corrects "occupancy high but
+ * price low" dates, which no pickup-only engine could ever reach.
+ */
+export interface OccupancyLiftBand {
+  min_occupancy_pct: number;
+  min_days_out: number;
+  /** Rise as a percentage of the current price. */
+  pct: number;
+  /** Smallest whole-currency rise this band produces. */
+  min_eur: number;
+}
+
+export const DEFAULT_OCCUPANCY_LIFT_LADDER: OccupancyLiftBand[] = [
+  { min_occupancy_pct: 80, min_days_out: 7, pct: 8, min_eur: 10 },
+  { min_occupancy_pct: 70, min_days_out: 14, pct: 5, min_eur: 6 },
+  { min_occupancy_pct: 60, min_days_out: 30, pct: 3, min_eur: 4 },
+];
+
+/** Strongest band whose occupancy AND lead-time conditions both hold. */
+export function occupancyLiftBandFor(
+  occupancyPct: number | null,
+  daysOut: number,
+  ladder: OccupancyLiftBand[] = DEFAULT_OCCUPANCY_LIFT_LADDER,
+): OccupancyLiftBand | null {
+  if (occupancyPct == null || !Number.isFinite(occupancyPct)) return null;
+  const eligible = ladder.filter((b) =>
+    occupancyPct >= Number(b.min_occupancy_pct) && daysOut >= Number(b.min_days_out)
+  );
+  if (eligible.length === 0) return null;
+  return eligible.reduce((best, b) => (Number(b.pct) > Number(best.pct) ? b : best));
+}
+
+
 
 /**
  * "Fill mode": inside the selling window the property is trying to reach a
