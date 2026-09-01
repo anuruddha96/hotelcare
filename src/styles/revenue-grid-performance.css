@@ -1,5 +1,5 @@
 /*
- * Rate & Pickup calendar paint policy.
+ * Rate & Pickup calendar paint + layout policy.
  *
  * The grid previously put `content-visibility:auto` on every individual cell.
  * That saves first-paint work, but browsers are allowed to drop the paint for
@@ -15,9 +15,41 @@
   contain: layout paint style;
 }
 
-/* Keep the frozen room rail visually solid while the date matrix scrolls. */
+/*
+ * Normal (non-expanded) calendars must size to their actual rows instead of
+ * filling the rest of the viewport. RateStrategyGrid measures an available
+ * viewport height in JS and writes it inline; that is useful as a maximum for
+ * a large hotel, but on a smaller property it leaves a large white rectangle
+ * below ADR / RevPAR. Let content determine the natural height and cap only
+ * when the calendar genuinely needs vertical scrolling.
+ */
+[data-training="revenue-grid"]:not(.fixed) .overscroll-x-contain {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: min(72dvh, calc(100dvh - 190px));
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+}
+
+/* Phones should also hug the rendered rows, while retaining a sensible cap. */
+@media (max-width: 767px) {
+  [data-training="revenue-grid"]:not(.fixed) .overscroll-x-contain {
+    max-height: 68dvh;
+  }
+}
+
+/*
+ * Keep the frozen room rail visually solid while the date matrix scrolls.
+ * The small divider shadow makes it read as a fixed pane instead of another
+ * date column, and isolation prevents neighbouring cells bleeding through
+ * while the browser is compositing a fast horizontal scroll.
+ */
 [data-training="revenue-grid"] .sticky.left-0 {
   backface-visibility: hidden;
+  background-clip: padding-box;
+  isolation: isolate;
+  box-shadow: 1px 0 0 hsl(var(--border)), 5px 0 10px -10px hsl(var(--foreground) / 0.35);
 }
 
 /* Avoid browser scroll anchoring jumps when later price/history data arrives. */
