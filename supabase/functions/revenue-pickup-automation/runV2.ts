@@ -586,12 +586,18 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       .gte("created_at", localDayStart).order("stay_date").range(f, t));
     const movedUpToday = new Map<string, number>();
     const movedDownToday = new Map<string, number>();
+    // How many separate markdowns a date already took today — the anti-arbitrage
+    // rule allows only a limited number, so the price cannot walk down all day.
+    const markdownsToday = new Map<string, number>();
     for (const row of (spentToday ?? []) as any[]) {
       const amount = Math.abs(Number(row.movement) || 0);
       if (row.direction === "increase") movedUpToday.set(row.stay_date, (movedUpToday.get(row.stay_date) ?? 0) + amount);
-      if (row.direction === "decrease") movedDownToday.set(row.stay_date, (movedDownToday.get(row.stay_date) ?? 0) + amount);
-
+      if (row.direction === "decrease") {
+        movedDownToday.set(row.stay_date, (movedDownToday.get(row.stay_date) ?? 0) + amount);
+        markdownsToday.set(row.stay_date, (markdownsToday.get(row.stay_date) ?? 0) + 1);
+      }
     }
+
 
     // Events: approved, confident, readable, deduplicated, once per date.
     const appliedKeys = new Set(unwrap(appliedEventsRes).map((r: any) => `${r.event_key}|${r.stay_date}`));
