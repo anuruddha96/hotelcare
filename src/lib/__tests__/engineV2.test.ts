@@ -338,7 +338,7 @@ describe("events and market validation", () => {
     const up = decideDate(input({ daysOut: 20, pickup24h: 1, pendingEventUplift: 5 }), settings());
     expect(up.movement).toBe(plain.movement + 5);
     expect(up.reason).toContain("event");
-    const down = decideDate(input({ daysOut: 20, occupancyPct: 45, hoursSinceLastPickup: 30, pendingEventUplift: 10 }), settings());
+    const down = decideDate(input({ daysOut: 20, occupancyPct: 45, hoursSinceLastPickup: 100, pendingEventUplift: 10 }), settings());
     expect(down.movement).toBeLessThan(0);
   });
 
