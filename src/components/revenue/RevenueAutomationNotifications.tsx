@@ -477,7 +477,7 @@ export function RevenueAutomationNotifications() {
                   </Button>
                 </div>
               )}
-            </>
+            </div>
           )}
 
         </DialogContent>
