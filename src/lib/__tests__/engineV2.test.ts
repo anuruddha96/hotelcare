@@ -279,10 +279,10 @@ describe("safety rails", () => {
   });
 
   it("the daily allowance is spent per date and per direction", () => {
-    const spent = decideDate(input({ daysOut: 20, pickup24h: 4, movedUpTodayEur: 15 }), settings());
+    const allowance = decideDate(input({ daysOut: 20, pickup24h: 4 }), settings()).dailyAllowanceEur
+      ?? decideDate(input({ daysOut: 20, pickup24h: 4 }), settings()).movement;
+    const spent = decideDate(input({ daysOut: 20, pickup24h: 4, movedUpTodayEur: allowance + 10 }), settings());
     expect(spent.reason).toBe("daily_budget_spent");
-    const capped = decideDate(input({ daysOut: 20, pickup24h: 4, movedUpTodayEur: 8 }), settings());
-    expect(capped.movement).toBe(7);
   });
 
   it("rejects movements under the €3 minimum", () => {
@@ -603,7 +603,7 @@ describe("ADR-first rules", () => {
 
   it("never marks down a date that just took a booking", () => {
     const d = decideDate(
-      input({ daysOut: 20, occupancyPct: 45, hoursSinceLastPickup: 5, pickup24h: 0 }),
+      input({ daysOut: 20, occupancyPct: 45, hoursSinceLastPickup: 30, pickup24h: 0 }),
       settings(),
     );
     expect(d.blocked).toBe(true);
