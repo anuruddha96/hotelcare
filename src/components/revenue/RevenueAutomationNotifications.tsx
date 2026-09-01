@@ -243,20 +243,74 @@ export function RevenueAutomationNotifications() {
               )}
 
               {decisions.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {Object.entries(reasonCounts).map(([reason, count]) => (
-                    <span key={reason} className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]">
-                      {reasonInfo(reason).title} · {count}
-                      <ReasonSettingEditor
-                        hotelId={detail.hotel_id}
-                        hotelName={detail.hotel_name}
-                        reason={reason}
-                        stayDate={decisions.find((d) => d.decision_reason === reason)?.stay_date ?? null}
-                        currency={detail.currency}
-                        compact
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <div className="relative flex-1 min-w-[140px]">
+                      <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Search a date or reason"
+                        className="h-8 pl-7 text-xs"
                       />
-                    </span>
-                  ))}
+                    </div>
+                    {DIRECTION_FILTERS.map((option) => (
+                      <Button
+                        key={option.value}
+                        type="button"
+                        size="sm"
+                        variant={directionFilter === option.value ? 'default' : 'outline'}
+                        className="h-8 px-2.5 text-xs"
+                        onClick={() => setDirectionFilter(option.value)}
+                      >
+                        {option.label}
+                        {option.value !== 'all' && (
+                          <span className="ml-1 opacity-70">
+                            {decisions.filter((d) => d.direction === option.value).length}
+                          </span>
+                        )}
+                      </Button>
+                    ))}
+                    {(reasonFilter || directionFilter !== 'all' || search) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 px-2 text-xs"
+                        onClick={() => { setReasonFilter(null); setDirectionFilter('all'); setSearch(''); }}
+                      >
+                        <FilterX className="mr-1 h-3.5 w-3.5" /> Clear
+                      </Button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {Object.entries(reasonCounts)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([reason, count]) => (
+                        <span
+                          key={reason}
+                          className={cn(
+                            'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] transition',
+                            reasonFilter === reason ? 'border-primary bg-primary/10 text-primary' : 'bg-background',
+                          )}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => setReasonFilter(reasonFilter === reason ? null : reason)}
+                          >
+                            {reasonInfo(reason).title} · {count}
+                          </button>
+                          <ReasonSettingEditor
+                            hotelId={detail.hotel_id}
+                            hotelName={detail.hotel_name}
+                            reason={reason}
+                            stayDate={decisions.find((d) => d.decision_reason === reason)?.stay_date ?? null}
+                            currency={detail.currency}
+                            compact
+                          />
+                        </span>
+                      ))}
+                  </div>
                 </div>
               )}
 
@@ -269,31 +323,49 @@ export function RevenueAutomationNotifications() {
                 <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">{decisionsError}</div>
               ) : decisions.length > 0 ? (
                 <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border">
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                  <table className="w-full text-[13px]">
+                    <thead className="sticky top-0 z-10 bg-muted text-foreground shadow-sm">
                       <tr className="text-left">
-                        <th className="px-2 py-1.5 font-medium">Stay date</th>
-                        <th className="px-2 py-1.5 font-medium">Decision</th>
-                        <th className="px-2 py-1.5 font-medium">Price</th>
-                        <th className="px-2 py-1.5 font-medium">Why</th>
+                        <th className="px-2.5 py-2 font-semibold">Stay date</th>
+                        <th className="px-2.5 py-2 font-semibold">Decision</th>
+                        <th className="px-2.5 py-2 font-semibold">Price</th>
+                        <th className="px-2.5 py-2 font-semibold">Why</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {decisions.map((row) => (
-                        <tr key={row.id} className="border-t align-top">
-                          <td className="px-2 py-2 whitespace-nowrap">{row.stay_date}</td>
-                          <td className="px-2 py-2 capitalize">{row.direction}</td>
-                          <td className="px-2 py-2 whitespace-nowrap">
+                      {visibleDecisions.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                            No dates match these filters.
+                          </td>
+                        </tr>
+                      )}
+                      {visibleDecisions.map((row) => (
+                        <tr key={row.id} className="border-t align-top odd:bg-muted/30 hover:bg-muted/60">
+                          <td className="px-2.5 py-2 whitespace-nowrap font-medium tabular-nums">{row.stay_date}</td>
+                          <td className="px-2.5 py-2">
+                            <Badge
+                              variant={row.direction === 'hold' ? 'secondary' : 'outline'}
+                              className={cn(
+                                'text-[10px] px-1.5 py-0 capitalize',
+                                row.direction === 'increase' && 'border-emerald-500/50 text-emerald-600',
+                                row.direction === 'decrease' && 'border-amber-500/60 text-amber-600',
+                              )}
+                            >
+                              {row.direction}
+                            </Badge>
+                          </td>
+                          <td className="px-2.5 py-2 whitespace-nowrap tabular-nums">
                             {row.current_price == null ? '—' : money(row.current_price, detail.currency)}
                             {row.target_price != null && row.target_price !== row.current_price && (
-                              <><ArrowRight className="mx-1 inline h-3 w-3" /><span className="font-medium">{money(row.target_price, detail.currency)}</span></>
+                              <><ArrowRight className="mx-1 inline h-3 w-3" /><span className="font-semibold">{money(row.target_price, detail.currency)}</span></>
                             )}
                           </td>
-                          <td className="px-2 py-2">
+                          <td className="px-2.5 py-2">
                             <p className="font-medium">{reasonInfo(row.decision_reason).title}</p>
-                            <p className="mt-0.5 text-muted-foreground">{reasonInfo(row.decision_reason).explain}</p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">{reasonInfo(row.decision_reason).explain}</p>
                             {row.movement !== 0 && row.cells_simulated > 0 && (
-                              <p className="mt-0.5">
+                              <p className="mt-0.5 text-xs">
                                 All {row.cells_simulated} price{row.cells_simulated === 1 ? '' : 's'} moved by the same {row.movement > 0 ? '+' : '−'}
                                 {money(Math.abs(row.movement), detail.currency)}
                                 {row.limited_by_room_type
@@ -301,7 +373,7 @@ export function RevenueAutomationNotifications() {
                                   : ''}
                               </p>
                             )}
-                            {row.reason_detail && <p className="mt-0.5 text-muted-foreground">{row.reason_detail}</p>}
+                            {row.reason_detail && <p className="mt-0.5 text-xs text-muted-foreground">{row.reason_detail}</p>}
                             <div className="mt-1">
                               <ReasonSettingEditor
                                 hotelId={detail.hotel_id}
@@ -321,6 +393,7 @@ export function RevenueAutomationNotifications() {
                   </table>
                 </div>
               ) : detail.changes.length > 0 ? (
+
                 <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border">
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 bg-muted/80 backdrop-blur">
