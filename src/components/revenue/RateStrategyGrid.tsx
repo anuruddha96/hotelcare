@@ -940,13 +940,19 @@ export default function RateStrategyGrid({
       const el = scrollRef.current;
       if (!el) return;
       const top = el.getBoundingClientRect().top;
-      const next = Math.max(320, Math.floor(window.innerHeight - top - 8));
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+      const next = Math.max(320, Math.floor(viewportHeight - top - 8));
       setAvailGridH((prev) => (prev === next ? prev : next));
     };
-    measure();
+    const frame = window.requestAnimationFrame(measure);
     window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [expanded, monthFilter, isMobile]);
+    window.visualViewport?.addEventListener("resize", measure);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", measure);
+      window.visualViewport?.removeEventListener("resize", measure);
+    };
+  });
 
   useEffect(() => {
     if (!expanded) return;
@@ -2646,7 +2652,7 @@ export default function RateStrategyGrid({
             ref={scrollRef}
             onScroll={onScroll}
             className={`relative overflow-auto overscroll-x-contain ${dragging || cellDragging ? "select-none" : ""}`}
-            style={{ fontSize: fz(11), maxHeight: availGridH != null ? availGridH : expanded ? "calc(100vh - 190px)" : isMobile ? "68vh" : "72vh", WebkitOverflowScrolling: "touch", touchAction: cellDragging ? "none" : undefined } as React.CSSProperties}
+            style={{ fontSize: fz(11), height: availGridH != null ? availGridH : expanded ? "calc(100dvh - 190px)" : isMobile ? "68dvh" : "72dvh", WebkitOverflowScrolling: "touch", touchAction: cellDragging ? "none" : undefined } as React.CSSProperties}
 
           >
 
