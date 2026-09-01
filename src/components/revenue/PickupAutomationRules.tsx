@@ -1366,6 +1366,112 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                   />
                 </div>
 
+                {/* ---- Average rate protection (ADR-first rules) ---- */}
+                <div className="space-y-3 rounded-lg border p-3">
+                  <div className="flex items-center gap-1">
+                    <Label className="text-xs font-semibold">Average rate protection</Label>
+                    <Hint>These rules make sure filling the hotel never costs more than it earns: prices are floored at what the property must ask to bank its average rate, and dates that just took a booking are never discounted underneath the guest.</Hint>
+                  </div>
+
+                  <ToggleRow
+                    title="Adjust floors for channel discounts"
+                    desc="Measure how far realised rates fall below the loaded price, and raise every rate floor to match."
+                    hint={<>Derived plans, single-occupancy rates and channel promotions sell the room under the loaded price. The engine measures that gap from your own bookings and raises the floors so the average rate you set is the average rate you bank.</>}
+                    checked={rule.net_rate_factor_enabled}
+                    onChange={(net_rate_factor_enabled) => setRule({ ...rule, net_rate_factor_enabled })}
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <NumField
+                      label="Minimum average rate" suffix={rule.currency} min={0} max={1000}
+                      value={rule.minimum_adr}
+                      onChange={(e) => setRule({ ...rule, minimum_adr: Number(e.target.value) })}
+                    />
+                    <NumField
+                      label="Discount factor override" suffix="×" min={0.6} max={1} step={0.01}
+                      disabled={!rule.net_rate_factor_enabled}
+                      value={rule.net_rate_factor_override ?? 0}
+                      onChange={(e) => setRule({
+                        ...rule,
+                        net_rate_factor_override: Number(e.target.value) > 0 ? Number(e.target.value) : null,
+                      })}
+                    />
+                  </div>
+
+                  <ToggleRow
+                    title="Month-end rate guard"
+                    desc="A stay month running below its average-rate target stops discounting until it catches up."
+                    hint={<>Every month is judged on the rate it finally lands on. When a month is behind, the engine works out what the rooms still to sell must average, floors the remaining dates there and freezes markdowns. A month already above target is free to discount and fill.</>}
+                    checked={rule.month_pace_guard_enabled}
+                    onChange={(month_pace_guard_enabled) => setRule({ ...rule, month_pace_guard_enabled })}
+                  />
+                  <NumField
+                    label="Average rate target" suffix={rule.currency} min={0} max={1000}
+                    disabled={!rule.month_pace_guard_enabled}
+                    value={rule.adr_target_eur}
+                    onChange={(e) => setRule({ ...rule, adr_target_eur: Number(e.target.value) })}
+                  />
+
+                  <ToggleRow
+                    title="Raise dates that are selling well"
+                    desc="Strong occupancy lifts the price on its own — no new booking required in the run."
+                    hint={<>This is what corrects a date that is nearly full but still cheap. The ladder below sets how big the lift is for each occupancy level and lead time.</>}
+                    checked={rule.occupancy_lift_enabled}
+                    onChange={(occupancy_lift_enabled) => setRule({ ...rule, occupancy_lift_enabled })}
+                  />
+                  <div className="space-y-2">
+                    {rule.occupancy_lift_ladder.map((band, index) => (
+                      <div key={`occlift-${index}`} className="grid grid-cols-4 items-end gap-2">
+                        {([
+                          ["min_occupancy_pct", "Sold from", "%"],
+                          ["min_days_out", "Days out", "d"],
+                          ["pct", "Lift", "%"],
+                          ["min_eur", "At least", rule.currency],
+                        ] as const).map(([key, label, suffix]) => (
+                          <NumField
+                            key={key}
+                            label={label}
+                            suffix={suffix}
+                            min={0}
+                            max={key === "min_days_out" ? 400 : 100}
+                            disabled={!rule.occupancy_lift_enabled}
+                            value={band[key]}
+                            onChange={(e) => setRule({
+                              ...rule,
+                              occupancy_lift_ladder: rule.occupancy_lift_ladder.map((row, i) =>
+                                i === index ? { ...row, [key]: Math.max(0, Number(e.target.value) || 0) } : row),
+                            })}
+                          />
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <NumField
+                      label="Hold after a booking" suffix="hours" min={0} max={336}
+                      value={rule.booked_date_brake_hours}
+                      onChange={(e) => setRule({ ...rule, booked_date_brake_hours: Number(e.target.value) })}
+                    />
+                    <NumField
+                      label="Rebooking protection" suffix="hours" min={0} max={336}
+                      value={rule.rebook_window_hours}
+                      onChange={(e) => setRule({ ...rule, rebook_window_hours: Number(e.target.value) })}
+                    />
+                    <NumField
+                      label="Markdowns per date per day" suffix="×" min={0} max={10}
+                      value={rule.max_markdowns_per_day}
+                      onChange={(e) => setRule({ ...rule, max_markdowns_per_day: Number(e.target.value) })}
+                    />
+                    <NumField
+                      label="Most a date may fall below its recent peak" suffix="%" min={0} max={50}
+                      value={rule.markdown_depth_pct}
+                      onChange={(e) => setRule({ ...rule, markdown_depth_pct: Number(e.target.value) })}
+                    />
+                  </div>
+                </div>
+
+
+
 
 
 
