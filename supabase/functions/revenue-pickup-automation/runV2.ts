@@ -24,6 +24,8 @@ import {
   type DecisionSettings,
   type PaceBand,
   type PickupLadderBand,
+  type OccupancyLiftBand,
+  DEFAULT_OCCUPANCY_LIFT_LADDER,
   type WindowRule,
 } from "../_shared/engineV2.ts";
 
@@ -38,8 +40,19 @@ import {
 } from "../_shared/priceBounds.ts";
 
 import { evaluateGates, evaluateWatchdog, supervisedCaps } from "../_shared/activationGate.ts";
-import { computeAdrGuard, type AdrGuardNight } from "../_shared/adrGuard.ts";
+import {
+  computeAdrGuard,
+  computeMonthPaceGuard,
+  type AdrGuardNight,
+  type MonthPaceNight,
+} from "../_shared/adrGuard.ts";
+import {
+  computeNetRateFactor,
+  grossUpFloor,
+  resolveNetRateFactor,
+} from "../_shared/netRateFactor.ts";
 import { anchorFor, buildAnchorTable } from "../_shared/seasonalAnchor.ts";
+
 
 export interface V2Deps {
   admin: any;
