@@ -26,10 +26,10 @@ export const REASON_SETTINGS: Record<string, ReasonInfo> = {
       "A genuine booking arrived during the current 30-minute observation window, which is evidence that the current price is selling. HotelCare holds this cycle and checks again 30 minutes later.",
     settings: [],
   },
-  same_day_wait_next_check: {
-    title: "Arrival today — waiting for next check",
+  same_day_dedicated: {
+    title: "Arrival today — handled by the 30-minute worker",
     explain:
-      "Today's rate was evaluated very recently, so HotelCare is waiting for the next 30-minute sell-out checkpoint instead of changing the rate twice in quick succession.",
+      "The normal hourly revenue engine intentionally leaves today's stay date alone because a dedicated sell-out worker evaluates it every 30 minutes. This prevents two automation clocks from competing over the same rate.",
     settings: [],
   },
   same_day_cutoff: {
