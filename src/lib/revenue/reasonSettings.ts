@@ -40,6 +40,32 @@ export function bandFor(daysOut: number, ladder: PickupLadderBand[] = DEFAULT_PI
   return ladder[ladder.length - 1];
 }
 
+/** Occupancy-led lifts: a well-selling date earns more without new pickup. */
+export interface OccupancyLiftBand {
+  min_occupancy_pct: number;
+  min_days_out: number;
+  pct: number;
+  min_eur: number;
+}
+
+export const DEFAULT_OCCUPANCY_LIFT_LADDER: OccupancyLiftBand[] = [
+  { min_occupancy_pct: 80, min_days_out: 7, pct: 8, min_eur: 10 },
+  { min_occupancy_pct: 70, min_days_out: 14, pct: 5, min_eur: 6 },
+  { min_occupancy_pct: 60, min_days_out: 30, pct: 3, min_eur: 4 },
+];
+
+export function normaliseOccupancyLadder(value: unknown): OccupancyLiftBand[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    return DEFAULT_OCCUPANCY_LIFT_LADDER.map((b) => ({ ...b }));
+  }
+  return value.map((raw: any, index) => ({
+    min_occupancy_pct: Number(raw?.min_occupancy_pct ?? DEFAULT_OCCUPANCY_LIFT_LADDER[index]?.min_occupancy_pct ?? 80),
+    min_days_out: Number(raw?.min_days_out ?? DEFAULT_OCCUPANCY_LIFT_LADDER[index]?.min_days_out ?? 7),
+    pct: Number(raw?.pct ?? 0),
+    min_eur: Number(raw?.min_eur ?? 0),
+  }));
+}
+
 /** Ladder rows saved on a rule, falling back to the shipped defaults. */
 export function normaliseLadder(value: unknown): PickupLadderBand[] {
   if (!Array.isArray(value) || value.length === 0) return DEFAULT_PICKUP_LADDER.map((b) => ({ ...b }));
