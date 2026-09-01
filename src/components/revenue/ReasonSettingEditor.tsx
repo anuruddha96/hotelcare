@@ -133,7 +133,12 @@ export function ReasonSettingEditor({ hotelId, hotelName, reason, stayDate, curr
           Adjust this rule
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[320px] space-y-3">
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        collisionPadding={12}
+        className="w-[calc(100vw-24px)] max-w-[360px] max-h-[72vh] overflow-y-auto space-y-3 sm:w-[360px]"
+      >
         <div>
           <p className="text-sm font-semibold">{info.title}</p>
           <p className="mt-0.5 text-xs text-muted-foreground">{info.explain}</p>
@@ -220,7 +225,7 @@ export function ReasonSettingEditor({ hotelId, hotelName, reason, stayDate, curr
 
             {info.note && <p className="text-[11px] text-muted-foreground">{info.note}</p>}
 
-            <div className="flex items-center justify-end gap-2 pt-1">
+            <div className="sticky bottom-0 -mx-1 flex items-center justify-end gap-2 border-t bg-popover/95 px-1 pt-3 pb-1 backdrop-blur">
               <Button size="sm" variant="ghost" disabled={saving} onClick={() => setOpen(false)}>Cancel</Button>
               <Button size="sm" variant="secondary" disabled={saving} onClick={() => void save(false)}>Save</Button>
               <Button size="sm" disabled={saving} onClick={() => void save(true)}>

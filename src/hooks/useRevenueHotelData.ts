@@ -15,7 +15,12 @@ import { DEFAULT_THRESHOLDS, type RevenueThresholds } from "@/lib/revenueThresho
 import { retryTransient } from "@/lib/transientRetry";
 import { runWhenRevenueEditorsClosed } from "@/lib/revenueEditGuard";
 import { EXECUTIVE_RESUME_EVENT } from "@/components/system/ExecutiveResumeRefresh";
-import { readCachedRevenuePayload, writeCachedRevenuePayload } from "@/lib/revenuePayloadCache";
+import {
+  readCachedRevenuePayload,
+  readCachedRevenueRoomMetadata,
+  writeCachedRevenuePayload,
+  writeCachedRevenueRoomMetadata,
+} from "@/lib/revenuePayloadCache";
 
 export interface RevenueRoomType {
   id: string;
@@ -65,14 +70,12 @@ type CachedRevenuePayload = {
 const revenuePayloadCache = new Map<string, CachedRevenuePayload>();
 
 /**
- * First paint only needs the months a user actually looks at first. Large
- * properties (SLNT's merged two-account property publishes ~6 MB of JSON) then
- * finish the full horizon in the background, so nobody waits on data that is
- * off screen.
+ * First paint only needs the dates a manager can immediately act on. The rest
+ * of the selected horizon is fetched after that first useful paint.
  */
-const FIRST_WINDOW_DAYS = 90;
+const FIRST_WINDOW_DAYS = 60;
 
-/** In-memory first (complete horizon), then the per-tab window from storage. */
+/** In-memory first (complete requested horizon), then the per-tab window. */
 function readAnyCache(cacheKey: string): CachedRevenuePayload | undefined {
   const memory = revenuePayloadCache.get(cacheKey);
   if (memory) return memory;
@@ -105,7 +108,7 @@ export interface RevenueHotelData {
   /** Who triggered the last revenue sync (null = automatic / unknown). */
   lastSyncBy: string | null;
   thresholds: RevenueThresholds;
-  /** True while later dates of the horizon are still being fetched. */
+  /** True while later dates of the requested horizon are still being fetched. */
   extending: boolean;
   reload: () => Promise<void>;
 }
@@ -125,7 +128,13 @@ export function useRevenueHotelData(
   const [error, setError] = useState<string | null>(null);
   const cacheKey = hotelId && organizationSlug ? `${organizationSlug}:${hotelId}` : null;
   const initialCache = cacheKey ? readAnyCache(cacheKey) : undefined;
+  const initialRoomMetadata = cacheKey
+    ? readCachedRevenueRoomMetadata<RevenueRoomType[]>(cacheKey) ?? []
+    : [];
   const [payload, setPayload] = useState<PublishedRevenuePayload | null>(initialCache?.payload ?? null);
+  const [roomMetadata, setRoomMetadata] = useState<RevenueRoomType[]>(
+    initialCache?.payload.roomTypes?.length ? initialCache.payload.roomTypes : initialRoomMetadata,
+  );
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(initialCache?.lastSyncAt ?? null);
   const [lastSyncBy, setLastSyncBy] = useState<string | null>(initialCache?.lastSyncBy ?? null);
   const payloadRef = useRef<PublishedRevenuePayload | null>(initialCache?.payload ?? null);
@@ -140,18 +149,14 @@ export function useRevenueHotelData(
     if (inFlightRef.current) return inFlightRef.current;
     const requestVersion = ++requestVersionRef.current;
 
-    // SLNT's combined two-account payload is several megabytes. Mobile
-    // connections can occasionally drop that first response even though the
-    // completed dataset is healthy. Retry only transport/5xx failures; auth,
-    // access and missing-data errors remain terminal.
-    const fetchStage = async (windowDays: number | null) => {
+    // Only request the horizon the UI asked for. The old second stage fetched
+    // the entire published JSON even when the manager was looking at 90/180d.
+    const fetchStage = async (windowDays: number) => {
       const { data } = await retryTransient(async () => {
-        const result = windowDays === null
-          ? await (supabase as any).rpc("get_revenue_published_payload", { _hotel_id: hotelId })
-          : await (supabase as any).rpc("get_revenue_published_payload_window", {
-              _hotel_id: hotelId,
-              _horizon_days: windowDays,
-            });
+        const result = await (supabase as any).rpc("get_revenue_published_payload_window", {
+          _hotel_id: hotelId,
+          _horizon_days: Math.max(1, Math.min(365, Math.ceil(windowDays))),
+        });
         if (result.error) throw result.error;
         return result;
       }, { attempts: 3, baseDelayMs: 500, maxDelayMs: 1800, timeoutMs: 30000 });
@@ -160,14 +165,15 @@ export function useRevenueHotelData(
       return row;
     };
 
-    const apply = (row: any, windowed: boolean) => {
+    const apply = (row: any, cacheFirstWindow: boolean) => {
       const next = row.payload as PublishedRevenuePayload;
+      const normalisedRoomTypes = (next.roomTypes ?? []).map((room) => ({
+        ...room,
+        name_translations: room.name_translations ?? {},
+      }));
       const completedPayload: PublishedRevenuePayload = {
         ...next,
-        roomTypes: (next.roomTypes ?? []).map((room) => ({
-          ...room,
-          name_translations: room.name_translations ?? {},
-        })),
+        roomTypes: normalisedRoomTypes,
         nights: next.nights ?? [],
         snapshots: next.snapshots ?? [],
         rates: next.rates ?? [],
@@ -180,6 +186,10 @@ export function useRevenueHotelData(
       const nextSyncBy = row.sync_completed_by_name ?? null;
       payloadRef.current = completedPayload;
       setPayload(completedPayload);
+      if (normalisedRoomTypes.length > 0) {
+        setRoomMetadata(normalisedRoomTypes);
+        writeCachedRevenueRoomMetadata(cacheKey, normalisedRoomTypes);
+      }
       setLastSyncAt(nextSyncAt);
       setLastSyncBy(nextSyncBy);
       revenuePayloadCache.set(cacheKey, {
@@ -187,9 +197,8 @@ export function useRevenueHotelData(
         lastSyncAt: nextSyncAt,
         lastSyncBy: nextSyncBy,
       });
-      // Only the small first window goes to per-tab storage: it is what makes a
-      // reload paint instantly, and it stays inside the storage quota.
-      if (windowed) {
+      // The small first window is enough to make a new tab paint quickly.
+      if (cacheFirstWindow) {
         writeCachedRevenuePayload<PublishedRevenuePayload>(cacheKey, {
           payload: completedPayload,
           lastSyncAt: nextSyncAt,
@@ -211,9 +220,14 @@ export function useRevenueHotelData(
           setLoading(false);
           setExtending(true);
         }
-        const full = await fetchStage(null);
-        if (requestVersion !== requestVersionRef.current) return;
-        apply(full, false);
+
+        // If the first stage already matches the requested horizon, do not make
+        // a duplicate network request. Otherwise extend only to what is needed.
+        if (!wantsWindow || horizonDays > FIRST_WINDOW_DAYS) {
+          const requested = await fetchStage(horizonDays);
+          if (requestVersion !== requestVersionRef.current) return;
+          apply(requested, !wantsWindow);
+        }
       } catch (e) {
         if (requestVersion !== requestVersionRef.current) return;
         // A background failure must never blank a calendar that already paints.
@@ -231,7 +245,7 @@ export function useRevenueHotelData(
     }
   }, [hotelId, organizationSlug, cacheKey, horizonDays]);
 
-  /** A full re-read: used after a sync or a price push. */
+  /** Re-read the currently requested horizon: used after a sync or price push. */
   const reload = useCallback(async () => { await runLoad(); }, [runLoad]);
 
   useEffect(() => {
@@ -240,13 +254,14 @@ export function useRevenueHotelData(
     requestVersionRef.current += 1;
     inFlightRef.current = null;
     const cached = cacheKey ? readAnyCache(cacheKey) : undefined;
+    const cachedMeta = cacheKey ? readCachedRevenueRoomMetadata<RevenueRoomType[]>(cacheKey) ?? [] : [];
     payloadRef.current = cached?.payload ?? null;
     setPayload(cached?.payload ?? null);
+    setRoomMetadata(cached?.payload.roomTypes?.length ? cached.payload.roomTypes : cachedMeta);
     setLastSyncAt(cached?.lastSyncAt ?? null);
     setLastSyncBy(cached?.lastSyncBy ?? null);
     setError(null);
   }, [cacheKey]);
-
 
   useEffect(() => {
     void runLoad();
@@ -265,12 +280,9 @@ export function useRevenueHotelData(
     return () => window.removeEventListener(EXECUTIVE_RESUME_EVENT, onResume);
   }, [hotelId, runLoad]);
 
-  // Physical inventory. Previo lists the same physical rooms twice (unit groups
-  // AND rate-plan room types) plus non-room products, so summing every row
-  // massively inflates the denominator and pushes occupancy down. Count only
-  // sellable room types explicitly flagged as inventory, and let an admin
-  // override win outright.
-  const roomTypes = payload?.roomTypes ?? [];
+  // Keep the structural room rail available even while rates are still on the
+  // wire. Prices/occupancy stay empty until verified payload data arrives.
+  const roomTypes = payload?.roomTypes?.length ? payload.roomTypes : roomMetadata;
   const nights = useMemo(() => (payload?.nights ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const snapshots = useMemo(() => (payload?.snapshots ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const rates = useMemo(() => (payload?.rates ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
@@ -294,12 +306,8 @@ export function useRevenueHotelData(
   const inventoryFromTypes = roomTypes
     .filter((r) => r.is_sellable !== false && r.counts_toward_inventory !== false)
     .reduce((s, r) => s + (r.num_rooms || 0), 0);
-  // Safety net: Previo's nightly snapshot knows the true sellable room count.
-  // If the summed room types are wildly larger (duplicated unit groups), trust
-  // the snapshot instead of halving every occupancy figure.
   const snapshotRooms = snapshots[0]?.rooms_available ?? 0;
-  const typesLookInflated =
-    snapshotRooms > 0 && inventoryFromTypes > snapshotRooms * 1.2;
+  const typesLookInflated = snapshotRooms > 0 && inventoryFromTypes > snapshotRooms * 1.2;
   const roomsAvailable = sellableOverride
     || (typesLookInflated ? snapshotRooms : inventoryFromTypes)
     || snapshotRooms;
