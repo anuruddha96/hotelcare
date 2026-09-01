@@ -425,6 +425,17 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
             ...loaded,
             pickup_increase_ladder: normaliseLadder((loaded as any).pickup_increase_ladder),
             raise_on_any_pickup: (loaded as any).raise_on_any_pickup !== false,
+            occupancy_lift_ladder: normaliseOccupancyLadder((loaded as any).occupancy_lift_ladder),
+            occupancy_lift_enabled: (loaded as any).occupancy_lift_enabled !== false,
+            net_rate_factor_enabled: (loaded as any).net_rate_factor_enabled !== false,
+            net_rate_factor_override: (loaded as any).net_rate_factor_override ?? null,
+            month_pace_guard_enabled: (loaded as any).month_pace_guard_enabled !== false,
+            adr_target_eur: (loaded as any).adr_target_eur ?? 130,
+            booked_date_brake_hours: (loaded as any).booked_date_brake_hours ?? 72,
+            rebook_window_hours: (loaded as any).rebook_window_hours ?? 24,
+            max_markdowns_per_day: (loaded as any).max_markdowns_per_day ?? 1,
+            markdown_depth_pct: (loaded as any).markdown_depth_pct ?? 12,
+
           });
         }
         setHasSavedRule(true);
