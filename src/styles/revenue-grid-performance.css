@@ -1,0 +1,26 @@
+/*
+ * Rate & Pickup calendar paint policy.
+ *
+ * The grid previously put `content-visibility:auto` on every individual cell.
+ * That saves first-paint work, but browsers are allowed to drop the paint for
+ * off-screen cells and reconstruct it when the user scrolls back. On a dense
+ * revenue calendar that is visible as a brief blank/re-render flash.
+ *
+ * The data hook now keeps the first calendar horizon much smaller and hot-
+ * cached, so we can keep mounted cells painted. This trades a little up-front
+ * paint for substantially smoother horizontal travel and instant back-scroll.
+ */
+[data-training="revenue-grid"] [style*="content-visibility"] {
+  content-visibility: visible !important;
+  contain: layout paint style;
+}
+
+/* Keep the frozen room rail visually solid while the date matrix scrolls. */
+[data-training="revenue-grid"] .sticky.left-0 {
+  backface-visibility: hidden;
+}
+
+/* Avoid browser scroll anchoring jumps when later price/history data arrives. */
+[data-training="revenue-grid"] {
+  overflow-anchor: none;
+}
