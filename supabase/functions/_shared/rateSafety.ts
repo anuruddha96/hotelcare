@@ -289,7 +289,10 @@ export async function normalizeOccupancyLadder(
       return { occupancy, price };
     }).filter((level) => Number.isFinite(level.price));
 
-    const repaired = repairLadder(merged, guestStep);
+    const base = merged[0]?.price ?? 0;
+    const currency = (template as any)?.currency ?? "EUR";
+    const repaired = repairLadder(merged, guestStep, maxGuestGapFor(base, currency));
+
     for (const level of merged) {
       const target = repaired.get(level.occupancy);
       if (target === undefined || target <= Math.round(level.price)) continue;
