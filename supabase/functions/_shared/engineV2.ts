@@ -1,18 +1,16 @@
 // Public Revenue Engine V2 entry point.
 //
-// The original, fully tested decision engine lives in engineV2Core.ts and is
-// re-exported unchanged. This policy layer adds two deliberately narrow rules:
-//   1) ARRIVAL TODAY: sell remaining inventory aggressively until 15:00, but
-//      only after a full 30-minute period without a genuine pickup.
-//   2) TOMORROW / DAY+2: keep the existing final-three-day sell-out priority.
+// The fully tested decision engine lives in engineV2Core.ts. This policy layer
+// adds one narrow near-arrival rule:
+//   • ARRIVAL TODAY is owned exclusively by revenue-same-day-sellout, which
+//     checks the current stay date every 30 minutes until 15:00.
+//   • TOMORROW / DAY+2 keep the final sell-out priority added previously.
 //
-// A dedicated same-day Edge Function performs the exact 30-minute current-date
-// checks and is authorised to work down to the €100 same-day floor. The normal
-// hourly engine still passes through this layer, so it can never contradict the
-// same-day policy by raising today's rate after a pickup or after the 15:00
-// handover time.
+// Keeping the normal hourly engine out of today's rate is deliberate: two
+// independent clocks must never compete over the same arrival-day price.
 
 export * from "./engineV2Core.ts";
+export { sameDayUrgencyStep } from "./sameDaySellout.ts";
 
 import {
   decideDate as decideDateCore,
@@ -32,9 +30,9 @@ const hoursSince = (iso: string | null, now: Date): number | null => {
   return (now.getTime() - parsed) / 3_600_000;
 };
 
-function budapestMinutes(now: Date): number {
+function localMinutes(now: Date, timeZone = "Europe/Budapest"): number {
   const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Europe/Budapest",
+    timeZone,
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
@@ -42,21 +40,6 @@ function budapestMinutes(now: Date): number {
   const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
   const minute = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
   return hour * 60 + minute;
-}
-
-/** Arrival-today markdown step. More unsold rooms means more urgency. */
-export function sameDayUrgencyStep(localMinutes: number, roomsRemaining: number): number {
-  let base = 3;
-  if (localMinutes >= 14 * 60 + 30) base = 10;
-  else if (localMinutes >= 14 * 60) base = 8;
-  else if (localMinutes >= 13 * 60) base = 7;
-  else if (localMinutes >= 12 * 60) base = 6;
-  else if (localMinutes >= 10 * 60) base = 5;
-  else if (localMinutes >= 8 * 60) base = 4;
-
-  if (roomsRemaining >= 4) base += 2;
-  else if (roomsRemaining === 1) base = Math.max(3, base - 2);
-  return whole(base);
 }
 
 /** Arrival is today/tomorrow/day+2 and at least one room remains unsold. */
@@ -68,7 +51,7 @@ export function isFinalSelloutWindow(input: DecisionInput): boolean {
     && input.roomsRemaining > 0;
 }
 
-/** Existing tomorrow/day+2 sell-out step. */
+/** Smart whole-euro markdown retained for tomorrow and day+2. */
 export function finalSelloutStep(input: DecisionInput): number {
   const netPickup = Math.max(0, input.pickup24h - input.cancellations24h);
   const occ = input.occupancyPct;
@@ -142,81 +125,7 @@ function commonSafetyHold(input: DecisionInput, settings: DecisionSettings): Dec
   return null;
 }
 
-/**
- * Current-day policy used by the normal hourly engine as a safety alignment.
- * The dedicated same-day function is the exact 30-minute runner and may work
- * down to €100. Here we honour the existing cell floors because runV2 validates
- * every room-rate cell against those bounds before publishing anyway.
- */
-function decideArrivalToday(input: DecisionInput, settings: DecisionSettings): Decision {
-  const safety = commonSafetyHold(input, settings);
-  if (safety) return safety;
-
-  const localMinutes = budapestMinutes(settings.now);
-  if (localMinutes >= 15 * 60) {
-    return blocked(
-      input,
-      settings,
-      "same_day_cutoff",
-      "Arrival-day sell-out automation stops at 15:00 local time; management takes over from here.",
-    );
-  }
-
-  // A genuine pickup inside the current 30-minute observation window means the
-  // current price is working. Hold this cycle, then reassess at the next check.
-  if (input.hoursSinceLastPickup != null && input.hoursSinceLastPickup < 0.5) {
-    return blocked(
-      input,
-      settings,
-      "same_day_recent_pickup",
-      `A genuine booking arrived ${Math.max(1, Math.round(input.hoursSinceLastPickup * 60))} minutes ago; hold this rate for the current 30-minute cycle.`,
-    );
-  }
-
-  // Prevent an hourly engine run landing immediately after the dedicated
-  // 30-minute sell-out tick from cutting the same date twice in one interval.
-  const sinceDecision = hoursSince(input.lastDecisionAt, settings.now);
-  if (sinceDecision != null && sinceDecision < 25 / 60) {
-    return blocked(
-      input,
-      settings,
-      "same_day_wait_next_check",
-      `Today's rate was evaluated ${Math.max(1, Math.round(sinceDecision * 60))} minutes ago; waiting for the next 30-minute sell-out check.`,
-    );
-  }
-
-  const current = whole(input.currentPrice!);
-  const requestedStep = sameDayUrgencyStep(localMinutes, input.roomsRemaining ?? 1);
-  const floor = whole(input.minPrice!);
-  const target = Math.max(current - requestedStep, floor);
-  const movement = target - current;
-  if (movement >= 0 || Math.abs(movement) < settings.minMovementEur) {
-    return blocked(
-      input,
-      settings,
-      "same_day_floor_reached",
-      `Today's hourly engine cannot safely move lower inside the standard room-rate floor. The dedicated same-day sell-out runner owns the authorised €100 handover floor.`,
-    );
-  }
-
-  return {
-    stayDate: input.stayDate,
-    daysOut: 0,
-    windowId: "same_day_00_15",
-    direction: "decrease",
-    movement,
-    currentPrice: current,
-    targetPrice: target,
-    paceTargetPct: null,
-    paceGapPct: null,
-    reason: "same_day_sellout",
-    reasonDetail: `${input.roomsRemaining} room${input.roomsRemaining === 1 ? "" : "s"} left; no genuine pickup in the last 30 minutes. Arrival-day sell-out mode lowers €${Math.abs(movement)} and will reassess in 30 minutes, until 15:00.`,
-    capApplied: target !== current - requestedStep ? floor : null,
-    blocked: false,
-  };
-}
-
-/** Tomorrow/day+2 policy retained from the previous final-three-day change. */
+/** Tomorrow/day+2 policy retained from the previous sell-out change. */
 function decideNextTwoDays(input: DecisionInput, settings: DecisionSettings): Decision {
   const safety = commonSafetyHold(input, settings);
   if (safety) return safety;
@@ -291,6 +200,23 @@ function decideNextTwoDays(input: DecisionInput, settings: DecisionSettings): De
 
 export function decideDate(input: DecisionInput, settings: DecisionSettings): Decision {
   if (!isFinalSelloutWindow(input)) return decideDateCore(input, settings);
-  if (input.daysOut === 0) return decideArrivalToday(input, settings);
+
+  if (input.daysOut === 0) {
+    if (localMinutes(settings.now) >= 15 * 60) {
+      return blocked(
+        input,
+        settings,
+        "same_day_cutoff",
+        "Arrival-day automatic sell-out pricing stops at 15:00 local time. Management owns the remaining inventory after the cutoff.",
+      );
+    }
+    return blocked(
+      input,
+      settings,
+      "same_day_dedicated",
+      "Today's stay date is controlled by the dedicated 30-minute sell-out worker. The normal hourly engine deliberately leaves it alone.",
+    );
+  }
+
   return decideNextTwoDays(input, settings);
 }
