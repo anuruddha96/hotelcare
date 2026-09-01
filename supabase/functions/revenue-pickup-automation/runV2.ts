@@ -1167,6 +1167,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       skip_reasons: {
         ...skipReasons,
         simulated_cells: simulatedCells,
+        ladder_repairs: ladderRepairs.length,
         adr_guard: rule.adr_guard_enabled
           ? { required_rate: adrGuard.requiredRate, projected_adr: adrGuard.projectedAdr, feasible: adrGuard.feasible, reason: adrGuard.reason }
           : null,
@@ -1194,6 +1195,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       : payload.length > 0
         ? `${payload.length} price cell${payload.length === 1 ? " was" : "s were"} queued for Previo.`
         : "No prices needed to be sent to Previo.";
+    const ladderNote = ladderRepairs.length > 0
+      ? ` Guest-price ladder repair: ${ladderRepairs.length} price${ladderRepairs.length === 1 ? " was" : "s were"} out of line with the higher occupancy prices and ${ladderRepairs.length === 1 ? "was" : "were"} lifted back into order.`
+      : "";
     const activation = gate.phase === "shadow" && gate.passed
       ? " The 24-hour safety review passed; live mode is enabled for the next run."
       : gate.phase === "live" && gate.paused
@@ -1205,7 +1209,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       actions: increases + decreases,
       pushed: 0,
       failed: budgetHit ? 1 : 0,
-      summary: `${runStatus}: ${decisions.length} dates checked, ${increases} increased, ${decreases} decreased, ${held} held. ${delivery}${activation}`,
+      summary: `${runStatus}: ${decisions.length} dates checked, ${increases} increased, ${decreases} decreased, ${held} held. ${delivery}${ladderNote}${activation}`,
     });
 
     return {
@@ -1220,6 +1224,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       held,
       cells_queued: payload.length,
       cells_simulated: simulatedCells,
+      ladder_repairs: ladderRepairs.length,
       skip_reasons: skipReasons,
       timed_out: budgetHit,
       gate,
