@@ -635,6 +635,11 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       globalMin: Number(safetyRow?.min_price ?? 0) || null,
     });
 
+    // Minimum difference between neighbouring guest counts, used by the
+    // ladder auto-heal at the end of the run.
+    const guestStep = await loadGuestStep(admin, rule.hotel_id);
+
+
     const paceBands = unwrap(paceRes).map((r: any) => ({
       min_days_out: Number(r.min_days_out),
       max_days_out: Number(r.max_days_out),
