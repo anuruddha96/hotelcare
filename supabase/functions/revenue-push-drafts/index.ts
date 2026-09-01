@@ -643,8 +643,22 @@ Deno.serve(async (req) => {
       // can arrive from Previo's own pricelist or from a per-cell floor lifting
       // one level only. Repairs go upward, so no floor is undercut.
       const repaired = repairLadder(levels);
-      if (dateAtomic && levels.some((level) => (repaired.get(level.occupancy) ?? level.price) !== level.price)) {
-        throw new Error("The complete date-column price set would require an individual occupancy repair, so the date was held.");
+      // Auto-heal instead of holding the date. A repair is upward-only, so it
+      // can never undercut a floor, a min-ADR or a markdown cap — holding the
+      // whole date-column because one occupancy level was out of order simply
+      // meant the correct prices never reached Previo. We publish the healed
+      // ladder and record what was lifted.
+      const lifted = levels.filter((level) => (repaired.get(level.occupancy) ?? level.price) !== level.price);
+      if (lifted.length > 0) {
+        ladderHeals.push({
+          stay_date: g.stay_date,
+          room_type_name: g.room_type_name,
+          levels: lifted.map((l) => ({
+            occupancy: l.occupancy,
+            from: l.price,
+            to: repaired.get(l.occupancy) ?? l.price,
+          })),
+        });
       }
       return levels.map((l) => ({ occupancy: l.occupancy, price: repaired.get(l.occupancy) ?? l.price }));
     };
