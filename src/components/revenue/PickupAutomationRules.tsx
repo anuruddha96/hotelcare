@@ -66,6 +66,17 @@ interface Rule {
   fill_max_total_drop_pct: number;
   pickup_increase_ladder: PickupLadderBand[];
   raise_on_any_pickup: boolean;
+  net_rate_factor_enabled: boolean;
+  net_rate_factor_override: number | null;
+  month_pace_guard_enabled: boolean;
+  adr_target_eur: number;
+  occupancy_lift_enabled: boolean;
+  occupancy_lift_ladder: OccupancyLiftBand[];
+  booked_date_brake_hours: number;
+  rebook_window_hours: number;
+  max_markdowns_per_day: number;
+  markdown_depth_pct: number;
+
 
 
   cancellation_markdown_enabled: boolean;
