@@ -170,6 +170,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [unassignDialogOpen, setUnassignDialogOpen] = useState(false);
   const [workingRoomDialogOpen, setWorkingRoomDialogOpen] = useState(false);
   const [pendingRoomsDialogOpen, setPendingRoomsDialogOpen] = useState(false);
+  const [pendingRoomsMode, setPendingRoomsMode] = useState<'pending' | 'dnd_retry'>('pending');
   const [doneRoomsDialogOpen, setDoneRoomsDialogOpen] = useState(false);
   const [staffAttendance, setStaffAttendance] = useState<Record<string, any>>({});
   const [staffSchedules, setStaffSchedules] = useState<Record<string, ScheduledShift>>({});
@@ -1083,6 +1084,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                         onClick={() => {
                           if (assignment.pending > 0) {
                             setSelectedStaff({ id: staff.id, name: staff.full_name });
+                            setPendingRoomsMode('pending');
                             setPendingRoomsDialogOpen(true);
                           }
                         }}
@@ -1099,6 +1101,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                         onClick={() => {
                           if (assignment.dnd > 0) {
                             setSelectedStaff({ id: staff.id, name: staff.full_name });
+                            setPendingRoomsMode('dnd_retry');
                             setPendingRoomsDialogOpen(true);
                           }
                         }}
@@ -1219,7 +1222,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogCancel disabled={false}>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={() => {
               handleBulkUnassign();
               setUnassignDialogOpen(false);
@@ -1241,7 +1244,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         />
       )}
 
-      {/* Pending Rooms Dialog */}
+      {/* Pending / DND retry Rooms Dialog */}
       {selectedStaff && (
         <PendingRoomsDialog
           open={pendingRoomsDialogOpen}
@@ -1249,6 +1252,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           staffId={selectedStaff.id}
           staffName={selectedStaff.name}
           selectedDate={selectedDate}
+          mode={pendingRoomsMode}
         />
       )}
 
