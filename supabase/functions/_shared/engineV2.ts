@@ -814,14 +814,19 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
       );
     }
     // Anti-arbitrage 2: a date that just took a booking is not cut, or the same
-    // guest cancels and rebooks the same night cheaper.
+    // guest cancels and rebooks the same night cheaper. The final selling window
+    // is exempt — inside a week the hotel must be free to sell the last rooms.
     const brakeHours = Math.max(0, settings.bookedDateBrakeHours ?? 0);
-    if (brakeHours > 0 && input.hoursSinceLastPickup != null && input.hoursSinceLastPickup < brakeHours) {
+    if (
+      input.daysOut > 7 && brakeHours > 0
+      && input.hoursSinceLastPickup != null && input.hoursSinceLastPickup < brakeHours
+    ) {
       return blocked(
         "booked_date_brake",
         `This date took a booking ${Math.round(input.hoursSinceLastPickup)}h ago; it is not marked down for ${brakeHours}h.`,
       );
     }
+
 
     // One markdown per date per day, and never on a day the date already rose.
     const maxMarkdowns = Math.max(0, settings.maxMarkdownsPerDay ?? 0);
