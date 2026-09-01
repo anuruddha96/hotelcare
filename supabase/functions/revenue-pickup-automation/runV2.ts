@@ -52,6 +52,8 @@ import {
   resolveNetRateFactor,
 } from "../_shared/netRateFactor.ts";
 import { anchorFor, buildAnchorTable } from "../_shared/seasonalAnchor.ts";
+import { loadGuestStep, maxGuestGapFor, repairLadder } from "../_shared/rateSafety.ts";
+
 
 
 export interface V2Deps {
@@ -633,6 +635,11 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       globalMin: Number(safetyRow?.min_price ?? 0) || null,
     });
 
+    // Minimum difference between neighbouring guest counts, used by the
+    // ladder auto-heal at the end of the run.
+    const guestStep = await loadGuestStep(admin, rule.hotel_id);
+
+
     const paceBands = unwrap(paceRes).map((r: any) => ({
       min_days_out: Number(r.min_days_out),
       max_days_out: Number(r.max_days_out),
@@ -1002,7 +1009,85 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       }
     }
 
+    // ---- 3b. Guest-price ladder auto-heal ----------------------------------
+    //
+    // The engine moves a whole stay date in lockstep, but historic edits, PMS
+    // imports and per-cell floors leave real errors behind: a 3-guest price
+    // BELOW the 2-guest price, or a 1-guest price sitting far under the
+    // 2-guest price so the cheapest pillar sells the room. This pass reads the
+    // prices as they will stand after this run, repairs those ladders upwards
+    // only, and reports what it fixed. It never lowers a price.
+    const ladderRepairs: Array<Record<string, unknown>> = [];
+    {
+      const movedPrice = new Map<string, number>();
+      for (const cell of payload) {
+        movedPrice.set(`${cell.stay_date}|${cell.obk_id ?? ""}|${cell.room_type_name ?? ""}|${cell.occupancy}`, Number(cell.new_price));
+      }
+      for (const [stayDate, cells] of byDate) {
+        const daysOut = dayDiff(today, stayDate);
+        if (daysOut < 0 || daysOut > horizonDays) continue;
+        const groups = new Map<string, CellRate[]>();
+        for (const cell of cells) {
+          const key = `${cell.obk_id ?? ""}|${cell.room_type_name ?? ""}`;
+          const list = groups.get(key) ?? [];
+          list.push(cell);
+          groups.set(key, list);
+        }
+        for (const group of groups.values()) {
+          if (group.length < 2) continue;
+          const levels = group.map((cell) => ({
+            occupancy: cell.occupancy,
+            price: whole(
+              movedPrice.get(`${stayDate}|${cell.obk_id ?? ""}|${cell.room_type_name ?? ""}|${cell.occupancy}`)
+                ?? cell.price,
+            ),
+            cell,
+          })).sort((a, b) => a.occupancy - b.occupancy);
+          const currency = group[0].currency ?? rule.currency ?? "EUR";
+          const repaired = repairLadder(
+            levels.map((l) => ({ occupancy: l.occupancy, price: l.price })),
+            guestStep,
+            maxGuestGapFor(levels[0].price, currency),
+          );
+          for (const level of levels) {
+            const target = repaired.get(level.occupancy);
+            if (target === undefined || target <= level.price) continue;
+            const cellBounds = boundsFor(level.cell.room_type_name, level.occupancy);
+            const capped = isBoundsFailure(cellBounds) ? target : Math.min(target, whole(cellBounds.max));
+            if (capped <= level.price) continue;
+            ladderRepairs.push({
+              hotel_id: rule.hotel_id,
+              organization_slug: rule.organization_slug,
+              stay_date: stayDate,
+              obk_id: level.cell.obk_id,
+              room_type_name: level.cell.room_type_name,
+              occupancy: level.occupancy,
+              old_price: level.price,
+              new_price: capped,
+              currency,
+              status: "draft",
+              intent_source: "ladder_repair",
+              decision_reason: "ladder_repair",
+              reason_detail:
+                `Guest-price ladder repair: ${level.occupancy} guest${level.occupancy === 1 ? "" : "s"} was priced ${level.price} — out of line with the higher occupancy prices on this date, so it was lifted to ${capped}.`,
+            });
+          }
+        }
+      }
+      if (mode === "live" && !dryRun && ladderRepairs.length > 0) {
+        for (const repair of ladderRepairs) {
+          const key = `${repair.stay_date}|${repair.obk_id ?? ""}|${repair.room_type_name ?? ""}|${repair.occupancy}`;
+          const existing = payload.find((p) =>
+            `${p.stay_date}|${p.obk_id ?? ""}|${p.room_type_name ?? ""}|${p.occupancy}` === key
+          );
+          if (existing) existing.new_price = repair.new_price;
+          else payload.push(repair);
+        }
+      }
+    }
+
     const insertedDecisionIds = new Map<string, string>();
+
     for (let i = 0; i < decisionRows.length; i += 500) {
       const { data, error } = await admin.from("revenue_date_decisions")
         .insert(decisionRows.slice(i, i + 500)).select("id, stay_date");
@@ -1082,6 +1167,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       skip_reasons: {
         ...skipReasons,
         simulated_cells: simulatedCells,
+        ladder_repairs: ladderRepairs.length,
         adr_guard: rule.adr_guard_enabled
           ? { required_rate: adrGuard.requiredRate, projected_adr: adrGuard.projectedAdr, feasible: adrGuard.feasible, reason: adrGuard.reason }
           : null,
@@ -1109,6 +1195,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       : payload.length > 0
         ? `${payload.length} price cell${payload.length === 1 ? " was" : "s were"} queued for Previo.`
         : "No prices needed to be sent to Previo.";
+    const ladderNote = ladderRepairs.length > 0
+      ? ` Guest-price ladder repair: ${ladderRepairs.length} price${ladderRepairs.length === 1 ? " was" : "s were"} out of line with the higher occupancy prices and ${ladderRepairs.length === 1 ? "was" : "were"} lifted back into order.`
+      : "";
     const activation = gate.phase === "shadow" && gate.passed
       ? " The 24-hour safety review passed; live mode is enabled for the next run."
       : gate.phase === "live" && gate.paused
@@ -1120,7 +1209,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       actions: increases + decreases,
       pushed: 0,
       failed: budgetHit ? 1 : 0,
-      summary: `${runStatus}: ${decisions.length} dates checked, ${increases} increased, ${decreases} decreased, ${held} held. ${delivery}${activation}`,
+      summary: `${runStatus}: ${decisions.length} dates checked, ${increases} increased, ${decreases} decreased, ${held} held. ${delivery}${ladderNote}${activation}`,
     });
 
     return {
@@ -1135,6 +1224,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       held,
       cells_queued: payload.length,
       cells_simulated: simulatedCells,
+      ladder_repairs: ladderRepairs.length,
       skip_reasons: skipReasons,
       timed_out: budgetHit,
       gate,

@@ -143,6 +143,13 @@ const strongOccupancy: NumberSetting = {
 };
 
 export const REASON_SETTINGS: Record<string, ReasonInfo> = {
+  ladder_repair: {
+    title: "Guest-price ladder repair",
+    explain:
+      "A price was out of line with the other guest counts for the same room and date — a higher occupancy priced below a lower one, or the 1-guest rate sitting too far below the 2-guest rate. It was lifted back into order; repairs only ever move a price up.",
+    settings: [],
+  },
+
   genuine_pickup: {
     title: "New booking — price raised",
     explain: "A genuine new reservation arrived for this date, so the price went up by the surcharge set for this lead time.",
