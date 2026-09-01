@@ -49,7 +49,26 @@ export function usePickupAutomationActions(hotelId?: string | null, limit = 1000
     setRows((data ?? []) as unknown as AutomationAction[]);
   }, [hotelId, limit]);
 
-  useEffect(() => { void load(); }, [load]);
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
+  // The automation trail is explanatory decoration, not a dependency for the
+  // actual live prices. Let the room rail and rate cells paint first, then load
+  // the purple-dot history when the browser is idle.
+  useEffect(() => {
+    if (!hotelId) { setRows([]); return; }
+    const run = () => { void loadRef.current(); };
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (idleWindow.requestIdleCallback) {
+      const id = idleWindow.requestIdleCallback(run, { timeout: 2400 });
+      return () => idleWindow.cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(run, 1400);
+    return () => window.clearTimeout(t);
+  }, [hotelId, load]);
 
   /**
    * The hotel-wide read above is capped, and the engine writes hundreds of rows

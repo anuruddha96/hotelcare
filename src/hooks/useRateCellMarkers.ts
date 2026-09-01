@@ -7,6 +7,7 @@ import { indexCellMarkers, dayMarkers, type CellMarkerRow } from "@/lib/rateMark
  * property's audit trail was three times the work for no visible difference.
  */
 const MARKER_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+const INITIAL_MARKER_DELAY_MS = 1200;
 
 /**
  * One bounded fetch per visible calendar range: the newest change on every
@@ -28,10 +29,6 @@ export function useRateCellMarkers(hotelId?: string | null, from?: string, to?: 
     setLoading(true);
     try {
       const since = new Date(Date.now() - MARKER_WINDOW_MS).toISOString();
-      // ONE call. This read collapses a week of audit rows per cell, which on a
-      // busy property costs several seconds — paging it in 1000-row chunks re-ran
-      // that whole scan for every page, so the dots arrived far too late (or not
-      // at all) and only a hovered cell's own history could colour them.
       const { data, error } = await supabase.rpc("rate_cell_markers", {
         p_hotel_id: hotelId,
         p_from: from,
@@ -42,7 +39,6 @@ export function useRateCellMarkers(hotelId?: string | null, from?: string, to?: 
       } as never);
       if (error) throw error;
       setRows((data ?? []) as unknown as CellMarkerRow[]);
-
     } catch (err) {
       // A failed refresh must never erase markers we already have on screen —
       // that is exactly how a reload used to lose every change dot.
@@ -52,15 +48,24 @@ export function useRateCellMarkers(hotelId?: string | null, from?: string, to?: 
     }
   }, [hotelId, from, to]);
 
-
-
   const loadRef = useRef(load);
   loadRef.current = load;
 
-  // The calendar extends its range while you scroll, so a bare effect fired this
-  // heavy read once per extension. Coalesce those into one.
+  // Markers are secondary decoration. Give the rate grid and room rail the
+  // browser's first paint, then fill the dots in quietly. Coalesce horizon
+  // changes into the same trailing request so scrolling never competes with
+  // the calendar for the main thread.
   useEffect(() => {
-    const t = window.setTimeout(() => { void loadRef.current(); }, 250);
+    const run = () => { void loadRef.current(); };
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (idleWindow.requestIdleCallback) {
+      const id = idleWindow.requestIdleCallback(run, { timeout: INITIAL_MARKER_DELAY_MS + 800 });
+      return () => idleWindow.cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(run, INITIAL_MARKER_DELAY_MS);
     return () => window.clearTimeout(t);
   }, [load]);
 
@@ -70,12 +75,13 @@ export function useRateCellMarkers(hotelId?: string | null, from?: string, to?: 
   // Automation moves prices in the background: pick those dots up on their own
   // rather than waiting for the user to touch a cell.
   useEffect(() => {
-    const t = window.setInterval(() => { void loadRef.current(); }, 120_000);
+    const t = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadRef.current();
+    }, 120_000);
     return () => window.clearInterval(t);
   }, []);
 
   useEffect(() => {
-
     const timer = window.setInterval(() => setTick(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
