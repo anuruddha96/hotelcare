@@ -656,6 +656,10 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       ? rule.pickup_increase_ladder
       : DEFAULT_PICKUP_LADDER) as PickupLadderBand[];
 
+    const occupancyLiftLadder = (Array.isArray(rule.occupancy_lift_ladder) && rule.occupancy_lift_ladder.length > 0
+      ? rule.occupancy_lift_ladder
+      : DEFAULT_OCCUPANCY_LIFT_LADDER) as OccupancyLiftBand[];
+
     const settings: DecisionSettings = {
       ...DEFAULT_DECISION_SETTINGS,
       now,
@@ -669,6 +673,13 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       pickupLadder,
       raiseOnAnyPickup: rule.raise_on_any_pickup !== false,
       strongOccupancyPct: Math.max(50, Number(rule.high_occupancy_pct ?? 85)),
+      occupancyLiftEnabled: rule.occupancy_lift_enabled !== false,
+      occupancyLiftLadder,
+      bookedDateBrakeHours: Math.max(0, Number(rule.booked_date_brake_hours ?? 72)),
+      rebookWindowHours: Math.max(0, Number(rule.rebook_window_hours ?? 24)),
+      maxMarkdownsPerDay: Math.max(0, Number(rule.max_markdowns_per_day ?? 1)),
+      maxMarkdownDepthPct: Math.min(50, Math.max(0, Number(rule.markdown_depth_pct ?? 12))),
+      netRateFactor: netRate.factor,
       fill: {
         enabled: Boolean(rule.fill_mode_enabled),
         windowDays: Math.max(0, Number(rule.fill_window_days ?? 60)),
@@ -680,6 +691,10 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
     // Rolling ADR guard: the next few nights must still average the target rate,
     // so a sell-down can never dump the week below what it needs to earn.
+    // Both the target and the money on the books are expressed in GRID terms
+    // (divided by the net rate factor), so the guard talks the same language as
+    // the prices it protects.
+    const netFactor = netRate.factor > 0 ? netRate.factor : 1;
     const adrGuard = rule.adr_guard_enabled
       ? computeAdrGuard(
         Array.from(byDate.keys()).sort().map((stayDate): AdrGuardNight => {
@@ -692,17 +707,50 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
             daysOut: dayDiff(today, stayDate),
             roomsSold: occ?.sold ?? null,
             roomsRemaining: occ?.left ?? null,
-            revenueOnBooks: occ?.revenue ?? null,
+            revenueOnBooks: occ?.revenue == null ? null : occ.revenue / netFactor,
             currentPrice: ref ? whole(ref.price) : null,
             maxPrice: isBoundsFailure(bounds) ? null : bounds.max,
           };
         }),
         {
-          targetAdr: Number(rule.adr_target_eur ?? 0),
+          targetAdr: Number(rule.adr_target_eur ?? 0) / netFactor,
           windowDays: Math.max(1, Number(rule.adr_window_days ?? 7)),
         },
       )
       : { floors: {}, projectedAdr: null, requiredRate: null, feasible: false, reason: "guard_off" };
+
+    // Month-end ADR pacing. The manager is judged on the month, not on the week:
+    // a month running below its target stops discounting and floors its
+    // remaining dates at the rate it still needs; a month already above target
+    // is free to discount and fill.
+    const monthGuard = rule.month_pace_guard_enabled
+      ? computeMonthPaceGuard(
+        Array.from(byDate.keys()).sort().map((stayDate): MonthPaceNight => {
+          const occ = occByDate.get(stayDate);
+          return {
+            stayDate,
+            roomsSold: occ?.sold ?? null,
+            roomsRemaining: occ?.left ?? null,
+            revenueOnBooks: occ?.revenue == null ? null : occ.revenue / netFactor,
+          };
+        }),
+        {
+          defaultTargetAdr: Number(rule.adr_target_eur ?? 0) / netFactor,
+          monthlyTargets: (() => {
+            const raw = rule.monthly_adr_targets;
+            if (!raw || typeof raw !== "object") return null;
+            const out: Record<string, number> = {};
+            for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+              const value = Number(v);
+              if (Number.isFinite(value) && value > 0) out[k] = value / netFactor;
+            }
+            return out;
+          })(),
+        },
+      )
+      : { byMonth: {}, floors: {}, frozenMonths: [] as string[] };
+    const frozenMonths = new Set(monthGuard.frozenMonths);
+
 
 
     // ---- 3. One decision per stay date -------------------------------------
