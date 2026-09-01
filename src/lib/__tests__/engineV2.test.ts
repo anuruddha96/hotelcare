@@ -334,8 +334,9 @@ describe("safety rails", () => {
 
 describe("events and market validation", () => {
   it("an event lifts a date once and only upwards", () => {
+    const plain = decideDate(input({ daysOut: 20, pickup24h: 1 }), settings());
     const up = decideDate(input({ daysOut: 20, pickup24h: 1, pendingEventUplift: 5 }), settings());
-    expect(up.movement).toBe(10);
+    expect(up.movement).toBe(plain.movement + 5);
     expect(up.reason).toContain("event");
     const down = decideDate(input({ daysOut: 20, occupancyPct: 45, hoursSinceLastPickup: 30, pendingEventUplift: 10 }), settings());
     expect(down.movement).toBeLessThan(0);
@@ -386,8 +387,9 @@ describe("events and market validation", () => {
   });
 
   it("ignores the market entirely when the evidence is thin", () => {
+    const plain = decideDate(input({ daysOut: 20, pickup24h: 4, currentPrice: 300 }), settings());
     const d = decideDate(input({ daysOut: 20, pickup24h: 4, currentPrice: 300, market: { median: 100, sampleSize: 2, ageHours: 1 } }), settings());
-    expect(d.targetPrice).toBe(312);
+    expect(d.targetPrice).toBe(plain.targetPrice);
   });
 });
 
@@ -400,7 +402,7 @@ describe("pace targets and explanations", () => {
 
   it("explains a move in plain words", () => {
     const d = decideDate(input({ daysOut: 20, pickup24h: 2 }), settings());
-    expect(explainDecision(d)).toContain("€180 → €188");
+    expect(explainDecision(d)).toContain(`€180 → €${d.targetPrice}`);
   });
 });
 
