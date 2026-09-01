@@ -734,14 +734,49 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   }
 
   // --- Pickup is always evaluated before any markdown branch -----------------
-  const intent = inFillWindow
+  let intent = inFillWindow
     ? fillIntent(input, win, gap, settings)
     : windowIntent(input, win, gap, settings);
+
+  // --- ADR-first overrides ---------------------------------------------------
+  // 1. Hard ADR stop. A cell sitting under the rate the hotel must load to bank
+  //    its ADR target (after channel discounting) is lifted, whatever the
+  //    pickup story says. Nothing else in the engine can produce this move.
+  const netFloor = input.hardAdrFloor != null && Number.isFinite(input.hardAdrFloor)
+    && Number(input.hardAdrFloor) > 0 ? whole(Number(input.hardAdrFloor)) : null;
+  if (netFloor != null && current < netFloor) {
+    const step = netFloor - current;
+    intent = {
+      raw: step,
+      reason: "net_adr_floor",
+      detail: `€${current} is below the €${netFloor} this date must be loaded at to bank the ADR target; lifting.`,
+      maxDailyOverride: step,
+    };
+  } else if (intent.raw <= 0 && settings.occupancyLiftEnabled !== false) {
+    // 2. Occupancy-led lift. A date already selling well earns a higher price on
+    //    the strength of its occupancy alone — no new booking required.
+    const band = occupancyLiftBandFor(
+      input.occupancyPct, input.daysOut,
+      settings.occupancyLiftLadder ?? DEFAULT_OCCUPANCY_LIFT_LADDER,
+    );
+    if (band) {
+      const step = Math.max(whole(Number(band.min_eur) || 0), whole(current * (Number(band.pct) || 0) / 100));
+      if (step > 0) {
+        intent = {
+          raw: step,
+          reason: "occupancy_lift",
+          detail: `${Math.round(input.occupancyPct ?? 0)}% sold ${input.daysOut} days out; lifting €${step} on strength of demand.`,
+          maxDailyOverride: step,
+        };
+      }
+    }
+  }
 
   let raw = intent.raw;
   let reason = intent.reason;
   let detail = intent.detail;
   if (raw === 0) return blocked(intent.blockReason ?? "hold", intent.blockDetail ?? detail);
+
 
   if (holdActive) {
     const genuinePickup = Math.max(0, input.pickup24h - input.cancellations24h) > 0;
