@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, AlertTriangle, Bot, User as UserIcon, ArrowRight, Info, ArrowUpRight, Loader2 } from 'lucide-react';
+import { Bell, AlertTriangle, Bot, User as UserIcon, ArrowRight, Info, ArrowUpRight, Loader2, Search, FilterX } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -38,6 +39,15 @@ const money = (value: number | null | undefined, currency: string | null | undef
     : `${Math.round(Number(value))} ${currency ?? ''}`.trim();
 
 
+type DirectionFilter = 'all' | 'increase' | 'decrease' | 'hold';
+
+const DIRECTION_FILTERS: Array<{ value: DirectionFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'increase', label: 'Raised' },
+  { value: 'decrease', label: 'Lowered' },
+  { value: 'hold', label: 'Held' },
+];
+
 /** Bell + inbox for revenue price-automation activity. */
 export function RevenueAutomationNotifications() {
   const canSee = useCanSeeAutomationNotifications();
@@ -49,6 +59,9 @@ export function RevenueAutomationNotifications() {
   const [decisions, setDecisions] = useState<AutomationDecision[]>([]);
   const [decisionsLoading, setDecisionsLoading] = useState(false);
   const [decisionsError, setDecisionsError] = useState<string | null>(null);
+  const [directionFilter, setDirectionFilter] = useState<DirectionFilter>('all');
+  const [reasonFilter, setReasonFilter] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
   const welcomed = useRef(false);
 
   // One tasteful catch-up message per session — never one toast per change.
@@ -72,6 +85,9 @@ export function RevenueAutomationNotifications() {
     setDetail(item);
     setDecisions([]);
     setDecisionsError(null);
+    setDirectionFilter('all');
+    setReasonFilter(null);
+    setSearch('');
     if (!item.read) void markRead(item.id);
     if (item.automation_run_id) {
       setDecisionsLoading(true);
@@ -87,6 +103,16 @@ export function RevenueAutomationNotifications() {
     counts[key] = (counts[key] ?? 0) + 1;
     return counts;
   }, {});
+
+  const term = search.trim().toLowerCase();
+  const visibleDecisions = decisions.filter((row) => {
+    if (directionFilter !== 'all' && row.direction !== directionFilter) return false;
+    if (reasonFilter && row.decision_reason !== reasonFilter) return false;
+    if (!term) return true;
+    return `${row.stay_date} ${row.decision_reason} ${reasonInfo(row.decision_reason).title} ${row.reason_detail ?? ''}`
+      .toLowerCase()
+      .includes(term);
+  });
 
   return (
     <>
