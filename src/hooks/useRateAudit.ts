@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { cellKey, type RateAuditRow } from "@/lib/rateAudit";
 
-
 /** Sources written by a person acting in the app (not the alert engine). */
 export const HUMAN_SOURCES = ["day-tool", "cell-edit", "demand", "push", "push_automation", "autopilot", "bulk-editor", "pickup-board", "previo_confirmed", "previo_automation_confirmed", "previo_bulk_confirmed", "previo_external", "previo_different"];
 
@@ -19,9 +18,6 @@ export interface CellOriginInfo {
   price: number | null;
   requested?: number | null;
 }
-
-
-
 
 /**
  * Price-change activity for one hotel: the newest entries for the activity
@@ -43,8 +39,6 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
         .from("rate_change_audit")
         .select("id, stay_date, action, source, old_rate_eur, new_rate_eur, delta_eur, notes, performed_at, performed_by, payload")
         .eq("hotel_id", hotelId);
-      // The rate-alert engine writes tens of thousands of rows with no user and
-      // no room type; without this filter they bury everything a person did.
       if (!includeSystem) query = query.in("source", HUMAN_SOURCES);
       const { data, error } = await query
         .order("performed_at", { ascending: false })
@@ -53,11 +47,6 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
       const list = (data ?? []) as unknown as RateAuditRow[];
       setRows(list);
 
-      // Hand-made changes are fetched on their own: a season-wide bulk edit can
-      // write thousands of rows and would otherwise push every manual entry out
-      // of the shared window, making the blue dots disappear from the grid.
-      // The window is capped in time as well as in rows — an unbounded scan of
-      // this table was the single heaviest query on the database.
       const since = new Date(Date.now() - 90 * 86_400_000).toISOString();
       const { data: manualData } = await supabase
         .from("rate_change_audit")
@@ -69,10 +58,6 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
         .limit(1500);
       setManualRows((manualData ?? []) as unknown as RateAuditRow[]);
 
-
-
-      // Only the activity panel shows this number, and only as "N engine
-      // entries hidden" — a planned (estimated) count keeps it off the disk.
       if (!includeSystem) {
         const { count } = await supabase
           .from("rate_change_audit")
@@ -101,16 +86,29 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
     }
   }, [hotelId, limit, includeSystem]);
 
-  useEffect(() => { void load(); }, [load]);
-
   const loadRef = useRef(load);
   loadRef.current = load;
 
+  // Audit history is useful context, but it is not needed to paint live rates.
+  // Delay its initial read until after the browser has had a chance to make the
+  // rate grid interactive. Hover/tap-specific history still loads on demand.
+  useEffect(() => {
+    if (!hotelId) { setRows([]); setManualRows([]); return; }
+    const run = () => { void loadRef.current(); };
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (idleWindow.requestIdleCallback) {
+      const id = idleWindow.requestIdleCallback(run, { timeout: 2600 });
+      return () => idleWindow.cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(run, 1600);
+    return () => window.clearTimeout(t);
+  }, [hotelId, load]);
+
   useEffect(() => {
     if (!hotelId) return;
-    // A single publish writes thousands of audit rows. Reloading per row melted
-    // the database, so refreshes are collapsed into one trailing run and are
-    // skipped entirely while the tab is in the background.
     let timer: ReturnType<typeof setTimeout> | null = null;
     let pending = false;
     const schedule = () => {
@@ -140,12 +138,8 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
     };
   }, [hotelId]);
 
-
   const byCell = useMemo(() => {
     const map = new Map<string, RateAuditRow[]>();
-    // The shared window is small and easily filled by bulk work, so the
-    // dedicated hand-made rows are merged in — otherwise a cell the user just
-    // priced would show no history at all.
     const seen = new Set<string>();
     const merged = [...rows, ...manualRows]
       .filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)))
@@ -161,8 +155,6 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
     return map;
   }, [rows, manualRows]);
 
-
-  /** Only authoritatively confirmed changes drive the blue/orange marker. */
   const manualByCell = useMemo(() => {
     const map = new Map<string, RateAuditRow[]>();
     for (const r of manualRows) {
@@ -178,10 +170,6 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
     return map;
   }, [manualRows]);
 
-  /**
-   * The newest authoritative story per cell: who set this price and whether
-   * Previo published exactly what Hotel Care asked for.
-   */
   const originByCell = useMemo(() => {
     const map = new Map<string, CellOriginInfo>();
     const ordered = [...manualRows].sort((a, b) => b.performed_at.localeCompare(a.performed_at));
@@ -189,8 +177,6 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
       const rt = r.payload?.room_type_name;
       const occ = r.payload?.occupancy;
       if (!r.stay_date || !rt || occ === undefined || !r.source) continue;
-      // A mismatch someone has already checked in Previo is history, not an
-      // open problem: it must not keep a red ring on the cell.
       if (r.source === "previo_different" && r.payload?.resolved_at) continue;
       const key = cellKey(r.stay_date, rt, occ);
       if (map.has(key)) continue;
@@ -211,6 +197,4 @@ export function useRateAudit(hotelId?: string | null, limit = 400, includeSystem
   }, [manualRows]);
 
   return { rows, manualRows, byCell, manualByCell, originByCell, names, loading, systemCount, reload: load };
-
 }
-
