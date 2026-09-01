@@ -440,6 +440,61 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       return out;
     })();
 
+    // ---- Net rate factor ---------------------------------------------------
+    // The grid price is not what the hotel banks: derived OTA plans, single
+    // occupancy and channel discounts sell the same room lower. Measure that
+    // leakage from the hotel's own bookings so every ADR floor can be grossed
+    // up before it is applied to the grid.
+    const gridPriceFor = (() => {
+      const exact = new Map<string, number>();
+      const cheapest = new Map<string, number>();
+      for (const cell of byDate.values()) {
+        for (const c of cell) {
+          const price = Number(c.price);
+          if (!Number.isFinite(price) || price <= 0) continue;
+          const occKey = `${c.stay_date}|${c.occupancy}`;
+          exact.set(`${c.stay_date}|${c.room_type_name ?? ""}|${c.occupancy}`, price);
+          const seen = cheapest.get(occKey);
+          if (seen == null || price < seen) cheapest.set(occKey, price);
+        }
+      }
+      return (stayDate: string, roomTypeName: string | null, occupancy: number): number | null =>
+        exact.get(`${stayDate}|${roomTypeName ?? ""}|${occupancy}`)
+          ?? cheapest.get(`${stayDate}|${occupancy}`)
+          ?? cheapest.get(`${stayDate}|2`)
+          ?? null;
+    })();
+
+    const realisedRows = rule.net_rate_factor_enabled === false
+      ? []
+      : ((await deps.pagedAll((f: number, t: number) => admin.from("revenue_booking_nights")
+        .select("stay_date, room_type_name, guests, nightly_price_eur")
+        .eq("hotel_id", rule.hotel_id)
+        .gte("stay_date", today).lte("stay_date", horizonDate)
+        .order("stay_date").range(f, t))).data ?? []) as any[];
+
+    const netRate = resolveNetRateFactor(
+      rule.net_rate_factor_enabled !== false,
+      rule.net_rate_factor_override,
+      computeNetRateFactor(
+        realisedRows.map((r) => ({
+          stayDate: r.stay_date,
+          roomTypeName: r.room_type_name ?? null,
+          guests: r.guests == null ? null : Number(r.guests),
+          nightlyPriceEur: r.nightly_price_eur == null ? null : Number(r.nightly_price_eur),
+        })),
+        gridPriceFor,
+      ),
+    );
+
+    // The absolute stop: no date may sit below the grid price the hotel needs
+    // to load in order to bank its minimum ADR once discounting is applied.
+    const hardAdrFloor = grossUpFloor(
+      Number(rule.minimum_adr) > 0 ? Number(rule.minimum_adr) : null,
+      netRate.factor,
+    );
+
+
 
     const occByDate = new Map<string, {
       pct: number | null; sold: number | null; left: number | null; revenue: number | null;
