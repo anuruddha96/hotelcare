@@ -279,8 +279,8 @@ describe("safety rails", () => {
   });
 
   it("the daily allowance is spent per date and per direction", () => {
-    const allowance = decideDate(input({ daysOut: 20, pickup24h: 4 }), settings()).dailyAllowanceEur
-      ?? decideDate(input({ daysOut: 20, pickup24h: 4 }), settings()).movement;
+    const allowance = decideDate(input({ daysOut: 20, pickup24h: 4 }), settings()).movement;
+
     const spent = decideDate(input({ daysOut: 20, pickup24h: 4, movedUpTodayEur: allowance + 10 }), settings());
     expect(spent.reason).toBe("daily_budget_spent");
   });
