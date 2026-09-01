@@ -908,11 +908,24 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
     && input.campaignStartPrice > 0
     ? whole(input.campaignStartPrice * (1 - Math.max(0, fill!.maxTotalDropPct) / 100))
     : null;
+  // The stay month must still be able to reach its average-rate target, and a
+  // date may never be discounted far below the price it recently held.
+  const monthFloor = input.monthFloor != null && Number.isFinite(input.monthFloor)
+    && Number(input.monthFloor) > 0 ? whole(Number(input.monthFloor)) : null;
+  const depthPct = Math.max(0, settings.maxMarkdownDepthPct ?? 0);
+  const depthFloor = depthPct > 0 && input.recentPeakPrice != null
+    && Number.isFinite(input.recentPeakPrice) && Number(input.recentPeakPrice) > 0
+    ? whole(Number(input.recentPeakPrice) * (1 - depthPct / 100))
+    : null;
   const floor = Math.max(
     whole(input.minPrice),
     adrFloor ?? 0,
     campaignFloor ?? 0,
+    netFloor ?? 0,
+    monthFloor ?? 0,
+    depthFloor ?? 0,
   );
+
 
   const ceiling = whole(input.maxPrice);
   // Bounds limit where automation may MOVE a price; they never force a move of
