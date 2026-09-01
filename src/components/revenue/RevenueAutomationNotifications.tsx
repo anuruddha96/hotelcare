@@ -181,7 +181,7 @@ export function RevenueAutomationNotifications() {
       </Popover>
 
       <Dialog open={!!detail} onOpenChange={(o) => !o && setDetail(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+        <DialogContent className="max-w-5xl w-[96vw] max-h-[88vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {detail?.failed_count ? <AlertTriangle className="h-4 w-4 text-destructive" /> : <Bell className="h-4 w-4" />}
@@ -196,7 +196,7 @@ export function RevenueAutomationNotifications() {
           </DialogHeader>
 
           {detail && (
-            <>
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
               <div className="rounded-lg border bg-muted/40 p-3">
                 <p className="text-sm font-medium">{runHeadline(detail)}</p>
                 <p
@@ -348,7 +348,7 @@ export function RevenueAutomationNotifications() {
               ) : decisionsError ? (
                 <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">{decisionsError}</div>
               ) : decisions.length > 0 ? (
-                <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border">
+                <div className="rounded-lg border overflow-x-auto">
                   <table className="w-full text-[13px]">
                     <thead className="sticky top-0 z-10 bg-muted text-foreground shadow-sm">
                       <tr className="text-left">
@@ -420,7 +420,7 @@ export function RevenueAutomationNotifications() {
                 </div>
               ) : detail.changes.length > 0 ? (
 
-                <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border">
+                <div className="rounded-lg border overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 bg-muted/80 backdrop-blur">
                       <tr className="text-left">
@@ -477,7 +477,7 @@ export function RevenueAutomationNotifications() {
                   </Button>
                 </div>
               )}
-            </>
+            </div>
           )}
 
         </DialogContent>

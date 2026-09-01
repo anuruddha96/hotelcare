@@ -618,6 +618,13 @@ Deno.serve(async (req) => {
       storedLevels.set(key, levels);
     }
 
+    /** Occupancy ladders repaired on the way out (reported back to the caller). */
+    const ladderHeals: Array<{
+      stay_date: string;
+      room_type_name: string;
+      levels: Array<{ occupancy: number; from: number; to: number }>;
+    }> = [];
+
     /** Gap-free occupancy ladder for one date + room type (EQC error 3092).
      *  Every level is a whole currency unit — the mirror can hold cents from
      *  Previo's own maths, and re-sending those was the source of decimal
@@ -643,8 +650,22 @@ Deno.serve(async (req) => {
       // can arrive from Previo's own pricelist or from a per-cell floor lifting
       // one level only. Repairs go upward, so no floor is undercut.
       const repaired = repairLadder(levels);
-      if (dateAtomic && levels.some((level) => (repaired.get(level.occupancy) ?? level.price) !== level.price)) {
-        throw new Error("The complete date-column price set would require an individual occupancy repair, so the date was held.");
+      // Auto-heal instead of holding the date. A repair is upward-only, so it
+      // can never undercut a floor, a min-ADR or a markdown cap — holding the
+      // whole date-column because one occupancy level was out of order simply
+      // meant the correct prices never reached Previo. We publish the healed
+      // ladder and record what was lifted.
+      const lifted = levels.filter((level) => (repaired.get(level.occupancy) ?? level.price) !== level.price);
+      if (lifted.length > 0) {
+        ladderHeals.push({
+          stay_date: g.stay_date,
+          room_type_name: g.room_type_name,
+          levels: lifted.map((l) => ({
+            occupancy: l.occupancy,
+            from: l.price,
+            to: repaired.get(l.occupancy) ?? l.price,
+          })),
+        });
       }
       return levels.map((l) => ({ occupancy: l.occupancy, price: repaired.get(l.occupancy) ?? l.price }));
     };
@@ -1038,7 +1059,13 @@ Deno.serve(async (req) => {
     }
 
     const failedIds = results.flatMap((result) => result.failedIds);
-    return json({ ok: true, pushRunId, pushed, pushedIds, failed, failedIds, verified, method: writeMethod, errors });
+    if (ladderHeals.length > 0) {
+      console.log(`ladder auto-heal: repaired ${ladderHeals.length} date/room ladders on the way to Previo`, JSON.stringify(ladderHeals.slice(0, 20)));
+    }
+    return json({
+      ok: true, pushRunId, pushed, pushedIds, failed, failedIds, verified,
+      method: writeMethod, errors, ladder_heals: ladderHeals.length, ladder_heal_examples: ladderHeals.slice(0, 20),
+    });
   } catch (e) {
     console.error("revenue-push-drafts error", e);
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
