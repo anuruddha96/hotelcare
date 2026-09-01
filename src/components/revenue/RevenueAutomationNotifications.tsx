@@ -196,7 +196,7 @@ export function RevenueAutomationNotifications() {
           </DialogHeader>
 
           {detail && (
-            <>
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
               <div className="rounded-lg border bg-muted/40 p-3">
                 <p className="text-sm font-medium">{runHeadline(detail)}</p>
                 <p
