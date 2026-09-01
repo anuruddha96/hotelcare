@@ -21,7 +21,9 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { errorMessage } from "@/lib/errorMessage";
 import {
   DEFAULT_PICKUP_LADDER, bandLabel, normaliseLadder, type PickupLadderBand,
+  DEFAULT_OCCUPANCY_LIFT_LADDER, normaliseOccupancyLadder, type OccupancyLiftBand,
 } from "@/lib/revenue/reasonSettings";
+
 import ActivateModuleDialog from "@/components/billing/ActivateModuleDialog";
 import { automationUnlocked, fetchBillingSummary, type BillingSummary } from "@/hooks/useBilling";
 
