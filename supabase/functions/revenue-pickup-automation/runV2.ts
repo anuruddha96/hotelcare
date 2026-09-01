@@ -590,6 +590,7 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       const amount = Math.abs(Number(row.movement) || 0);
       if (row.direction === "increase") movedUpToday.set(row.stay_date, (movedUpToday.get(row.stay_date) ?? 0) + amount);
       if (row.direction === "decrease") movedDownToday.set(row.stay_date, (movedDownToday.get(row.stay_date) ?? 0) + amount);
+
     }
 
     // Events: approved, confident, readable, deduplicated, once per date.
