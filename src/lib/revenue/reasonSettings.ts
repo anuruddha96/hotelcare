@@ -245,7 +245,68 @@ export const REASON_SETTINGS: Record<string, ReasonInfo> = {
   no_pace_data: { title: "No pace target", explain: "No pace target covers this lead time, so the engine held the price.", settings: [] },
   bounds_missing: { title: "No price limits", explain: "This date has no resolvable minimum and maximum price.", settings: [] },
   bounds_invalid: { title: "Price limits conflict", explain: "The maximum price for this date is below its minimum.", settings: [] },
+
+  // --- ADR-first rules -------------------------------------------------------
+  net_adr_floor: {
+    title: "Lifted to protect the average rate",
+    explain:
+      "This date was loaded below the price the hotel must ask to actually bank its minimum average rate once channel discounts are taken off, so it was lifted.",
+    settings: [
+      { kind: "number", field: "minimum_adr", label: "Minimum average rate", help: "The lowest average rate the property accepts, in realised money.", min: 0, max: 1000, unit: "money" },
+      { kind: "boolean", field: "net_rate_factor_enabled", label: "Adjust for channel discounts", help: "Measures how far realised rates fall below loaded prices and raises the floors to match." },
+      { kind: "number", field: "net_rate_factor_override", label: "Discount factor override", help: "Realised ÷ loaded price. Leave empty to let the engine measure it.", min: 0.6, max: 1, step: 0.01 },
+    ],
+  },
+  occupancy_lift: {
+    title: "Selling well — price raised",
+    explain:
+      "Occupancy for this date is already strong for how far away it is, so the price went up on the strength of demand alone, without waiting for another booking.",
+    settings: [
+      { kind: "boolean", field: "occupancy_lift_enabled", label: "Occupancy-led increases", help: "Raise well-selling dates even when no new booking arrived in this run." },
+      { kind: "number", field: "high_occupancy_pct", label: "Strong demand starts at", help: "Occupancy at or above this counts as strong demand.", min: 50, max: 100, unit: "percent" },
+    ],
+    note: "The size of each lift is set in the occupancy lift ladder on the rules screen.",
+  },
+  month_adr_pace: {
+    title: "The month is behind its rate target",
+    explain:
+      "This stay month is running under its average-rate goal, so discounting is frozen for the whole month until it catches up. Only new bookings and strong occupancy can move these dates.",
+    settings: [
+      { kind: "boolean", field: "month_pace_guard_enabled", label: "Month-end rate guard", help: "Freeze markdowns in any month running below its average-rate target." },
+      { kind: "number", field: "adr_target_eur", label: "Average rate target", help: "The rate the property aims to land each month on.", min: 0, max: 1000, unit: "money" },
+    ],
+  },
+  booked_date_brake: {
+    title: "Just booked — not discounted",
+    explain:
+      "This date took a booking very recently. Cutting the price now invites the same guest to cancel and rebook cheaper, so the price is held.",
+    settings: [
+      { kind: "number", field: "booked_date_brake_hours", label: "Hold after a booking", help: "Hours a freshly booked date is protected from markdowns.", min: 0, max: 336, unit: "hours" },
+    ],
+  },
+  rebook_window: {
+    title: "Protected against cancel-and-rebook",
+    explain:
+      "A cancellation landed on this date recently. The room goes back on sale at the price it was sold at, never cheaper, for the rebooking window.",
+    settings: [
+      { kind: "number", field: "rebook_window_hours", label: "Rebooking protection", help: "Hours after a cancellation during which the date may not be marked down.", min: 0, max: 336, unit: "hours" },
+    ],
+  },
+  markdown_limit: {
+    title: "Already lowered today",
+    explain: "This date has taken its allowed number of markdowns for today, so it will not step down again until tomorrow.",
+    settings: [
+      { kind: "number", field: "max_markdowns_per_day", label: "Markdowns per date per day", help: "How many times one date may be lowered in a single day.", min: 0, max: 10 },
+    ],
+  },
+  one_way_day: {
+    title: "It went up earlier today",
+    explain: "This date already rose today, and the engine never cuts a price back on the same day it raised it.",
+    settings: [],
+    note: "This rule has no setting — it protects the price from moving both ways in one day.",
+  },
 };
+
 
 export function reasonInfo(reason: string | null | undefined): ReasonInfo {
   const key = String(reason ?? "").trim();
