@@ -60,13 +60,13 @@ function input(patch: Partial<DecisionInput> = {}): DecisionInput {
   };
 }
 
-Deno.test("arrival today at 13:30 with 3 rooms and no pickup for 30m cuts €7", () => {
+Deno.test("normal hourly engine leaves arrival today to the 30-minute worker", () => {
   const decision = decideDate(input(), settings);
-  assertEquals(decision.direction, "decrease");
-  assertEquals(decision.movement, -7);
-  assertEquals(decision.targetPrice, 176);
-  assertEquals(decision.reason, "same_day_sellout");
-  assertEquals(decision.blocked, false);
+  assertEquals(decision.direction, "hold");
+  assertEquals(decision.movement, 0);
+  assertEquals(decision.targetPrice, 183);
+  assertEquals(decision.reason, "same_day_dedicated");
+  assertEquals(decision.blocked, true);
 });
 
 Deno.test("arrival-day urgency strengthens with time and unsold inventory", () => {
@@ -81,42 +81,14 @@ Deno.test("arrival-day urgency strengthens with time and unsold inventory", () =
   assertEquals(sameDayUrgencyStep(13 * 60 + 30, 1), 5);
 });
 
-Deno.test("genuine pickup inside the last 30 minutes holds today's rate", () => {
-  const decision = decideDate(input({ hoursSinceLastPickup: 0.2 }), settings);
-  assertEquals(decision.direction, "hold");
-  assertEquals(decision.reason, "same_day_recent_pickup");
-  assertEquals(decision.targetPrice, 183);
-});
-
-Deno.test("normal hourly engine does not double-cut inside 25 minutes", () => {
-  const decision = decideDate(input({
-    hoursSinceLastPickup: 1,
-    lastDecisionAt: "2026-09-01T11:15:00Z",
-  }), settings);
-  assertEquals(decision.direction, "hold");
-  assertEquals(decision.reason, "same_day_wait_next_check");
-});
-
 Deno.test("arrival today stops automatic sellout pricing at 15:00 Budapest", () => {
   const afterCutoff: DecisionSettings = {
     ...settings,
     now: new Date("2026-09-01T13:05:00Z"), // 15:05 Budapest
   };
-  const decision = decideDate(input({ hoursSinceLastPickup: 1, lastDecisionAt: null }), afterCutoff);
+  const decision = decideDate(input(), afterCutoff);
   assertEquals(decision.direction, "hold");
   assertEquals(decision.reason, "same_day_cutoff");
-});
-
-Deno.test("arrival today never crosses the floor supplied to the hourly engine", () => {
-  const decision = decideDate(input({
-    currentPrice: 104,
-    minPrice: 100,
-    hoursSinceLastPickup: 1,
-    lastDecisionAt: null,
-  }), settings);
-  assertEquals(decision.direction, "decrease");
-  assertEquals(decision.movement, -4);
-  assertEquals(decision.targetPrice, 100);
 });
 
 Deno.test("legacy sellout helper still tempers tomorrow/day+2 moves", () => {
@@ -170,8 +142,10 @@ Deno.test("tomorrow and day+2 keep smart sellout markdowns while rooms remain", 
   assertEquals(dayTwo.targetPrice, 162);
 });
 
-Deno.test("same-day sellout still respects explicit manual protection", () => {
+Deno.test("tomorrow/day+2 sellout still respects explicit manual protection", () => {
   const decision = decideDate(input({
+    stayDate: "2026-09-02",
+    daysOut: 1,
     manualHoldUntil: "2026-09-01T13:00:00Z",
     holdKind: "soft",
   }), settings);
