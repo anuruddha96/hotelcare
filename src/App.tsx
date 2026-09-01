@@ -19,6 +19,7 @@ import ExecutiveResumeRefresh from "@/components/system/ExecutiveResumeRefresh";
 // Lazy load all pages to keep initial bundle small
 const Index = lazy(() => import("./pages/Index"));
 const Auth = lazy(() => import("./pages/Auth"));
+const OAuthConsent = lazy(() => import("./pages/OAuthConsent"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const GuestMinibar = lazy(() => import("./pages/GuestMinibar"));
 const FrontDesk = lazy(() => import("./pages/FrontDesk"));
@@ -235,6 +236,7 @@ const MainApp = () => (
                 <Routes>
                   <Route path="/" element={<RootRedirect />} />
                   <Route path="/auth" element={<Auth />} />
+                  <Route path="/oauth/consent" element={<OAuthConsent />} />
                   <Route path="/:organizationSlug/:hotelSlug/minibar/:roomToken" element={<GuestMinibar />} />
                   <Route path="/:organizationSlug/minibar/:roomToken" element={<GuestMinibar />} />
                   <Route path="/:organizationSlug/*" element={<TenantRouter />} />
