@@ -817,6 +817,13 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         pendingEventUplift: pendingEvent?.uplift ?? 0,
         market: marketFor(stayDate),
         campaignStartPrice: campaignStartByDate.get(stayDate) ?? null,
+        // ADR-first inputs.
+        hardAdrFloor: hardAdrFloor,
+        monthFloor: monthGuard.floors[stayDate] ?? null,
+        monthMarkdownsFrozen: frozenMonths.has(stayDate.slice(0, 7)),
+        recentPeakPrice: campaignStartByDate.get(stayDate) ?? null,
+        markdownsToday: markdownsToday.get(stayDate) ?? 0,
+
       };
 
 
