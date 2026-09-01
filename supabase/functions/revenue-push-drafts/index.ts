@@ -1059,7 +1059,13 @@ Deno.serve(async (req) => {
     }
 
     const failedIds = results.flatMap((result) => result.failedIds);
-    return json({ ok: true, pushRunId, pushed, pushedIds, failed, failedIds, verified, method: writeMethod, errors });
+    if (ladderHeals.length > 0) {
+      console.log(`ladder auto-heal: repaired ${ladderHeals.length} date/room ladders on the way to Previo`, JSON.stringify(ladderHeals.slice(0, 20)));
+    }
+    return json({
+      ok: true, pushRunId, pushed, pushedIds, failed, failedIds, verified,
+      method: writeMethod, errors, ladder_heals: ladderHeals.length, ladder_heal_examples: ladderHeals.slice(0, 20),
+    });
   } catch (e) {
     console.error("revenue-push-drafts error", e);
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
