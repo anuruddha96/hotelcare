@@ -157,6 +157,13 @@ const DEFAULT_RULE: Rule = {
   sold_out_guard_enabled: true, sold_out_occupancy_pct: 100,
   fill_mode_enabled: false, fill_window_days: 60, fill_max_total_drop_pct: 15,
   pickup_increase_ladder: DEFAULT_PICKUP_LADDER.map((b) => ({ ...b })), raise_on_any_pickup: true,
+  net_rate_factor_enabled: true, net_rate_factor_override: null,
+  month_pace_guard_enabled: true, adr_target_eur: 130,
+  occupancy_lift_enabled: true,
+  occupancy_lift_ladder: DEFAULT_OCCUPANCY_LIFT_LADDER.map((b) => ({ ...b })),
+  booked_date_brake_hours: 72, rebook_window_hours: 24,
+  max_markdowns_per_day: 1, markdown_depth_pct: 12,
+
 
   cancellation_markdown_enabled: true, cancellation_wait_minutes: 60,
   immediate_sell_mode_enabled: true, immediate_window_days: 14, immediate_markdown_step: 2,
