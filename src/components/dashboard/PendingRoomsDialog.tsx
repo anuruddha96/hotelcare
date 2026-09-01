@@ -10,12 +10,49 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
 
+export type PendingRoomsMode = 'pending' | 'dnd_retry';
+
+/**
+ * HousekeepingManagerView historically opens the same dialog for both the
+ * orange Pending bucket and the purple DND · 2nd attempt bucket. Keep a tiny
+ * click-intent bridge here for backwards compatibility so the dialog can tell
+ * which existing card bucket opened it without changing any database logic.
+ *
+ * The bridge keys off the existing bucket colour classes, not translated text,
+ * so it works regardless of the user's language. A future caller can pass the
+ * explicit `mode` prop and bypass this bridge entirely.
+ */
+let lastManagerBucket: PendingRoomsMode = 'pending';
+if (typeof document !== 'undefined') {
+  const bridgeKey = '__hotelcarePendingRoomsBucketBridge';
+  const globalDocument = document as Document & { [bridgeKey]?: boolean };
+  if (!globalDocument[bridgeKey]) {
+    globalDocument[bridgeKey] = true;
+    document.addEventListener('click', (event) => {
+      let node = event.target as HTMLElement | null;
+      for (let depth = 0; node && depth < 6; depth += 1, node = node.parentElement) {
+        const className = typeof node.className === 'string' ? node.className : '';
+        if (className.includes('hover:bg-purple-50')) {
+          lastManagerBucket = 'dnd_retry';
+          return;
+        }
+        if (className.includes('hover:bg-orange-50')) {
+          lastManagerBucket = 'pending';
+          return;
+        }
+      }
+    }, true);
+  }
+}
+
 interface PendingRoomsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   staffId: string;
   staffName: string;
   selectedDate: string;
+  /** Which manager-card bucket opened this dialog. */
+  mode?: PendingRoomsMode;
 }
 
 interface PendingAssignment {
@@ -38,22 +75,29 @@ export function PendingRoomsDialog({
   staffId,
   staffName,
   selectedDate,
+  mode,
 }: PendingRoomsDialogProps) {
   const { t } = useTranslation();
   const { profile } = useAuth();
   const [assignments, setAssignments] = useState<PendingAssignment[]>([]);
   const [loading, setLoading] = useState(false);
   const canReleaseCheckout = hasManagerPowers(profile?.role);
+  const effectiveMode: PendingRoomsMode = mode ?? lastManagerBucket;
+  const isDndRetry = effectiveMode === 'dnd_retry';
 
   useEffect(() => {
     if (open && staffId) {
       fetchPendingAssignments();
     }
-  }, [open, staffId, selectedDate]);
+  }, [open, staffId, selectedDate, effectiveMode]);
 
   const fetchPendingAssignments = async () => {
     setLoading(true);
     try {
+      // The manager card already counts these as two distinct buckets. Query
+      // the exact status that was clicked so normal pending rooms can never
+      // leak into the DND 2nd-attempt list (and vice versa).
+      const targetStatus = isDndRetry ? 'dnd_pending_retry' : 'assigned';
       const { data, error } = await supabase
         .from('room_assignments')
         .select(`
@@ -73,7 +117,7 @@ export function PendingRoomsDialog({
         `)
         .eq('assigned_to', staffId)
         .eq('assignment_date', selectedDate)
-        .in('status', ['assigned', 'dnd_pending_retry'])
+        .eq('status', targetStatus)
         .order('priority', { ascending: false })
         .order('ready_to_clean', { ascending: false });
 
@@ -104,7 +148,6 @@ export function PendingRoomsDialog({
         };
         const bucketDiff = getBucket(a) - getBucket(b);
         if (bucketDiff !== 0) return bucketDiff;
-        // Same bucket: sort by room number
         const roomA = parseInt(a.room_number) || 0;
         const roomB = parseInt(b.room_number) || 0;
         return roomA - roomB;
@@ -186,7 +229,6 @@ export function PendingRoomsDialog({
 
   const changeAssignmentType = async (assignmentId: string, roomNumber: string, newType: 'checkout_cleaning' | 'daily_cleaning') => {
     try {
-      // Determine ready_to_clean based on type
       const readyToClean = newType === 'daily_cleaning' ? true : false;
       
       const { error } = await supabase
@@ -227,6 +269,13 @@ export function PendingRoomsDialog({
     return t('priority.low');
   };
 
+  const dialogTitle = isDndRetry
+    ? `${t('status.dndPendingRetry')} - ${staffName}`
+    : `${t('manager.pendingRooms')} - ${staffName}`;
+  const countLabel = isDndRetry
+    ? (assignments.length === 1 ? 'room waiting for second attempt' : 'rooms waiting for second attempt')
+    : t('manager.roomsPending');
+
   if (loading) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -245,14 +294,14 @@ export function PendingRoomsDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Calendar className="h-5 w-5" />
-            {t('manager.pendingRooms')} - {staffName}
+            {dialogTitle}
           </DialogTitle>
         </DialogHeader>
 
         {assignments.length > 0 ? (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              {assignments.length} {t('manager.roomsPending')}
+              {assignments.length} {countLabel}
             </p>
             
             {assignments.map((assignment) => (
@@ -337,7 +386,6 @@ export function PendingRoomsDialog({
                   </div>
                 )}
 
-                {/* Priority Controls */}
                 <div className="flex items-center gap-2 pt-2 border-t">
                   <Star className="h-4 w-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground font-medium">Set Priority:</span>
@@ -369,7 +417,6 @@ export function PendingRoomsDialog({
                   </div>
                 </div>
 
-                {/* Change Assignment Type */}
                 <div className="flex items-center gap-2 pt-2 border-t">
                   <ArrowLeftRight className="h-4 w-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground font-medium">Change Type:</span>
@@ -392,9 +439,11 @@ export function PendingRoomsDialog({
         ) : (
           <div className="text-center py-8">
             <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-            <p className="text-muted-foreground">{t('manager.noPendingRooms')}</p>
+            <p className="text-muted-foreground">
+              {isDndRetry ? 'No rooms are waiting for a second DND attempt.' : t('manager.noPendingRooms')}
+            </p>
             <p className="text-sm text-muted-foreground mt-1">
-              {staffName} {t('manager.hasNoWaitingTasks')}
+              {staffName} {isDndRetry ? 'has no DND retry rooms for this date.' : t('manager.hasNoWaitingTasks')}
             </p>
           </div>
         )}
