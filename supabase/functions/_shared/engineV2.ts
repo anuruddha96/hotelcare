@@ -349,6 +349,20 @@ export interface DecisionInput {
    * happen. Null disables the campaign drop budget for the date.
    */
   campaignStartPrice?: number | null;
+  /**
+   * Grid price the date must not sell below if the hotel is to bank its ADR
+   * target once channel discounting is taken into account. This is the hard
+   * stop: a cell under it is LIFTED, not merely protected.
+   */
+  hardAdrFloor?: number | null;
+  /** Floor the stay month still needs from its remaining rooms. */
+  monthFloor?: number | null;
+  /** True when the stay month is behind its ADR target: no markdowns at all. */
+  monthMarkdownsFrozen?: boolean;
+  /** Highest reference price for this date over the recent look-back. */
+  recentPeakPrice?: number | null;
+  /** Automated markdowns already taken for this date in the local day. */
+  markdownsToday?: number;
 }
 
 export interface DecisionSettings {
@@ -374,6 +388,23 @@ export interface DecisionSettings {
   raiseOnAnyPickup?: boolean;
   /** Occupancy at or above which a pickup surcharge is increased by half. */
   strongOccupancyPct?: number;
+  /** Occupancy-led lifts; on by default. */
+  occupancyLiftEnabled?: boolean;
+  occupancyLiftLadder?: OccupancyLiftBand[] | null;
+  /**
+   * Anti-arbitrage. A date that just took a booking is not marked down for this
+   * many hours — otherwise the guest sees a lower price and rebooks the same
+   * night cheaper.
+   */
+  bookedDateBrakeHours?: number;
+  /** Hours after a cancellation during which the date may not be marked down. */
+  rebookWindowHours?: number;
+  /** Most automated markdowns a single date may take in one local day. */
+  maxMarkdownsPerDay?: number;
+  /** A markdown may never take a date more than this far below its recent peak. */
+  maxMarkdownDepthPct?: number;
+  /** Realised ÷ grid rate, used only for wording the explanations. */
+  netRateFactor?: number;
 }
 
 export const DEFAULT_DECISION_SETTINGS: Omit<DecisionSettings, "now" | "paceBands"> = {
@@ -388,7 +419,15 @@ export const DEFAULT_DECISION_SETTINGS: Omit<DecisionSettings, "now" | "paceBand
   pickupLadder: DEFAULT_PICKUP_LADDER,
   raiseOnAnyPickup: true,
   strongOccupancyPct: 85,
+  occupancyLiftEnabled: true,
+  occupancyLiftLadder: DEFAULT_OCCUPANCY_LIFT_LADDER,
+  bookedDateBrakeHours: 72,
+  rebookWindowHours: 24,
+  maxMarkdownsPerDay: 1,
+  maxMarkdownDepthPct: 12,
+  netRateFactor: 1,
 };
+
 
 
 
