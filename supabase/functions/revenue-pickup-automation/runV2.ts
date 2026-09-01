@@ -52,6 +52,8 @@ import {
   resolveNetRateFactor,
 } from "../_shared/netRateFactor.ts";
 import { anchorFor, buildAnchorTable } from "../_shared/seasonalAnchor.ts";
+import { loadGuestStep, maxGuestGapFor, repairLadder } from "../_shared/rateSafety.ts";
+
 
 
 export interface V2Deps {
