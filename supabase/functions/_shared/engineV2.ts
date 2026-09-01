@@ -792,10 +792,46 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   const hasPickup = Math.max(0, input.pickup24h - input.cancellations24h) > 0;
 
   if (raw < 0) {
-    // Cancellation cooldown: a cancellation must never trigger an instant cut.
+    // The month comes first: a stay month running under its ADR target does not
+    // discount at all. Only pickup and occupancy lifts move those dates.
+    if (input.monthMarkdownsFrozen) {
+      return blocked(
+        "month_adr_pace",
+        "This stay month is behind its average-rate target; markdowns are frozen until it catches up.",
+      );
+    }
+    // Anti-arbitrage 1: a date that just took a booking is not cut, or the same
+    // guest cancels and rebooks the same night cheaper.
+    const brakeHours = Math.max(0, settings.bookedDateBrakeHours ?? 0);
+    if (brakeHours > 0 && input.hoursSinceLastPickup != null && input.hoursSinceLastPickup < brakeHours) {
+      return blocked(
+        "booked_date_brake",
+        `This date took a booking ${Math.round(input.hoursSinceLastPickup)}h ago; it is not marked down for ${brakeHours}h.`,
+      );
+    }
+    // Anti-arbitrage 2: after a cancellation the room goes back on sale at the
+    // price it was sold at, never cheaper, for the rebooking window.
     const sinceCancellation = hoursSince(input.lastCancellationAt, now);
+    const rebookHours = Math.max(0, settings.rebookWindowHours ?? 0);
+    if (sinceCancellation != null && rebookHours > 0 && sinceCancellation < rebookHours) {
+      return blocked(
+        "rebook_window",
+        `A cancellation landed ${Math.round(sinceCancellation)}h ago; the date is held at its sold price for ${rebookHours}h.`,
+      );
+    }
     if (sinceCancellation != null && sinceCancellation * 60 < settings.cancellationWaitMinutes) {
       return blocked("cancellation_cooldown", "A cancellation just landed; waiting before repricing.");
+    }
+    // One markdown per date per day, and never on a day the date already rose.
+    const maxMarkdowns = Math.max(0, settings.maxMarkdownsPerDay ?? 0);
+    if (maxMarkdowns > 0 && (input.markdownsToday ?? 0) >= maxMarkdowns) {
+      return blocked(
+        "markdown_limit",
+        `This date has already been lowered ${input.markdownsToday} time(s) today; the limit is ${maxMarkdowns}.`,
+      );
+    }
+    if (Math.abs(input.movedUpTodayEur) > 0) {
+      return blocked("one_way_day", "This date went up earlier today; it is not cut back on the same day.");
     }
     if (win.min_hours_between_decreases > 0) {
       const sinceDecrease = hoursSince(input.lastDecreaseAt, now);
@@ -810,6 +846,7 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
       return blocked("window_blocks_decrease", "This lead window never marks down.");
     }
   }
+
 
   // A confirmed event lifts the date once, and only upwards.
   if (input.pendingEventUplift > 0 && raw >= 0) {
