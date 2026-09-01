@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -678,6 +678,8 @@ export default function RateStrategyGrid({
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
+
+
   // Ctrl/⌘ + scroll (and trackpad pinch) resizes the calendar, the way a
   // spreadsheet does. The listener must be non-passive, otherwise the browser
   // zooms the whole page instead.
@@ -924,6 +926,28 @@ export default function RateStrategyGrid({
 
   /** Full-screen pricing mode — the calendar and nothing else. */
   const [expanded, setExpanded] = useState(false);
+
+  /**
+   * Stretch the calendar down to the bottom of the viewport so as many
+   * room-type rows as possible are visible without scrolling the page.
+   * Measured from the grid's actual position, so it adapts to any header
+   * height, zoom level or screen size. Falls back to a vh height until
+   * measured (first paint).
+   */
+  const [availGridH, setAvailGridH] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      const next = Math.max(320, Math.floor(window.innerHeight - top - 8));
+      setAvailGridH((prev) => (prev === next ? prev : next));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [expanded, monthFilter, isMobile]);
+
   useEffect(() => {
     if (!expanded) return;
     const prev = document.body.style.overflow;
@@ -2622,7 +2646,7 @@ export default function RateStrategyGrid({
             ref={scrollRef}
             onScroll={onScroll}
             className={`relative overflow-auto overscroll-x-contain ${dragging || cellDragging ? "select-none" : ""}`}
-            style={{ fontSize: fz(11), maxHeight: expanded ? "calc(100vh - 190px)" : isMobile ? "68vh" : "72vh", WebkitOverflowScrolling: "touch", touchAction: cellDragging ? "none" : undefined } as React.CSSProperties}
+            style={{ fontSize: fz(11), maxHeight: availGridH != null ? availGridH : expanded ? "calc(100vh - 190px)" : isMobile ? "68vh" : "72vh", WebkitOverflowScrolling: "touch", touchAction: cellDragging ? "none" : undefined } as React.CSSProperties}
 
           >
 
