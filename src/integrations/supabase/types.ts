@@ -7114,6 +7114,7 @@ export type Database = {
           application_scope: string
           auto_pause_reason: string | null
           auto_publish: boolean
+          booked_date_brake_hours: number
           booking_window_tiers: Json
           cancellation_markdown_enabled: boolean
           cancellation_wait_minutes: number
@@ -7167,6 +7168,7 @@ export type Database = {
           manual_markdown_hold_hours: number
           manual_override_ai_enabled: boolean
           manual_override_review_hours: number
+          markdown_depth_pct: number
           markdown_max_occupancy_pct: number
           market_ceiling_multiple: number
           market_validation: Json | null
@@ -7174,24 +7176,32 @@ export type Database = {
           max_daily_increase_pct: number
           max_daily_increase_per_date: number
           max_increase_pct: number
+          max_markdowns_per_day: number
           maximum_increase: number | null
           min_movement_eur: number
           minimum_adr: number | null
           mode: string
+          month_pace_guard_enabled: boolean
+          monthly_adr_targets: Json | null
           name: string
           near_term_days: number
+          net_rate_factor_enabled: boolean
+          net_rate_factor_override: number | null
           next_run_at: string | null
           no_pickup_decrease: number
           no_pickup_enabled: boolean
           no_pickup_lookback_hours: number
           no_pickup_run_times: string[]
           no_pickup_scope: string
+          occupancy_lift_enabled: boolean
+          occupancy_lift_ladder: Json | null
           organization_slug: string
           pickup_increase_ladder: Json | null
           pickup_lookback_hours: number
           positive_pickup_enabled: boolean
           protect_high_occupancy: boolean
           raise_on_any_pickup: boolean
+          rebook_window_hours: number
           run_budget_ms: number
           run_timezone: string
           same_hour_window_minutes: number
@@ -7223,6 +7233,7 @@ export type Database = {
           application_scope?: string
           auto_pause_reason?: string | null
           auto_publish?: boolean
+          booked_date_brake_hours?: number
           booking_window_tiers?: Json
           cancellation_markdown_enabled?: boolean
           cancellation_wait_minutes?: number
@@ -7276,6 +7287,7 @@ export type Database = {
           manual_markdown_hold_hours?: number
           manual_override_ai_enabled?: boolean
           manual_override_review_hours?: number
+          markdown_depth_pct?: number
           markdown_max_occupancy_pct?: number
           market_ceiling_multiple?: number
           market_validation?: Json | null
@@ -7283,24 +7295,32 @@ export type Database = {
           max_daily_increase_pct?: number
           max_daily_increase_per_date?: number
           max_increase_pct?: number
+          max_markdowns_per_day?: number
           maximum_increase?: number | null
           min_movement_eur?: number
           minimum_adr?: number | null
           mode?: string
+          month_pace_guard_enabled?: boolean
+          monthly_adr_targets?: Json | null
           name?: string
           near_term_days?: number
+          net_rate_factor_enabled?: boolean
+          net_rate_factor_override?: number | null
           next_run_at?: string | null
           no_pickup_decrease?: number
           no_pickup_enabled?: boolean
           no_pickup_lookback_hours?: number
           no_pickup_run_times?: string[]
           no_pickup_scope?: string
+          occupancy_lift_enabled?: boolean
+          occupancy_lift_ladder?: Json | null
           organization_slug: string
           pickup_increase_ladder?: Json | null
           pickup_lookback_hours?: number
           positive_pickup_enabled?: boolean
           protect_high_occupancy?: boolean
           raise_on_any_pickup?: boolean
+          rebook_window_hours?: number
           run_budget_ms?: number
           run_timezone?: string
           same_hour_window_minutes?: number
@@ -7332,6 +7352,7 @@ export type Database = {
           application_scope?: string
           auto_pause_reason?: string | null
           auto_publish?: boolean
+          booked_date_brake_hours?: number
           booking_window_tiers?: Json
           cancellation_markdown_enabled?: boolean
           cancellation_wait_minutes?: number
@@ -7385,6 +7406,7 @@ export type Database = {
           manual_markdown_hold_hours?: number
           manual_override_ai_enabled?: boolean
           manual_override_review_hours?: number
+          markdown_depth_pct?: number
           markdown_max_occupancy_pct?: number
           market_ceiling_multiple?: number
           market_validation?: Json | null
@@ -7392,24 +7414,32 @@ export type Database = {
           max_daily_increase_pct?: number
           max_daily_increase_per_date?: number
           max_increase_pct?: number
+          max_markdowns_per_day?: number
           maximum_increase?: number | null
           min_movement_eur?: number
           minimum_adr?: number | null
           mode?: string
+          month_pace_guard_enabled?: boolean
+          monthly_adr_targets?: Json | null
           name?: string
           near_term_days?: number
+          net_rate_factor_enabled?: boolean
+          net_rate_factor_override?: number | null
           next_run_at?: string | null
           no_pickup_decrease?: number
           no_pickup_enabled?: boolean
           no_pickup_lookback_hours?: number
           no_pickup_run_times?: string[]
           no_pickup_scope?: string
+          occupancy_lift_enabled?: boolean
+          occupancy_lift_ladder?: Json | null
           organization_slug?: string
           pickup_increase_ladder?: Json | null
           pickup_lookback_hours?: number
           positive_pickup_enabled?: boolean
           protect_high_occupancy?: boolean
           raise_on_any_pickup?: boolean
+          rebook_window_hours?: number
           run_budget_ms?: number
           run_timezone?: string
           same_hour_window_minutes?: number
