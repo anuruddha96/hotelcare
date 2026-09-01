@@ -618,6 +618,13 @@ Deno.serve(async (req) => {
       storedLevels.set(key, levels);
     }
 
+    /** Occupancy ladders repaired on the way out (reported back to the caller). */
+    const ladderHeals: Array<{
+      stay_date: string;
+      room_type_name: string;
+      levels: Array<{ occupancy: number; from: number; to: number }>;
+    }> = [];
+
     /** Gap-free occupancy ladder for one date + room type (EQC error 3092).
      *  Every level is a whole currency unit — the mirror can hold cents from
      *  Previo's own maths, and re-sending those was the source of decimal
