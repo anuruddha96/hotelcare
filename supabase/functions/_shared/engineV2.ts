@@ -108,6 +108,42 @@ export function pickupStep(
   return Math.round(strong ? step * 1.5 : step);
 }
 
+/**
+ * Occupancy-led lift. A date that is already selling well does not have to
+ * produce a booking in the current run to earn a higher price: the occupancy
+ * itself is the evidence. This is the rule that corrects "occupancy high but
+ * price low" dates, which no pickup-only engine could ever reach.
+ */
+export interface OccupancyLiftBand {
+  min_occupancy_pct: number;
+  min_days_out: number;
+  /** Rise as a percentage of the current price. */
+  pct: number;
+  /** Smallest whole-currency rise this band produces. */
+  min_eur: number;
+}
+
+export const DEFAULT_OCCUPANCY_LIFT_LADDER: OccupancyLiftBand[] = [
+  { min_occupancy_pct: 80, min_days_out: 7, pct: 8, min_eur: 10 },
+  { min_occupancy_pct: 70, min_days_out: 14, pct: 5, min_eur: 6 },
+  { min_occupancy_pct: 60, min_days_out: 30, pct: 3, min_eur: 4 },
+];
+
+/** Strongest band whose occupancy AND lead-time conditions both hold. */
+export function occupancyLiftBandFor(
+  occupancyPct: number | null,
+  daysOut: number,
+  ladder: OccupancyLiftBand[] = DEFAULT_OCCUPANCY_LIFT_LADDER,
+): OccupancyLiftBand | null {
+  if (occupancyPct == null || !Number.isFinite(occupancyPct)) return null;
+  const eligible = ladder.filter((b) =>
+    occupancyPct >= Number(b.min_occupancy_pct) && daysOut >= Number(b.min_days_out)
+  );
+  if (eligible.length === 0) return null;
+  return eligible.reduce((best, b) => (Number(b.pct) > Number(best.pct) ? b : best));
+}
+
+
 
 /**
  * "Fill mode": inside the selling window the property is trying to reach a
@@ -313,6 +349,20 @@ export interface DecisionInput {
    * happen. Null disables the campaign drop budget for the date.
    */
   campaignStartPrice?: number | null;
+  /**
+   * Grid price the date must not sell below if the hotel is to bank its ADR
+   * target once channel discounting is taken into account. This is the hard
+   * stop: a cell under it is LIFTED, not merely protected.
+   */
+  hardAdrFloor?: number | null;
+  /** Floor the stay month still needs from its remaining rooms. */
+  monthFloor?: number | null;
+  /** True when the stay month is behind its ADR target: no markdowns at all. */
+  monthMarkdownsFrozen?: boolean;
+  /** Highest reference price for this date over the recent look-back. */
+  recentPeakPrice?: number | null;
+  /** Automated markdowns already taken for this date in the local day. */
+  markdownsToday?: number;
 }
 
 export interface DecisionSettings {
@@ -338,6 +388,23 @@ export interface DecisionSettings {
   raiseOnAnyPickup?: boolean;
   /** Occupancy at or above which a pickup surcharge is increased by half. */
   strongOccupancyPct?: number;
+  /** Occupancy-led lifts; on by default. */
+  occupancyLiftEnabled?: boolean;
+  occupancyLiftLadder?: OccupancyLiftBand[] | null;
+  /**
+   * Anti-arbitrage. A date that just took a booking is not marked down for this
+   * many hours — otherwise the guest sees a lower price and rebooks the same
+   * night cheaper.
+   */
+  bookedDateBrakeHours?: number;
+  /** Hours after a cancellation during which the date may not be marked down. */
+  rebookWindowHours?: number;
+  /** Most automated markdowns a single date may take in one local day. */
+  maxMarkdownsPerDay?: number;
+  /** A markdown may never take a date more than this far below its recent peak. */
+  maxMarkdownDepthPct?: number;
+  /** Realised ÷ grid rate, used only for wording the explanations. */
+  netRateFactor?: number;
 }
 
 export const DEFAULT_DECISION_SETTINGS: Omit<DecisionSettings, "now" | "paceBands"> = {
@@ -352,7 +419,15 @@ export const DEFAULT_DECISION_SETTINGS: Omit<DecisionSettings, "now" | "paceBand
   pickupLadder: DEFAULT_PICKUP_LADDER,
   raiseOnAnyPickup: true,
   strongOccupancyPct: 85,
+  occupancyLiftEnabled: true,
+  occupancyLiftLadder: DEFAULT_OCCUPANCY_LIFT_LADDER,
+  bookedDateBrakeHours: 72,
+  rebookWindowHours: 24,
+  maxMarkdownsPerDay: 1,
+  maxMarkdownDepthPct: 12,
+  netRateFactor: 1,
 };
+
 
 
 
@@ -659,14 +734,49 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   }
 
   // --- Pickup is always evaluated before any markdown branch -----------------
-  const intent = inFillWindow
+  let intent = inFillWindow
     ? fillIntent(input, win, gap, settings)
     : windowIntent(input, win, gap, settings);
+
+  // --- ADR-first overrides ---------------------------------------------------
+  // 1. Hard ADR stop. A cell sitting under the rate the hotel must load to bank
+  //    its ADR target (after channel discounting) is lifted, whatever the
+  //    pickup story says. Nothing else in the engine can produce this move.
+  const netFloor = input.hardAdrFloor != null && Number.isFinite(input.hardAdrFloor)
+    && Number(input.hardAdrFloor) > 0 ? whole(Number(input.hardAdrFloor)) : null;
+  if (netFloor != null && current < netFloor) {
+    const step = netFloor - current;
+    intent = {
+      raw: step,
+      reason: "net_adr_floor",
+      detail: `€${current} is below the €${netFloor} this date must be loaded at to bank the ADR target; lifting.`,
+      maxDailyOverride: step,
+    };
+  } else if (intent.raw <= 0 && settings.occupancyLiftEnabled !== false) {
+    // 2. Occupancy-led lift. A date already selling well earns a higher price on
+    //    the strength of its occupancy alone — no new booking required.
+    const band = occupancyLiftBandFor(
+      input.occupancyPct, input.daysOut,
+      settings.occupancyLiftLadder ?? DEFAULT_OCCUPANCY_LIFT_LADDER,
+    );
+    if (band) {
+      const step = Math.max(whole(Number(band.min_eur) || 0), whole(current * (Number(band.pct) || 0) / 100));
+      if (step > 0) {
+        intent = {
+          raw: step,
+          reason: "occupancy_lift",
+          detail: `${Math.round(input.occupancyPct ?? 0)}% sold ${input.daysOut} days out; lifting €${step} on strength of demand.`,
+          maxDailyOverride: step,
+        };
+      }
+    }
+  }
 
   let raw = intent.raw;
   let reason = intent.reason;
   let detail = intent.detail;
   if (raw === 0) return blocked(intent.blockReason ?? "hold", intent.blockDetail ?? detail);
+
 
   if (holdActive) {
     const genuinePickup = Math.max(0, input.pickup24h - input.cancellations24h) > 0;
@@ -682,10 +792,52 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   const hasPickup = Math.max(0, input.pickup24h - input.cancellations24h) > 0;
 
   if (raw < 0) {
-    // Cancellation cooldown: a cancellation must never trigger an instant cut.
+    // The month comes first: a stay month running under its ADR target does not
+    // discount at all. Only pickup and occupancy lifts move those dates.
+    if (input.monthMarkdownsFrozen) {
+      return blocked(
+        "month_adr_pace",
+        "This stay month is behind its average-rate target; markdowns are frozen until it catches up.",
+      );
+    }
     const sinceCancellation = hoursSince(input.lastCancellationAt, now);
     if (sinceCancellation != null && sinceCancellation * 60 < settings.cancellationWaitMinutes) {
       return blocked("cancellation_cooldown", "A cancellation just landed; waiting before repricing.");
+    }
+    // Anti-arbitrage 1: after a cancellation the room goes back on sale at the
+    // price it was sold at, never cheaper, for the rebooking window.
+    const rebookHours = Math.max(0, settings.rebookWindowHours ?? 0);
+    if (sinceCancellation != null && rebookHours > 0 && sinceCancellation < rebookHours) {
+      return blocked(
+        "rebook_window",
+        `A cancellation landed ${Math.round(sinceCancellation)}h ago; the date is held at its sold price for ${rebookHours}h.`,
+      );
+    }
+    // Anti-arbitrage 2: a date that just took a booking is not cut, or the same
+    // guest cancels and rebooks the same night cheaper. The final selling window
+    // is exempt — inside a week the hotel must be free to sell the last rooms.
+    const brakeHours = Math.max(0, settings.bookedDateBrakeHours ?? 0);
+    if (
+      input.daysOut > 7 && brakeHours > 0
+      && input.hoursSinceLastPickup != null && input.hoursSinceLastPickup < brakeHours
+    ) {
+      return blocked(
+        "booked_date_brake",
+        `This date took a booking ${Math.round(input.hoursSinceLastPickup)}h ago; it is not marked down for ${brakeHours}h.`,
+      );
+    }
+
+
+    // One markdown per date per day, and never on a day the date already rose.
+    const maxMarkdowns = Math.max(0, settings.maxMarkdownsPerDay ?? 0);
+    if (maxMarkdowns > 0 && (input.markdownsToday ?? 0) >= maxMarkdowns) {
+      return blocked(
+        "markdown_limit",
+        `This date has already been lowered ${input.markdownsToday} time(s) today; the limit is ${maxMarkdowns}.`,
+      );
+    }
+    if (Math.abs(input.movedUpTodayEur) > 0) {
+      return blocked("one_way_day", "This date went up earlier today; it is not cut back on the same day.");
     }
     if (win.min_hours_between_decreases > 0) {
       const sinceDecrease = hoursSince(input.lastDecreaseAt, now);
@@ -700,6 +852,7 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
       return blocked("window_blocks_decrease", "This lead window never marks down.");
     }
   }
+
 
   // A confirmed event lifts the date once, and only upwards.
   if (input.pendingEventUplift > 0 && raw >= 0) {
@@ -761,11 +914,24 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
     && input.campaignStartPrice > 0
     ? whole(input.campaignStartPrice * (1 - Math.max(0, fill!.maxTotalDropPct) / 100))
     : null;
+  // The stay month must still be able to reach its average-rate target, and a
+  // date may never be discounted far below the price it recently held.
+  const monthFloor = input.monthFloor != null && Number.isFinite(input.monthFloor)
+    && Number(input.monthFloor) > 0 ? whole(Number(input.monthFloor)) : null;
+  const depthPct = Math.max(0, settings.maxMarkdownDepthPct ?? 0);
+  const depthFloor = depthPct > 0 && input.recentPeakPrice != null
+    && Number.isFinite(input.recentPeakPrice) && Number(input.recentPeakPrice) > 0
+    ? whole(Number(input.recentPeakPrice) * (1 - depthPct / 100))
+    : null;
   const floor = Math.max(
     whole(input.minPrice),
     adrFloor ?? 0,
     campaignFloor ?? 0,
+    netFloor ?? 0,
+    monthFloor ?? 0,
+    depthFloor ?? 0,
   );
+
 
   const ceiling = whole(input.maxPrice);
   // Bounds limit where automation may MOVE a price; they never force a move of

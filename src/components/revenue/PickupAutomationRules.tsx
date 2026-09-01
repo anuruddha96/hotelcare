@@ -21,7 +21,9 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { errorMessage } from "@/lib/errorMessage";
 import {
   DEFAULT_PICKUP_LADDER, bandLabel, normaliseLadder, type PickupLadderBand,
+  DEFAULT_OCCUPANCY_LIFT_LADDER, normaliseOccupancyLadder, type OccupancyLiftBand,
 } from "@/lib/revenue/reasonSettings";
+
 import ActivateModuleDialog from "@/components/billing/ActivateModuleDialog";
 import { automationUnlocked, fetchBillingSummary, type BillingSummary } from "@/hooks/useBilling";
 
@@ -66,6 +68,17 @@ interface Rule {
   fill_max_total_drop_pct: number;
   pickup_increase_ladder: PickupLadderBand[];
   raise_on_any_pickup: boolean;
+  net_rate_factor_enabled: boolean;
+  net_rate_factor_override: number | null;
+  month_pace_guard_enabled: boolean;
+  adr_target_eur: number;
+  occupancy_lift_enabled: boolean;
+  occupancy_lift_ladder: OccupancyLiftBand[];
+  booked_date_brake_hours: number;
+  rebook_window_hours: number;
+  max_markdowns_per_day: number;
+  markdown_depth_pct: number;
+
 
 
   cancellation_markdown_enabled: boolean;
@@ -144,6 +157,13 @@ const DEFAULT_RULE: Rule = {
   sold_out_guard_enabled: true, sold_out_occupancy_pct: 100,
   fill_mode_enabled: false, fill_window_days: 60, fill_max_total_drop_pct: 15,
   pickup_increase_ladder: DEFAULT_PICKUP_LADDER.map((b) => ({ ...b })), raise_on_any_pickup: true,
+  net_rate_factor_enabled: true, net_rate_factor_override: null,
+  month_pace_guard_enabled: true, adr_target_eur: 130,
+  occupancy_lift_enabled: true,
+  occupancy_lift_ladder: DEFAULT_OCCUPANCY_LIFT_LADDER.map((b) => ({ ...b })),
+  booked_date_brake_hours: 72, rebook_window_hours: 24,
+  max_markdowns_per_day: 1, markdown_depth_pct: 12,
+
 
   cancellation_markdown_enabled: true, cancellation_wait_minutes: 60,
   immediate_sell_mode_enabled: true, immediate_window_days: 14, immediate_markdown_step: 2,
@@ -405,6 +425,17 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
             ...loaded,
             pickup_increase_ladder: normaliseLadder((loaded as any).pickup_increase_ladder),
             raise_on_any_pickup: (loaded as any).raise_on_any_pickup !== false,
+            occupancy_lift_ladder: normaliseOccupancyLadder((loaded as any).occupancy_lift_ladder),
+            occupancy_lift_enabled: (loaded as any).occupancy_lift_enabled !== false,
+            net_rate_factor_enabled: (loaded as any).net_rate_factor_enabled !== false,
+            net_rate_factor_override: (loaded as any).net_rate_factor_override ?? null,
+            month_pace_guard_enabled: (loaded as any).month_pace_guard_enabled !== false,
+            adr_target_eur: (loaded as any).adr_target_eur ?? 130,
+            booked_date_brake_hours: (loaded as any).booked_date_brake_hours ?? 72,
+            rebook_window_hours: (loaded as any).rebook_window_hours ?? 24,
+            max_markdowns_per_day: (loaded as any).max_markdowns_per_day ?? 1,
+            markdown_depth_pct: (loaded as any).markdown_depth_pct ?? 12,
+
           });
         }
         setHasSavedRule(true);
@@ -489,6 +520,17 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       fill_max_total_drop_pct: source.rule.fill_max_total_drop_pct ?? 15,
       pickup_increase_ladder: normaliseLadder(source.rule.pickup_increase_ladder),
       raise_on_any_pickup: source.rule.raise_on_any_pickup !== false,
+      net_rate_factor_enabled: source.rule.net_rate_factor_enabled !== false,
+      net_rate_factor_override: source.rule.net_rate_factor_override ?? null,
+      month_pace_guard_enabled: source.rule.month_pace_guard_enabled !== false,
+      adr_target_eur: source.rule.adr_target_eur ?? 130,
+      occupancy_lift_enabled: source.rule.occupancy_lift_enabled !== false,
+      occupancy_lift_ladder: normaliseOccupancyLadder(source.rule.occupancy_lift_ladder),
+      booked_date_brake_hours: source.rule.booked_date_brake_hours ?? 72,
+      rebook_window_hours: source.rule.rebook_window_hours ?? 24,
+      max_markdowns_per_day: source.rule.max_markdowns_per_day ?? 1,
+      markdown_depth_pct: source.rule.markdown_depth_pct ?? 12,
+
 
       cancellation_markdown_enabled: source.rule.cancellation_markdown_enabled ?? true,
       cancellation_wait_minutes: source.rule.cancellation_wait_minutes ?? 60,
@@ -577,6 +619,17 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       fill_max_total_drop_pct: rule.fill_max_total_drop_pct,
       pickup_increase_ladder: rule.pickup_increase_ladder,
       raise_on_any_pickup: rule.raise_on_any_pickup,
+      net_rate_factor_enabled: rule.net_rate_factor_enabled,
+      net_rate_factor_override: rule.net_rate_factor_override,
+      month_pace_guard_enabled: rule.month_pace_guard_enabled,
+      adr_target_eur: rule.adr_target_eur,
+      occupancy_lift_enabled: rule.occupancy_lift_enabled,
+      occupancy_lift_ladder: rule.occupancy_lift_ladder,
+      booked_date_brake_hours: rule.booked_date_brake_hours,
+      rebook_window_hours: rule.rebook_window_hours,
+      max_markdowns_per_day: rule.max_markdowns_per_day,
+      markdown_depth_pct: rule.markdown_depth_pct,
+
 
       cancellation_markdown_enabled: rule.cancellation_markdown_enabled,
       cancellation_wait_minutes: rule.cancellation_wait_minutes,
@@ -1312,6 +1365,112 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                     onChange={(e) => setRule({ ...rule, fill_max_total_drop_pct: Number(e.target.value) })}
                   />
                 </div>
+
+                {/* ---- Average rate protection (ADR-first rules) ---- */}
+                <div className="space-y-3 rounded-lg border p-3">
+                  <div className="flex items-center gap-1">
+                    <Label className="text-xs font-semibold">Average rate protection</Label>
+                    <Hint>These rules make sure filling the hotel never costs more than it earns: prices are floored at what the property must ask to bank its average rate, and dates that just took a booking are never discounted underneath the guest.</Hint>
+                  </div>
+
+                  <ToggleRow
+                    title="Adjust floors for channel discounts"
+                    desc="Measure how far realised rates fall below the loaded price, and raise every rate floor to match."
+                    hint={<>Derived plans, single-occupancy rates and channel promotions sell the room under the loaded price. The engine measures that gap from your own bookings and raises the floors so the average rate you set is the average rate you bank.</>}
+                    checked={rule.net_rate_factor_enabled}
+                    onChange={(net_rate_factor_enabled) => setRule({ ...rule, net_rate_factor_enabled })}
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <NumField
+                      label="Minimum average rate" suffix={rule.currency} min={0} max={1000}
+                      value={rule.minimum_adr}
+                      onChange={(e) => setRule({ ...rule, minimum_adr: Number(e.target.value) })}
+                    />
+                    <NumField
+                      label="Discount factor override" suffix="×" min={0.6} max={1} step={0.01}
+                      disabled={!rule.net_rate_factor_enabled}
+                      value={rule.net_rate_factor_override ?? 0}
+                      onChange={(e) => setRule({
+                        ...rule,
+                        net_rate_factor_override: Number(e.target.value) > 0 ? Number(e.target.value) : null,
+                      })}
+                    />
+                  </div>
+
+                  <ToggleRow
+                    title="Month-end rate guard"
+                    desc="A stay month running below its average-rate target stops discounting until it catches up."
+                    hint={<>Every month is judged on the rate it finally lands on. When a month is behind, the engine works out what the rooms still to sell must average, floors the remaining dates there and freezes markdowns. A month already above target is free to discount and fill.</>}
+                    checked={rule.month_pace_guard_enabled}
+                    onChange={(month_pace_guard_enabled) => setRule({ ...rule, month_pace_guard_enabled })}
+                  />
+                  <NumField
+                    label="Average rate target" suffix={rule.currency} min={0} max={1000}
+                    disabled={!rule.month_pace_guard_enabled}
+                    value={rule.adr_target_eur}
+                    onChange={(e) => setRule({ ...rule, adr_target_eur: Number(e.target.value) })}
+                  />
+
+                  <ToggleRow
+                    title="Raise dates that are selling well"
+                    desc="Strong occupancy lifts the price on its own — no new booking required in the run."
+                    hint={<>This is what corrects a date that is nearly full but still cheap. The ladder below sets how big the lift is for each occupancy level and lead time.</>}
+                    checked={rule.occupancy_lift_enabled}
+                    onChange={(occupancy_lift_enabled) => setRule({ ...rule, occupancy_lift_enabled })}
+                  />
+                  <div className="space-y-2">
+                    {rule.occupancy_lift_ladder.map((band, index) => (
+                      <div key={`occlift-${index}`} className="grid grid-cols-4 items-end gap-2">
+                        {([
+                          ["min_occupancy_pct", "Sold from", "%"],
+                          ["min_days_out", "Days out", "d"],
+                          ["pct", "Lift", "%"],
+                          ["min_eur", "At least", rule.currency],
+                        ] as const).map(([key, label, suffix]) => (
+                          <NumField
+                            key={key}
+                            label={label}
+                            suffix={suffix}
+                            min={0}
+                            max={key === "min_days_out" ? 400 : 100}
+                            disabled={!rule.occupancy_lift_enabled}
+                            value={band[key]}
+                            onChange={(e) => setRule({
+                              ...rule,
+                              occupancy_lift_ladder: rule.occupancy_lift_ladder.map((row, i) =>
+                                i === index ? { ...row, [key]: Math.max(0, Number(e.target.value) || 0) } : row),
+                            })}
+                          />
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <NumField
+                      label="Hold after a booking" suffix="hours" min={0} max={336}
+                      value={rule.booked_date_brake_hours}
+                      onChange={(e) => setRule({ ...rule, booked_date_brake_hours: Number(e.target.value) })}
+                    />
+                    <NumField
+                      label="Rebooking protection" suffix="hours" min={0} max={336}
+                      value={rule.rebook_window_hours}
+                      onChange={(e) => setRule({ ...rule, rebook_window_hours: Number(e.target.value) })}
+                    />
+                    <NumField
+                      label="Markdowns per date per day" suffix="×" min={0} max={10}
+                      value={rule.max_markdowns_per_day}
+                      onChange={(e) => setRule({ ...rule, max_markdowns_per_day: Number(e.target.value) })}
+                    />
+                    <NumField
+                      label="Most a date may fall below its recent peak" suffix="%" min={0} max={50}
+                      value={rule.markdown_depth_pct}
+                      onChange={(e) => setRule({ ...rule, markdown_depth_pct: Number(e.target.value) })}
+                    />
+                  </div>
+                </div>
+
+
 
 
 

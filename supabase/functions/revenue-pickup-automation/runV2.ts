@@ -24,6 +24,8 @@ import {
   type DecisionSettings,
   type PaceBand,
   type PickupLadderBand,
+  type OccupancyLiftBand,
+  DEFAULT_OCCUPANCY_LIFT_LADDER,
   type WindowRule,
 } from "../_shared/engineV2.ts";
 
@@ -38,8 +40,19 @@ import {
 } from "../_shared/priceBounds.ts";
 
 import { evaluateGates, evaluateWatchdog, supervisedCaps } from "../_shared/activationGate.ts";
-import { computeAdrGuard, type AdrGuardNight } from "../_shared/adrGuard.ts";
+import {
+  computeAdrGuard,
+  computeMonthPaceGuard,
+  type AdrGuardNight,
+  type MonthPaceNight,
+} from "../_shared/adrGuard.ts";
+import {
+  computeNetRateFactor,
+  grossUpFloor,
+  resolveNetRateFactor,
+} from "../_shared/netRateFactor.ts";
 import { anchorFor, buildAnchorTable } from "../_shared/seasonalAnchor.ts";
+
 
 export interface V2Deps {
   admin: any;
@@ -427,6 +440,61 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       return out;
     })();
 
+    // ---- Net rate factor ---------------------------------------------------
+    // The grid price is not what the hotel banks: derived OTA plans, single
+    // occupancy and channel discounts sell the same room lower. Measure that
+    // leakage from the hotel's own bookings so every ADR floor can be grossed
+    // up before it is applied to the grid.
+    const gridPriceFor = (() => {
+      const exact = new Map<string, number>();
+      const cheapest = new Map<string, number>();
+      for (const cell of byDate.values()) {
+        for (const c of cell) {
+          const price = Number(c.price);
+          if (!Number.isFinite(price) || price <= 0) continue;
+          const occKey = `${c.stay_date}|${c.occupancy}`;
+          exact.set(`${c.stay_date}|${c.room_type_name ?? ""}|${c.occupancy}`, price);
+          const seen = cheapest.get(occKey);
+          if (seen == null || price < seen) cheapest.set(occKey, price);
+        }
+      }
+      return (stayDate: string, roomTypeName: string | null, occupancy: number): number | null =>
+        exact.get(`${stayDate}|${roomTypeName ?? ""}|${occupancy}`)
+          ?? cheapest.get(`${stayDate}|${occupancy}`)
+          ?? cheapest.get(`${stayDate}|2`)
+          ?? null;
+    })();
+
+    const realisedRows = rule.net_rate_factor_enabled === false
+      ? []
+      : ((await deps.pagedAll((f: number, t: number) => admin.from("revenue_booking_nights")
+        .select("stay_date, room_type_name, guests, nightly_price_eur")
+        .eq("hotel_id", rule.hotel_id)
+        .gte("stay_date", today).lte("stay_date", horizonDate)
+        .order("stay_date").range(f, t))).data ?? []) as any[];
+
+    const netRate = resolveNetRateFactor(
+      rule.net_rate_factor_enabled !== false,
+      rule.net_rate_factor_override,
+      computeNetRateFactor(
+        realisedRows.map((r) => ({
+          stayDate: r.stay_date,
+          roomTypeName: r.room_type_name ?? null,
+          guests: r.guests == null ? null : Number(r.guests),
+          nightlyPriceEur: r.nightly_price_eur == null ? null : Number(r.nightly_price_eur),
+        })),
+        gridPriceFor,
+      ),
+    );
+
+    // The absolute stop: no date may sit below the grid price the hotel needs
+    // to load in order to bank its minimum ADR once discounting is applied.
+    const hardAdrFloor = grossUpFloor(
+      Number(rule.minimum_adr) > 0 ? Number(rule.minimum_adr) : null,
+      netRate.factor,
+    );
+
+
 
     const occByDate = new Map<string, {
       pct: number | null; sold: number | null; left: number | null; revenue: number | null;
@@ -518,11 +586,18 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       .gte("created_at", localDayStart).order("stay_date").range(f, t));
     const movedUpToday = new Map<string, number>();
     const movedDownToday = new Map<string, number>();
+    // How many separate markdowns a date already took today — the anti-arbitrage
+    // rule allows only a limited number, so the price cannot walk down all day.
+    const markdownsToday = new Map<string, number>();
     for (const row of (spentToday ?? []) as any[]) {
       const amount = Math.abs(Number(row.movement) || 0);
       if (row.direction === "increase") movedUpToday.set(row.stay_date, (movedUpToday.get(row.stay_date) ?? 0) + amount);
-      if (row.direction === "decrease") movedDownToday.set(row.stay_date, (movedDownToday.get(row.stay_date) ?? 0) + amount);
+      if (row.direction === "decrease") {
+        movedDownToday.set(row.stay_date, (movedDownToday.get(row.stay_date) ?? 0) + amount);
+        markdownsToday.set(row.stay_date, (markdownsToday.get(row.stay_date) ?? 0) + 1);
+      }
     }
+
 
     // Events: approved, confident, readable, deduplicated, once per date.
     const appliedKeys = new Set(unwrap(appliedEventsRes).map((r: any) => `${r.event_key}|${r.stay_date}`));
@@ -581,6 +656,10 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       ? rule.pickup_increase_ladder
       : DEFAULT_PICKUP_LADDER) as PickupLadderBand[];
 
+    const occupancyLiftLadder = (Array.isArray(rule.occupancy_lift_ladder) && rule.occupancy_lift_ladder.length > 0
+      ? rule.occupancy_lift_ladder
+      : DEFAULT_OCCUPANCY_LIFT_LADDER) as OccupancyLiftBand[];
+
     const settings: DecisionSettings = {
       ...DEFAULT_DECISION_SETTINGS,
       now,
@@ -594,6 +673,13 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       pickupLadder,
       raiseOnAnyPickup: rule.raise_on_any_pickup !== false,
       strongOccupancyPct: Math.max(50, Number(rule.high_occupancy_pct ?? 85)),
+      occupancyLiftEnabled: rule.occupancy_lift_enabled !== false,
+      occupancyLiftLadder,
+      bookedDateBrakeHours: Math.max(0, Number(rule.booked_date_brake_hours ?? 72)),
+      rebookWindowHours: Math.max(0, Number(rule.rebook_window_hours ?? 24)),
+      maxMarkdownsPerDay: Math.max(0, Number(rule.max_markdowns_per_day ?? 1)),
+      maxMarkdownDepthPct: Math.min(50, Math.max(0, Number(rule.markdown_depth_pct ?? 12))),
+      netRateFactor: netRate.factor,
       fill: {
         enabled: Boolean(rule.fill_mode_enabled),
         windowDays: Math.max(0, Number(rule.fill_window_days ?? 60)),
@@ -605,6 +691,10 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
 
     // Rolling ADR guard: the next few nights must still average the target rate,
     // so a sell-down can never dump the week below what it needs to earn.
+    // Both the target and the money on the books are expressed in GRID terms
+    // (divided by the net rate factor), so the guard talks the same language as
+    // the prices it protects.
+    const netFactor = netRate.factor > 0 ? netRate.factor : 1;
     const adrGuard = rule.adr_guard_enabled
       ? computeAdrGuard(
         Array.from(byDate.keys()).sort().map((stayDate): AdrGuardNight => {
@@ -617,17 +707,50 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
             daysOut: dayDiff(today, stayDate),
             roomsSold: occ?.sold ?? null,
             roomsRemaining: occ?.left ?? null,
-            revenueOnBooks: occ?.revenue ?? null,
+            revenueOnBooks: occ?.revenue == null ? null : occ.revenue / netFactor,
             currentPrice: ref ? whole(ref.price) : null,
             maxPrice: isBoundsFailure(bounds) ? null : bounds.max,
           };
         }),
         {
-          targetAdr: Number(rule.adr_target_eur ?? 0),
+          targetAdr: Number(rule.adr_target_eur ?? 0) / netFactor,
           windowDays: Math.max(1, Number(rule.adr_window_days ?? 7)),
         },
       )
       : { floors: {}, projectedAdr: null, requiredRate: null, feasible: false, reason: "guard_off" };
+
+    // Month-end ADR pacing. The manager is judged on the month, not on the week:
+    // a month running below its target stops discounting and floors its
+    // remaining dates at the rate it still needs; a month already above target
+    // is free to discount and fill.
+    const monthGuard = rule.month_pace_guard_enabled
+      ? computeMonthPaceGuard(
+        Array.from(byDate.keys()).sort().map((stayDate): MonthPaceNight => {
+          const occ = occByDate.get(stayDate);
+          return {
+            stayDate,
+            roomsSold: occ?.sold ?? null,
+            roomsRemaining: occ?.left ?? null,
+            revenueOnBooks: occ?.revenue == null ? null : occ.revenue / netFactor,
+          };
+        }),
+        {
+          defaultTargetAdr: Number(rule.adr_target_eur ?? 0) / netFactor,
+          monthlyTargets: (() => {
+            const raw = rule.monthly_adr_targets;
+            if (!raw || typeof raw !== "object") return null;
+            const out: Record<string, number> = {};
+            for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+              const value = Number(v);
+              if (Number.isFinite(value) && value > 0) out[k] = value / netFactor;
+            }
+            return out;
+          })(),
+        },
+      )
+      : { byMonth: {}, floors: {}, frozenMonths: [] as string[] };
+    const frozenMonths = new Set(monthGuard.frozenMonths);
+
 
 
     // ---- 3. One decision per stay date -------------------------------------
@@ -694,6 +817,13 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         pendingEventUplift: pendingEvent?.uplift ?? 0,
         market: marketFor(stayDate),
         campaignStartPrice: campaignStartByDate.get(stayDate) ?? null,
+        // ADR-first inputs.
+        hardAdrFloor: hardAdrFloor,
+        monthFloor: monthGuard.floors[stayDate] ?? null,
+        monthMarkdownsFrozen: frozenMonths.has(stayDate.slice(0, 7)),
+        recentPeakPrice: campaignStartByDate.get(stayDate) ?? null,
+        markdownsToday: markdownsToday.get(stayDate) ?? 0,
+
       };
 
 
