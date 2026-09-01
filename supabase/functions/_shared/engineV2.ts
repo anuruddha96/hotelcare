@@ -1,13 +1,16 @@
 // Public Revenue Engine V2 entry point.
 //
-// The original, fully tested decision engine now lives in engineV2Core.ts and
-// is re-exported unchanged. This thin policy layer adds one deliberately narrow
-// business priority: when arrival is today/tomorrow/day+2 AND rooms are still
-// unsold, reaching 100% occupancy outranks pickup surcharges and ADR-derived
-// price lifts. All dates outside that final sell-out window use the core engine
-// exactly as before.
+// The fully tested decision engine lives in engineV2Core.ts. This policy layer
+// adds one narrow near-arrival rule:
+//   • ARRIVAL TODAY is owned exclusively by revenue-same-day-sellout, which
+//     checks the current stay date every 30 minutes until 15:00.
+//   • TOMORROW / DAY+2 keep the final sell-out priority added previously.
+//
+// Keeping the normal hourly engine out of today's rate is deliberate: two
+// independent clocks must never compete over the same arrival-day price.
 
 export * from "./engineV2Core.ts";
+export { sameDayUrgencyStep } from "./sameDaySellout.ts";
 
 import {
   decideDate as decideDateCore,
@@ -27,10 +30,19 @@ const hoursSince = (iso: string | null, now: Date): number | null => {
   return (now.getTime() - parsed) / 3_600_000;
 };
 
-/**
- * The hotel's final sell-out window: arrival is no more than two days away and
- * at least one room is still available. A sold-out date never enters this path.
- */
+function localMinutes(now: Date, timeZone = "Europe/Budapest"): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+  return hour * 60 + minute;
+}
+
+/** Arrival is today/tomorrow/day+2 and at least one room remains unsold. */
 export function isFinalSelloutWindow(input: DecisionInput): boolean {
   return input.daysOut >= 0
     && input.daysOut <= 2
@@ -39,14 +51,7 @@ export function isFinalSelloutWindow(input: DecisionInput): boolean {
     && input.roomsRemaining > 0;
 }
 
-/**
- * Smart whole-euro markdown for the final three days.
- *
- * Urgency sets the starting cut: today €5, tomorrow €4, day+2 €3. Strong recent
- * pickup / strong occupancy / only one or two rooms left makes the cut smaller,
- * but NEVER turns it into an increase while inventory remains. This preserves
- * demand information without sacrificing the 100% occupancy objective.
- */
+/** Smart whole-euro markdown retained for tomorrow and day+2. */
 export function finalSelloutStep(input: DecisionInput): number {
   const netPickup = Math.max(0, input.pickup24h - input.cancellations24h);
   const occ = input.occupancyPct;
@@ -89,33 +94,8 @@ function blocked(
   };
 }
 
-/**
- * Decide one stay date.
- *
- * Outside the final three days this is a transparent pass-through to the core
- * Engine V2. Inside the final window, if inventory remains, the sell-out policy
- * deliberately bypasses:
- *   - pickup-driven increases;
- *   - hard/net/month ADR lifts and ADR markdown freezes;
- *   - the 24h rebooking hold after the short cancellation safety wait;
- *   - one-markdown-per-day / same-day one-way / direction-reversal holds.
- *
- * It still respects stale-data protection, explicit price bounds, manager/manual
- * holds, the cancellation safety wait, the absolute room-rate floor, campaign
- * max-drop protection, recent-peak markdown depth and the €15/day final-window
- * decrease budget. Once roomsRemaining reaches zero, the normal sold-out logic
- * in the core engine takes over again.
- */
-export function decideDate(input: DecisionInput, settings: DecisionSettings): Decision {
-  if (!isFinalSelloutWindow(input)) return decideDateCore(input, settings);
-
+function commonSafetyHold(input: DecisionInput, settings: DecisionSettings): Decision | null {
   const { now } = settings;
-  const win = windowFor(input.daysOut, settings.windowRules);
-  const paceTarget = paceTargetFor(input.daysOut, settings.paceBands);
-  const gap = paceTarget != null && input.occupancyPct != null
-    ? Math.round((input.occupancyPct - paceTarget) * 10) / 10
-    : null;
-
   if (input.dataStale) {
     return blocked(input, settings, "stale_data", "The PMS feed is stale; no price may change.");
   }
@@ -134,19 +114,28 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   if (holdActive && input.holdKind === "hard") {
     return blocked(input, settings, "manual_lock", "A manager locked this date; automation leaves it alone.");
   }
-  // A soft hand-set price remains protected. The sell-out rule should be
-  // automatic and assertive, but it must never silently undo an explicit human
-  // price choice while that protection is active.
   if (holdActive) {
     return blocked(input, settings, "manual_hold", "A manual price change is protected for now; no automatic sell-out markdown.");
   }
 
   const sinceCancellation = hoursSince(input.lastCancellationAt, now);
   if (sinceCancellation != null && sinceCancellation * 60 < settings.cancellationWaitMinutes) {
-    return blocked(input, settings, "cancellation_cooldown", "A cancellation just landed; waiting briefly before the final sell-out markdown.");
+    return blocked(input, settings, "cancellation_cooldown", "A cancellation just landed; waiting briefly before the sell-out markdown.");
   }
+  return null;
+}
 
-  const current = whole(input.currentPrice);
+/** Tomorrow/day+2 policy retained from the previous sell-out change. */
+function decideNextTwoDays(input: DecisionInput, settings: DecisionSettings): Decision {
+  const safety = commonSafetyHold(input, settings);
+  if (safety) return safety;
+
+  const win = windowFor(input.daysOut, settings.windowRules);
+  const paceTarget = paceTargetFor(input.daysOut, settings.paceBands);
+  const gap = paceTarget != null && input.occupancyPct != null
+    ? Math.round((input.occupancyPct - paceTarget) * 10) / 10
+    : null;
+  const current = whole(input.currentPrice!);
   const requestedStep = finalSelloutStep(input);
   const dailyBudget = Math.max(0, win.max_daily_decrease - Math.abs(input.movedDownTodayEur));
   if (dailyBudget <= 0) {
@@ -157,13 +146,8 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
       `Final sell-out mode has already used its €${win.max_daily_decrease} decrease allowance for this date today.`,
     );
   }
-
   const step = Math.min(requestedStep, dailyBudget);
 
-  // Final sell-out deliberately waives ADR-derived floors. Empty rooms earn
-  // zero, so in the last three days occupancy takes precedence over the ADR
-  // target. Genuine safety rails remain: absolute configured floor, campaign
-  // max-drop protection and recent-peak markdown depth.
   const fill = settings.fill?.enabled ? settings.fill : null;
   const inFillWindow = fill != null && input.daysOut <= Math.max(0, fill.windowDays);
   const campaignFloor = inFillWindow
@@ -176,11 +160,7 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
     && Number.isFinite(input.recentPeakPrice) && Number(input.recentPeakPrice) > 0
     ? whole(Number(input.recentPeakPrice) * (1 - depthPct / 100))
     : null;
-  const safetyFloor = Math.max(
-    whole(input.minPrice),
-    campaignFloor ?? 0,
-    depthFloor ?? 0,
-  );
+  const safetyFloor = Math.max(whole(input.minPrice!), campaignFloor ?? 0, depthFloor ?? 0);
 
   const unclampedTarget = whole(current - step);
   const target = Math.max(unclampedTarget, safetyFloor);
@@ -196,7 +176,7 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
 
   const netPickup = Math.max(0, input.pickup24h - input.cancellations24h);
   const occupancyText = input.occupancyPct == null ? "occupancy unknown" : `${Math.round(input.occupancyPct)}% sold`;
-  const arrivalText = input.daysOut === 0 ? "arrival today" : input.daysOut === 1 ? "arrival tomorrow" : "arrival in 2 days";
+  const arrivalText = input.daysOut === 1 ? "arrival tomorrow" : "arrival in 2 days";
   const pickupText = netPickup > 0
     ? `${netPickup} net booking${netPickup === 1 ? "" : "s"} in 24h; pickup reduced the cut but cannot raise an unsold final-3-day date`
     : "no net pickup in 24h";
@@ -216,4 +196,27 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
     capApplied: target !== unclampedTarget ? safetyFloor : step !== requestedStep ? dailyBudget : null,
     blocked: false,
   };
+}
+
+export function decideDate(input: DecisionInput, settings: DecisionSettings): Decision {
+  if (!isFinalSelloutWindow(input)) return decideDateCore(input, settings);
+
+  if (input.daysOut === 0) {
+    if (localMinutes(settings.now) >= 15 * 60) {
+      return blocked(
+        input,
+        settings,
+        "same_day_cutoff",
+        "Arrival-day automatic sell-out pricing stops at 15:00 local time. Management owns the remaining inventory after the cutoff.",
+      );
+    }
+    return blocked(
+      input,
+      settings,
+      "same_day_dedicated",
+      "Today's stay date is controlled by the dedicated 30-minute sell-out worker. The normal hourly engine deliberately leaves it alone.",
+    );
+  }
+
+  return decideNextTwoDays(input, settings);
 }

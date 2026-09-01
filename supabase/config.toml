@@ -162,7 +162,6 @@ verify_jwt = false
 [functions.process-purchase-invoice]
 verify_jwt = true
 
-
 [functions.generate-rm-intelligence]
 verify_jwt = true
 
@@ -187,14 +186,11 @@ verify_jwt = false
 [functions.assistant-transcribe]
 verify_jwt = false
 
-
-
 [functions.previo-sync-daily-overview]
 verify_jwt = false
 
 [functions.previo-sync-daily-overview-all]
 verify_jwt = false
-
 
 [functions.email-config]
 verify_jwt = false
@@ -208,8 +204,6 @@ verify_jwt = false
 [functions.restaurant-reservation-status]
 verify_jwt = false
 
-
-
 [functions.demand-events-auto]
 verify_jwt = false
 
@@ -220,4 +214,9 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.revenue-sync-scheduler]
+verify_jwt = false
+
+# This worker is called only by the database scheduler (anon apikey) or by a
+# service-role request and performs its own authentication check in code.
+[functions.revenue-same-day-sellout]
 verify_jwt = false

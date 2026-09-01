@@ -3,10 +3,12 @@ import {
   DEFAULT_DECISION_SETTINGS,
   decideDate,
   finalSelloutStep,
+  sameDayUrgencyStep,
   type DecisionInput,
   type DecisionSettings,
 } from "./engineV2.ts";
 
+// 11:30 UTC is 13:30 in Budapest on 1 September (CEST).
 const NOW = new Date("2026-09-01T11:30:00Z");
 
 const settings: DecisionSettings = {
@@ -58,16 +60,38 @@ function input(patch: Partial<DecisionInput> = {}): DecisionInput {
   };
 }
 
-Deno.test("today with 3 rooms left lowers despite pickup and ADR floors", () => {
+Deno.test("normal hourly engine leaves arrival today to the 30-minute worker", () => {
   const decision = decideDate(input(), settings);
-  assertEquals(decision.direction, "decrease");
-  assertEquals(decision.movement, -3);
-  assertEquals(decision.targetPrice, 180);
-  assertEquals(decision.reason, "final_3_day_fill");
-  assertEquals(decision.blocked, false);
+  assertEquals(decision.direction, "hold");
+  assertEquals(decision.movement, 0);
+  assertEquals(decision.targetPrice, 183);
+  assertEquals(decision.reason, "same_day_dedicated");
+  assertEquals(decision.blocked, true);
 });
 
-Deno.test("positive pickup tempers the final-day cut but never turns it upward", () => {
+Deno.test("arrival-day urgency strengthens with time and unsold inventory", () => {
+  assertEquals(sameDayUrgencyStep(7 * 60, 3), 3);
+  assertEquals(sameDayUrgencyStep(9 * 60, 3), 4);
+  assertEquals(sameDayUrgencyStep(11 * 60, 3), 5);
+  assertEquals(sameDayUrgencyStep(12 * 60 + 30, 3), 6);
+  assertEquals(sameDayUrgencyStep(13 * 60 + 30, 3), 7);
+  assertEquals(sameDayUrgencyStep(14 * 60 + 10, 3), 8);
+  assertEquals(sameDayUrgencyStep(14 * 60 + 40, 3), 10);
+  assertEquals(sameDayUrgencyStep(13 * 60 + 30, 5), 9);
+  assertEquals(sameDayUrgencyStep(13 * 60 + 30, 1), 5);
+});
+
+Deno.test("arrival today stops automatic sellout pricing at 15:00 Budapest", () => {
+  const afterCutoff: DecisionSettings = {
+    ...settings,
+    now: new Date("2026-09-01T13:05:00Z"), // 15:05 Budapest
+  };
+  const decision = decideDate(input(), afterCutoff);
+  assertEquals(decision.direction, "hold");
+  assertEquals(decision.reason, "same_day_cutoff");
+});
+
+Deno.test("legacy sellout helper still tempers tomorrow/day+2 moves", () => {
   assertEquals(finalSelloutStep(input({ pickup24h: 0, cancellations24h: 0, occupancyPct: 60 })), 5);
   assertEquals(finalSelloutStep(input({ pickup24h: 1, cancellations24h: 0, occupancyPct: 60 })), 4);
   assertEquals(finalSelloutStep(input({ pickup24h: 4, cancellations24h: 1, occupancyPct: 86 })), 3);
@@ -118,8 +142,10 @@ Deno.test("tomorrow and day+2 keep smart sellout markdowns while rooms remain", 
   assertEquals(dayTwo.targetPrice, 162);
 });
 
-Deno.test("final sellout still respects explicit manual protection", () => {
+Deno.test("tomorrow/day+2 sellout still respects explicit manual protection", () => {
   const decision = decideDate(input({
+    stayDate: "2026-09-02",
+    daysOut: 1,
     manualHoldUntil: "2026-09-01T13:00:00Z",
     holdKind: "soft",
   }), settings);
