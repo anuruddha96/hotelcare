@@ -1,0 +1,7 @@
+/.well-known/oauth-authorization-server
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: no-store
+
+/.well-known/openid-configuration
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: no-store
