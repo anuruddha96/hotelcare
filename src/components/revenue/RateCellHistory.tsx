@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { formatWhen } from "@/lib/rateAudit";
 import type { RateAuditRow } from "@/lib/rateAudit";
 import { groupCellChanges, type LogicalChange } from "@/lib/rateChangeGroups";
@@ -108,6 +109,35 @@ export default function RateCellHistory({
 
   const entries = groupCellChanges(history, automation, names, { automationDetail });
   const status = statusLine(entries, draftPrice, sendingPrice);
+
+  // A red cell must never be a mystery. `previo_different` is the durable
+  // signal that HotelCare requested one amount and the PMS read-back returned
+  // another. Resolved/superseded mismatches stay in history but are not active
+  // warnings, so only an unresolved row gets this prominent explanation.
+  const activePrevioIssue = [...(history ?? [])]
+    .filter((row) => row.source === "previo_different" && !row.payload?.resolved_at)
+    .sort((a, b) => b.performed_at.localeCompare(a.performed_at))[0] ?? null;
+  const requestedPrice = activePrevioIssue?.payload?.requested_price == null
+    ? null
+    : Number(activePrevioIssue.payload.requested_price);
+  const actualPrevioPrice = activePrevioIssue?.payload?.actual_previo_price == null
+    ? null
+    : Number(activePrevioIssue.payload.actual_previo_price);
+  const issueNote = activePrevioIssue ? (
+    <div className="rounded-md border border-rose-300 bg-rose-50 px-2.5 py-2 text-[11px] text-rose-900 dark:border-rose-500/50 dark:bg-rose-500/10 dark:text-rose-200">
+      <div className="mb-0.5 flex items-center gap-1.5 font-semibold">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+        Previo price mismatch
+      </div>
+      <p>
+        HotelCare requested{requestedPrice != null && Number.isFinite(requestedPrice) ? ` ${moneyBase(requestedPrice)}` : " a new price"},
+        but Previo returned{actualPrevioPrice != null && Number.isFinite(actualPrevioPrice) ? ` ${moneyBase(actualPrevioPrice)}` : " a different price"}.
+        {" "}The red cell means this delivery needs attention; it is not a pricing recommendation. It clears automatically when a newer confirmed price supersedes the warning.
+      </p>
+      <p className="mt-1 text-rose-700/80 dark:text-rose-300/80">Checked {formatWhen(activePrevioIssue.performed_at)}.</p>
+    </div>
+  ) : null;
+
   const holdNote = hold && hold.hold_until && Date.parse(hold.hold_until) > Date.now()
     ? (
       <div className="rounded-md border border-amber-300/60 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
@@ -123,6 +153,7 @@ export default function RateCellHistory({
     return (
       <div className="space-y-1">
         <p className={`text-[11px] ${status.tone}`}>{status.text}</p>
+        {issueNote}
         {holdNote}
         <p className="text-[11px] text-muted-foreground">No price changes recorded for this room type and date yet.</p>
       </div>
@@ -174,6 +205,7 @@ export default function RateCellHistory({
   return (
     <div className="space-y-2">
       <p className={`text-xs font-medium ${status.tone}`}>{status.text}</p>
+      {issueNote}
       {holdNote}
       <div className="space-y-2">
         {shown.map((e) => {
