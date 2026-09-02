@@ -420,9 +420,18 @@ export function TrainingOverlayV2() {
               {requiresAction && !waiting && (
                 <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-primary/25 bg-primary/10 px-3 py-2.5 text-xs text-primary">
                   <MousePointer2 className="h-4 w-4 mt-0.5 shrink-0" aria-hidden="true" />
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <p className="font-semibold">{txt(LABELS.tryIt, lang)}</p>
                     <p className="mt-0.5 leading-relaxed text-primary/90">{txt(LABELS.autoContinue, lang)}</p>
+                    {step.optional && (
+                      <button
+                        type="button"
+                        onClick={skipForNow}
+                        className="mt-1.5 min-h-9 underline underline-offset-2 hover:no-underline font-semibold"
+                      >
+                        {txt(LABELS.skipForNow, lang)}
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
