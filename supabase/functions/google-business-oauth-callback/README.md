@@ -1,0 +1,1 @@
+Public OAuth redirect endpoint. It validates a short-lived state stored server-side. Refresh-token persistence remains intentionally disabled until `GOOGLE_BUSINESS_TOKEN_KEY` is configured so credentials are never stored in plaintext.
