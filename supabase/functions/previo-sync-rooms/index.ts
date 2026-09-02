@@ -7,11 +7,16 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Previo names rooms with a category prefix (e.g. "DB/TW-102", "TRP-305",
-// "Q-101"). HotelCare stores just the numeric room_number ("102", "305").
-// Extract the trailing numeric token so we can auto-map by number.
+// Previo names ordinary rooms with a category prefix (e.g. "DB/TW-102",
+// "TRP-305", "Q-101"). HotelCare normally stores the trailing numeric room
+// number for those rooms. Composite physical identifiers such as "TRP - 2/1"
+// or "SUITE - 2/2 (DB+Sofa)" must stay intact; taking the final digit would
+// incorrectly turn 2/1 into room 1.
 const extractRoomNumber = (raw: string): string => {
   const s = String(raw ?? '').trim();
+  const hasCompositeNumericId = /\d+\s*\/\s*\d+(?:\s*\([^)]*\))?\s*$/.test(s);
+  if (hasCompositeNumericId) return s;
+
   const matches = s.match(/\d+/g);
   if (!matches || matches.length === 0) return s;
   return matches[matches.length - 1];
