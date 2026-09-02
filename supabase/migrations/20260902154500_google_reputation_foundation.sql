@@ -1,0 +1,97 @@
+create table if not exists public.google_business_connections (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  connected_by uuid references public.profiles(id) on delete set null,
+  google_account_name text not null,
+  google_account_display_name text,
+  google_account_email text,
+  refresh_token_ciphertext text not null,
+  access_token_ciphertext text,
+  access_token_expires_at timestamptz,
+  scopes text[] not null default array['https://www.googleapis.com/auth/business.manage']::text[],
+  status text not null default 'active' check (status in ('active','disconnected','error')),
+  last_sync_at timestamptz,
+  last_error text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (organization_id, google_account_name)
+);
+
+create table if not exists public.google_business_locations (
+  id uuid primary key default gen_random_uuid(),
+  connection_id uuid not null references public.google_business_connections(id) on delete cascade,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  hotel_id text,
+  google_location_name text not null,
+  google_location_title text not null,
+  place_id text,
+  store_code text,
+  reply_mode text not null default 'draft_only' check (reply_mode in ('draft_only','auto_positive','auto_all')),
+  min_auto_rating integer not null default 4 check (min_auto_rating between 1 and 5),
+  is_active boolean not null default true,
+  last_sync_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (connection_id, google_location_name)
+);
+
+create table if not exists public.google_reviews (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  hotel_id text,
+  google_location_id uuid not null references public.google_business_locations(id) on delete cascade,
+  google_review_name text not null unique,
+  google_review_id text not null,
+  reviewer_display_name text,
+  reviewer_profile_photo_url text,
+  star_rating integer not null check (star_rating between 1 and 5),
+  comment text,
+  review_create_time timestamptz,
+  review_update_time timestamptz,
+  google_reply_comment text,
+  google_reply_update_time timestamptz,
+  ai_language text,
+  ai_sentiment text,
+  ai_categories text[] not null default '{}'::text[],
+  ai_draft text,
+  ai_draft_generated_at timestamptz,
+  reply_status text not null default 'unreplied' check (reply_status in ('unreplied','draft','approved','published','error')),
+  replied_at timestamptz,
+  replied_by uuid references public.profiles(id) on delete set null,
+  auto_reply_eligible boolean not null default false,
+  raw jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.google_business_oauth_states (
+  state text primary key,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  organization_slug text not null,
+  return_url text not null,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists google_business_locations_org_idx on public.google_business_locations(organization_id);
+create index if not exists google_business_locations_hotel_idx on public.google_business_locations(hotel_id);
+create index if not exists google_reviews_org_update_idx on public.google_reviews(organization_id, review_update_time desc);
+create index if not exists google_reviews_location_idx on public.google_reviews(google_location_id);
+create index if not exists google_reviews_reply_status_idx on public.google_reviews(organization_id, reply_status);
+create index if not exists google_business_oauth_states_expiry_idx on public.google_business_oauth_states(expires_at);
+
+alter table public.google_business_connections enable row level security;
+alter table public.google_business_locations enable row level security;
+alter table public.google_reviews enable row level security;
+alter table public.google_business_oauth_states enable row level security;
+
+revoke all on public.google_business_connections from anon, authenticated;
+revoke all on public.google_business_locations from anon, authenticated;
+revoke all on public.google_reviews from anon, authenticated;
+revoke all on public.google_business_oauth_states from anon, authenticated;
+
+create policy google_business_connections_server_only on public.google_business_connections for all to authenticated using(false) with check(false);
+create policy google_business_locations_server_only on public.google_business_locations for all to authenticated using(false) with check(false);
+create policy google_reviews_server_only on public.google_reviews for all to authenticated using(false) with check(false);
+create policy google_business_oauth_states_server_only on public.google_business_oauth_states for all to authenticated using(false) with check(false);
