@@ -19,6 +19,7 @@ export type GuardKey =
   | 'has_active_assignment'
   | 'has_any_assignment_today'
   | 'has_in_progress_cleaning'
+  | 'has_no_unfinished_housekeeping_work'
   | 'is_manager'
   | 'hotel_selected'
   | 'is_online'

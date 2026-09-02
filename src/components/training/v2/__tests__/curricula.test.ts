@@ -86,11 +86,13 @@ describe('housekeeper first-shift curriculum', () => {
       'photos',
       'dnd',
       'dirty_linen',
+      'minibar',
       'maintenance',
       'lost_found',
       'notes',
       'complete_room',
       'next_room',
+      'finish_work_before_signout',
       'breaks',
       'signout',
       'finished',
@@ -128,5 +130,21 @@ describe('housekeeper first-shift curriculum', () => {
   it('requires real check-in and room start actions before advancing', () => {
     expect(hk?.steps.find((s) => s.key === 'signin')?.waitFor).toBe('is_signed_in');
     expect(hk?.steps.find((s) => s.key === 'start_cleaning')?.waitFor).toBe('has_in_progress_cleaning');
+  });
+
+  it('teaches every stable in-room tool while a room is in progress', () => {
+    for (const key of ['dnd', 'dirty_linen', 'minibar', 'maintenance', 'lost_found', 'notes']) {
+      const step = hk?.steps.find((s) => s.key === key);
+      expect(step, `missing ${key}`).toBeTruthy();
+      expect(step?.precondition).toBe('has_in_progress_cleaning');
+      expect(step?.optional).toBe(false);
+    }
+  });
+
+  it('does not teach sign-out until room and public-area work is clear', () => {
+    expect(hk?.steps.find((s) => s.key === 'finish_work_before_signout')?.waitFor)
+      .toBe('has_no_unfinished_housekeeping_work');
+    expect(hk?.steps.find((s) => s.key === 'signout')?.precondition)
+      .toBe('has_no_unfinished_housekeeping_work');
   });
 });
