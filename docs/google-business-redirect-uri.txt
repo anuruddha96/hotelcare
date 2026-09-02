@@ -1,0 +1,1 @@
+https://pcmszqqklkolvvlabohq.supabase.co/functions/v1/google-business-oauth-callback
