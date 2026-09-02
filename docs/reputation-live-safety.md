@@ -1,0 +1,1 @@
+No Google review can be published by this branch yet. The live-publish action will only be added after the Google account is connected, location mapping is verified, and draft-only replies have been tested.
