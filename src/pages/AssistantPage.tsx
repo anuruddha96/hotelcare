@@ -9,21 +9,38 @@ import { useAssistant } from "@/hooks/useAssistant";
 import AssistantChat from "@/components/assistant/AssistantChat";
 import ReportProblemDialog from "@/components/assistant/ReportProblemDialog";
 import { canUseAssistant } from "@/lib/assistantAccess";
+import {
+  forgetActiveAssistantThread,
+  getRememberedAssistantThread,
+  rememberActiveAssistantThread,
+} from "@/lib/assistant/activeThread";
 import { cn } from "@/lib/utils";
 import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
 
 /** Full-page view of the assistant. Every thread has its own URL. */
 export default function AssistantPage() {
   const { threadId } = useParams<{ threadId: string }>();
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const { threads, loadingThreads, createThread, renameThread, deleteThread } = useAssistant(threadId ?? null);
   const [reportOpen, setReportOpen] = useState(false);
   const base = `/${profile?.organization_slug}/assistant`;
+  const userId = user?.id ?? null;
+  const organizationSlug = profile?.organization_slug ?? null;
 
   useEffect(() => {
     document.title = "Hotel Care Assistant";
   }, []);
+
+  useEffect(() => {
+    if (!userId || !organizationSlug) return;
+    if (threadId) {
+      rememberActiveAssistantThread(userId, organizationSlug, threadId);
+      return;
+    }
+    const remembered = getRememberedAssistantThread(userId, organizationSlug);
+    if (remembered) navigate(`${base}/${remembered}`, { replace: true });
+  }, [base, navigate, organizationSlug, threadId, userId]);
 
   // Controlled rollout: admins plus enabled pilot users.
   const allowed = canUseAssistant(profile);
@@ -34,7 +51,10 @@ export default function AssistantPage() {
 
   const newThread = async () => {
     const id = await createThread();
-    if (id) navigate(`${base}/${id}`);
+    if (id) {
+      rememberActiveAssistantThread(userId, organizationSlug, id);
+      navigate(`${base}/${id}`);
+    }
     return id;
   };
 
@@ -75,7 +95,13 @@ export default function AssistantPage() {
                   t.id === threadId && "border-primary bg-primary/5",
                 )}
               >
-                <button className="min-w-0 flex-1 text-left" onClick={() => navigate(`${base}/${t.id}`)}>
+                <button
+                  className="min-w-0 flex-1 text-left"
+                  onClick={() => {
+                    rememberActiveAssistantThread(userId, organizationSlug, t.id);
+                    navigate(`${base}/${t.id}`);
+                  }}
+                >
                   <span className="block truncate text-sm">{t.title}</span>
                   {t.preview && (
                     <span className="block truncate text-[11px] text-muted-foreground">{t.preview}</span>
@@ -96,7 +122,10 @@ export default function AssistantPage() {
                   className="mt-0.5 text-muted-foreground hover:text-destructive"
                   onClick={async () => {
                     await deleteThread(t.id);
-                    if (t.id === threadId) navigate(base);
+                    if (t.id === threadId) {
+                      forgetActiveAssistantThread(userId, organizationSlug);
+                      navigate(base);
+                    }
                   }}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
