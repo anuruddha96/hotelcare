@@ -9,8 +9,26 @@ const CORS = {
 const PREMIUM_MODEL = Deno.env.get("OPENAI_PREMIUM_MODEL") || "gpt-5.6-terra";
 const HOTEL_TZ = "Europe/Budapest";
 
+type Scope = "revenue" | "housekeeping" | "maintenance" | "reception";
+type PaceStats = {
+  day: string;
+  booking_units: number;
+  room_nights: number;
+  room_revenue_eur: number;
+  cancellations: number;
+  net_booking_units: number;
+  avg_booking_value_eur: number | null;
+  avg_room_nights_per_booking: number | null;
+  avg_room_revenue_per_night_eur: number | null;
+  lead_time_mix: Record<string, number>;
+  affected_stay_dates: string[];
+};
+
 function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS, "Content-Type": "application/json" },
+  });
 }
 
 function extractText(message: any): string {
@@ -25,11 +43,10 @@ function isComplexQuestion(question: string): boolean {
   const q = question.toLowerCase();
   const hotelTopic = /\b(sales?|sold|bookings?|booked|pickup|pace|revenue|adr|revpar|occupancy|rates?|prices?|pricing|demand|automation|housekeep|cleaning|rooms?|maintenance|tickets?|repair|arrival|departure|check.?in|check.?out|breakfast|reservation|operations?)\b/.test(q);
   const problemSolving = /\b(why|what can (?:i|we)|what should (?:i|we)|should (?:i|we)|how can (?:i|we)|recommend|recommendation|strategy|analyse|analyze|analysis|investigate|root cause|problem|issue|complaint|wrong|low|weak|not much|underperform|declin|drop|improv|optim|fix|explain|compare|reason|plan|action)\b/.test(q);
-  const multiFactor = question.length >= 320 && hotelTopic;
-  return (hotelTopic && problemSolving) || multiFactor;
+  return (hotelTopic && problemSolving) || (question.length >= 320 && hotelTopic);
 }
 
-function requestedScope(question: string): "revenue" | "housekeeping" | "maintenance" | "reception" | null {
+function requestedScope(question: string): Scope | null {
   const q = question.toLowerCase();
   if (/\b(sales?|sold|bookings?|booked|pickup|pace|revenue|adr|revpar|occupancy|rates?|prices?|pricing|demand|automation|min.?stay)\b/.test(q)) return "revenue";
   if (/\b(housekeep|cleaning|dirty room|inspected room|room assignment|linen|towel)\b/.test(q)) return "housekeeping";
@@ -39,12 +56,14 @@ function requestedScope(question: string): "revenue" | "housekeeping" | "mainten
 }
 
 function allowedScopes(role: string) {
-  if (["admin", "manager", "top_management", "top_management_manager"].includes(role)) return new Set(["revenue", "housekeeping", "maintenance", "reception"]);
-  if (["housekeeping", "housekeeping_manager", "supervisor"].includes(role)) return new Set(["housekeeping"]);
-  if (["maintenance", "maintenance_manager"].includes(role)) return new Set(["maintenance"]);
-  if (["reception", "reception_manager", "front_office", "breakfast_staff"].includes(role)) return new Set(["reception"]);
-  if (role === "back_office_manager") return new Set(["housekeeping", "maintenance", "reception"]);
-  return new Set<string>();
+  if (["admin", "manager", "top_management", "top_management_manager"].includes(role)) {
+    return new Set<Scope>(["revenue", "housekeeping", "maintenance", "reception"]);
+  }
+  if (["housekeeping", "housekeeping_manager", "supervisor"].includes(role)) return new Set<Scope>(["housekeeping"]);
+  if (["maintenance", "maintenance_manager"].includes(role)) return new Set<Scope>(["maintenance"]);
+  if (["reception", "reception_manager", "front_office", "breakfast_staff"].includes(role)) return new Set<Scope>(["reception"]);
+  if (role === "back_office_manager") return new Set<Scope>(["housekeeping", "maintenance", "reception"]);
+  return new Set<Scope>();
 }
 
 function budapestParts(value: string | Date = new Date()) {
@@ -73,6 +92,38 @@ function addDays(day: string, amount: number) {
   const d = new Date(`${day}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + amount);
   return d.toISOString().slice(0, 10);
+}
+
+function daysBetween(from: string, to: string) {
+  const a = Date.parse(`${from}T12:00:00Z`);
+  const b = Date.parse(`${to}T12:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.round((b - a) / 86_400_000);
+}
+
+function round2(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function median(values: number[]) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function pctVs(current: number | null, baseline: number | null) {
+  if (current === null || baseline === null || baseline === 0) return null;
+  return round2(((current - baseline) / Math.abs(baseline)) * 100);
+}
+
+function classifyRatio(current: number | null, baseline: number | null) {
+  if (current === null || baseline === null || baseline <= 0) return "insufficient_baseline";
+  const ratio = current / baseline;
+  if (ratio <= 0.65) return "materially_below";
+  if (ratio < 0.9) return "slightly_below";
+  if (ratio <= 1.1) return "around_baseline";
+  return "above_baseline";
 }
 
 function manualStream(text: string, metadata: Record<string, unknown>) {
@@ -127,65 +178,138 @@ function selectedHotels(question: string, page: any, hotels: any[]) {
   return hotels.slice(0, 5);
 }
 
-function round2(value: number) {
-  return Math.round(value * 100) / 100;
+function paceStatsForDay(nights: any[], cancellations: any[], day: string, cutoffMinutes: number): PaceStats {
+  const units = new Map<string, { revenue: number; nights: number; firstStay: string | null }>();
+  const stayDates = new Set<string>();
+
+  for (const n of nights) {
+    if (!n?.created_at_pms) continue;
+    const created = budapestParts(n.created_at_pms);
+    if (created.day !== day || created.minutes > cutoffMinutes) continue;
+    const key = `${n?.res_id ?? ""}|${n?.room_key ?? ""}`;
+    const unit = units.get(key) ?? { revenue: 0, nights: 0, firstStay: null };
+    const stayDate = n?.stay_date ? String(n.stay_date) : null;
+    unit.revenue += Number(n?.nightly_price_eur ?? 0);
+    unit.nights += 1;
+    if (stayDate && (!unit.firstStay || stayDate < unit.firstStay)) unit.firstStay = stayDate;
+    units.set(key, unit);
+    if (stayDate) stayDates.add(stayDate);
+  }
+
+  const cancelledUnits = new Set<string>();
+  for (const c of cancellations) {
+    if (!c?.cancelled_at) continue;
+    const cancelled = budapestParts(c.cancelled_at);
+    if (cancelled.day !== day || cancelled.minutes > cutoffMinutes) continue;
+    cancelledUnits.add(`${c?.res_id ?? ""}|${c?.room_key ?? ""}`);
+  }
+
+  const bookingUnits = units.size;
+  const roomNights = [...units.values()].reduce((sum, unit) => sum + unit.nights, 0);
+  const revenue = [...units.values()].reduce((sum, unit) => sum + unit.revenue, 0);
+  const leadTimeMix = { same_day: 0, days_1_3: 0, days_4_7: 0, days_8_30: 0, days_31_plus: 0 };
+
+  for (const unit of units.values()) {
+    if (!unit.firstStay) continue;
+    const lead = daysBetween(day, unit.firstStay);
+    if (lead === null || lead <= 0) leadTimeMix.same_day += 1;
+    else if (lead <= 3) leadTimeMix.days_1_3 += 1;
+    else if (lead <= 7) leadTimeMix.days_4_7 += 1;
+    else if (lead <= 30) leadTimeMix.days_8_30 += 1;
+    else leadTimeMix.days_31_plus += 1;
+  }
+
+  return {
+    day,
+    booking_units: bookingUnits,
+    room_nights: roomNights,
+    room_revenue_eur: round2(revenue),
+    cancellations: cancelledUnits.size,
+    net_booking_units: bookingUnits - cancelledUnits.size,
+    avg_booking_value_eur: bookingUnits ? round2(revenue / bookingUnits) : null,
+    avg_room_nights_per_booking: bookingUnits ? round2(roomNights / bookingUnits) : null,
+    avg_room_revenue_per_night_eur: roomNights ? round2(revenue / roomNights) : null,
+    lead_time_mix: leadTimeMix,
+    affected_stay_dates: [...stayDates].sort().slice(0, 30),
+  };
+}
+
+function summarizeBaseline(days: PaceStats[], label: string) {
+  const activeDays = days.filter((d) => d.booking_units > 0 || d.cancellations > 0).length;
+  const totalBookings = days.reduce((s, d) => s + d.booking_units, 0);
+  const totalRoomNights = days.reduce((s, d) => s + d.room_nights, 0);
+  const totalRevenue = days.reduce((s, d) => s + d.room_revenue_eur, 0);
+  const avgNet = days.length ? days.reduce((s, d) => s + d.net_booking_units, 0) / days.length : 0;
+  const avgRevenue = days.length ? totalRevenue / days.length : 0;
+  const medNet = median(days.map((d) => d.net_booking_units));
+  const medRevenue = median(days.map((d) => d.room_revenue_eur));
+  const weightedBookingValue = totalBookings ? totalRevenue / totalBookings : null;
+  const weightedLos = totalBookings ? totalRoomNights / totalBookings : null;
+  const weightedNightValue = totalRoomNights ? totalRevenue / totalRoomNights : null;
+
+  return {
+    label,
+    days: days.length,
+    active_days: activeDays,
+    average_net_booking_units: round2(avgNet),
+    median_net_booking_units: medNet === null ? null : round2(medNet),
+    average_room_revenue_eur: round2(avgRevenue),
+    median_room_revenue_eur: medRevenue === null ? null : round2(medRevenue),
+    weighted_avg_booking_value_eur: weightedBookingValue === null ? null : round2(weightedBookingValue),
+    weighted_avg_room_nights_per_booking: weightedLos === null ? null : round2(weightedLos),
+    weighted_avg_revenue_per_room_night_eur: weightedNightValue === null ? null : round2(weightedNightValue),
+  };
 }
 
 function bookingPaceSummary(payload: any, today: string) {
   const nights = Array.isArray(payload?.nights) ? payload.nights : [];
   const cancellations = Array.isArray(payload?.cancellations) ? payload.cancellations : [];
   const cutoffMinutes = budapestParts().minutes;
-
-  const statsFor = (day: string) => {
-    const units = new Set<string>();
-    let roomNights = 0;
-    let revenue = 0;
-    const stayDates = new Set<string>();
-    for (const n of nights) {
-      if (!n?.created_at_pms) continue;
-      const created = budapestParts(n.created_at_pms);
-      if (created.day !== day || created.minutes > cutoffMinutes) continue;
-      units.add(`${n?.res_id ?? ""}|${n?.room_key ?? ""}`);
-      roomNights += 1;
-      revenue += Number(n?.nightly_price_eur ?? 0);
-      if (n?.stay_date) stayDates.add(String(n.stay_date));
-    }
-    const cancelledUnits = new Set<string>();
-    for (const c of cancellations) {
-      if (!c?.cancelled_at) continue;
-      const cancelled = budapestParts(c.cancelled_at);
-      if (cancelled.day !== day || cancelled.minutes > cutoffMinutes) continue;
-      cancelledUnits.add(`${c?.res_id ?? ""}|${c?.room_key ?? ""}`);
-    }
-    return {
-      day,
-      booking_units: units.size,
-      room_nights: roomNights,
-      room_revenue_eur: round2(revenue),
-      cancellations: cancelledUnits.size,
-      net_booking_units: units.size - cancelledUnits.size,
-      affected_stay_dates: [...stayDates].sort().slice(0, 30),
-    };
-  };
+  const statsFor = (day: string) => paceStatsForDay(nights, cancellations, day, cutoffMinutes);
 
   const current = statsFor(today);
   const yesterday = statsFor(addDays(today, -1));
-  const trailing = Array.from({ length: 7 }, (_, i) => statsFor(addDays(today, -(i + 1))));
-  const activeBaselineDays = trailing.filter((d) => d.booking_units > 0 || d.cancellations > 0).length;
-  const avg = trailing.reduce((s, d) => s + d.net_booking_units, 0) / 7;
-  const revenueAvg = trailing.reduce((s, d) => s + d.room_revenue_eur, 0) / 7;
-  const paceVsAvgPct = avg !== 0 ? round2(((current.net_booking_units - avg) / Math.abs(avg)) * 100) : null;
-  const revenueVsAvgPct = revenueAvg > 0 ? round2(((current.room_revenue_eur - revenueAvg) / revenueAvg) * 100) : null;
-  let assessment = "insufficient_baseline";
-  if (activeBaselineDays >= 2 && avg > 0) {
-    if (current.net_booking_units <= avg * 0.65) assessment = "materially_below_recent_same_time_pace";
-    else if (current.net_booking_units < avg * 0.9) assessment = "slightly_below_recent_same_time_pace";
-    else if (current.net_booking_units <= avg * 1.1) assessment = "around_recent_same_time_pace";
-    else assessment = "above_recent_same_time_pace";
-  } else if (yesterday.booking_units > 0 || yesterday.cancellations > 0) {
-    if (current.net_booking_units < yesterday.net_booking_units) assessment = "below_yesterday_same_time";
-    else if (current.net_booking_units > yesterday.net_booking_units) assessment = "above_yesterday_same_time";
-    else assessment = "same_as_yesterday_same_time";
+  const trailing7 = Array.from({ length: 7 }, (_, i) => statsFor(addDays(today, -(i + 1))));
+  const sameWeekday4 = Array.from({ length: 4 }, (_, i) => statsFor(addDays(today, -7 * (i + 1))));
+  const trailing28 = Array.from({ length: 28 }, (_, i) => statsFor(addDays(today, -(i + 1))));
+  const recent = summarizeBaseline(trailing7, "previous_7_days_same_time");
+  const sameWeekday = summarizeBaseline(sameWeekday4, "previous_4_same_weekdays_same_time");
+  const longer = summarizeBaseline(trailing28, "previous_28_days_same_time");
+
+  const preferred = sameWeekday.active_days >= 2 && sameWeekday.average_net_booking_units > 0
+    ? sameWeekday
+    : recent.active_days >= 2 && recent.average_net_booking_units > 0
+      ? recent
+      : longer.active_days >= 4 && longer.average_net_booking_units > 0
+        ? longer
+        : null;
+
+  let revenueReference = preferred?.average_room_revenue_eur ?? null;
+  let revenueReferenceMethod = preferred ? "average" : null;
+  if (
+    preferred &&
+    preferred.median_room_revenue_eur !== null &&
+    preferred.median_room_revenue_eur > 0 &&
+    preferred.average_room_revenue_eur > preferred.median_room_revenue_eur * 1.6
+  ) {
+    revenueReference = preferred.median_room_revenue_eur;
+    revenueReferenceMethod = "median_due_to_high_value_outliers";
+  }
+
+  const volumeAssessment = classifyRatio(current.net_booking_units, preferred?.average_net_booking_units ?? null);
+  const revenueAssessment = classifyRatio(current.room_revenue_eur, revenueReference);
+  const valueAssessment = classifyRatio(current.avg_booking_value_eur, preferred?.weighted_avg_booking_value_eur ?? null);
+  const losAssessment = classifyRatio(current.avg_room_nights_per_booking, preferred?.weighted_avg_room_nights_per_booking ?? null);
+
+  let commercialDiagnosis = "insufficient_comparable_history";
+  if (volumeAssessment === "materially_below" || volumeAssessment === "slightly_below") {
+    commercialDiagnosis = revenueAssessment === "materially_below" || revenueAssessment === "slightly_below"
+      ? "genuinely_weak_booking_volume_and_value"
+      : "fewer_bookings_but_value_is_holding";
+  } else if (volumeAssessment === "around_baseline" || volumeAssessment === "above_baseline") {
+    commercialDiagnosis = revenueAssessment === "materially_below" || revenueAssessment === "slightly_below"
+      ? "booking_volume_is_healthy_but_booking_value_or_length_of_stay_is_weaker"
+      : "booking_volume_and_commercial_value_are_healthy";
   }
 
   return {
@@ -193,13 +317,23 @@ function bookingPaceSummary(payload: any, today: string) {
     comparison_basis: `booking creation activity up to the same Budapest-local clock time (${String(Math.floor(cutoffMinutes / 60)).padStart(2, "0")}:${String(cutoffMinutes % 60).padStart(2, "0")})`,
     today_so_far: current,
     yesterday_same_time: yesterday,
-    trailing_7_days_same_time: trailing,
-    baseline_days_with_activity: activeBaselineDays,
-    trailing_7_same_time_average_net_booking_units: round2(avg),
-    trailing_7_same_time_average_room_revenue_eur: round2(revenueAvg),
-    pace_vs_7d_average_pct: paceVsAvgPct,
-    revenue_vs_7d_average_pct: revenueVsAvgPct,
-    assessment,
+    baselines: {
+      preferred: preferred?.label ?? null,
+      previous_7_days_same_time: recent,
+      previous_4_same_weekdays_same_time: sameWeekday,
+      previous_28_days_same_time: longer,
+    },
+    volume_vs_preferred_pct: pctVs(current.net_booking_units, preferred?.average_net_booking_units ?? null),
+    revenue_vs_preferred_pct: pctVs(current.room_revenue_eur, revenueReference),
+    avg_booking_value_vs_preferred_pct: pctVs(current.avg_booking_value_eur, preferred?.weighted_avg_booking_value_eur ?? null),
+    avg_los_vs_preferred_pct: pctVs(current.avg_room_nights_per_booking, preferred?.weighted_avg_room_nights_per_booking ?? null),
+    volume_assessment: volumeAssessment,
+    revenue_assessment: revenueAssessment,
+    booking_value_assessment: valueAssessment,
+    length_of_stay_assessment: losAssessment,
+    revenue_reference_method: revenueReferenceMethod,
+    revenue_reference_eur: revenueReference,
+    commercial_diagnosis: commercialDiagnosis,
   };
 }
 
@@ -224,7 +358,9 @@ function revenueSummary(payload: any, today: string, syncCompletedAt: string | n
     .filter((r: any) => r?.is_sellable !== false && r?.counts_toward_inventory !== false)
     .reduce((sum: number, r: any) => sum + Number(r?.num_rooms ?? 0), 0);
   const snapshotRooms = Number(latestSnapshotForDate(snapshots, today)?.rooms_available ?? snapshots[0]?.rooms_available ?? 0);
-  const roomsAvailable = Number(settings?.sellable_rooms ?? 0) || (snapshotRooms > 0 && inventoryFromTypes > snapshotRooms * 1.2 ? snapshotRooms : inventoryFromTypes) || snapshotRooms;
+  const roomsAvailable = Number(settings?.sellable_rooms ?? 0) ||
+    (snapshotRooms > 0 && inventoryFromTypes > snapshotRooms * 1.2 ? snapshotRooms : inventoryFromTypes) ||
+    snapshotRooms;
 
   const byStay = new Map<string, { sold: number; revenue: number; priced: number }>();
   for (const n of nights) {
@@ -236,16 +372,15 @@ function revenueSummary(payload: any, today: string, syncCompletedAt: string | n
     if (Number(n?.nightly_price_eur ?? 0) > 0) row.priced += 1;
     byStay.set(date, row);
   }
+
   const todayStay = byStay.get(today) ?? { sold: 0, revenue: 0, priced: 0 };
   const todaySnapshot = latestSnapshotForDate(snapshots, today);
-  const todayCreated = nights.filter((n: any) => n?.created_at_pms && budapestDay(n.created_at_pms) === today);
-  const bookingUnits = new Set(todayCreated.map((n: any) => `${n?.res_id ?? ""}|${n?.room_key ?? ""}`));
-  const cancelledToday = cancellations.filter((c: any) => c?.cancelled_at && budapestDay(c.cancelled_at) === today);
-  const cancelledUnits = new Set(cancelledToday.map((c: any) => `${c?.res_id ?? ""}|${c?.room_key ?? ""}`));
-  const affectedDates = [...new Set(todayCreated.map((n: any) => String(n?.stay_date ?? "")).filter(Boolean))].sort();
-  const next14 = [...byStay.entries()]
-    .filter(([date]) => date >= today && date <= addDays(today, 14))
-    .map(([date, row]) => ({
+  const pace = bookingPaceSummary(payload, today);
+  const todayCreated = pace.today_so_far;
+  const next14 = Array.from({ length: 15 }, (_, i) => {
+    const date = addDays(today, i);
+    const row = byStay.get(date) ?? { sold: 0, revenue: 0, priced: 0 };
+    return {
       stay_date: date,
       rooms_sold: row.sold,
       rooms_available: roomsAvailable,
@@ -253,16 +388,22 @@ function revenueSummary(payload: any, today: string, syncCompletedAt: string | n
       occupancy_pct: roomsAvailable ? Math.round((row.sold / roomsAvailable) * 1000) / 10 : null,
       revenue_eur: round2(row.revenue),
       adr_eur: row.priced ? round2(row.revenue / row.priced) : null,
-    }))
-    .sort((a, b) => a.stay_date.localeCompare(b.stay_date));
+    };
+  });
   const weakDates = [...next14]
-    .filter((d: any) => d.occupancy_pct !== null && d.stay_date > today)
-    .sort((a: any, b: any) => a.occupancy_pct - b.occupancy_pct)
+    .filter((d) => d.occupancy_pct !== null && d.stay_date > today)
+    .sort((a, b) => Number(a.occupancy_pct) - Number(b.occupancy_pct))
     .slice(0, 6);
   const nextRates = rates
     .filter((r: any) => r?.stay_date >= today && r?.stay_date <= addDays(today, 7))
-    .slice(0, 100)
-    .map((r: any) => ({ stay_date: r.stay_date, room_type: r.room_type_name, occupancy: r.occupancy, price: r.price, currency: r.currency ?? "EUR" }));
+    .slice(0, 160)
+    .map((r: any) => ({
+      stay_date: r.stay_date,
+      room_type: r.room_type_name,
+      occupancy: r.occupancy,
+      price: r.price,
+      currency: r.currency ?? "EUR",
+    }));
 
   const parsedSync = syncCompletedAt ? Date.parse(syncCompletedAt) : NaN;
   const syncAgeMinutes = Number.isFinite(parsedSync) ? Math.max(0, Math.round((Date.now() - parsedSync) / 60000)) : null;
@@ -283,7 +424,7 @@ function revenueSummary(payload: any, today: string, syncCompletedAt: string | n
           ? "No stored snapshot was available for this stay date."
           : sourceDiff === 0
             ? "Current booking-night view and stored snapshot agree."
-            : "Current booking-night view and stored snapshot differ; do not present occupancy as fully verified without flagging the mismatch.",
+            : "Current booking-night view and stored snapshot differ; flag the mismatch before treating occupancy as fully verified.",
       },
     },
     today_stay_date: {
@@ -298,29 +439,38 @@ function revenueSummary(payload: any, today: string, syncCompletedAt: string | n
     },
     sales_created_today: {
       available: true,
-      booking_units: bookingUnits.size,
-      room_nights: todayCreated.length,
-      new_room_revenue_eur: round2(todayCreated.reduce((s: number, n: any) => s + Number(n?.nightly_price_eur ?? 0), 0)),
-      cancellations: cancelledUnits.size,
-      net_booking_units: bookingUnits.size - cancelledUnits.size,
-      affected_future_stay_dates: affectedDates.slice(0, 40),
+      booking_units: todayCreated.booking_units,
+      room_nights: todayCreated.room_nights,
+      new_room_revenue_eur: todayCreated.room_revenue_eur,
+      cancellations: todayCreated.cancellations,
+      net_booking_units: todayCreated.net_booking_units,
+      avg_booking_value_eur: todayCreated.avg_booking_value_eur,
+      avg_room_nights_per_booking: todayCreated.avg_room_nights_per_booking,
+      avg_room_revenue_per_night_eur: todayCreated.avg_room_revenue_per_night_eur,
+      lead_time_mix: todayCreated.lead_time_mix,
+      affected_future_stay_dates: todayCreated.affected_stay_dates,
     },
-    booking_pace_same_time: bookingPaceSummary(payload, today),
+    booking_pace_same_time: pace,
+    next_14_days: next14,
     weak_next_14_days: weakDates,
     current_rates_next_7_days: nextRates,
   };
 }
 
 function competitorPosition(rows: any[], competitors: any[], revenueRows: any[], today: string) {
-  const next7 = new Map<string, number[]>();
-  for (const row of rows) {
+  const primaryHotel = revenueRows.length === 1 ? String(revenueRows[0].hotel_id) : null;
+  const scopedRows = primaryHotel ? rows.filter((r: any) => String(r.hotel_id) === primaryHotel) : rows;
+  const scopedCompetitors = primaryHotel ? competitors.filter((c: any) => String(c.hotel_id) === primaryHotel) : competitors;
+  const byDate = new Map<string, number[]>();
+
+  for (const row of scopedRows) {
     const stayDate = String(row?.stay_date ?? "");
     if (!stayDate || stayDate < today || stayDate > addDays(today, 7)) continue;
     const rate = Number(row?.rate);
     if (!Number.isFinite(rate) || rate <= 0) continue;
-    const list = next7.get(stayDate) ?? [];
+    const list = byDate.get(stayDate) ?? [];
     list.push(rate);
-    next7.set(stayDate, list);
+    byDate.set(stayDate, list);
   }
 
   const ours = new Map<string, number>();
@@ -334,41 +484,123 @@ function competitorPosition(rows: any[], competitors: any[], revenueRows: any[],
     }
   }
 
-  const dates = [...next7.keys()].sort().slice(0, 7).map((date) => {
-    const set = next7.get(date) ?? [];
+  const dates = [...byDate.keys()].sort().slice(0, 7).map((date) => {
+    const set = byDate.get(date) ?? [];
     const avg = set.length ? set.reduce((a, b) => a + b, 0) / set.length : null;
     const our = ours.get(date) ?? null;
     return {
       stay_date: date,
       competitor_count: set.length,
       competitor_average_rate: avg === null ? null : round2(avg),
+      competitor_median_rate: set.length ? round2(median(set) ?? 0) : null,
+      competitor_min_rate: set.length ? round2(Math.min(...set)) : null,
+      competitor_max_rate: set.length ? round2(Math.max(...set)) : null,
       our_lowest_rate: our,
       our_vs_competitor_average_pct: avg && our ? round2(((our - avg) / avg) * 100) : null,
     };
   });
 
-  const latestScan = competitors
-    .map((c: any) => c?.last_scan_at)
-    .filter(Boolean)
-    .sort()
-    .at(-1) ?? null;
+  const latestScan = scopedCompetitors.map((c: any) => c?.last_scan_at).filter(Boolean).sort().at(-1) ?? null;
+  const latestScanMs = latestScan ? Date.parse(latestScan) : NaN;
+  const ageHours = Number.isFinite(latestScanMs) ? round2(Math.max(0, (Date.now() - latestScanMs) / 3_600_000)) : null;
 
   return {
-    available: competitors.length > 0 && rows.length > 0,
-    watched_properties: competitors.length,
+    available: scopedCompetitors.length > 0 && scopedRows.length > 0,
+    usable_for_pricing: scopedCompetitors.length > 0 && scopedRows.length > 0 && ageHours !== null && ageHours <= 48,
+    watched_properties: scopedCompetitors.length,
     latest_scan_at: latestScan,
+    latest_scan_age_hours: ageHours,
+    freshness: ageHours === null ? "unknown" : ageHours <= 48 ? "fresh" : "stale",
     next_7_days: dates,
   };
 }
 
-async function buildContext(db: any, profile: any, hotels: any[], question: string, page: any, scope: string | null) {
+function dateHasHighImpactEvent(events: any[], date: string) {
+  return events.some((event) => {
+    const start = String(event?.event_date ?? "");
+    const end = String(event?.end_date ?? start);
+    const impact = String(event?.expected_impact ?? "").toLowerCase();
+    return start && date >= start && date <= end && /(high|major|very high|strong)/.test(impact);
+  });
+}
+
+function buildPricingSignals(revenueRows: any[], competitor: any, rules: any[], events: any[], today: string) {
+  if (revenueRows.length !== 1) return [];
+  const hotel = revenueRows[0];
+  const rule = rules.find((r: any) => String(r.hotel_id) === String(hotel.hotel_id)) ?? null;
+  const floor = Number(rule?.minimum_adr ?? 0) || 0;
+  const compByDate = new Map((competitor?.next_7_days ?? []).map((d: any) => [String(d.stay_date), d]));
+  const ownRate = new Map<string, number>();
+  for (const rate of hotel.current_rates_next_7_days ?? []) {
+    const value = Number(rate?.price);
+    if (!Number.isFinite(value) || value <= 0) continue;
+    const date = String(rate.stay_date);
+    const previous = ownRate.get(date);
+    if (previous === undefined || value < previous) ownRate.set(date, value);
+  }
+
+  return (hotel.next_14_days ?? [])
+    .filter((d: any) => d.stay_date > today && d.stay_date <= addDays(today, 7))
+    .map((d: any) => {
+      const comp: any = compByDate.get(String(d.stay_date));
+      const ours = ownRate.get(String(d.stay_date)) ?? null;
+      const compAvg = competitor?.usable_for_pricing ? Number(comp?.competitor_average_rate ?? 0) || null : null;
+      const premiumPct = compAvg && ours ? round2(((ours - compAvg) / compAvg) * 100) : null;
+      const highImpactEvent = dateHasHighImpactEvent(events, String(d.stay_date));
+      const occupancy = Number(d.occupancy_pct ?? 0);
+      const roomsLeft = Number(d.rooms_left ?? 0);
+      let stance = "hold_and_watch";
+      let targetBand: [number, number] | null = null;
+      let reason = "No strong price signal either way.";
+
+      if (roomsLeft <= 3 || occupancy >= 85) {
+        stance = "protect_rate_or_raise_if_pickup_continues";
+        reason = "Inventory is scarce; avoid discounting remaining rooms.";
+      } else if (highImpactEvent && occupancy < 65) {
+        stance = "protect_event_value_but_watch_pickup";
+        reason = "A high-impact event supports value protection even though occupancy still has room to grow.";
+      } else if (occupancy <= 55 && compAvg && ours && premiumPct !== null && premiumPct > 5) {
+        const low = Math.max(floor, Math.round(compAvg * 1.01));
+        const high = Math.max(low, Math.round(compAvg * 1.04));
+        targetBand = [low, high];
+        stance = "consider_controlled_rate_step_down";
+        reason = "Occupancy is weak while the entry rate carries a material premium to the fresh competitor set.";
+      } else if (occupancy <= 55 && compAvg && ours && premiumPct !== null && premiumPct <= 3) {
+        stance = "do_not_chase_price_focus_on_visibility_and_conversion";
+        reason = "Occupancy is weak but price is already competitive, so a further cut is not the first lever.";
+      } else if (occupancy <= 55) {
+        stance = "watch_pickup_before_price_move";
+        reason = "Occupancy is weak, but there is not enough fresh market-price evidence for a confident cut.";
+      }
+
+      return {
+        stay_date: d.stay_date,
+        occupancy_pct: d.occupancy_pct,
+        rooms_left: d.rooms_left,
+        our_lowest_rate: ours,
+        competitor_average_rate: compAvg,
+        our_vs_competitor_average_pct: premiumPct,
+        high_impact_event: highImpactEvent,
+        stance,
+        controlled_target_band_eur: targetBand,
+        reason,
+      };
+    })
+    .sort((a: any, b: any) => Number(a.occupancy_pct ?? 100) - Number(b.occupancy_pct ?? 100));
+}
+
+async function buildContext(db: any, profile: any, hotels: any[], question: string, page: any, scope: Scope | null) {
   const today = budapestDay();
   const picked = selectedHotels(question, page, hotels);
   const context: any = {
     now: {
       timezone: HOTEL_TZ,
       today,
-      local_datetime: new Intl.DateTimeFormat("en-GB", { timeZone: HOTEL_TZ, dateStyle: "full", timeStyle: "long" }).format(new Date()),
+      local_datetime: new Intl.DateTimeFormat("en-GB", {
+        timeZone: HOTEL_TZ,
+        dateStyle: "full",
+        timeStyle: "long",
+      }).format(new Date()),
     },
     properties: picked.map((h) => ({ id: h.hotel_id, name: h.hotel_name })),
     scope,
@@ -394,7 +626,7 @@ async function buildContext(db: any, profile: any, hotels: any[], question: stri
     const [published, rules, actions, events, competitorProps, competitorRates] = await Promise.all([
       db.from("revenue_published_payloads").select("hotel_id,sync_completed_at,payload").in("hotel_id", ids).limit(10),
       db.from("revenue_pickup_automation_rules").select("hotel_id,is_enabled,auto_publish,minimum_adr,maximum_increase,no_pickup_enabled,no_pickup_decrease,low_occupancy_pct,high_occupancy_pct,last_run_at,last_run_status,last_error,updated_at").eq("organization_slug", profile.organization_slug).in("hotel_id", ids).limit(20),
-      db.from("revenue_pickup_automation_actions").select("hotel_id,stay_date,room_type_name,old_price,new_price,decision_type,decision_reason,reason_detail,net_pickup,status,push_error,created_at").eq("organization_slug", profile.organization_slug).in("hotel_id", ids).order("created_at", { ascending: false }).limit(80),
+      db.from("revenue_pickup_automation_actions").select("hotel_id,stay_date,room_type_name,old_price,new_price,decision_type,decision_reason,reason_detail,net_pickup,status,push_error,created_at").eq("organization_slug", profile.organization_slug).in("hotel_id", ids).order("created_at", { ascending: false }).limit(100),
       db.from("demand_events").select("hotel_id,title,category,event_date,end_date,expected_impact,surcharge_eur,confidence,approved").eq("organization_slug", profile.organization_slug).in("hotel_id", ids).gte("event_date", today).lte("event_date", addDays(today, 60)).order("event_date").limit(100),
       db.from("competitor_properties").select("id,hotel_id,name,active,last_scan_at,last_scan_status,last_scan_prices").in("hotel_id", ids).eq("active", true).limit(100),
       db.from("competitor_rates").select("hotel_id,competitor_id,stay_date,rate,currency,confidence").in("hotel_id", ids).gte("stay_date", today).lte("stay_date", addDays(today, 7)).order("stay_date").limit(1000),
@@ -429,6 +661,13 @@ async function buildContext(db: any, profile: any, hotels: any[], question: stri
       context.revenue,
       today,
     );
+    context.pricing_signals = buildPricingSignals(
+      context.revenue,
+      context.competitor_position,
+      context.automation_rules,
+      context.demand_events,
+      today,
+    );
 
     const primary = context.revenue.length === 1 ? context.revenue[0] : null;
     context.context_readiness = {
@@ -438,11 +677,14 @@ async function buildContext(db: any, profile: any, hotels: any[], question: stri
       revenue_data_available: context.revenue.length > 0,
       primary_property_resolved: primary?.hotel_id ?? null,
       same_time_pace_available: Boolean(primary?.booking_pace_same_time?.available),
+      booking_mix_available: Boolean(primary?.sales_created_today?.avg_booking_value_eur !== undefined),
       today_stay_metrics_available: Boolean(primary?.today_stay_date?.available),
       today_sales_available: Boolean(primary?.sales_created_today?.available),
       rate_change_history_available: (context.recent_automation_activity?.length ?? 0) > 0,
       demand_context_available: (context.demand_events?.length ?? 0) > 0,
       competitor_context_available: Boolean(context.competitor_position?.available),
+      competitor_context_fresh: Boolean(context.competitor_position?.usable_for_pricing),
+      pricing_signals_available: (context.pricing_signals?.length ?? 0) > 0,
       query_errors: [
         published.error?.message,
         rules.error?.message,
@@ -456,23 +698,44 @@ async function buildContext(db: any, profile: any, hotels: any[], question: stri
 
   if (scope === "housekeeping") {
     const keys = [...new Set(picked.flatMap((h) => [h.hotel_id, h.hotel_name]).filter(Boolean))];
-    const { data: rooms } = await db.from("rooms").select("id,room_number,hotel,status,is_checkout_room,is_dnd,towel_change_required,linen_change_required,pms_metadata").eq("organization_slug", profile.organization_slug).in("hotel", keys).limit(1000);
+    const { data: rooms } = await db
+      .from("rooms")
+      .select("id,room_number,hotel,status,is_checkout_room,is_dnd,towel_change_required,linen_change_required,pms_metadata")
+      .eq("organization_slug", profile.organization_slug)
+      .in("hotel", keys)
+      .limit(1000);
     const roomIds = (rooms ?? []).map((r: any) => r.id);
     const { data: assignments } = roomIds.length
-      ? await db.from("room_assignments").select("room_id,assigned_to,status,assignment_type,started_at,completed_at,ready_to_clean,supervisor_approved").eq("organization_slug", profile.organization_slug).in("room_id", roomIds).eq("assignment_date", today).limit(1000)
+      ? await db.from("room_assignments")
+        .select("room_id,assigned_to,status,assignment_type,started_at,completed_at,ready_to_clean,supervisor_approved")
+        .eq("organization_slug", profile.organization_slug)
+        .in("room_id", roomIds)
+        .eq("assignment_date", today)
+        .limit(1000)
       : { data: [] };
     context.housekeeping = { rooms: rooms ?? [], assignments: assignments ?? [] };
   }
 
   if (scope === "maintenance") {
     const keys = [...new Set(picked.flatMap((h) => [h.hotel_id, h.hotel_name]).filter(Boolean))];
-    const { data } = await db.from("tickets").select("ticket_number,title,status,priority,room_number,hotel,sla_due_date,created_at,on_hold,hold_reason").eq("organization_slug", profile.organization_slug).in("hotel", keys).neq("status", "completed").order("created_at", { ascending: false }).limit(120);
+    const { data } = await db.from("tickets")
+      .select("ticket_number,title,status,priority,room_number,hotel,sla_due_date,created_at,on_hold,hold_reason")
+      .eq("organization_slug", profile.organization_slug)
+      .in("hotel", keys)
+      .neq("status", "completed")
+      .order("created_at", { ascending: false })
+      .limit(120);
     context.maintenance = data ?? [];
   }
 
   if (scope === "reception") {
     const ids = picked.map((h) => h.hotel_id);
-    const { data } = await db.from("daily_overview_snapshots").select("hotel_id,business_date,room_label,room_number,arrival_date,departure_date,status,pax,breakfast").eq("organization_slug", profile.organization_slug).in("hotel_id", ids).or(`arrival_date.eq.${today},departure_date.eq.${today},business_date.eq.${today}`).limit(1500);
+    const { data } = await db.from("daily_overview_snapshots")
+      .select("hotel_id,business_date,room_label,room_number,arrival_date,departure_date,status,pax,breakfast")
+      .eq("organization_slug", profile.organization_slug)
+      .in("hotel_id", ids)
+      .or(`arrival_date.eq.${today},departure_date.eq.${today},business_date.eq.${today}`)
+      .limit(1500);
     context.reception = data ?? [];
   }
 
@@ -532,10 +795,16 @@ Deno.serve(async (req) => {
     : { data: null };
   let hotels: any[] = [];
   if (org?.id && ["admin", "manager", "top_management", "top_management_manager"].includes(String(profile.role))) {
-    const { data } = await db.from("hotel_configurations").select("hotel_id,hotel_name").eq("organization_id", org.id).eq("is_active", true).order("hotel_name");
+    const { data } = await db.from("hotel_configurations")
+      .select("hotel_id,hotel_name")
+      .eq("organization_id", org.id)
+      .eq("is_active", true)
+      .order("hotel_name");
     hotels = data ?? [];
   }
-  if (!hotels.length && profile.assigned_hotel) hotels = [{ hotel_id: profile.assigned_hotel, hotel_name: profile.assigned_hotel }];
+  if (!hotels.length && profile.assigned_hotel) {
+    hotels = [{ hotel_id: profile.assigned_hotel, hotel_name: profile.assigned_hotel }];
+  }
 
   const { data: reservation, error: reserveError } = await db.rpc("reserve_assistant_premium_question", {
     _user_id: authData.user.id,
@@ -574,10 +843,24 @@ Deno.serve(async (req) => {
   try {
     const page = body?.page && typeof body.page === "object" ? body.page : null;
     const context = await buildContext(db, profile, hotels, question, page, scope);
-    const { data: stored } = await db.from("assistant_messages").select("role,content,created_at").eq("thread_id", threadId).eq("user_id", authData.user.id).order("created_at", { ascending: true }).limit(30);
-    const history = (stored ?? []).slice(-12).map((row: any) => ({ role: row.role === "assistant" ? "assistant" : "user", content: String(row.content ?? "").slice(0, 5000) }));
+    const { data: stored } = await db.from("assistant_messages")
+      .select("role,content,created_at")
+      .eq("thread_id", threadId)
+      .eq("user_id", authData.user.id)
+      .order("created_at", { ascending: true })
+      .limit(30);
+    const history = (stored ?? []).slice(-12).map((row: any) => ({
+      role: row.role === "assistant" ? "assistant" : "user",
+      content: String(row.content ?? "").slice(0, 5000),
+    }));
 
-    const { error: userSaveError } = await db.from("assistant_messages").insert({ thread_id: threadId, user_id: authData.user.id, role: "user", content: question, refused: false });
+    const { error: userSaveError } = await db.from("assistant_messages").insert({
+      thread_id: threadId,
+      user_id: authData.user.id,
+      role: "user",
+      content: question,
+      refused: false,
+    });
     if (userSaveError) {
       await finalize(false);
       return json({ error: "Could not save your question" }, 500);
@@ -586,44 +869,53 @@ Deno.serve(async (req) => {
     const openai = createOpenAI({ apiKey: openAiKey });
     const result = streamText({
       model: openai.responses(PREMIUM_MODEL),
-      system: `You are HotelCare Deep Analysis, the higher-intelligence escalation tier inside HotelCare.app. The user has spent one scarce deep-analysis allowance, so make the answer materially more useful than a generic chatbot reply.
+      system: `You are HotelCare Deep Analysis, the higher-intelligence problem-solving tier inside HotelCare.app. A deep-analysis allowance is being used, so the answer must feel like an experienced hotel revenue manager investigated the problem, not like a generic chatbot.
 
-CURRENT HOTELCARE CONTEXT is authoritative for this turn and OVERRIDES earlier assistant messages. If an earlier answer said data was unavailable but the current context now contains it, ignore the old claim and use the current numbers.
+CURRENT HOTELCARE CONTEXT is authoritative for this turn and OVERRIDES earlier assistant messages. If an earlier answer claimed data was unavailable but current context contains it, ignore the old claim.
 
-Current hotel-local timezone is Europe/Budapest. Resolve today/yesterday/tomorrow from CURRENT HOTELCARE CONTEXT exactly.
+Use Europe/Budapest time exactly. For revenue language:
+- “sales today”, “sold today”, “bookings today” normally means reservations/booking units CREATED today.
+- “sold for today”, “occupancy today” means rooms sold for today’s STAY date.
+- Never replace exact same-day sales with a rolling 48-hour pickup number.
 
-For revenue language:
-- “sales today”, “sold today”, “bookings today” = reservations/booking units CREATED today, unless the user explicitly asks about guests staying today.
-- “sold for today”, “occupancy today” = rooms occupied/sold for today’s STAY date.
-- Never substitute a rolling 48-hour pickup figure for exact same-day sales.
+For revenue questions, reason through FOUR commercial layers before answering:
+1. BOOKING VOLUME — Is net booking count actually weak versus the preferred same-time baseline? Prefer the previous 4 same weekdays when available; use 7-day or 28-day baselines only as fallback.
+2. BOOKING VALUE / MIX — If count and revenue disagree, explain whether average booking value, average room nights per booking, room-night value, cancellations, or lead-time mix explains the feeling of weak sales. Five bookings can be healthy volume but weak commercial value if they are short, low-value stays.
+3. STAY-DATE URGENCY — Separate today's booking activity from tonight's occupancy. Identify at most two upcoming dates that genuinely need attention.
+4. PRICE POSITION — Use fresh competitor data, occupancy, rooms left, demand events and automation behavior together. Never conclude “price is too high” from one signal alone.
 
-For a complaint such as “not much sales today”, your FIRST job is to determine whether today's booking pace is actually weak. Use booking_pace_same_time, which compares today only up to the current Budapest-local time with prior days up to that same clock time. Do not compare a partial today with a full historical day.
+Baseline quality rules:
+- booking_pace_same_time.baselines.preferred tells you the preferred comparison set.
+- If revenue_reference_method is median_due_to_high_value_outliers, compare today's revenue mainly with the median-based reference, not the distorted average.
+- Do not present a 7-day average as decisive if same-weekday history exists.
+- State clearly when booking VOLUME is healthy but VALUE/MIX is weak. That distinction is often the real diagnosis.
 
 Mandatory context-use rules:
-- Read context_readiness before writing the answer.
-- If context_readiness.same_time_pace_available is true, you MUST quote today's same-time booking pace and the comparison. You may not say that comparison is unavailable.
-- If context_readiness.today_stay_metrics_available is true, you may not say today's rooms sold, rooms left, occupancy or ADR are unavailable; quote the available values when relevant.
-- If context_readiness.rate_change_history_available is true, you may not say rate changes are unavailable.
-- If context_readiness.competitor_context_available is true, use competitor_position when price positioning is relevant.
-- Do NOT list missing competitor, event, or rate data merely as a disclaimer. Mention a missing input only when it is necessary to answer the user's actual question.
-- Do NOT answer with generic advice such as “check pickup at 10:00, 14:00 and 18:00” when HotelCare already supplied current same-time pace. Analyze the supplied data now.
+- Read context_readiness first.
+- If same_time_pace_available is true, quote today's net bookings and the preferred same-time baseline; do not say the comparison is unavailable.
+- If booking_mix_available is true and revenue differs materially from volume, quote average booking value and/or average room nights per booking versus baseline.
+- If today_stay_metrics_available is true, use rooms sold/left, occupancy and ADR when relevant.
+- If competitor_context_fresh is true, use competitor_position when discussing pricing. If competitor data is stale, do not base a price move on it.
+- pricing_signals are deterministic safety hints. Use them as guardrails, not as orders.
+- Do not list missing inputs as generic disclaimers unless the missing input prevents the conclusion.
 
-Accuracy rules:
-- Analyze only the selected property unless the user explicitly asks for a portfolio comparison.
-- Treat the current HotelCare booking-night dataset as the operational dataset behind the Revenue calendar.
-- Check data_quality before quoting stay-date occupancy. If the current booking-night count and stored snapshot disagree, explicitly flag that one mismatch while still using the rest of the verified context.
-- Mention dataset staleness only when sync_age_minutes > 180 or confidence is stale_or_unknown.
-- Do not infer that a price is “too high” merely because another date is cheaper. Price recommendations require supporting evidence from occupancy/rooms left, same-time booking pace, demand/events, competitor position and/or automation behavior.
-- For a question about today's sales, mention at most TWO future stay dates and only if directly relevant.
-- If revenue_data_available is false, say there is a HotelCare data-source issue for the selected property and do not invent figures.
+Action quality rules:
+- Every recommended action must be tied to a specific observed signal or threshold.
+- Do not give generic advice such as “check again later” or “watch pickup” without saying WHAT would trigger a change.
+- If a date is sold out or has <=3 rooms left, protect ADR; do not recommend discounting.
+- If occupancy is <=55%, fresh competitor data shows our entry rate >5% above the set, and there is no high-impact event, a controlled step-down can be considered. Prefer a small move toward the supplied controlled target band rather than matching the cheapest competitor.
+- If occupancy is weak but our rate is already within about 3% of the fresh competitor average, price is not the first lever; focus on conversion/visibility/channel availability rather than another cut.
+- If a high-impact event exists, preserve event value unless pickup evidence clearly contradicts it.
+- Never invent an OTA promotion, distribution problem, competitor, event, or rate that is not in context.
 
-Response structure for revenue problems:
-1. One short diagnosis answering the concern.
-2. “Why” with the minimum exact figures needed, especially same-time pace.
-3. 3-5 prioritized actions tied to those figures.
-4. “Avoid” only if there is a specific unsafe action to warn against.
+Response style for a manager on mobile:
+- Start with **My read:** and give the commercial diagnosis in 1-2 sentences.
+- Then **What the numbers say:** with 3-5 compact bullets. Show volume, value/mix, and only the most relevant stay-date/market facts.
+- Then **Best action now:** with 2-4 numbered actions, each specific and prioritized.
+- Add **Avoid:** only when there is a concrete bad move to warn against.
+- Aim for 220-380 words unless the user asks for a full analysis. Be decisive, not verbose.
 
-Keep mobile answers concise: normally 250-450 words unless the user asks for detail. Protect ADR and do not recommend blind discounting. Never expose table names, database fields, internal ids, tools, model names, quotas, or implementation details. Never claim you changed a rate, room, ticket or setting unless a separate confirmed action tool actually did so.`,
+Never expose table names, database fields, internal ids, tools, model names, quotas, or implementation details. Never claim you changed a rate, room, ticket or setting unless a separate confirmed action tool actually did so.`,
       messages: [
         ...history,
         {
@@ -632,7 +924,9 @@ Keep mobile answers concise: normally 250-450 words unless the user asks for det
         },
       ] as any,
       abortSignal: req.signal,
-      providerOptions: { openai: { store: false, reasoningEffort: "high", reasoningSummary: "auto" } },
+      providerOptions: {
+        openai: { store: false, reasoningEffort: "high", reasoningSummary: "auto" },
+      },
     });
 
     return result.toUIMessageStreamResponse({
@@ -647,7 +941,14 @@ Keep mobile answers concise: normally 250-450 words unless the user asks for det
           await finalize(false);
           return;
         }
-        const { error: saveError } = await db.from("assistant_messages").insert({ thread_id: threadId, user_id: authData.user.id, role: "assistant", content: answer, model: PREMIUM_MODEL, refused: false });
+        const { error: saveError } = await db.from("assistant_messages").insert({
+          thread_id: threadId,
+          user_id: authData.user.id,
+          role: "assistant",
+          content: answer,
+          model: PREMIUM_MODEL,
+          refused: false,
+        });
         if (saveError) {
           console.error("premium answer save failed", saveError);
           await finalize(false);
