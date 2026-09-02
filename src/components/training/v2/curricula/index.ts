@@ -1,5 +1,6 @@
 import type { TrainingCurriculum, RoleKey } from '../types';
 import { housekeeperCurriculum } from './housekeeper';
+import { applyHousekeeperOperationalFixes } from './housekeeperOperationalFixes';
 import { managerOrientationCurriculum } from './manager';
 import { managerCompleteCurriculum } from './manager-complete';
 import { managerTeamCurriculum } from './manager-team';
@@ -11,8 +12,10 @@ import { managerInvoicesCurriculum } from './manager-invoices';
 import { autoAssignPromo } from './autoAssignPromo';
 import { adminPmsOverviewCurriculum } from './admin-pms-overview';
 
+const operationalHousekeeperCurriculum = applyHousekeeperOperationalFixes(housekeeperCurriculum);
+
 export const ALL_CURRICULA: TrainingCurriculum[] = [
-  housekeeperCurriculum,
+  operationalHousekeeperCurriculum,
   managerCompleteCurriculum,
   managerOrientationCurriculum,
   managerTeamCurriculum,
