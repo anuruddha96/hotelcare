@@ -1,0 +1,1 @@
+The Google reputation schema in `20260902154500_google_reputation_foundation.sql` has already been applied to the HotelCare Supabase production project. Keep this migration in source control for environment parity; do not manually re-create these tables.
