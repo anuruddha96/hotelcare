@@ -1,6 +1,48 @@
 alter table public.google_business_locations
   add column if not exists auto_reply_enabled_at timestamptz;
 
+create or replace function public.set_google_auto_reply_enabled_at()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.auto_reply_enabled is true and coalesce(old.auto_reply_enabled, false) is false then
+    new.auto_reply_enabled_at := now();
+  elsif new.auto_reply_enabled is false then
+    new.auto_reply_enabled_at := null;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_google_auto_reply_enabled_at on public.google_business_locations;
+create trigger trg_google_auto_reply_enabled_at
+before update of auto_reply_enabled on public.google_business_locations
+for each row execute function public.set_google_auto_reply_enabled_at();
+
+create or replace function public.preserve_google_review_draft_status()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.google_reply_comment is null
+     and new.reply_status = 'unreplied'
+     and coalesce(new.ai_draft, old.ai_draft) is not null then
+    new.reply_status := 'draft';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_preserve_google_review_draft_status on public.google_reviews;
+create trigger trg_preserve_google_review_draft_status
+before update on public.google_reviews
+for each row execute function public.preserve_google_review_draft_status();
+
 create table if not exists public.google_reputation_worker_runs (
   id uuid primary key default gen_random_uuid(),
   started_at timestamptz not null default now(),
