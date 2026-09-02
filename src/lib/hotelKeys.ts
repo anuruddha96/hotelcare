@@ -1,48 +1,73 @@
-// Shared helper to resolve a profile's `assigned_hotel` (which may be a
-// hotel slug like "memories-budapest") into ALL the keys the `rooms` /
-// `profiles` / `assignments` tables might use for that hotel: the slug
-// itself, plus the human hotel_name from `hotel_configurations`
-// (e.g. "Hotel Memories Budapest").
+// Shared helpers for hotel identifiers.
 //
-// Some legacy rows store the slug; rooms imported via PMS sync usually
-// store the full hotel_name. Filtering by .in('hotel', keys) makes both
-// cases work without touching live data.
+// Legacy profiles / rooms may store either a canonical hotel slug such as
+// "memories-budapest" or the human hotel name such as
+// "Hotel Memories Budapest". Read queries therefore need ALL aliases, while
+// write/integration actions should always use the canonical
+// hotel_configurations.hotel_id.
 
 import { supabase } from "@/integrations/supabase/client";
 
-const cache = new Map<string, string[]>();
+const keyCache = new Map<string, string[]>();
+const canonicalCache = new Map<string, string>();
 
-export async function resolveHotelKeys(
-  assignedHotel: string | null | undefined,
-): Promise<string[]> {
-  if (!assignedHotel) return [];
-  if (cache.has(assignedHotel)) return cache.get(assignedHotel)!;
-
-  const keys = new Set<string>([assignedHotel]);
-
-  // Try slug -> name
+async function lookupHotelIdentity(value: string): Promise<{ hotel_id: string; hotel_name: string | null } | null> {
   try {
     const { data: bySlug } = await supabase
       .from("hotel_configurations")
       .select("hotel_id, hotel_name")
-      .eq("hotel_id", assignedHotel)
+      .eq("hotel_id", value)
       .maybeSingle();
-    if (bySlug?.hotel_name) keys.add(bySlug.hotel_name);
-    if (bySlug?.hotel_id) keys.add(bySlug.hotel_id);
-  } catch (_) { /* ignore */ }
+    if (bySlug?.hotel_id) return bySlug;
+  } catch (_) { /* ignore and try legacy display-name key */ }
 
-  // Try name -> slug (in case profile already stores the name)
   try {
     const { data: byName } = await supabase
       .from("hotel_configurations")
       .select("hotel_id, hotel_name")
-      .eq("hotel_name", assignedHotel)
+      .eq("hotel_name", value)
       .maybeSingle();
-    if (byName?.hotel_id) keys.add(byName.hotel_id);
-    if (byName?.hotel_name) keys.add(byName.hotel_name);
+    if (byName?.hotel_id) return byName;
   } catch (_) { /* ignore */ }
 
+  return null;
+}
+
+/** Resolve a slug OR legacy display name to the canonical hotel_id. */
+export async function resolveCanonicalHotelId(
+  assignedHotel: string | null | undefined,
+): Promise<string | null> {
+  if (!assignedHotel) return null;
+  if (canonicalCache.has(assignedHotel)) return canonicalCache.get(assignedHotel)!;
+
+  const identity = await lookupHotelIdentity(assignedHotel);
+  const canonical = identity?.hotel_id || assignedHotel;
+  canonicalCache.set(assignedHotel, canonical);
+  canonicalCache.set(canonical, canonical);
+  return canonical;
+}
+
+/**
+ * Return every key variant that existing room/profile rows may use. Canonical
+ * hotel_id is deliberately first so callers that need one preferred key do
+ * not accidentally choose a legacy display name.
+ */
+export async function resolveHotelKeys(
+  assignedHotel: string | null | undefined,
+): Promise<string[]> {
+  if (!assignedHotel) return [];
+  if (keyCache.has(assignedHotel)) return keyCache.get(assignedHotel)!;
+
+  const identity = await lookupHotelIdentity(assignedHotel);
+  const canonical = identity?.hotel_id || assignedHotel;
+  const keys = new Set<string>([canonical]);
+  if (identity?.hotel_name) keys.add(identity.hotel_name);
+  keys.add(assignedHotel);
+
   const arr = Array.from(keys).filter(Boolean);
-  cache.set(assignedHotel, arr);
+  keyCache.set(assignedHotel, arr);
+  keyCache.set(canonical, arr);
+  canonicalCache.set(assignedHotel, canonical);
+  canonicalCache.set(canonical, canonical);
   return arr;
 }
