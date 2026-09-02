@@ -91,6 +91,29 @@ describe('autoAssignRooms locality + fairness', () => {
     expect(metrics.heavyRoomDiff).toBeLessThanOrEqual(1);
   });
 
+  it('never lets later heavy/locality rebalancing undo checkout fairness', () => {
+    // This mix previously exposed a 3-vs-1 checkout result after checkout
+    // fairness had already been achieved, because a later heavy-room move could
+    // move a checkout again. Keep it as a regression case.
+    const rooms: RoomForAssignment[] = [
+      room('312d', '312', 2, { room_size_sqm: 30 }),
+      room('107co', '107', 4, { is_checkout_room: true }),
+      room('214co', '214', 2, { is_checkout_room: true }),
+      room('310co', '310', 2, { is_checkout_room: true }),
+      room('113co', '113', 4, { is_checkout_room: true }),
+      room('120d', '120', 2, { room_size_sqm: 20 }),
+      room('307co', '307', 2, { is_checkout_room: true, room_size_sqm: 20 }),
+      room('409co', '409', 2, { is_checkout_room: true }),
+      room('410d', '410', 4),
+      room('410co', '410', 2, { is_checkout_room: true, room_size_sqm: 30 }),
+      room('210co', '210', 2, { is_checkout_room: true }),
+      room('118d', '118', 3, { room_size_sqm: 30 }),
+    ];
+
+    const previews = autoAssignRooms(rooms, staff, undefined, undefined, { randomSeed: 1 });
+    expect(computeFairnessMetrics(previews).checkoutDiff).toBeLessThanOrEqual(1);
+  });
+
   it('recomputes workload correctly after a manual move', () => {
     const rooms = [room('301', '301'), room('302', '302')];
     const previews = autoAssignRooms(rooms, staff.slice(0, 2), undefined, undefined, { randomSeed: 3 });
