@@ -944,7 +944,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
       {/* === SPECIAL INSTRUCTIONS — Between header and content === */}
       {hasSpecialInstructions && (
-        <div className="px-6 pb-2 space-y-2">
+        <div data-training="room-special-instructions" className="px-6 pb-2 space-y-2">
           {showTowelChange && (
             <div className="p-3 bg-yellow-50 dark:bg-yellow-950/30 border-2 border-yellow-400 dark:border-yellow-600 rounded-lg">
               <div className="flex items-center gap-2">
@@ -1263,7 +1263,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             const iconWrap = 'flex items-center justify-center h-8 w-8 rounded-full';
             const label = 'text-[11px] leading-tight text-center break-words hyphens-auto text-foreground/80 font-medium';
             return (
-              <div className="p-4 bg-card rounded-2xl border border-border shadow-sm">
+              <div data-training="room-work-tools" className="p-4 bg-card rounded-2xl border border-border shadow-sm">
                 <div className="flex items-start gap-2 mb-3">
                   <div className="flex items-center justify-center h-9 w-9 rounded-full bg-primary/10 shrink-0">
                     <ClipboardList className="h-4 w-4 text-primary" />
@@ -1533,7 +1533,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
         {/* Messages Section - Two-way communication */}
         {assignment.status === 'in_progress' && (
-          <div className="space-y-2">
+          <div data-training="room-messages" className="space-y-2">
             <div className="flex items-center gap-2">
               <MessageSquare className="h-4 w-4 text-muted-foreground" />
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
