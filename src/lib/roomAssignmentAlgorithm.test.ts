@@ -46,6 +46,9 @@ describe('autoAssignRooms locality + fairness', () => {
 
     const previews = autoAssignRooms(rooms, staff, undefined, undefined, {
       hotelName: 'Hotel Mika Downtown',
+      // Mirrors Mika's hotel_autoassign_profiles tuning: stronger floor
+      // continuity than the generic multi-property default.
+      floorPenaltyMultiplier: 3,
       randomSeed: 42,
     });
 
@@ -65,6 +68,7 @@ describe('autoAssignRooms locality + fairness', () => {
     const metrics = computeFairnessMetrics(previews);
     expect(metrics.dailyDiff).toBeLessThanOrEqual(1);
     expect(metrics.totalDiff).toBeLessThanOrEqual(1);
+    expect(metrics.splitFloorCount).toBeLessThanOrEqual(1);
   });
 
   it('spreads heavy checkout rooms instead of stacking them on one housekeeper', () => {
