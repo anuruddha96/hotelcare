@@ -1,0 +1,1 @@
+Current status: backend schema is deployed, `google-reputation` and `google-business-oauth-callback` Edge Functions are deployed, and the UI exists on the feature branch. Live Google connection is intentionally blocked until OAuth credentials and a token-encryption key are configured.
