@@ -6294,6 +6294,47 @@ export type Database = {
           },
         ]
       }
+      reservation_events: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          event_type: string
+          hotel_id: string | null
+          id: string
+          metadata: Json
+          organization_slug: string | null
+          reservation_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          event_type: string
+          hotel_id?: string | null
+          id?: string
+          metadata?: Json
+          organization_slug?: string | null
+          reservation_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          event_type?: string
+          hotel_id?: string | null
+          id?: string
+          metadata?: Json
+          organization_slug?: string | null
+          reservation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reservation_events_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reservation_room_assignments: {
         Row: {
           check_in_date: string
@@ -6359,6 +6400,7 @@ export type Database = {
           internal_notes: string | null
           organization_slug: string | null
           payment_status: string | null
+          pms_guest_name: string | null
           rate_per_night: number | null
           reservation_number: string | null
           room_id: string | null
@@ -6390,6 +6432,7 @@ export type Database = {
           internal_notes?: string | null
           organization_slug?: string | null
           payment_status?: string | null
+          pms_guest_name?: string | null
           rate_per_night?: number | null
           reservation_number?: string | null
           room_id?: string | null
@@ -6421,6 +6464,7 @@ export type Database = {
           internal_notes?: string | null
           organization_slug?: string | null
           payment_status?: string | null
+          pms_guest_name?: string | null
           rate_per_night?: number | null
           reservation_number?: string | null
           room_id?: string | null
@@ -10191,6 +10235,14 @@ export type Database = {
           room_nights: number
         }[]
       }
+      can_access_pms_hotel: {
+        Args: { _hotel_id: string; _org_slug: string; _uid: string }
+        Returns: boolean
+      }
+      can_access_reservation: {
+        Args: { _reservation_id: string; _uid: string }
+        Returns: boolean
+      }
       can_manage_slnt_schedule: {
         Args: { _hotel_id: string }
         Returns: boolean
@@ -10790,6 +10842,15 @@ export type Database = {
       pi_user_hotel: { Args: never; Returns: string }
       pi_user_org: { Args: never; Returns: string }
       pi_user_role: { Args: never; Returns: string }
+      pms_add_folio_item: {
+        Args: {
+          _amount: number
+          _charge_type?: string
+          _description: string
+          _reservation_id: string
+        }
+        Returns: Json
+      }
       pms_apply_change: {
         Args: {
           p_after: Json
@@ -10798,6 +10859,84 @@ export type Database = {
           p_event_id?: string
           p_hotel_id: string
           p_room_id: string
+        }
+        Returns: Json
+      }
+      pms_available_rooms: {
+        Args: {
+          _exclude_reservation?: string
+          _from: string
+          _hotel_id: string
+          _to: string
+        }
+        Returns: {
+          capacity: number
+          has_conflict: boolean
+          room_id: string
+          room_number: string
+          room_status: string
+          room_type: string
+        }[]
+      }
+      pms_check_in_reservation: {
+        Args: { _override?: boolean; _reservation_id: string; _room_id: string }
+        Returns: Json
+      }
+      pms_check_out_reservation: {
+        Args: { _acknowledge_balance?: boolean; _reservation_id: string }
+        Returns: Json
+      }
+      pms_create_reservation: {
+        Args: {
+          _adults?: number
+          _check_in: string
+          _check_out: string
+          _children?: number
+          _currency?: string
+          _guest_id: string
+          _hotel_id: string
+          _internal_notes?: string
+          _rate_per_night?: number
+          _room_id?: string
+          _room_type_requested?: string
+          _source?: string
+          _special_requests?: string
+          _status?: string
+        }
+        Returns: Json
+      }
+      pms_hotel_room_keys: { Args: { _hotel_id: string }; Returns: string[] }
+      pms_recalc_reservation_financials: {
+        Args: { _reservation_id: string }
+        Returns: undefined
+      }
+      pms_room_has_conflict: {
+        Args: {
+          _exclude_reservation?: string
+          _from: string
+          _room_id: string
+          _to: string
+        }
+        Returns: boolean
+      }
+      pms_set_reservation_status: {
+        Args: { _new_status: string; _reason?: string; _reservation_id: string }
+        Returns: Json
+      }
+      pms_update_reservation: {
+        Args: {
+          _adults?: number
+          _check_in?: string
+          _check_out?: string
+          _children?: number
+          _clear_room?: boolean
+          _internal_notes?: string
+          _rate_per_night?: number
+          _reservation_id: string
+          _room_id?: string
+          _room_type_requested?: string
+          _source?: string
+          _special_requests?: string
         }
         Returns: Json
       }

@@ -1,0 +1,13 @@
+REVOKE EXECUTE ON FUNCTION public.can_access_pms_hotel(uuid, text, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.can_access_reservation(uuid, uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.pms_room_has_conflict(uuid, date, date, uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.pms_hotel_room_keys(text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.pms_available_rooms(text, date, date, uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.pms_recalc_reservation_financials(uuid) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.pms_check_in_reservation(uuid, uuid, boolean) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.pms_check_out_reservation(uuid, boolean) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.pms_set_reservation_status(uuid, text, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.pms_add_folio_item(uuid, text, numeric, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.pms_create_reservation(text, uuid, date, date, integer, integer, uuid, text, numeric, text, text, text, text, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.pms_update_reservation(uuid, date, date, integer, integer, uuid, boolean, numeric, text, text, text, text) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.pms_reservations_before_write() FROM PUBLIC, anon, authenticated;

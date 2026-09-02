@@ -15,8 +15,6 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
-const NAV_GATE_ROLES = ['admin', 'top_management', 'control_finance', 'control_manager', 'back_office_manager'];
-
 const PMS_NAV_ITEMS = [
   { key: 'front-desk', icon: DoorOpen, labelKey: 'pms.frontDesk', roles: ['admin', 'manager', 'reception', 'front_office', 'housekeeping_manager', 'top_management', 'top_management_manager'] },
   { key: 'reservations', icon: CalendarDays, labelKey: 'pms.reservations', roles: ['admin', 'manager', 'reception', 'front_office', 'housekeeping_manager', 'top_management', 'top_management_manager'] },
@@ -31,20 +29,17 @@ export function PMSNavigation() {
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { profile } = useAuth();
   const { t } = useTranslation();
+  const propertyTerms = usePropertyTerms();
   const basePath = `/${organizationSlug || 'rdhotels'}`;
 
-  // Show to finance/back-office in addition to admin/top-management
-  if (!profile || !NAV_GATE_ROLES.includes(profile.role)) return null;
-
-  const propertyTerms = usePropertyTerms();
-
-  // Revenue Management is available in every organization (property-style
-  // orgs like SLNT run the same module as RD Hotels).
+  // Visibility is decided purely by the per-item role lists — no outer gate.
+  // Reception / front-office / managers see the operational items; finance
+  // roles only see Purchase Invoices, etc.
   const visibleItems = PMS_NAV_ITEMS.filter(
     (item) => profile && item.roles.includes(profile.role)
   );
 
-  if (visibleItems.length === 0) return null;
+  if (!profile || visibleItems.length === 0) return null;
 
 
   return (
