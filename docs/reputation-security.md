@@ -1,0 +1,3 @@
+# Reputation security boundary
+
+Google OAuth tokens are server-only. The browser has no grants on `google_business_connections`, `google_business_locations`, `google_reviews`, or OAuth state tables. All access is mediated by authenticated Edge Functions with organization and executive-role checks. The OAuth callback is public only because Google must reach it; it validates a one-time expiring state.
