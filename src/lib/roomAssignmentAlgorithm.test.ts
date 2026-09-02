@@ -46,9 +46,10 @@ describe('autoAssignRooms locality + fairness', () => {
 
     const previews = autoAssignRooms(rooms, staff, undefined, undefined, {
       hotelName: 'Hotel Mika Downtown',
-      // Mirrors Mika's hotel_autoassign_profiles tuning: stronger floor
-      // continuity than the generic multi-property default.
-      floorPenaltyMultiplier: 3,
+      // Mirrors Mika's hotel_autoassign_profiles tuning. Mika's apartment-style
+      // F0 units and numbered floors benefit from a deliberately strong route
+      // continuity preference; overload/fairness guards still cap clustering.
+      floorPenaltyMultiplier: 9,
       randomSeed: 42,
     });
 
