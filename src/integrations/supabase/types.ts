@@ -499,6 +499,108 @@ export type Database = {
         }
         Relationships: []
       }
+      assistant_premium_purchases: {
+        Row: {
+          amount_eur: number
+          billing_details: Json
+          created_at: string
+          credits: number
+          id: string
+          organization_slug: string | null
+          package_id: string
+          stripe_checkout_session_id: string
+          stripe_payment_intent_id: string | null
+          user_id: string
+        }
+        Insert: {
+          amount_eur: number
+          billing_details?: Json
+          created_at?: string
+          credits: number
+          id?: string
+          organization_slug?: string | null
+          package_id: string
+          stripe_checkout_session_id: string
+          stripe_payment_intent_id?: string | null
+          user_id: string
+        }
+        Update: {
+          amount_eur?: number
+          billing_details?: Json
+          created_at?: string
+          credits?: number
+          id?: string
+          organization_slug?: string | null
+          package_id?: string
+          stripe_checkout_session_id?: string
+          stripe_payment_intent_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      assistant_premium_usage: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          id: string
+          model: string
+          organization_slug: string | null
+          source: string
+          status: string
+          thread_id: string | null
+          usage_day: string
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          model: string
+          organization_slug?: string | null
+          source: string
+          status?: string
+          thread_id?: string | null
+          usage_day?: string
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          id?: string
+          model?: string
+          organization_slug?: string | null
+          source?: string
+          status?: string
+          thread_id?: string | null
+          usage_day?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      assistant_premium_wallets: {
+        Row: {
+          created_at: string
+          credits: number
+          organization_slug: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          credits?: number
+          organization_slug?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          credits?: number
+          organization_slug?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       assistant_threads: {
         Row: {
           created_at: string
@@ -527,6 +629,30 @@ export type Database = {
           organization_slug?: string | null
           title?: string
           title_locked?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      assistant_unlimited_users: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          reason: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          reason?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          reason?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -2319,6 +2445,451 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      google_business_connections: {
+        Row: {
+          access_token_ciphertext: string | null
+          access_token_expires_at: string | null
+          connected_by: string | null
+          created_at: string
+          google_account_display_name: string | null
+          google_account_email: string | null
+          google_account_name: string
+          id: string
+          last_error: string | null
+          last_sync_at: string | null
+          organization_id: string
+          refresh_token_ciphertext: string
+          scopes: string[]
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          access_token_ciphertext?: string | null
+          access_token_expires_at?: string | null
+          connected_by?: string | null
+          created_at?: string
+          google_account_display_name?: string | null
+          google_account_email?: string | null
+          google_account_name: string
+          id?: string
+          last_error?: string | null
+          last_sync_at?: string | null
+          organization_id: string
+          refresh_token_ciphertext: string
+          scopes?: string[]
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          access_token_ciphertext?: string | null
+          access_token_expires_at?: string | null
+          connected_by?: string | null
+          created_at?: string
+          google_account_display_name?: string | null
+          google_account_email?: string | null
+          google_account_name?: string
+          id?: string
+          last_error?: string | null
+          last_sync_at?: string | null
+          organization_id?: string
+          refresh_token_ciphertext?: string
+          scopes?: string[]
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_business_connections_connected_by_fkey"
+            columns: ["connected_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "google_business_connections_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_business_locations: {
+        Row: {
+          auto_reply_delay_minutes: number
+          auto_reply_enabled: boolean
+          auto_reply_enabled_at: string | null
+          brand_context: string | null
+          connection_id: string
+          created_at: string
+          google_account_name: string | null
+          google_location_name: string
+          google_location_title: string
+          hotel_id: string | null
+          id: string
+          is_active: boolean
+          last_sync_at: string | null
+          min_auto_rating: number
+          organization_id: string
+          place_id: string | null
+          reply_language_mode: string
+          reply_mode: string
+          reply_signature: string | null
+          reply_tone: string
+          require_approval_below_rating: number
+          store_code: string | null
+          updated_at: string
+        }
+        Insert: {
+          auto_reply_delay_minutes?: number
+          auto_reply_enabled?: boolean
+          auto_reply_enabled_at?: string | null
+          brand_context?: string | null
+          connection_id: string
+          created_at?: string
+          google_account_name?: string | null
+          google_location_name: string
+          google_location_title: string
+          hotel_id?: string | null
+          id?: string
+          is_active?: boolean
+          last_sync_at?: string | null
+          min_auto_rating?: number
+          organization_id: string
+          place_id?: string | null
+          reply_language_mode?: string
+          reply_mode?: string
+          reply_signature?: string | null
+          reply_tone?: string
+          require_approval_below_rating?: number
+          store_code?: string | null
+          updated_at?: string
+        }
+        Update: {
+          auto_reply_delay_minutes?: number
+          auto_reply_enabled?: boolean
+          auto_reply_enabled_at?: string | null
+          brand_context?: string | null
+          connection_id?: string
+          created_at?: string
+          google_account_name?: string | null
+          google_location_name?: string
+          google_location_title?: string
+          hotel_id?: string | null
+          id?: string
+          is_active?: boolean
+          last_sync_at?: string | null
+          min_auto_rating?: number
+          organization_id?: string
+          place_id?: string | null
+          reply_language_mode?: string
+          reply_mode?: string
+          reply_signature?: string | null
+          reply_tone?: string
+          require_approval_below_rating?: number
+          store_code?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_business_locations_connection_id_fkey"
+            columns: ["connection_id"]
+            isOneToOne: false
+            referencedRelation: "google_business_connections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "google_business_locations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_business_oauth_states: {
+        Row: {
+          created_at: string
+          expires_at: string
+          organization_id: string
+          organization_slug: string
+          return_url: string
+          state: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          organization_id: string
+          organization_slug: string
+          return_url: string
+          state: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          organization_id?: string
+          organization_slug?: string
+          return_url?: string
+          state?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_business_oauth_states_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "google_business_oauth_states_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_reputation_worker_runs: {
+        Row: {
+          connections_checked: number
+          drafts_generated: number
+          errors: Json
+          finished_at: string | null
+          id: string
+          locations_checked: number
+          replies_published: number
+          reviews_synced: number
+          started_at: string
+          status: string
+        }
+        Insert: {
+          connections_checked?: number
+          drafts_generated?: number
+          errors?: Json
+          finished_at?: string | null
+          id?: string
+          locations_checked?: number
+          replies_published?: number
+          reviews_synced?: number
+          started_at?: string
+          status?: string
+        }
+        Update: {
+          connections_checked?: number
+          drafts_generated?: number
+          errors?: Json
+          finished_at?: string | null
+          id?: string
+          locations_checked?: number
+          replies_published?: number
+          reviews_synced?: number
+          started_at?: string
+          status?: string
+        }
+        Relationships: []
+      }
+      google_review_reply_events: {
+        Row: {
+          actor_user_id: string | null
+          created_at: string
+          event_type: string
+          google_location_id: string | null
+          hotel_id: string | null
+          id: string
+          metadata: Json
+          organization_id: string
+          reply_text: string | null
+          review_id: string
+        }
+        Insert: {
+          actor_user_id?: string | null
+          created_at?: string
+          event_type: string
+          google_location_id?: string | null
+          hotel_id?: string | null
+          id?: string
+          metadata?: Json
+          organization_id: string
+          reply_text?: string | null
+          review_id: string
+        }
+        Update: {
+          actor_user_id?: string | null
+          created_at?: string
+          event_type?: string
+          google_location_id?: string | null
+          hotel_id?: string | null
+          id?: string
+          metadata?: Json
+          organization_id?: string
+          reply_text?: string | null
+          review_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_review_reply_events_actor_user_id_fkey"
+            columns: ["actor_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "google_review_reply_events_google_location_id_fkey"
+            columns: ["google_location_id"]
+            isOneToOne: false
+            referencedRelation: "google_business_locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "google_review_reply_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "google_review_reply_events_review_id_fkey"
+            columns: ["review_id"]
+            isOneToOne: false
+            referencedRelation: "google_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_reviews: {
+        Row: {
+          ai_categories: string[]
+          ai_confidence: number | null
+          ai_draft: string | null
+          ai_draft_generated_at: string | null
+          ai_language: string | null
+          ai_risk_level: string | null
+          ai_sentiment: string | null
+          ai_summary: string | null
+          auto_reply_eligible: boolean
+          comment: string | null
+          created_at: string
+          draft_edited_at: string | null
+          draft_edited_by: string | null
+          google_location_id: string
+          google_reply_comment: string | null
+          google_reply_update_time: string | null
+          google_review_id: string
+          google_review_name: string
+          hotel_id: string | null
+          id: string
+          organization_id: string
+          raw: Json
+          replied_at: string | null
+          replied_by: string | null
+          reply_status: string
+          review_create_time: string | null
+          review_update_time: string | null
+          reviewer_display_name: string | null
+          reviewer_profile_photo_url: string | null
+          star_rating: number
+          updated_at: string
+        }
+        Insert: {
+          ai_categories?: string[]
+          ai_confidence?: number | null
+          ai_draft?: string | null
+          ai_draft_generated_at?: string | null
+          ai_language?: string | null
+          ai_risk_level?: string | null
+          ai_sentiment?: string | null
+          ai_summary?: string | null
+          auto_reply_eligible?: boolean
+          comment?: string | null
+          created_at?: string
+          draft_edited_at?: string | null
+          draft_edited_by?: string | null
+          google_location_id: string
+          google_reply_comment?: string | null
+          google_reply_update_time?: string | null
+          google_review_id: string
+          google_review_name: string
+          hotel_id?: string | null
+          id?: string
+          organization_id: string
+          raw?: Json
+          replied_at?: string | null
+          replied_by?: string | null
+          reply_status?: string
+          review_create_time?: string | null
+          review_update_time?: string | null
+          reviewer_display_name?: string | null
+          reviewer_profile_photo_url?: string | null
+          star_rating: number
+          updated_at?: string
+        }
+        Update: {
+          ai_categories?: string[]
+          ai_confidence?: number | null
+          ai_draft?: string | null
+          ai_draft_generated_at?: string | null
+          ai_language?: string | null
+          ai_risk_level?: string | null
+          ai_sentiment?: string | null
+          ai_summary?: string | null
+          auto_reply_eligible?: boolean
+          comment?: string | null
+          created_at?: string
+          draft_edited_at?: string | null
+          draft_edited_by?: string | null
+          google_location_id?: string
+          google_reply_comment?: string | null
+          google_reply_update_time?: string | null
+          google_review_id?: string
+          google_review_name?: string
+          hotel_id?: string | null
+          id?: string
+          organization_id?: string
+          raw?: Json
+          replied_at?: string | null
+          replied_by?: string | null
+          reply_status?: string
+          review_create_time?: string | null
+          review_update_time?: string | null
+          reviewer_display_name?: string | null
+          reviewer_profile_photo_url?: string | null
+          star_rating?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "google_reviews_draft_edited_by_fkey"
+            columns: ["draft_edited_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "google_reviews_google_location_id_fkey"
+            columns: ["google_location_id"]
+            isOneToOne: false
+            referencedRelation: "google_business_locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "google_reviews_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "google_reviews_replied_by_fkey"
+            columns: ["replied_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       guest_folios: {
         Row: {
@@ -8952,6 +9523,7 @@ export type Database = {
           body: string
           created_at: string
           created_by: string | null
+          dedupe_key: string | null
           ends_at: string | null
           id: string
           pinned: boolean
@@ -8967,6 +9539,7 @@ export type Database = {
           body: string
           created_at?: string
           created_by?: string | null
+          dedupe_key?: string | null
           ends_at?: string | null
           id?: string
           pinned?: boolean
@@ -8982,6 +9555,7 @@ export type Database = {
           body?: string
           created_at?: string
           created_by?: string | null
+          dedupe_key?: string | null
           ends_at?: string | null
           id?: string
           pinned?: boolean
@@ -9772,6 +10346,10 @@ export type Database = {
         Args: { _company_id: string; _hotel_id: string; _user_id?: string }
         Returns: boolean
       }
+      finalize_assistant_premium_question: {
+        Args: { _success: boolean; _usage_id: string }
+        Returns: Json
+      }
       generate_ticket_number: { Args: never; Returns: string }
       get_assignable_staff:
         | {
@@ -9881,6 +10459,7 @@ export type Database = {
           role: Database["public"]["Enums"]["user_role"]
         }[]
       }
+      get_google_reputation_worker_secret: { Args: never; Returns: string }
       get_hotel_id_from_name: { Args: { hotel_name: string }; Returns: string }
       get_hotel_name_from_id: { Args: { hotel_id: string }; Returns: string }
       get_housekeeper_avg_rating: {
@@ -9973,6 +10552,19 @@ export type Database = {
         Args: { user_id: string }
         Returns: Database["public"]["Enums"]["user_role"]
       }
+      grant_assistant_premium_purchase: {
+        Args: {
+          _amount_eur: number
+          _billing_details?: Json
+          _credits: number
+          _organization_slug: string
+          _package_id: string
+          _stripe_checkout_session_id: string
+          _stripe_payment_intent_id: string
+          _user_id: string
+        }
+        Returns: Json
+      }
       has_hk_manager_powers: { Args: { _user_id: string }; Returns: boolean }
       has_pms_access: { Args: { user_id: string }; Returns: boolean }
       has_ticket_creation_permission: {
@@ -9988,6 +10580,86 @@ export type Database = {
         Returns: boolean
       }
       hotel_has_active_previo: { Args: { _hotel_id: string }; Returns: boolean }
+      hotelcare_connector_get_automation_runs: {
+        Args: { _hotel_id: string; _limit?: number }
+        Returns: {
+          cells_failed: number
+          cells_published: number
+          dates_blocked: number
+          dates_decreased: number
+          dates_evaluated: number
+          dates_held: number
+          dates_increased: number
+          duration_ms: number
+          failure_reason: string
+          finished_at: string
+          id: string
+          mode: string
+          started_at: string
+          status: string
+        }[]
+      }
+      hotelcare_connector_get_notifications: {
+        Args: { _hotel_id: string; _limit?: number }
+        Returns: {
+          actions_count: number
+          actor_name: string
+          changes: Json
+          created_at: string
+          currency: string
+          failed_count: number
+          id: string
+          notification_type: string
+          pickups_count: number
+          pushed_count: number
+          run_source: string
+          severity: string
+          summary: string
+        }[]
+      }
+      hotelcare_connector_get_price_decisions: {
+        Args: { _from: string; _hotel_id: string; _limit?: number; _to: string }
+        Returns: {
+          created_at: string
+          current_price: number
+          days_out: number
+          decision_reason: string
+          direction: string
+          movement: number
+          occupancy_pct: number
+          pickup_1h: number
+          pickup_24h: number
+          pickup_7d: number
+          reason_detail: string
+          rooms_remaining: number
+          rooms_sold: number
+          status: string
+          stay_date: string
+          target_price: number
+        }[]
+      }
+      hotelcare_connector_get_revenue_summary: {
+        Args: { _from: string; _hotel_id: string; _to: string }
+        Returns: {
+          adr_eur: number
+          captured_date: string
+          occupancy_pct: number
+          revenue_eur: number
+          rooms_available: number
+          rooms_sold: number
+          stay_date: string
+        }[]
+      }
+      hotelcare_get_my_properties: {
+        Args: never
+        Returns: {
+          hotel_id: string
+          hotel_name: string
+          id: string
+          is_active: boolean
+          organization_slug: string
+        }[]
+      }
       is_revenue_user: { Args: { _uid: string }; Returns: boolean }
       is_super_admin: { Args: { user_id: string }; Returns: boolean }
       is_top_management: { Args: { _user_id: string }; Returns: boolean }
@@ -10129,6 +10801,10 @@ export type Database = {
         }
         Returns: Json
       }
+      publish_reputation_live_announcement: {
+        Args: { target_org_id: string }
+        Returns: string
+      }
       purge_old_daily_overview_snapshots: { Args: never; Returns: number }
       purge_revenue_logs: { Args: never; Returns: Json }
       rate_cell_history: {
@@ -10202,6 +10878,15 @@ export type Database = {
       }
       release_publisher_lease: { Args: { p_token: string }; Returns: undefined }
       release_publisher_lock: { Args: { p_hotel: string }; Returns: undefined }
+      reserve_assistant_premium_question: {
+        Args: {
+          _model: string
+          _organization_slug: string
+          _thread_id: string
+          _user_id: string
+        }
+        Returns: Json
+      }
       revenue_calendar_snapshots: {
         Args: {
           _from: string
@@ -10417,12 +11102,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -10446,11 +11131,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -10471,11 +11156,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -10496,11 +11181,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -10513,11 +11198,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
