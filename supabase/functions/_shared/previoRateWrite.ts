@@ -197,6 +197,35 @@ export async function writePrevioRate(opts: {
   };
 }
 
+/**
+ * Previo can return more than one rate plan even when a `prlId` filter is sent.
+ * Verification must never read a similarly shaped occupancy level from a
+ * different pricelist, otherwise a correct €198 write can be reported as a
+ * false €279 landing and the automation starts chasing the wrong price.
+ */
+function matchingRatePlanFragments(xml: string, prlId?: string | null): string[] {
+  const blocks = xml.split(/<ratePlan>/i).slice(1)
+    .map((raw) => raw.split(/<\/ratePlan>/i)[0] ?? "");
+  if (!prlId) return blocks.length > 0 ? blocks : [xml];
+  const wanted = String(prlId).trim();
+  return blocks.filter((block) => {
+    const id = block.match(/<prlId>([^<]*)<\/prlId>/i)?.[1]?.trim()
+      ?? block.match(/\bprlId\s*=\s*"([^"]*)"/i)?.[1]?.trim();
+    return id === wanted;
+  });
+}
+
+/** Exact object-kind fragments only; never fall back to parsing the whole XML. */
+function matchingObjectKindFragments(fragment: string, obkId: string): string[] {
+  return fragment.split(/<objectKind>/i).slice(1)
+    .map((raw) => raw.split(/<\/objectKind>/i)[0] ?? "")
+    .filter((block) => {
+      const id = block.match(/<obkId>([^<]*)<\/obkId>/i)?.[1]?.trim()
+        ?? block.match(/\bobkId\s*=\s*"([^"]*)"/i)?.[1]?.trim();
+      return id === String(obkId).trim();
+    });
+}
+
 /** Read back one price so a push can be confirmed against Previo itself. */
 export async function readPrevioRate(opts: {
   creds: PrevioCredentials;
@@ -211,27 +240,25 @@ export async function readPrevioRate(opts: {
     method: "getRates",
     creds: opts.creds,
     pmsHotelId: opts.pmsHotelId,
-    extraXml: `<term><from>${esc(opts.from)}</from><to>${esc(opts.to)}</to></term>`,
+    extraXml:
+      `<term><from>${esc(opts.from)}</from><to>${esc(opts.to)}</to></term>` +
+      (opts.prlId ? `<prlId>${esc(opts.prlId)}</prlId>` : ""),
   });
   if (!res.ok) return null;
 
-  // Narrow the response down to the object kind we asked about, then read the
-  // price for the requested occupancy.
-  const kindBlocks = res.text.split(/<objectKind>/i).slice(1);
-  for (const raw of kindBlocks) {
-    const block = raw.split(/<\/objectKind>/i)[0] ?? "";
-    const obk = block.match(/<obkId>([^<]*)<\/obkId>/i)?.[1]?.trim();
-    if (obk !== opts.obkId) continue;
-    for (const rateRaw of block.split(/<rate>/i).slice(1)) {
-      const rate = rateRaw.split(/<\/rate>/i)[0] ?? "";
-      const occ = parseInt(rate.match(/<occupancy>([^<]*)<\/occupancy>/i)?.[1] ?? "", 10);
-      if (occ !== opts.occupancy) continue;
-      const price = parseFloat(
-        rate.match(/<amount>([^<]*)<\/amount>/i)?.[1]
-          ?? rate.match(/<price>\s*([\d.,]+)\s*<\/price>/i)?.[1]
-          ?? "",
-      );
-      if (Number.isFinite(price)) return price;
+  for (const plan of matchingRatePlanFragments(res.text, opts.prlId)) {
+    for (const block of matchingObjectKindFragments(plan, opts.obkId)) {
+      for (const rateRaw of block.split(/<rate>/i).slice(1)) {
+        const rate = rateRaw.split(/<\/rate>/i)[0] ?? "";
+        const occ = parseInt(rate.match(/<occupancy>([^<]*)<\/occupancy>/i)?.[1] ?? "", 10);
+        if (occ !== opts.occupancy) continue;
+        const price = parseFloat(
+          rate.match(/<amount>([^<]*)<\/amount>/i)?.[1]
+            ?? rate.match(/<price>\s*([\d.,]+)\s*<\/price>/i)?.[1]
+            ?? "",
+        );
+        if (Number.isFinite(price)) return price;
+      }
     }
   }
   return null;
@@ -264,9 +291,9 @@ function parseRateLevels(fragment: string, into: Map<number, number>) {
  * Used to fill the levels the user did not edit so a push never "skips a
  * level" (Previo error 3092), and to confirm a push landed.
  *
- * Previo's getRates answer is not always shaped the same way, so this reads
- * the object-kind block when it can find one and falls back to the whole
- * document, and retries once before giving up.
+ * Verification is deliberately exact: rate plan + room type + occupancy.
+ * Ambiguous whole-document fallbacks are unsafe because another rate plan can
+ * contain the same occupancy number at a completely different price.
  */
 export async function readPrevioRateLevels(opts: {
   creds: PrevioCredentials;
@@ -287,19 +314,11 @@ export async function readPrevioRateLevels(opts: {
     });
     if (!res.ok) return out;
 
-    const kindBlocks = res.text.split(/<objectKind>/i).slice(1);
-    let matchedKind = false;
-    for (const raw of kindBlocks) {
-      const block = raw.split(/<\/objectKind>/i)[0] ?? "";
-      const obk = block.match(/<obkId>([^<]*)<\/obkId>/i)?.[1]?.trim()
-        ?? block.match(/\bobkId\s*=\s*"([^"]*)"/i)?.[1]?.trim();
-      if (obk !== opts.obkId) continue;
-      matchedKind = true;
-      parseRateLevels(block, out);
+    for (const plan of matchingRatePlanFragments(res.text, opts.prlId)) {
+      for (const block of matchingObjectKindFragments(plan, opts.obkId)) {
+        parseRateLevels(block, out);
+      }
     }
-    // Some answers do not wrap rates in <objectKind> at all — if the room type
-    // id appears anywhere in the document, read the rates from the whole body.
-    if (!matchedKind && res.text.includes(opts.obkId)) parseRateLevels(res.text, out);
     return out;
   };
 
@@ -356,22 +375,23 @@ export async function readPrevioRateLevelsRange(opts: {
         (opts.prlId ? `<prlId>${esc(opts.prlId)}</prlId>` : ""),
     });
     if (res.ok) {
-      for (const seasonRaw of res.text.split(/<season>/i).slice(1)) {
-        const season = seasonRaw.split(/<\/season>/i)[0] ?? "";
-        const seasonFrom = (season.match(/<from>([^<]*)<\/from>/i)?.[1] ?? "").slice(0, 10);
-        if (!seasonFrom) continue;
-        const seasonTo = (season.match(/<to>([^<]*)<\/to>/i)?.[1] ?? seasonFrom).slice(0, 10);
-        const span = seasonSpan(seasonFrom, seasonTo);
-        for (const kindRaw of season.split(/<objectKind>/i).slice(1)) {
-          const block = kindRaw.split(/<\/objectKind>/i)[0] ?? "";
-          const obk = block.match(/<obkId>([^<]*)<\/obkId>/i)?.[1]?.trim();
-          if (obk !== opts.obkId) continue;
-          const levels = new Map<number, number>();
-          parseRateLevels(block, levels);
-          for (let i = 0; i < span; i++) {
-            const day = addDaysIso(seasonFrom, i);
-            if (day < cursor || day > end) continue;
-            for (const [occ, price] of levels) out.set(`${day}|${occ}`, price);
+      // Some Previo accounts return every pricelist despite the request's
+      // prlId. Scope first, then expand only the exact room type inside it.
+      for (const plan of matchingRatePlanFragments(res.text, opts.prlId)) {
+        for (const seasonRaw of plan.split(/<season>/i).slice(1)) {
+          const season = seasonRaw.split(/<\/season>/i)[0] ?? "";
+          const seasonFrom = (season.match(/<from>([^<]*)<\/from>/i)?.[1] ?? "").slice(0, 10);
+          if (!seasonFrom) continue;
+          const seasonTo = (season.match(/<to>([^<]*)<\/to>/i)?.[1] ?? seasonFrom).slice(0, 10);
+          const span = seasonSpan(seasonFrom, seasonTo);
+          for (const block of matchingObjectKindFragments(season, opts.obkId)) {
+            const levels = new Map<number, number>();
+            parseRateLevels(block, levels);
+            for (let i = 0; i < span; i++) {
+              const day = addDaysIso(seasonFrom, i);
+              if (day < cursor || day > end) continue;
+              for (const [occ, price] of levels) out.set(`${day}|${occ}`, price);
+            }
           }
         }
       }
@@ -413,7 +433,7 @@ export interface RestrictionWriteTarget {
  * failed"). Rooms to sell therefore stays a Previo-side setting.
  */
 export const PREVIO_INVENTORY_UNSUPPORTED =
-  "Previo does not accept availability (rooms to sell) over its price channel \u2014 change it in Previo itself.";
+  "Previo does not accept availability (rooms to sell) over its price channel — change it in Previo itself.";
 
 export function buildRestrictionUpdateXml(hotelId: string, t: RestrictionWriteTarget): string {
   const minStay = Number.isFinite(Number(t.minStay)) && t.minStay !== null && t.minStay !== undefined

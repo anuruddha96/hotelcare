@@ -158,14 +158,18 @@ export async function partitionByExactRateMappings(
  */
 export function repairLadder(
   levels: Array<{ occupancy: number; price: number }>,
-  step = 0,
+  step = 1,
   maxGap = 0,
 ): Map<number, number> {
   const sorted = [...levels]
     .filter((level) => Number.isFinite(Number(level.price)))
     .sort((a, b) => a.occupancy - b.occupancy);
   const out = new Map<number, number>();
-  const gap = Math.max(0, Math.round(step));
+  // Equal neighbouring guest prices are not a valid ladder. Even when a hotel
+  // has no configured supplement, keep at least one whole currency unit
+  // between occupancy pillars so Previo can never collapse 1g and 2g to the
+  // same sell rate during a Hotel Care publish/repair cycle.
+  const gap = Math.max(1, Math.round(step));
   let runningMax = -Infinity;
   let previousOccupancy: number | null = null;
   for (const level of sorted) {
@@ -215,9 +219,9 @@ export async function loadGuestStep(admin: any, hotelId: string): Promise<number
       .eq("hotel_id", hotelId)
       .maybeSingle();
     const value = Number((data as any)?.extra_guest_supplement_eur);
-    return Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;
+    return Number.isFinite(value) ? Math.max(1, Math.round(value)) : 1;
   } catch {
-    return 0;
+    return 1;
   }
 }
 
@@ -606,6 +610,5 @@ export async function enforceRateSafety(
   const repairs = [...ladderRepairs, ...mappable];
   return { changes: [...safeChanges, ...repairs], repairs, dropped: unmapped };
 }
-
 
 

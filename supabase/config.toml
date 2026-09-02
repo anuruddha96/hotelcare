@@ -22,7 +22,9 @@ port = 54324
 enabled = true
 port = 54325
 file_size_limit = "50MiB"
-image_transformation = true
+
+[storage.image_transformation]
+enabled = true
 
 [auth]
 enabled = true
