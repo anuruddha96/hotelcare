@@ -43,7 +43,6 @@ const ALLOWED_ROLES = [
   "top_management",
   "top_management_manager",
 ];
-const PRIVILEGED_ROLES = ["admin", "top_management", "top_management_manager"];
 
 const CHUNK_DAYS = 93;
 const UPSERT_BATCH = 200;
@@ -69,8 +68,27 @@ serve(async (req) => {
   let hotelIdForLog: string | null = null;
   try {
     const body = await req.json().catch(() => ({}));
-    const hotelId = String(body?.hotelId ?? "").trim();
-    if (!hotelId) return json({ success: false, error: "hotelId is required" }, 400);
+    const requestedHotelId = String(body?.hotelId ?? "").trim();
+    if (!requestedHotelId) return json({ success: false, error: "hotelId is required" }, 400);
+
+    // Normalize a legacy/display-name property reference to the canonical
+    // hotel_configurations.hotel_id before any PMS lookup or reservation write.
+    let hotelId = requestedHotelId;
+    const { data: byHotelId } = await service
+      .from("hotel_configurations")
+      .select("hotel_id")
+      .eq("hotel_id", requestedHotelId)
+      .maybeSingle();
+    if (byHotelId?.hotel_id) {
+      hotelId = byHotelId.hotel_id;
+    } else {
+      const { data: byHotelName } = await service
+        .from("hotel_configurations")
+        .select("hotel_id")
+        .eq("hotel_name", requestedHotelId)
+        .maybeSingle();
+      if (byHotelName?.hotel_id) hotelId = byHotelName.hotel_id;
+    }
     hotelIdForLog = hotelId;
 
     const daysBack = Math.min(60, Math.max(0, Number(body?.daysBack ?? 7) || 0));
@@ -99,8 +117,15 @@ serve(async (req) => {
       }
       userName = profile.full_name ?? null;
       profileOrg = profile.organization_slug ?? null;
-      const privileged = profile.is_super_admin === true || PRIVILEGED_ROLES.includes(profile.role);
-      if (!privileged && profile.assigned_hotel !== hotelId) {
+
+      // Use the same alias-aware hotel access helper as RLS instead of a
+      // brittle direct assigned_hotel === hotelId comparison.
+      const { data: canAccess } = await service.rpc("can_access_pms_hotel", {
+        _uid: user.id,
+        _hotel_id: hotelId,
+        _org_slug: profileOrg,
+      });
+      if (profile.is_super_admin !== true && canAccess !== true) {
         return json({ success: false, error: "Forbidden for this property" }, 403);
       }
     }
