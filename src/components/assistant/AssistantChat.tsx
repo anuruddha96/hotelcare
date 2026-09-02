@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type ChatStatus, type UIMessage } from "ai";
-import { Flag, Loader2, Mic, MicOff, ShieldQuestion, ThumbsDown, ThumbsUp } from "lucide-react";
+import { Flag, Loader2, Mic, MicOff, ShieldQuestion, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
 import { toast } from "sonner";
 import {
   Conversation,
@@ -218,6 +218,7 @@ function ChatSession({
   const { page, capabilities } = useAssistantContext();
   const [draft, setDraft] = useState("");
   const [failed, setFailed] = useState<string | null>(null);
+  const [analysisElapsedMs, setAnalysisElapsedMs] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const cancelSavedRef = useRef(false);
   const initialPromptSentRef = useRef(false);
@@ -332,6 +333,42 @@ function ChatSession({
   };
 
   const generating = status === "submitted" || status === "streaming";
+  const waitingForAnswerText = useMemo(() => {
+    let lastUserIndex = -1;
+    messages.forEach((message, index) => {
+      if (message.role === "user") lastUserIndex = index;
+    });
+    if (lastUserIndex < 0) return generating;
+    const reply = messages.slice(lastUserIndex + 1).find((message) => message.role === "assistant");
+    return !reply || messageText(reply).trim().length === 0;
+  }, [generating, messages]);
+
+  useEffect(() => {
+    if (!generating) {
+      setAnalysisElapsedMs(0);
+      return;
+    }
+    const startedAt = Date.now();
+    setAnalysisElapsedMs(0);
+    const timer = window.setInterval(() => {
+      setAnalysisElapsedMs(Date.now() - startedAt);
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [generating]);
+
+  const analysisLabel = useMemo(() => {
+    const q = lastQuestionRef.current.toLowerCase();
+    const revenueQuestion = page.module === "revenue" || /\b(sales?|sold|bookings?|pickup|revenue|adr|revpar|occupancy|rates?|pricing|demand)\b/.test(q);
+    if (revenueQuestion) {
+      if (analysisElapsedMs < 2200) return "Reading live HotelCare revenue data…";
+      if (analysisElapsedMs < 5200) return "Comparing booking pace, value and stay mix…";
+      if (analysisElapsedMs < 8500) return "Checking occupancy, rates and market position…";
+      return "Building the safest revenue action plan…";
+    }
+    if (analysisElapsedMs < 2400) return "Understanding the request…";
+    if (analysisElapsedMs < 6000) return "Checking the relevant HotelCare data…";
+    return "Preparing the recommended action…";
+  }, [analysisElapsedMs, page.module]);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -452,10 +489,22 @@ function ChatSession({
             );
           })}
 
-          {status === "submitted" && (
-            <Message from="assistant">
-              <MessageContent className="bg-transparent px-0 py-0">
-                <Shimmer>Thinking…</Shimmer>
+          {generating && waitingForAnswerText && (
+            <Message from="assistant" className="max-w-[92%]">
+              <MessageContent className="w-full bg-transparent px-0 py-0">
+                <div
+                  className="inline-flex max-w-full items-center gap-2.5 rounded-xl border bg-card/70 px-3 py-2.5 shadow-sm"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
+                    <Sparkles className="h-4 w-4 animate-pulse" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Deep analysis</p>
+                    <Shimmer className="text-sm font-medium">{analysisLabel}</Shimmer>
+                  </div>
+                </div>
               </MessageContent>
             </Message>
           )}
