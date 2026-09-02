@@ -1,0 +1,1 @@
+This feature branch was implemented through GitHub and the existing Supabase project. No Lovable build/chat turn was required for the implementation.
