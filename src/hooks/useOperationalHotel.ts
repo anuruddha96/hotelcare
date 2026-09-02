@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { resolveHotelKeys } from "@/lib/hotelKeys";
+import { resolveCanonicalHotelId, resolveHotelKeys } from "@/lib/hotelKeys";
 
 /** Roles allowed to see portfolio (org-wide) PMS data when no property is selected. */
 const PORTFOLIO_ROLES = ["admin", "top_management", "top_management_manager"];
@@ -16,9 +16,9 @@ const SYNC_ROLES = [
 ];
 
 export interface OperationalHotel {
-  /** The tab-scoped selected property (profiles.assigned_hotel). */
+  /** Canonical hotel_configurations.hotel_id used for PMS writes/integrations. */
   hotelId: string | null;
-  /** All key variants (slug + display name) the data tables may use. */
+  /** All key variants (slug + display name) legacy/read tables may use. */
   hotelKeys: string[];
   /** True when an executive/admin is browsing without a property selected. */
   isPortfolio: boolean;
@@ -29,51 +29,63 @@ export interface OperationalHotel {
 }
 
 /**
- * Central property context for PMS surfaces. Operational roles are always
- * pinned to their assigned hotel; executives/admins use the tab-selected
- * property and may fall back to portfolio (org-wide) when none is selected.
+ * Central property context for PMS surfaces. Operational roles are pinned to
+ * their assigned property. The profile value may be a legacy display name,
+ * so we normalize it to the canonical hotel_id before any PMS write or API
+ * call while retaining every alias for read queries.
  */
 export function useOperationalHotel(): OperationalHotel {
   const { profile } = useAuth();
-  const hotelId = profile?.assigned_hotel ?? null;
+  const assignedHotel = profile?.assigned_hotel ?? null;
   const role = profile?.role ?? null;
+  const [hotelId, setHotelId] = useState<string | null>(null);
   const [hotelKeys, setHotelKeys] = useState<string[]>([]);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let alive = true;
     setReady(false);
-    if (!hotelId) {
+
+    if (!assignedHotel) {
+      setHotelId(null);
       setHotelKeys([]);
       setReady(true);
       return;
     }
-    resolveHotelKeys(hotelId)
-      .then((keys) => {
+
+    Promise.all([
+      resolveCanonicalHotelId(assignedHotel),
+      resolveHotelKeys(assignedHotel),
+    ])
+      .then(([canonical, keys]) => {
         if (!alive) return;
-        setHotelKeys(keys.length ? keys : [hotelId]);
+        const resolved = canonical || assignedHotel;
+        setHotelId(resolved);
+        setHotelKeys(keys.length ? keys : [resolved, assignedHotel].filter(Boolean));
         setReady(true);
       })
       .catch(() => {
         if (!alive) return;
-        setHotelKeys([hotelId]);
+        setHotelId(assignedHotel);
+        setHotelKeys([assignedHotel]);
         setReady(true);
       });
+
     return () => {
       alive = false;
     };
-  }, [hotelId]);
+  }, [assignedHotel]);
 
   return useMemo(
     () => ({
       hotelId,
       hotelKeys,
-      isPortfolio: !hotelId && !!role && PORTFOLIO_ROLES.includes(role),
+      isPortfolio: !assignedHotel && !!role && PORTFOLIO_ROLES.includes(role),
       orgSlug: profile?.organization_slug ?? null,
       role,
       canSync: !!role && SYNC_ROLES.includes(role),
       ready,
     }),
-    [hotelId, hotelKeys, role, profile?.organization_slug, ready],
+    [hotelId, hotelKeys, assignedHotel, role, profile?.organization_slug, ready],
   );
 }
