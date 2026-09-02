@@ -1,0 +1,1 @@
+Authenticated server-only API for the HotelCare Reputation workspace. Google OAuth credentials and token encryption key are Supabase secrets and must never be exposed to the Vite client.
