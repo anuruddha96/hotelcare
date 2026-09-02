@@ -4,25 +4,23 @@ import { Navigate, useParams, Link } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { PMSNavigation } from '@/components/layout/PMSNavigation';
 import { supabase } from '@/integrations/supabase/client';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { CalendarDays, List, Plus, Search, Filter } from 'lucide-react';
+import { CalendarDays, List, Plus, Search } from 'lucide-react';
 import { CreateReservationDialog } from '@/components/reservations/CreateReservationDialog';
 import { ReservationCalendar } from '@/components/reservations/ReservationCalendar';
-import { format } from 'date-fns';
 import { useTranslation } from '@/hooks/useTranslation';
 
 const Reservations = () => {
-  const { user, profile, loading } = useAuth();
+  const { user, loading } = useAuth();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { t } = useTranslation();
   const [reservations, setReservations] = useState<any[]>([]);
@@ -30,11 +28,11 @@ const Reservations = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [createOpen, setCreateOpen] = useState(false);
-  const [view, setView] = useState<'list' | 'calendar'>('list');
+  const [view, setView] = useState<'list' | 'calendar'>('calendar');
 
   useEffect(() => {
-    if (user) fetchReservations();
-  }, [user, statusFilter]);
+    if (user && view === 'list') fetchReservations();
+  }, [user, statusFilter, view]);
 
   const fetchReservations = async () => {
     setLoadingData(true);
@@ -68,10 +66,7 @@ const Reservations = () => {
     if (!searchTerm) return true;
     const term = searchTerm.toLowerCase();
     const guestName = `${r.guests?.first_name || ''} ${r.guests?.last_name || ''}`.toLowerCase();
-    return (
-      guestName.includes(term) ||
-      r.reservation_number?.toLowerCase().includes(term)
-    );
+    return guestName.includes(term) || r.reservation_number?.toLowerCase().includes(term);
   });
 
   const statusColors: Record<string, string> = {
@@ -88,49 +83,59 @@ const Reservations = () => {
       <Header />
       <PMSNavigation />
       <main className="container mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4">
-        {/* Toolbar */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <h1 className="text-xl font-bold">{t('pms.reservations.title')}</h1>
+          <div>
+            <h1 className="text-xl font-bold">Reservation System</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Phase 1 · live room planning board with reservation status
+            </p>
+          </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder={t('pms.reservations.search')}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8 w-48 h-9"
-              />
-            </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-36 h-9">
-                <SelectValue placeholder={t('pms.reservations.status')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('pms.reservations.allStatus')}</SelectItem>
-                <SelectItem value="pending">{t('pms.reservations.pending')}</SelectItem>
-                <SelectItem value="confirmed">{t('pms.reservations.confirmed')}</SelectItem>
-                <SelectItem value="checked_in">{t('pms.reservations.checkedIn')}</SelectItem>
-                <SelectItem value="checked_out">{t('pms.reservations.checkedOut')}</SelectItem>
-                <SelectItem value="cancelled">{t('pms.reservations.cancelled')}</SelectItem>
-                <SelectItem value="no_show">{t('pms.reservations.noShow')}</SelectItem>
-              </SelectContent>
-            </Select>
+            {view === 'list' && (
+              <>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder={t('pms.reservations.search')}
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-8 w-48 h-9"
+                  />
+                </div>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="w-36 h-9">
+                    <SelectValue placeholder={t('pms.reservations.status')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t('pms.reservations.allStatus')}</SelectItem>
+                    <SelectItem value="pending">{t('pms.reservations.pending')}</SelectItem>
+                    <SelectItem value="confirmed">{t('pms.reservations.confirmed')}</SelectItem>
+                    <SelectItem value="checked_in">{t('pms.reservations.checkedIn')}</SelectItem>
+                    <SelectItem value="checked_out">{t('pms.reservations.checkedOut')}</SelectItem>
+                    <SelectItem value="cancelled">{t('pms.reservations.cancelled')}</SelectItem>
+                    <SelectItem value="no_show">{t('pms.reservations.noShow')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </>
+            )}
             <div className="flex border border-border rounded-md overflow-hidden">
-              <Button
-                variant={view === 'list' ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setView('list')}
-                className="rounded-none"
-              >
-                <List className="h-4 w-4" />
-              </Button>
               <Button
                 variant={view === 'calendar' ? 'default' : 'ghost'}
                 size="sm"
                 onClick={() => setView('calendar')}
-                className="rounded-none"
+                className="rounded-none gap-1.5"
               >
                 <CalendarDays className="h-4 w-4" />
+                <span className="hidden sm:inline">Board</span>
+              </Button>
+              <Button
+                variant={view === 'list' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setView('list')}
+                className="rounded-none gap-1.5"
+              >
+                <List className="h-4 w-4" />
+                <span className="hidden sm:inline">List</span>
               </Button>
             </div>
             <Button size="sm" onClick={() => setCreateOpen(true)} className="gap-1">
@@ -139,7 +144,9 @@ const Reservations = () => {
           </div>
         </div>
 
-        {view === 'list' ? (
+        {view === 'calendar' ? (
+          <ReservationCalendar />
+        ) : (
           <Card>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
@@ -200,15 +207,16 @@ const Reservations = () => {
               </div>
             </CardContent>
           </Card>
-        ) : (
-          <ReservationCalendar reservations={reservations} />
         )}
       </main>
 
       <CreateReservationDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
-        onSuccess={() => { setCreateOpen(false); fetchReservations(); }}
+        onSuccess={() => {
+          setCreateOpen(false);
+          if (view === 'list') fetchReservations();
+        }}
       />
     </div>
   );
