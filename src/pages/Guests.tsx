@@ -18,6 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Users, Plus, Search, Star } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useOperationalHotel } from '@/hooks/useOperationalHotel';
 
 const Guests = () => {
   const { user, profile, loading } = useAuth();
@@ -33,17 +34,31 @@ const Guests = () => {
   });
   const basePath = `/${organizationSlug || 'rdhotels'}`;
 
+  const { hotelKeys, isPortfolio, ready } = useOperationalHotel();
+  const keysKey = hotelKeys.join('|');
+
   useEffect(() => {
-    if (user) fetchGuests();
-  }, [user]);
+    if (user && ready) fetchGuests();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, ready, keysKey]);
 
   const fetchGuests = async () => {
     setLoadingData(true);
-    const { data } = await supabase
+    let query = supabase
       .from('guests')
       .select('*')
       .order('last_name', { ascending: true })
       .limit(500);
+    // Operational roles only see their own property's guests; executives
+    // browsing without a selected property fall back to the org-wide view.
+    if (hotelKeys.length > 0) {
+      query = query.in('hotel_id', hotelKeys);
+    } else if (!isPortfolio) {
+      setGuests([]);
+      setLoadingData(false);
+      return;
+    }
+    const { data } = await query;
     if (data) setGuests(data);
     setLoadingData(false);
   };
