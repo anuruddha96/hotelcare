@@ -22,7 +22,7 @@ export default function AssistantPage() {
   const { threadId } = useParams<{ threadId: string }>();
   const { user, profile } = useAuth();
   const navigate = useNavigate();
-  const { threads, loadingThreads, createThread, renameThread, deleteThread } = useAssistant(threadId ?? null);
+  const { threads, loadingThreads, createThread, renameThread, deleteThread, loadThreads } = useAssistant(threadId ?? null);
   const [reportOpen, setReportOpen] = useState(false);
   const base = `/${profile?.organization_slug}/assistant`;
   const userId = user?.id ?? null;
@@ -42,7 +42,6 @@ export default function AssistantPage() {
     if (remembered) navigate(`${base}/${remembered}`, { replace: true });
   }, [base, navigate, organizationSlug, threadId, userId]);
 
-  // Controlled rollout: admins plus enabled pilot users.
   const allowed = canUseAssistant(profile);
   useEffect(() => {
     if (profile && !allowed) navigate(`/${profile.organization_slug ?? ""}`, { replace: true });
@@ -56,6 +55,11 @@ export default function AssistantPage() {
       navigate(`${base}/${id}`);
     }
     return id;
+  };
+
+  const markThreadActive = () => {
+    if (threadId) rememberActiveAssistantThread(userId, organizationSlug, threadId);
+    void loadThreads();
   };
 
   return (
@@ -136,7 +140,11 @@ export default function AssistantPage() {
         </Card>
 
         <Card className="p-3 h-[calc(100dvh-8rem)] min-h-[32rem] flex flex-col min-h-0">
-          <AssistantChat threadId={threadId ?? null} onNeedThread={newThread} />
+          <AssistantChat
+            threadId={threadId ?? null}
+            onNeedThread={newThread}
+            onThreadUpdated={markThreadActive}
+          />
         </Card>
       </div>
 
