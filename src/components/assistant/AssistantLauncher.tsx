@@ -40,8 +40,8 @@ export default function AssistantLauncher() {
   const organizationSlug = profile?.organization_slug ?? null;
 
   // Keep the user's selected conversation active for 24 hours, even when normal
-  // app navigation drops the assistant query parameter. This also lets the
-  // message hook preload that thread before the panel is opened.
+  // app navigation drops the assistant query parameter. Restoring it in the
+  // background also lets messages preload before the panel is opened.
   useEffect(() => {
     if (!userId || !organizationSlug) return;
     if (threadId) {
@@ -104,11 +104,16 @@ export default function AssistantLauncher() {
     return id;
   }, [createThread, setThread]);
 
+  const markThreadActive = useCallback(() => {
+    if (threadId) rememberActiveAssistantThread(userId, organizationSlug, threadId);
+    void loadThreads();
+  }, [loadThreads, organizationSlug, threadId, userId]);
+
   const openAssistant = useCallback(() => {
-    // Always return to the active conversation when the launcher is tapped.
+    if (threadId) rememberActiveAssistantThread(userId, organizationSlug, threadId);
     setTab("chat");
     setOpen(true);
-  }, []);
+  }, [organizationSlug, threadId, userId]);
 
   if (!user || !profile?.organization_slug) return null;
   if (!canUseAssistant(profile)) return null;
@@ -119,7 +124,9 @@ export default function AssistantLauncher() {
   return (
     <>
       <Button
-        onPointerDown={() => setOpen(true)}
+        onPointerDown={(event) => {
+          if (event.button === 0) setOpen(true);
+        }}
         onClick={openAssistant}
         className={cn(
           "fixed z-40 rounded-full shadow-lg gap-2 h-14 min-h-14 min-w-14 px-0 sm:px-4",
@@ -196,7 +203,7 @@ export default function AssistantLauncher() {
               <AssistantChat
                 threadId={threadId}
                 onNeedThread={newThread}
-                onThreadUpdated={loadThreads}
+                onThreadUpdated={markThreadActive}
                 onNavigate={() => setOpen(false)}
               />
             </TabsContent>
