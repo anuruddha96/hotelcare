@@ -1,0 +1,1 @@
+Initial rollout scope: Hotel Ottofiori and Ottofiori Brunch & Cafe. Both Google Business Profile locations can map to the HotelCare `ottofiori` property while retaining separate Google location identities and separate reply histories.
