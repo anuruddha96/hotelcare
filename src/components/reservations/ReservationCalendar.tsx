@@ -22,8 +22,9 @@ const DAYS = 14;
 const DAY_WIDTH = 92;
 const ROOM_WIDTH = 220;
 
-// Phase 1 uses the standard operational stay window when the reservation only
-// contains dates. A later PMS settings phase will make these property-specific.
+// Phase 1 uses the standard operational stay window when the upstream record
+// contains dates only. Property-specific check-in/out times move to PMS settings
+// in the next phase.
 const DEFAULT_CHECK_IN_HOUR = 15;
 const DEFAULT_CHECK_OUT_HOUR = 10;
 
@@ -42,8 +43,9 @@ type BoardRoom = {
 
 type BoardReservation = {
   id: string;
+  detail_id: string | null;
   room_id: string | null;
-  reservation_number: string;
+  reservation_number: string | null;
   check_in_date: string;
   check_out_date: string;
   actual_check_in: string | null;
@@ -51,6 +53,18 @@ type BoardReservation = {
   status: string;
   source: string | null;
   guests: { first_name: string | null; last_name: string | null } | null;
+  data_source: 'reservation' | 'previo_snapshot';
+};
+
+type SnapshotRow = {
+  id: string;
+  business_date: string;
+  room_number: string | null;
+  arrival_date: string | null;
+  departure_date: string | null;
+  status: string | null;
+  guest_names: string | null;
+  source: string | null;
 };
 
 const STATUS_STYLES: Record<string, string> = {
@@ -77,6 +91,16 @@ function hourFraction(iso: string | null, fallbackHour: number) {
   return (value.getHours() + value.getMinutes() / 60) / 24;
 }
 
+function snapshotStatus(arrivalDate: string, departureDate: string, todayKey: string) {
+  if (arrivalDate <= todayKey && departureDate >= todayKey) return 'checked_in';
+  return 'confirmed';
+}
+
+function snapshotGuestName(value: string | null) {
+  if (!value) return 'Guest';
+  return value.replace(/\s+/g, ' ').trim() || 'Guest';
+}
+
 export function ReservationCalendar() {
   const { profile } = useAuth();
   const navigate = useNavigate();
@@ -88,6 +112,7 @@ export function ReservationCalendar() {
   const [reservations, setReservations] = useState<BoardReservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sourceLabel, setSourceLabel] = useState('HotelCare reservations');
 
   const dateRange = useMemo(
     () => Array.from({ length: DAYS }, (_, i) => addDays(startDate, i)),
@@ -117,9 +142,7 @@ export function ReservationCalendar() {
 
       let { data: roomData, error: roomError } = await roomQuery;
 
-      // Older tenants may still store the hotel slug/id in rooms.hotel rather
-      // than the display name. Fall back without making the UI depend on that
-      // legacy representation.
+      // Some older tenants store the hotel slug/id rather than the display name.
       if (!roomError && (!roomData || roomData.length === 0) && profile?.assigned_hotel && hotelName !== profile.assigned_hotel) {
         const fallback = await supabase
           .from('rooms')
@@ -142,8 +165,11 @@ export function ReservationCalendar() {
 
       const rangeStart = format(startDate, 'yyyy-MM-dd');
       const rangeEnd = format(addDays(startDate, DAYS), 'yyyy-MM-dd');
+      const todayKey = format(startOfDay(new Date()), 'yyyy-MM-dd');
       const roomIds = boardRooms.map((room) => room.id);
 
+      // Preferred future PMS model. As OTA/direct booking support grows this is
+      // the normalized table the board should consume.
       const { data: reservationData, error: reservationError } = await supabase
         .from('reservations')
         .select('id, room_id, reservation_number, check_in_date, check_out_date, actual_check_in, actual_check_out, status, source, guests(first_name, last_name)')
@@ -154,7 +180,77 @@ export function ReservationCalendar() {
         .order('check_in_date', { ascending: true });
 
       if (reservationError) throw reservationError;
-      setReservations((reservationData || []) as unknown as BoardReservation[]);
+
+      if (reservationData && reservationData.length > 0) {
+        const normalized = (reservationData as any[]).map((reservation) => ({
+          ...reservation,
+          detail_id: reservation.id,
+          data_source: 'reservation' as const,
+        })) as BoardReservation[];
+        setReservations(normalized);
+        setSourceLabel('HotelCare reservations');
+        return;
+      }
+
+      // HotelCare's live Previo sync currently writes the operational room/stay
+      // picture into daily_overview_snapshots. Use it as a read-only adapter so
+      // Phase 1 shows the real hotel immediately, without duplicating or migrating
+      // reservation data prematurely.
+      if (!profile?.assigned_hotel) {
+        setReservations([]);
+        return;
+      }
+
+      const { data: snapshotData, error: snapshotError } = await supabase
+        .from('daily_overview_snapshots')
+        .select('id, business_date, room_number, arrival_date, departure_date, status, guest_names, source')
+        .eq('hotel_id', profile.assigned_hotel)
+        .gte('business_date', rangeStart)
+        .lt('business_date', rangeEnd)
+        .order('business_date', { ascending: true });
+
+      if (snapshotError) throw snapshotError;
+
+      const roomIdByNumber = new Map(boardRooms.map((room) => [room.room_number, room.id]));
+      const stays = new Map<string, BoardReservation>();
+
+      ((snapshotData || []) as unknown as SnapshotRow[]).forEach((row) => {
+        if (!row.room_number || !row.arrival_date || !row.departure_date) return;
+        const roomId = roomIdByNumber.get(row.room_number);
+        if (!roomId) return;
+
+        const displayName = snapshotGuestName(row.guest_names);
+        const key = `${roomId}|${row.arrival_date}|${row.departure_date}|${displayName}`;
+        const existing = stays.get(key);
+        const derivedStatus = snapshotStatus(row.arrival_date, row.departure_date, todayKey);
+
+        if (!existing) {
+          stays.set(key, {
+            id: `snapshot-${row.id}`,
+            detail_id: null,
+            room_id: roomId,
+            reservation_number: null,
+            check_in_date: row.arrival_date,
+            check_out_date: row.departure_date,
+            actual_check_in: null,
+            actual_check_out: null,
+            status: derivedStatus,
+            source: row.source || 'previo',
+            guests: { first_name: displayName, last_name: null },
+            data_source: 'previo_snapshot',
+          });
+          return;
+        }
+
+        // Today's operational row is more useful than a future copy when the
+        // same stay appears in several daily snapshots.
+        if (row.business_date === todayKey) {
+          existing.status = derivedStatus;
+        }
+      });
+
+      setReservations(Array.from(stays.values()));
+      setSourceLabel('Live Previo room snapshots');
     } catch (err: any) {
       console.error('Failed to load reservation board', err);
       setError(err?.message || 'Unable to load the reservation board.');
@@ -187,14 +283,10 @@ export function ReservationCalendar() {
     const checkOut = parseISO(reservation.check_out_date);
     const startDay = differenceInCalendarDays(checkIn, startDate);
     const endDay = differenceInCalendarDays(checkOut, startDate);
-
     const startFraction = hourFraction(reservation.actual_check_in, DEFAULT_CHECK_IN_HOUR);
     const endFraction = hourFraction(reservation.actual_check_out, DEFAULT_CHECK_OUT_HOUR);
-
-    const rawStart = startDay + startFraction;
-    const rawEnd = endDay + endFraction;
-    const clippedStart = Math.max(0, rawStart);
-    const clippedEnd = Math.min(DAYS, rawEnd);
+    const clippedStart = Math.max(0, startDay + startFraction);
+    const clippedEnd = Math.min(DAYS, endDay + endFraction);
 
     return {
       left: clippedStart * DAY_WIDTH,
@@ -211,7 +303,7 @@ export function ReservationCalendar() {
               <BedDouble className="h-4 w-4" /> Reservation Board
             </CardTitle>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Rooms × dates · click a stay to open the reservation
+              Rooms × dates · {sourceLabel}
             </p>
           </div>
           <div className="flex items-center gap-1.5">
@@ -262,7 +354,7 @@ export function ReservationCalendar() {
                     return (
                       <div
                         key={date.toISOString()}
-                        className={`shrink-0 border-r px-1 py-1.5 text-center ${isToday ? 'bg-primary/8' : ''}`}
+                        className={`shrink-0 border-r px-1 py-1.5 text-center ${isToday ? 'bg-primary/10' : ''}`}
                         style={{ width: DAY_WIDTH }}
                       >
                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{format(date, 'EEE')}</div>
@@ -300,10 +392,7 @@ export function ReservationCalendar() {
                       </div>
                     </div>
 
-                    <div
-                      className="relative shrink-0"
-                      style={{ width: timelineWidth, minWidth: timelineWidth }}
-                    >
+                    <div className="relative shrink-0" style={{ width: timelineWidth, minWidth: timelineWidth }}>
                       <div className="absolute inset-0 flex pointer-events-none">
                         {dateRange.map((date) => (
                           <div
@@ -320,13 +409,14 @@ export function ReservationCalendar() {
                         const isDeparture = reservation.check_out_date === todayKey;
                         const isInHouse = reservation.status === 'checked_in' || (!!reservation.actual_check_in && !reservation.actual_check_out);
                         const style = STATUS_STYLES[reservation.status] || STATUS_STYLES.confirmed;
+                        const canOpenDetail = !!reservation.detail_id;
 
                         return (
                           <button
                             key={reservation.id}
                             type="button"
-                            onClick={() => navigate(`${basePath}/reservations/${reservation.id}`)}
-                            className={`absolute top-2 h-[42px] rounded-md border shadow-sm px-2 text-left overflow-hidden hover:brightness-[0.98] hover:shadow transition ${style}`}
+                            onClick={() => canOpenDetail && navigate(`${basePath}/reservations/${reservation.detail_id}`)}
+                            className={`absolute top-2 h-[42px] rounded-md border shadow-sm px-2 text-left overflow-hidden transition ${style} ${canOpenDetail ? 'hover:brightness-[0.98] hover:shadow cursor-pointer' : 'cursor-default'}`}
                             style={{ left: geometry.left, width: geometry.width }}
                             title={`${guestName(reservation)} · ${reservation.check_in_date} → ${reservation.check_out_date} · ${reservation.status.replace('_', ' ')}`}
                           >
@@ -337,7 +427,7 @@ export function ReservationCalendar() {
                               <span className="text-[11px] font-semibold truncate">{guestName(reservation)}</span>
                             </div>
                             <div className="text-[9px] opacity-75 truncate">
-                              {isInHouse ? 'Checked in' : isArrival ? 'Arrival today' : isDeparture ? 'Departure today' : reservation.status.replace('_', ' ')}
+                              {isDeparture ? 'Departure today' : isArrival && !isInHouse ? 'Arrival today' : isInHouse ? 'In house' : reservation.status.replace('_', ' ')}
                               {reservation.source ? ` · ${reservation.source.replace('_', ' ')}` : ''}
                             </div>
                           </button>
@@ -354,8 +444,8 @@ export function ReservationCalendar() {
         <div className="border-t px-3 py-2 flex flex-wrap items-center gap-x-4 gap-y-1 bg-muted/20">
           <div className="text-[11px] text-muted-foreground mr-1">Stay status:</div>
           {[
-            ['confirmed', 'Confirmed'],
-            ['checked_in', 'Checked in'],
+            ['confirmed', 'Confirmed / future'],
+            ['checked_in', 'In house'],
             ['pending', 'Pending'],
             ['no_show', 'No show'],
           ].map(([status, label]) => (
@@ -365,7 +455,7 @@ export function ReservationCalendar() {
             </div>
           ))}
           <div className="ml-auto text-[10px] text-muted-foreground">
-            Date-only stays are positioned at 15:00 arrival / 10:00 departure until property times are configurable.
+            Date-only stays use 15:00 arrival / 10:00 departure positioning until property times are configurable.
           </div>
         </div>
       </CardContent>
