@@ -2,30 +2,42 @@ export type GoogleBusinessSetupState = {
   blocked: boolean;
   apiDisabled: boolean;
   permissionDenied: boolean;
+  quotaPending: boolean;
   projectId: string | null;
   message: string | null;
 };
 
 const API_DISABLED = /not enabled|has not been used|it is disabled|service_disabled/i;
 const PERMISSION_DENIED = /permission_denied|access was denied|\b403\b/i;
+const QUOTA_PENDING = /awaiting google approval|quota exceeded|requests per minute|quota metric|no usable request quota|\b429\b/i;
 
 export function parseGoogleBusinessSetupError(message?: string | null): GoogleBusinessSetupState {
   const value = String(message || "").trim();
   if (!value) {
-    return { blocked: false, apiDisabled: false, permissionDenied: false, projectId: null, message: null };
+    return {
+      blocked: false,
+      apiDisabled: false,
+      permissionDenied: false,
+      quotaPending: false,
+      projectId: null,
+      message: null,
+    };
   }
 
   const projectId =
     value.match(/project(?:=|\s+)(\d{6,})/i)?.[1] ||
+    value.match(/project_number:(\d{6,})/i)?.[1] ||
     value.match(/[?&]project=(\d{6,})/i)?.[1] ||
     null;
   const apiDisabled = API_DISABLED.test(value);
   const permissionDenied = PERMISSION_DENIED.test(value);
+  const quotaPending = QUOTA_PENDING.test(value);
 
   return {
-    blocked: apiDisabled || permissionDenied,
+    blocked: apiDisabled || permissionDenied || quotaPending,
     apiDisabled,
     permissionDenied,
+    quotaPending,
     projectId,
     message: value,
   };
