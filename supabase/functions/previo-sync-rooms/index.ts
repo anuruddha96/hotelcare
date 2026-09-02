@@ -31,6 +31,20 @@ interface PrevioRoom {
   order: number;
 }
 
+// Keep one canonical housekeeping-status mapping for both Fresh Sync/import
+// and the normal room-status sync path. This prevents Fresh Sync from leaving
+// stale HotelCare statuses behind after Previo reports a room as clean/dirty.
+const mapPrevioStatus = (statusId: number): string => {
+  const statusMap: Record<number, string> = {
+    1: 'dirty',      // Untidy/Dirty
+    2: 'clean',      // Clean
+    3: 'clean',      // Inspected
+    4: 'dirty',      // Out of order
+    5: 'dirty',      // Out of service
+  };
+  return statusMap[statusId] || 'dirty';
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -244,6 +258,7 @@ serve(async (req) => {
                   room_type: roomType,
                   room_category: roomCategory,
                   room_capacity: capacity || null,
+                  status: mapPrevioStatus(r.roomCleanStatusId),
                   pms_metadata: pmsMetadata,
                   updated_at: new Date().toISOString(),
                 })
@@ -258,7 +273,7 @@ serve(async (req) => {
                   room_type: roomType,
                   room_category: roomCategory,
                   room_capacity: capacity || null,
-                  status: 'clean',
+                  status: mapPrevioStatus(r.roomCleanStatusId),
                   organization_slug: orgSlug,
                   pms_metadata: pmsMetadata,
                 })
@@ -371,18 +386,6 @@ serve(async (req) => {
 
     const roomMappings = pmsConfigWithMappings.pms_room_mappings as Array<{hotelcare_room_number: string; pms_room_id: string}>;
     console.log(`Found ${roomMappings.length} room mappings`);
-
-    // Map Previo clean status ID to Hotel Care status
-    const mapPrevioStatus = (statusId: number): string => {
-      const statusMap: Record<number, string> = {
-        1: 'dirty',      // Untidy/Dirty
-        2: 'clean',      // Clean
-        3: 'clean',      // Inspected
-        4: 'dirty',      // Out of order
-        5: 'dirty',      // Out of service
-      };
-      return statusMap[statusId] || 'dirty';
-    };
 
     // (authHeader/userId already resolved earlier)
 
