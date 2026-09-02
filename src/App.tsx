@@ -15,7 +15,6 @@ import { ServiceOutageBanner } from "@/components/system/ServiceOutageBanner";
 import { SystemAnnouncementBanner } from "@/components/system/SystemAnnouncementBanner";
 import ExecutiveResumeRefresh from "@/components/system/ExecutiveResumeRefresh";
 
-
 // Lazy load all pages to keep initial bundle small
 const Index = lazy(() => import("./pages/Index"));
 const Auth = lazy(() => import("./pages/Auth"));
@@ -36,6 +35,7 @@ const BreakfastAuth = lazy(() => import("./pages/BreakfastAuth"));
 const PurchaseInvoices = lazy(() => import("./pages/PurchaseInvoices"));
 const TrainingCenterPage = lazy(() => import("./pages/TrainingCenter"));
 const ReceptionHome = lazy(() => import("./pages/ReceptionHome"));
+const ReceptionBreakfastUpload = lazy(() => import("./pages/ReceptionBreakfastUpload"));
 const AssistantPage = lazy(() => import("./pages/AssistantPage"));
 const AssistantInsights = lazy(() => import("./pages/AssistantInsights"));
 const Billing = lazy(() => import("./pages/Billing"));
@@ -59,10 +59,6 @@ const PageLoader = () => (
 
 const MIN_WELCOME_DISPLAY_MS = 7000;
 
-/**
- * Keeps the welcome overlay visible for at least `minDisplayMs` so users can
- * read the motivational quote, even when the actual bootstrap finishes sooner.
- */
 function useHeldLoading(loading: boolean, minDisplayMs = MIN_WELCOME_DISPLAY_MS): boolean {
   const [held, setHeld] = useState(loading);
   const shownAtRef = useRef<number | null>(null);
@@ -115,23 +111,15 @@ const RootRedirect = () => {
 const TenantRouter = () => {
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { user, profile, loading, bootstrapProgress } = useAuth();
-  
-  if (!organizationSlug) {
-    return <Navigate to="/auth" replace />;
-  }
+
+  if (!organizationSlug) return <Navigate to="/auth" replace />;
 
   const heldLoading = useHeldLoading(loading);
   if (heldLoading) return <WelcomeBackOverlay context="account" step="Opening your workspace…" progress={bootstrapProgress} />;
 
-  if (user && !profile?.organization_slug) {
-    return <Navigate to="/auth" replace />;
-  }
+  if (user && !profile?.organization_slug) return <Navigate to="/auth" replace />;
 
-  if (
-    user &&
-    profile?.organization_slug !== organizationSlug &&
-    !profile?.is_super_admin
-  ) {
+  if (user && profile?.organization_slug !== organizationSlug && !profile?.is_super_admin) {
     return <Navigate to={`/${profile.organization_slug}`} replace />;
   }
 
@@ -155,6 +143,7 @@ const TenantRouter = () => {
           <Route path="/purchase-invoices" element={<PurchaseInvoices />} />
           <Route path="/training" element={<TrainingCenterPage />} />
           <Route path="/reception" element={<ReceptionHome />} />
+          <Route path="/reception/breakfast-upload" element={<ReceptionBreakfastUpload />} />
           <Route path="/assistant" element={<AssistantPage />} />
           <Route path="/assistant/:threadId" element={<AssistantPage />} />
           <Route path="/assistant-insights" element={<AssistantInsights />} />
@@ -189,7 +178,7 @@ const PublicBreakfastApp = () => (
 const AuthenticatedShell = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
   const location = useLocation();
-  
+
   if (!user) return <>{children}</>;
 
   const isRevenueRoute = /\/revenue(?:\/|$)/.test(location.pathname);
@@ -232,7 +221,6 @@ const MainApp = () => (
           <ServiceOutageBanner />
           <SystemAnnouncementBanner />
           <BrowserRouter>
-
             <AuthenticatedShell>
               <Suspense fallback={<PageLoader />}>
                 <Routes>
