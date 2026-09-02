@@ -76,6 +76,17 @@ export async function evaluateGuard(key: GuardKey, ctx: GuardContext): Promise<b
         .limit(1);
       return !!(data && data.length);
     }
+    case 'has_completed_assignment_today': {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data } = await supabase
+        .from('room_assignments')
+        .select('id')
+        .eq('assigned_to', ctx.userId)
+        .eq('assignment_date', today)
+        .eq('status', 'completed')
+        .limit(1);
+      return !!(data && data.length);
+    }
     default:
       return true;
   }
