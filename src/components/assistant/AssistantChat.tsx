@@ -35,6 +35,7 @@ import AutomationChangeCard, { isAutomationProposal } from "./AutomationChangeCa
 import ActionConfirmCard, { isActionProposal } from "./ActionConfirmCard";
 import AssistantActions, { isAssistantActions } from "./AssistantActions";
 import ActivityLine from "./ActivityLine";
+import PremiumTopupCard, { type PremiumPackage } from "./PremiumTopupCard";
 import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
 
 const SCOPE_LABEL: Record<string, string> = {
@@ -44,7 +45,17 @@ const SCOPE_LABEL: Record<string, string> = {
   reception: "Reception & front office",
 };
 
-type AssistantMetadata = { needsScope?: string };
+type AssistantMetadata = {
+  needsScope?: string;
+  premiumRequired?: boolean;
+  premiumPackages?: PremiumPackage[];
+  premiumUsage?: {
+    included_daily?: number;
+    included_used?: number;
+    included_remaining?: number;
+    paid_balance?: number;
+  };
+};
 type AssistantUiMessage = UIMessage<AssistantMetadata>;
 
 function messageText(message: AssistantUiMessage) {
@@ -160,7 +171,6 @@ function useDictation(onText: (text: string) => void, language: string) {
   return { state, supported, toggle };
 }
 
-
 function AnswerFeedback({ threadId, messageId }: { threadId: string; messageId: string }) {
   const { profile } = useAuth();
   const [sent, setSent] = useState<null | boolean>(null);
@@ -218,7 +228,7 @@ function ChatSession({
   const transport = useMemo(
     () =>
       new DefaultChatTransport<AssistantUiMessage>({
-        api: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assistant-chat`,
+        api: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assistant-chat-router`,
         headers: async () => {
           const { data } = await (await import("@/integrations/supabase/client")).supabase.auth.getSession();
           return data.session ? { Authorization: `Bearer ${data.session.access_token}` } : {};
@@ -285,7 +295,6 @@ function ChatSession({
     }, []),
     language,
   );
-
 
   const askForAccess = async (scope: string, question: string) => {
     if (!user) return;
@@ -359,6 +368,8 @@ function ChatSession({
           {messages.map((message, index) => {
             const text = messageText(message);
             const needsScope = message.metadata?.needsScope;
+            const premiumRequired = message.metadata?.premiumRequired === true;
+            const premiumPackages = message.metadata?.premiumPackages;
             const previousQuestion = index > 0 ? messageText(messages[index - 1]) : "";
             const isLast = index === messages.length - 1;
             return (
@@ -432,6 +443,7 @@ function ChatSession({
                       Request {SCOPE_LABEL[needsScope] ?? needsScope} access
                     </Button>
                   )}
+                  {premiumRequired && isLast && <PremiumTopupCard packages={premiumPackages} />}
                   {message.role === "assistant" && !generating && text.length > 0 && (
                     <AnswerFeedback threadId={threadId} messageId={message.id} />
                   )}
