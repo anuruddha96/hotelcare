@@ -1,8 +1,23 @@
-// Stripe webhook: keeps module_subscriptions in sync with Stripe.
-// Signature-verified with STRIPE_WEBHOOK_SECRET; no JWT (Stripe calls it).
-
+// Stripe webhook for HotelCare subscriptions and Assistant credit top-ups.
+// Signature-verified with STRIPE_WEBHOOK_SECRET; no JWT because Stripe calls it.
 import Stripe from "npm:stripe@18";
-import { admin, CORS } from "../_shared/billing.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, stripe-signature",
+};
+
+const PREMIUM_PACKAGES: Record<string, { credits: number; amountCents: number }> = {
+  premium_5: { credits: 5, amountCents: 500 },
+  premium_10: { credits: 10, amountCents: 1000 },
+};
+
+function admin() {
+  return createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+    auth: { persistSession: false },
+  });
+}
 
 function parseSelections(meta: Record<string, string> | null | undefined) {
   const raw = meta?.selections ?? "";
@@ -19,7 +34,6 @@ function parseSelections(meta: Record<string, string> | null | undefined) {
         s.hotel_id &&
         ["revenue", "revenue_bi", "revenue_automation", "operations", "maintenance"].includes(String(s.module)),
     )
-    // Legacy sessions used a single "revenue" key — it means the automation tier.
     .map((s) => ({ ...s, module: s.module === "revenue" ? "revenue_automation" : s.module }));
 }
 
@@ -37,8 +51,8 @@ Deno.serve(async (req) => {
   let event: Stripe.Event;
   try {
     event = await stripe.webhooks.constructEventAsync(payload, signature, whSecret);
-  } catch (e) {
-    console.error("Bad signature", e);
+  } catch (error) {
+    console.error("Bad signature", error);
     return new Response("Bad signature", { status: 400 });
   }
 
@@ -91,6 +105,51 @@ Deno.serve(async (req) => {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
+        const sessionMeta = (session.metadata ?? {}) as Record<string, string>;
+
+        if (session.mode === "payment" && sessionMeta.kind === "assistant_premium_topup") {
+          const pack = PREMIUM_PACKAGES[sessionMeta.package_id ?? ""];
+          const userId = String(sessionMeta.user_id ?? "");
+          const slug = String(sessionMeta.organization_slug ?? "");
+          const isPaid = session.payment_status === "paid" || session.payment_status === "no_payment_required";
+          const amountMatches = Number(session.amount_total ?? -1) === Number(pack?.amountCents ?? -2);
+          const currencyMatches = String(session.currency ?? "").toLowerCase() === "eur";
+          if (!pack || !userId || !isPaid || !amountMatches || !currencyMatches) {
+            console.error("Rejected assistant credit checkout", {
+              session: session.id,
+              package: sessionMeta.package_id,
+              paymentStatus: session.payment_status,
+              amount: session.amount_total,
+              currency: session.currency,
+            });
+            break;
+          }
+
+          const companyField = (session.custom_fields ?? []).find((field: any) => field?.key === "company_name");
+          const billingDetails = {
+            company_name: companyField?.text?.value ?? null,
+            customer_name: session.customer_details?.name ?? null,
+            email: session.customer_details?.email ?? null,
+            address: session.customer_details?.address ?? null,
+            tax_ids: session.customer_details?.tax_ids ?? [],
+            customer_id: typeof session.customer === "string" ? session.customer : session.customer?.id ?? null,
+          };
+
+          const { error: grantError } = await db.rpc("grant_assistant_premium_purchase", {
+            _user_id: userId,
+            _organization_slug: slug || null,
+            _stripe_checkout_session_id: session.id,
+            _stripe_payment_intent_id:
+              typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null,
+            _package_id: sessionMeta.package_id,
+            _credits: pack.credits,
+            _amount_eur: pack.amountCents / 100,
+            _billing_details: billingDetails,
+          });
+          if (grantError) throw new Error(`Could not grant Assistant credits: ${grantError.message}`);
+          break;
+        }
+
         if (session.subscription) {
           const sub = await stripe.subscriptions.retrieve(String(session.subscription));
           if (!sub.metadata?.organization_slug && orgSlug) {
@@ -103,15 +162,14 @@ Deno.serve(async (req) => {
       }
       case "customer.subscription.created":
       case "customer.subscription.updated":
-      case "customer.subscription.deleted": {
+      case "customer.subscription.deleted":
         await upsertFromSubscription(event.data.object as Stripe.Subscription);
         break;
-      }
       default:
         break;
     }
-  } catch (e) {
-    console.error("billing-webhook error", e);
+  } catch (error) {
+    console.error("billing-webhook error", error);
     return new Response("Error", { status: 500 });
   }
 
