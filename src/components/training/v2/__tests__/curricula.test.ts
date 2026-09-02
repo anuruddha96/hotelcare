@@ -23,6 +23,8 @@ const DATA_GATED_PATTERNS = [
   /revenue-grid/,
 ];
 
+const SUPPORTED_LANGS = ['en', 'hu', 'es', 'vi', 'mn', 'uk'] as const;
+
 describe('training v2 curricula shape', () => {
   for (const cur of ALL_CURRICULA) {
     describe(cur.slug, () => {
@@ -68,4 +70,63 @@ describe('training v2 curricula shape', () => {
       });
     });
   }
+});
+
+describe('housekeeper first-shift curriculum', () => {
+  const hk = ALL_CURRICULA.find((c) => c.slug === 'v2_housekeeper_first_day');
+
+  it('exists and follows the operational housekeeping sequence', () => {
+    expect(hk).toBeTruthy();
+    expect(hk?.steps.map((s) => s.key)).toEqual([
+      'welcome',
+      'location',
+      'signin',
+      'my_tasks',
+      'start_cleaning',
+      'photos',
+      'dnd',
+      'dirty_linen',
+      'maintenance',
+      'lost_found',
+      'notes',
+      'complete_room',
+      'next_room',
+      'breaks',
+      'signout',
+      'finished',
+    ]);
+  });
+
+  it('has full content in every training language', () => {
+    expect(hk).toBeTruthy();
+    if (!hk) return;
+
+    const curriculumTexts = [hk.name, hk.description];
+    for (const text of curriculumTexts) {
+      for (const lang of SUPPORTED_LANGS) {
+        expect(text[lang], `curriculum missing ${lang}`).toBeTruthy();
+      }
+    }
+
+    for (const step of hk.steps) {
+      for (const field of ['title', 'body', 'phase', 'purpose'] as const) {
+        const text = step[field];
+        expect(text, `${step.key} missing ${field}`).toBeTruthy();
+        if (!text) continue;
+        for (const lang of SUPPORTED_LANGS) {
+          expect(text[lang], `${step.key}.${field} missing ${lang}`).toBeTruthy();
+        }
+      }
+      if (step.tip) {
+        for (const lang of SUPPORTED_LANGS) {
+          expect(step.tip[lang], `${step.key}.tip missing ${lang}`).toBeTruthy();
+        }
+      }
+    }
+  });
+
+  it('requires real check-in and room start actions before advancing', () => {
+    expect(hk?.steps.find((s) => s.key === 'signin')?.waitFor).toBe('is_signed_in');
+    expect(hk?.steps.find((s) => s.key === 'start_cleaning')?.waitFor).toBe('has_in_progress_cleaning');
+  });
 });

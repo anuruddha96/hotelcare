@@ -39,6 +39,12 @@ export interface TrainingStepV2 {
   key: string;
   title: I18nText;
   body: I18nText;
+  /** Short workflow section shown above the step title, e.g. "Start shift". */
+  phase?: I18nText;
+  /** Explains why this action matters operationally, not just what to tap. */
+  purpose?: I18nText;
+  /** Optional practical reminder shown as a small coaching tip. */
+  tip?: I18nText;
   selector?: string;
   route?: string;
   tab?: string;
