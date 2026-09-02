@@ -1,0 +1,1 @@
+Initial production mode is manual approval only. Both Hotel Ottofiori and Ottofiori Brunch & Cafe can map to HotelCare property `ottofiori` while retaining separate Google location IDs. Auto-positive/auto-all modes must remain off until manual replies and location mapping are verified.

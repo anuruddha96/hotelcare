@@ -222,3 +222,11 @@ verify_jwt = false
 # service-role request and performs its own authentication check in code.
 [functions.revenue-same-day-sellout]
 verify_jwt = false
+
+[functions.google-reputation]
+verify_jwt = true
+
+# Google redirects here without a HotelCare JWT. The callback validates a
+# short-lived one-time OAuth state before exchanging and encrypting tokens.
+[functions.google-business-oauth-callback]
+verify_jwt = false

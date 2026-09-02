@@ -30,6 +30,7 @@ const GuestDetail = lazy(() => import("./pages/GuestDetail"));
 const ChannelManager = lazy(() => import("./pages/ChannelManager"));
 const Revenue = lazy(() => import("./pages/Revenue"));
 const RevenueHotelDetail = lazy(() => import("./pages/RevenueHotelDetail"));
+const Reputation = lazy(() => import("./pages/Reputation"));
 const Breakfast = lazy(() => import("./pages/Breakfast"));
 const BreakfastAuth = lazy(() => import("./pages/BreakfastAuth"));
 const PurchaseInvoices = lazy(() => import("./pages/PurchaseInvoices"));
@@ -148,6 +149,7 @@ const TenantRouter = () => {
           <Route path="/channel-manager" element={<ChannelManager />} />
           <Route path="/revenue" element={<Revenue />} />
           <Route path="/revenue/:hotelId" element={<RevenueHotelDetail />} />
+          <Route path="/reputation" element={<Reputation />} />
           <Route path="/bb" element={<Breakfast />} />
           <Route path="/bb/:hotelCode" element={<Breakfast />} />
           <Route path="/purchase-invoices" element={<PurchaseInvoices />} />

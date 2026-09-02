@@ -1,0 +1,1 @@
+Google access/refresh tokens are encrypted with AES-GCM using `GOOGLE_BUSINESS_TOKEN_KEY` before database persistence. Direct browser access to Google connection/location/review tables is revoked and denied by RLS. OAuth state is one-time and expires after 10 minutes.

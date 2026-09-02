@@ -1,0 +1,1 @@
+Authenticated HotelCare executive endpoint for Google Business Profile connection status, OAuth start, account/location discovery, mapping, review sync, AI draft generation, and explicit reply publishing. Tokens are only decrypted server-side.

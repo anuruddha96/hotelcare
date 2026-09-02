@@ -1,0 +1,1 @@
+Public Google OAuth redirect endpoint. It validates the one-time HotelCare OAuth state, exchanges the Google authorization code, encrypts tokens with `GOOGLE_BUSINESS_TOKEN_KEY`, stores the connection server-side, and redirects back to the HotelCare Reputation workspace.

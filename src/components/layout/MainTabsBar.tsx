@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router-dom';
-import { Ticket, Home, Users, Clock, TrendingUp, Receipt } from 'lucide-react';
+import { Ticket, Home, Users, Clock, TrendingUp, Receipt, MessageSquareText } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { cn } from '@/lib/utils';
@@ -12,6 +12,7 @@ type Current =
   | 'housekeeping'
   | 'attendance'
   | 'revenue'
+  | 'reputation'
   | 'purchase-invoices';
 
 interface MainTabsBarProps {
@@ -95,6 +96,14 @@ export function MainTabsBar({ current, className }: MainTabsBarProps) {
                 <span>Revenue Management</span>
               </button>
             )}
+            <button
+              type="button"
+              className={btn('reputation')}
+              onClick={() => navigate(`${orgPath}/reputation`)}
+            >
+              <MessageSquareText className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+              <span>Reputation</span>
+            </button>
             <button
               type="button"
               className={btn('purchase-invoices')}
