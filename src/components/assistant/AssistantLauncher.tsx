@@ -12,15 +12,15 @@ import AssistantAccessRequests, { canApproveAssistantAccess } from "./AssistantA
 import ReportProblemDialog from "./ReportProblemDialog";
 import { canUseAssistant } from "@/lib/assistantAccess";
 import { isAssistantDebugEnabled, setAssistantDebug } from "@/lib/assistant/debugMode";
-
+import {
+  forgetActiveAssistantThread,
+  getRememberedAssistantThread,
+  rememberActiveAssistantThread,
+} from "@/lib/assistant/activeThread";
 import { cn } from "@/lib/utils";
 import hotelCareMark from "@/assets/hotelcare-logo-mark.png";
 
-
-/**
- * Floating assistant available on every authenticated page. The active thread
- * lives in the URL (?assistant=<threadId>) so a reload restores the conversation.
- */
+/** Floating assistant available on every authenticated page. */
 export default function AssistantLauncher() {
   const { user, profile } = useAuth();
   const [open, setOpen] = useState(false);
@@ -36,23 +36,34 @@ export default function AssistantLauncher() {
   const { threads, loadingThreads, createThread, renameThread, deleteThread, loadThreads } =
     useAssistant(threadId);
 
+  const userId = user?.id ?? null;
+  const organizationSlug = profile?.organization_slug ?? null;
 
-  // The thread id stays in the URL so a reload restores the conversation, but
-  // it must never pop the panel open by itself — the assistant only opens when
-  // the user taps Ask.
-
+  // Keep the user's selected conversation active for 24 hours, even when normal
+  // app navigation drops the assistant query parameter. This also lets the
+  // message hook preload that thread before the panel is opened.
+  useEffect(() => {
+    if (!userId || !organizationSlug) return;
+    if (threadId) {
+      rememberActiveAssistantThread(userId, organizationSlug, threadId);
+      return;
+    }
+    const remembered = getRememberedAssistantThread(userId, organizationSlug);
+    if (!remembered) return;
+    const next = new URLSearchParams(params);
+    next.set("assistant", remembered);
+    setParams(next, { replace: true });
+  }, [organizationSlug, params, setParams, threadId, userId]);
 
   useEffect(() => {
     setDebugOn(isAssistantDebugEnabled(profile?.role));
   }, [profile?.role, open]);
-
 
   useLayoutEffect(() => {
     if (!open || typeof window === "undefined") return;
     const vv = window.visualViewport;
     if (!vv) return;
     const update = () => {
-      // Only take over sizing while the on-screen keyboard is actually shown.
       const keyboardOpen = window.innerHeight - vv.height > 120;
       setViewport(
         keyboardOpen ? { height: Math.round(vv.height), top: Math.round(vv.offsetTop) } : null,
@@ -69,15 +80,19 @@ export default function AssistantLauncher() {
     };
   }, [open]);
 
-
   const setThread = useCallback(
     (id: string | null) => {
       const next = new URLSearchParams(params);
-      if (id) next.set("assistant", id);
-      else next.delete("assistant");
+      if (id) {
+        next.set("assistant", id);
+        rememberActiveAssistantThread(userId, organizationSlug, id);
+      } else {
+        next.delete("assistant");
+        forgetActiveAssistantThread(userId, organizationSlug);
+      }
       setParams(next, { replace: true });
     },
-    [params, setParams],
+    [organizationSlug, params, setParams, userId],
   );
 
   const newThread = useCallback(async () => {
@@ -89,9 +104,13 @@ export default function AssistantLauncher() {
     return id;
   }, [createThread, setThread]);
 
-  // Hidden on public/unauthenticated screens.
+  const openAssistant = useCallback(() => {
+    // Always return to the active conversation when the launcher is tapped.
+    setTab("chat");
+    setOpen(true);
+  }, []);
+
   if (!user || !profile?.organization_slug) return null;
-  // Controlled rollout: admins plus enabled pilot users.
   if (!canUseAssistant(profile)) return null;
   if (location.pathname.startsWith("/bb") || location.pathname.startsWith("/auth")) return null;
 
@@ -100,18 +119,19 @@ export default function AssistantLauncher() {
   return (
     <>
       <Button
-        onClick={() => setOpen(true)}
+        onPointerDown={() => setOpen(true)}
+        onClick={openAssistant}
         className={cn(
-          "fixed z-40 rounded-full shadow-lg gap-2 h-12 px-4",
+          "fixed z-40 rounded-full shadow-lg gap-2 h-14 min-h-14 min-w-14 px-0 sm:px-4",
           "bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4",
+          "touch-manipulation select-none cursor-pointer active:scale-[0.98] duration-75",
         )}
         aria-label="Open the Hotel Care Assistant"
       >
-        {/* White chip keeps the blue mark legible on the blue button. */}
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-background shadow-sm">
-          <img src={hotelCareMark} alt="" className="h-5 w-5" />
+        <span className="pointer-events-none flex h-10 w-10 items-center justify-center rounded-full bg-background shadow-sm">
+          <img src={hotelCareMark} alt="" className="pointer-events-none h-7 w-7" />
         </span>
-        <span className="hidden sm:inline">Ask</span>
+        <span className="pointer-events-none hidden sm:inline">Ask</span>
       </Button>
 
       <Sheet open={open} onOpenChange={setOpen}>
@@ -120,8 +140,6 @@ export default function AssistantLauncher() {
           style={
             viewport
               ? {
-                  // Keyboard open: pin the panel to the visible viewport so the
-                  // composer stays reachable instead of collapsing off-screen.
                   top: `${viewport.top}px`,
                   bottom: "auto",
                   height: `${viewport.height}px`,
@@ -133,8 +151,7 @@ export default function AssistantLauncher() {
           }
           className="w-full sm:max-w-[480px] p-3 flex flex-col gap-2 h-[100dvh] max-h-[100dvh] overflow-hidden
                      pt-[max(0.75rem,env(safe-area-inset-top))] pb-0
-                     duration-300 data-[state=open]:duration-300"
-
+                     duration-150 data-[state=open]:duration-150"
         >
           <SheetTitle className="sr-only">Hotel Care Assistant</SheetTitle>
           <SheetDescription className="sr-only">Role-aware assistant for Hotel Care</SheetDescription>
@@ -154,7 +171,6 @@ export default function AssistantLauncher() {
               <Flag className="h-3.5 w-3.5" /> Report
             </button>
             {profile.role === "admin" && (
-
               <button
                 type="button"
                 className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent"
@@ -169,20 +185,11 @@ export default function AssistantLauncher() {
             )}
           </div>
 
-
           <Tabs value={tab} onValueChange={setTab} className="flex-1 min-h-0 flex flex-col">
             <TabsList className="w-full">
-              <TabsTrigger value="chat" className="flex-1">
-                Chat
-              </TabsTrigger>
-              <TabsTrigger value="threads" className="flex-1">
-                History
-              </TabsTrigger>
-              {isApprover && (
-                <TabsTrigger value="requests" className="flex-1">
-                  Requests
-                </TabsTrigger>
-              )}
+              <TabsTrigger value="chat" className="flex-1">Chat</TabsTrigger>
+              <TabsTrigger value="threads" className="flex-1">History</TabsTrigger>
+              {isApprover && <TabsTrigger value="requests" className="flex-1">Requests</TabsTrigger>}
             </TabsList>
 
             <TabsContent value="chat" className="flex-1 min-h-0 mt-2">
@@ -192,7 +199,6 @@ export default function AssistantLauncher() {
                 onThreadUpdated={loadThreads}
                 onNavigate={() => setOpen(false)}
               />
-
             </TabsContent>
 
             <TabsContent value="threads" className="flex-1 min-h-0 mt-2 overflow-y-auto">
@@ -289,7 +295,6 @@ export default function AssistantLauncher() {
       </Sheet>
 
       <ReportProblemDialog open={reportOpen} onOpenChange={setReportOpen} threadId={threadId} />
-
     </>
   );
 }
