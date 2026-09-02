@@ -1,0 +1,1 @@
+Default policy: draft-only. Recommended rollout after connection: 4–5 star reviews may become eligible for automatic publishing after testing; 1–2 star reviews remain manager approval only; 3 star reviews start approval-only.
