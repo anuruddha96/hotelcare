@@ -103,3 +103,31 @@ create trigger trg_normalize_pms_room_mapping_status
 before insert or update on public.pms_room_mappings
 for each row
 execute function public.normalize_pms_room_mapping_status();
+
+-- The reservation/bucket refresh for XML-configured Previo hotels carries no
+-- housekeeping field. Preserve a known live Previo clean state while that
+-- refresh updates room metadata; explicit/manual status-only updates remain
+-- allowed, and a real Previo dirty change is applied by Fresh Sync/poll.
+create or replace function public.protect_previo_clean_status_from_metadata_refresh()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if old.status = 'clean'
+     and new.status = 'dirty'
+     and coalesce(old.pms_metadata->>'previoRoomCleanStatusId', '') in ('2', '3')
+     and new.pms_metadata is distinct from old.pms_metadata
+     and (new.pms_metadata ? 'pmsSyncDate' or new.pms_metadata ? 'lastPmsRefreshDate') then
+    new.status := old.status;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_protect_previo_clean_status_from_metadata_refresh on public.rooms;
+create trigger trg_protect_previo_clean_status_from_metadata_refresh
+before update of status, pms_metadata on public.rooms
+for each row
+execute function public.protect_previo_clean_status_from_metadata_refresh();
