@@ -69,10 +69,11 @@ const Index = () => {
     }
   }, [profile?.role]);
 
-  // Reception / front-office: dedicated landing page focused on Daily
-  // Overview upload. Browsing the rest of the app is opt-in via links.
+  // PMS Phase 1: reception/front-office now land directly on the reservation
+  // board. The former Daily Overview upload page remains available at
+  // /reception for rollback and breakfast-roster workflows.
   if (profile && isReceptionRole(profile.role)) {
-    return <Navigate to={`/${organizationSlug || 'rdhotels'}/reception`} replace />;
+    return <Navigate to={`/${organizationSlug || 'rdhotels'}/front-desk`} replace />;
   }
 
   // Top management land on Revenue Management → Rate Grid, freshly synced.
