@@ -1,0 +1,1 @@
+Next human input required: create or identify the Google Cloud OAuth Web Client for HotelCare, add the documented callback URI, then configure the client ID, client secret and a generated token-encryption key as Supabase Edge Function secrets.
