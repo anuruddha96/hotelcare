@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Navigate, useParams, Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Header } from '@/components/layout/Header';
@@ -30,7 +30,7 @@ import {
 const RES_SELECT = `
   *,
   guests(id, first_name, last_name, email, phone, nationality, vip_status, company_name, id_document_type, id_document_number),
-  rooms:room_id(id, room_number, room_type, status, capacity)
+  rooms:room_id(id, room_number, room_type, status, room_capacity)
 `;
 
 type StatusAction = 'cancelled' | 'no_show' | null;
@@ -250,7 +250,7 @@ const ReservationDetail = () => {
               <div><span className="text-muted-foreground">{t('pms.res.room')}:</span> <strong>{room?.room_number || t('pms.res.unassigned')}</strong></div>
               <div><span className="text-muted-foreground">{t('pms.reservationDetail.roomType')}:</span> {room?.room_type || reservation.room_type_requested || t('pms.reservationDetail.notSpecified')}</div>
               {room?.status && <div><span className="text-muted-foreground">{t('common.status')}:</span> <span className="capitalize">{room.status.replaceAll('_', ' ')}</span></div>}
-              {room?.capacity ? <div><span className="text-muted-foreground">{t('pms.res.capacity')}:</span> {room.capacity}</div> : null}
+              {room?.room_capacity ? <div><span className="text-muted-foreground">{t('pms.res.capacity')}:</span> {room.room_capacity}</div> : null}
             </CardContent>
           </Card>
 
