@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { motion } from 'framer-motion';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -157,6 +158,7 @@ export function AutoRoomAssignment({
     const previous = previewHistory[previewHistory.length - 1];
     setPreviewHistory(prev => prev.slice(0, -1));
     setAssignmentPreviews(previous);
+    setFairnessMetrics(computeFairnessMetrics(previous));
     toast.success(t('autoAssign.undoSuccess'));
   };
 
@@ -209,6 +211,7 @@ export function AutoRoomAssignment({
             setSelectedStaffIds(new Set(data.staffIds));
             if (data.previews?.length > 0) {
               setAssignmentPreviews(data.previews);
+              setFairnessMetrics(computeFairnessMetrics(data.previews));
               setStep('preview');
               setRestoredFromSave(true);
             } else {
@@ -481,7 +484,6 @@ export function AutoRoomAssignment({
       
       const candidate = autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, finalConfig);
       const metrics = computeFairnessMetrics(candidate);
-
       
       if (metrics.score < bestScore) {
         bestScore = metrics.score;
@@ -494,45 +496,44 @@ export function AutoRoomAssignment({
       ...hotelConfig, hotelName: hotelName || undefined
     });
 
-    // Rebalance only PMS-confirmed departed checkout rooms. A scheduled
-    // checkout time (for example 11:00) is not enough to mark RTC.
-    const isPmsConfirmedReadyToClean = (r: RoomForAssignment) =>
-      isPmsRtcToday(r.pms_metadata as any);
-    const departedPool: RoomForAssignment[] = [];
-    const rebalanced = previews.map(p => {
-      const kept: RoomForAssignment[] = [];
-      for (const r of p.rooms) {
-        if (isPmsConfirmedReadyToClean(r)) departedPool.push(r);
-        else kept.push(r);
-      }
-      return { ...p, rooms: kept };
-    });
-    if (rebalanced.length > 0 && departedPool.length > 0) {
-      let i = 0;
-      for (const room of departedPool) {
-        rebalanced[i % rebalanced.length].rooms.push(room);
-        i++;
-      }
-    }
+    // The assignment engine now balances checkout/heavy-room workload while
+    // preserving floor ownership. Do not round-robin RTC rooms afterwards: that
+    // old post-processing step could destroy an otherwise efficient same-floor route.
+    const rebalanced = previews;
     setAssignmentPreviews(rebalanced);
     setFairnessMetrics(bestMetrics || computeFairnessMetrics(rebalanced));
     setPreviewHistory([]);
     setStep('preview');
   };
 
+  const applyRoomMove = (roomId: string, fromStaffId: string, toStaffId: string) => {
+    if (!roomId || !fromStaffId || !toStaffId || fromStaffId === toStaffId) return;
+    pushHistory(assignmentPreviews);
+    const newPreviews = moveRoom(assignmentPreviews, roomId, fromStaffId, toStaffId);
+    setAssignmentPreviews(newPreviews);
+    setFairnessMetrics(computeFairnessMetrics(newPreviews));
+    setSelectedRoomForMove(null);
+    setJustDroppedStaffId(toStaffId);
+    setJustDroppedRoomId(roomId);
+    setTimeout(() => {
+      setJustDroppedStaffId(null);
+      setJustDroppedRoomId(null);
+    }, 650);
+  };
+
   const handleMoveRoom = (toStaffId: string) => {
     if (!selectedRoomForMove) return;
-    
-    pushHistory(assignmentPreviews);
-    const newPreviews = moveRoom(
-      assignmentPreviews,
-      selectedRoomForMove.roomId,
-      selectedRoomForMove.fromStaffId,
-      toStaffId
-    );
-    
-    setAssignmentPreviews(newPreviews);
-    setSelectedRoomForMove(null);
+    applyRoomMove(selectedRoomForMove.roomId, selectedRoomForMove.fromStaffId, toStaffId);
+  };
+
+  const getDropStaffAtPoint = (x: number, y: number, fromStaffId: string): string | null => {
+    const elements = document.elementsFromPoint(x, y);
+    for (const element of elements) {
+      const target = (element as HTMLElement).closest<HTMLElement>('[data-staff-drop-id]');
+      const staffId = target?.dataset.staffDropId;
+      if (staffId && staffId !== fromStaffId) return staffId;
+    }
+    return null;
   };
 
   const handleProceedToConfirm = () => {
@@ -574,10 +575,14 @@ export function AutoRoomAssignment({
           const prioA = getRoomPriority(a);
           const prioB = getRoomPriority(b);
           if (prioA !== prioB) return prioA - prioB;
-          const floorA = getFloorFromRoomNumber(a.room_number);
-          const floorB = getFloorFromRoomNumber(b.room_number);
+          const floorA = a.floor_number ?? getFloorFromRoomNumber(a.room_number);
+          const floorB = b.floor_number ?? getFloorFromRoomNumber(b.room_number);
           if (floorA !== floorB) return floorA - floorB;
-          return parseInt(a.room_number) - parseInt(b.room_number);
+          const numsA = a.room_number.match(/\d+/g);
+          const numsB = b.room_number.match(/\d+/g);
+          const ordinalA = numsA?.length ? Number(numsA[numsA.length - 1]) : Number.MAX_SAFE_INTEGER;
+          const ordinalB = numsB?.length ? Number(numsB[numsB.length - 1]) : Number.MAX_SAFE_INTEGER;
+          return ordinalA - ordinalB || a.room_number.localeCompare(b.room_number);
         });
 
         return sorted.map((room) => {
@@ -783,11 +788,16 @@ export function AutoRoomAssignment({
     ? Math.max(...assignmentPreviews.filter(p => p.rooms.length > 0).map(p => p.totalWithBreak), 1)
     : 1;
 
+  const roomSortOrdinal = (roomNumber: string): number => {
+    const values = String(roomNumber || '').match(/\d+/g);
+    return values?.length ? Number(values[values.length - 1]) : Number.MAX_SAFE_INTEGER;
+  };
+
   // Group rooms by floor for a given set of rooms
   const groupByFloor = (rooms: RoomForAssignment[]) => {
     const groups: Record<number, RoomForAssignment[]> = {};
     rooms.forEach(r => {
-      const floor = getFloorFromRoomNumber(r.room_number);
+      const floor = r.floor_number ?? getFloorFromRoomNumber(r.room_number);
       if (!groups[floor]) groups[floor] = [];
       groups[floor].push(r);
     });
@@ -795,7 +805,7 @@ export function AutoRoomAssignment({
       .sort(([a], [b]) => parseInt(a) - parseInt(b))
       .map(([floor, floorRooms]) => ({
         floor: parseInt(floor),
-        rooms: floorRooms.sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number))
+        rooms: floorRooms.sort((a, b) => roomSortOrdinal(a.room_number) - roomSortOrdinal(b.room_number) || a.room_number.localeCompare(b.room_number))
       }));
   };
 
@@ -852,9 +862,9 @@ ${activePreviews.map(preview => {
   const daily = preview.rooms.filter(r => !(r.is_checkout_room || r.pms_metadata?.scheduledDepartureToday === true));
   const sortByRoom = (rooms: RoomForAssignment[]) => 
     [...rooms].sort((a, b) => {
-      const fa = getFloorFromRoomNumber(a.room_number);
-      const fb = getFloorFromRoomNumber(b.room_number);
-      return fa !== fb ? fa - fb : parseInt(a.room_number) - parseInt(b.room_number);
+      const fa = a.floor_number ?? getFloorFromRoomNumber(a.room_number);
+      const fb = b.floor_number ?? getFloorFromRoomNumber(b.room_number);
+      return fa !== fb ? fa - fb : roomSortOrdinal(a.room_number) - roomSortOrdinal(b.room_number) || a.room_number.localeCompare(b.room_number);
     });
 
   return `<div class="page">
@@ -874,7 +884,7 @@ ${activePreviews.map(preview => {
           <td>${i + 1}</td>
           <td><strong>${room.room_number}</strong></td>
           <td>${(room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) ? t('autoAssign.checkout') : t('autoAssign.daily')}</td>
-          <td>F${getFloorFromRoomNumber(room.room_number)}</td>
+          <td>F${room.floor_number ?? getFloorFromRoomNumber(room.room_number)}</td>
           <td>${room.room_category || '—'}</td>
           <td class="${specials.length > 0 ? 'special' : ''}">${specials.join(', ') || '—'}</td>
         </tr>`;
@@ -902,32 +912,38 @@ ${activePreviews.map(preview => {
       : 'bg-blue-100 text-blue-900 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300';
 
     return (
-      <div
+      <motion.div
         key={room.id}
-        draggable={!isMobile}
-        onDragStart={(e) => {
-          e.dataTransfer.setData('roomId', room.id);
-          e.dataTransfer.setData('fromStaffId', preview.staffId);
-          e.dataTransfer.effectAllowed = 'move';
-          setDraggingRoomId(room.id);
-          const ghost = document.createElement('div');
-          ghost.textContent = room.room_number;
-          ghost.style.cssText = `position:fixed;top:-100px;left:-100px;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,0.18);z-index:9999;background:${(room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) ? '#fef3c7' : '#dbeafe'};color:${(room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) ? '#92400e' : '#1e40af'};border:2px solid ${(room.is_checkout_room || room.pms_metadata?.scheduledDepartureToday === true) ? '#f59e0b' : '#3b82f6'};`;
-          document.body.appendChild(ghost);
-          e.dataTransfer.setDragImage(ghost, 20, 15);
-          requestAnimationFrame(() => document.body.removeChild(ghost));
+        layout
+        layoutId={`auto-room-${room.id}`}
+        drag
+        dragMomentum={false}
+        dragElastic={0.16}
+        dragSnapToOrigin
+        whileDrag={{
+          scale: 1.08,
+          zIndex: 80,
+          boxShadow: '0 12px 30px rgba(15, 23, 42, 0.24)',
         }}
-        onDragEnd={() => { setDraggingRoomId(null); setDragOverStaffId(null); }}
-        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] leading-tight font-medium transition-all duration-200 select-none touch-manipulation ${
-          !isMobile ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer active:scale-95'
-        } ${chipColor} ${isSelected ? 'ring-2 ring-primary ring-offset-1 scale-105' : ''}
-        ${draggingRoomId === room.id ? 'opacity-30 scale-95' : ''}
-        ${justDroppedRoomId === room.id ? 'animate-scale-in ring-2 ring-green-500' : ''}`}
-        onClick={(e) => {
-          e.stopPropagation();
-          // If a chip from ANOTHER staff is already selected, treat this tap
-          // as "move it here" so mobile users can drop onto any chip in the
-          // target column (not just empty space).
+        transition={{ type: 'spring', stiffness: 430, damping: 32, mass: 0.55 }}
+        onDragStart={() => {
+          setDraggingRoomId(room.id);
+          setSelectedRoomForMove(null);
+        }}
+        onDrag={(_, info) => {
+          const target = getDropStaffAtPoint(info.point.x, info.point.y, preview.staffId);
+          setDragOverStaffId(target);
+        }}
+        onDragEnd={(_, info) => {
+          const target = getDropStaffAtPoint(info.point.x, info.point.y, preview.staffId);
+          setDraggingRoomId(null);
+          setDragOverStaffId(null);
+          if (target) applyRoomMove(room.id, preview.staffId, target);
+        }}
+        onTap={(event) => {
+          event.stopPropagation();
+          // Tap-to-move remains as a fallback for accessibility and users who
+          // prefer it, while drag now works on touch and desktop alike.
           if (selectedRoomForMove && selectedRoomForMove.fromStaffId !== preview.staffId) {
             handleMoveRoom(preview.staffId);
             return;
@@ -935,6 +951,11 @@ ${activePreviews.map(preview => {
           if (isSelected) setSelectedRoomForMove(null);
           else setSelectedRoomForMove({ roomId: room.id, fromStaffId: preview.staffId });
         }}
+        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] leading-tight font-medium select-none touch-none cursor-grab active:cursor-grabbing ${
+          chipColor
+        } ${isSelected ? 'ring-2 ring-primary ring-offset-1 scale-105' : ''}
+        ${draggingRoomId === room.id ? 'opacity-80' : ''}
+        ${justDroppedRoomId === room.id ? 'ring-2 ring-green-500' : ''}`}
         title={`${t('autoAssign.room')} ${room.room_number}${isRtc ? ' · RTC' : ''}${room.room_category ? ` · ${room.room_category}` : ''}${room.wing ? ` · Wing ${room.wing}` : ''}${room.room_size_sqm ? ` · ${room.room_size_sqm}m²` : ''}`}
       >
         <span className="font-semibold">{room.room_number}</span>
@@ -953,7 +974,7 @@ ${activePreviews.map(preview => {
         {((room.pms_metadata as any)?.inferredBedConfig?.value || (room as any).bed_configuration) && (
           <span className="text-[9px] px-0.5 opacity-70">🛏️{String((room.pms_metadata as any)?.inferredBedConfig?.value || (room as any).bed_configuration).slice(0, 6)}</span>
         )}
-      </div>
+      </motion.div>
     );
   };
 
@@ -1322,7 +1343,7 @@ ${activePreviews.map(preview => {
                   </div>
                   {/* Fairness diagnostics */}
                   {fairnessMetrics && (
-                    <div className="flex items-center gap-3 text-xs">
+                    <div className="flex items-center gap-3 text-xs flex-wrap">
                       <span className={`font-medium ${fairnessMetrics.checkoutDiff <= 1 ? 'text-green-600' : 'text-destructive'}`}>
                         CO±{fairnessMetrics.checkoutDiff}
                       </span>
@@ -1334,6 +1355,12 @@ ${activePreviews.map(preview => {
                       </span>
                       <span className={`font-medium ${fairnessMetrics.timeSpreadMinutes <= 75 ? 'text-green-600' : fairnessMetrics.timeSpreadMinutes <= 120 ? 'text-amber-600' : 'text-destructive'}`}>
                         ⏱{fairnessMetrics.timeSpreadMinutes}m
+                      </span>
+                      <span className={`font-medium ${fairnessMetrics.splitFloorCount <= 1 ? 'text-green-600' : fairnessMetrics.splitFloorCount <= 2 ? 'text-amber-600' : 'text-destructive'}`}>
+                        F↔{fairnessMetrics.splitFloorCount}
+                      </span>
+                      <span className={`font-medium ${fairnessMetrics.heavyRoomDiff <= 1 ? 'text-green-600' : 'text-destructive'}`}>
+                        ⚖±{fairnessMetrics.heavyRoomDiff}
                       </span>
                     </div>
                   )}
@@ -1373,12 +1400,15 @@ ${activePreviews.map(preview => {
                         };
 
                     return (
-                      <div
+                      <motion.div
+                        layout
                         key={preview.staffId}
+                        data-staff-drop-id={preview.staffId}
                         style={colStyle}
-                        className={`rounded-lg border flex flex-col transition-all duration-200 ${
+                        transition={{ layout: { type: 'spring', stiffness: 390, damping: 34 } }}
+                        className={`rounded-lg border flex flex-col transition-colors duration-200 ${
                           isDropTarget ? 'ring-2 ring-primary cursor-pointer' : ''
-                        } ${isDragOver ? 'ring-2 ring-blue-500 border-dashed bg-blue-50/50 dark:bg-blue-950/20' : ''}
+                        } ${isDragOver ? 'ring-2 ring-blue-500 border-dashed bg-blue-50/70 dark:bg-blue-950/30 scale-[1.015]' : ''}
                         ${justDroppedStaffId === preview.staffId ? 'ring-2 ring-green-500 bg-green-50/50 dark:bg-green-950/20' : ''}
                         ${isOverShift ? 'border-destructive' : 'border-border'}`}
                         onClick={() => isDropTarget && handleMoveRoom(preview.staffId)}
@@ -1394,12 +1424,7 @@ ${activePreviews.map(preview => {
                           const roomId = e.dataTransfer.getData('roomId');
                           const fromStaffId = e.dataTransfer.getData('fromStaffId');
                           if (roomId && fromStaffId && fromStaffId !== preview.staffId) {
-                            pushHistory(assignmentPreviews);
-                            const newPreviews = moveRoom(assignmentPreviews, roomId, fromStaffId, preview.staffId);
-                            setAssignmentPreviews(newPreviews);
-                            setJustDroppedStaffId(preview.staffId);
-                            setJustDroppedRoomId(roomId);
-                            setTimeout(() => { setJustDroppedStaffId(null); setJustDroppedRoomId(null); }, 600);
+                            applyRoomMove(roomId, fromStaffId, preview.staffId);
                           }
                         }}
                       >
@@ -1462,12 +1487,16 @@ ${activePreviews.map(preview => {
                             </div>
                           )}
                           {isDragOver && (
-                            <div className="p-1 border border-dashed border-blue-500 rounded text-center text-[10px] text-blue-600 bg-blue-50 dark:bg-blue-950/30">
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0.94 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              className="p-1 border border-dashed border-blue-500 rounded text-center text-[10px] text-blue-600 bg-blue-50 dark:bg-blue-950/30"
+                            >
                               {t('autoAssign.dropHere')}
-                            </div>
+                            </motion.div>
                           )}
                         </div>
-                      </div>
+                      </motion.div>
                     );
                   })}
                 </div>
@@ -1475,7 +1504,7 @@ ${activePreviews.map(preview => {
                 })()}
 
                 <p className="text-[10px] text-muted-foreground text-center flex-shrink-0 py-0.5">
-                  {isMobile ? t('autoAssign.tapToMove') : t('autoAssign.dragToReassign')}
+                  {t('autoAssign.dragToReassign')} · {t('autoAssign.tapToMove')}
                 </p>
               </div>
             ) : step === 'confirm' ? (
