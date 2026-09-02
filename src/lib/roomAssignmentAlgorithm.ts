@@ -656,8 +656,8 @@ export function autoAssignRooms(
     moveRoomInternal(movable[0].room, most.id, least.id);
   }
 
-  // Explicit heavy-room balancing. Move a heavy room only when it does not
-  // make room-count fairness worse than the accepted ±2 daily/total envelope.
+  // Heavy daily-room balancing. Checkout heavies are already distributed by
+  // the checkout phase; moving them here could accidentally undo CO fairness.
   for (let iter = 0; iter < 15; iter++) {
     const heavyRank = staff.map(s => ({
       id: s.id,
@@ -672,7 +672,7 @@ export function autoAssignRooms(
     if (fromRooms.length - toRooms.length < 0) break;
 
     const candidate = fromRooms
-      .filter(isHeavyRoom)
+      .filter(room => isHeavyRoom(room) && !isCheckoutRoom(room))
       .map(room => ({ room, score: relocationScore(room, most.id, least.id) }))
       .sort((a, b) => a.score - b.score)[0];
     if (!candidate) break;
@@ -708,6 +708,24 @@ export function autoAssignRooms(
     // A small time improvement is not worth breaking a strong floor cluster.
     if (candidates[0].locality > 180 && currentSpread - candidates[0].newSpread < 30) break;
     moveRoomInternal(candidates[0].room, heavy.id, light.id);
+  }
+
+  // Final safety invariant: no later locality/heavy/total rebalance may leave
+  // checkout workload more than one room apart. Only run when necessary, and
+  // choose the geographically cheapest checkout move.
+  for (let iter = 0; iter < 30; iter++) {
+    const ranked = staff.map(s => ({ id: s.id, count: assignments.get(s.id)!.filter(isCheckoutRoom).length }))
+      .sort((a, b) => b.count - a.count);
+    const most = ranked[0];
+    const least = ranked[ranked.length - 1];
+    if (most.count - least.count <= 1) break;
+
+    const movable = assignments.get(most.id)!
+      .filter(isCheckoutRoom)
+      .map(room => ({ room, score: relocationScore(room, most.id, least.id) }))
+      .sort((a, b) => a.score - b.score);
+    if (!movable.length) break;
+    moveRoomInternal(movable[0].room, most.id, least.id);
   }
 
   return staff.map(s => previewFromRooms(s, assignments.get(s.id) || []));
