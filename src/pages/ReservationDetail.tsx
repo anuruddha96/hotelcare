@@ -1,16 +1,39 @@
-import { useState, useEffect } from 'react';
-import { useAuth } from '@/hooks/useAuth';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, useParams, Link } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 import { Header } from '@/components/layout/Header';
 import { PMSNavigation } from '@/components/layout/PMSNavigation';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, User, CalendarDays, BedDouble, CreditCard, FileText, Edit } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  ArrowLeft, User, CalendarDays, BedDouble, CreditCard, FileText, Edit,
+  History, Lock, Receipt, Plus, Banknote, AlertTriangle, Hash,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
+import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
+import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
+import { EditReservationDialog } from '@/components/reservations/EditReservationDialog';
+import { FolioItemDialog } from '@/components/reservations/FolioItemDialog';
+import { LifecycleError, setReservationStatus } from '@/lib/pmsLifecycle';
+import {
+  formatMoney, isPmsManaged, reservationGuestLabel, RESERVATION_STATUS_COLORS,
+} from '@/lib/reservations';
+
+const RES_SELECT = `
+  *,
+  guests(id, first_name, last_name, email, phone, nationality, vip_status, company_name, id_document_type, id_document_number),
+  rooms:room_id(id, room_number, room_type, status, capacity)
+`;
+
+type StatusAction = 'cancelled' | 'no_show' | null;
 
 const ReservationDetail = () => {
   const { user, loading } = useAuth();
@@ -18,36 +41,69 @@ const ReservationDetail = () => {
   const { t } = useTranslation();
   const [reservation, setReservation] = useState<any>(null);
   const [folioItems, setFolioItems] = useState<any[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  const [editOpen, setEditOpen] = useState(false);
+  const [checkInOpen, setCheckInOpen] = useState(false);
+  const [checkOutOpen, setCheckOutOpen] = useState(false);
+  const [folioMode, setFolioMode] = useState<'charge' | 'payment' | null>(null);
+  const [statusAction, setStatusAction] = useState<StatusAction>(null);
+  const [statusReason, setStatusReason] = useState('');
+  const [statusBusy, setStatusBusy] = useState(false);
   const basePath = `/${organizationSlug || 'rdhotels'}`;
+
+  const fetchData = useCallback(async () => {
+    if (!id) return;
+    setLoadingData(true);
+    const [resResult, folioResult, eventResult] = await Promise.all([
+      supabase.from('reservations').select(RES_SELECT).eq('id', id).single(),
+      supabase.from('guest_folios').select('*').eq('reservation_id', id).order('charge_date', { ascending: false }),
+      supabase.from('reservation_events').select('*').eq('reservation_id', id).order('created_at', { ascending: false }).limit(100),
+    ]);
+
+    if (resResult.error) {
+      setReservation(null);
+    } else {
+      setReservation(resResult.data);
+    }
+    setFolioItems(folioResult.data ?? []);
+    setEvents(eventResult.data ?? []);
+    setLoadingData(false);
+  }, [id]);
 
   useEffect(() => {
     if (user && id) fetchData();
-  }, [user, id]);
+  }, [user, id, fetchData]);
 
-  const fetchData = async () => {
-    setLoadingData(true);
-    const [resResult, folioResult] = await Promise.all([
-      supabase.from('reservations').select('*, guests(*)').eq('id', id!).single(),
-      supabase.from('guest_folios').select('*').eq('reservation_id', id!).order('charge_date', { ascending: false }),
-    ]);
-    if (resResult.data) setReservation(resResult.data);
-    if (folioResult.data) setFolioItems(folioResult.data);
-    setLoadingData(false);
+  const confirmReservation = async () => {
+    if (!reservation) return;
+    setStatusBusy(true);
+    try {
+      await setReservationStatus(reservation.id, 'confirmed');
+      toast.success(t('pms.res.confirmedOk'));
+      await fetchData();
+    } catch (err) {
+      const key = err instanceof LifecycleError ? err.translationKey : null;
+      toast.error(key ? t(key) : (err as Error).message);
+    } finally {
+      setStatusBusy(false);
+    }
   };
 
-  const updateStatus = async (newStatus: string) => {
-    const updates: any = { status: newStatus };
-    if (newStatus === 'checked_in') updates.actual_check_in = new Date().toISOString();
-    if (newStatus === 'checked_out') updates.actual_check_out = new Date().toISOString();
-    if (newStatus === 'cancelled') updates.cancelled_at = new Date().toISOString();
-
-    const { error } = await supabase.from('reservations').update(updates).eq('id', id!);
-    if (error) {
-      toast.error(t('pms.reservationDetail.failedToUpdate'));
-    } else {
-      toast.success(`${t('pms.reservationDetail.statusUpdated')} ${newStatus.replace('_', ' ')}`);
-      fetchData();
+  const submitStatusAction = async () => {
+    if (!reservation || !statusAction) return;
+    setStatusBusy(true);
+    try {
+      await setReservationStatus(reservation.id, statusAction, statusReason.trim() || undefined);
+      toast.success(statusAction === 'no_show' ? t('pms.res.noShowOk') : t('pms.res.cancelledOk'));
+      setStatusAction(null);
+      setStatusReason('');
+      await fetchData();
+    } catch (err) {
+      const key = err instanceof LifecycleError ? err.translationKey : null;
+      toast.error(key ? t(key) : (err as Error).message);
+    } finally {
+      setStatusBusy(false);
     }
   };
 
@@ -59,15 +115,6 @@ const ReservationDetail = () => {
     );
   }
   if (!user) return <Navigate to={`${basePath}/auth`} replace />;
-
-  const statusColors: Record<string, string> = {
-    pending: 'bg-muted text-muted-foreground',
-    confirmed: 'bg-primary/10 text-primary',
-    checked_in: 'bg-green-500/10 text-green-700',
-    checked_out: 'bg-secondary text-secondary-foreground',
-    cancelled: 'bg-destructive/10 text-destructive',
-    no_show: 'bg-destructive/10 text-destructive',
-  };
 
   if (loadingData) {
     return (
@@ -101,13 +148,21 @@ const ReservationDetail = () => {
   }
 
   const guest = reservation.guests;
+  const room = reservation.rooms;
+  const pmsManaged = isPmsManaged(reservation);
+  const guestLabel = reservationGuestLabel(reservation);
+  const active = !['cancelled', 'checked_out', 'no_show'].includes(reservation.status);
+  const canCheckIn = ['confirmed', 'pending'].includes(reservation.status);
+  const canCancelOrNoShow = ['confirmed', 'pending'].includes(reservation.status);
 
   return (
     <div className="min-h-screen bg-background">
       <Header />
       <PMSNavigation />
-      <main className="container mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4">
-        {/* Breadcrumb */}
+      <main
+        className="container mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4"
+        data-training="res-detail"
+      >
         <div className="flex items-center gap-2">
           <Link to={`${basePath}/reservations`}>
             <Button variant="ghost" size="sm" className="gap-1">
@@ -118,146 +173,251 @@ const ReservationDetail = () => {
           <span className="font-mono text-sm">{reservation.reservation_number}</span>
         </div>
 
-        {/* Header */}
+        {pmsManaged && (
+          <div className="flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm">
+            <Lock className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+            <div>
+              <p className="font-medium">{t('pms.res.pmsManagedTitle')}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{t('pms.res.pmsManagedHint')}</p>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold flex items-center gap-2">
-              {reservation.reservation_number}
-              <Badge className={statusColors[reservation.status] || 'bg-muted'}>
-                {reservation.status.replace('_', ' ')}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl font-bold truncate">{guestLabel}</h1>
+              <Badge className={RESERVATION_STATUS_COLORS[reservation.status] || 'bg-muted'}>
+                {t(`pms.reservations.${reservation.status === 'no_show' ? 'noShow' : reservation.status === 'checked_in' ? 'checkedIn' : reservation.status === 'checked_out' ? 'checkedOut' : reservation.status}`)}
               </Badge>
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              {t('pms.reservationDetail.created')} {new Date(reservation.created_at).toLocaleDateString()} · {t('pms.reservations.source')}: {reservation.source?.replace('_', ' ')}
+            </div>
+            <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
+              <span className="font-mono">{reservation.reservation_number}</span>
+              <span>·</span>
+              <span className="capitalize">{reservation.source?.replaceAll('_', ' ') || '—'}</span>
+              {reservation.source_reservation_id && (
+                <><span>·</span><span className="font-mono text-xs">{reservation.source_reservation_id}</span></>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <Button size="sm" variant="outline" className="gap-1" onClick={() => setEditOpen(true)}>
+              <Edit className="h-3.5 w-3.5" /> {t('common.edit')}
+            </Button>
             {reservation.status === 'pending' && (
-              <Button size="sm" onClick={() => updateStatus('confirmed')}>{t('pms.reservationDetail.confirm')}</Button>
+              <Button size="sm" onClick={confirmReservation} disabled={statusBusy}>{t('pms.reservationDetail.confirm')}</Button>
             )}
-            {['confirmed', 'pending'].includes(reservation.status) && (
-              <Button size="sm" variant="default" onClick={() => updateStatus('checked_in')}>{t('pms.checkIn')}</Button>
+            {canCheckIn && (
+              <Button size="sm" onClick={() => setCheckInOpen(true)} data-training="fd-checkin-button">
+                {t('pms.checkIn')}
+              </Button>
             )}
             {reservation.status === 'checked_in' && (
-              <Button size="sm" variant="outline" onClick={() => updateStatus('checked_out')}>{t('pms.checkOut')}</Button>
+              <Button size="sm" variant="outline" onClick={() => setCheckOutOpen(true)} data-training="fd-checkout-button">
+                {t('pms.checkOut')}
+              </Button>
             )}
-            {!['cancelled', 'checked_out', 'no_show'].includes(reservation.status) && (
-              <Button size="sm" variant="destructive" onClick={() => updateStatus('cancelled')}>{t('pms.reservationDetail.cancel')}</Button>
+            {canCancelOrNoShow && (
+              <Button size="sm" variant="outline" onClick={() => setStatusAction('no_show')}>
+                {t('pms.res.markNoShow')}
+              </Button>
+            )}
+            {active && reservation.status !== 'checked_in' && (
+              <Button size="sm" variant="destructive" onClick={() => setStatusAction('cancelled')}>
+                {t('pms.reservationDetail.cancel')}
+              </Button>
             )}
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-4">
-          {/* Guest Info */}
+        <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <User className="h-4 w-4" /> {t('pms.reservationDetail.guestInfo')}
-              </CardTitle>
-            </CardHeader>
+            <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><User className="h-4 w-4" /> {t('pms.reservationDetail.guestInfo')}</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
-              {guest ? (
-                <>
-                  <div><span className="text-muted-foreground">{t('pms.reservationDetail.name')}:</span> <strong>{guest.first_name} {guest.last_name}</strong></div>
-                  {guest.email && <div><span className="text-muted-foreground">{t('pms.guests.email')}:</span> {guest.email}</div>}
-                  {guest.phone && <div><span className="text-muted-foreground">{t('pms.guests.phone')}:</span> {guest.phone}</div>}
-                  {guest.nationality && <div><span className="text-muted-foreground">{t('pms.guests.nationality')}:</span> {guest.nationality}</div>}
-                  {guest.id_document_number && <div><span className="text-muted-foreground">ID:</span> {guest.id_document_type} - {guest.id_document_number}</div>}
-                  {guest.company_name && <div><span className="text-muted-foreground">{t('pms.guests.company')}:</span> {guest.company_name}</div>}
-                </>
-              ) : (
-                <p className="text-muted-foreground">{t('pms.reservationDetail.noGuestLinked')}</p>
-              )}
+              <div><span className="text-muted-foreground">{t('pms.reservationDetail.name')}:</span> <strong>{guestLabel}</strong></div>
+              {guest?.email && <div><span className="text-muted-foreground">{t('pms.guests.email')}:</span> {guest.email}</div>}
+              {guest?.phone && <div><span className="text-muted-foreground">{t('pms.guests.phone')}:</span> {guest.phone}</div>}
+              {guest?.nationality && <div><span className="text-muted-foreground">{t('pms.guests.nationality')}:</span> {guest.nationality}</div>}
+              {guest?.company_name && <div><span className="text-muted-foreground">{t('pms.guests.company')}:</span> {guest.company_name}</div>}
+              {guest?.id_document_number && <div><span className="text-muted-foreground">ID:</span> {guest.id_document_type} · {guest.id_document_number}</div>}
+              {!guest && reservation.pms_guest_name && <p className="text-xs text-muted-foreground">{t('pms.res.pmsGuestOnly')}</p>}
             </CardContent>
           </Card>
 
-          {/* Stay Details */}
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <CalendarDays className="h-4 w-4" /> {t('pms.reservationDetail.stayDetails')}
-              </CardTitle>
-            </CardHeader>
+            <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><BedDouble className="h-4 w-4" /> {t('pms.res.room')}</CardTitle></CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <div><span className="text-muted-foreground">{t('pms.res.room')}:</span> <strong>{room?.room_number || t('pms.res.unassigned')}</strong></div>
+              <div><span className="text-muted-foreground">{t('pms.reservationDetail.roomType')}:</span> {room?.room_type || reservation.room_type_requested || t('pms.reservationDetail.notSpecified')}</div>
+              {room?.status && <div><span className="text-muted-foreground">{t('common.status')}:</span> <span className="capitalize">{room.status.replaceAll('_', ' ')}</span></div>}
+              {room?.capacity ? <div><span className="text-muted-foreground">{t('pms.res.capacity')}:</span> {room.capacity}</div> : null}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><CalendarDays className="h-4 w-4" /> {t('pms.reservationDetail.stayDetails')}</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
               <div><span className="text-muted-foreground">{t('pms.reservations.checkInDate')}:</span> <strong>{reservation.check_in_date}</strong></div>
               <div><span className="text-muted-foreground">{t('pms.reservations.checkOutDate')}:</span> <strong>{reservation.check_out_date}</strong></div>
-              <div><span className="text-muted-foreground">{t('pms.reservations.nights')}:</span> {reservation.total_nights || '-'}</div>
-              <div><span className="text-muted-foreground">{t('pms.reservations.guest')}:</span> {reservation.adults} {t('pms.reservationDetail.adults')}, {reservation.children} {t('pms.reservationDetail.children')}</div>
-              <div><span className="text-muted-foreground">{t('pms.reservationDetail.roomType')}:</span> {reservation.room_type_requested || t('pms.reservationDetail.notSpecified')}</div>
-              {reservation.actual_check_in && (
-                <div><span className="text-muted-foreground">{t('pms.reservationDetail.actualCheckIn')}:</span> {new Date(reservation.actual_check_in).toLocaleString()}</div>
-              )}
-              {reservation.actual_check_out && (
-                <div><span className="text-muted-foreground">{t('pms.reservationDetail.actualCheckOut')}:</span> {new Date(reservation.actual_check_out).toLocaleString()}</div>
-              )}
+              <div><span className="text-muted-foreground">{t('pms.reservations.nights')}:</span> {reservation.total_nights || '—'}</div>
+              <div><span className="text-muted-foreground">{t('pms.res.pax')}:</span> {reservation.adults}A{reservation.children ? ` · ${reservation.children}C` : ''}</div>
+              {reservation.actual_check_in && <div className="text-xs"><span className="text-muted-foreground">{t('pms.reservationDetail.actualCheckIn')}:</span> {new Date(reservation.actual_check_in).toLocaleString()}</div>}
+              {reservation.actual_check_out && <div className="text-xs"><span className="text-muted-foreground">{t('pms.reservationDetail.actualCheckOut')}:</span> {new Date(reservation.actual_check_out).toLocaleString()}</div>}
             </CardContent>
           </Card>
 
-          {/* Financial */}
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <CreditCard className="h-4 w-4" /> {t('pms.reservationDetail.financialSummary')}
-              </CardTitle>
-            </CardHeader>
+            <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><CreditCard className="h-4 w-4" /> {t('pms.reservationDetail.financialSummary')}</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <div><span className="text-muted-foreground">{t('pms.reservationDetail.ratePerNight')}:</span> {Number(reservation.rate_per_night).toLocaleString()} {reservation.currency}</div>
-              <div><span className="text-muted-foreground">{t('pms.reservationDetail.total')}:</span> <strong>{Number(reservation.total_amount).toLocaleString()} {reservation.currency}</strong></div>
-              <div><span className="text-muted-foreground">{t('pms.reservationDetail.payment')}:</span> <Badge variant="outline" className="capitalize">{reservation.payment_status}</Badge></div>
-              <div><span className="text-muted-foreground">{t('pms.reservationDetail.balance')}:</span> {Number(reservation.balance_due).toLocaleString()} {reservation.currency}</div>
+              <div><span className="text-muted-foreground">{t('pms.reservationDetail.ratePerNight')}:</span> {formatMoney(reservation.rate_per_night, reservation.currency)}</div>
+              <div><span className="text-muted-foreground">{t('pms.reservationDetail.total')}:</span> <strong>{formatMoney(reservation.total_amount, reservation.currency)}</strong></div>
+              <div><span className="text-muted-foreground">{t('pms.reservationDetail.payment')}:</span> <Badge variant="outline" className="capitalize">{reservation.payment_status?.replaceAll('_', ' ') || '—'}</Badge></div>
+              <div><span className="text-muted-foreground">{t('pms.reservationDetail.balance')}:</span> <strong>{formatMoney(reservation.balance_due, reservation.currency)}</strong></div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Notes */}
         {(reservation.special_requests || reservation.internal_notes) && (
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <FileText className="h-4 w-4" /> {t('pms.reservationDetail.notesRequests')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              {reservation.special_requests && (
-                <div>
-                  <span className="text-muted-foreground font-medium">{t('pms.reservationDetail.specialRequests')}:</span>
-                  <p className="mt-1">{reservation.special_requests}</p>
-                </div>
-              )}
-              {reservation.internal_notes && (
-                <div>
-                  <span className="text-muted-foreground font-medium">{t('pms.reservationDetail.internalNotes')}:</span>
-                  <p className="mt-1">{reservation.internal_notes}</p>
-                </div>
-              )}
+            <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><FileText className="h-4 w-4" /> {t('pms.reservationDetail.notesRequests')}</CardTitle></CardHeader>
+            <CardContent className="grid md:grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground font-medium">{t('pms.reservationDetail.specialRequests')}</span>
+                <p className="mt-1 whitespace-pre-wrap">{reservation.special_requests || '—'}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground font-medium">{t('pms.reservationDetail.internalNotes')}</span>
+                <p className="mt-1 whitespace-pre-wrap">{reservation.internal_notes || '—'}</p>
+              </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Folio */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm">{t('pms.reservationDetail.guestFolio')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {folioItems.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">{t('pms.reservationDetail.noCharges')}</p>
-            ) : (
-              <div className="space-y-1">
-                {folioItems.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                    <div>
-                      <span className="text-sm font-medium">{item.description}</span>
-                      <span className="text-xs text-muted-foreground ml-2 capitalize">{item.charge_type}</span>
-                    </div>
-                    <span className="text-sm font-medium">{Number(item.amount).toLocaleString()} {reservation.currency}</span>
-                  </div>
-                ))}
+        <div className="grid xl:grid-cols-2 gap-4">
+          <Card data-training="res-folio">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-sm flex items-center gap-2"><Receipt className="h-4 w-4" /> {t('pms.reservationDetail.guestFolio')}</CardTitle>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" className="gap-1" onClick={() => setFolioMode('charge')} data-training="res-folio-add-charge">
+                    <Plus className="h-3.5 w-3.5" /> {t('pms.res.addCharge')}
+                  </Button>
+                  <Button size="sm" className="gap-1" onClick={() => setFolioMode('payment')} data-training="res-folio-add-payment">
+                    <Banknote className="h-3.5 w-3.5" /> {t('pms.res.addPayment')}
+                  </Button>
+                </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent>
+              {folioItems.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">{t('pms.reservationDetail.noCharges')}</p>
+              ) : (
+                <div className="divide-y">
+                  {folioItems.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between py-2 gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{item.description}</p>
+                        <p className="text-xs text-muted-foreground capitalize">{item.charge_type?.replaceAll('_', ' ')} · {item.charge_date}</p>
+                      </div>
+                      <span className={`text-sm font-semibold ${item.charge_type === 'payment' ? 'text-green-600' : ''}`}>
+                        {item.charge_type === 'payment' ? '−' : '+'}{formatMoney(Math.abs(Number(item.amount || 0)), reservation.currency)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><History className="h-4 w-4" /> {t('pms.res.auditTimeline')}</CardTitle></CardHeader>
+            <CardContent>
+              {events.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">{t('pms.res.noAuditEvents')}</p>
+              ) : (
+                <div className="space-y-3">
+                  {events.map((event) => {
+                    const reason = event.metadata && typeof event.metadata === 'object' ? event.metadata.reason : null;
+                    return (
+                      <div key={event.id} className="flex gap-3 text-sm">
+                        <div className="mt-1 h-2 w-2 rounded-full bg-primary shrink-0" />
+                        <div className="min-w-0">
+                          <p className="font-medium capitalize">{String(event.event_type || '').replaceAll('_', ' ')}</p>
+                          {reason && <p className="text-xs text-muted-foreground mt-0.5">{reason}</p>}
+                          <p className="text-[11px] text-muted-foreground mt-0.5">{new Date(event.created_at).toLocaleString()}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {reservation.source_reservation_id && (
+          <div className="text-xs text-muted-foreground flex items-center gap-1.5 px-1">
+            <Hash className="h-3 w-3" /> {t('pms.res.sourceReference')}: <span className="font-mono">{reservation.source_reservation_id}</span>
+          </div>
+        )}
       </main>
+
+      <EditReservationDialog
+        reservation={reservation}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        onSuccess={fetchData}
+      />
+      <CheckInDialog
+        reservation={reservation}
+        open={checkInOpen}
+        onOpenChange={setCheckInOpen}
+        onSuccess={() => { setCheckInOpen(false); fetchData(); }}
+      />
+      <CheckOutDialog
+        reservation={reservation}
+        open={checkOutOpen}
+        onOpenChange={setCheckOutOpen}
+        onSuccess={() => { setCheckOutOpen(false); fetchData(); }}
+      />
+      {folioMode && (
+        <FolioItemDialog
+          reservationId={reservation.id}
+          currency={reservation.currency}
+          mode={folioMode}
+          open={!!folioMode}
+          onOpenChange={(open) => !open && setFolioMode(null)}
+          onSuccess={fetchData}
+        />
+      )}
+
+      <Dialog open={!!statusAction} onOpenChange={(open) => { if (!open) { setStatusAction(null); setStatusReason(''); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-600" />
+              {statusAction === 'no_show' ? t('pms.res.markNoShow') : t('pms.res.cancelReservation')}
+            </DialogTitle>
+            <DialogDescription>
+              {statusAction === 'no_show' ? t('pms.res.noShowConfirm') : t('pms.res.cancelConfirm')}
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label>{t('pms.res.reasonOptional')}</Label>
+            <Textarea value={statusReason} onChange={(e) => setStatusReason(e.target.value)} maxLength={500} placeholder={t('pms.res.reasonPlaceholder')} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStatusAction(null)}>{t('common.cancel')}</Button>
+            <Button
+              variant={statusAction === 'cancelled' ? 'destructive' : 'default'}
+              onClick={submitStatusAction}
+              disabled={statusBusy}
+            >
+              {statusBusy ? t('pms.checkIn.processing') : (statusAction === 'no_show' ? t('pms.res.markNoShow') : t('pms.res.cancelReservation'))}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
