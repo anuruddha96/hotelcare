@@ -15,7 +15,6 @@ import { ServiceOutageBanner } from "@/components/system/ServiceOutageBanner";
 import { SystemAnnouncementBanner } from "@/components/system/SystemAnnouncementBanner";
 import ExecutiveResumeRefresh from "@/components/system/ExecutiveResumeRefresh";
 
-
 // Lazy load all pages to keep initial bundle small
 const Index = lazy(() => import("./pages/Index"));
 const Auth = lazy(() => import("./pages/Auth"));
@@ -115,7 +114,7 @@ const RootRedirect = () => {
 const TenantRouter = () => {
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const { user, profile, loading, bootstrapProgress } = useAuth();
-  
+
   if (!organizationSlug) {
     return <Navigate to="/auth" replace />;
   }
@@ -141,7 +140,11 @@ const TenantRouter = () => {
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
-          <Route path="/front-desk" element={<FrontDesk />} />
+          {/* Phase 1 PMS: the old front-desk entry now opens the reservation board.
+              Keep the legacy screen on a hidden rollback route while the new board
+              is validated in operations. */}
+          <Route path="/front-desk" element={<Reservations />} />
+          <Route path="/front-desk-legacy" element={<FrontDesk />} />
           <Route path="/reservations" element={<Reservations />} />
           <Route path="/reservations/:id" element={<ReservationDetail />} />
           <Route path="/guests" element={<Guests />} />
@@ -189,7 +192,7 @@ const PublicBreakfastApp = () => (
 const AuthenticatedShell = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
   const location = useLocation();
-  
+
   if (!user) return <>{children}</>;
 
   const isRevenueRoute = /\/revenue(?:\/|$)/.test(location.pathname);
@@ -232,7 +235,6 @@ const MainApp = () => (
           <ServiceOutageBanner />
           <SystemAnnouncementBanner />
           <BrowserRouter>
-
             <AuthenticatedShell>
               <Suspense fallback={<PageLoader />}>
                 <Routes>
