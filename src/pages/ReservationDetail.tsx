@@ -39,7 +39,7 @@ const ReservationDetail = () => {
   const fetchData = useCallback(async () => {
     if (!id) return; setLoadingData(true);
     const [res, folio, audit] = await Promise.all([
-      (supabase as any).from('reservations').select('*, guests(*), rooms:room_id(id, room_number, room_type, status, actual_status)').eq('id', id).single(),
+      (supabase as any).from('reservations').select('*, guests(*), rooms:room_id(id, room_number, room_type, status, is_checkout_room)').eq('id', id).single(),
       (supabase as any).from('guest_folios').select('*').eq('reservation_id', id).order('created_at', { ascending: false }),
       (supabase as any).from('reservation_events').select('*').eq('reservation_id', id).order('created_at', { ascending: false }).limit(100),
     ]);
@@ -89,10 +89,6 @@ const ReservationDetail = () => {
     <Card data-training="pms-folio"><CardHeader className="pb-2"><CardTitle className="text-sm">{t('pms.reservationDetail.guestFolio')}</CardTitle></CardHeader><CardContent className="space-y-3"><div className="grid sm:grid-cols-[150px_1fr_140px_auto] gap-2 items-end"><div><Label>{t('pms.reservations.source')}</Label><Select value={folioType} onValueChange={setFolioType}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{['other','minibar','restaurant','bar','city_tax','service','adjustment','payment'].map((x) => <SelectItem value={x} key={x}>{x.replace('_',' ')}</SelectItem>)}</SelectContent></Select></div><div><Label>{t('pms.reservationDetail.notesRequests')}</Label><Input value={folioDescription} onChange={(e) => setFolioDescription(e.target.value)} /></div><div><Label>{t('pms.reservations.amount')}</Label><Input type="number" min="0" value={folioAmount} onChange={(e) => setFolioAmount(e.target.value)} /></div><Button onClick={addFolio} disabled={posting}>{t('common.save')}</Button></div>{folioItems.length === 0 ? <p className="text-sm text-muted-foreground">{t('pms.reservationDetail.noCharges')}</p> : folioItems.map((item) => <div key={item.id} className="flex justify-between border-t pt-2 text-sm"><span>{item.description} <span className="text-xs text-muted-foreground">· {item.charge_type}</span></span><strong className={item.charge_type === 'payment' ? 'text-green-700' : ''}>{item.charge_type === 'payment' ? '−' : ''}{Number(item.amount).toLocaleString()} {reservation.currency || 'HUF'}</strong></div>)}</CardContent></Card>
 
     <Card><CardHeader className="pb-2"><CardTitle className="text-sm flex gap-2"><History className="h-4 w-4" />History</CardTitle></CardHeader><CardContent className="space-y-2">{events.length === 0 ? <p className="text-sm text-muted-foreground">—</p> : events.map((event) => <div key={event.id} className="flex justify-between gap-3 text-xs border-b pb-2"><span className="font-medium">{String(event.event_type).replaceAll('_',' ')}</span><span className="text-muted-foreground">{new Date(event.created_at).toLocaleString()}</span></div>)}</CardContent></Card>
-  </main>
-  <EditReservationDialog reservation={reservation} open={editOpen} onOpenChange={setEditOpen} onSuccess={fetchData} />
-  <CheckInDialog reservation={reservation} hotelId={reservation.hotel_id} open={checkInOpen} onOpenChange={setCheckInOpen} onSuccess={() => { setCheckInOpen(false); fetchData(); }} />
-  <CheckOutDialog reservation={reservation} open={checkOutOpen} onOpenChange={setCheckOutOpen} onSuccess={() => { setCheckOutOpen(false); fetchData(); }} />
-  </div>;
+  </main><EditReservationDialog reservation={reservation} open={editOpen} onOpenChange={setEditOpen} onSuccess={fetchData} /><CheckInDialog reservation={reservation} hotelId={reservation.hotel_id} open={checkInOpen} onOpenChange={setCheckInOpen} onSuccess={() => { setCheckInOpen(false); fetchData(); }} /><CheckOutDialog reservation={reservation} open={checkOutOpen} onOpenChange={setCheckOutOpen} onSuccess={() => { setCheckOutOpen(false); fetchData(); }} /></div>;
 };
 export default ReservationDetail;
