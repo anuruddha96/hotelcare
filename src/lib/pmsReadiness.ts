@@ -11,12 +11,21 @@ const dateOnly = (value: unknown): string | null => {
 
 /**
  * A checkout room is "ready to clean" only when PMS confirmed the departure
- * TODAY. The readyToClean / checkedOutToday flags in pms_metadata are sticky,
- * so without this date guard a room that departed on an earlier day keeps
- * showing up as RTC while the current guest is still in-house.
+ * TODAY and the room is still unclean. The readyToClean / checkedOutToday
+ * flags in pms_metadata are sticky, so without the date guard a room that
+ * departed on an earlier day keeps showing RTC while the current guest is
+ * still in-house. Likewise, once live Previo housekeeping reports Clean,
+ * RTC must disappear: the room is already clean, not merely ready for it.
  */
 export const isPmsRtcToday = (meta: Record<string, any> | null | undefined): boolean => {
   if (!meta) return false;
+
+  // Previo room-clean status: 2/3 = clean/verified clean. A room that is
+  // already clean must never keep an RTC badge just because its checkout flag
+  // is still true for today.
+  const cleanStatusId = Number(meta.previoRoomCleanStatusId ?? 0);
+  if (cleanStatusId === 2 || cleanStatusId === 3) return false;
+
   const flagged = meta.checkedOutToday === true || meta.readyToClean === true;
   if (!flagged) return false;
   const stamp = dateOnly(meta.readyToCleanDate ?? meta.checkedOutAt);
