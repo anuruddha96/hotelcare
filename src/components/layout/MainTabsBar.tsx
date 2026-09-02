@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router-dom';
-import { Ticket, Home, Users, Clock, TrendingUp, Receipt } from 'lucide-react';
+import { Ticket, Home, Users, Clock, TrendingUp, Receipt, MessageSquareText } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { cn } from '@/lib/utils';
@@ -12,6 +12,7 @@ type Current =
   | 'housekeeping'
   | 'attendance'
   | 'revenue'
+  | 'reputation'
   | 'purchase-invoices';
 
 interface MainTabsBarProps {
@@ -31,12 +32,6 @@ const VISIBLE_ROLES = [
 
 const EXEC_ROLES = ['admin', 'top_management', 'top_management_manager'];
 
-/**
- * Shared horizontal main-navigation tab bar mirrored from the Dashboard
- * top tabs. Rendered on standalone pages (Revenue, Purchase Invoices) so
- * managers can navigate back to Tickets / Rooms / Housekeeping / Attendance
- * without losing context.
- */
 export function MainTabsBar({ current, className }: MainTabsBarProps) {
   const { profile } = useAuth();
   const { t } = useTranslation();
@@ -49,20 +44,14 @@ export function MainTabsBar({ current, className }: MainTabsBarProps) {
 
   const orgPath = `/${organizationSlug || 'rdhotels'}`;
   const isExec = EXEC_ROLES.includes(role);
-  // Revenue Management is available to exec roles in every organization
-  // (property-style orgs like SLNT included).
   const showRevenue = isExec;
-
-
   const goDashboard = (tab: string) => navigate(`${orgPath}?tab=${tab}`);
 
   const base =
     'inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium transition-colors whitespace-nowrap shrink-0';
   const inactive = 'text-muted-foreground hover:text-foreground hover:bg-background/60';
   const active = 'bg-primary text-primary-foreground shadow-sm';
-
-  const btn = (key: Current) =>
-    cn(base, current === key ? active : inactive);
+  const btn = (key: Current) => cn(base, current === key ? active : inactive);
 
   return (
     <div className={cn('w-full overflow-x-auto', className)}>
@@ -86,26 +75,21 @@ export function MainTabsBar({ current, className }: MainTabsBarProps) {
         {isExec && (
           <>
             {showRevenue && (
-              <button
-                type="button"
-                className={btn('revenue')}
-                onClick={() => navigate(`${orgPath}/revenue`)}
-              >
+              <button type="button" className={btn('revenue')} onClick={() => navigate(`${orgPath}/revenue`)}>
                 <TrendingUp className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                 <span>Revenue Management</span>
               </button>
             )}
-            <button
-              type="button"
-              className={btn('purchase-invoices')}
-              onClick={() => navigate(`${orgPath}/purchase-invoices`)}
-            >
+            <button type="button" className={btn('reputation')} onClick={() => navigate(`${orgPath}/reputation`)}>
+              <MessageSquareText className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+              <span>Reputation</span>
+            </button>
+            <button type="button" className={btn('purchase-invoices')} onClick={() => navigate(`${orgPath}/purchase-invoices`)}>
               <Receipt className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
               <span>Invoices</span>
             </button>
           </>
         )}
-
       </div>
     </div>
   );
