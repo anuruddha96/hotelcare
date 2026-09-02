@@ -6,6 +6,44 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { destinationCatalogue, destinationForLocation } from "@/lib/assistant/navigationRegistry";
 import { ALL_CURRICULA } from "@/components/training/v2/TrainingV2Provider";
 
+const HOTEL_TIMEZONE = "Europe/Budapest";
+
+function dateKeyInTimezone(now: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+function addCalendarDays(dateKey: string, days: number): string {
+  const date = new Date(`${dateKey}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function assistantRuntimeContext() {
+  const now = new Date();
+  const today = dateKeyInTimezone(now, HOTEL_TIMEZONE);
+  return {
+    timezone: HOTEL_TIMEZONE,
+    today,
+    yesterday: addCalendarDays(today, -1),
+    tomorrow: addCalendarDays(today, 1),
+    localDateTime: new Intl.DateTimeFormat("en-GB", {
+      timeZone: HOTEL_TIMEZONE,
+      dateStyle: "full",
+      timeStyle: "long",
+    }).format(now),
+    utcNow: now.toISOString(),
+    interpretation:
+      "Resolve relative dates from this hotel-local clock. Treat sales, sold, bookings, booking pace and pickup as revenue-performance language. A statement such as 'not much sales today' is a request for live revenue/pickup analysis and practical next actions, not generic advice. 'Sales today' means booking/pickup activity made today unless the user explicitly asks about guests staying today. If the available pickup metric covers a rolling period rather than exactly today, state that period clearly instead of presenting it as today's exact sales.",
+  };
+}
+
 /**
  * Everything the copilot needs to know about "where the user is". This is a UX
  * signal only — the backend re-derives identity, organization, property and
@@ -24,6 +62,7 @@ export interface AssistantPageContext {
   language: string;
   device: "mobile" | "desktop";
   timezone: string;
+  runtime: ReturnType<typeof assistantRuntimeContext>;
 }
 
 function entityFromPath(pathname: string): { type: string | null; id: string | null } {
@@ -68,7 +107,12 @@ export function useAssistantContext() {
       entityId: entity.id,
       language,
       device: isMobile ? "mobile" : "desktop",
-      timezone: "Europe/Budapest",
+      timezone: HOTEL_TIMEZONE,
+      // JSON.stringify invokes this getter when each chat request is sent, so a
+      // tab left open for hours still gets a fresh hotel-local clock.
+      get runtime() {
+        return assistantRuntimeContext();
+      },
     };
   }, [location.pathname, organizationSlug, profile, destination, tab, language, isMobile]);
 
