@@ -1,8 +1,6 @@
 import { useLocation, useParams, Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
-import { usePropertyTerms } from '@/lib/propertyTerminology';
-
 import {
   LayoutDashboard,
   CalendarDays,
@@ -15,15 +13,13 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
-const NAV_GATE_ROLES = ['admin', 'top_management', 'control_finance', 'control_manager', 'back_office_manager'];
-
 const PMS_NAV_ITEMS = [
-  { key: 'front-desk', icon: DoorOpen, labelKey: 'pms.frontDesk', roles: ['admin', 'manager', 'reception', 'front_office', 'housekeeping_manager', 'top_management', 'top_management_manager'] },
+  { key: 'reception', icon: DoorOpen, labelKey: 'pms.frontDesk', roles: ['admin', 'manager', 'reception', 'front_office', 'housekeeping_manager', 'top_management', 'top_management_manager'] },
   { key: 'reservations', icon: CalendarDays, labelKey: 'pms.reservations', roles: ['admin', 'manager', 'reception', 'front_office', 'housekeeping_manager', 'top_management', 'top_management_manager'] },
   { key: 'guests', icon: Users, labelKey: 'pms.guests', roles: ['admin', 'manager', 'reception', 'front_office', 'top_management', 'top_management_manager'] },
   { key: 'channel-manager', icon: Radio, labelKey: 'pms.channelManager', roles: ['admin', 'manager', 'top_management', 'top_management_manager'] },
   { key: 'revenue', icon: TrendingUp, labelKey: 'pms.revenue', roles: ['admin', 'top_management', 'top_management_manager'] },
-  { key: 'purchase-invoices', icon: Receipt, labelKey: 'pms.purchaseInvoices', roles: ['admin', 'top_management', 'control_finance', 'control_manager', 'back_office_manager'] },
+  { key: 'purchase-invoices', icon: Receipt, labelKey: 'pms.purchaseInvoices', roles: ['admin', 'top_management', 'top_management_manager', 'control_finance', 'control_manager', 'back_office_manager'] },
 ];
 
 export function PMSNavigation() {
@@ -33,19 +29,9 @@ export function PMSNavigation() {
   const { t } = useTranslation();
   const basePath = `/${organizationSlug || 'rdhotels'}`;
 
-  // Show to finance/back-office in addition to admin/top-management
-  if (!profile || !NAV_GATE_ROLES.includes(profile.role)) return null;
-
-  const propertyTerms = usePropertyTerms();
-
-  // Revenue Management is available in every organization (property-style
-  // orgs like SLNT run the same module as RD Hotels).
-  const visibleItems = PMS_NAV_ITEMS.filter(
-    (item) => profile && item.roles.includes(profile.role)
-  );
-
+  if (!profile) return null;
+  const visibleItems = PMS_NAV_ITEMS.filter((item) => item.roles.includes(profile.role));
   if (visibleItems.length === 0) return null;
-
 
   return (
     <nav className="w-full bg-card border-b border-border">
@@ -57,12 +43,12 @@ export function PMSNavigation() {
               <span className="hidden sm:inline text-xs">{t('pms.operations')}</span>
             </Button>
           </Link>
-
           <div className="h-5 w-px bg-border shrink-0" />
-
           {visibleItems.map((item) => {
             const path = `${basePath}/${item.key}`;
-            const isActive = location.pathname.startsWith(path);
+            const isActive = item.key === 'reception'
+              ? location.pathname.startsWith(`${basePath}/reception`) || location.pathname.startsWith(`${basePath}/front-desk`)
+              : location.pathname.startsWith(path);
             return (
               <Link key={item.key} to={path}>
                 <Button
@@ -70,9 +56,7 @@ export function PMSNavigation() {
                   size="sm"
                   className={cn(
                     'shrink-0 gap-1.5 text-xs',
-                    isActive
-                      ? 'bg-primary text-primary-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground'
+                    isActive ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
                   <item.icon className="h-4 w-4" />
