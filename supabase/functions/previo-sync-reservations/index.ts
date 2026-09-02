@@ -55,34 +55,29 @@ serve(async (req) => {
     hotelCareHotelId = config.hotel_id;
 
     const { data: hotelCfg } = await service.from("hotel_configurations")
-      .select("organization_id,organizations!inner(slug)").eq("hotel_id", hotelCareHotelId).maybeSingle();
+      .select("hotel_id,hotel_name,organization_id,organizations!inner(slug)").eq("hotel_id", hotelCareHotelId).maybeSingle();
     const orgSlug = (hotelCfg as any)?.organizations?.slug || null;
     const { data: allowed } = await service.rpc("can_access_pms_hotel", { _uid: userId, _hotel_id: hotelCareHotelId, _org_slug: orgSlug });
     if (!allowed) return json({ ok: false, error: "Forbidden" }, 403);
 
-    const secretName = resolvePrevioSecretName(config.credentials_secret_name);
-    const creds = loadPrevioCredentials(secretName);
+    const creds = loadPrevioCredentials(resolvePrevioSecretName(config.credentials_secret_name));
     const today = iso(new Date());
     const from = addDays(today, -pastDays);
     const to = addDays(today, futureDays);
-    const xmlResult = await callPrevioXml({
-      method: "searchReservations",
-      creds,
-      pmsHotelId: String(config.pms_hotel_id),
-      extraXml: `<term><from>${from}</from><to>${to}</to></term>`,
-    });
-    if (!xmlResult.ok) throw new Error(`Previo searchReservations failed (${xmlResult.status})`);
+    const xmlResult = await callPrevioXml({ method: "searchReservations", creds, pmsHotelId: String(config.pms_hotel_id), extraXml: `<term><from>${from}</from><to>${to}</to></term>` });
+    if (!xmlResult.ok) throw new Error(`Previo searchReservations failed (${xmlResult.status})${xmlResult.errorMessage ? `: ${xmlResult.errorMessage}` : ""}`);
     const blocks = xmlResult.text.match(/<reservation>[\s\S]*?<\/reservation>/gi) || [];
 
-    const { data: roomRows } = await service.from("rooms").select("id,room_number,hotel,pms_metadata");
+    const roomKeys = new Set([hotelCareHotelId, (hotelCfg as any)?.hotel_name].filter(Boolean));
+    const { data: roomRows, error: roomsError } = await service.from("rooms").select("id,room_number,hotel,pms_metadata").in("hotel", Array.from(roomKeys));
+    if (roomsError) throw roomsError;
     const roomByPrevioId = new Map<string, string>();
     const roomByName = new Map<string, string>();
     for (const room of roomRows || []) {
-      const sameHotel = room.hotel === hotelCareHotelId || room.hotel === (hotelCfg as any)?.hotel_name;
-      if (!sameHotel && room.hotel !== hotelCareHotelId) continue;
-      const previousId = String((room.pms_metadata as any)?.roomId || "").trim();
-      if (previousId) roomByPrevioId.set(previousId, room.id);
-      roomByName.set(String(room.room_number || "").trim().toLowerCase(), room.id);
+      const previoRoomId = String((room.pms_metadata as any)?.roomId || "").trim();
+      if (previoRoomId) roomByPrevioId.set(previoRoomId, room.id);
+      const normalizedName = String(room.room_number || "").trim().toLowerCase();
+      if (normalizedName) roomByName.set(normalizedName, room.id);
     }
 
     let inserted = 0, updated = 0, skipped = 0;
@@ -92,12 +87,14 @@ serve(async (req) => {
         const checkIn = grab(block, "from").slice(0, 10);
         const checkOut = grab(block, "to").slice(0, 10);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut) || checkOut <= checkIn) { skipped++; continue; }
+
         const object = block.match(/<object>[\s\S]*?<\/object>/i)?.[0] || "";
         const objId = grab(object, "objId") || grab(block, "objId");
         const roomName = grab(object, "name") || grab(block, "roomName");
         const roomId = (objId && roomByPrevioId.get(String(objId))) || roomByName.get(roomName.trim().toLowerCase()) || null;
         const rawId = grab(block, "reservationId") || grab(block, "resId") || grab(block, "reservationNumber") || grab(block, "code");
         const sourceReservationId = rawId || await syntheticSourceId(`${config.pms_hotel_id}|${objId}|${roomName}|${checkIn}|${checkOut}|${grab(block, "created")}`);
+
         const statusId = Number(grab(block, "statusId") || 0);
         let importedStatus: "pending" | "confirmed" | "checked_in" | "checked_out" | "cancelled" | "no_show" = "pending";
         if (statusId === 7) importedStatus = "cancelled";
@@ -110,40 +107,70 @@ serve(async (req) => {
         const totalNights = nightsBetween(checkIn, checkOut);
         const priceMatch = block.match(/<(?:price|priceTotal|totalPrice|amount)>([\d.,]+)<\/(?:price|priceTotal|totalPrice|amount)>/i);
         const currency = (grab(block, "currency") || "EUR").toUpperCase();
-        const totalAmount = priceMatch ? Number(priceMatch[1].replace(",", ".")) : 0;
-        const trustedAmount = Number.isFinite(totalAmount) && totalAmount > 0 ? totalAmount : 0;
-        const rate = trustedAmount > 0 ? Math.round((trustedAmount / totalNights) * 100) / 100 : 0;
-        const sourceNote = grab(block, "note") || null;
-        const metadata = { previo_status_id: statusId || null, previo_room_id: objId || null, previo_room_name: roomName || null, guest_count_from_previo: guestCount, source_note: sourceNote, imported_at: new Date().toISOString(), import_window: { from, to } };
+        const parsedTotal = priceMatch ? Number(priceMatch[1].replace(",", ".")) : 0;
+        const trustedTotal = Number.isFinite(parsedTotal) && parsedTotal > 0 ? parsedTotal : 0;
+        const roomRate = trustedTotal > 0 ? Math.round((trustedTotal / totalNights) * 100) / 100 : 0;
+        const metadata = {
+          previo_status_id: statusId || null,
+          previo_room_id: objId || null,
+          previo_room_name: roomName || null,
+          guest_count_from_previo: guestCount,
+          source_note: grab(block, "note") || null,
+          imported_at: new Date().toISOString(),
+          import_window: { from, to },
+        };
 
-        const { data: existing } = await service.from("reservations")
-          .select("id,status,internal_notes,special_requests")
-          .eq("hotel_id", hotelCareHotelId).eq("source", "previo").eq("source_reservation_id", sourceReservationId).maybeSingle();
+        const { data: existing, error: lookupError } = await service.from("reservations")
+          .select("id,status").eq("hotel_id", hotelCareHotelId).eq("source", "previo").eq("source_reservation_id", sourceReservationId).maybeSingle();
+        if (lookupError) throw lookupError;
         let status = importedStatus;
         if (existing && ["checked_in", "checked_out"].includes(existing.status) && ["pending", "confirmed"].includes(importedStatus)) status = existing.status as any;
-        const payload: any = {
-          hotel_id: hotelCareHotelId, organization_slug: orgSlug, source: "previo", source_reservation_id: sourceReservationId,
-          guest_id: null, room_id: roomId, check_in_date: checkIn, check_out_date: checkOut, adults: guestCount, children: 0,
-          status, total_nights: totalNights, room_rate: rate, total_room_charge: trustedAmount, total_amount: trustedAmount,
-          balance_due: trustedAmount, currency, pms_metadata: metadata, updated_by: userId,
+
+        const common: any = {
+          hotel_id: hotelCareHotelId,
+          organization_slug: orgSlug,
+          source: "previo",
+          source_reservation_id: sourceReservationId,
+          guest_id: null,
+          room_id: roomId,
+          check_in_date: checkIn,
+          check_out_date: checkOut,
+          adults: guestCount,
+          children: 0,
+          status,
+          total_nights: totalNights,
+          room_rate: roomRate,
+          currency,
+          pms_metadata: metadata,
+          updated_by: userId,
         };
+
+        let reservationId: string;
         if (existing) {
-          delete payload.balance_due;
-          delete payload.total_amount;
-          delete payload.total_room_charge;
-          await service.from("reservations").update(payload).eq("id", existing.id);
-          if (roomId) {
-            const { data: assignment } = await service.from("reservation_room_assignments").select("id").eq("reservation_id", existing.id).eq("room_id", roomId).maybeSingle();
-            if (assignment) await service.from("reservation_room_assignments").update({ check_in_date: checkIn, check_out_date: checkOut, status: ["cancelled","no_show","checked_out"].includes(status) ? "completed" : "assigned" }).eq("id", assignment.id);
-            else await service.from("reservation_room_assignments").insert({ reservation_id: existing.id, room_id: roomId, check_in_date: checkIn, check_out_date: checkOut, status: ["cancelled","no_show","checked_out"].includes(status) ? "completed" : "assigned" });
-          }
+          const { error } = await service.from("reservations").update(common).eq("id", existing.id);
+          if (error) throw error;
+          reservationId = existing.id;
           updated++;
         } else {
-          payload.created_by = userId;
+          const payload = { ...common, total_room_charge: trustedTotal, total_amount: trustedTotal, balance_due: trustedTotal, created_by: userId };
           const { data: created, error } = await service.from("reservations").insert(payload).select("id").single();
           if (error) throw error;
-          if (roomId) await service.from("reservation_room_assignments").insert({ reservation_id: created.id, room_id: roomId, check_in_date: checkIn, check_out_date: checkOut, status: ["cancelled","no_show","checked_out"].includes(status) ? "completed" : "assigned" });
+          reservationId = created.id;
           inserted++;
+        }
+
+        const terminal = ["cancelled", "no_show", "checked_out"].includes(status);
+        await service.from("reservation_room_assignments").update({ status: "cancelled" }).eq("reservation_id", reservationId).neq("room_id", roomId || "00000000-0000-0000-0000-000000000000").in("status", ["assigned", "active"]);
+        if (roomId) {
+          const { data: assignment, error: assignmentLookupError } = await service.from("reservation_room_assignments").select("id").eq("reservation_id", reservationId).eq("room_id", roomId).maybeSingle();
+          if (assignmentLookupError) throw assignmentLookupError;
+          if (assignment) {
+            const { error } = await service.from("reservation_room_assignments").update({ check_in_date: checkIn, check_out_date: checkOut, status: terminal ? "completed" : "assigned" }).eq("id", assignment.id);
+            if (error) throw error;
+          } else {
+            const { error } = await service.from("reservation_room_assignments").insert({ reservation_id: reservationId, room_id: roomId, check_in_date: checkIn, check_out_date: checkOut, status: terminal ? "completed" : "assigned" });
+            if (error) throw error;
+          }
         }
       } catch (e: any) {
         errors.push(String(e?.message || e).slice(0, 300));
@@ -151,9 +178,17 @@ serve(async (req) => {
     }
 
     const syncStatus = errors.length ? (inserted || updated ? "partial" : "error") : "success";
-    await service.from("pms_sync_history").insert({ hotel_id: hotelCareHotelId, sync_type: "reservations", direction: "from_previo", sync_status: syncStatus, changed_by: userId, records_processed: blocks.length, records_created: inserted, records_updated: updated, records_failed: errors.length, error_message: errors.length ? errors.slice(0, 10).join("; ") : null, data: { received: blocks.length, inserted, updated, skipped, errors: errors.slice(0, 20), previo_hotel_id: config.pms_hotel_id, from, to } });
+    await service.from("pms_sync_history").insert({
+      hotel_id: hotelCareHotelId,
+      sync_type: "reservations",
+      direction: "from_previo",
+      sync_status: syncStatus,
+      changed_by: userId,
+      error_message: errors.length ? errors.slice(0, 10).join("; ") : null,
+      data: { received: blocks.length, inserted, updated, skipped, failed: errors.length, errors: errors.slice(0, 20), previo_hotel_id: config.pms_hotel_id, from, to },
+    });
     await service.from("pms_configurations").update({ last_sync_at: new Date().toISOString(), last_sync_status: syncStatus, last_sync_error: errors.length ? errors[0] : null }).eq("hotel_id", hotelCareHotelId).eq("pms_type", "previo");
-    return json({ ok: true, received: blocks.length, inserted, updated, skipped, errors, hotelId: hotelCareHotelId, from, to });
+    return json({ ok: true, received: blocks.length, inserted, updated, skipped, failed: errors.length, errors, hotelId: hotelCareHotelId, from, to });
   } catch (e: any) {
     const message = String(e?.message || e);
     try {
