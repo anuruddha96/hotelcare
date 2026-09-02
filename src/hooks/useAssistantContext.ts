@@ -84,7 +84,10 @@ export function useAssistantContext() {
   const { language } = useTranslation();
   const location = useLocation();
   const [params] = useSearchParams();
-  const { organizationSlug } = useParams<{ organizationSlug: string }>();
+  const { organizationSlug, hotelId: routeHotelId } = useParams<{
+    organizationSlug: string;
+    hotelId?: string;
+  }>();
   const isMobile = useIsMobile();
 
   const tab = params.get("tab");
@@ -97,7 +100,11 @@ export function useAssistantContext() {
     const entity = entityFromPath(location.pathname);
     return {
       organizationSlug: organizationSlug ?? profile?.organization_slug ?? null,
-      hotelId: profile?.assigned_hotel ?? null,
+      // On /revenue/:hotelId the route is the hotel the user is actually
+      // looking at. This must win over profile.assigned_hotel, especially for
+      // portfolio managers, otherwise the assistant may analyze another hotel
+      // or widen the request to the whole portfolio.
+      hotelId: routeHotelId ?? profile?.assigned_hotel ?? null,
       role: profile?.role ?? null,
       route: location.pathname,
       module: destination?.module ?? null,
@@ -114,7 +121,7 @@ export function useAssistantContext() {
         return assistantRuntimeContext();
       },
     };
-  }, [location.pathname, organizationSlug, profile, destination, tab, language, isMobile]);
+  }, [location.pathname, organizationSlug, routeHotelId, profile, destination, tab, language, isMobile]);
 
   /** Destinations and walkthroughs the model may reference, for this role. */
   const capabilities = useMemo(() => {
