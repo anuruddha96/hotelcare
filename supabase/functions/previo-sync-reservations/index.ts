@@ -1,234 +1,409 @@
+// Real, idempotent Previo reservation importer.
+//
+// Pulls reservations for a bounded window via the PROVEN XML
+// `searchReservations` method (same helper as previo-pull-revenue), parses
+// only fields that are truly present (shared parser in
+// _shared/previoReservations.ts) and upserts into public.reservations by
+// (hotel_id, source='previo', source_reservation_id).
+//
+// Safety rules:
+// - Never invents guest data. Guest identity stays NULL when Previo does not
+//   provide it; pms_guest_name carries whatever label Previo gave us.
+// - Never overwrites HotelCare-managed direct bookings (different source, so
+//   the conflict target can never collide with them).
+// - Never downgrades local operational statuses (checked_in / checked_out).
+// - Room mapping uses pms_room_mappings and rooms.pms_metadata.roomId only —
+//   no brittle trailing-number parsing. Unmapped rooms import unassigned.
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
-import { fetchPrevioWithAuth, safePrevioJson } from '../_shared/previoAuth.ts';
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import {
+  callPrevioXml,
+  hasPrevioCredentials,
+  loadPrevioCredentials,
+  resolvePrevioSecretName,
+} from "../_shared/previoCredentials.ts";
+import {
+  addDays,
+  mapPrevioStatus,
+  parsePrevioReservations,
+  type PrevioReservationRow,
+} from "../_shared/previoReservations.ts";
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-interface PrevioRoom {
-  roomId: number;
-  name: string;
-  roomKindId: number;
-  roomKindName: string;
-  roomTypeId: number;
-  roomCleanStatusId: number;
-  hasCapacity: boolean;
-  isHourlyBased: boolean;
-  capacity: number;
-  extraCapacity: number;
-  order: number;
-  reservation?: {
-    reservationId: number;
-    arrivalDate: string;
-    departureDate: string;
-    status: string;
-  };
+const ALLOWED_ROLES = [
+  "admin",
+  "manager",
+  "reception",
+  "front_office",
+  "top_management",
+  "top_management_manager",
+];
+const PRIVILEGED_ROLES = ["admin", "top_management", "top_management_manager"];
+
+const CHUNK_DAYS = 93;
+const UPSERT_BATCH = 200;
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function isoToday(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const service = createClient(supabaseUrl, serviceKey);
+
+  let hotelIdForLog: string | null = null;
   try {
-    const { hotelId, dateFrom, dateTo } = await req.json();
-    
-    if (!hotelId) {
-      throw new Error('Hotel ID is required');
-    }
+    const body = await req.json().catch(() => ({}));
+    const hotelId = String(body?.hotelId ?? "").trim();
+    if (!hotelId) return json({ success: false, error: "hotelId is required" }, 400);
+    hotelIdForLog = hotelId;
 
-    // Initialize Supabase client to look up hotel mapping
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const daysBack = Math.min(60, Math.max(0, Number(body?.daysBack ?? 7) || 0));
+    const daysForward = Math.min(540, Math.max(30, Number(body?.daysForward ?? 365) || 365));
 
-    // Look up the HotelCare hotel_id from the Previo hotel ID
-    const { data: pmsConfig } = await supabase
-      .from('pms_configurations')
-      .select('hotel_id, credentials_secret_name')
-      .eq('pms_hotel_id', hotelId)
-      .eq('pms_type', 'previo')
-      .single();
-
-    if (!pmsConfig) {
-      throw new Error(`No PMS configuration found for Previo hotel ID: ${hotelId}`);
-    }
-
-    const hotelCareHotelId = pmsConfig.hotel_id;
-    console.log(`Syncing reservations from Previo REST API for Previo ID: ${hotelId}, HotelCare ID: ${hotelCareHotelId}`);
-
-    const { response } = await fetchPrevioWithAuth({
-      credentialsSecretName: pmsConfig.credentials_secret_name,
-      path: '/rest/rooms',
-      pmsHotelId: hotelId,
-    });
-
-    console.log(`Previo API response status: ${response.status}`);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Previo API error:', errorText);
-      throw new Error(`Previo API error: ${response.status} ${response.statusText}`);
-    }
-
-    const roomsData = await safePrevioJson<PrevioRoom[]>(response, { path: '/rest/rooms' });
-    console.log(`Received ${roomsData.length} rooms from Previo REST API`);
-    console.log('Sample room data:', JSON.stringify(roomsData[0], null, 2));
-
-    // Extract room number from name (e.g., "Egyágyas szoba Deluxe 001" -> "001")
-    const extractRoomNumber = (name: string): string | null => {
-      // Try to find a 3-digit number at the end of the name
-      const match = name.match(/(\d{3,4})$/);
-      return match ? match[1] : null;
-    };
-
-    // Get authorization header
-    const authHeader = req.headers.get('Authorization');
+    // ---- Caller authorization -------------------------------------------
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const token = authHeader.replace(/^Bearer\s+/i, "");
+    const isServiceCall = token === serviceKey;
     let userId: string | null = null;
-    
-    if (authHeader) {
-      const { data: { user } } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
-      userId = user?.id || null;
+    let userName: string | null = null;
+    let profileOrg: string | null = null;
+
+    if (!isServiceCall) {
+      const { data: userData } = await service.auth.getUser(token);
+      const user = userData?.user;
+      if (!user) return json({ success: false, error: "Unauthorized" }, 401);
+      userId = user.id;
+      const { data: profile } = await service
+        .from("profiles")
+        .select("role, organization_slug, assigned_hotel, is_super_admin, full_name")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (!profile || !ALLOWED_ROLES.includes(profile.role)) {
+        return json({ success: false, error: "Forbidden" }, 403);
+      }
+      userName = profile.full_name ?? null;
+      profileOrg = profile.organization_slug ?? null;
+      const privileged = profile.is_super_admin === true || PRIVILEGED_ROLES.includes(profile.role);
+      if (!privileged && profile.assigned_hotel !== hotelId) {
+        return json({ success: false, error: "Forbidden for this property" }, 403);
+      }
     }
 
-    const syncResults = {
-      total: roomsData.length,
-      updated: 0,
-      checkouts_today: 0,
-      arrivals_today: 0,
-      stayovers: 0,
-      errors: [] as string[]
+    // ---- Resolve Previo accounts for this hotel --------------------------
+    const { data: legacyCfg } = await service
+      .from("pms_configurations")
+      .select("id, hotel_id, pms_hotel_id, credentials_secret_name, is_active")
+      .eq("hotel_id", hotelId)
+      .eq("pms_type", "previo")
+      .maybeSingle();
+    const { data: portfolioAccounts } = await service
+      .from("pms_accounts")
+      .select("id, hotel_id, organization_slug, label, pms_hotel_id, credentials_secret_name, is_active")
+      .eq("hotel_id", hotelId)
+      .eq("pms_type", "previo")
+      .eq("is_active", true);
+
+    const accounts: Array<{
+      id: string;
+      label: string;
+      pms_hotel_id: string;
+      credentials_secret_name: string | null;
+      organization_slug?: string | null;
+      isLegacy?: boolean;
+    }> = (portfolioAccounts ?? []).length > 0
+      ? (portfolioAccounts ?? []).map((a: Record<string, unknown>) => ({
+          id: String(a.id),
+          label: String(a.label || a.pms_hotel_id),
+          pms_hotel_id: String(a.pms_hotel_id || ""),
+          credentials_secret_name: resolvePrevioSecretName(a.credentials_secret_name as string | null),
+          organization_slug: (a.organization_slug as string | null) ?? null,
+        }))
+      : legacyCfg?.is_active
+        ? [{
+            id: String(legacyCfg.id),
+            label: String(legacyCfg.pms_hotel_id),
+            pms_hotel_id: String(legacyCfg.pms_hotel_id || ""),
+            credentials_secret_name: legacyCfg.credentials_secret_name,
+            isLegacy: true,
+          }]
+        : [];
+
+    const usable = accounts.filter((a) => a.pms_hotel_id && hasPrevioCredentials(a.credentials_secret_name));
+    if (usable.length === 0) {
+      return json({
+        success: true,
+        supported: false,
+        message: `No active, credentialed Previo account is configured for ${hotelId}.`,
+      });
+    }
+
+    // Organization slug for imported rows.
+    let orgSlug = usable.find((a) => a.organization_slug)?.organization_slug ?? profileOrg ?? null;
+    if (!orgSlug) {
+      const { data: anyRoom } = await service
+        .from("rooms")
+        .select("organization_slug")
+        .eq("hotel", hotelId)
+        .not("organization_slug", "is", null)
+        .limit(1)
+        .maybeSingle();
+      orgSlug = anyRoom?.organization_slug ?? null;
+    }
+
+    // ---- Pull the reservation window from Previo -------------------------
+    const today = isoToday();
+    const windowFrom = addDays(today, -daysBack);
+    const windowTo = addDays(today, daysForward);
+
+    const parsed = new Map<string, PrevioReservationRow>();
+    let received = 0;
+    const errors: string[] = [];
+    const accountResults: Array<{ label: string; received: number; error?: string }> = [];
+
+    for (const account of usable) {
+      const creds = loadPrevioCredentials(account.credentials_secret_name);
+      let accountReceived = 0;
+      let accountError: string | undefined;
+      for (let from = windowFrom; from < windowTo; from = addDays(from, CHUNK_DAYS)) {
+        const to = addDays(from, CHUNK_DAYS) < windowTo ? addDays(from, CHUNK_DAYS) : windowTo;
+        const result = await callPrevioXml({
+          method: "searchReservations",
+          creds,
+          pmsHotelId: account.pms_hotel_id,
+          extraXml: `<term><from>${from}</from><to>${to}</to></term>`,
+        });
+        if (!result.ok) {
+          accountError = `searchReservations ${from}→${to} failed (${result.status}${result.errorMessage ? `: ${result.errorMessage}` : ""})`;
+          errors.push(`${account.label}: ${accountError}`);
+          break; // Do not hammer a failing account with the remaining chunks.
+        }
+        const rows = parsePrevioReservations(result.text);
+        accountReceived += rows.length;
+        for (const row of rows) {
+          // Multi-account hotels: prefix the account to keep refs unique.
+          const ref = usable.length > 1 ? `${account.pms_hotel_id}:${row.sourceRef}` : row.sourceRef;
+          parsed.set(ref, { ...row, sourceRef: ref });
+        }
+      }
+      received += accountReceived;
+      accountResults.push({ label: account.label, received: accountReceived, error: accountError });
+    }
+
+    if (parsed.size === 0 && errors.length > 0) {
+      // Total failure — log and bail without touching local rows.
+      await service.from("pms_sync_history").insert({
+        sync_type: "reservations",
+        direction: "from_previo",
+        hotel_id: hotelId,
+        data: { window: { from: windowFrom, to: windowTo }, accounts: accountResults, errors },
+        changed_by: userId,
+        synced_by_user_id: userId,
+        synced_by_name: userName,
+        sync_status: "failed",
+        error_message: errors.join("; ").slice(0, 900),
+      });
+      return json({ success: false, error: errors.join("; ") }, 502);
+    }
+
+    // ---- Room resolution maps (no guessing) -------------------------------
+    const roomByPmsId = new Map<string, string>();
+    if (legacyCfg?.id) {
+      const { data: mappings } = await service
+        .from("pms_room_mappings")
+        .select("pms_room_id, hotelcare_room_id, is_active")
+        .eq("pms_config_id", legacyCfg.id)
+        .eq("is_active", true)
+        .not("hotelcare_room_id", "is", null);
+      for (const m of mappings ?? []) {
+        if (m.pms_room_id && m.hotelcare_room_id) roomByPmsId.set(String(m.pms_room_id), m.hotelcare_room_id);
+      }
+    }
+    // rooms.pms_metadata.roomId (written by the room import / unit mapping flows)
+    const { data: hotelKeysData } = await service.rpc("pms_hotel_room_keys", { _hotel_id: hotelId });
+    const hotelKeys: string[] = Array.isArray(hotelKeysData) && hotelKeysData.length
+      ? hotelKeysData.map((k: unknown) => String(k))
+      : [hotelId];
+    const { data: hotelRooms } = await service
+      .from("rooms")
+      .select("id, room_number, pms_metadata, hotel")
+      .in("hotel", hotelKeys);
+    for (const room of hotelRooms ?? []) {
+      const pmsRoomId = (room.pms_metadata as Record<string, unknown> | null)?.roomId;
+      if (pmsRoomId != null && !roomByPmsId.has(String(pmsRoomId))) {
+        roomByPmsId.set(String(pmsRoomId), room.id);
+      }
+    }
+
+    // ---- Existing local rows ---------------------------------------------
+    const { data: existingRows } = await service
+      .from("reservations")
+      .select("id, source_reservation_id, status, room_id, guest_id, total_amount, balance_due, adults, children, check_in_date, check_out_date, pms_guest_name, special_requests, currency")
+      .eq("hotel_id", hotelId)
+      .eq("source", "previo");
+    const existingByRef = new Map(
+      (existingRows ?? []).map((r: Record<string, unknown>) => [String(r.source_reservation_id), r]),
+    );
+
+    // ---- Merge + upsert -----------------------------------------------------
+    let inserted = 0;
+    let updated = 0;
+    let skipped = 0;
+    let unmappedRooms = 0;
+    const payload: Record<string, unknown>[] = [];
+
+    for (const row of parsed.values()) {
+      const existing = existingByRef.get(row.sourceRef) as Record<string, unknown> | undefined;
+      const mappedStatus = mapPrevioStatus(row.statusId);
+      const localStatus = existing ? String(existing.status) : null;
+      // Never downgrade local operational states.
+      const status = localStatus && ["checked_in", "checked_out"].includes(localStatus)
+        ? localStatus
+        : mappedStatus;
+
+      const mappedRoom = row.objId ? roomByPmsId.get(String(row.objId)) ?? null : null;
+      if (!mappedRoom && row.objId && mappedStatus === "confirmed") unmappedRooms++;
+      const roomId = localStatus === "checked_in"
+        ? (existing?.room_id as string | null) ?? mappedRoom
+        : mappedRoom ?? ((existing?.room_id as string | null) ?? null);
+
+      const nights = Math.max(1, row.nights);
+      const total = row.totalPrice ?? (existing ? Number(existing.total_amount ?? 0) : 0);
+      const previouslyPaid = existing
+        ? Math.max(0, Number(existing.total_amount ?? 0) - Number(existing.balance_due ?? 0))
+        : 0;
+      const balance = Math.max(0, Math.round((total - previouslyPaid) * 100) / 100);
+
+      const children = existing ? Number(existing.children ?? 0) : 0;
+      const adults = Math.max(1, row.guestsCount - children);
+
+      const record: Record<string, unknown> = {
+        hotel_id: hotelId,
+        organization_slug: orgSlug,
+        source: "previo",
+        source_reservation_id: row.sourceRef,
+        check_in_date: row.arrivalDate,
+        check_out_date: row.departureDate,
+        status,
+        adults,
+        children,
+        room_id: roomId,
+        guest_id: (existing?.guest_id as string | null) ?? null,
+        pms_guest_name: row.guestName ?? (existing?.pms_guest_name as string | null) ?? null,
+        rate_per_night: Math.round((total / nights) * 100) / 100,
+        total_amount: total,
+        balance_due: balance,
+        payment_status: balance <= 0 && total > 0 ? "paid" : (previouslyPaid > 0 ? "partial" : "unpaid"),
+        special_requests: row.note ?? (existing?.special_requests as string | null) ?? null,
+        updated_at: new Date().toISOString(),
+      };
+      if (row.currency) record.currency = row.currency;
+      else if (existing?.currency) record.currency = existing.currency;
+      if (status === "cancelled") record.cancelled_at = row.cancelledAtIso ?? new Date().toISOString();
+
+      if (!existing) {
+        inserted++;
+        payload.push(record);
+        continue;
+      }
+      const unchanged =
+        existing.check_in_date === record.check_in_date &&
+        existing.check_out_date === record.check_out_date &&
+        String(existing.status) === status &&
+        (existing.room_id ?? null) === roomId &&
+        Number(existing.total_amount ?? 0) === total &&
+        (existing.pms_guest_name ?? null) === record.pms_guest_name &&
+        (existing.special_requests ?? null) === record.special_requests &&
+        Number(existing.adults ?? 0) === adults;
+      if (unchanged) {
+        skipped++;
+        continue;
+      }
+      updated++;
+      payload.push(record);
+    }
+
+    for (let i = 0; i < payload.length; i += UPSERT_BATCH) {
+      const chunk = payload.slice(i, i + UPSERT_BATCH);
+      const { error } = await service
+        .from("reservations")
+        .upsert(chunk, { onConflict: "hotel_id,source,source_reservation_id" });
+      if (error) {
+        errors.push(`Upsert failed: ${error.message}`);
+        break;
+      }
+    }
+
+    const syncStatus = errors.length === 0 ? "success" : payload.length > 0 ? "partial" : "failed";
+    const counts = {
+      received,
+      inserted,
+      updated,
+      skipped,
+      unmapped_rooms: unmappedRooms,
+      errors,
+      window: { from: windowFrom, to: windowTo },
+      accounts: accountResults,
     };
 
-    const today = new Date().toISOString().split('T')[0];
-
-    // Process each room with reservation data
-    for (const roomData of roomsData) {
-      try {
-        const roomNumber = extractRoomNumber(roomData.name);
-        
-        if (!roomNumber) {
-          console.warn(`Skipping room with unparseable name: ${roomData.name}`);
-          continue;
-        }
-
-        // Check if room has an active reservation
-        if (!roomData.reservation) {
-          console.log(`Room ${roomNumber} has no reservation`);
-          continue; // Skip rooms without reservations
-        }
-
-        const reservation = roomData.reservation;
-        const departureDate = reservation.departureDate?.split('T')[0] || '';
-        const arrivalDate = reservation.arrivalDate?.split('T')[0] || '';
-
-        const isCheckoutToday = departureDate === today;
-        const isArrivalToday = arrivalDate === today;
-        const isStayover = !isCheckoutToday && !isArrivalToday;
-
-        console.log(`Processing reservation for room ${roomNumber}: checkout=${isCheckoutToday}, arrival=${isArrivalToday}, stayover=${isStayover}`);
-
-        // Find the room in Hotel Care using HotelCare hotel_id
-        const { data: room } = await supabase
-          .from('rooms')
-          .select('id')
-          .eq('room_number', roomNumber)
-          .eq('hotel', hotelCareHotelId)
-          .single();
-
-        if (!room) {
-          console.warn(`Room ${roomNumber} not found in Hotel Care database`);
-          syncResults.errors.push(`Room ${roomNumber} not found in Hotel Care`);
-          continue;
-        }
-
-        // Update room with reservation data
-        const roomUpdate: any = {
-          updated_at: new Date().toISOString(),
-        };
-
-        const { error } = await supabase
-          .from('rooms')
-          .update(roomUpdate)
-          .eq('id', room.id);
-
-        if (error) throw error;
-
-        syncResults.updated++;
-        if (isCheckoutToday) syncResults.checkouts_today++;
-        if (isArrivalToday) syncResults.arrivals_today++;
-        if (isStayover) syncResults.stayovers++;
-        
-        console.log(`✓ Updated reservation info for room ${roomNumber}`);
-
-      } catch (error: any) {
-        console.error(`Error processing room:`, error);
-        syncResults.errors.push(`Room processing error: ${error.message}`);
-      }
-    }
-
-    // Log sync event
-    await supabase.from('pms_sync_history').insert({
-      sync_type: 'reservations',
-      direction: 'from_previo',
-      hotel_id: hotelCareHotelId,
-      data: {
-        total: syncResults.total,
-        updated: syncResults.updated,
-        checkouts_today: syncResults.checkouts_today,
-        arrivals_today: syncResults.arrivals_today,
-        stayovers: syncResults.stayovers,
-        errors: syncResults.errors,
-        previo_hotel_id: hotelId
-      },
+    await service.from("pms_sync_history").insert({
+      sync_type: "reservations",
+      direction: "from_previo",
+      hotel_id: hotelId,
+      data: counts,
       changed_by: userId,
-      sync_status: syncResults.errors.length > 0 ? 'partial' : 'success',
-      error_message: syncResults.errors.length > 0 ? syncResults.errors.join('; ') : null
+      synced_by_user_id: userId,
+      synced_by_name: userName,
+      sync_status: syncStatus,
+      error_message: errors.length ? errors.join("; ").slice(0, 900) : null,
     });
-
-    console.log('Reservation sync completed:', syncResults);
-
-    return new Response(
-      JSON.stringify({ 
-        success: true,
-        message: 'Reservations synced from Previo REST API',
-        results: syncResults
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-
-  } catch (error: any) {
-    console.error('Previo reservation sync error:', error);
-    
-    // Log failed sync
-    try {
-      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-      const supabase = createClient(supabaseUrl, supabaseKey);
-      
-      await supabase.from('pms_sync_history').insert({
-        sync_type: 'reservations',
-        direction: 'from_previo',
-        hotel_id: null,
-        data: { error: error.message },
-        sync_status: 'failed',
-        error_message: error.message
-      });
-    } catch (logError) {
-      console.error('Failed to log error:', logError);
+    if (legacyCfg?.id) {
+      await service
+        .from("pms_configurations")
+        .update({ last_sync_at: new Date().toISOString() })
+        .eq("id", legacyCfg.id);
+    }
+    for (const account of usable) {
+      if (account.isLegacy) continue;
+      await service
+        .from("pms_accounts")
+        .update({
+          last_sync_at: new Date().toISOString(),
+          last_sync_status: syncStatus,
+          last_sync_error: errors.length ? errors.join("; ").slice(0, 500) : null,
+        })
+        .eq("id", account.id);
     }
 
-    return new Response(
-      JSON.stringify({ 
-        success: false,
-        error: error.message 
-      }),
-      { 
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      }
-    );
+    return json({ success: errors.length === 0, ...counts });
+  } catch (error) {
+    const message = (error as Error)?.message ?? String(error);
+    console.error("previo-sync-reservations error:", message);
+    try {
+      await service.from("pms_sync_history").insert({
+        sync_type: "reservations",
+        direction: "from_previo",
+        hotel_id: hotelIdForLog,
+        data: { error: message },
+        sync_status: "failed",
+        error_message: message.slice(0, 900),
+      });
+    } catch (_) { /* best effort */ }
+    return json({ success: false, error: message }, 500);
   }
 });
