@@ -90,15 +90,40 @@ function manualStream(text: string, metadata: Record<string, unknown>) {
   });
 }
 
+function normalizeHotel(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\bhotel\b/g, "")
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
+}
+
 function selectedHotels(question: string, page: any, hotels: any[]) {
   const q = question.toLowerCase();
-  const named = hotels.filter((h) => q.includes(String(h.hotel_name ?? "").toLowerCase()) || q.includes(String(h.hotel_id ?? "").toLowerCase()));
+  const named = hotels.filter((h) => {
+    const id = String(h.hotel_id ?? "").toLowerCase();
+    const name = String(h.hotel_name ?? "").toLowerCase();
+    return (id && q.includes(id)) || (name && q.includes(name));
+  });
   if (named.length) return named.slice(0, 5);
-  const pageHotel = String(page?.hotelId ?? "").toLowerCase();
-  if (pageHotel) {
-    const match = hotels.find((h) => String(h.hotel_id).toLowerCase() === pageHotel || String(h.hotel_name).toLowerCase() === pageHotel);
+
+  const hints = [
+    page?.entityType === "hotel" ? page?.entityId : null,
+    page?.hotelId,
+    typeof page?.route === "string" ? page.route.match(/\/revenue\/([^/?#]+)/)?.[1] : null,
+  ].filter(Boolean);
+
+  for (const hint of hints) {
+    const needle = normalizeHotel(hint);
+    if (!needle) continue;
+    const match = hotels.find((h) =>
+      normalizeHotel(h.hotel_id) === needle || normalizeHotel(h.hotel_name) === needle,
+    );
     if (match) return [match];
   }
+
   return hotels.slice(0, 5);
 }
 
@@ -146,23 +171,30 @@ function bookingPaceSummary(payload: any, today: string) {
   const current = statsFor(today);
   const yesterday = statsFor(addDays(today, -1));
   const trailing = Array.from({ length: 7 }, (_, i) => statsFor(addDays(today, -(i + 1))));
+  const activeBaselineDays = trailing.filter((d) => d.booking_units > 0 || d.cancellations > 0).length;
   const avg = trailing.reduce((s, d) => s + d.net_booking_units, 0) / 7;
   const revenueAvg = trailing.reduce((s, d) => s + d.room_revenue_eur, 0) / 7;
   const paceVsAvgPct = avg !== 0 ? round2(((current.net_booking_units - avg) / Math.abs(avg)) * 100) : null;
   const revenueVsAvgPct = revenueAvg > 0 ? round2(((current.room_revenue_eur - revenueAvg) / revenueAvg) * 100) : null;
   let assessment = "insufficient_baseline";
-  if (avg > 0) {
+  if (activeBaselineDays >= 2 && avg > 0) {
     if (current.net_booking_units <= avg * 0.65) assessment = "materially_below_recent_same_time_pace";
     else if (current.net_booking_units < avg * 0.9) assessment = "slightly_below_recent_same_time_pace";
     else if (current.net_booking_units <= avg * 1.1) assessment = "around_recent_same_time_pace";
     else assessment = "above_recent_same_time_pace";
+  } else if (yesterday.booking_units > 0 || yesterday.cancellations > 0) {
+    if (current.net_booking_units < yesterday.net_booking_units) assessment = "below_yesterday_same_time";
+    else if (current.net_booking_units > yesterday.net_booking_units) assessment = "above_yesterday_same_time";
+    else assessment = "same_as_yesterday_same_time";
   }
 
   return {
+    available: true,
     comparison_basis: `booking creation activity up to the same Budapest-local clock time (${String(Math.floor(cutoffMinutes / 60)).padStart(2, "0")}:${String(cutoffMinutes % 60).padStart(2, "0")})`,
     today_so_far: current,
     yesterday_same_time: yesterday,
     trailing_7_days_same_time: trailing,
+    baseline_days_with_activity: activeBaselineDays,
     trailing_7_same_time_average_net_booking_units: round2(avg),
     trailing_7_same_time_average_room_revenue_eur: round2(revenueAvg),
     pace_vs_7d_average_pct: paceVsAvgPct,
@@ -255,6 +287,7 @@ function revenueSummary(payload: any, today: string, syncCompletedAt: string | n
       },
     },
     today_stay_date: {
+      available: roomsAvailable > 0,
       rooms_sold: liveSold,
       rooms_available: roomsAvailable,
       rooms_left: Math.max(0, roomsAvailable - liveSold),
@@ -264,6 +297,7 @@ function revenueSummary(payload: any, today: string, syncCompletedAt: string | n
       source: "same current booking-night dataset used by HotelCare revenue calendar",
     },
     sales_created_today: {
+      available: true,
       booking_units: bookingUnits.size,
       room_nights: todayCreated.length,
       new_room_revenue_eur: round2(todayCreated.reduce((s: number, n: any) => s + Number(n?.nightly_price_eur ?? 0), 0)),
@@ -274,6 +308,56 @@ function revenueSummary(payload: any, today: string, syncCompletedAt: string | n
     booking_pace_same_time: bookingPaceSummary(payload, today),
     weak_next_14_days: weakDates,
     current_rates_next_7_days: nextRates,
+  };
+}
+
+function competitorPosition(rows: any[], competitors: any[], revenueRows: any[], today: string) {
+  const next7 = new Map<string, number[]>();
+  for (const row of rows) {
+    const stayDate = String(row?.stay_date ?? "");
+    if (!stayDate || stayDate < today || stayDate > addDays(today, 7)) continue;
+    const rate = Number(row?.rate);
+    if (!Number.isFinite(rate) || rate <= 0) continue;
+    const list = next7.get(stayDate) ?? [];
+    list.push(rate);
+    next7.set(stayDate, list);
+  }
+
+  const ours = new Map<string, number>();
+  for (const hotel of revenueRows) {
+    for (const rate of hotel.current_rates_next_7_days ?? []) {
+      const value = Number(rate?.price);
+      if (!Number.isFinite(value) || value <= 0) continue;
+      const key = String(rate.stay_date);
+      const prev = ours.get(key);
+      if (prev === undefined || value < prev) ours.set(key, value);
+    }
+  }
+
+  const dates = [...next7.keys()].sort().slice(0, 7).map((date) => {
+    const set = next7.get(date) ?? [];
+    const avg = set.length ? set.reduce((a, b) => a + b, 0) / set.length : null;
+    const our = ours.get(date) ?? null;
+    return {
+      stay_date: date,
+      competitor_count: set.length,
+      competitor_average_rate: avg === null ? null : round2(avg),
+      our_lowest_rate: our,
+      our_vs_competitor_average_pct: avg && our ? round2(((our - avg) / avg) * 100) : null,
+    };
+  });
+
+  const latestScan = competitors
+    .map((c: any) => c?.last_scan_at)
+    .filter(Boolean)
+    .sort()
+    .at(-1) ?? null;
+
+  return {
+    available: competitors.length > 0 && rows.length > 0,
+    watched_properties: competitors.length,
+    latest_scan_at: latestScan,
+    next_7_days: dates,
   };
 }
 
@@ -288,17 +372,50 @@ async function buildContext(db: any, profile: any, hotels: any[], question: stri
     },
     properties: picked.map((h) => ({ id: h.hotel_id, name: h.hotel_name })),
     scope,
+    page_target: {
+      route: page?.route ?? null,
+      route_hotel_id: page?.entityType === "hotel" ? page?.entityId ?? null : null,
+      page_hotel_id: page?.hotelId ?? null,
+    },
   };
 
   if (scope === "revenue") {
     const ids = picked.map((h) => h.hotel_id);
-    const [published, rules, actions, events] = await Promise.all([
+    if (!ids.length) {
+      context.revenue = [];
+      context.context_readiness = {
+        selected_property_count: 0,
+        revenue_data_available: false,
+        reason: "No authorized hotel could be resolved for this page.",
+      };
+      return context;
+    }
+
+    const [published, rules, actions, events, competitorProps, competitorRates] = await Promise.all([
       db.from("revenue_published_payloads").select("hotel_id,sync_completed_at,payload").in("hotel_id", ids).limit(10),
       db.from("revenue_pickup_automation_rules").select("hotel_id,is_enabled,auto_publish,minimum_adr,maximum_increase,no_pickup_enabled,no_pickup_decrease,low_occupancy_pct,high_occupancy_pct,last_run_at,last_run_status,last_error,updated_at").eq("organization_slug", profile.organization_slug).in("hotel_id", ids).limit(20),
       db.from("revenue_pickup_automation_actions").select("hotel_id,stay_date,room_type_name,old_price,new_price,decision_type,decision_reason,reason_detail,net_pickup,status,push_error,created_at").eq("organization_slug", profile.organization_slug).in("hotel_id", ids).order("created_at", { ascending: false }).limit(80),
       db.from("demand_events").select("hotel_id,title,category,event_date,end_date,expected_impact,surcharge_eur,confidence,approved").eq("organization_slug", profile.organization_slug).in("hotel_id", ids).gte("event_date", today).lte("event_date", addDays(today, 60)).order("event_date").limit(100),
+      db.from("competitor_properties").select("id,hotel_id,name,active,last_scan_at,last_scan_status,last_scan_prices").in("hotel_id", ids).eq("active", true).limit(100),
+      db.from("competitor_rates").select("hotel_id,competitor_id,stay_date,rate,currency,confidence").in("hotel_id", ids).gte("stay_date", today).lte("stay_date", addDays(today, 7)).order("stay_date").limit(1000),
     ]);
-    context.revenue = (published.data ?? []).map((row: any) => ({
+
+    const publishedRows = [...(published.data ?? [])];
+    const loadedIds = new Set(publishedRows.map((row: any) => String(row.hotel_id)));
+    for (const hotel of picked) {
+      if (loadedIds.has(String(hotel.hotel_id))) continue;
+      const fallback = await db
+        .from("revenue_published_payloads")
+        .select("hotel_id,sync_completed_at,payload")
+        .eq("hotel_id", hotel.hotel_id)
+        .maybeSingle();
+      if (!fallback.error && fallback.data?.payload) {
+        publishedRows.push(fallback.data);
+        loadedIds.add(String(hotel.hotel_id));
+      }
+    }
+
+    context.revenue = publishedRows.map((row: any) => ({
       hotel_id: row.hotel_id,
       hotel_name: picked.find((h) => h.hotel_id === row.hotel_id)?.hotel_name ?? row.hotel_id,
       ...revenueSummary(row.payload, today, row.sync_completed_at ?? null),
@@ -306,6 +423,35 @@ async function buildContext(db: any, profile: any, hotels: any[], question: stri
     context.automation_rules = rules.data ?? [];
     context.recent_automation_activity = actions.data ?? [];
     context.demand_events = events.data ?? [];
+    context.competitor_position = competitorPosition(
+      competitorRates.data ?? [],
+      competitorProps.data ?? [],
+      context.revenue,
+      today,
+    );
+
+    const primary = context.revenue.length === 1 ? context.revenue[0] : null;
+    context.context_readiness = {
+      selected_property_count: picked.length,
+      selected_property_ids: ids,
+      revenue_rows_loaded: context.revenue.length,
+      revenue_data_available: context.revenue.length > 0,
+      primary_property_resolved: primary?.hotel_id ?? null,
+      same_time_pace_available: Boolean(primary?.booking_pace_same_time?.available),
+      today_stay_metrics_available: Boolean(primary?.today_stay_date?.available),
+      today_sales_available: Boolean(primary?.sales_created_today?.available),
+      rate_change_history_available: (context.recent_automation_activity?.length ?? 0) > 0,
+      demand_context_available: (context.demand_events?.length ?? 0) > 0,
+      competitor_context_available: Boolean(context.competitor_position?.available),
+      query_errors: [
+        published.error?.message,
+        rules.error?.message,
+        actions.error?.message,
+        events.error?.message,
+        competitorProps.error?.message,
+        competitorRates.error?.message,
+      ].filter(Boolean),
+    };
   }
 
   if (scope === "housekeeping") {
@@ -429,7 +575,7 @@ Deno.serve(async (req) => {
     const page = body?.page && typeof body.page === "object" ? body.page : null;
     const context = await buildContext(db, profile, hotels, question, page, scope);
     const { data: stored } = await db.from("assistant_messages").select("role,content,created_at").eq("thread_id", threadId).eq("user_id", authData.user.id).order("created_at", { ascending: true }).limit(30);
-    const history = (stored ?? []).slice(-20).map((row: any) => ({ role: row.role === "assistant" ? "assistant" : "user", content: String(row.content ?? "").slice(0, 5000) }));
+    const history = (stored ?? []).slice(-12).map((row: any) => ({ role: row.role === "assistant" ? "assistant" : "user", content: String(row.content ?? "").slice(0, 5000) }));
 
     const { error: userSaveError } = await db.from("assistant_messages").insert({ thread_id: threadId, user_id: authData.user.id, role: "user", content: question, refused: false });
     if (userSaveError) {
@@ -442,30 +588,42 @@ Deno.serve(async (req) => {
       model: openai.responses(PREMIUM_MODEL),
       system: `You are HotelCare Deep Analysis, the higher-intelligence escalation tier inside HotelCare.app. The user has spent one scarce deep-analysis allowance, so make the answer materially more useful than a generic chatbot reply.
 
-Current hotel-local timezone is Europe/Budapest. The authoritative current date/time is included in CURRENT HOTELCARE CONTEXT. Resolve today/yesterday/tomorrow from it exactly.
+CURRENT HOTELCARE CONTEXT is authoritative for this turn and OVERRIDES earlier assistant messages. If an earlier answer said data was unavailable but the current context now contains it, ignore the old claim and use the current numbers.
 
-For revenue language, distinguish these carefully:
+Current hotel-local timezone is Europe/Budapest. Resolve today/yesterday/tomorrow from CURRENT HOTELCARE CONTEXT exactly.
+
+For revenue language:
 - “sales today”, “sold today”, “bookings today” = reservations/booking units CREATED today, unless the user explicitly asks about guests staying today.
 - “sold for today”, “occupancy today” = rooms occupied/sold for today’s STAY date.
 - Never substitute a rolling 48-hour pickup figure for exact same-day sales.
 
-For a complaint such as “not much sales today”, your FIRST job is to determine whether today's booking pace is actually weak. Use booking_pace_same_time, which compares today only up to the current Budapest-local time with previous days up to that same clock time. Do not compare a partial today with a full historical day. State the conclusion plainly: below pace, normal pace, above pace, or insufficient baseline.
+For a complaint such as “not much sales today”, your FIRST job is to determine whether today's booking pace is actually weak. Use booking_pace_same_time, which compares today only up to the current Budapest-local time with prior days up to that same clock time. Do not compare a partial today with a full historical day.
+
+Mandatory context-use rules:
+- Read context_readiness before writing the answer.
+- If context_readiness.same_time_pace_available is true, you MUST quote today's same-time booking pace and the comparison. You may not say that comparison is unavailable.
+- If context_readiness.today_stay_metrics_available is true, you may not say today's rooms sold, rooms left, occupancy or ADR are unavailable; quote the available values when relevant.
+- If context_readiness.rate_change_history_available is true, you may not say rate changes are unavailable.
+- If context_readiness.competitor_context_available is true, use competitor_position when price positioning is relevant.
+- Do NOT list missing competitor, event, or rate data merely as a disclaimer. Mention a missing input only when it is necessary to answer the user's actual question.
+- Do NOT answer with generic advice such as “check pickup at 10:00, 14:00 and 18:00” when HotelCare already supplied current same-time pace. Analyze the supplied data now.
 
 Accuracy rules:
-- Treat the current HotelCare booking-night dataset as the same operational dataset behind the Revenue calendar.
-- Check data_quality before quoting stay-date occupancy. If the current booking-night count and stored snapshot disagree, explicitly say the live sources disagree and avoid presenting the occupancy as fully verified.
-- Mention dataset staleness if sync_age_minutes > 180 or confidence is stale_or_unknown.
-- Do not infer that a price is “too high” merely because tomorrow is more expensive than tonight. Price recommendations require supporting evidence from occupancy/rooms left, same-time booking pace, demand/event context, and/or automation behavior.
-- Do not wander into unrelated future dates. For a question about today's sales, mention at most TWO future stay dates, and only if they are directly relevant to the diagnosis or an urgent action within the next 7 days.
-- If data is incomplete, say exactly what is missing rather than filling gaps with assumptions.
+- Analyze only the selected property unless the user explicitly asks for a portfolio comparison.
+- Treat the current HotelCare booking-night dataset as the operational dataset behind the Revenue calendar.
+- Check data_quality before quoting stay-date occupancy. If the current booking-night count and stored snapshot disagree, explicitly flag that one mismatch while still using the rest of the verified context.
+- Mention dataset staleness only when sync_age_minutes > 180 or confidence is stale_or_unknown.
+- Do not infer that a price is “too high” merely because another date is cheaper. Price recommendations require supporting evidence from occupancy/rooms left, same-time booking pace, demand/events, competitor position and/or automation behavior.
+- For a question about today's sales, mention at most TWO future stay dates and only if directly relevant.
+- If revenue_data_available is false, say there is a HotelCare data-source issue for the selected property and do not invent figures.
 
 Response structure for revenue problems:
-1. One-sentence diagnosis answering the user's actual concern.
-2. “Why I say that” with the minimum exact figures needed, including same-time pace comparison.
-3. 3-5 prioritized actions that are operationally safe and specific.
-4. A short “What I would not do” only when useful (for example, do not cut tonight's price when nearly sold out).
+1. One short diagnosis answering the concern.
+2. “Why” with the minimum exact figures needed, especially same-time pace.
+3. 3-5 prioritized actions tied to those figures.
+4. “Avoid” only if there is a specific unsafe action to warn against.
 
-Protect ADR and do not recommend blind discounting. Never expose table names, database fields, internal ids, tools, model names, quotas, or implementation details. Never claim you changed a rate, room, ticket or setting unless a separate confirmed action tool actually did so. Keep the answer practical for a hotel manager.`,
+Keep mobile answers concise: normally 250-450 words unless the user asks for detail. Protect ADR and do not recommend blind discounting. Never expose table names, database fields, internal ids, tools, model names, quotas, or implementation details. Never claim you changed a rate, room, ticket or setting unless a separate confirmed action tool actually did so.`,
       messages: [
         ...history,
         {
@@ -499,7 +657,7 @@ Protect ADR and do not recommend blind discounting. Never expose table names, da
         await db.from("assistant_audit_log").insert({
           user_id: authData.user.id,
           organization_slug: profile.organization_slug,
-          hotel_id: profile.assigned_hotel,
+          hotel_id: context?.properties?.length === 1 ? context.properties[0].id : profile.assigned_hotel,
           role: profile.role,
           question,
           refused: false,
