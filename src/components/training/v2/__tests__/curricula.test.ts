@@ -75,26 +75,34 @@ describe('training v2 curricula shape', () => {
 describe('housekeeper first-shift curriculum', () => {
   const hk = ALL_CURRICULA.find((c) => c.slug === 'v2_housekeeper_first_day');
 
-  it('exists and follows the operational housekeeping sequence', () => {
+  it('exists and follows the concise operational sequence', () => {
     expect(hk).toBeTruthy();
     expect(hk?.steps.map((s) => s.key)).toEqual([
       'welcome',
-      'location',
       'signin',
-      'my_tasks',
-      'start_cleaning',
-      'photos',
-      'dnd',
-      'dirty_linen',
-      'maintenance',
-      'lost_found',
-      'notes',
-      'complete_room',
-      'next_room',
       'breaks',
+      'my_tasks',
+      'special_instructions',
+      'room_tools',
+      'messages',
+      'complete_room',
       'signout',
-      'finished',
     ]);
+  });
+
+  it('has between 8 and 10 stages', () => {
+    const n = hk?.steps.length ?? 0;
+    expect(n).toBeGreaterThanOrEqual(8);
+    expect(n).toBeLessThanOrEqual(10);
+  });
+
+  it('has no duplicate or consecutive-duplicate selectors', () => {
+    const selectors = (hk?.steps ?? []).map((s) => s.selector).filter(Boolean) as string[];
+    for (const sel of selectors) {
+      expect(sel.trim().length).toBeGreaterThan(0);
+      expect(sel).toMatch(/^\[data-training="[a-z0-9-]+"\]$/);
+    }
+    expect(new Set(selectors).size).toBe(selectors.length);
   });
 
   it('has full content in every training language', () => {
@@ -125,8 +133,19 @@ describe('housekeeper first-shift curriculum', () => {
     }
   });
 
-  it('requires real check-in and room start actions before advancing', () => {
+  it('requires real check-in, room start and room completion actions', () => {
     expect(hk?.steps.find((s) => s.key === 'signin')?.waitFor).toBe('is_signed_in');
-    expect(hk?.steps.find((s) => s.key === 'start_cleaning')?.waitFor).toBe('has_in_progress_cleaning');
+    expect(hk?.steps.find((s) => s.key === 'my_tasks')?.waitFor).toBe('has_in_progress_cleaning');
+    expect(hk?.steps.find((s) => s.key === 'complete_room')?.waitFor).toBe(
+      'has_completed_assignment_today',
+    );
+  });
+
+  it('never traps the user on an action-gated step', () => {
+    for (const s of hk?.steps ?? []) {
+      if (s.waitFor && s.key !== 'signin') {
+        expect(s.optional, `${s.key} is action-gated but not optional`).toBe(true);
+      }
+    }
   });
 });
