@@ -44,12 +44,12 @@ const LABELS = {
     uk: 'Цей елемент поки недоступний. Hotel Care очікує правильний екран або робочий стан.',
   },
   close: {
-    en: 'Exit training options',
-    hu: 'Kilépési lehetőségek',
-    es: 'Opciones para salir',
-    vi: 'Tùy chọn thoát hướng dẫn',
-    mn: 'Сургалтаас гарах сонголт',
-    uk: 'Варіанти виходу з навчання',
+    en: 'Close training — progress is saved',
+    hu: 'Tréning bezárása — a haladás mentve',
+    es: 'Cerrar formación — el progreso se guarda',
+    vi: 'Đóng hướng dẫn — tiến độ được lưu',
+    mn: 'Сургалтыг хаах — явц хадгалагдана',
+    uk: 'Закрити навчання — прогрес збережено',
   },
   why: {
     en: 'Why this matters',
@@ -93,12 +93,12 @@ const LABELS = {
     uk: 'Завершити це навчання?',
   },
   exitBody: {
-    en: 'Ending marks this training as complete. If you only need to continue later, leave the page or reopen it from the Training Center instead.',
-    hu: 'A befejezés késznek jelöli a tréninget. Ha csak később folytatnád, inkább hagyd el az oldalt, vagy indítsd újra a Tréningközpontból.',
-    es: 'Al terminar, la formación se marcará como completada. Si solo quieres seguir más tarde, sal de la página o vuelve a abrirla desde el Centro de formación.',
-    vi: 'Kết thúc sẽ đánh dấu hướng dẫn là đã hoàn thành. Nếu chỉ muốn tiếp tục sau, hãy rời trang hoặc mở lại từ Trung tâm đào tạo.',
-    mn: 'Дуусгавал сургалтыг бүрэн дууссан гэж тэмдэглэнэ. Зөвхөн дараа үргэлжлүүлэх бол хуудсаас гарах эсвэл Сургалтын төвөөс дахин нээнэ үү.',
-    uk: 'Завершення позначить навчання як виконане. Якщо хочете лише продовжити пізніше, залиште сторінку або відкрийте його з Центру навчання.',
+    en: 'Ending marks this training as complete. If you only need to continue later, use the X to close it — your current step will be saved.',
+    hu: 'A befejezés késznek jelöli a tréninget. Ha később folytatnád, zárd be az X-szel — az aktuális lépést elmentjük.',
+    es: 'Al terminar, la formación se marcará como completada. Si quieres continuar después, ciérrala con la X: guardaremos el paso actual.',
+    vi: 'Kết thúc sẽ đánh dấu hướng dẫn là đã hoàn thành. Nếu muốn tiếp tục sau, hãy đóng bằng nút X — bước hiện tại sẽ được lưu.',
+    mn: 'Дуусгавал сургалтыг бүрэн дууссан гэж тэмдэглэнэ. Дараа үргэлжлүүлэх бол X-ээр хаана уу — одоогийн алхам хадгалагдана.',
+    uk: 'Завершення позначить навчання як виконане. Якщо хочете продовжити пізніше, закрийте через X — поточний крок буде збережено.',
   },
   keepLearning: {
     en: 'Continue training',
@@ -138,6 +138,7 @@ export function TrainingOverlayV2() {
     skip,
     skipForNow,
     finish,
+    pause,
     lang,
   } = useTrainingV2();
   const cardRef = useRef<HTMLDivElement>(null);
@@ -161,7 +162,7 @@ export function TrainingOverlayV2() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        setConfirmExit(true);
+        pause();
         return;
       }
       if (e.key === 'Tab' && cardRef.current) {
@@ -187,7 +188,7 @@ export function TrainingOverlayV2() {
         prevFocus?.focus();
       } catch {}
     };
-  }, [active]);
+  }, [active, pause]);
 
   if (!active || !step) return null;
   const isLast = stepIndex === totalSteps - 1;
@@ -203,9 +204,13 @@ export function TrainingOverlayV2() {
         ...(mobileAtTop ? { top: 0 } : { bottom: 0 }),
         width: '100%',
         maxWidth: '100%',
-        maxHeight: '58%',
+        maxHeight: 'min(58dvh, calc(100dvh - 72px))',
         overflowY: 'auto',
-        paddingBottom: mobileAtTop ? undefined : 'env(safe-area-inset-bottom, 0px)',
+        overscrollBehavior: 'contain',
+        WebkitOverflowScrolling: 'touch',
+        paddingBottom: mobileAtTop
+          ? '20px'
+          : 'calc(96px + env(safe-area-inset-bottom, 0px))',
       };
     }
     if (!rect) {
@@ -344,12 +349,12 @@ export function TrainingOverlayV2() {
         >
           <button
             type="button"
-            onClick={() => setConfirmExit(true)}
+            onClick={pause}
             aria-label={txt(LABELS.close, lang)}
             aria-keyshortcuts="Escape"
-            className="absolute top-3 right-3 min-h-11 min-w-11 inline-flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors rounded-md"
+            className="absolute top-3 right-3 z-20 min-h-11 min-w-11 inline-flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors rounded-md bg-card/90 active:scale-95 touch-manipulation"
           >
-            <X className="h-4 w-4" />
+            <X className="h-5 w-5" />
           </button>
 
           <div className="mb-3 pr-10">
