@@ -90,6 +90,7 @@ export function SwipeAction({ label, onComplete, disabled = false }: SwipeAction
 
       <div
         className="relative w-full h-12 rounded-full border border-border/60 bg-background/70 overflow-hidden"
+        data-training="swipe-action-track"
         onMouseDown={(e) => begin(e.clientX)}
         onMouseMove={(e) => isDragging && move(e.clientX)}
         onMouseUp={end}
