@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 describe('mobile training coach layout', () => {
   it('reserves a separate interaction lane for the highlighted control', () => {
-    const css = fs.readFileSync(
-      path.resolve(process.cwd(), 'src/styles/training-mobile-safe.css'),
+    const css = readFileSync(
+      resolve(process.cwd(), 'src/styles/training-mobile-safe.css'),
       'utf8',
     );
 
