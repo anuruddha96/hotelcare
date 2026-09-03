@@ -2,7 +2,7 @@ import { Navigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Header } from '@/components/layout/Header';
 import { PMSNavigation } from '@/components/layout/PMSNavigation';
-import { ReceptionDashboard } from '@/components/frontdesk/ReceptionDashboard';
+import { UnifiedReceptionWorkspace } from '@/components/frontdesk/UnifiedReceptionWorkspace';
 
 export default function ReceptionHome() {
   const { user, loading } = useAuth();
@@ -23,8 +23,8 @@ export default function ReceptionHome() {
     <div className="min-h-screen bg-background">
       <Header />
       <PMSNavigation />
-      <main className="container mx-auto px-3 sm:px-6 py-4 sm:py-6">
-        <ReceptionDashboard breakfastUploadPath={`${basePath}/reception/breakfast-upload`} />
+      <main className="w-full px-2 sm:px-4 py-3 sm:py-4">
+        <UnifiedReceptionWorkspace breakfastUploadPath={`${basePath}/reception/breakfast-upload`} />
       </main>
     </div>
   );
