@@ -134,26 +134,30 @@ describe("lead-time windows follow the agreed Ottofiori strategy", () => {
     expect(windowFor(364).id).toBe("w181_365");
   });
 
-  it("0–2 days: every booking raises, and a strong date raises more", () => {
-    expect(decideDate(input({ daysOut: 1, occupancyPct: 70, pickup24h: 1 }), settings()).direction).toBe("increase");
-    const two = decideDate(input({ daysOut: 1, occupancyPct: 70, pickup24h: 2 }), settings()).movement;
-    const one = decideDate(input({ daysOut: 1, occupancyPct: 70, pickup24h: 1 }), settings()).movement;
-    expect(two).toBeGreaterThan(one);
-    expect(decideDate(input({ daysOut: 1, occupancyPct: 92, roomsRemaining: 2, pickup24h: 1 }), settings()).movement)
-      .toBeGreaterThanOrEqual(one);
-  });
+  it("0–2 days: tomorrow/day+2 prioritise sell-out while inventory remains", () => {
+  const noPickup = decideDate(input({ daysOut: 1, occupancyPct: 70, pickup24h: 0 }), settings());
+  const onePickup = decideDate(input({ daysOut: 1, occupancyPct: 70, pickup24h: 1 }), settings());
+  const strong = decideDate(input({ daysOut: 1, occupancyPct: 92, roomsRemaining: 2, pickup24h: 1 }), settings());
+  expect(noPickup.direction).toBe("decrease");
+  expect(noPickup.movement).toBe(-4);
+  expect(onePickup.direction).toBe("decrease");
+  expect(onePickup.movement).toBe(-3);
+  expect(onePickup.movement).toBeGreaterThan(noPickup.movement);
+  expect(strong.movement).toBe(-3);
+});
 
-  it("0–2 days: no booking for six hours marks down by occupancy band", () => {
-    const base = { daysOut: 1, hoursSinceLastPickup: 8 } as Partial<DecisionInput>;
-    expect(decideDate(input({ ...base, occupancyPct: 40 }), settings()).movement).toBe(-5);
-    expect(decideDate(input({ ...base, occupancyPct: 65 }), settings()).movement).toBe(-3);
-    expect(decideDate(input({ ...base, occupancyPct: 85, roomsRemaining: 3 }), settings()).blocked).toBe(true);
-  });
+it("0–2 days: tomorrow uses urgency and demand to size the final sell-out cut", () => {
+  const base = { daysOut: 1, hoursSinceLastPickup: 8 } as Partial<DecisionInput>;
+  expect(decideDate(input({ ...base, occupancyPct: 40 }), settings()).movement).toBe(-4);
+  expect(decideDate(input({ ...base, occupancyPct: 65 }), settings()).movement).toBe(-4);
+  expect(decideDate(input({ ...base, occupancyPct: 85, roomsRemaining: 3 }), settings()).movement).toBe(-3);
+});
 
-  it("0–2 days: the wait must actually elapse", () => {
-    const d = decideDate(input({ daysOut: 1, occupancyPct: 40, hoursSinceLastPickup: 2 }), settings());
-    expect(d.reason).toBe("awaiting_no_pickup_window");
-  });
+it("0–2 days: tomorrow/day+2 no longer wait for the old no-pickup window", () => {
+  const d = decideDate(input({ daysOut: 1, occupancyPct: 40, hoursSinceLastPickup: 2 }), settings());
+  expect(d.reason).toBe("final_3_day_fill");
+  expect(d.movement).toBe(-4);
+});
 
   it("3–7 days: 12-hour wait, and 85% occupancy with pickup raises €8", () => {
     expect(decideDate(input({ daysOut: 5, occupancyPct: 40, hoursSinceLastPickup: 6 }), settings()).reason)
