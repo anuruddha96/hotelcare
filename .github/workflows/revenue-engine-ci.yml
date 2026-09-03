@@ -19,12 +19,12 @@ permissions:
   contents: read
 
 jobs:
-  close-in-pricing-tests:
+  revenue-engine-v2-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - name: Run close-in Revenue Engine V2 regression tests
-        run: deno test supabase/functions/_shared/engineV2_sellout_test.ts
+      - name: Run Revenue Engine V2 regression tests
+        run: deno test supabase/functions/_shared/engineV2*_test.ts
