@@ -10,6 +10,19 @@ export interface GuardContext {
   dataReady?: Set<string>;
 }
 
+/** Housekeeping operates on the Budapest hotel business day, not UTC. */
+function getBudapestBusinessDate(now = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Budapest',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value || '';
+  return `${value('year')}-${value('month')}-${value('day')}`;
+}
+
 export async function evaluateGuard(key: GuardKey, ctx: GuardContext): Promise<boolean> {
   if (key.startsWith('data_loaded:')) {
     const dataKey = key.slice('data_loaded:'.length);
@@ -45,7 +58,7 @@ export async function evaluateGuard(key: GuardKey, ctx: GuardContext): Promise<b
       return !!(data && data.length);
     }
     case 'has_any_assignment_today': {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = getBudapestBusinessDate();
       const { data } = await supabase
         .from('room_assignments')
         .select('id')
@@ -55,18 +68,18 @@ export async function evaluateGuard(key: GuardKey, ctx: GuardContext): Promise<b
       return !!(data && data.length);
     }
     case 'has_active_assignment': {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = getBudapestBusinessDate();
       const { data } = await supabase
         .from('room_assignments')
         .select('id, status')
         .eq('assigned_to', ctx.userId)
         .eq('assignment_date', today)
-        .in('status', ['assigned', 'in_progress'])
+        .in('status', ['assigned', 'in_progress', 'dnd_pending_retry'])
         .limit(1);
       return !!(data && data.length);
     }
     case 'has_in_progress_cleaning': {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = getBudapestBusinessDate();
       const { data } = await supabase
         .from('room_assignments')
         .select('id')
@@ -77,7 +90,7 @@ export async function evaluateGuard(key: GuardKey, ctx: GuardContext): Promise<b
       return !!(data && data.length);
     }
     case 'has_completed_assignment_today': {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = getBudapestBusinessDate();
       const { data } = await supabase
         .from('room_assignments')
         .select('id')
@@ -86,6 +99,17 @@ export async function evaluateGuard(key: GuardKey, ctx: GuardContext): Promise<b
         .eq('status', 'completed')
         .limit(1);
       return !!(data && data.length);
+    }
+    case 'has_no_pending_housekeeping_work': {
+      const today = getBudapestBusinessDate();
+      const { data } = await supabase
+        .from('room_assignments')
+        .select('id')
+        .eq('assigned_to', ctx.userId)
+        .eq('assignment_date', today)
+        .in('status', ['assigned', 'in_progress', 'dnd_pending_retry'])
+        .limit(1);
+      return !(data && data.length);
     }
     default:
       return true;

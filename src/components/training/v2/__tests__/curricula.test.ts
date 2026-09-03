@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ALL_CURRICULA } from '../curricula';
 
-// Anchors that exist on every screen — a selector step using one of these
-// does not need a `route` or `tab` because it resolves regardless of where
-// the user is.
 const GLOBAL_ANCHORS = new Set([
   '[data-training="hotel-switcher"]',
   '[data-training="help-button"]',
@@ -11,8 +8,6 @@ const GLOBAL_ANCHORS = new Set([
   '[data-training="main-tabs"]',
 ]);
 
-// Selectors that target data-dependent UI. Steps targeting these MUST be
-// `optional: true` so they defer instead of stalling when empty.
 const DATA_GATED_PATTERNS = [
   /pending-approvals/,
   /ticket-row/,
@@ -76,7 +71,7 @@ describe('training v2 curricula shape', () => {
 describe('housekeeper first-shift curriculum', () => {
   const hk = ALL_CURRICULA.find((c) => c.slug === 'v2_housekeeper_first_day');
 
-  it('exists and follows the concise operational sequence', () => {
+  it('exists and follows the full operational sequence', () => {
     expect(hk).toBeTruthy();
     expect(hk?.steps.map((s) => s.key)).toEqual([
       'welcome',
@@ -84,17 +79,23 @@ describe('housekeeper first-shift curriculum', () => {
       'breaks',
       'my_tasks',
       'special_instructions',
-      'room_tools',
+      'room_photos',
+      'dnd_photo',
+      'dirty_linen',
+      'minibar',
+      'lost_found',
+      'maintenance',
+      'notes',
       'messages',
       'complete_room',
       'signout',
     ]);
   });
 
-  it('has between 8 and 10 stages', () => {
+  it('has a complete but still mobile-manageable first-shift journey', () => {
     const n = hk?.steps.length ?? 0;
-    expect(n).toBeGreaterThanOrEqual(8);
-    expect(n).toBeLessThanOrEqual(10);
+    expect(n).toBeGreaterThanOrEqual(14);
+    expect(n).toBeLessThanOrEqual(16);
   });
 
   it('has no duplicate or malformed selectors', () => {
@@ -112,12 +113,32 @@ describe('housekeeper first-shift curriculum', () => {
     );
   });
 
+  it('teaches every important in-room housekeeping function contextually', () => {
+    const expectedSelectors: Record<string, string> = {
+      room_photos: '[data-training="room-photos-button"]',
+      dnd_photo: '[data-training="dnd-button"]',
+      dirty_linen: '[data-training="dirty-linen-button"]',
+      minibar: '[data-training="room-work-tools"]',
+      lost_found: '[data-training="lost-found-button"]',
+      maintenance: '[data-training="maintenance-button"]',
+      notes: '[data-training="notes-button"]',
+      messages: '[data-training="room-messages"]',
+    };
+
+    for (const [key, selector] of Object.entries(expectedSelectors)) {
+      const step = hk?.steps.find((s) => s.key === key);
+      expect(step?.selector, `${key} selector`).toBe(selector);
+      expect(step?.precondition, `${key} precondition`).toBe('has_in_progress_cleaning');
+      expect(step?.optional, `${key} must not force a fake operational record`).toBe(true);
+      expect(step?.waitFor, `${key} must teach without requiring the feature to be used`).toBeUndefined();
+    }
+  });
+
   it('has full content in every training language', () => {
     expect(hk).toBeTruthy();
     if (!hk) return;
 
-    const curriculumTexts = [hk.name, hk.description];
-    for (const text of curriculumTexts) {
+    for (const text of [hk.name, hk.description]) {
       for (const lang of SUPPORTED_LANGS) {
         expect(text[lang], `curriculum missing ${lang}`).toBeTruthy();
       }
@@ -146,6 +167,12 @@ describe('housekeeper first-shift curriculum', () => {
     expect(hk?.steps.find((s) => s.key === 'complete_room')?.waitFor).toBe(
       'has_completed_assignment_today',
     );
+  });
+
+  it('does not expose End Shift while the housekeeper still has pending rooms', () => {
+    const signout = hk?.steps.find((s) => s.key === 'signout');
+    expect(signout?.precondition).toBe('has_no_pending_housekeeping_work');
+    expect(signout?.optional).toBe(true);
   });
 
   it('never traps the user on an action-gated step', () => {
