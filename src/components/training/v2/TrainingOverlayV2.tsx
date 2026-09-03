@@ -43,6 +43,14 @@ const LABELS = {
     mn: 'Энэ удирдлага одоогоор бэлэн биш. Hotel Care зөв дэлгэц эсвэл ажлын төлөвийг хүлээж байна.',
     uk: 'Цей елемент поки недоступний. Hotel Care очікує правильний екран або робочий стан.',
   },
+  waitingForEvent: {
+    en: 'Waiting for the next work step. The guide will continue automatically as soon as it becomes available.',
+    hu: 'Várjuk a következő munkalépést. Az útmutató automatikusan folytatódik, amint elérhetővé válik.',
+    es: 'Esperando el siguiente paso de trabajo. La guía continuará automáticamente en cuanto esté disponible.',
+    vi: 'Đang chờ bước công việc tiếp theo. Hướng dẫn sẽ tự động tiếp tục ngay khi có.',
+    mn: 'Дараагийн ажлын алхмыг хүлээж байна. Боломжтой болмогц заавар автоматаар үргэлжилнэ.',
+    uk: 'Очікуємо наступний робочий крок. Навчання автоматично продовжиться, щойно він стане доступним.',
+  },
   close: {
     en: 'Close training — progress is saved',
     hu: 'Tréning bezárása — a haladás mentve',
@@ -194,6 +202,7 @@ export function TrainingOverlayV2() {
   const isLast = stepIndex === totalSteps - 1;
   const progress = Math.round(((stepIndex + 1) / totalSteps) * 100);
   const requiresAction = Boolean(step.waitFor);
+  const passiveWait = Boolean(step.waitFor && !step.selector);
   const mobileAtTop = Boolean(isMobile && rect && rect.top > window.innerHeight * 0.56);
 
   const tooltipStyle: CSSProperties = (() => {
@@ -422,7 +431,7 @@ export function TrainingOverlayV2() {
                 </div>
               )}
 
-              {requiresAction && !waiting && (
+              {requiresAction && step.selector && !waiting && (
                 <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-primary/25 bg-primary/10 px-3 py-2.5 text-xs text-primary">
                   <MousePointer2 className="h-4 w-4 mt-0.5 shrink-0" aria-hidden="true" />
                   <div className="flex-1 min-w-0">
@@ -438,6 +447,13 @@ export function TrainingOverlayV2() {
                       </button>
                     )}
                   </div>
+                </div>
+              )}
+
+              {passiveWait && !waiting && (
+                <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs text-sky-900 dark:border-sky-800 dark:bg-sky-950/35 dark:text-sky-100">
+                  <Clock3 className={`h-4 w-4 mt-0.5 shrink-0 ${reducedMotion ? '' : 'animate-pulse'}`} aria-hidden="true" />
+                  <p className="leading-relaxed font-medium">{txt(LABELS.waitingForEvent, lang)}</p>
                 </div>
               )}
 
