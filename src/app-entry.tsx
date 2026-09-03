@@ -7,6 +7,7 @@ import "./styles/revenue-grid-performance.css";
 import "./styles/training-mobile-safe.css";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { installGlobalErrorReporting } from "@/lib/clientErrorReporter";
+import CompetitorPricingGridBridge from "@/components/revenue/CompetitorPricingGridBridge";
 
 installGlobalErrorReporting();
 
@@ -23,6 +24,9 @@ createRoot(root).render(
     fallbackTitle="The app hit an unexpected problem"
     fallbackMessage="Your work is saved. Tap Reload to continue."
   >
-    <App />
+    <>
+      <App />
+      <CompetitorPricingGridBridge />
+    </>
   </ErrorBoundary>,
 );
