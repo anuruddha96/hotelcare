@@ -2,8 +2,10 @@ name: Patch Reception Legacy Tab
 
 on:
   push:
-    branches: [unify-reception-reservations-previo-ui]
-    paths: ['.github/workflows/patch-reception-tab.yml']
+    branches:
+      - unify-reception-reservations-previo-ui
+    paths:
+      - .github/workflows/patch-reception-tab.yml
 
 permissions:
   contents: write
@@ -12,47 +14,53 @@ jobs:
   patch:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           ref: unify-reception-reservations-previo-ui
-      - name: Route legacy Reception tab to unified workspace
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
 
-          p = Path('src/components/dashboard/Dashboard.tsx')
-          s = p.read_text()
-          pattern = re.compile(
-              r'(?P<indent>\s*)<TabsTrigger value="rooms" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-\[11px\] sm:text-sm px-2 sm:px-3" data-training="rooms-tab">\s*'
-              r'<Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />\s*'
-              r'<span>Reception</span>\s*'
-              r'</TabsTrigger>',
-              re.MULTILINE,
-          )
-          match = pattern.search(s)
-          if not match:
-              raise SystemExit('Expected manager Reception tab block not found; refusing broad edit')
-          indent = match.group('indent')
-          child = indent + '  '
+      - name: Route Reception tab
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path("src/components/dashboard/Dashboard.tsx")
+          text = path.read_text()
+          marker = "<span>Reception</span>"
+          marker_pos = text.find(marker)
+          if marker_pos < 0:
+              raise SystemExit("Reception marker not found")
+
+          start = text.rfind('<TabsTrigger value="rooms"', 0, marker_pos)
+          close = text.find("</TabsTrigger>", marker_pos)
+          if start < 0 or close < 0:
+              raise SystemExit("Reception TabsTrigger bounds not found")
+          end = close + len("</TabsTrigger>")
+
+          line_start = text.rfind("\n", 0, start) + 1
+          indent = text[line_start:start]
+          child = indent + "  "
           replacement = (
-              f'{indent}<button\n'
-              f'{child}type="button"\n'
-              f'{child}onClick={{() => navigate(`/${{organizationSlug || \'rdhotels\'}}/reception`)}}\n'
-              f'{child}className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"\n'
-              f'{child}data-training="rooms-tab"\n'
-              f'{indent}>\n'
-              f'{child}<Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />\n'
-              f'{child}<span>Reception</span>\n'
-              f'{indent}</button>'
+              indent + "<button\n"
+              + child + 'type="button"\n'
+              + child + "onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/reception`)}\n"
+              + child + 'className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"\n'
+              + child + 'data-training="rooms-tab"\n'
+              + indent + ">\n"
+              + child + '<Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />\n'
+              + child + "<span>Reception</span>\n"
+              + indent + "</button>"
           )
-          s = s[:match.start()] + replacement + s[match.end():]
-          p.write_text(s)
+          path.write_text(text[:start] + replacement + text[end:])
           PY
+
       - name: Commit patch
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/components/dashboard/Dashboard.tsx
+          git diff --cached --quiet && exit 0
           git commit -m "Route legacy Reception tab to unified workspace"
           git push
