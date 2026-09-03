@@ -56,3 +56,66 @@
 [data-training="revenue-grid"] {
   overflow-anchor: none;
 }
+
+/*
+ * The compact desktop rules in index.css intentionally reduced the sticky
+ * summary band, but those hard pixel heights were overriding RateStrategyGrid's
+ * own zoom-aware inline geometry. At 110-160% zoom the date buttons became
+ * taller than their parent row, so the activity dots physically bled into the
+ * Pickup row. The Pickup cells also kept a 27px parent while their two lines of
+ * text became larger, which clipped the timestamp / lost-room line.
+ *
+ * This stylesheet is loaded after index.css. Let the date header and summary
+ * rows size from their real children again, while keeping the same compact
+ * minimums at 100%. The marker rail is clipped to its date cell as a final
+ * safety net, so it can never visually become part of Pickup.
+ */
+@media (min-width: 769px) {
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(2) {
+    height: auto !important;
+    min-height: 38px;
+  }
+
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(3),
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(4),
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(5),
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(6),
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(7) {
+    height: auto !important;
+    min-height: 27px;
+  }
+
+  /* Pickup can legitimately contain a second line (for rooms lost), so give
+     it a slightly larger floor while still allowing zoom to grow naturally. */
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(3) {
+    min-height: 30px;
+  }
+
+  [data-training="revenue-grid"] button[data-date] {
+    overflow: hidden;
+    grid-template-rows: auto auto 8px !important;
+    row-gap: 1px;
+  }
+
+  [data-training="revenue-grid"] button[data-date] > span[role="button"] {
+    align-self: center !important;
+    margin-bottom: 1px;
+  }
+
+  /* Keep the pickup figures readable at larger calendar zooms. The detailed
+     movement timestamp remains available in the native tooltip, so it does not
+     need to fight the net/lost figures for vertical space inside the row. */
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(3) > div:not(:first-child) {
+    line-height: 1;
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(3) > div:not(:first-child) > span {
+    line-height: 1;
+  }
+
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(3) > div:not(:first-child) > span[class*="max-w-"] {
+    display: none;
+  }
+}
