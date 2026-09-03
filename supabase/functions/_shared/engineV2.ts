@@ -243,6 +243,25 @@ function decideNextTwoDays(input: DecisionInput, settings: DecisionSettings): De
 }
 
 export function decideDate(input: DecisionInput, settings: DecisionSettings): Decision {
+  // A manager price change is authoritative for the full configured hold.
+  // Previously genuine pickup could override a soft hold and immediately lift a
+  // manually reduced rate again. That made emergency competitiveness fixes look
+  // as if they "did not stick". During the hold, neither pickup, ADR, events nor
+  // fill mode may alter the date; a later run can resume from the manager's rate.
+  const manualHoldActive = Boolean(
+    input.manualHoldUntil && Date.parse(input.manualHoldUntil) > settings.now.getTime(),
+  );
+  if (manualHoldActive) {
+    return blocked(
+      input,
+      settings,
+      input.holdKind === "hard" ? "manual_lock" : "manual_hold",
+      input.holdKind === "hard"
+        ? "A manager locked this date; automation leaves it alone."
+        : "A manager changed this price; the manager's rate remains authoritative until the manual protection period ends.",
+    );
+  }
+
   // Arrival day remains exclusively owned by the dedicated 30-minute worker.
   if (input.daysOut === 0 && isFinalSelloutWindow(input)) {
     if (localMinutes(settings.now) >= 15 * 60) {
