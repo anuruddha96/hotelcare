@@ -1,4 +1,4 @@
-// Phase 3 of the HotelCare Copilot: operational write actions.
+// Phase 3 of the HotelCare Copilot: confirmed write actions.
 //
 // The chat function only ever *proposes* an action (it builds a confirmation
 // card). Nothing is written until the user taps Confirm, which calls
@@ -6,7 +6,12 @@
 // authenticated session. Both sides import this single module so the rules
 // cannot drift apart.
 
-export type AssistantActionKind = "create_ticket" | "assign_room_cleaning" | "update_ticket_status";
+export type AssistantActionKind =
+  | "create_ticket"
+  | "assign_room_cleaning"
+  | "update_ticket_status"
+  | "set_min_stay"
+  | "edit_revenue_prices";
 
 export type ActionField = { label: string; value: string };
 
@@ -30,6 +35,8 @@ const MANAGER_ROLES = [
   "supervisor",
 ];
 
+const REVENUE_WRITE_ROLES = ["admin", "top_management", "top_management_manager"];
+
 const ACTION_ROLES: Record<AssistantActionKind, string[]> = {
   // Anyone who works the floor may raise a maintenance ticket.
   create_ticket: [
@@ -43,12 +50,18 @@ const ACTION_ROLES: Record<AssistantActionKind, string[]> = {
   // Only people who run the housekeeping board may hand a room to someone.
   assign_room_cleaning: ["admin", "manager", "top_management", "top_management_manager", "housekeeping_manager", "supervisor"],
   update_ticket_status: [...MANAGER_ROLES, "maintenance"],
+  // Revenue calendar writes use the same roles as the existing rate/min-stay
+  // publishing endpoints. The assistant never widens those permissions.
+  set_min_stay: REVENUE_WRITE_ROLES,
+  edit_revenue_prices: REVENUE_WRITE_ROLES,
 };
 
 export const ACTION_LABEL: Record<AssistantActionKind, string> = {
   create_ticket: "Create a maintenance ticket",
   assign_room_cleaning: "Assign a room for cleaning",
   update_ticket_status: "Change a ticket's status",
+  set_min_stay: "Set Revenue calendar minimum stay and publish it to Previo",
+  edit_revenue_prices: "Edit Revenue calendar prices through the safe Previo publishing queue",
 };
 
 export function actionsForRole(role: string | null | undefined): AssistantActionKind[] {
@@ -62,6 +75,7 @@ export function canRunAction(role: string | null | undefined, kind: string): kin
 
 const PRIORITIES = ["low", "medium", "high", "urgent"];
 const STATUSES = ["open", "in_progress", "completed"];
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function text(value: unknown, max: number): string {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
@@ -69,6 +83,136 @@ function text(value: unknown, max: number): string {
 
 function fail(error: string): { ok: false; error: string } {
   return { ok: false, error };
+}
+
+function validIsoDate(value: unknown): string {
+  const date = text(value, 10);
+  if (!ISO_DATE.test(date)) return "";
+  const parsed = new Date(`${date}T12:00:00Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date ? date : "";
+}
+
+function budapestToday(): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Budapest",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function expandDateRange(from: string, to: string, max = 366): string[] | null {
+  if (!from || !to || to < from) return null;
+  const start = Date.parse(`${from}T12:00:00Z`);
+  const end = Date.parse(`${to}T12:00:00Z`);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  const days = Math.floor((end - start) / 86_400_000) + 1;
+  if (days < 1 || days > max) return null;
+  return Array.from({ length: days }, (_, index) => new Date(start + index * 86_400_000).toISOString().slice(0, 10));
+}
+
+function actionDates(raw: Record<string, unknown>): { ok: true; dates: string[] } | { ok: false; error: string } {
+  const supplied = Array.isArray(raw.dates)
+    ? raw.dates
+    : Array.isArray(raw.stayDates)
+      ? raw.stayDates
+      : [];
+  const dates = supplied.map(validIsoDate).filter(Boolean);
+
+  const single = validIsoDate(raw.date ?? raw.stayDate ?? raw.stay_date);
+  if (single) dates.push(single);
+
+  const from = validIsoDate(raw.fromDate ?? raw.from ?? raw.startDate);
+  const to = validIsoDate(raw.toDate ?? raw.to ?? raw.endDate ?? from);
+  if (from) {
+    const expanded = expandDateRange(from, to || from);
+    if (!expanded) return fail("The minimum-stay date range is invalid or longer than 366 days");
+    dates.push(...expanded);
+  }
+
+  const unique = [...new Set(dates)].sort();
+  if (!unique.length) {
+    return fail("Read the Revenue calendar first and pass the exact stay dates that should receive the minimum stay");
+  }
+  if (unique.length > 366) return fail("A single minimum-stay action can cover at most 366 stay dates");
+  const today = budapestToday();
+  if (unique.some((date) => date < today)) return fail("Minimum stay can only be changed for today or a future stay date");
+  return { ok: true, dates: unique };
+}
+
+function displayDateSet(dates: string[]): string {
+  if (dates.length === 1) return dates[0];
+  const consecutive = dates.every((date, index) => {
+    if (index === 0) return true;
+    const previous = Date.parse(`${dates[index - 1]}T12:00:00Z`);
+    return Date.parse(`${date}T12:00:00Z`) - previous === 86_400_000;
+  });
+  if (consecutive) return `${dates[0]} → ${dates[dates.length - 1]} (${dates.length} days)`;
+  return `${dates.length} dates: ${dates.slice(0, 5).join(", ")}${dates.length > 5 ? ", …" : ""}`;
+}
+
+type PriceChange = {
+  stay_date: string;
+  room_type_name: string;
+  occupancy: number;
+  old_price: number | null;
+  new_price: number;
+  obk_id: string | null;
+};
+
+function normalizePriceChange(value: unknown): PriceChange | null {
+  const row = (value ?? {}) as Record<string, unknown>;
+  const stayDate = validIsoDate(row.stay_date ?? row.stayDate ?? row.date);
+  const roomTypeName = text(row.room_type_name ?? row.roomTypeName ?? row.roomType, 255);
+  const occupancy = Number(row.occupancy ?? row.guests ?? row.pax);
+  const newPrice = Number(row.new_price ?? row.newPrice ?? row.price ?? row.targetPrice);
+  const oldRaw = row.old_price ?? row.oldPrice ?? row.currentPrice;
+  const oldNumber = oldRaw === null || oldRaw === undefined || oldRaw === "" ? null : Number(oldRaw);
+  const obkId = text(row.obk_id ?? row.obkId, 255) || null;
+
+  if (!stayDate || !roomTypeName) return null;
+  if (!Number.isInteger(occupancy) || occupancy < 1 || occupancy > 30) return null;
+  if (!Number.isFinite(newPrice) || newPrice <= 0 || newPrice > 10_000_000) return null;
+  if (oldNumber !== null && (!Number.isFinite(oldNumber) || oldNumber <= 0)) return null;
+
+  return {
+    stay_date: stayDate,
+    room_type_name: roomTypeName,
+    occupancy,
+    old_price: oldNumber,
+    new_price: Math.round(newPrice),
+    obk_id: obkId,
+  };
+}
+
+function priceChanges(raw: Record<string, unknown>): { ok: true; changes: PriceChange[] } | { ok: false; error: string } {
+  let candidates: unknown[] = [];
+  if (Array.isArray(raw.changes)) candidates = raw.changes;
+  else if (Array.isArray(raw.rates)) candidates = raw.rates;
+  else if (raw.stay_date || raw.stayDate || raw.date) candidates = [raw];
+
+  if (!candidates.length) return fail("Pass the exact Revenue calendar price cells to change");
+  if (candidates.length > 200) return fail("An Assistant price edit can contain at most 200 calendar cells");
+
+  const normalized: PriceChange[] = [];
+  for (const candidate of candidates) {
+    const change = normalizePriceChange(candidate);
+    if (!change) {
+      return fail("Each price change needs a valid stay date, room type, occupancy, and positive whole target price");
+    }
+    normalized.push(change);
+  }
+
+  const today = budapestToday();
+  if (normalized.some((change) => change.stay_date < today)) return fail("Revenue calendar prices can only be changed for today or a future stay date");
+
+  const deduped = new Map<string, PriceChange>();
+  for (const change of normalized) {
+    deduped.set(`${change.stay_date}|${change.room_type_name.toLowerCase()}|${change.occupancy}`, change);
+  }
+  return { ok: true, changes: [...deduped.values()] };
 }
 
 /** Shape + range check. Does not touch the database. */
@@ -158,13 +302,64 @@ export function validateAction(
     };
   }
 
+  if (kind === "set_min_stay") {
+    const nightsRaw = raw.nights ?? raw.minStay ?? raw.min_stay ?? raw.minNights ?? raw.minimumStay;
+    const nights = Number(nightsRaw);
+    if (!Number.isInteger(nights) || nights < 1 || nights > 30) return fail("Minimum stay must be a whole number from 1 to 30 nights");
+    const selected = actionDates(raw);
+    if (!selected.ok) return selected;
+    return {
+      ok: true,
+      action: {
+        kind: "set_min_stay",
+        hotelId,
+        title: "Set minimum stay",
+        input: { hotelId, nights, dates: selected.dates },
+        fields: [
+          { label: "Minimum stay", value: `${nights} night${nights === 1 ? "" : "s"}` },
+          { label: "Stay dates", value: displayDateSet(selected.dates) },
+          { label: "Publishing", value: "Confirm → Previo → HotelCare Revenue calendar" },
+        ],
+      },
+    };
+  }
+
+  if (kind === "edit_revenue_prices") {
+    const selected = priceChanges(raw);
+    if (!selected.ok) return selected;
+    const dates = [...new Set(selected.changes.map((change) => change.stay_date))].sort();
+    const roomTypes = [...new Set(selected.changes.map((change) => change.room_type_name))];
+    const examples = selected.changes
+      .slice(0, 3)
+      .map((change) => `${change.stay_date} · ${change.room_type_name} · ${change.occupancy} guest${change.occupancy === 1 ? "" : "s"}: €${change.new_price}`)
+      .join("; ");
+    return {
+      ok: true,
+      action: {
+        kind: "edit_revenue_prices",
+        hotelId,
+        title: "Edit Revenue calendar prices",
+        input: { hotelId, changes: selected.changes },
+        fields: [
+          { label: "Price cells", value: String(selected.changes.length) },
+          { label: "Stay dates", value: displayDateSet(dates) },
+          { label: "Room types", value: roomTypes.length <= 3 ? roomTypes.join(", ") : `${roomTypes.length} room types` },
+          { label: "Examples", value: `${examples}${selected.changes.length > 3 ? "; …" : ""}` },
+          { label: "Publishing", value: "Confirm → safety checks → Previo queue → PMS-confirmed calendar" },
+        ],
+      },
+    };
+  }
+
   return fail("That action is not available");
 }
 
 /**
- * Executes a validated action with the service client. Caller MUST already have
- * verified the session, the role and that `hotelId` is inside the user's
- * authorized properties.
+ * Executes a validated non-revenue action with the service client. Caller MUST
+ * already have verified the session, role and authorized property. Revenue
+ * actions deliberately run in `assistant-apply-action` through the existing
+ * authenticated Revenue/Previo Edge Functions, so their safety logic remains
+ * the single source of truth.
  */
 export async function executeAction(
   service: any,
