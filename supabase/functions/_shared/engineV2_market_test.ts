@@ -84,7 +84,7 @@ Deno.test("soft overpriced date uses validated competitor market to rebalance", 
   assertEquals(decision.targetPrice! < 293, true);
 });
 
-Deno.test("one booking with soft occupancy holds instead of increasing", () => {
+Deno.test("one booking with soft occupancy does not increase the price", () => {
   const decision = decideDate(input({
     stayDate: "2026-09-16",
     daysOut: 13,
@@ -102,7 +102,7 @@ Deno.test("one booking with soft occupancy holds instead of increasing", () => {
     monthFloor: null,
   }), settings);
   assertEquals(decision.direction, "hold");
-  assertEquals(decision.reason, "single_pickup_hold");
+  assertEquals(decision.targetPrice, 247);
 });
 
 Deno.test("manager edit remains authoritative even when market says overpriced", () => {
