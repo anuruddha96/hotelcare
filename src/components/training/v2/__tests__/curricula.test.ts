@@ -24,6 +24,7 @@ const DATA_GATED_PATTERNS = [
 ];
 
 const SUPPORTED_LANGS = ['en', 'hu', 'es', 'vi', 'mn', 'uk'] as const;
+const TRAINING_SELECTOR = /^\[data-training="[a-z0-9-]+"\](?: \[data-training="[a-z0-9-]+"\])?$/;
 
 describe('training v2 curricula shape', () => {
   for (const cur of ALL_CURRICULA) {
@@ -96,13 +97,19 @@ describe('housekeeper first-shift curriculum', () => {
     expect(n).toBeLessThanOrEqual(10);
   });
 
-  it('has no duplicate or consecutive-duplicate selectors', () => {
+  it('has no duplicate or malformed selectors', () => {
     const selectors = (hk?.steps ?? []).map((s) => s.selector).filter(Boolean) as string[];
     for (const sel of selectors) {
       expect(sel.trim().length).toBeGreaterThan(0);
-      expect(sel).toMatch(/^\[data-training="[a-z0-9-]+"\]$/);
+      expect(sel).toMatch(TRAINING_SELECTOR);
     }
     expect(new Set(selectors).size).toBe(selectors.length);
+  });
+
+  it('spotlights the actual check-in swipe control instead of its large wrapper', () => {
+    expect(hk?.steps.find((s) => s.key === 'signin')?.selector).toBe(
+      '[data-training="check-in-button"] [data-training="swipe-action-track"]',
+    );
   });
 
   it('has full content in every training language', () => {
