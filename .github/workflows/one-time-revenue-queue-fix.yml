@@ -2,65 +2,71 @@ name: One-time Revenue Queue Fix
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'chore: add one-time HotelCare dev patch'
+    if: ${{ github.event.head_commit.message == 'chore: retry one-time revenue dev patch' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Patch Revenue Engine V2 and publisher cleanup
-        shell: python
+        shell: bash
         run: |
+          python - <<'PY'
           from pathlib import Path
 
-          v2 = Path('supabase/functions/revenue-pickup-automation/runV2.ts')
+          v2 = Path("supabase/functions/revenue-pickup-automation/runV2.ts")
           text = v2.read_text()
-          old = '''    const ladderRepairs: Array<Record<string, unknown>> = [];
+          old = """    const ladderRepairs: Array<Record<string, unknown>> = [];
     {
       const movedPrice = new Map<string, number>();
-'''
-          new = '''    const ladderRepairs: Array<Record<string, unknown>> = [];
+"""
+          new = """    const ladderRepairs: Array<Record<string, unknown>> = [];
     // Proactive ladder repair is an explicit operator feature. When disabled,
     // do not even build repair candidates: this avoids hundreds of useless
     // drafts and keeps pricing activity limited to genuine demand decisions.
     if (rule.proactive_ladder_repair_enabled === true) {
       const movedPrice = new Map<string, number>();
-'''
+"""
           if old not in text:
-            raise SystemExit('runV2 ladder block anchor not found')
+              raise SystemExit("runV2 ladder block anchor not found")
           v2.write_text(text.replace(old, new, 1))
 
-          publisher = Path('supabase/functions/revenue-publish-queue/index.ts')
+          publisher = Path("supabase/functions/revenue-publish-queue/index.ts")
           text = publisher.read_text()
-          old = '''    const { data: claimed, error: claimErr } = await admin.rpc("claim_next_push_run", { p_stale_minutes: 10 });
-'''
-          new = '''    // Close queue shells whose drafts were all superseded/cancelled before
+          old = """    const { data: claimed, error: claimErr } = await admin.rpc(\"claim_next_push_run\", { p_stale_minutes: 10 });
+"""
+          new = """    // Close queue shells whose drafts were all superseded/cancelled before
     // claiming the next job. This prevents old no-op runs from staying shown
-    // as "queued" forever in Pricing activity.
-    const { error: cleanupErr } = await admin.rpc("close_empty_revenue_push_runs");
-    if (cleanupErr) console.warn("empty push-run cleanup failed", cleanupErr);
+    // as \"queued\" forever in Pricing activity.
+    const { error: cleanupErr } = await admin.rpc(\"close_empty_revenue_push_runs\");
+    if (cleanupErr) console.warn(\"empty push-run cleanup failed\", cleanupErr);
 
-    const { data: claimed, error: claimErr } = await admin.rpc("claim_next_push_run", { p_stale_minutes: 10 });
-'''
+    const { data: claimed, error: claimErr } = await admin.rpc(\"claim_next_push_run\", { p_stale_minutes: 10 });
+"""
           if old not in text:
-            raise SystemExit('publisher claim anchor not found')
+              raise SystemExit("publisher claim anchor not found")
           publisher.write_text(text.replace(old, new, 1))
+          PY
 
       - name: Validate patch
+        shell: bash
         run: |
           git diff --check
           grep -q 'proactive_ladder_repair_enabled === true' supabase/functions/revenue-pickup-automation/runV2.ts
           grep -q 'close_empty_revenue_push_runs' supabase/functions/revenue-publish-queue/index.ts
 
       - name: Commit patch
+        shell: bash
         run: |
           git config user.name "HotelCare Dev Bot"
           git config user.email "actions@users.noreply.github.com"
