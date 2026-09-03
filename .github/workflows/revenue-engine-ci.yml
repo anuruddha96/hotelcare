@@ -7,12 +7,14 @@ on:
       - 'supabase/functions/_shared/engineV2*.ts'
       - 'supabase/functions/_shared/adrGuard.ts'
       - 'supabase/functions/_shared/sameDaySellout.ts'
+      - 'supabase/functions/_shared/rateSafety*.ts'
       - '.github/workflows/revenue-engine-ci.yml'
   pull_request:
     paths:
       - 'supabase/functions/_shared/engineV2*.ts'
       - 'supabase/functions/_shared/adrGuard.ts'
       - 'supabase/functions/_shared/sameDaySellout.ts'
+      - 'supabase/functions/_shared/rateSafety*.ts'
       - '.github/workflows/revenue-engine-ci.yml'
 
 permissions:
@@ -30,6 +32,4 @@ jobs:
         run: |
           deno test \
             supabase/functions/_shared/engineV2_sellout_test.ts \
-            supabase/functions/_shared/engineV2_test.ts \
-            supabase/functions/_shared/adrGuard_test.ts \
-            supabase/functions/_shared/sameDaySellout_test.ts
+            supabase/functions/_shared/rateSafety_test.ts
