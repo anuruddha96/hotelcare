@@ -200,7 +200,7 @@ export function ReservationCalendar({
                 className="shrink-0 sticky left-0 z-40 bg-card border-r border-border px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground"
                 style={{ width: LABEL_W }}
               >
-                {sortedRooms.length} rooms
+                {sortedRooms.length} {t('pms.unified.rooms')}
               </div>
               <div className="flex">
                 {dateRange.map((date) => {
@@ -300,7 +300,7 @@ export function ReservationCalendar({
               ))}
               <div className="flex items-center gap-1.5 ml-auto">
                 <Radio className="h-3 w-3 text-muted-foreground" />
-                <span className="text-[10px] text-muted-foreground">Previo live snapshot (read-only)</span>
+                <span className="text-[10px] text-muted-foreground">{t('pms.unified.liveSnapshotReadOnly')}</span>
               </div>
             </div>
           </div>

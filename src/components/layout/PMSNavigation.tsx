@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
 const PMS_NAV_ITEMS = [
-  { key: 'reception', icon: DoorOpen, label: 'Reception', roles: ['admin', 'manager', 'reception', 'front_office', 'housekeeping_manager', 'top_management', 'top_management_manager'] },
+  { key: 'reception', icon: DoorOpen, labelKey: 'pms.unified.reception', roles: ['admin', 'manager', 'reception', 'front_office', 'housekeeping_manager', 'top_management', 'top_management_manager'] },
   { key: 'guests', icon: Users, labelKey: 'pms.guests', roles: ['admin', 'manager', 'reception', 'front_office', 'top_management', 'top_management_manager'] },
   { key: 'channel-manager', icon: Radio, labelKey: 'pms.channelManager', roles: ['admin', 'manager', 'top_management', 'top_management_manager'] },
   { key: 'revenue', icon: TrendingUp, labelKey: 'pms.revenue', roles: ['admin', 'top_management', 'top_management_manager'] },
