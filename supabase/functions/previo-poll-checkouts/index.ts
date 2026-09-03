@@ -685,7 +685,7 @@ serve(async (req) => {
     let targets: { hotel_id: string; pms_hotel_id: any; credentials_secret_name: string }[] = [];
     if (hotelIdInput) {
       if (!isServiceCall) {
-        const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
+        const isAdmin = profile?.role === "admin" || profile?.role === "top_management" || profile?.role === "top_management_manager";
         if (!isAdmin) {
           // Legacy profiles can store a hotel's human display name while
           // integration calls correctly use the canonical hotel_id. Resolve

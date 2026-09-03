@@ -203,7 +203,7 @@ serve(async (req) => {
       .select("role, assigned_hotel")
       .eq("id", userRes.user.id)
       .maybeSingle();
-    const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
+    const isAdmin = profile?.role === "admin" || profile?.role === "top_management" || profile?.role === "top_management_manager";
     if (!isAdmin) {
       const { data: aliasCfg } = await service
         .from("hotel_configurations")
