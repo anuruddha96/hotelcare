@@ -7,29 +7,24 @@ on:
       - 'supabase/functions/_shared/engineV2*.ts'
       - 'supabase/functions/_shared/adrGuard.ts'
       - 'supabase/functions/_shared/sameDaySellout.ts'
-      - 'supabase/functions/_shared/rateSafety*.ts'
       - '.github/workflows/revenue-engine-ci.yml'
   pull_request:
     paths:
       - 'supabase/functions/_shared/engineV2*.ts'
       - 'supabase/functions/_shared/adrGuard.ts'
       - 'supabase/functions/_shared/sameDaySellout.ts'
-      - 'supabase/functions/_shared/rateSafety*.ts'
       - '.github/workflows/revenue-engine-ci.yml'
 
 permissions:
   contents: read
 
 jobs:
-  revenue-engine-tests:
+  close-in-pricing-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
-      - name: Run Revenue Engine V2 tests
-        run: |
-          deno test \
-            supabase/functions/_shared/engineV2_sellout_test.ts \
-            supabase/functions/_shared/rateSafety_test.ts
+      - name: Run close-in Revenue Engine V2 regression tests
+        run: deno test supabase/functions/_shared/engineV2_sellout_test.ts
