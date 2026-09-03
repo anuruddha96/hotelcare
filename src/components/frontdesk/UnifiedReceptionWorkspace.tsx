@@ -73,6 +73,7 @@ function SideSection({
   items: any[];
   onOpen: (r: any) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <details open className="border-b border-border last:border-b-0 group">
       <summary className="list-none cursor-pointer select-none px-3 py-2 bg-muted/45 hover:bg-muted/70 flex items-center justify-between gap-2">
@@ -92,13 +93,13 @@ function SideSection({
             onClick={() => onOpen(r)}
             disabled={isSnapshotOnly(r)}
             className="w-full text-left px-3 py-2 hover:bg-accent/40 disabled:hover:bg-transparent transition-colors disabled:cursor-default"
-            title={isSnapshotOnly(r) ? 'Read-only PMS snapshot — sync to open the reservation record' : undefined}
+            title={isSnapshotOnly(r) ? t('pms.unified.snapshotReadOnly') : undefined}
           >
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-xs font-semibold truncate">{reservationGuestLabel(r)}</div>
                 <div className="text-[10px] text-muted-foreground truncate mt-0.5">
-                  {r.rooms?.room_number || r.room_label || 'Unassigned'} · {r.check_in_date?.slice(5)} → {r.check_out_date?.slice(5)}
+                  {r.rooms?.room_number || r.room_label || t('pms.unified.unassigned')} · {r.check_in_date?.slice(5)} → {r.check_out_date?.slice(5)}
                 </div>
               </div>
               {isSnapshotOnly(r) ? (
@@ -278,7 +279,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
             <h1 className="text-xl font-bold">{t('pms.fd.title')}</h1>
             {snapshotReservations.length > 0 && (
               <Badge variant="outline" className="text-[10px] gap-1 text-muted-foreground">
-                <Radio className="h-3 w-3" /> PMS live snapshot fallback
+                <Radio className="h-3 w-3" /> {t('pms.unified.liveSnapshotFallback')}
               </Badge>
             )}
           </div>
@@ -365,7 +366,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
                           <td className="px-3 py-2">{r.rooms?.room_number || r.room_label || t('pms.res.unassigned')}</td>
                           <td className="px-3 py-2 whitespace-nowrap">{r.check_in_date} → {r.check_out_date}</td>
                           <td className="px-3 py-2"><Badge className={RESERVATION_STATUS_COLORS[r.status] || 'bg-muted'}>{String(r.status).replace('_', ' ')}</Badge></td>
-                          <td className="px-3 py-2 capitalize">{isSnapshotOnly(r) ? 'Previo live' : String(r.source || '').replace('_', ' ')}</td>
+                          <td className="px-3 py-2 capitalize">{isSnapshotOnly(r) ? t('pms.unified.previoLive') : String(r.source || '').replace('_', ' ')}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -381,7 +382,7 @@ export function UnifiedReceptionWorkspace({ breakfastUploadPath }: { breakfastUp
           <SideSection title={t('pms.fd.arrivalsRemaining')} icon={LogIn} items={arrivals} onOpen={openReservation} />
           <SideSection title={t('pms.fd.departuresRemaining')} icon={LogOut} items={departures} onOpen={openReservation} />
           <SideSection title={t('pms.fd.inHouseNow')} icon={Users} items={inHouse} onOpen={openReservation} />
-          <SideSection title={t('pms.reservations.future')} icon={CalendarDays} items={upcomingOnline} onOpen={openReservation} />
+          <SideSection title={t('pms.unified.futureReservations')} icon={CalendarDays} items={upcomingOnline} onOpen={openReservation} />
         </aside>
       </div>
 
