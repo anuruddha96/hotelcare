@@ -10,6 +10,9 @@
 //     but a theoretical ADR floor may NOT lift or freeze a soft date. Once the
 //     date reaches 90% occupancy or two rooms left, ADR/yield protection takes
 //     control again so the last inventory can bank a stronger rate.
+//   • DAY+3..DAY+90 also gets a market-rebalance retry when validated competitor
+//     evidence says the hotel's reference rate is materially above the comp set,
+//     occupancy is soft, inventory remains and there has been no net pickup.
 //
 // Keeping today's normal hourly engine out of the rate is deliberate: two
 // independent clocks must never compete over the same arrival-day price.
@@ -24,6 +27,7 @@ import {
   type Decision,
   type DecisionInput,
   type DecisionSettings,
+  type PaceBand,
 } from "./engineV2Core.ts";
 
 const whole = (value: number): number => Math.round(value);
@@ -242,6 +246,122 @@ function decideNextTwoDays(input: DecisionInput, settings: DecisionSettings): De
   };
 }
 
+/**
+ * Robust market ceiling used only to decide whether a soft date deserves a
+ * second, market-aware evaluation. The displayed calendar may show an average,
+ * but automation deliberately uses the validated median so one bad scrape can
+ * never drag the hotel upward or downward.
+ */
+export function marketRebalanceCap(input: DecisionInput, settings: DecisionSettings): number | null {
+  const market = input.market;
+  if (market.median == null || !(Number(market.median) > 0)) return null;
+  if (market.sampleSize < settings.marketValidation.min_competitors) return null;
+  if (market.ageHours == null || market.ageHours > settings.marketValidation.max_age_hours) return null;
+
+  const occ = input.occupancyPct == null ? 0 : Number(input.occupancyPct);
+  const configuredLow = Number(settings.marketValidation.median_cap_low_occ_pct) || 110;
+  const configuredHigh = Number(settings.marketValidation.median_cap_high_occ_pct) || 125;
+  const pct = occ < 75
+    ? configuredLow
+    : Math.min(configuredHigh, 120);
+  return whole(Number(market.median) * pct / 100);
+}
+
+export function isMarketRebalanceCandidate(input: DecisionInput, settings: DecisionSettings): boolean {
+  if (input.daysOut < 3 || input.daysOut > 90) return false;
+  if (input.currentPrice == null || !(input.currentPrice > 0)) return false;
+  if (input.occupancyPct == null || !Number.isFinite(Number(input.occupancyPct))) return false;
+  if (Number(input.occupancyPct) >= 85) return false;
+  if (input.roomsRemaining == null || input.roomsRemaining <= 2) return false;
+  if (Math.max(0, input.pickup24h - input.cancellations24h) > 0) return false;
+
+  const cap = marketRebalanceCap(input, settings);
+  if (cap == null) return false;
+  return whole(input.currentPrice) - cap >= settings.minMovementEur;
+}
+
+/**
+ * Re-evaluate an overpriced soft date as though pace were materially behind.
+ * This does NOT bypass the core safety stack: no-pickup waiting, cancellation
+ * and rebook protection, one-way-day logic, decrease cooldown, daily budget,
+ * absolute floors, campaign depth and direction cooldown are still enforced by
+ * decideDateCore. Only the monthly ADR freeze/floor is relaxed, because keeping
+ * an empty room merely to defend a theoretical monthly ADR cannot beat a fresh,
+ * validated market signal.
+ */
+function marketPressureRetry(input: DecisionInput, settings: DecisionSettings): Decision | null {
+  if (!isMarketRebalanceCandidate(input, settings)) return null;
+  const cap = marketRebalanceCap(input, settings)!;
+  const current = whole(input.currentPrice!);
+  const excessPct = cap > 0 ? ((current - cap) / cap) * 100 : 0;
+  const requiredGap = excessPct >= 25 ? 20 : 15;
+  const occ = Number(input.occupancyPct);
+  const pressuredTarget = Math.min(100, occ + requiredGap);
+
+  let replaced = false;
+  const pressuredBands: PaceBand[] = settings.paceBands.map((band) => {
+    if (input.daysOut < band.min_days_out || input.daysOut > band.max_days_out) return band;
+    replaced = true;
+    return {
+      ...band,
+      target_occupancy_pct: Math.max(Number(band.target_occupancy_pct), pressuredTarget),
+    };
+  });
+  if (!replaced) {
+    pressuredBands.push({
+      min_days_out: input.daysOut,
+      max_days_out: input.daysOut,
+      target_occupancy_pct: pressuredTarget,
+    });
+  }
+
+  const retry = decideDateCore(
+    {
+      ...input,
+      monthFloor: null,
+      monthMarkdownsFrozen: false,
+    },
+    {
+      ...settings,
+      paceBands: pressuredBands,
+    },
+  );
+
+  if (retry.direction !== "decrease" || retry.blocked) return null;
+  return {
+    ...retry,
+    reason: "market_rebalance",
+    reasonDetail:
+      `Validated competitor median €${whole(Number(input.market.median))}; `
+      + `soft-occupancy market ceiling €${cap}, while Ottofiori is €${current} with ${input.roomsRemaining} rooms left and no net pickup. `
+      + `${retry.reasonDetail}`,
+  };
+}
+
+/**
+ * A single booking is useful evidence, but with soft occupancy it is not enough
+ * to make an already-uncompetitive date more expensive. Two bookings, scarcity
+ * or >=85% occupancy can still justify the core engine's increase.
+ */
+function suppressWeakSinglePickupIncrease(
+  input: DecisionInput,
+  settings: DecisionSettings,
+  decision: Decision,
+): Decision {
+  const netPickup = Math.max(0, input.pickup24h - input.cancellations24h);
+  if (decision.direction !== "increase" || netPickup !== 1) return decision;
+  if (!decision.reason.includes("genuine_pickup")) return decision;
+  if ((input.occupancyPct ?? 0) >= 85) return decision;
+  if (input.roomsRemaining != null && input.roomsRemaining <= 2) return decision;
+
+  return blocked(
+    input,
+    settings,
+    "single_pickup_hold",
+    "One booking with soft occupancy is evidence to hold, not enough evidence to raise. Wait for a second net booking, >=85% occupancy, or scarcity before yielding upward.",
+  );
+}
+
 export function decideDate(input: DecisionInput, settings: DecisionSettings): Decision {
   // A manager price change is authoritative for the full configured hold.
   // Previously genuine pickup could override a soft hold and immediately lift a
@@ -293,9 +413,19 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
   // artificial floors/freezes while inventory is soft. Genuine pickup, market,
   // event and occupancy signals may still raise the rate; "bank the ADR target"
   // alone may not.
-  if (closeInSellout) {
-    return decideDateCore(withoutCloseInAdrProtection(input), settings);
+  const coreInput = closeInSellout ? withoutCloseInAdrProtection(input) : input;
+  let decision = decideDateCore(coreInput, settings);
+
+  // Do not overreact to one booking while a date is still soft.
+  decision = suppressWeakSinglePickupIncrease(coreInput, settings, decision);
+
+  // If the normal pace engine would hold an overpriced soft date, let validated
+  // market evidence request a second evaluation. The retry still goes through
+  // the full core safety stack and can therefore legitimately remain a hold.
+  if (decision.direction !== "decrease") {
+    const marketRetry = marketPressureRetry(coreInput, settings);
+    if (marketRetry) decision = marketRetry;
   }
 
-  return decideDateCore(input, settings);
+  return decision;
 }
