@@ -7,6 +7,7 @@ import { resolveHotelKeys } from "@/lib/hotelKeys";
 import { classifyPmsHousekeepingRow } from "@/lib/pmsClassification";
 import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
 import { buildRoomNotes, parseRoomFlags } from "@/lib/room-service-flags";
+import { extractHousekeepingSectionsFromRawNote, pickPrevioHousekeepingNote } from "@/lib/previoHousekeepingNote";
 import { normalizeUnitName, isTechnicalRow, buildUnitResolver } from "@/lib/slntUnitMapping";
 
 const STALE_NOTE_PREFIXES = /^\s*(early checkout[^—-]*[-—]?\s*|no show\s*[-—]?\s*)/i;
@@ -27,71 +28,6 @@ const STALE_DAY_METADATA_KEYS = [
 ];
 
 
-
-// Previo concatenates all department-tab notes into a single `note` field,
-// each prefixed with a Czech/English label: `Systém -` (OTA / channel-manager
-// blob), `Recepce -` (reception), `Kuchyně -` (kitchen / breakfast),
-// `Housekeeping -`, etc. Only the operational (non-Systém) sections are
-// useful to the housekeeper — the Systém section is Booking.com pricing,
-// commission, policies, and VCC data that must never surface.
-const SECTION_LABEL_RE = /\b(Syst[ée]m|Recepce|Reception|Kuchyn[ěe]|Kitchen|Housekeeping|H[oó]zvezet[ée]s|Takar[ií]t[aá]s|Poznámka)\s*-\s*/gi;
-const OTA_SECTION_LABEL_RE = /^(Syst[ée]m)$/i;
-const PAYMENT_NOISE_RE = /\b(VCC\b[^.\n]*|Collect payment from guests[^.\n]*|Payment[^.\n]*|Virtual [Cc]redit [Cc]ard[^.\n]*)/gi;
-
-const decodeHtmlEntities = (s: string): string =>
-  s
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;039;|&#039;|&apos;/gi, "'")
-    .replace(/&quot;/gi, '"')
-    .replace(/&amp;/gi, "&");
-
-/**
- * Extract only the reception / housekeeping / kitchen sections from Previo's
- * concatenated `note` field. Drops the Systém (OTA) section and payment /
- * VCC noise. Returns null if nothing operational is left.
- */
-export const extractHousekeepingSectionsFromRawNote = (raw: string | null | undefined): string | null => {
-  if (!raw) return null;
-  // Decode entities, strip HTML tags, collapse whitespace.
-  const text = decodeHtmlEntities(String(raw))
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!text) return null;
-
-  // Split on department labels while keeping the label as delimiter.
-  const parts: Array<{ label: string; body: string }> = [];
-  const matches = Array.from(text.matchAll(SECTION_LABEL_RE));
-  if (matches.length === 0) {
-    // No labels — if the whole thing is a reservation blob, drop it.
-    return RESERVATION_NOTE_BLOB.test(text) ? null : text;
-  }
-  for (let i = 0; i < matches.length; i++) {
-    const m = matches[i];
-    const label = (m[1] || "").trim();
-    const start = m.index! + m[0].length;
-    const end = i + 1 < matches.length ? matches[i + 1].index! : text.length;
-    const body = text.slice(start, end).trim();
-    if (body) parts.push({ label, body });
-  }
-
-  const kept: string[] = [];
-  for (const { label, body } of parts) {
-    if (OTA_SECTION_LABEL_RE.test(label)) continue;                       // drop OTA (Systém) blob
-    // For labeled operational sections (Recepce / Kuchyně / Housekeeping)
-    // we trust the label — do NOT drop just because the body mentions
-    // "Booking.com" or similar (receptionists routinely reference the OTA
-    // in their notes, e.g. "GUEST CC IS AVAILABLE ONLY FOR BOOKING.COM").
-    // Only strip payment-noise phrases inside the body.
-    const cleaned = body.replace(PAYMENT_NOISE_RE, " ").replace(/\s+/g, " ").trim();
-    if (!cleaned) continue;
-    kept.push(`${label}: ${cleaned}`);
-  }
-  const joined = kept.join(" • ").trim();
-  return joined || null;
-};
 
 const getDateOnly = (value: unknown): string | null => {
   if (!value) return null;
@@ -126,14 +62,8 @@ const stripManualRoomOverride = (meta: Record<string, any> | undefined): Record<
   return cleaned;
 };
 
-const cleanSyncedHousekeepingNote = (row: any): string | null => {
-  // Prefer explicit internal-note field. Otherwise parse Previo's
-  // concatenated `Note` field to extract only the non-Systém sections.
-  const internal = row?.NoteInternal ? String(row.NoteInternal).trim() : "";
-  if (internal && !RESERVATION_NOTE_BLOB.test(internal)) return internal;
-  const parsed = extractHousekeepingSectionsFromRawNote(row?.Note ?? row?.NoteOta ?? null);
-  return parsed;
-};
+const cleanSyncedHousekeepingNote = (row: any): string | null =>
+  pickPrevioHousekeepingNote(row);
 
 export type PmsSyncStatus = "success" | "partial" | "error" | "idle";
 

@@ -14,6 +14,11 @@ describe("inferBedConfigFromNote", () => {
     expect(inferBedConfigFromNote("please leave extra towels")).toBeNull();
   });
 
+  it("detects sofa bed housekeeping instructions", () => {
+    expect(inferBedConfigFromNote("SofaBed we stay 3")?.value).toBe("Sofa Bed");
+    expect(inferBedConfigFromNote("please prepare sofa bed")?.value).toBe("Sofa Bed");
+  });
+
   it("detects separated twin bed requests", () => {
     expect(inferBedConfigFromNote("Separate beds")?.value).toBe("Twin Beds Separated");
     expect(inferBedConfigFromNote("please prepare beds separated")?.value).toBe(

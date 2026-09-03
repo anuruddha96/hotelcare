@@ -24,6 +24,7 @@ export type InferredBedConfig = {
     | "Twin Beds Separated"
     | "Single Bed"
     | "Baby Bed"
+    | "Sofa Bed"
     | "Extra Cot Added";
   matchedKeyword: string;
 };
@@ -43,6 +44,18 @@ const RULES: Array<{ value: InferredBedConfig["value"]; keywords: string[] }> = 
       "kulon agy",
       "letti separati",
       "camas separadas",
+    ],
+  },
+  {
+    value: "Sofa Bed",
+    keywords: [
+      "sofa bed",
+      "sofabed",
+      "sofa-bed",
+      "open sofa bed",
+      "prepare sofa bed",
+      "kanapéágy",
+      "kanapeagy",
     ],
   },
   {
