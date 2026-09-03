@@ -1,12 +1,10 @@
 // Hotel Ottofiori daily market-rate scan.
 //
-// Runs once each morning and refreshes the next 60 stay dates for every active
-// competitor configured in Hotel Authority. It deliberately uses the same
-// public-web method as competitor-rate-scan (hotel site, Booking.com and Google
-// Hotels), but uses the richer web-search model/context because this is only one
-// scheduled run per day and accurate market evidence matters more than saving a
-// few cents. Every quote is stored as an observation and reconciled before it
-// becomes a market rate, so one bad scrape cannot directly steer pricing.
+// The 06:00 scheduler fans this function out once per active Hotel Authority
+// competitor. Each competitor therefore has its own runtime/lease: one slow or
+// blocked website cannot prevent the other configured competitors from being
+// refreshed. We refresh 60 stay dates and only admit verified EUR quotes into
+// the market signal.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -14,7 +12,6 @@ const HOTEL_ID = "ottofiori";
 const DEFAULT_DAYS = 60;
 const MAX_DAYS = 60;
 const CHUNK_DAYS = 20;
-const LEASE_ID = "ottofiori-market-scan";
 const MODEL = "gpt-4o";
 const SEARCH_CONTEXT = "medium" as const;
 
@@ -71,25 +68,27 @@ function normaliseBoard(v: string | null | undefined): string | null {
 }
 
 function estimateCost(inputTokens: number, outputTokens: number) {
-  // gpt-4o rough list prices + one medium-context web search.
   return Number((((inputTokens / 1_000_000) * 2.5) + ((outputTokens / 1_000_000) * 10) + 0.0275).toFixed(5));
 }
 
 async function askRates(apiKey: string, c: Competitor, dates: string[], strict = false) {
+  const eurRule = "Only return a rate when you can verify a public EUR price. If a page only shows HUF, USD or another currency, search another public source for an EUR display; if no EUR quote is verifiable, return null. Do not convert currencies yourself.";
   const prompt = strict ? [
     `Find real public nightly prices for hotel "${c.name}" in Budapest, cheapest standard double room, 2 adults, 1 night.`,
     c.source_url ? `Reference page: ${c.source_url}.` : "",
     `Stay dates: ${dates.join(", ")}.`,
-    `Search the hotel website, Booking.com and Google Hotels.`,
-    `Do not guess or interpolate. If a date cannot be verified, use null.`,
-    `Return JSON only: {"currency":"EUR","rates":[{"date":"YYYY-MM-DD","price":123,"room_type":"Standard Double","board":"room_only","refundable":true,"source_url":"https://...","confidence":0.9}]}`,
+    "Search the hotel website, Booking.com and Google Hotels.",
+    eurRule,
+    "Do not guess or interpolate. If a date cannot be verified, use null.",
+    `Return JSON only: {"currency":"EUR","rates":[{"date":"YYYY-MM-DD","price":123,"currency":"EUR","room_type":"Standard Double","board":"room_only","refundable":true,"source_url":"https://...","confidence":0.9}]}`,
   ].filter(Boolean).join(" ") : [
     `Act as a hotel market-rate checker. Find the currently advertised public nightly rate for "${c.name}" in Budapest.`,
     c.source_url ? `Start with this configured competitor page: ${c.source_url}.` : "",
     `Check the hotel website, Booking.com and Google Hotels for each of these stay dates: ${dates.join(", ")}.`,
-    `Compare the cheapest available STANDARD DOUBLE room for 2 adults, one night. Prefer room-only; if only breakfast is visible, report it and label board=breakfast.`,
-    `For each verified date include room_type, board, refundable, exact source_url and confidence 0..1.`,
-    `Never invent a price. Use null when no public price can be verified.`,
+    "Compare the cheapest available STANDARD DOUBLE room for 2 adults, one night. Prefer room-only; if only breakfast is visible, report it and label board=breakfast.",
+    eurRule,
+    "For each verified date include room_type, board, refundable, exact source_url and confidence 0..1.",
+    "Never invent a price. Use null when no public EUR price can be verified.",
     `Return strict JSON only: {"currency":"EUR","rates":[{"date":"YYYY-MM-DD","price":123,"currency":"EUR","room_type":"Standard Double","board":"room_only","refundable":true,"source_url":"https://...","confidence":0.9}]}`,
   ].filter(Boolean).join(" ");
 
@@ -139,21 +138,30 @@ Deno.serve(async (req) => {
 
   const body = await req.json().catch(() => ({}));
   const days = Math.min(Math.max(Number(body.days ?? DEFAULT_DAYS), 1), MAX_DAYS);
+  const requestedCompetitorId = typeof body.competitorId === "string" && body.competitorId.length > 0
+    ? body.competitorId
+    : null;
+  const leaseId = requestedCompetitorId
+    ? `ottofiori-market-scan:${requestedCompetitorId}`
+    : "ottofiori-market-scan";
 
   const { data: claimed } = await admin.rpc("claim_competitor_scan_lease", {
-    _id: LEASE_ID,
-    _minutes: 45,
+    _id: leaseId,
+    _minutes: 30,
   });
-  if (!claimed) return json({ ok: true, skipped: "another Ottofiori market scan is running or paused" });
+  if (!claimed) return json({ ok: true, skipped: "this competitor market scan is already running or paused" });
 
   const work = (async () => {
     try {
-      const { data: competitors, error: competitorError } = await admin
+      let competitorQuery = admin
         .from("competitor_properties")
         .select("id,name,source_url,organization_slug")
         .eq("hotel_id", HOTEL_ID)
         .eq("active", true)
         .order("name");
+      if (requestedCompetitorId) competitorQuery = competitorQuery.eq("id", requestedCompetitorId);
+
+      const { data: competitors, error: competitorError } = await competitorQuery;
       if (competitorError) throw competitorError;
 
       const list = (competitors ?? []) as Competitor[];
@@ -209,10 +217,7 @@ Deno.serve(async (req) => {
               answer = { rates: [], currency: "EUR", inputTokens: 0, outputTokens: 0 };
             }
 
-            // A once-daily scan is allowed one stronger re-check when an entire
-            // date window yielded no usable quote. This materially improves
-            // coverage without creating a continuous scraper.
-            if (!answer.rates.some((r: Rate) => r?.price != null)) {
+            if (!answer.rates.some((r: Rate) => r?.price != null && String(r.currency ?? answer.currency ?? "").toUpperCase() === "EUR")) {
               try {
                 const retry = await askRates(apiKey, c, window, true);
                 await admin.from("ai_usage_log").insert({
@@ -235,6 +240,7 @@ Deno.serve(async (req) => {
             const rows = answer.rates
               .filter((r: Rate) => r && r.price != null && Number.isFinite(Number(r.price)))
               .filter((r: Rate) => r.date >= startIso && r.date <= endIso)
+              .filter((r: Rate) => String(r.currency ?? answer.currency ?? "").toUpperCase() === "EUR")
               .filter((r: Rate) => r.confidence == null || Number(r.confidence) >= 0.45)
               .map((r: Rate) => ({
                 competitor_id: c.id,
@@ -242,7 +248,7 @@ Deno.serve(async (req) => {
                 organization_slug: c.organization_slug,
                 stay_date: r.date,
                 rate: Number(r.price),
-                currency: String(r.currency ?? answer.currency ?? "EUR").slice(0, 6),
+                currency: "EUR",
                 room_type: r.room_type ? String(r.room_type).slice(0, 120) : null,
                 occupancy: 2,
                 board: normaliseBoard(r.board),
@@ -301,12 +307,12 @@ Deno.serve(async (req) => {
         }
       }
     } finally {
-      await admin.rpc("release_competitor_scan_lease", { _id: LEASE_ID }).catch(() => {});
+      await admin.rpc("release_competitor_scan_lease", { _id: leaseId }).catch(() => {});
     }
   })();
 
   const rt = (globalThis as unknown as { EdgeRuntime?: { waitUntil(p: Promise<unknown>): void } }).EdgeRuntime;
   if (rt) rt.waitUntil(work); else await work;
 
-  return json({ ok: true, started: true, hotelId: HOTEL_ID, days });
+  return json({ ok: true, started: true, hotelId: HOTEL_ID, competitorId: requestedCompetitorId, days });
 });
