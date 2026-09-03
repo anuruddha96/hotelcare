@@ -85,11 +85,21 @@ export function PmsSyncButton({ hotelId, onSynced, compact }: PmsSyncButtonProps
         toast.info(data.message ?? t('pms.sync.notConnected'));
         return;
       }
+
+      const inserted = Math.max(0, Number(data?.inserted ?? 0));
+      const updated = Math.max(0, Number(data?.updated ?? 0));
+      const unmappedRooms = Math.max(0, Number(data?.unmapped_rooms ?? 0));
+      const errorCount = Array.isArray(data?.errors) ? data.errors.length : 0;
+      const counts = `${t('pms.sync.imported')}: ${inserted} · ${t('pms.sync.updatedCount')}: ${updated}${unmappedRooms > 0 ? ` · ${t('pms.res.unassigned')}: ${unmappedRooms}` : ''}${errorCount > 0 ? ` · ${t('pms.sync.errorsCount')}: ${errorCount}` : ''}`;
+
       if (data?.success === false) {
-        toast.error(`${t('pms.sync.syncFailed')}: ${data.error ?? ''}`);
+        // A multi-account import may be partial: some reservations can be safely
+        // imported even when another Previo account fails. Do not present that
+        // as an empty hard-error toast and hide the useful import counts.
+        if (inserted + updated > 0) toast.warning(`${t('pms.sync.syncDone')} · ${counts}`);
+        else toast.error(`${t('pms.sync.syncFailed')} · ${counts}${data?.error ? ` · ${data.error}` : ''}`);
       } else {
-        const unmappedRooms = Math.max(0, Number(data?.unmapped_rooms ?? 0));
-        const message = `${t('pms.sync.syncDone')} · ${t('pms.sync.imported')}: ${data?.inserted ?? 0} · ${t('pms.sync.updatedCount')}: ${data?.updated ?? 0}${unmappedRooms > 0 ? ` · ${t('pms.res.unassigned')}: ${unmappedRooms}` : ''}${(data?.errors?.length ?? 0) > 0 ? ` · ${t('pms.sync.errorsCount')}: ${data.errors.length}` : ''}`;
+        const message = `${t('pms.sync.syncDone')} · ${counts}`;
         if (unmappedRooms > 0) toast.warning(message);
         else toast.success(message);
       }
