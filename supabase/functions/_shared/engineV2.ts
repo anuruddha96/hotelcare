@@ -1,12 +1,17 @@
 // Public Revenue Engine V2 entry point.
 //
 // The fully tested decision engine lives in engineV2Core.ts. This policy layer
-// adds one narrow near-arrival rule:
+// adds the near-arrival sell-out rules that must outrank portfolio ADR guarding:
 //   • ARRIVAL TODAY is owned exclusively by revenue-same-day-sellout, which
 //     checks the current stay date every 30 minutes until 15:00.
-//   • TOMORROW / DAY+2 keep the final sell-out priority added previously.
+//   • TOMORROW / DAY+2 use the dedicated final sell-out markdown while inventory
+//     is still soft.
+//   • DAY+3..DAY+7 keep the normal smart engine (pickup, market, event, pace),
+//     but a theoretical ADR floor may NOT lift or freeze a soft date. Once the
+//     date reaches 90% occupancy or two rooms left, ADR/yield protection takes
+//     control again so the last inventory can bank a stronger rate.
 //
-// Keeping the normal hourly engine out of today's rate is deliberate: two
+// Keeping today's normal hourly engine out of the rate is deliberate: two
 // independent clocks must never compete over the same arrival-day price.
 
 export * from "./engineV2Core.ts";
@@ -49,6 +54,45 @@ export function isFinalSelloutWindow(input: DecisionInput): boolean {
     && input.roomsRemaining != null
     && Number.isFinite(input.roomsRemaining)
     && input.roomsRemaining > 0;
+}
+
+/**
+ * Last-seven-day occupancy priority.
+ *
+ * Portfolio ADR is still important, but it must not manufacture a close-in
+ * increase while several rooms remain unsold. Scarcity wins the switch back:
+ * at 90%+ occupancy OR two rooms left, this override stops and the core engine
+ * is free to protect/yield ADR again. If both inventory signals are missing we
+ * fail closed and leave the core safeguards untouched.
+ */
+export function isCloseInSelloutPriority(input: DecisionInput): boolean {
+  if (input.daysOut < 1 || input.daysOut > 7) return false;
+
+  const occupancyKnown = input.occupancyPct != null && Number.isFinite(Number(input.occupancyPct));
+  const roomsKnown = input.roomsRemaining != null && Number.isFinite(Number(input.roomsRemaining));
+  if (!occupancyKnown && !roomsKnown) return false;
+
+  if (occupancyKnown && Number(input.occupancyPct) >= 90) return false;
+  if (roomsKnown && Number(input.roomsRemaining) <= 2) return false;
+
+  return true;
+}
+
+/**
+ * In a soft D+1..D+7 date ADR remains a monthly KPI, not a close-in price floor.
+ * Strip only ADR-derived floors/freezes and preserve every real safety boundary:
+ * configured minimum rate, campaign/depth floor, manual locks, cancellation
+ * cooldown, daily movement limits, market validation and pickup logic.
+ */
+export function withoutCloseInAdrProtection(input: DecisionInput): DecisionInput {
+  if (!isCloseInSelloutPriority(input)) return input;
+  return {
+    ...input,
+    adrFloor: null,
+    hardAdrFloor: null,
+    monthFloor: null,
+    monthMarkdownsFrozen: false,
+  };
 }
 
 /** Smart whole-euro markdown retained for tomorrow and day+2. */
@@ -125,7 +169,7 @@ function commonSafetyHold(input: DecisionInput, settings: DecisionSettings): Dec
   return null;
 }
 
-/** Tomorrow/day+2 policy retained from the previous sell-out change. */
+/** Tomorrow/day+2 policy while inventory is still soft. */
 function decideNextTwoDays(input: DecisionInput, settings: DecisionSettings): Decision {
   const safety = commonSafetyHold(input, settings);
   if (safety) return safety;
@@ -199,9 +243,8 @@ function decideNextTwoDays(input: DecisionInput, settings: DecisionSettings): De
 }
 
 export function decideDate(input: DecisionInput, settings: DecisionSettings): Decision {
-  if (!isFinalSelloutWindow(input)) return decideDateCore(input, settings);
-
-  if (input.daysOut === 0) {
+  // Arrival day remains exclusively owned by the dedicated 30-minute worker.
+  if (input.daysOut === 0 && isFinalSelloutWindow(input)) {
     if (localMinutes(settings.now) >= 15 * 60) {
       return blocked(
         input,
@@ -218,5 +261,22 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
     );
   }
 
-  return decideNextTwoDays(input, settings);
+  const closeInSellout = isCloseInSelloutPriority(input);
+
+  // Tomorrow/day+2: while several rooms remain, retain the stronger dedicated
+  // sell-out markdown. When scarcity arrives (>=90% or <=2 rooms), hand the date
+  // back to the normal engine so the final inventory can yield ADR upward.
+  if (closeInSellout && input.daysOut <= 2) {
+    return decideNextTwoDays(input, settings);
+  }
+
+  // Day+3..Day+7: keep the full smart engine, but remove only ADR-derived
+  // artificial floors/freezes while inventory is soft. Genuine pickup, market,
+  // event and occupancy signals may still raise the rate; "bank the ADR target"
+  // alone may not.
+  if (closeInSellout) {
+    return decideDateCore(withoutCloseInAdrProtection(input), settings);
+  }
+
+  return decideDateCore(input, settings);
 }
