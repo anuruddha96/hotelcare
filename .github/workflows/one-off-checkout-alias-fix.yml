@@ -1,0 +1,85 @@
+name: One-off checkout hotel alias auth fix
+
+on:
+  push:
+    branches:
+      - fix/checkout-sync-hotel-alias-auth
+    paths:
+      - .github/workflows/one-off-checkout-alias-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/checkout-sync-hotel-alias-auth
+
+      - name: Patch alias-aware checkout authorization
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("supabase/functions/previo-poll-checkouts/index.ts")
+          text = path.read_text()
+
+          old = '''    if (hotelIdInput) {
+              if (!isServiceCall) {
+                const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
+                if (!isAdmin && profile?.assigned_hotel !== hotelIdInput) {
+                  return new Response(JSON.stringify({ error: "Forbidden" }), {
+                    status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+                  });
+                }
+              }
+              const { data: cfg } = await service
+          '''
+
+          new = '''    if (hotelIdInput) {
+              if (!isServiceCall) {
+                const isAdmin = profile?.role === "admin" || profile?.role === "top_management";
+                if (!isAdmin) {
+                  // Legacy profiles can store a hotel's human display name while
+                  // integration calls correctly use the canonical hotel_id. Resolve
+                  // both aliases before enforcing scope so "Hotel Ottofiori" and
+                  // "ottofiori" authorize as the same property.
+                  const { data: hotelIdentity } = await service
+                    .from("hotel_configurations")
+                    .select("hotel_id, hotel_name")
+                    .eq("hotel_id", hotelIdInput)
+                    .maybeSingle();
+                  const allowedHotelKeys = new Set(
+                    [hotelIdInput, hotelIdentity?.hotel_id, hotelIdentity?.hotel_name]
+                      .filter((v): v is string => typeof v === "string" && v.length > 0),
+                  );
+                  if (!profile?.assigned_hotel || !allowedHotelKeys.has(profile.assigned_hotel)) {
+                    return new Response(JSON.stringify({ error: "Forbidden" }), {
+                      status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+                    });
+                  }
+                }
+              }
+              const { data: cfg } = await service
+          '''
+
+          if old not in text:
+              raise SystemExit("Expected checkout authorization block was not found; refusing to patch")
+
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "hotelcare-github-fix"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/functions/previo-poll-checkouts/index.ts
+          git diff --cached --check
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: authorize checkout sync across hotel aliases"
+          git push origin HEAD:fix/checkout-sync-hotel-alias-auth
