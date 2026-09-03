@@ -17,6 +17,11 @@ function replaceOnce(content, search, replacement, label) {
   return content.slice(0, first) + replacement + content.slice(first + search.length);
 }
 
+function replaceAllRequired(content, search, replacement, label) {
+  if (!content.includes(search)) throw new Error(`Patch target not found: ${label}`);
+  return content.split(search).join(replacement);
+}
+
 // 1) PMS refresh: use strict housekeeping-note selection instead of accepting
 // reception/kitchen/internal notes as housekeeper instructions.
 {
@@ -127,7 +132,7 @@ function replaceOnce(content, search, replacement, label) {
     "bed configuration Sofa Bed option",
   );
 
-  s = replaceOnce(
+  s = replaceAllRequired(
     s,
     "                if (bc.includes('Baby')) return '👶BB';\n                if (bc.includes('Extra') || bc.includes('Cot')) return '+COT';\n",
     "                if (bc.includes('Baby')) return '👶BB';\n                if (bc.includes('Sofa')) return 'SOFA';\n                if (bc.includes('Extra') || bc.includes('Cot')) return '+COT';\n",
