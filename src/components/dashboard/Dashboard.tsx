@@ -500,10 +500,15 @@ export function Dashboard() {
                   <Ticket className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                   <span>Maintenance</span>
                 </TabsTrigger>
-                <TabsTrigger value="rooms" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="rooms-tab">
+                                <button
+                  type="button"
+                  onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/reception`)}
+                  className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
+                  data-training="rooms-tab"
+                >
                   <Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                   <span>Reception</span>
-                </TabsTrigger>
+                </button>
                 <TabsTrigger value="housekeeping" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="housekeeping-tab">
                   <Users className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                   <span>Housekeeping</span>
