@@ -272,3 +272,35 @@ Deno.test("day+3 keeps ordinary pickup pricing after the ADR-only floor is remov
   assertEquals(decision.direction, "increase");
   assertEquals(decision.reason, "genuine_pickup");
 });
+
+Deno.test("manager cut stays authoritative during the manual hold even when pickup arrives", () => {
+  const decision = decideDate(input({
+    stayDate: "2026-09-18",
+    daysOut: 17,
+    currentPrice: 285,
+    occupancyPct: 71.4,
+    roomsRemaining: 6,
+    pickup1h: 1,
+    pickup6h: 1,
+    pickup24h: 1,
+    pickup48h: 1,
+    pickup7d: 1,
+    cancellations24h: 0,
+    movedUpTodayEur: 0,
+    movedDownTodayEur: 0,
+    lastDirection: null,
+    lastDecisionAt: null,
+    lastDecreaseAt: null,
+    manualHoldUntil: "2026-09-02T11:30:00Z",
+    holdKind: "soft",
+    hardAdrFloor: 190,
+    adrFloor: 190,
+    monthFloor: 190,
+    monthMarkdownsFrozen: false,
+    recentPeakPrice: 584,
+    markdownsToday: 0,
+  }), settings);
+  assertEquals(decision.direction, "hold");
+  assertEquals(decision.reason, "manual_hold");
+  assertEquals(decision.targetPrice, 285);
+});
