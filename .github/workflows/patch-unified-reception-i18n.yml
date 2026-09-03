@@ -1,0 +1,103 @@
+name: Patch Unified Reception I18n
+
+on:
+  push:
+    branches: [unified-reception-i18n]
+    paths: ['.github/workflows/patch-unified-reception-i18n.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: unified-reception-i18n
+      - name: Replace hard-coded unified Reception labels
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=None):
+              p = Path(path)
+              s = p.read_text()
+              found = s.count(old)
+              if found == 0:
+                  raise SystemExit(f'{path}: expected marker not found: {old[:80]}')
+              if count is not None and found != count:
+                  raise SystemExit(f'{path}: expected {count} matches, found {found}: {old[:80]}')
+              p.write_text(s.replace(old, new, count if count is not None else -1))
+
+          # Side rail is a React component, so it can use the existing translation hook.
+          replace(
+              'src/components/frontdesk/UnifiedReceptionWorkspace.tsx',
+              "function SideSection({\n  title,",
+              "function SideSection({\n  title,",
+              1,
+          )
+          replace(
+              'src/components/frontdesk/UnifiedReceptionWorkspace.tsx',
+              ") {\n  return (\n    <details open className=\"border-b border-border last:border-b-0 group\">",
+              ") {\n  const { t } = useTranslation();\n  return (\n    <details open className=\"border-b border-border last:border-b-0 group\">",
+              1,
+          )
+          replace(
+              'src/components/frontdesk/UnifiedReceptionWorkspace.tsx',
+              "title={isSnapshotOnly(r) ? 'Read-only PMS snapshot — sync to open the reservation record' : undefined}",
+              "title={isSnapshotOnly(r) ? t('pms.unified.snapshotReadOnly') : undefined}",
+              1,
+          )
+          replace(
+              'src/components/frontdesk/UnifiedReceptionWorkspace.tsx',
+              "{r.rooms?.room_number || r.room_label || 'Unassigned'}",
+              "{r.rooms?.room_number || r.room_label || t('pms.unified.unassigned')}",
+              1,
+          )
+          replace(
+              'src/components/frontdesk/UnifiedReceptionWorkspace.tsx',
+              '<Radio className="h-3 w-3" /> PMS live snapshot fallback',
+              '<Radio className="h-3 w-3" /> {t(\'pms.unified.liveSnapshotFallback\')}',
+              1,
+          )
+          replace(
+              'src/components/frontdesk/UnifiedReceptionWorkspace.tsx',
+              "title={t('pms.reservations.future')}",
+              "title={t('pms.unified.futureReservations')}",
+              1,
+          )
+          replace(
+              'src/components/frontdesk/UnifiedReceptionWorkspace.tsx',
+              "{isSnapshotOnly(r) ? 'Previo live' : String(r.source || '').replace('_', ' ')}",
+              "{isSnapshotOnly(r) ? t('pms.unified.previoLive') : String(r.source || '').replace('_', ' ')}",
+              1,
+          )
+
+          replace(
+              'src/components/reservations/ReservationCalendar.tsx',
+              "{sortedRooms.length} rooms",
+              "{sortedRooms.length} {t('pms.unified.rooms')}",
+              1,
+          )
+          replace(
+              'src/components/reservations/ReservationCalendar.tsx',
+              '<span className="text-[10px] text-muted-foreground">Previo live snapshot (read-only)</span>',
+              '<span className="text-[10px] text-muted-foreground">{t(\'pms.unified.liveSnapshotReadOnly\')}</span>',
+              1,
+          )
+
+          replace(
+              'src/components/layout/PMSNavigation.tsx',
+              "{ key: 'reception', icon: DoorOpen, label: 'Reception', roles:",
+              "{ key: 'reception', icon: DoorOpen, labelKey: 'pms.unified.reception', roles:",
+              1,
+          )
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/frontdesk/UnifiedReceptionWorkspace.tsx src/components/reservations/ReservationCalendar.tsx src/components/layout/PMSNavigation.tsx
+          git commit -m "Localize unified Reception calendar labels"
+          git push
