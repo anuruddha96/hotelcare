@@ -54,6 +54,7 @@ interface TrainingV2ContextValue {
   skip: () => void;
   skipForNow: () => void;
   finish: () => void;
+  pause: () => void;
   dismissCurriculum: (slug: string, days?: number) => Promise<void>;
   markComplete: (slug: string) => Promise<void>;
   resetCurriculum: (slug: string) => Promise<void>;
@@ -597,6 +598,21 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
 
   const finish = finishInternal;
 
+  // Close the overlay without completing or dismissing the curriculum.
+  // The current step is already persisted by the step lifecycle, so the user
+  // can resume from the same place later from Training Center.
+  const pause = useCallback(() => {
+    chainQueueRef.current = [];
+    setActive(null);
+    setStepIndex(0);
+    setRect(null);
+    setWaiting(false);
+    setStepReady(false);
+    setTimeout(() => {
+      launcherRef.current?.focus();
+    }, 50);
+  }, []);
+
   const next = useCallback(() => {
     if (!active) return;
     // Debounce against double-click / event bubbling.
@@ -931,6 +947,7 @@ export function TrainingV2Provider({ children }: { children: ReactNode }) {
     skip,
     skipForNow,
     finish,
+    pause,
     dismissCurriculum,
     markComplete,
     resetCurriculum,
