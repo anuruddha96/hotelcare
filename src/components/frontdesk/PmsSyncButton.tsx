@@ -17,6 +17,7 @@ interface LastSync {
   inserted?: number;
   updated?: number;
   errors?: number;
+  unmappedRooms?: number;
 }
 
 /**
@@ -52,7 +53,10 @@ export function PmsSyncButton({ hotelId, onSynced, compact }: PmsSyncButtonProps
         inserted: Number(d.inserted ?? 0),
         updated: Number(d.updated ?? 0),
         errors: Array.isArray(d.errors) ? d.errors.length : 0,
+        unmappedRooms: Number(d.unmapped_rooms ?? 0),
       });
+    } else {
+      setLastSync(null);
     }
   }, [hotelId]);
 
@@ -84,9 +88,10 @@ export function PmsSyncButton({ hotelId, onSynced, compact }: PmsSyncButtonProps
       if (data?.success === false) {
         toast.error(`${t('pms.sync.syncFailed')}: ${data.error ?? ''}`);
       } else {
-        toast.success(
-          `${t('pms.sync.syncDone')} · ${t('pms.sync.imported')}: ${data?.inserted ?? 0} · ${t('pms.sync.updatedCount')}: ${data?.updated ?? 0}${(data?.errors?.length ?? 0) > 0 ? ` · ${t('pms.sync.errorsCount')}: ${data.errors.length}` : ''}`,
-        );
+        const unmappedRooms = Math.max(0, Number(data?.unmapped_rooms ?? 0));
+        const message = `${t('pms.sync.syncDone')} · ${t('pms.sync.imported')}: ${data?.inserted ?? 0} · ${t('pms.sync.updatedCount')}: ${data?.updated ?? 0}${unmappedRooms > 0 ? ` · ${t('pms.res.unassigned')}: ${unmappedRooms}` : ''}${(data?.errors?.length ?? 0) > 0 ? ` · ${t('pms.sync.errorsCount')}: ${data.errors.length}` : ''}`;
+        if (unmappedRooms > 0) toast.warning(message);
+        else toast.success(message);
       }
       await loadStatus();
       onSynced?.();
@@ -104,8 +109,8 @@ export function PmsSyncButton({ hotelId, onSynced, compact }: PmsSyncButtonProps
         {busy ? t('pms.sync.syncing') : t('pms.sync.syncNow')}
       </Button>
       {!compact && (
-        <span className="text-[10px] text-muted-foreground">
-          {t('pms.sync.lastSync')}: {lastSync ? `${new Date(lastSync.at).toLocaleString()} (${lastSync.status ?? '—'})` : t('pms.sync.never')}
+        <span className={`text-[10px] ${lastSync?.unmappedRooms ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}>
+          {t('pms.sync.lastSync')}: {lastSync ? `${new Date(lastSync.at).toLocaleString()} (${lastSync.status ?? '—'})${lastSync.unmappedRooms ? ` · ${t('pms.res.unassigned')}: ${lastSync.unmappedRooms}` : ''}` : t('pms.sync.never')}
         </span>
       )}
     </div>
