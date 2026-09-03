@@ -1,15 +1,65 @@
-/* Mobile safety rules for the Training V2 coach.
+/* Training V2 readability + mobile safety rules.
  *
- * Training targets are scrolled into view with block:"center" by the provider.
- * A large bottom sheet can therefore cover the very control it is teaching.
- * These rules deliberately reserve the lower part of the viewport for the
- * coach and bias training targets upward, keeping the real UI visible and
- * touchable on small screens (especially iOS Safari).
+ * The training coach sits above a deliberately dimmed application. Its own
+ * surface must therefore be fully opaque: translucent card utilities make
+ * otherwise-correct foreground tokens look disabled or almost invisible on
+ * iOS Safari. These base rules protect contrast for every Training V2 step,
+ * while the mobile section keeps the live control visible and touchable.
  */
+
+/* High-contrast coach surface for the complete training journey. */
+[role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] {
+  background-color: hsl(var(--background)) !important;
+  color: hsl(var(--foreground)) !important;
+  opacity: 1 !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  isolation: isolate;
+  box-shadow: 0 22px 65px rgba(15, 23, 42, 0.28) !important;
+}
+
+/* Never allow theme/muted utilities to wash out the instructional copy. */
+[role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] #tv2-title {
+  color: hsl(var(--foreground)) !important;
+  opacity: 1 !important;
+}
+
+[role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] #tv2-desc {
+  color: hsl(var(--foreground) / 0.82) !important;
+  opacity: 1 !important;
+}
+
+[role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] .text-muted-foreground {
+  color: hsl(var(--foreground) / 0.72) !important;
+  opacity: 1 !important;
+}
+
+[role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] strong,
+[role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] h1,
+[role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] h2,
+[role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] h3 {
+  color: hsl(var(--foreground)) !important;
+  opacity: 1 !important;
+}
+
+/* Purpose, tip and action panels remain visually distinct without becoming
+ * transparent against the dark scrim behind the coach. */
+[role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] .bg-muted\/45 {
+  background-color: hsl(var(--muted)) !important;
+}
+
+[role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] .bg-primary\/10 {
+  background-color: hsl(var(--primary) / 0.12) !important;
+}
+
+[role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] .text-primary\/90 {
+  color: hsl(var(--foreground) / 0.82) !important;
+}
+
 @media (max-width: 767px) {
   /* The TrainingOverlayV2 coaching card has this unique accessibility tuple.
-   * Override its inline top/bottom choice on phones so positioning is
-   * predictable: real control above, coach below.
+   * Keep it at the bottom on phones so the highlighted real control gets a
+   * separate interaction lane above the coach.
    */
   [role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] {
     top: auto !important;
@@ -21,15 +71,31 @@
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     border-radius: 1.25rem 1.25rem 0 0 !important;
+    border-color: hsl(var(--border)) !important;
     padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px)) !important;
+    box-shadow: 0 -18px 48px rgba(15, 23, 42, 0.26) !important;
   }
 
   /* Action-required steps have a disabled Next button until the highlighted
-   * real action is completed. Keep these cards especially compact so the
-   * spotlight and swipe/tap target can never sit underneath the coach.
+   * real action is completed. Keep these cards compact, but leave enough room
+   * for readable instructions rather than squeezing the copy into the scrim.
    */
   [role='dialog'][aria-modal='false'][aria-labelledby='tv2-title']:has(button:disabled) {
     max-height: 40dvh !important;
+  }
+
+  /* Give all instructional copy a dependable minimum size/contrast on mobile.
+   * This also guards against inherited opacity from surrounding application UI.
+   */
+  [role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] #tv2-title {
+    font-size: 1.125rem !important;
+    line-height: 1.35 !important;
+  }
+
+  [role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] #tv2-desc,
+  [role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] p,
+  [role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] span {
+    opacity: 1 !important;
   }
 
   /* scrollIntoView(block:"center") uses scroll margins. Giving training
@@ -41,9 +107,8 @@
     scroll-margin-block-end: 34dvh;
   }
 
-  /* Check-in is a swipe gesture and benefits from a little more separation
-   * from the coach so the full gesture can be performed without touching the
-   * training sheet.
+  /* Check-in is a swipe gesture and benefits from extra separation from the
+   * coach so the full gesture can be performed without touching the sheet.
    */
   [data-training='swipe-action-track'] {
     scroll-margin-block-end: 44dvh;
