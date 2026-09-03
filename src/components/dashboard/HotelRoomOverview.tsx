@@ -53,6 +53,7 @@ interface RoomData {
   elevator_proximity: number | null;
   room_type: string | null;
   bed_type: string | null;
+  bed_configuration?: string | null;
   room_name: string | null;
   guest_nights_stayed: number | null;
   towel_change_required: boolean | null;
@@ -317,7 +318,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       const [roomsRes, assignmentsRes, tasksRes, completedRes] = await Promise.all([
         supabase
           .from('rooms')
-          .select('id, hotel, room_number, floor_number, venue_id, status, last_cleaned_at, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, updated_at, pms_metadata')
+          .select('id, hotel, room_number, floor_number, venue_id, status, last_cleaned_at, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, bed_configuration, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, updated_at, pms_metadata')
           .in('hotel', keys)
           .order('room_number'),
         supabase
@@ -948,6 +949,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 if (bc.includes('Twin')) return 'TW';
                 if (bc.includes('Single')) return 'SGL';
                 if (bc.includes('Baby')) return '👶BB';
+                if (bc.includes('Sofa')) return 'SOFA';
                 if (bc.includes('Extra') || bc.includes('Cot')) return '+COT';
                 return bc.substring(0, 3).toUpperCase();
               })()}
@@ -1571,6 +1573,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 if (bc.includes('Twin')) return 'TW';
                 if (bc.includes('Single')) return 'SGL';
                 if (bc.includes('Baby')) return '👶BB';
+                if (bc.includes('Sofa')) return 'SOFA';
                 if (bc.includes('Extra') || bc.includes('Cot')) return '+COT';
                 return bc.substring(0, 3).toUpperCase();
               })()}
@@ -2293,10 +2296,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     </div>
                   </div>
 
-                  {/* Manager Notes Section - only for managers/admins */}
+                  {/* Housekeeping Notes Section - only for managers/admins */}
                   {isManagerOrAdmin && (
                     <div className="space-y-2 pb-3 border-b">
-                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">📝 Manager Notes</label>
+                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">📝 Housekeeping Notes</label>
                       {selectedRoom?.notes && profile?.role === 'admin' && (
                         <StructuredRoomNote notes={selectedRoom.notes} />
                       )}
@@ -2493,6 +2496,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       <SelectItem value="Twin Beds">{t('bed.twinBeds')}</SelectItem>
                       <SelectItem value="Twin Beds Separated">{t('bed.twinBedsSeparated')}</SelectItem>
                       <SelectItem value="Single Bed">{t('bed.singleBed')}</SelectItem>
+                      <SelectItem value="Sofa Bed">Sofa Bed</SelectItem>
                       <SelectItem value="Extra Cot Added">{t('bed.extraCotAdded')}</SelectItem>
                     </SelectContent>
                   </Select>
