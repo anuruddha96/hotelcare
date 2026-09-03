@@ -1,0 +1,51 @@
+/* Mobile safety rules for the Training V2 coach.
+ *
+ * Training targets are scrolled into view with block:"center" by the provider.
+ * A large bottom sheet can therefore cover the very control it is teaching.
+ * These rules deliberately reserve the lower part of the viewport for the
+ * coach and bias training targets upward, keeping the real UI visible and
+ * touchable on small screens (especially iOS Safari).
+ */
+@media (max-width: 767px) {
+  /* The TrainingOverlayV2 coaching card has this unique accessibility tuple.
+   * Override its inline top/bottom choice on phones so positioning is
+   * predictable: real control above, coach below.
+   */
+  [role='dialog'][aria-modal='false'][aria-labelledby='tv2-title'] {
+    top: auto !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 52dvh !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 1.25rem 1.25rem 0 0 !important;
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px)) !important;
+  }
+
+  /* Action-required steps have a disabled Next button until the highlighted
+   * real action is completed. Keep these cards especially compact so the
+   * spotlight and swipe/tap target can never sit underneath the coach.
+   */
+  [role='dialog'][aria-modal='false'][aria-labelledby='tv2-title']:has(button:disabled) {
+    max-height: 40dvh !important;
+  }
+
+  /* scrollIntoView(block:"center") uses scroll margins. Giving training
+   * anchors extra bottom margin moves the actual target into the upper third
+   * of the viewport, leaving a protected interaction lane above the coach.
+   */
+  [data-training] {
+    scroll-margin-block-start: 10dvh;
+    scroll-margin-block-end: 34dvh;
+  }
+
+  /* Check-in is a swipe gesture and benefits from a little more separation
+   * from the coach so the full gesture can be performed without touching the
+   * training sheet.
+   */
+  [data-training='swipe-action-track'] {
+    scroll-margin-block-end: 44dvh;
+  }
+}

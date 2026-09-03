@@ -3,6 +3,7 @@ import "@/lib/pms-reception-translations";
 import App from "./App.tsx";
 import "./index.css";
 import "./styles/revenue-grid-performance.css";
+import "./styles/training-mobile-safe.css";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { installGlobalErrorReporting } from "@/lib/clientErrorReporter";
 
