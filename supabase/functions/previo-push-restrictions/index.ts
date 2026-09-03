@@ -60,9 +60,19 @@ Deno.serve(async (req) => {
     const items: Item[] = Array.isArray(body.items) ? body.items.slice(0, 400) : [];
     if (!hotelId) return json({ ok: false, error: "hotelId is required" }, 400);
     if (!items.length) return json({ ok: false, error: "Nothing to send." }, 400);
-    if ((profile as any).role !== "admin" && (profile as any).assigned_hotel && (profile as any).assigned_hotel !== hotelId) {
-      return json({ ok: false, error: "You can only change your own property." }, 403);
+
+    // Managers with portfolio access can switch HotelCare properties. Use the
+    // same authoritative hotel-access RPC as the rate publisher instead of the
+    // profile's default/assigned hotel, which is only a login preference.
+    const { data: canAccess, error: accessError } = await admin.rpc("user_can_access_hotel", {
+      _uid: user.id,
+      _hotel_id: hotelId,
+    });
+    if (accessError) {
+      console.error("minimum-stay access check failed", accessError);
+      return json({ ok: false, error: "Hotel access could not be verified." }, 403);
     }
+    if (!canAccess) return json({ ok: false, error: "You cannot change stay rules for this property." }, 403);
 
     const clean = items.filter((i) => isDate(i.date));
     if (!clean.length) return json({ ok: false, error: "No valid stay dates were sent." }, 400);
@@ -198,8 +208,6 @@ Deno.serve(async (req) => {
       if (allOk) sent += 1; else failed += 1;
       results.push({ date: item.date, roomTypeName: item.roomTypeName ?? null, ok: allOk, message: lastMessage });
     }
-
-
 
     return json({ ok: failed === 0, sent, failed, results });
   } catch (e) {
