@@ -111,6 +111,30 @@ export async function evaluateGuard(key: GuardKey, ctx: GuardContext): Promise<b
         .limit(1);
       return !(data && data.length);
     }
+    case 'has_finished_housekeeping_work_today': {
+      const today = getBudapestBusinessDate();
+
+      // "No pending work" is not the same thing as "finished work". A newly
+      // checked-in housekeeper can legitimately have zero assignments while a
+      // supervisor is still preparing the floor. In that state we must keep the
+      // training waiting rather than teaching End Shift.
+      const { data: anyAssignment } = await supabase
+        .from('room_assignments')
+        .select('id')
+        .eq('assigned_to', ctx.userId)
+        .eq('assignment_date', today)
+        .limit(1);
+      if (!(anyAssignment && anyAssignment.length)) return false;
+
+      const { data: pending } = await supabase
+        .from('room_assignments')
+        .select('id')
+        .eq('assigned_to', ctx.userId)
+        .eq('assignment_date', today)
+        .in('status', ['assigned', 'in_progress', 'dnd_pending_retry'])
+        .limit(1);
+      return !(pending && pending.length);
+    }
     default:
       return true;
   }
