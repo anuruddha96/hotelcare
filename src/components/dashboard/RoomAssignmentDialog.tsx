@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { useOperationalHotel } from '@/hooks/useOperationalHotel';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -8,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
-import { MapPin, User, Clock, Calendar, LogOut } from 'lucide-react';
+import { MapPin, User, LogOut } from 'lucide-react';
 
 interface RoomAssignmentDialogProps {
   onAssignmentCreated: (roomCount?: number, staffCount?: number) => void;
@@ -37,11 +38,12 @@ interface Room {
 interface HousekeepingStaff {
   id: string;
   full_name: string;
-  nickname: string;
+  nickname?: string | null;
 }
 
 export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: RoomAssignmentDialogProps) {
   const { user, profile } = useAuth();
+  const { hotelKeys, orgSlug, role, ready } = useOperationalHotel();
   const { t } = useTranslation();
   const { toast } = useToast();
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -51,96 +53,99 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
   const [estimatedDuration, setEstimatedDuration] = useState<number>(30);
   const [notes, setNotes] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const scopeRequestRef = useRef(0);
+  const activeHotel = profile?.assigned_hotel ?? null;
+  const activeHotelKeys = hotelKeys.join('|');
 
   useEffect(() => {
-    fetchRooms();
-    fetchStaff();
-  }, [selectedDate]);
+    // A manager can keep different properties open in different browser tabs.
+    // Clear any selection immediately when the tab's active property/date changes,
+    // then reload strictly from the tab-aware operational hotel context.
+    const requestId = ++scopeRequestRef.current;
+    setSelectedRooms([]);
+    setSelectedStaff('');
 
-  const fetchRooms = async () => {
+    if (!ready || !orgSlug || hotelKeys.length === 0) {
+      setRooms([]);
+      setStaff([]);
+      return;
+    }
+
+    void fetchRooms(requestId);
+    void fetchStaff(requestId);
+  }, [selectedDate, activeHotel, activeHotelKeys, orgSlug, ready]);
+
+  const fetchRooms = async (requestId = scopeRequestRef.current) => {
     try {
-      // Get current user's profile to filter by organization and hotel
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('assigned_hotel, organization_slug')
-        .eq('id', user?.id)
-        .single();
-
-      if (!profileData?.assigned_hotel) {
-        console.log('No hotel assigned to user');
+      if (!orgSlug || hotelKeys.length === 0) {
+        if (requestId === scopeRequestRef.current) setRooms([]);
         return;
       }
 
-      // Query rooms filtered by organization and hotel
-      let roomsQuery = supabase
+      // IMPORTANT: use the tab-aware hotel aliases from useOperationalHotel.
+      // Re-reading profiles.assigned_hotel here is unsafe because that database
+      // field is global to the account while HotelCare intentionally supports a
+      // different selected property per browser tab.
+      const { data, error } = await supabase
         .from('rooms')
         .select('id, room_number, hotel, status, room_name, floor_number, is_checkout_room, checkout_time, guest_count, pms_metadata, organization_slug')
         .eq('status', 'dirty')
-        .eq('organization_slug', profileData.organization_slug);
-
-      // Filter by assigned hotel (handle both hotel_id and hotel_name)
-      // assigned_hotel can be either hotel_id or hotel_name, need to check both
-      const { data: hotelConfigs } = await supabase
-        .from('hotel_configurations')
-        .select('hotel_id, hotel_name')
-        .or(`hotel_id.eq."${profileData.assigned_hotel}",hotel_name.eq."${profileData.assigned_hotel}"`)
-        .limit(1);
-
-      const hotelConfig = hotelConfigs?.[0];
-      
-      console.log('🏨 Assignment dialog - Hotel config lookup:', profileData.assigned_hotel, '→', hotelConfig);
-
-      if (hotelConfig) {
-        // Try matching with both hotel_id and hotel_name in rooms table
-        roomsQuery = roomsQuery.or(`hotel.eq."${hotelConfig.hotel_id}",hotel.eq."${hotelConfig.hotel_name}"`);
-        console.log('✅ Filtering assignment rooms by:', hotelConfig.hotel_id, 'OR', hotelConfig.hotel_name);
-      } else {
-        // Fallback: try direct hotel match
-        roomsQuery = roomsQuery.eq('hotel', profileData.assigned_hotel);
-        console.log('⚠️ Fallback: direct hotel match for', profileData.assigned_hotel);
-      }
-
-      const { data, error } = await roomsQuery
+        .eq('organization_slug', orgSlug)
+        .in('hotel', hotelKeys)
         .order('hotel')
         .order('room_number');
 
       if (error) throw error;
+      if (requestId !== scopeRequestRef.current) return;
 
-      // Fetch ONLY active (non-completed) assignments for the selected date
-      // This allows rooms with completed assignments to be reassigned if marked dirty again
-      const { data: assignments, error: assignmentError } = await supabase
-        .from('room_assignments')
-        .select(`
-          id,
-          room_id,
-          assignment_date,
-          status,
-          assigned_to
-        `)
-        .eq('assignment_date', selectedDate)
-        .in('status', ['assigned', 'in_progress']); // Excludes 'completed' status
+      const roomIds = (data || []).map(room => room.id);
+      let assignments: Array<{
+        id: string;
+        room_id: string;
+        assignment_date: string;
+        status: string;
+        assigned_to: string;
+      }> = [];
 
-      if (assignmentError) throw assignmentError;
+      // Fetch active assignments only for rooms in the currently selected hotel.
+      // This avoids cross-property assignment data even for portfolio managers.
+      if (roomIds.length > 0) {
+        const { data: assignmentData, error: assignmentError } = await supabase
+          .from('room_assignments')
+          .select('id, room_id, assignment_date, status, assigned_to')
+          .eq('assignment_date', selectedDate)
+          .in('status', ['assigned', 'in_progress'])
+          .in('room_id', roomIds);
 
-      // Get staff names for assignments
-      const assignedUserIds = assignments?.map(a => a.assigned_to).filter(Boolean) || [];
+        if (assignmentError) throw assignmentError;
+        assignments = assignmentData || [];
+      }
+
+      if (requestId !== scopeRequestRef.current) return;
+
+      // Get staff names for the assignments while keeping the lookup inside the
+      // current organization. RLS provides an additional tenant boundary.
+      const assignedUserIds = Array.from(new Set(assignments.map(a => a.assigned_to).filter(Boolean)));
       let staffNames: Record<string, string> = {};
-      
+
       if (assignedUserIds.length > 0) {
-        const { data: staffData } = await supabase
+        const { data: staffData, error: staffNameError } = await supabase
           .from('profiles')
           .select('id, full_name')
+          .eq('organization_slug', orgSlug)
           .in('id', assignedUserIds);
-        
-        staffNames = staffData?.reduce((acc, staff) => {
-          acc[staff.id] = staff.full_name;
+
+        if (staffNameError) throw staffNameError;
+        staffNames = staffData?.reduce((acc, staffMember) => {
+          acc[staffMember.id] = staffMember.full_name;
           return acc;
         }, {} as Record<string, string>) || {};
       }
 
-      // Map rooms with their assignment status
+      if (requestId !== scopeRequestRef.current) return;
+
       const roomsWithAssignments = (data || []).map(room => {
-        const assignment = assignments?.find(a => a.room_id === room.id);
+        const assignment = assignments.find(a => a.room_id === room.id);
         return {
           ...room,
           assignment: assignment ? {
@@ -154,6 +159,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
 
       setRooms(roomsWithAssignments);
     } catch (error) {
+      if (requestId !== scopeRequestRef.current) return;
       console.error('Error fetching rooms:', error);
       toast({
         title: 'Error',
@@ -163,25 +169,30 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
     }
   };
 
-  const fetchStaff = async () => {
+  const fetchStaff = async (requestId = scopeRequestRef.current) => {
     try {
-      // Get current user's role first
-      const { data: currentUser, error: userError } = await supabase
+      if (!orgSlug || hotelKeys.length === 0 || !hasManagerPowers(role)) {
+        if (requestId === scopeRequestRef.current) setStaff([]);
+        return;
+      }
+
+      // Do not call get_assignable_staff_secure here: that legacy RPC reads the
+      // raw profiles.assigned_hotel value and therefore has the same cross-tab
+      // property leak as the old room query. Query the active tab's hotel aliases
+      // explicitly; profile RLS still enforces organization access.
+      const { data, error } = await supabase
         .from('profiles')
-        .select('role')
-        .eq('id', user?.id)
-        .single();
-      
-      if (userError) throw userError;
-      
-      // Use the secure function to get assignable staff
-      const { data, error } = await supabase.rpc('get_assignable_staff_secure', {
-        requesting_user_role: currentUser?.role
-      });
+        .select('id, full_name, nickname')
+        .eq('organization_slug', orgSlug)
+        .in('assigned_hotel', hotelKeys)
+        .or('role.eq.housekeeping,acts_as_housekeeper.eq.true')
+        .order('full_name');
 
       if (error) throw error;
+      if (requestId !== scopeRequestRef.current) return;
       setStaff(data || []);
     } catch (error) {
+      if (requestId !== scopeRequestRef.current) return;
       console.error('Error fetching staff:', error);
       toast({
         title: 'Error',
@@ -210,7 +221,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
 
   const createAssignments = async () => {
     console.log('createAssignments called', { selectedStaff, selectedRooms, user });
-    
+
     if (!selectedStaff || selectedRooms.length === 0) {
       console.log('Validation failed: missing staff or rooms', { selectedStaff, selectedRoomsCount: selectedRooms.length });
       toast({
@@ -231,19 +242,17 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
       return;
     }
 
+    if (!orgSlug) {
+      toast({
+        title: 'Error',
+        description: 'User organization not found. Please refresh the page.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setLoading(true);
     try {
-      // Get user's organization slug
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('organization_slug')
-        .eq('id', user.id)
-        .single();
-
-      if (!profileData?.organization_slug) {
-        throw new Error('User organization not found');
-      }
-
       // Determine assignment type based on room type automatically
       const assignments = selectedRooms.map(roomId => {
         const room = rooms.find(r => r.id === roomId);
@@ -263,7 +272,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
           estimated_duration: estimatedDuration,
           notes: notes.trim() || null,
           ready_to_clean: readyToClean,
-          organization_slug: profileData.organization_slug
+          organization_slug: orgSlug
         };
       });
 
@@ -290,7 +299,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
               staffName: selectedStaffMember.full_name,
               assignmentDate: selectedDate,
               roomNumbers,
-              assignmentType: 'mixed', // Since we have automatic assignment based on room type
+              assignmentType: 'mixed',
               totalRooms: selectedRooms.length
             }
           });
@@ -305,7 +314,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
         description: `Successfully assigned ${selectedRooms.length} rooms to ${selectedStaffMember?.full_name}`,
       });
       onAssignmentCreated(selectedRooms.length, 1);
-      
+
       // Reset form
       setSelectedRooms([]);
       setSelectedStaff('');
@@ -338,7 +347,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
       });
 
       // Refresh rooms to update assignment status
-      fetchRooms();
+      void fetchRooms();
       onAssignmentCreated(); // Refresh parent component
     } catch (error) {
       console.error('Error unassigning room:', error);
@@ -435,7 +444,7 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                 <MapPin className="h-4 w-4 mr-2" />
                 {hotel} ({checkout.length + daily.length} rooms)
               </h3>
-              
+
               {/* Checkout Rooms */}
               {checkout.length > 0 && (
                 <div className="mb-4">
@@ -444,61 +453,61 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                     {t('assignment.checkoutRooms')} ({checkout.length})
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                     {checkout.map((room) => (
-                       <label key={room.id} className={`flex items-center space-x-3 p-3 border rounded-lg ${
-                         room.assignment 
-                           ? 'border-gray-300 bg-gray-100 opacity-60 cursor-not-allowed' 
-                           : 'border-orange-200 bg-orange-50 cursor-pointer hover:bg-orange-100'
-                       }`}>
-                         <Checkbox
-                           checked={selectedRooms.includes(room.id)}
-                           onCheckedChange={(checked) => handleRoomSelection(room.id, checked as boolean)}
-                           disabled={!!room.assignment}
-                         />
-                         <div className="flex-1">
-                           <div className="flex items-center justify-between">
-                             <span className="font-medium">Room {room.room_number}</span>
-                           </div>
-                           <div className="text-sm text-muted-foreground">
-                             {room.room_name || `${room.room_number}-${room.hotel.substring(0, 15)}`}
-                             {room.floor_number && ` • Floor ${room.floor_number}`}
-                           </div>
-                            {room.assignment ? (
-                              <div className="flex items-center justify-between">
-                                <div className="text-xs text-red-600 mt-1 flex items-center">
-                                  <User className="h-3 w-3 mr-1" />
-                                  Already assigned to {room.assignment.assigned_to_name}
-                                </div>
-                                {hasManagerPowers(profile?.role) && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={async (e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      await handleUnassignRoom(room.assignment!.id);
-                                    }}
-                                    className="h-6 px-2 text-xs"
-                                  >
-                                    Unassign
-                                  </Button>
-                                )}
+                    {checkout.map((room) => (
+                      <label key={room.id} className={`flex items-center space-x-3 p-3 border rounded-lg ${
+                        room.assignment
+                          ? 'border-gray-300 bg-gray-100 opacity-60 cursor-not-allowed'
+                          : 'border-orange-200 bg-orange-50 cursor-pointer hover:bg-orange-100'
+                      }`}>
+                        <Checkbox
+                          checked={selectedRooms.includes(room.id)}
+                          onCheckedChange={(checked) => handleRoomSelection(room.id, checked as boolean)}
+                          disabled={!!room.assignment}
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">Room {room.room_number}</span>
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            {room.room_name || `${room.room_number}-${room.hotel.substring(0, 15)}`}
+                            {room.floor_number && ` • Floor ${room.floor_number}`}
+                          </div>
+                          {room.assignment ? (
+                            <div className="flex items-center justify-between">
+                              <div className="text-xs text-red-600 mt-1 flex items-center">
+                                <User className="h-3 w-3 mr-1" />
+                                Already assigned to {room.assignment.assigned_to_name}
                               </div>
-                            ) : (
-                             <div className="text-xs text-orange-600 mt-1 flex items-center">
-                               <LogOut className="h-3 w-3 mr-1" />
-                               {t('assignment.checkoutRoom')}
-                               {room.guest_count && room.guest_count > 0 && (
-                                 <span className="ml-2 flex items-center">
-                                   <User className="h-3 w-3 mr-1" />
-                                   {room.guest_count}
-                                 </span>
-                               )}
-                             </div>
-                           )}
-                         </div>
-                       </label>
-                     ))}
+                              {hasManagerPowers(role) && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={async (e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    await handleUnassignRoom(room.assignment!.id);
+                                  }}
+                                  className="h-6 px-2 text-xs"
+                                >
+                                  Unassign
+                                </Button>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-orange-600 mt-1 flex items-center">
+                              <LogOut className="h-3 w-3 mr-1" />
+                              {t('assignment.checkoutRoom')}
+                              {room.guest_count && room.guest_count > 0 && (
+                                <span className="ml-2 flex items-center">
+                                  <User className="h-3 w-3 mr-1" />
+                                  {room.guest_count}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                    ))}
                   </div>
                 </div>
               )}
@@ -511,61 +520,61 @@ export function RoomAssignmentDialog({ onAssignmentCreated, selectedDate }: Room
                     {t('assignment.dailyCleaningRooms')} ({daily.length})
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                     {daily.map((room) => (
-                       <label key={room.id} className={`flex items-center space-x-3 p-3 border rounded-lg ${
-                         room.assignment 
-                           ? 'border-gray-300 bg-gray-100 opacity-60 cursor-not-allowed' 
-                           : 'border-blue-200 bg-blue-50 cursor-pointer hover:bg-blue-100'
-                       }`}>
-                         <Checkbox
-                           checked={selectedRooms.includes(room.id)}
-                           onCheckedChange={(checked) => handleRoomSelection(room.id, checked as boolean)}
-                           disabled={!!room.assignment}
-                         />
-                         <div className="flex-1">
-                           <div className="flex items-center justify-between">
-                             <span className="font-medium">Room {room.room_number}</span>
-                           </div>
-                           <div className="text-sm text-muted-foreground">
-                             {room.room_name || `${room.room_number}-${room.hotel.substring(0, 15)}`}
-                             {room.floor_number && ` • Floor ${room.floor_number}`}
-                           </div>
-                            {room.assignment ? (
-                              <div className="flex items-center justify-between">
-                                <div className="text-xs text-red-600 mt-1 flex items-center">
-                                  <User className="h-3 w-3 mr-1" />
-                                  Already assigned to {room.assignment.assigned_to_name}
-                                </div>
-                                {hasManagerPowers(profile?.role) && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={async (e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      await handleUnassignRoom(room.assignment!.id);
-                                    }}
-                                    className="h-6 px-2 text-xs"
-                                  >
-                                    Unassign
-                                  </Button>
-                                )}
+                    {daily.map((room) => (
+                      <label key={room.id} className={`flex items-center space-x-3 p-3 border rounded-lg ${
+                        room.assignment
+                          ? 'border-gray-300 bg-gray-100 opacity-60 cursor-not-allowed'
+                          : 'border-blue-200 bg-blue-50 cursor-pointer hover:bg-blue-100'
+                      }`}>
+                        <Checkbox
+                          checked={selectedRooms.includes(room.id)}
+                          onCheckedChange={(checked) => handleRoomSelection(room.id, checked as boolean)}
+                          disabled={!!room.assignment}
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">Room {room.room_number}</span>
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            {room.room_name || `${room.room_number}-${room.hotel.substring(0, 15)}`}
+                            {room.floor_number && ` • Floor ${room.floor_number}`}
+                          </div>
+                          {room.assignment ? (
+                            <div className="flex items-center justify-between">
+                              <div className="text-xs text-red-600 mt-1 flex items-center">
+                                <User className="h-3 w-3 mr-1" />
+                                Already assigned to {room.assignment.assigned_to_name}
                               </div>
-                            ) : (
-                             <div className="text-xs text-blue-600 mt-1 flex items-center">
-                               <User className="h-3 w-3 mr-1" />
-                               {t('assignment.dailyCleaning')}
-                               {room.guest_count && room.guest_count > 0 && (
-                                 <span className="ml-2 flex items-center">
-                                   <User className="h-3 w-3 mr-1" />
-                                   {room.guest_count}
-                                 </span>
-                               )}
-                             </div>
-                           )}
-                         </div>
-                       </label>
-                     ))}
+                              {hasManagerPowers(role) && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={async (e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    await handleUnassignRoom(room.assignment!.id);
+                                  }}
+                                  className="h-6 px-2 text-xs"
+                                >
+                                  Unassign
+                                </Button>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-blue-600 mt-1 flex items-center">
+                              <User className="h-3 w-3 mr-1" />
+                              {t('assignment.dailyCleaning')}
+                              {room.guest_count && room.guest_count > 0 && (
+                                <span className="ml-2 flex items-center">
+                                  <User className="h-3 w-3 mr-1" />
+                                  {room.guest_count}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                    ))}
                   </div>
                 </div>
               )}
