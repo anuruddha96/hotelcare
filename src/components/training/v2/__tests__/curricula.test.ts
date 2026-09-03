@@ -47,16 +47,23 @@ describe('training v2 curricula shape', () => {
         }
       });
 
-      it('every data-gated step is optional', () => {
+      it('every data-gated step is optional unless it is an intentional core action', () => {
         for (const s of cur.steps) {
           if (!s.selector) continue;
           const gated = DATA_GATED_PATTERNS.some((re) => re.test(s.selector!));
-          if (gated) {
-            expect(
-              s.optional,
-              `${cur.slug}::${s.key} targets data-gated "${s.selector}" but is not optional`,
-            ).toBe(true);
+          if (!gated) continue;
+
+          const intentionalCoreAction =
+            cur.slug === 'v2_housekeeper_first_day' && s.key === 'my_tasks';
+          if (intentionalCoreAction) {
+            expect(s.optional).toBe(false);
+            continue;
           }
+
+          expect(
+            s.optional,
+            `${cur.slug}::${s.key} targets data-gated "${s.selector}" but is not optional`,
+          ).toBe(true);
         }
       });
 
@@ -77,6 +84,7 @@ describe('housekeeper first-shift curriculum', () => {
       'welcome',
       'signin',
       'breaks',
+      'wait_for_assignment',
       'my_tasks',
       'special_instructions',
       'room_photos',
@@ -111,6 +119,19 @@ describe('housekeeper first-shift curriculum', () => {
     expect(hk?.steps.find((s) => s.key === 'signin')?.selector).toBe(
       '[data-training="check-in-button"] [data-training="swipe-action-track"]',
     );
+  });
+
+  it('waits visibly for a first assignment instead of silently skipping the room journey', () => {
+    const wait = hk?.steps.find((s) => s.key === 'wait_for_assignment');
+    expect(wait).toBeTruthy();
+    expect(wait?.precondition).toBe('is_signed_in');
+    expect(wait?.waitFor).toBe('has_any_assignment_today');
+    expect(wait?.selector).toBeUndefined();
+    expect(wait?.optional).not.toBe(true);
+
+    const myTasks = hk?.steps.find((s) => s.key === 'my_tasks');
+    expect(myTasks?.optional).toBe(false);
+    expect(myTasks?.precondition).toBe('has_any_assignment_today');
   });
 
   it('teaches every important in-room housekeeping function contextually', () => {
@@ -161,25 +182,28 @@ describe('housekeeper first-shift curriculum', () => {
     }
   });
 
-  it('requires real check-in, room start and room completion actions', () => {
+  it('requires real check-in, assignment arrival, room start and room completion actions', () => {
     expect(hk?.steps.find((s) => s.key === 'signin')?.waitFor).toBe('is_signed_in');
+    expect(hk?.steps.find((s) => s.key === 'wait_for_assignment')?.waitFor).toBe(
+      'has_any_assignment_today',
+    );
     expect(hk?.steps.find((s) => s.key === 'my_tasks')?.waitFor).toBe('has_in_progress_cleaning');
     expect(hk?.steps.find((s) => s.key === 'complete_room')?.waitFor).toBe(
       'has_completed_assignment_today',
     );
   });
 
-  it('does not expose End Shift while the housekeeper still has pending rooms', () => {
+  it('does not treat zero assignments as a finished shift', () => {
     const signout = hk?.steps.find((s) => s.key === 'signout');
-    expect(signout?.precondition).toBe('has_no_pending_housekeeping_work');
+    expect(signout?.precondition).toBe('has_finished_housekeeping_work_today');
     expect(signout?.optional).toBe(true);
   });
 
-  it('never traps the user on an action-gated step', () => {
+  it('only leaves situational or safely deferrable action gates optional', () => {
+    const requiredActionSteps = new Set(['signin', 'wait_for_assignment', 'my_tasks']);
     for (const s of hk?.steps ?? []) {
-      if (s.waitFor && s.key !== 'signin') {
-        expect(s.optional, `${s.key} is action-gated but not optional`).toBe(true);
-      }
+      if (!s.waitFor || requiredActionSteps.has(s.key)) continue;
+      expect(s.optional, `${s.key} is action-gated but not optional`).toBe(true);
     }
   });
 });
