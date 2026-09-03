@@ -11,7 +11,6 @@ permissions:
 
 jobs:
   repair:
-    if: github.event.head_commit.message == 'Add one-time stale revenue test repair'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -36,27 +35,13 @@ jobs:
 
           engine_path = Path('src/lib/__tests__/engineV2.test.ts')
           engine = engine_path.read_text()
-          old_engine = '''  it("0–2 days: every booking raises, and a strong date raises more", () => {
-            expect(decideDate(input({ daysOut: 1, occupancyPct: 70, pickup24h: 1 }), settings()).direction).toBe("increase");
-            const two = decideDate(input({ daysOut: 1, occupancyPct: 70, pickup24h: 2 }), settings()).movement;
-            const one = decideDate(input({ daysOut: 1, occupancyPct: 70, pickup24h: 1 }), settings()).movement;
-            expect(two).toBeGreaterThan(one);
-            expect(decideDate(input({ daysOut: 1, occupancyPct: 92, roomsRemaining: 2, pickup24h: 1 }), settings()).movement)
-              .toBeGreaterThanOrEqual(one);
-          });
-
-          it("0–2 days: no booking for six hours marks down by occupancy band", () => {
-            const base = { daysOut: 1, hoursSinceLastPickup: 8 } as Partial<DecisionInput>;
-            expect(decideDate(input({ ...base, occupancyPct: 40 }), settings()).movement).toBe(-5);
-            expect(decideDate(input({ ...base, occupancyPct: 65 }), settings()).movement).toBe(-3);
-            expect(decideDate(input({ ...base, occupancyPct: 85, roomsRemaining: 3 }), settings()).blocked).toBe(true);
-          });
-
-          it("0–2 days: the wait must actually elapse", () => {
-            const d = decideDate(input({ daysOut: 1, occupancyPct: 40, hoursSinceLastPickup: 2 }), settings());
-            expect(d.reason).toBe("awaiting_no_pickup_window");
-          });'''
-          new_engine = '''  it("0–2 days: tomorrow/day+2 prioritise sell-out while inventory remains", () => {
+          start_marker = '  it("0–2 days: every booking raises, and a strong date raises more", () => {'
+          end_marker = '  it("3–7 days: 12-hour wait, and 85% occupancy with pickup raises €8", () => {'
+          if engine.count(start_marker) != 1 or engine.count(end_marker) != 1:
+              raise SystemExit('Engine V2 repair markers are not unique; refusing to patch.')
+          start = engine.index(start_marker)
+          end = engine.index(end_marker)
+          replacement = '''  it("0–2 days: tomorrow/day+2 prioritise sell-out while inventory remains", () => {
             const noPickup = decideDate(input({ daysOut: 1, occupancyPct: 70, pickup24h: 0 }), settings());
             const onePickup = decideDate(input({ daysOut: 1, occupancyPct: 70, pickup24h: 1 }), settings());
             const strong = decideDate(input({ daysOut: 1, occupancyPct: 92, roomsRemaining: 2, pickup24h: 1 }), settings());
@@ -79,10 +64,10 @@ jobs:
             const d = decideDate(input({ daysOut: 1, occupancyPct: 40, hoursSinceLastPickup: 2 }), settings());
             expect(d.reason).toBe("final_3_day_fill");
             expect(d.movement).toBe(-4);
-          });'''
-          if old_engine not in engine:
-              raise SystemExit('Expected Engine V2 stale-test block was not found; refusing to patch.')
-          engine_path.write_text(engine.replace(old_engine, new_engine, 1))
+          });
+
+          '''
+          engine_path.write_text(engine[:start] + replacement + engine[end:])
 
           resume_path = Path('src/hooks/__tests__/useRevenueHotelData.resume.test.tsx')
           resume = resume_path.read_text()
@@ -93,9 +78,9 @@ jobs:
               'hotel-resume-editor',
               'hotel-resume-failure',
           ]
+          if resume.count(old_render) != len(hotel_ids):
+              raise SystemExit(f'Expected {len(hotel_ids)} revenue hook render calls; refusing to patch.')
           for hotel_id in hotel_ids:
-              if old_render not in resume:
-                  raise SystemExit('Expected revenue-resume renderHook occurrence was not found; refusing to patch.')
               resume = resume.replace(
                   old_render,
                   f'renderHook(() => useRevenueHotelData("{hotel_id}", "org-1"))',
@@ -110,24 +95,42 @@ jobs:
               loading_wait + '    await waitFor(() => expect(result.current.extending).toBe(false));\n',
           )
 
-          old_rpc_expect = '''    expect(last[0]).toBe("get_revenue_published_payload");
-            expect(last[1]).toEqual({ _hotel_id: "hotel-1" });'''
-          new_rpc_expect = '''    expect(last[0]).toBe("get_revenue_published_payload_window");
-            expect(last[1]).toEqual({ _hotel_id: "hotel-resume-selection", _horizon_days: 365 });'''
-          if old_rpc_expect not in resume:
-              raise SystemExit('Expected stale payload RPC expectation was not found; refusing to patch.')
-          resume = resume.replace(old_rpc_expect, new_rpc_expect, 1)
+          old_rpc_name = '    expect(last[0]).toBe("get_revenue_published_payload");'
+          old_rpc_args = '    expect(last[1]).toEqual({ _hotel_id: "hotel-1" });'
+          if resume.count(old_rpc_name) != 1 or resume.count(old_rpc_args) != 1:
+              raise SystemExit('Expected stale payload RPC assertions were not unique; refusing to patch.')
+          resume = resume.replace(
+              old_rpc_name,
+              '    expect(last[0]).toBe("get_revenue_published_payload_window");',
+              1,
+          )
+          resume = resume.replace(
+              old_rpc_args,
+              '    expect(last[1]).toEqual({ _hotel_id: "hotel-resume-selection", _horizon_days: 365 });',
+              1,
+          )
 
-          old_failure = '''    rpc.mockResolvedValue({ data: null, error: { message: "offline" } });
-            await act(async () => { fireResume(); });
-            await waitFor(() => expect(rpc.mock.calls.length).toBeGreaterThan(1));'''
-          new_failure = '''    const initial = rpc.mock.calls.length;
-            rpc.mockResolvedValue({ data: null, error: { message: "offline" } });
-            await act(async () => { fireResume(); });
-            await waitFor(() => expect(rpc.mock.calls.length).toBeGreaterThan(initial));'''
-          if old_failure not in resume:
-              raise SystemExit('Expected stale refresh-failure assertion was not found; refusing to patch.')
-          resume_path.write_text(resume.replace(old_failure, new_failure, 1))
+          failure_marker = '  it("keeps the previous data when the refresh fails", async () => {'
+          if resume.count(failure_marker) != 1:
+              raise SystemExit('Refresh-failure test marker was not unique; refusing to patch.')
+          failure_start = resume.index(failure_marker)
+          mock_line = '    rpc.mockResolvedValue({ data: null, error: { message: "offline" } });'
+          wait_line = '    await waitFor(() => expect(rpc.mock.calls.length).toBeGreaterThan(1));'
+          mock_pos = resume.find(mock_line, failure_start)
+          wait_pos = resume.find(wait_line, failure_start)
+          if mock_pos < 0 or wait_pos < 0:
+              raise SystemExit('Refresh-failure assertions were not found; refusing to patch.')
+          resume = resume[:mock_pos] + '    const initial = rpc.mock.calls.length;\n' + resume[mock_pos:]
+          # Position changed after insertion; replace only in the failure-test suffix.
+          failure_start = resume.index(failure_marker)
+          before = resume[:failure_start]
+          failure = resume[failure_start:]
+          failure = failure.replace(
+              wait_line,
+              '    await waitFor(() => expect(rpc.mock.calls.length).toBeGreaterThan(initial));',
+              1,
+          )
+          resume_path.write_text(before + failure)
           PY
 
       - name: Run repaired tests
