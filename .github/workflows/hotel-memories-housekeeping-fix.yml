@@ -1,0 +1,185 @@
+name: Apply Hotel Memories housekeeping fixes
+
+on:
+  push:
+    paths:
+      - '.github/workflows/hotel-memories-housekeeping-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/memories-housekeeping-notes-dnd
+          fetch-depth: 0
+
+      - name: Apply targeted source fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"Expected block not found in {path}: {old[:120]!r}")
+              p.write_text(text.replace(old, new, 1))
+              print(f"patched {path}")
+
+          # 1) Never infer a real bed request from rejected/unavailable request text.
+          replace_once(
+              'src/lib/bedConfigInference.ts',
+              '''  /you haven'?t/i,\n  /payout type/i,\n];''',
+              '''  /you haven'?t/i,\n  /payout type/i,\n  /not possible/i,\n  /not available/i,\n  /unavailable/i,\n  /unable to/i,\n  /cannot/i,\n  /can'?t/i,\n  /request(?:ed)?[^.!?;]{0,80}(?:rejected|declined|not possible|unavailable)/i,\n];'''
+          )
+
+          # 2) Hotel Memories: reservation-level Previo notes are historical/noisy,
+          #    not today's Cleaning-note field. Also change C -> towel on final stayover night.
+          replace_once(
+              'src/lib/pmsRefresh.ts',
+              '''      const isDepartureTomorrow = classification.isDepartureTomorrow;\n      const explicitCheckoutStatus = row.CheckedOut === true''',
+              '''      const isDepartureTomorrow = classification.isDepartureTomorrow;\n      // Hotel Memories' SearchReservations payload can contain historical department\n      // notes even when today's Previo Cleaning screen is blank. Treat those raw\n      // reservation notes as provenance only, never as today's housekeeping command.\n      const isMemoriesBudapest = hotelId === "memories-budapest"\n        || room.hotel === "Hotel Memories Budapest";\n      const explicitCheckoutStatus = row.CheckedOut === true'''
+          )
+
+          replace_once(
+              'src/lib/pmsRefresh.ts',
+              '''      if (nightTotal) {\n        guestNightsStayed = nightTotal.currentNight;\n        if (guestNightsStayed >= 3) {\n          const cyc = (guestNightsStayed - 3) % 4;\n          if (cyc === 0) towel = true;\n          else if (cyc === 2) linen = true;\n        }\n      }\n\n      const previoStatusRaw''',
+              '''      if (nightTotal) {\n        guestNightsStayed = nightTotal.currentNight;\n        if (guestNightsStayed >= 3) {\n          const cyc = (guestNightsStayed - 3) % 4;\n          if (cyc === 0) towel = true;\n          else if (cyc === 2) linen = true;\n        }\n      }\n\n      // Memories-only service rule: when the guest departs tomorrow and today\n      // is their final occupied night (e.g. 5/5), do not schedule a full Clean\n      // Room/linen service that will be repeated at checkout. Give towel service\n      // instead. Mid-stay nights such as 5/8 or 5/9 retain the normal C cycle.\n      if (isMemoriesBudapest && isDepartureTomorrow && nightTotal\n          && nightTotal.currentNight === nightTotal.totalNights) {\n        towel = true;\n        linen = false;\n      }\n\n      const previoStatusRaw'''
+          )
+
+          replace_once(
+              'src/lib/pmsRefresh.ts',
+              '''      const housekeepingNote = reservationDataAuthoritative ? cleanSyncedHousekeepingNote(row) : null;\n      if (reservationDataAuthoritative && housekeepingNote) {''',
+              '''      const reservationHousekeepingNote = reservationDataAuthoritative ? cleanSyncedHousekeepingNote(row) : null;\n      const housekeepingNote = isMemoriesBudapest ? null : reservationHousekeepingNote;\n      if (reservationDataAuthoritative && housekeepingNote) {'''
+          )
+
+          replace_once(
+              'src/lib/pmsRefresh.ts',
+              '''        if (towel) updateData.last_towel_change = today;\n        if (linen) updateData.last_linen_change = today;\n        const currentFlags = parseRoomFlags((room as any).notes ?? null);\n        updateData.notes = buildRoomNotes(\n          {\n            collectExtraTowels: currentFlags.collectExtraTowels,\n            roomCleaning: currentFlags.roomCleaning,\n          },\n          housekeepingNote ?? "",\n        ) || null;''',
+              '''        if (towel) updateData.last_towel_change = today;\n        if (linen) updateData.last_linen_change = today;\n        const currentFlags = parseRoomFlags((room as any).notes ?? null);\n        if (isMemoriesBudapest) {\n          // Keep HotelCare manager notes manager-owned. Older syncs copied the\n          // reservation's department note into rooms.notes; clear it only when\n          // it exactly matches the previously stored PMS note. A local note\n          // (e.g. a manager typing "single beds") is preserved.\n          const previousPmsNote = typeof existingMetadata?.noteInternal === "string"\n            ? existingMetadata.noteInternal.trim()\n            : "";\n          const currentManagerText = currentFlags.cleanNotes.trim();\n          if (previousPmsNote && currentManagerText\n              && previousPmsNote.toLocaleLowerCase() === currentManagerText.toLocaleLowerCase()) {\n            updateData.notes = buildRoomNotes(\n              {\n                collectExtraTowels: currentFlags.collectExtraTowels,\n                roomCleaning: currentFlags.roomCleaning,\n              },\n              "",\n            ) || null;\n          }\n        } else {\n          updateData.notes = buildRoomNotes(\n            {\n              collectExtraTowels: currentFlags.collectExtraTowels,\n              roomCleaning: currentFlags.roomCleaning,\n            },\n            housekeepingNote ?? "",\n          ) || null;\n        }'''
+          )
+
+          # 3) Manager note autosave: debounce while typing, flush before popover closes,
+          #    and read the latest service flags before saving so they are never lost.
+          replace_once(
+              'src/components/dashboard/HotelRoomOverview.tsx',
+              '''  const [popoverNotes, setPopoverNotes] = useState<string>('');\n  const [dragOverSection,''',
+              '''  const [popoverNotes, setPopoverNotes] = useState<string>('');\n  const popoverNoteSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);\n  const popoverNoteRoomRef = useRef<RoomData | null>(null);\n  const popoverNoteValueRef = useRef<string>('');\n  const popoverNoteSaveChainRef = useRef<Promise<void>>(Promise.resolve());\n  const [dragOverSection,'''
+          )
+
+          replace_once(
+              'src/components/dashboard/HotelRoomOverview.tsx',
+              '''  const handleHoverEnter = useCallback((roomId: string, room: RoomData) => {''',
+              '''  const persistPopoverManagerNote = (room: RoomData, noteText: string) => {\n    const task = async () => {\n      const { data: latest, error: readError } = await supabase\n        .from('rooms')\n        .select('notes')\n        .eq('id', room.id)\n        .maybeSingle();\n      if (readError) throw readError;\n\n      // Always preserve the newest service flags; PMS/realtime updates can land\n      // while the manager is still typing.\n      const currentRaw = (latest as any)?.notes ?? room.notes ?? null;\n      const currentFlags = parseRoomFlags(currentRaw);\n      const { buildRoomNotes } = await import('@/lib/room-service-flags');\n      const newFullNotes = buildRoomNotes(\n        { collectExtraTowels: currentFlags.collectExtraTowels, roomCleaning: currentFlags.roomCleaning },\n        noteText,\n      );\n      if (newFullNotes === (currentRaw || '')) return;\n\n      const { error } = await supabase\n        .from('rooms')\n        .update({ notes: newFullNotes || null } as any)\n        .eq('id', room.id);\n      if (error) throw error;\n      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: newFullNotes || null } : r));\n    };\n\n    // Serialize writes so a slower older save can never overwrite newer text.\n    popoverNoteSaveChainRef.current = popoverNoteSaveChainRef.current.then(task, task);\n    return popoverNoteSaveChainRef.current.catch((error) => {\n      console.error('Failed to auto-save manager note', error);\n      toast.error('Failed to auto-save manager note');\n    });\n  };\n\n  const queuePopoverNoteSave = (room: RoomData, noteText: string) => {\n    popoverNoteRoomRef.current = room;\n    popoverNoteValueRef.current = noteText;\n    if (popoverNoteSaveTimerRef.current) clearTimeout(popoverNoteSaveTimerRef.current);\n    popoverNoteSaveTimerRef.current = setTimeout(() => {\n      popoverNoteSaveTimerRef.current = null;\n      void persistPopoverManagerNote(room, noteText);\n    }, 500);\n  };\n\n  const flushPopoverNoteSave = () => {\n    if (popoverNoteSaveTimerRef.current) {\n      clearTimeout(popoverNoteSaveTimerRef.current);\n      popoverNoteSaveTimerRef.current = null;\n    }\n    if (popoverNoteRoomRef.current) {\n      void persistPopoverManagerNote(popoverNoteRoomRef.current, popoverNoteValueRef.current);\n    }\n  };\n\n  const handleHoverEnter = useCallback((roomId: string, room: RoomData) => {'''
+          )
+
+          replace_once(
+              'src/components/dashboard/HotelRoomOverview.tsx',
+              '''      const flags = parseRoomFlags(room.notes);\n      setPopoverNotes(flags.cleanNotes);''',
+              '''      const flags = parseRoomFlags(room.notes);\n      popoverNoteRoomRef.current = room;\n      popoverNoteValueRef.current = flags.cleanNotes;\n      setPopoverNotes(flags.cleanNotes);'''
+          )
+
+          replace_once(
+              'src/components/dashboard/HotelRoomOverview.tsx',
+              '''  const handlePopoverLeave = useCallback(() => {\n    hoverTimeoutRef.current = setTimeout(() => {\n      setHoveredRoomId(null);\n    }, 150);\n  }, []);''',
+              '''  const handlePopoverLeave = useCallback(() => {\n    // Flush any pending keystrokes before Radix unmounts the popover.\n    flushPopoverNoteSave();\n    hoverTimeoutRef.current = setTimeout(() => {\n      setHoveredRoomId(null);\n      popoverNoteRoomRef.current = null;\n    }, 150);\n  }, []);'''
+          )
+
+          old_textarea = '''                    value={popoverNotes}\n                    onChange={(e) => setPopoverNotes(e.target.value)}\n                    onClick={(e) => e.stopPropagation()}\n                    onBlur={async (e) => {\n                      const textarea = e.target as HTMLTextAreaElement;\n                      // Preserve flags when saving notes\n                      const currentFlags = parseRoomFlags(room.notes);\n                      const { buildRoomNotes } = await import('@/lib/room-service-flags');\n                      const newFullNotes = buildRoomNotes(\n                        { collectExtraTowels: currentFlags.collectExtraTowels, roomCleaning: currentFlags.roomCleaning },\n                        popoverNotes\n                      );\n                      if (newFullNotes !== (room.notes || '')) {\n                        try {\n                          if (assignmentStatus === 'completed') {\n                            toast.warning(`⚠️ Room ${room.room_number} was already cleaned. The housekeeper will need to be informed.`, { duration: 5000 });\n                          }\n                          await supabase.from('rooms').update({ notes: newFullNotes || null } as any).eq('id', room.id);\n                          setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: newFullNotes || null } : r));\n                          // Show inline saved indicator\n                          const parent = textarea.parentElement;\n                          if (parent) {\n                            const indicator = document.createElement('span');\n                            indicator.className = 'text-[10px] text-emerald-600 font-medium animate-in fade-in';\n                            indicator.textContent = '✓ Auto-saved';\n                            parent.appendChild(indicator);\n                            setTimeout(() => indicator.remove(), 2000);\n                          }\n                        } catch { toast.error('Failed to save notes'); }\n                      }\n                    }}'''
+          new_textarea = '''                    value={popoverNotes}\n                    onChange={(e) => {\n                      const value = e.target.value;\n                      setPopoverNotes(value);\n                      popoverNoteValueRef.current = value;\n                      queuePopoverNoteSave(room, value);\n                    }}\n                    onClick={(e) => e.stopPropagation()}\n                    onBlur={() => flushPopoverNoteSave()}'''
+          replace_once('src/components/dashboard/HotelRoomOverview.tsx', old_textarea, new_textarea)
+
+          replace_once(
+              'src/components/dashboard/HotelRoomOverview.tsx',
+              '''                  <textarea\n                    className="w-full text-xs p-1.5 rounded border border-input bg-background min-h-[36px] resize-none placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"''',
+              '''                  <p className="text-[10px] font-semibold text-muted-foreground">{t('roomOverview.managerNotes')} · HotelCare</p>\n                  <textarea\n                    className="w-full text-xs p-1.5 rounded border border-input bg-background min-h-[36px] resize-none placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"'''
+          )
+
+          # Link manager chat messages to today's assignment so housekeepers actually receive them.
+          replace_once(
+              'src/components/dashboard/HotelRoomOverview.tsx',
+              '''interface AssignmentData {\n  room_id: string;''',
+              '''interface AssignmentData {\n  id?: string;\n  room_id: string;'''
+          )
+          replace_once(
+              'src/components/dashboard/HotelRoomOverview.tsx',
+              ".select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes')",
+              ".select('id, room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes')"
+          )
+          replace_once(
+              'src/components/dashboard/HotelRoomOverview.tsx',
+              '''                            assignment_id: null,\n                            content: managerMessage,''',
+              '''                            assignment_id: assignment.id || null,\n                            content: managerMessage,'''
+          )
+
+          # 4) Housekeeper translation is repeatable and resets when language/note changes.
+          replace_once(
+              'src/components/dashboard/AssignedRoomCard.tsx',
+              '''  const [translatedManagerNote, setTranslatedManagerNote] = useState<string | null>(null);\n  const [translatedAssignmentNote, setTranslatedAssignmentNote] = useState<string | null>(null);\n\n  const handleTranslateNote''',
+              '''  const [translatedManagerNote, setTranslatedManagerNote] = useState<string | null>(null);\n  const [translatedAssignmentNote, setTranslatedAssignmentNote] = useState<string | null>(null);\n\n  useEffect(() => {\n    setTranslatedManagerNote(null);\n  }, [language, managerVisibleNote]);\n\n  useEffect(() => {\n    setTranslatedAssignmentNote(null);\n  }, [language, assignment.notes]);\n\n  useEffect(() => {\n    setTranslatedMessages({});\n  }, [language]);\n\n  const handleTranslateNote'''
+          )
+          replace_once(
+              'src/components/dashboard/AssignedRoomCard.tsx',
+              '''                  {!translatedManagerNote && (\n                    <button''',
+              '''                  {managerVisibleNote && (\n                    <button'''
+          )
+          replace_once(
+              'src/components/dashboard/AssignedRoomCard.tsx',
+              '''                  {!translatedAssignmentNote && (\n                    <button''',
+              '''                  {assignment.notes && (\n                    <button'''
+          )
+          replace_once(
+              'src/components/dashboard/AssignedRoomCard.tsx',
+              '''                          {!translatedMessages[msg.id] && (\n                            <button''',
+              '''                          {msg.content && (\n                            <button'''
+          )
+
+          # 5) Auto Assign: Framer Motion info.point is page-based; elementsFromPoint
+          #    expects viewport/client coordinates. Use the pointer event when available.
+          replace_once(
+              'src/components/dashboard/AutoRoomAssignment.tsx',
+              '''  const getDropStaffAtPoint = (x: number, y: number, fromStaffId: string): string | null => {\n    const elements = document.elementsFromPoint(x, y);\n    for (const element of elements) {\n      const target = (element as HTMLElement).closest<HTMLElement>('[data-staff-drop-id]');\n      const staffId = target?.dataset.staffDropId;\n      if (staffId && staffId !== fromStaffId) return staffId;\n    }\n    return null;\n  };''',
+              '''  const getDropStaffAtPoint = (x: number, y: number, fromStaffId: string): string | null => {\n    const elements = document.elementsFromPoint(x, y);\n    for (const element of elements) {\n      const target = (element as HTMLElement).closest<HTMLElement>('[data-staff-drop-id]');\n      const staffId = target?.dataset.staffDropId;\n      if (staffId && staffId !== fromStaffId) return staffId;\n    }\n    return null;\n  };\n\n  const getDragClientPoint = (event: any, info: any) => {\n    if (event && typeof event.clientX === 'number' && typeof event.clientY === 'number') {\n      return { x: event.clientX, y: event.clientY };\n    }\n    const touch = event?.touches?.[0] || event?.changedTouches?.[0];\n    if (touch) return { x: touch.clientX, y: touch.clientY };\n    // Fallback for Motion events without a native pointer: PanInfo.point is\n    // page-relative, while elementsFromPoint requires viewport coordinates.\n    return { x: info.point.x - window.scrollX, y: info.point.y - window.scrollY };\n  };'''
+          )
+          replace_once(
+              'src/components/dashboard/AutoRoomAssignment.tsx',
+              '''        onDrag={(_, info) => {\n          const target = getDropStaffAtPoint(info.point.x, info.point.y, preview.staffId);\n          setDragOverStaffId(target);\n        }}\n        onDragEnd={(_, info) => {\n          const target = getDropStaffAtPoint(info.point.x, info.point.y, preview.staffId);''',
+              '''        onDrag={(event, info) => {\n          const point = getDragClientPoint(event, info);\n          const target = getDropStaffAtPoint(point.x, point.y, preview.staffId);\n          setDragOverStaffId(target);\n        }}\n        onDragEnd={(event, info) => {\n          const point = getDragClientPoint(event, info);\n          const target = getDropStaffAtPoint(point.x, point.y, preview.staffId);'''
+          )
+
+          # Focused regression tests for rejected bed requests.
+          Path('src/lib/bedConfigInference.test.ts').write_text('''import { describe, expect, it } from "vitest";\nimport { inferBedConfigFromNote } from "./bedConfigInference";\n\ndescribe("inferBedConfigFromNote", () => {\n  it("rejects an unavailable baby-bed request", () => {\n    expect(inferBedConfigFromNote("Guest requested baby bed but not possible")).toBeNull();\n  });\n\n  it("still accepts an actionable baby-bed instruction", () => {\n    expect(inferBedConfigFromNote("Housekeeping: prepare baby bed")).toMatchObject({ value: "Baby Bed" });\n  });\n\n  it("maps plural single beds to twins", () => {\n    expect(inferBedConfigFromNote("Housekeeping: single beds")).toMatchObject({ value: "Twin Beds" });\n  });\n});\n''')
+          print('created src/lib/bedConfigInference.test.ts')
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run focused regression test
+        run: npx vitest run src/lib/bedConfigInference.test.ts
+
+      - name: Type/build validation
+        run: npm run build
+
+      - name: Commit validated fixes
+        shell: bash
+        run: |
+          git config user.name "HotelCare Fix Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/lib/bedConfigInference.ts src/lib/bedConfigInference.test.ts src/lib/pmsRefresh.ts src/components/dashboard/HotelRoomOverview.tsx src/components/dashboard/AssignedRoomCard.tsx src/components/dashboard/AutoRoomAssignment.tsx
+          if git diff --cached --quiet; then
+            echo "No source changes to commit"
+            exit 0
+          fi
+          git commit -m "fix(housekeeping): correct Memories notes, final-night service and drag drop"
+          git push origin HEAD:fix/memories-housekeeping-notes-dnd
