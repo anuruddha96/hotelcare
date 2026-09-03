@@ -19,24 +19,34 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
+
           p = Path('src/components/dashboard/Dashboard.tsx')
           s = p.read_text()
-          old = '''                <TabsTrigger value="rooms" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="rooms-tab">
-                  <Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-                  <span>Reception</span>
-                </TabsTrigger>'''
-          new = '''                <button
-                  type="button"
-                  onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/reception`)}
-                  className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
-                  data-training="rooms-tab"
-                >
-                  <Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-                  <span>Reception</span>
-                </button>'''
-          if old not in s:
+          pattern = re.compile(
+              r'(?P<indent>\s*)<TabsTrigger value="rooms" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-\[11px\] sm:text-sm px-2 sm:px-3" data-training="rooms-tab">\s*'
+              r'<Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />\s*'
+              r'<span>Reception</span>\s*'
+              r'</TabsTrigger>',
+              re.MULTILINE,
+          )
+          match = pattern.search(s)
+          if not match:
               raise SystemExit('Expected manager Reception tab block not found; refusing broad edit')
-          s = s.replace(old, new, 1)
+          indent = match.group('indent')
+          child = indent + '  '
+          replacement = (
+              f'{indent}<button\n'
+              f'{child}type="button"\n'
+              f'{child}onClick={{() => navigate(`/${{organizationSlug || \'rdhotels\'}}/reception`)}}\n'
+              f'{child}className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"\n'
+              f'{child}data-training="rooms-tab"\n'
+              f'{indent}>\n'
+              f'{child}<Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />\n'
+              f'{child}<span>Reception</span>\n'
+              f'{indent}</button>'
+          )
+          s = s[:match.start()] + replacement + s[match.end():]
           p.write_text(s)
           PY
       - name: Commit patch
