@@ -35,7 +35,7 @@ const Index = () => {
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const [searchParams] = useSearchParams();
   // Dashboard strips ?tab= once it applies it, so latch the intent on mount —
-  // legacy top_management can still explicitly open operational tabs.
+  // executives can still explicitly open operational tabs.
   const hasExplicitTab = useRef(!!new URLSearchParams(window.location.search).get('tab'));
   if (searchParams.get('tab')) hasExplicitTab.current = true;
   const [hotelSelected, setHotelSelected] = useState(() => readHotelSelectedForToday());
@@ -75,10 +75,14 @@ const Index = () => {
     return <Navigate to={`/${organizationSlug || 'rdhotels'}/reception`} replace />;
   }
 
-  // Keep the legacy top_management role revenue-first. top_management_manager
-  // is an operational manager and must stay on this dashboard so Housekeeping
-  // is visible exactly like it is for a normal manager.
-  if (profile?.role === 'top_management' && !hasExplicitTab.current) {
+  // Hotel Memories top managers should get the same operational dashboard as
+  // normal managers. Preserve revenue-first landing for top managers elsewhere.
+  const isMemoriesTopManager = profile?.role === 'top_management_manager' &&
+    ['memories-budapest', 'Hotel Memories Budapest'].includes(profile.assigned_hotel || '');
+  const isRevenueFirstExecutive = profile?.role === 'top_management' ||
+    (profile?.role === 'top_management_manager' && !isMemoriesTopManager);
+
+  if (profile && isRevenueFirstExecutive && !hasExplicitTab.current) {
     return <Navigate to={`/${organizationSlug || profile.organization_slug || 'rdhotels'}/revenue`} replace />;
   }
 
