@@ -5,7 +5,7 @@ import { Header } from '@/components/layout/Header';
 import { PMSNavigation } from '@/components/layout/PMSNavigation';
 import { Dashboard } from '@/components/dashboard/Dashboard';
 import { HotelSelectionScreen } from '@/components/dashboard/HotelSelectionScreen';
-import { isExecutiveRole, isReceptionRole } from '@/lib/roleAccess';
+import { isReceptionRole } from '@/lib/roleAccess';
 
 const MANAGER_ROLES = ['admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager'];
 
@@ -35,7 +35,7 @@ const Index = () => {
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
   const [searchParams] = useSearchParams();
   // Dashboard strips ?tab= once it applies it, so latch the intent on mount —
-  // otherwise executives would be bounced back to Revenue a tick later.
+  // legacy top_management can still explicitly open operational tabs.
   const hasExplicitTab = useRef(!!new URLSearchParams(window.location.search).get('tab'));
   if (searchParams.get('tab')) hasExplicitTab.current = true;
   const [hotelSelected, setHotelSelected] = useState(() => readHotelSelectedForToday());
@@ -75,11 +75,10 @@ const Index = () => {
     return <Navigate to={`/${organizationSlug || 'rdhotels'}/reception`} replace />;
   }
 
-  // Top management land on Revenue Management → Rate Grid, freshly synced.
-  // Only on a bare landing though: once they explicitly ask for a dashboard
-  // tab (?tab=housekeeping …) we must NOT bounce them back to Revenue,
-  // otherwise the legacy tabs are unreachable for executives.
-  if (profile && isExecutiveRole(profile.role) && !hasExplicitTab.current) {
+  // Keep the legacy top_management role revenue-first. top_management_manager
+  // is an operational manager and must stay on this dashboard so Housekeeping
+  // is visible exactly like it is for a normal manager.
+  if (profile?.role === 'top_management' && !hasExplicitTab.current) {
     return <Navigate to={`/${organizationSlug || profile.organization_slug || 'rdhotels'}/revenue`} replace />;
   }
 
