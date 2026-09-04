@@ -649,7 +649,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       const today = selectedDate;
       const { data } = await supabase
         .from('staff_attendance')
-        .select('user_id, status, break_type')
+        .select('user_id, status, break_type, break_started_at, check_in_time, check_out_time')
         .eq('work_date', today);
 
       const attendanceMap: Record<string, any> = {};
