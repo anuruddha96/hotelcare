@@ -5,7 +5,10 @@ import { useAuth } from './useAuth';
 import { useTranslation } from './useTranslation';
 import { serviceWorkerManager } from '@/lib/serviceWorkerManager';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
-import { canReceiveHousekeepingOperationalNotifications } from '@/lib/notificationAudience';
+import {
+  canReceiveHousekeepingOperationalNotifications,
+  isExecutiveRole,
+} from '@/lib/notificationAudience';
 
 // Add CSS for flash animation (only once)
 if (typeof document !== 'undefined' && !document.getElementById('notification-flash-style')) {
@@ -21,10 +24,7 @@ if (typeof document !== 'undefined' && !document.getElementById('notification-fl
   document.head.appendChild(style);
 }
 
-// Shared AudioContext to unlock and reuse on iOS Safari
 let sharedAudioContext: (AudioContext & { close?: () => Promise<void> }) | null = null;
-
-// Track if service worker has been registered (singleton)
 let serviceWorkerRegistered = false;
 
 export function useNotifications() {
@@ -33,7 +33,6 @@ export function useNotifications() {
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
   const initRef = useRef(false);
 
-  // Initialize notification permission status and service worker (once)
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
@@ -42,28 +41,20 @@ export function useNotifications() {
       setNotificationPermission(Notification.permission);
     }
 
-    // Register service worker only once across all hook instances
     if (!serviceWorkerRegistered) {
       serviceWorkerRegistered = true;
       serviceWorkerManager.register().then((registration) => {
-        if (registration) {
-          console.log('Service Worker registered for notifications');
-        }
+        if (registration) console.log('Service Worker registered for notifications');
       });
     }
   }, []);
 
-  // Request notification permission with iOS Safari compatibility
   const requestNotificationPermission = useCallback(async () => {
     if (!('Notification' in window)) {
       console.log('Browser does not support notifications');
       return false;
     }
-
-    if (Notification.permission === 'granted') {
-      return true;
-    }
-
+    if (Notification.permission === 'granted') return true;
     if (Notification.permission === 'denied') {
       console.log('Notifications are blocked by user');
       return false;
@@ -105,7 +96,6 @@ export function useNotifications() {
     }
   }, [user?.id, t]);
 
-  // Prepare audio on first user gesture for iOS Safari
   const ensureAudioUnlocked = useCallback(() => {
     try {
       if (!sharedAudioContext) {
@@ -128,9 +118,7 @@ export function useNotifications() {
 
   const playNotificationSound = useCallback(() => {
     try {
-      if ('vibrate' in navigator) {
-        navigator.vibrate([200, 100, 200, 100, 200]);
-      }
+      if ('vibrate' in navigator) navigator.vibrate([200, 100, 200, 100, 200]);
 
       try {
         if (!sharedAudioContext) {
@@ -215,24 +203,22 @@ export function useNotifications() {
     });
 
     const brandedTitle = title ? `Hotel Care · ${title}` : 'Hotel Care';
-
     if (title && notificationPermission === 'granted') {
       await showBrowserNotification(brandedTitle, message);
     } else if (notificationPermission === 'default' && title) {
       try {
         const granted = await requestNotificationPermission();
-        if (granted) {
-          await showBrowserNotification(brandedTitle, message);
-        }
+        if (granted) await showBrowserNotification(brandedTitle, message);
       } catch (error) {
         console.log('Failed to request notification permission:', error);
       }
     }
   }, [playNotificationSound, showBrowserNotification, notificationPermission, requestNotificationPermission]);
 
-  // Listen for personal assignments plus housekeeping manager actions. All
-  // manager-facing housekeeping events are scoped to the ACTIVE property and
-  // routed only to the operational roles that must act on them.
+  // Personal room assignments still reach housekeepers/staff, but executive
+  // roles are explicitly excluded even if a room is accidentally assigned to
+  // their user id. Manager-facing housekeeping events are likewise restricted
+  // to the operational manager audience.
   useEffect(() => {
     if (!user?.id || !profile?.assigned_hotel) return;
 
@@ -241,9 +227,7 @@ export function useNotifications() {
 
     const setup = async () => {
       const resolvedKeys = await resolveHotelKeys(profile.assigned_hotel);
-      const activeHotelKeys = resolvedKeys.length
-        ? resolvedKeys
-        : [profile.assigned_hotel];
+      const activeHotelKeys = resolvedKeys.length ? resolvedKeys : [profile.assigned_hotel];
       if (disposed) return;
 
       const isRoomInActiveHotel = async (roomId?: string | null): Promise<boolean> => {
@@ -281,6 +265,7 @@ export function useNotifications() {
             filter: `assigned_to=eq.${user.id}`
           },
           async (payload) => {
+            if (isExecutiveRole(profile?.role)) return;
             const newRecord = payload.new as any;
             if (!(await isRoomInActiveHotel(newRecord.room_id))) return;
             showNotification(
