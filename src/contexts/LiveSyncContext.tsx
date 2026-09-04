@@ -11,6 +11,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { runPmsRefresh, type PmsSyncStatus } from "@/lib/pmsRefresh";
 import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
+import {
+  canReceiveHousekeepingOperationalNotifications,
+  isExecutiveRole,
+} from "@/lib/notificationAudience";
 
 export type TaskName = "pms" | "revenue" | "checkouts" | "pms_changes";
 
@@ -77,6 +81,8 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
   const lastRunRef = useRef<Record<TaskName, number>>({ pms: 0, revenue: 0, checkouts: 0, pms_changes: 0 });
 
   const enabled = !!user && !!profile?.role && ELIGIBLE_ROLES.has(profile.role) && hasPrevio;
+  const showHousekeepingOperationalNotifications = canReceiveHousekeepingOperationalNotifications(profile?.role);
+  const executiveRole = isExecutiveRole(profile?.role);
 
   // Detect whether the user's hotel has an active Previo config.
   useEffect(() => {
@@ -209,7 +215,11 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
           meta: { ...payload, pendingCheckouts },
         },
       }));
-      if (marked > 0) {
+
+      // Checkout auto-release is a housekeeping workflow event. Keep the
+      // underlying polling/data update active for every eligible manager, but
+      // only notify the operational housekeeping managers who act on it.
+      if (marked > 0 && showHousekeepingOperationalNotifications) {
         const { toast } = await import("sonner");
         toast.success(`${marked} checkout room${marked === 1 ? "" : "s"} auto-released — ready to clean.`);
       }
@@ -220,7 +230,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
       }));
     }
     return pendingCheckouts;
-  }, [enabled, hotelId, tasks.checkouts.meta]);
+  }, [enabled, hotelId, tasks.checkouts.meta, showHousekeepingOperationalNotifications]);
 
   const refresh = useCallback(
     async (task?: TaskName): Promise<RefreshOutcome | void> => {
@@ -245,7 +255,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
   // First-sync-of-the-day prompt. The decision is made from the PROPERTY's
   // sync history, not this browser: once anyone has synced the hotel today,
   // nobody else is prompted. We never sync silently — the user gets an
-  // actionable prompt so they can't assign rooms against stale PMS data.
+  // actionable prompt so they can't work against stale PMS data.
   useEffect(() => {
     if (!enabled || !hotelId || !user?.id) return;
     const today = new Date().toISOString().slice(0, 10);
@@ -271,7 +281,9 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
       const { toast } = await import("sonner");
       const runNow = async () => {
         const toastId = toast.loading("Syncing today's PMS data from Previo…", {
-          description: "Checkouts, daily stays and room notes are being refreshed.",
+          description: executiveRole
+            ? "Property data is being refreshed from Previo."
+            : "Checkouts, daily stays and room notes are being refreshed.",
         });
         const r = await runPms(true);
         if (r.status === "error") {
@@ -283,7 +295,9 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
           const meta = (r.meta || {}) as any;
           toast.success("Today's PMS data is up to date", {
             id: toastId,
-            description: `${meta.updated ?? 0} rooms updated · ${meta.checkouts ?? 0} checkout rooms`,
+            description: executiveRole
+              ? `${meta.updated ?? 0} rooms updated from Previo.`
+              : `${meta.updated ?? 0} rooms updated · ${meta.checkouts ?? 0} checkout rooms`,
           });
         }
         void runCheckouts(true);
@@ -291,13 +305,15 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
 
       toast.warning("Today's PMS data hasn't been synced yet", {
         duration: 30000,
-        description: "Refresh from Previo before assigning rooms so checkouts and arrivals are correct.",
+        description: executiveRole
+          ? "Refresh from Previo to keep the property's live data current."
+          : "Refresh from Previo before assigning rooms so checkouts and arrivals are correct.",
         action: { label: "Refresh now", onClick: () => void runNow() },
       });
     })();
 
     return () => { cancelled = true; };
-  }, [enabled, hotelId, user?.id, runPms, runCheckouts]);
+  }, [enabled, hotelId, user?.id, runPms, runCheckouts, executiveRole]);
 
   // Revenue refresh ownership lives on the revenue route, behind the shared
   // database lease. The global shell only polls checkout state.
@@ -323,8 +339,6 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
       if (timer) clearTimeout(timer);
     };
   }, [enabled, runCheckouts]);
-
-
 
   // ---- PMS change events: realtime + count ---------------------------------
   const refreshPmsChanges = useCallback(async () => {
@@ -365,6 +379,12 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
             const msg = row.is_conflict
               ? `PMS conflict on room ${row.room_label || "?"}`
               : `PMS update on room ${row.room_label || "?"}`;
+
+            // Top management keeps visibility of real conflicts, but routine
+            // room-level PMS updates are operational noise and stay with hotel
+            // managers/reception teams.
+            if (executiveRole && !row.is_conflict) return;
+
             import("sonner").then(({ toast }) => {
               if (row.is_conflict) {
                 toast.error(msg, { action: { label: "Review", onClick: () => setDrawerOpen(true) } });
@@ -377,7 +397,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
       )
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
-  }, [enabled, hotelId, refreshPmsChanges]);
+  }, [enabled, hotelId, refreshPmsChanges, executiveRole]);
 
   const openChangesDrawer = useCallback(() => setDrawerOpen(true), []);
 
