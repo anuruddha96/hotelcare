@@ -865,9 +865,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       assignedToName: assignment ? staffMap[assignment.assigned_to] ?? null : null,
     });
 
+    const hkDropTarget = !!hkDrag && canDragAssign;
+    const hkHovered = hkDropTarget && hkHoverRoomId === room.id;
+
     const chipContent = (
       <div 
-        className="flex flex-col items-center gap-0.5 select-none"
+        className={`flex flex-col items-center gap-0.5 select-none transition-transform ${hkHovered ? 'scale-110' : ''}`}
+        onDragOver={hkDropTarget ? (e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; setHkHoverRoomId(room.id); } : undefined}
+        onDragEnter={hkDropTarget ? (e) => { e.preventDefault(); e.stopPropagation(); setHkHoverRoomId(room.id); } : undefined}
+        onDragLeave={hkDropTarget ? () => setHkHoverRoomId((id) => (id === room.id ? null : id)) : undefined}
+        onDrop={hkDropTarget ? (e) => { void handleHousekeeperDropOnRoom(e, room); } : undefined}
         draggable={canDragAssign ? true : undefined}
         onDragStart={canDragAssign ? (e) => {
           setRoomDragPayload(e, {
