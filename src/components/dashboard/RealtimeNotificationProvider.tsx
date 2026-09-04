@@ -4,6 +4,13 @@ import { useAuth } from '@/hooks/useAuth';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useTranslation } from '@/hooks/useTranslation';
 
+/**
+ * Global notifications that are NOT owned by the housekeeping notification hook.
+ *
+ * Room assignments, completed-room approvals and break requests are deliberately
+ * handled only by useNotifications. Keeping a single owner prevents duplicate
+ * alerts and lets that hook enforce the operational-manager audience centrally.
+ */
 export function RealtimeNotificationProvider({ children }: { children: React.ReactNode }) {
   const { user, profile } = useAuth();
   const { showNotification } = useNotifications();
@@ -12,86 +19,20 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
   useEffect(() => {
     if (!user?.id) return;
 
-    // Set up comprehensive real-time notifications
+    // Maintenance approvals remain visible to senior management because they
+    // can require management action. Routine housekeeping workflow does not.
+    const maintenanceApprovalRoles = new Set([
+      'manager',
+      'housekeeping_manager',
+      'admin',
+      'top_management',
+      'top_management_manager',
+    ]);
+
     const channels = [
-    // Manager-only channels (room assignment notifications are handled by useNotifications hook)
-
-      // Break requests for managers
-      ...(profile?.role && ['manager', 'housekeeping_manager', 'admin', 'top_management', 'top_management_manager'].includes(profile.role) ? [
+      ...(profile?.role && maintenanceApprovalRoles.has(profile.role) ? [
         supabase
-          .channel('break-requests-notifications')
-          .on(
-            'postgres_changes',
-            {
-              event: 'INSERT',
-              schema: 'public',
-              table: 'break_requests'
-            },
-            () => {
-              showNotification(
-                t('notifications.breakRequestSubmitted'),
-                'info',
-                t('notifications.breakRequestLabel')
-              );
-            }
-          )
-          .subscribe()
-      ] : []),
-
-      // Supervisor approvals for room assignments (filtered by hotel)
-      ...(profile?.role && ['manager', 'housekeeping_manager', 'admin', 'top_management', 'top_management_manager'].includes(profile.role) ? [
-        supabase
-          .channel('supervisor-approvals-notifications')
-          .on(
-            'postgres_changes',
-            {
-              event: 'UPDATE',
-              schema: 'public',
-              table: 'room_assignments',
-              filter: 'status=eq.completed'
-            },
-            async (payload) => {
-              if (payload.new.status === 'completed' && payload.old.status !== 'completed') {
-                const { data: roomData } = await supabase
-                  .from('rooms')
-                  .select('hotel')
-                  .eq('id', payload.new.room_id)
-                  .single();
-
-                if (roomData) {
-                  const { data: profileData } = await supabase
-                    .from('profiles')
-                    .select('assigned_hotel')
-                    .eq('id', user.id)
-                    .single();
-
-                  const userHotelId = profileData?.assigned_hotel;
-                  let userHotelName = userHotelId;
-
-                  if (userHotelId) {
-                    const { data: hotelName } = await supabase
-                      .rpc('get_hotel_name_from_id', { hotel_id: userHotelId });
-                    if (hotelName) {
-                      userHotelName = hotelName;
-                    }
-                  }
-
-                  if (roomData.hotel === userHotelName || roomData.hotel === userHotelId) {
-                    showNotification(
-                      t('notifications.roomReadyApproval'),
-                      'info',
-                      t('notifications.approvalRequired')
-                    );
-                  }
-                }
-              }
-            }
-          )
-          .subscribe(),
-          
-        // Maintenance ticket pending approvals for managers
-        supabase
-          .channel('maintenance-pending-approvals')
+          .channel(`maintenance-pending-approvals-${user.id}`)
           .on(
             'postgres_changes',
             {
@@ -100,9 +41,11 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
               table: 'tickets'
             },
             (payload: any) => {
-              if (payload.new.pending_supervisor_approval === true && 
-                  payload.old.pending_supervisor_approval !== true &&
-                  payload.new.department === 'maintenance') {
+              if (
+                payload.new.pending_supervisor_approval === true &&
+                payload.old.pending_supervisor_approval !== true &&
+                payload.new.department === 'maintenance'
+              ) {
                 showNotification(
                   t('notifications.maintenanceReview'),
                   'info',
@@ -114,9 +57,10 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
           .subscribe()
       ] : []),
 
-      // Ticket notifications
+      // Personal ticket notifications are role-neutral: only the assignee or
+      // creator receives them.
       supabase
-        .channel('ticket-notifications')
+        .channel(`ticket-notifications-${user.id}`)
         .on(
           'postgres_changes',
           {
@@ -154,12 +98,9 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
         .subscribe()
     ];
 
-    // Cleanup function
     return () => {
-      channels.forEach(channel => {
-        if (channel) {
-          supabase.removeChannel(channel);
-        }
+      channels.forEach((channel) => {
+        if (channel) supabase.removeChannel(channel);
       });
     };
   }, [user?.id, profile?.role, showNotification, t]);
