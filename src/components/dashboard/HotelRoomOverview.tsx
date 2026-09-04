@@ -88,11 +88,20 @@ interface StaffMap {
   [id: string]: string;
 }
 
+export interface SignedInHousekeeper {
+  id: string;
+  fullName: string;
+  nickname?: string | null;
+  onBreak?: boolean;
+}
+
 interface HotelRoomOverviewProps {
   selectedDate: string;
   hotelName: string;
   staffMap: StaffMap;
   refreshKey?: number;
+  /** Housekeepers signed in for selectedDate at this hotel (already scoped). */
+  signedInHousekeepers?: SignedInHousekeeper[];
 }
 
 const ROOM_SIZE_OPTIONS = [
