@@ -898,6 +898,17 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           hotelName={managerHotelName}
           staffMap={Object.fromEntries(housekeepingStaff.map(s => [s.id, s.full_name]))}
           refreshKey={overviewRefreshKey}
+          signedInHousekeepers={canDragAssign
+            ? housekeepingStaff
+                .map((s) => ({ staff: s, att: staffAttendance[s.id] }))
+                .filter(({ att }) => !!att && !att.check_out_time && ['checked_in', 'on_break'].includes(att.status))
+                .map(({ staff, att }) => ({
+                  id: staff.id,
+                  fullName: staff.full_name,
+                  nickname: staff.nickname,
+                  onBreak: att.status === 'on_break',
+                }))
+            : []}
         />
       )}
 
