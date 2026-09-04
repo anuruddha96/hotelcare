@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useAuth } from './useAuth';
 import { useTranslation } from './useTranslation';
 import { serviceWorkerManager } from '@/lib/serviceWorkerManager';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
 
 // Add CSS for flash animation (only once)
 if (typeof document !== 'undefined' && !document.getElementById('notification-flash-style')) {
@@ -62,12 +63,12 @@ export function useNotifications() {
     if (Notification.permission === 'granted') {
       return true;
     }
-    
+
     if (Notification.permission === 'denied') {
       console.log('Notifications are blocked by user');
       return false;
     }
-    
+
     try {
       // iOS Web Push works only when installed to Home Screen (standalone)
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -82,7 +83,7 @@ export function useNotifications() {
       // Request permission - must be triggered by user interaction on iOS
       const permission = await Notification.requestPermission();
       setNotificationPermission(permission);
-      
+
       if (user?.id && permission !== 'default') {
         // Save preference to database
         await supabase
@@ -92,23 +93,23 @@ export function useNotifications() {
             browser_notifications_enabled: permission === 'granted'
           });
       }
-      
+
       if (permission === 'granted') {
-        // Test notification to ensure it works
-        const testNotification = new Notification('Hotel Care', {
-          body: 'You will now receive notifications for room assignments and approvals.',
-          icon: '/favicon.ico',
-          silent: false
-        });
-        setTimeout(() => testNotification.close(), 3000);
+        // Mobile browsers (notably iOS PWAs) should use the Service Worker
+        // notification API rather than the window Notification constructor.
+        await serviceWorkerManager.sendNotification(
+          'Hotel Care',
+          'You will now receive notifications for room assignments and approvals.',
+          { timestamp: Date.now(), url: window.location.href }
+        );
       }
-      
+
       return permission === 'granted';
     } catch (error) {
       console.log('Error requesting notification permission:', error);
       return false;
     }
-  }, [user?.id]);
+  }, [user?.id, t]);
 
   // Prepare audio on first user gesture for iOS Safari
   const ensureAudioUnlocked = useCallback(() => {
@@ -179,7 +180,7 @@ export function useNotifications() {
       } catch (webAudioError) {
         console.log('Web Audio not supported:', webAudioError);
       }
-      
+
     } catch (error) {
       console.log('Notification sound not supported:', error);
     }
@@ -199,18 +200,19 @@ export function useNotifications() {
       } catch (error) {
         console.error('Service Worker notification failed, using fallback:', error);
 
-        // Fallback to regular notification
-        const notification = new Notification(title, {
-          body: message,
-          icon: '/icon-192.png',
-          badge: '/icon-maskable-512.png',
-          tag: 'hotel-notification',
-        } as any);
-
-        // Auto-close after 5 seconds
-        setTimeout(() => notification.close(), 5000);
-
-        return notification;
+        // Desktop fallback. Some mobile browsers do not allow this constructor.
+        try {
+          const notification = new Notification(title, {
+            body: message,
+            icon: '/icon-192.png',
+            badge: '/icon-maskable-512.png',
+            tag: 'hotel-notification',
+          } as any);
+          setTimeout(() => notification.close(), 5000);
+          return notification;
+        } catch (fallbackError) {
+          console.log('Direct notification fallback failed:', fallbackError);
+        }
       }
     }
     return null;
@@ -218,13 +220,13 @@ export function useNotifications() {
 
   // Enhanced notification with sound, browser notification, and visual fallback
   const showNotification = useCallback(async (
-    message: string, 
+    message: string,
     type: 'success' | 'info' | 'warning' = 'info',
     title?: string
   ) => {
     // Play sound and vibration
     playNotificationSound();
-    
+
     // Show toast notification
     toast[type](message, {
       duration: 4000,
@@ -242,41 +244,16 @@ export function useNotifications() {
     // Always brand the title with "Hotel Care" prefix when sending OS-level notification
     const brandedTitle = title ? `Hotel Care · ${title}` : 'Hotel Care';
 
-    // Try browser notification if permission granted
+    // Use ServiceWorkerRegistration.showNotification for installed mobile apps/PWAs.
     if (title && notificationPermission === 'granted') {
-      try {
-        const notification = new Notification(brandedTitle, {
-          body: message,
-          icon: '/icon-192.png',
-          badge: '/icon-maskable-512.png',
-          tag: 'hotel-notification',
-          silent: false,
-        });
-
-        // Handle notification click
-        notification.onclick = () => {
-          window.focus();
-          notification.close();
-        };
-
-        // Auto-close after 5 seconds
-        setTimeout(() => notification.close(), 5000);
-      } catch (error) {
-        console.log('Browser notification failed:', error);
-      }
+      await showBrowserNotification(brandedTitle, message);
     } else if (notificationPermission === 'default' && title) {
-      // Try to request permission on first notification
+      // This succeeds on desktop when the browser allows it. On iOS the user
+      // must grant permission from the explicit notification banner/button.
       try {
         const granted = await requestNotificationPermission();
         if (granted) {
-          const notification = new Notification(brandedTitle, {
-            body: message,
-            icon: '/icon-192.png',
-            badge: '/icon-maskable-512.png',
-            tag: 'hotel-notification',
-            silent: false,
-          });
-          setTimeout(() => notification.close(), 5000);
+          await showBrowserNotification(brandedTitle, message);
         }
       } catch (error) {
         console.log('Failed to request notification permission:', error);
@@ -285,98 +262,158 @@ export function useNotifications() {
 
   }, [playNotificationSound, showBrowserNotification, notificationPermission, requestNotificationPermission]);
 
-  // Listen for new assignments, break requests, and pending approvals
+  // Listen for new assignments, break requests, and pending approvals.
+  // Every manager-facing event is scoped to the ACTIVE property; RD Hotels
+  // properties share one organization_slug so org-only filtering is not enough.
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || !profile?.assigned_hotel) return;
 
-    const channel = supabase
-      .channel('notifications-channel')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'room_assignments',
-          filter: `assigned_to=eq.${user.id}`
-        },
-        (payload) => {
-          showNotification(
-            t('notifications.newAssignment'), 
-            'info',
-            t('notifications.newAssignmentTitle')
-          );
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'room_assignments',
-          filter: 'status=eq.completed'
-        },
-        (payload) => {
-          const newRecord = payload.new as any;
-          const oldRecord = payload.old as any;
-          
-          // Notify managers/supervisors when a task is completed (new pending approval)
-          // Use profile.role instead of user.role (roles are stored on profile)
-          if (oldRecord.status !== 'completed' && newRecord.status === 'completed' && 
-              (profile?.role === 'manager' || profile?.role === 'housekeeping_manager' || profile?.role === 'admin')) {
+    let disposed = false;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    const setup = async () => {
+      const resolvedKeys = await resolveHotelKeys(profile.assigned_hotel);
+      const activeHotelKeys = resolvedKeys.length
+        ? resolvedKeys
+        : [profile.assigned_hotel];
+      if (disposed) return;
+
+      const isRoomInActiveHotel = async (roomId?: string | null): Promise<boolean> => {
+        if (!roomId || activeHotelKeys.length === 0) return false;
+        const { data: room, error } = await supabase
+          .from('rooms')
+          .select('hotel')
+          .eq('id', roomId)
+          .maybeSingle();
+        if (error || !room?.hotel || disposed) return false;
+        return activeHotelKeys.includes(room.hotel);
+      };
+
+      const isUserInActiveHotel = async (staffId?: string | null): Promise<boolean> => {
+        if (!staffId) return false;
+        const { data: staff, error } = await supabase
+          .from('profiles')
+          .select('assigned_hotel')
+          .eq('id', staffId)
+          .maybeSingle();
+        if (error || !staff?.assigned_hotel || disposed) return false;
+        const staffKeys = await resolveHotelKeys(staff.assigned_hotel);
+        const comparable = staffKeys.length ? staffKeys : [staff.assigned_hotel];
+        return comparable.some((key) => activeHotelKeys.includes(key));
+      };
+
+      const approvalRoles = new Set([
+        'manager',
+        'housekeeping_manager',
+        'admin',
+        'top_management',
+        'top_management_manager',
+        'supervisor',
+      ]);
+
+      channel = supabase
+        .channel(`notifications-channel-${user.id}-${profile.assigned_hotel}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'room_assignments',
+            filter: `assigned_to=eq.${user.id}`
+          },
+          async (payload) => {
+            const newRecord = payload.new as any;
+            if (!(await isRoomInActiveHotel(newRecord.room_id))) return;
             showNotification(
-              t('notifications.newPendingApproval'),
-              'warning',
-              t('notifications.newPendingApprovalTitle')
+              t('notifications.newAssignment'),
+              'info',
+              t('notifications.newAssignmentTitle')
             );
           }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'break_requests'
-        },
-        (payload) => {
-          showNotification(
-            t('notifications.newBreakRequest'),
-            'info',
-            t('notifications.newBreakRequestTitle')
-          );
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'break_requests',
-          filter: `user_id=eq.${user.id}`
-        },
-        (payload) => {
-          const newRecord = payload.new as any;
-          if (newRecord.status === 'approved') {
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'room_assignments',
+            filter: 'status=eq.completed'
+          },
+          async (payload) => {
+            const newRecord = payload.new as any;
+            const oldRecord = payload.old as any;
+
+            // Notify eligible supervisors only for a NEW completion belonging
+            // to their currently selected/assigned hotel.
+            if (
+              oldRecord.status !== 'completed' &&
+              newRecord.status === 'completed' &&
+              !!profile?.role &&
+              approvalRoles.has(profile.role) &&
+              await isRoomInActiveHotel(newRecord.room_id)
+            ) {
+              showNotification(
+                t('notifications.newPendingApproval'),
+                'warning',
+                t('notifications.newPendingApprovalTitle')
+              );
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'break_requests'
+          },
+          async (payload) => {
+            if (!approvalRoles.has(profile.role || '')) return;
+            const newRecord = payload.new as any;
+            const staffId = newRecord.user_id || newRecord.requested_by;
+            if (!(await isUserInActiveHotel(staffId))) return;
             showNotification(
-              t('notifications.breakRequestApproved'),
-              'success',
-              t('notifications.breakRequestTitle')
-            );
-          } else if (newRecord.status === 'rejected') {
-            showNotification(
-              t('notifications.breakRequestRejected'),
-              'warning',
-              t('notifications.breakRequestTitle')
+              t('notifications.newBreakRequest'),
+              'info',
+              t('notifications.newBreakRequestTitle')
             );
           }
-        }
-      )
-      .subscribe();
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'break_requests',
+            filter: `user_id=eq.${user.id}`
+          },
+          (payload) => {
+            const newRecord = payload.new as any;
+            if (newRecord.status === 'approved') {
+              showNotification(
+                t('notifications.breakRequestApproved'),
+                'success',
+                t('notifications.breakRequestTitle')
+              );
+            } else if (newRecord.status === 'rejected') {
+              showNotification(
+                t('notifications.breakRequestRejected'),
+                'warning',
+                t('notifications.breakRequestTitle')
+              );
+            }
+          }
+        )
+        .subscribe();
+    };
+
+    void setup();
 
     return () => {
-      supabase.removeChannel(channel);
+      disposed = true;
+      if (channel) supabase.removeChannel(channel);
     };
-  }, [user?.id, profile?.role, showNotification, t]);
+  }, [user?.id, profile?.role, profile?.assigned_hotel, showNotification, t]);
 
   return {
     playNotificationSound,
