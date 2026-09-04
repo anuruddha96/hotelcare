@@ -1,9 +1,37 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { RotateCw, RotateCcw, Save, Pencil, GripVertical, RotateCcwIcon, Plus, Trash2, Edit2, Check, X, Layers } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Check,
+  GripVertical,
+  Layers,
+  Loader2,
+  MapPin,
+  Pencil,
+  Plus,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 
@@ -29,15 +57,34 @@ interface AssignmentData {
   status: string;
 }
 
-interface WingLayout {
-  x: number;
-  y: number;
-  rotation: number;
+type SectionColor = 'sky' | 'emerald' | 'amber' | 'violet' | 'rose' | 'slate';
+
+interface HousekeepingSection {
+  id: string;
+  hotel_name: string;
+  name: string;
+  floor_number: number;
+  description: string | null;
+  color: SectionColor;
+  sort_order: number;
+  is_active: boolean;
 }
 
-interface WingMeta {
-  label: string;
-  view?: string;
+interface SectionRoomMapping {
+  room_id: string;
+  section_id: string;
+}
+
+interface SectionTask {
+  id: string;
+  section_id: string;
+  task_name: string;
+  icon: string;
+  instructions: string | null;
+  estimated_duration: number;
+  auto_assign: boolean;
+  is_active: boolean;
+  sort_order: number;
 }
 
 interface HotelFloorMapProps {
@@ -49,748 +96,897 @@ interface HotelFloorMapProps {
   isAdmin?: boolean;
 }
 
+interface SectionEditorState {
+  open: boolean;
+  section: HousekeepingSection | null;
+  floor: number;
+}
+
+interface TaskEditorState {
+  open: boolean;
+  section: HousekeepingSection | null;
+}
+
 const STATUS_COLORS: Record<string, string> = {
-  clean: 'bg-emerald-200 text-emerald-900 border-emerald-400',
-  dirty: 'bg-amber-200 text-amber-900 border-amber-400',
-  in_progress: 'bg-sky-200 text-sky-900 border-sky-400',
-  out_of_order: 'bg-red-200 text-red-900 border-red-400',
-  inspected: 'bg-teal-200 text-teal-900 border-teal-400',
+  clean: 'bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-200',
+  dirty: 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/50 dark:text-amber-200',
+  in_progress: 'bg-sky-100 text-sky-900 border-sky-300 dark:bg-sky-950/50 dark:text-sky-200',
+  out_of_order: 'bg-red-100 text-red-900 border-red-300 dark:bg-red-950/50 dark:text-red-200',
+  inspected: 'bg-teal-100 text-teal-900 border-teal-300 dark:bg-teal-950/50 dark:text-teal-200',
 };
 
-function getFloorLabel(floor: number): string {
+const SECTION_COLORS: Record<SectionColor, string> = {
+  sky: 'border-sky-300 bg-sky-50/50 dark:border-sky-800 dark:bg-sky-950/20',
+  emerald: 'border-emerald-300 bg-emerald-50/50 dark:border-emerald-800 dark:bg-emerald-950/20',
+  amber: 'border-amber-300 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20',
+  violet: 'border-violet-300 bg-violet-50/50 dark:border-violet-800 dark:bg-violet-950/20',
+  rose: 'border-rose-300 bg-rose-50/50 dark:border-rose-800 dark:bg-rose-950/20',
+  slate: 'border-slate-300 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-900/20',
+};
+
+const AREA_PRESETS = [
+  { name: 'Corridor', icon: '🚶', duration: 15 },
+  { name: 'Staircase', icon: '🪜', duration: 15 },
+  { name: 'Public Toilet', icon: '🚻', duration: 15 },
+  { name: 'Storage', icon: '📦', duration: 10 },
+  { name: 'Kitchen', icon: '🍳', duration: 20 },
+  { name: 'Sauna', icon: '♨️', duration: 20 },
+  { name: 'Jacuzzi', icon: '🫧', duration: 20 },
+  { name: 'Gym', icon: '🏋️', duration: 20 },
+  { name: 'Decorations', icon: '✨', duration: 15 },
+  { name: 'Lobby', icon: '🏨', duration: 20 },
+];
+
+function inferFloor(room: RoomData): number {
+  if (room.floor_number != null) return room.floor_number;
+  const digits = String(room.room_number).match(/\d+/)?.[0];
+  return digits ? Math.floor(Number(digits) / 100) : 0;
+}
+
+function floorLabel(floor: number): string {
   if (floor === 0) return 'Ground Floor';
-  if (floor === 1) return '1st Floor';
-  if (floor === 2) return '2nd Floor';
-  if (floor === 3) return '3rd Floor';
-  return `${floor}th Floor`;
+  const lastTwo = Math.abs(floor) % 100;
+  const suffix = lastTwo >= 11 && lastTwo <= 13
+    ? 'th'
+    : floor % 10 === 1
+      ? 'st'
+      : floor % 10 === 2
+        ? 'nd'
+        : floor % 10 === 3
+          ? 'rd'
+          : 'th';
+  return `${floor}${suffix} Floor`;
 }
 
-function getDefaultLayout(floor: number, wingIndex: number, totalWings: number): WingLayout {
-  const spacing = 100 / (totalWings + 1);
-  return { x: spacing * (wingIndex + 1) - 10, y: 20, rotation: 0 };
+function sortRooms(a: RoomData, b: RoomData): number {
+  return a.room_number.localeCompare(b.room_number, undefined, { numeric: true });
 }
-
-// ─── RoomChip ────────────────────────────────────────────────────────────────
 
 interface RoomChipProps {
   room: RoomData;
-  editMode: boolean;
-  assignStatus: string | null;
+  assignment: AssignmentData | undefined;
   staffName: string | null;
+  editMode: boolean;
+  selected: boolean;
   onRoomClick?: (room: RoomData) => void;
-  isSelectedForMove?: boolean;
-  onSelectForMove?: () => void;
+  onSelect: (roomId: string) => void;
+  onDragStart: (event: React.DragEvent, roomId: string) => void;
+  onDragEnd: () => void;
 }
 
-function RoomChip({ room, editMode, assignStatus, staffName, onRoomClick, isSelectedForMove, onSelectForMove }: RoomChipProps) {
-  const statusKey = assignStatus === 'in_progress' ? 'in_progress'
-    : assignStatus === 'completed' ? 'clean'
-    : room.status || 'dirty';
-  const colorClass = STATUS_COLORS[statusKey] || 'bg-muted text-muted-foreground border-border';
-  const roomFlags = parseRoomFlags(room.notes || null);
+function RoomChip({
+  room,
+  assignment,
+  staffName,
+  editMode,
+  selected,
+  onRoomClick,
+  onSelect,
+  onDragStart,
+  onDragEnd,
+}: RoomChipProps) {
+  const status = assignment?.status === 'in_progress'
+    ? 'in_progress'
+    : assignment?.status === 'completed'
+      ? 'clean'
+      : room.status || 'dirty';
+  const flags = parseRoomFlags(room.notes || null);
 
   return (
-    <TooltipProvider delayDuration={200}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            onClick={(e) => {
-              if (editMode && onSelectForMove) {
-                e.stopPropagation();
-                onSelectForMove();
-                return;
-              }
-              if (editMode) { e.stopPropagation(); return; }
-              onRoomClick?.(room);
-            }}
-            className={`
-              px-1.5 py-0.5 rounded text-[10px] font-bold border min-w-[32px] text-center
-              transition-all hover:scale-110 hover:shadow-md
-              ${colorClass}
-              ${room.is_dnd ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
-              ${isSelectedForMove ? 'ring-2 ring-primary ring-offset-1 scale-110' : ''}
-            `}
-          >
-            {room.room_number}
-            {room.bed_type === 'shabath' && <span className="text-[7px] text-blue-700 font-bold ml-0.5">SH</span>}
-            {room.towel_change_required && !room.is_checkout_room && <span className="ml-0.5 px-0.5 rounded text-[7px] font-extrabold bg-blue-600 text-white">T</span>}
-            {room.linen_change_required && !room.is_checkout_room && <span className="ml-0.5 px-0.5 rounded text-[7px] font-extrabold bg-orange-500 text-white">C</span>}
-            {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[7px] font-extrabold bg-green-600 text-white">RC</span>}
-            {roomFlags.collectExtraTowels && <span className="ml-0.5 px-0.5 rounded text-[7px] font-extrabold bg-orange-500 text-white">🧺</span>}
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="text-xs">
-          <p className="font-semibold">Room {room.room_number}</p>
-          <p>Status: {room.status || 'unknown'}</p>
-          {room.room_category && <p className="text-[10px]">{room.room_category}</p>}
-          {room.bed_type === 'shabath' && <p className="text-blue-600">✡ Shabath Room</p>}
-          {room.room_size_sqm && <p>Size: ~{room.room_size_sqm}m²</p>}
-          {room.towel_change_required && !room.is_checkout_room && <p className="text-blue-600">🔄 Towel Change</p>}
-          {room.linen_change_required && !room.is_checkout_room && <p className="text-orange-600">🛏️ Clean Room (C)</p>}
-          {roomFlags.roomCleaning && <p className="text-green-600">🧹 Room Cleaning</p>}
-          {roomFlags.collectExtraTowels && <p className="text-orange-600">🧺 Collect Extra Towels</p>}
-          {staffName && <p>Assigned: {staffName}</p>}
-          {room.is_dnd && <p className="text-purple-600">🚫 DND</p>}
-          {roomFlags.cleanNotes && <p className="text-amber-600">📝 {roomFlags.cleanNotes}</p>}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <button
+      type="button"
+      draggable={editMode}
+      onDragStart={event => onDragStart(event, room.id)}
+      onDragEnd={onDragEnd}
+      onClick={event => {
+        event.stopPropagation();
+        if (editMode) onSelect(room.id);
+        else onRoomClick?.(room);
+      }}
+      aria-pressed={editMode ? selected : undefined}
+      className={`inline-flex min-h-8 items-center gap-1 rounded-md border px-2 py-1 text-xs font-bold shadow-sm transition-all ${
+        STATUS_COLORS[status] || 'border-border bg-background text-foreground'
+      } ${editMode ? 'cursor-grab active:cursor-grabbing' : 'hover:-translate-y-0.5 hover:shadow'} ${
+        selected ? 'ring-2 ring-primary ring-offset-2' : ''
+      } ${room.is_dnd ? 'ring-2 ring-violet-500 ring-offset-1' : ''}`}
+      title={[
+        `Room ${room.room_number}`,
+        staffName ? `Assigned to ${staffName}` : '',
+        room.room_category || '',
+      ].filter(Boolean).join(' · ')}
+    >
+      {editMode && <GripVertical className="h-3 w-3 opacity-50" />}
+      <span>{room.room_number}</span>
+      {room.bed_type === 'shabath' && <span className="text-[8px] font-extrabold text-blue-700">SH</span>}
+      {room.towel_change_required && !room.is_checkout_room && <span className="rounded bg-blue-600 px-1 text-[8px] text-white">T</span>}
+      {room.linen_change_required && !room.is_checkout_room && <span className="rounded bg-orange-500 px-1 text-[8px] text-white">C</span>}
+      {flags.roomCleaning && <span className="rounded bg-green-600 px-1 text-[8px] text-white">RC</span>}
+      {flags.collectExtraTowels && <span className="text-[10px]">🧺</span>}
+    </button>
   );
 }
 
-// ─── WingCard ────────────────────────────────────────────────────────────────
+export function HotelFloorMap({
+  rooms,
+  assignments,
+  staffMap,
+  onRoomClick,
+  hotelName,
+  isAdmin = false,
+}: HotelFloorMapProps) {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [editMode, setEditMode] = useState(false);
+  const [sections, setSections] = useState<HousekeepingSection[]>([]);
+  const [roomMappings, setRoomMappings] = useState<SectionRoomMapping[]>([]);
+  const [tasks, setTasks] = useState<SectionTask[]>([]);
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [draggingRoomId, setDraggingRoomId] = useState<string | null>(null);
+  const [dragOverSectionId, setDragOverSectionId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [sectionEditor, setSectionEditor] = useState<SectionEditorState>({ open: false, section: null, floor: 0 });
+  const [sectionName, setSectionName] = useState('');
+  const [sectionFloor, setSectionFloor] = useState(0);
+  const [sectionDescription, setSectionDescription] = useState('');
+  const [sectionColor, setSectionColor] = useState<SectionColor>('sky');
+  const [deleteSection, setDeleteSection] = useState<HousekeepingSection | null>(null);
+  const [taskEditor, setTaskEditor] = useState<TaskEditorState>({ open: false, section: null });
+  const [taskName, setTaskName] = useState('');
+  const [taskIcon, setTaskIcon] = useState('🧹');
+  const [taskDuration, setTaskDuration] = useState(15);
+  const [taskInstructions, setTaskInstructions] = useState('');
 
-interface WingCardProps {
-  floor: number;
-  wingKey: string;
-  wingIndex: number;
-  wingRooms: RoomData[];
-  wingMeta: WingMeta;
-  layout: WingLayout;
-  editMode: boolean;
-  isDragging: boolean;
-  isSelected: boolean;
-  assignments: Map<string, AssignmentData>;
-  staffMap: Record<string, string>;
-  onRoomClick?: (room: RoomData) => void;
-  onDragStart: (e: React.PointerEvent) => void;
-  onDragMove: (e: React.PointerEvent) => void;
-  onDragEnd: () => void;
-  onRotate: (delta: number) => void;
-  onResetRotation: () => void;
-  containerRef: (el: HTMLDivElement | null) => void;
-  onEditLabel?: (newLabel: string) => void;
-  onEditView?: (newView: string) => void;
-  selectedRoomForMove: string | null;
-  onSelectRoomForMove: (roomId: string | null) => void;
-  onDropRoomHere?: () => void;
-}
+  const loadMap = useCallback(async () => {
+    if (!hotelName) return;
+    setLoading(true);
+    try {
+      const { data: sectionRows, error: sectionError } = await (supabase as any)
+        .from('hotel_housekeeping_sections')
+        .select('id, hotel_name, name, floor_number, description, color, sort_order, is_active')
+        .eq('hotel_name', hotelName)
+        .eq('is_active', true)
+        .order('floor_number')
+        .order('sort_order')
+        .order('name');
+      if (sectionError) throw sectionError;
 
-function WingCard({
-  floor, wingKey, wingRooms, wingMeta, layout, editMode, isDragging, isSelected,
-  assignments, staffMap, onRoomClick,
-  onDragStart, onDragMove, onDragEnd,
-  onRotate, onResetRotation, containerRef,
-  onEditLabel, onEditView,
-  selectedRoomForMove, onSelectRoomForMove, onDropRoomHere,
-}: WingCardProps) {
-  const [editingLabel, setEditingLabel] = useState(false);
-  const [labelValue, setLabelValue] = useState(wingMeta.label);
-  const [editingView, setEditingView] = useState(false);
-  const [viewValue, setViewValue] = useState(wingMeta.view || '');
+      const loadedSections = (sectionRows || []) as HousekeepingSection[];
+      setSections(loadedSections);
+      if (loadedSections.length === 0) {
+        setRoomMappings([]);
+        setTasks([]);
+        return;
+      }
+
+      const sectionIds = loadedSections.map(section => section.id);
+      const [mappingResult, taskResult] = await Promise.all([
+        (supabase as any)
+          .from('hotel_housekeeping_section_rooms')
+          .select('room_id, section_id')
+          .in('section_id', sectionIds),
+        (supabase as any)
+          .from('hotel_housekeeping_section_tasks')
+          .select('id, section_id, task_name, icon, instructions, estimated_duration, auto_assign, is_active, sort_order')
+          .in('section_id', sectionIds)
+          .eq('is_active', true)
+          .order('sort_order')
+          .order('task_name'),
+      ]);
+      if (mappingResult.error) throw mappingResult.error;
+      if (taskResult.error) throw taskResult.error;
+      setRoomMappings((mappingResult.data || []) as SectionRoomMapping[]);
+      setTasks((taskResult.data || []) as SectionTask[]);
+    } catch (error) {
+      console.error('[HotelFloorMap] failed to load section map', error);
+      toast.error('The housekeeping section map could not be loaded');
+    } finally {
+      setLoading(false);
+    }
+  }, [hotelName]);
+
+  useEffect(() => {
+    void loadMap();
+  }, [loadMap]);
+
+  const mappingByRoom = useMemo(
+    () => new Map(roomMappings.map(mapping => [mapping.room_id, mapping.section_id])),
+    [roomMappings],
+  );
+
+  const persistedRoomsBySection = useMemo(() => {
+    const result = new Map<string, RoomData[]>();
+    sections.forEach(section => result.set(section.id, []));
+    rooms.forEach(room => {
+      const sectionId = mappingByRoom.get(room.id);
+      if (sectionId && result.has(sectionId)) result.get(sectionId)!.push(room);
+    });
+    result.forEach(sectionRooms => sectionRooms.sort(sortRooms));
+    return result;
+  }, [mappingByRoom, rooms, sections]);
+
+  const unmappedRooms = useMemo(
+    () => rooms.filter(room => !mappingByRoom.has(room.id)).sort(sortRooms),
+    [mappingByRoom, rooms],
+  );
+
+  const legacySections = useMemo<HousekeepingSection[]>(() => {
+    if (sections.length > 0 || editMode) return [];
+    const keys = new Map<string, HousekeepingSection>();
+    rooms.forEach(room => {
+      const floor = inferFloor(room);
+      const wing = room.wing || 'Unmapped';
+      const id = `legacy-${floor}-${wing}`;
+      if (!keys.has(id)) {
+        keys.set(id, {
+          id,
+          hotel_name: hotelName,
+          name: room.wing ? `Wing ${wing}` : 'Unmapped',
+          floor_number: floor,
+          description: 'Legacy room grouping',
+          color: 'slate',
+          sort_order: 0,
+          is_active: true,
+        });
+      }
+    });
+    return Array.from(keys.values());
+  }, [editMode, hotelName, rooms, sections.length]);
+
+  const legacyRoomsBySection = useMemo(() => {
+    const result = new Map<string, RoomData[]>();
+    legacySections.forEach(section => result.set(section.id, []));
+    rooms.forEach(room => {
+      const id = `legacy-${inferFloor(room)}-${room.wing || 'Unmapped'}`;
+      result.get(id)?.push(room);
+    });
+    result.forEach(sectionRooms => sectionRooms.sort(sortRooms));
+    return result;
+  }, [legacySections, rooms]);
+
+  const displaySections = sections.length > 0 ? sections : legacySections;
+  const roomsBySection = sections.length > 0 ? persistedRoomsBySection : legacyRoomsBySection;
+
+  const floorOrder = useMemo(() => {
+    const floors = new Set<number>();
+    displaySections.forEach(section => floors.add(section.floor_number));
+    if (editMode) rooms.forEach(room => floors.add(inferFloor(room)));
+    return Array.from(floors).sort((a, b) => a - b);
+  }, [displaySections, editMode, rooms]);
+
+  const tasksBySection = useMemo(() => {
+    const result = new Map<string, SectionTask[]>();
+    tasks.forEach(task => {
+      if (!result.has(task.section_id)) result.set(task.section_id, []);
+      result.get(task.section_id)!.push(task);
+    });
+    return result;
+  }, [tasks]);
+
+  const openCreateSection = (floor: number) => {
+    setSectionName(floor === 0 ? 'Ground Floor' : `${floor * 100} Side`);
+    setSectionFloor(floor);
+    setSectionDescription('');
+    setSectionColor(floor === 0 ? 'emerald' : 'sky');
+    setSectionEditor({ open: true, section: null, floor });
+  };
+
+  const openEditSection = (section: HousekeepingSection) => {
+    setSectionName(section.name);
+    setSectionFloor(section.floor_number);
+    setSectionDescription(section.description || '');
+    setSectionColor(section.color);
+    setSectionEditor({ open: true, section, floor: section.floor_number });
+  };
+
+  const saveSection = async () => {
+    const name = sectionName.trim();
+    if (!name) return;
+    setBusy(true);
+    try {
+      if (sectionEditor.section) {
+        const { data, error } = await (supabase as any)
+          .from('hotel_housekeeping_sections')
+          .update({
+            name,
+            floor_number: sectionFloor,
+            description: sectionDescription.trim() || null,
+            color: sectionColor,
+          })
+          .eq('id', sectionEditor.section.id)
+          .select('id, hotel_name, name, floor_number, description, color, sort_order, is_active')
+          .single();
+        if (error) throw error;
+        setSections(previous => previous.map(section => section.id === data.id ? data : section));
+        toast.success(`Section “${name}” updated`);
+      } else {
+        const maxOrder = sections.reduce((max, section) => Math.max(max, section.sort_order), 0);
+        const { data, error } = await (supabase as any)
+          .from('hotel_housekeeping_sections')
+          .insert({
+            hotel_name: hotelName,
+            name,
+            floor_number: sectionFloor,
+            description: sectionDescription.trim() || null,
+            color: sectionColor,
+            sort_order: maxOrder + 10,
+            created_by: user?.id || null,
+          })
+          .select('id, hotel_name, name, floor_number, description, color, sort_order, is_active')
+          .single();
+        if (error) throw error;
+        setSections(previous => [...previous, data]);
+        toast.success(`Section “${name}” created`);
+      }
+      setSectionEditor({ open: false, section: null, floor: 0 });
+    } catch (error: any) {
+      console.error('[HotelFloorMap] section save failed', error);
+      toast.error(error?.code === '23505' ? 'A section with this name already exists' : 'Section could not be saved');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmDeleteSection = async () => {
+    if (!deleteSection) return;
+    setBusy(true);
+    try {
+      const { error } = await (supabase as any)
+        .from('hotel_housekeeping_sections')
+        .delete()
+        .eq('id', deleteSection.id);
+      if (error) throw error;
+      setSections(previous => previous.filter(section => section.id !== deleteSection.id));
+      setRoomMappings(previous => previous.filter(mapping => mapping.section_id !== deleteSection.id));
+      setTasks(previous => previous.filter(task => task.section_id !== deleteSection.id));
+      toast.success(`Section “${deleteSection.name}” removed`);
+      setDeleteSection(null);
+    } catch (error) {
+      console.error('[HotelFloorMap] section delete failed', error);
+      toast.error('Section could not be removed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const moveRoomToSection = async (roomId: string, sectionId: string) => {
+    const previousSectionId = mappingByRoom.get(roomId);
+    if (previousSectionId === sectionId) {
+      setSelectedRoomId(null);
+      return;
+    }
+    const room = rooms.find(candidate => candidate.id === roomId);
+    const section = sections.find(candidate => candidate.id === sectionId);
+    if (!room || !section) return;
+
+    setRoomMappings(previous => [
+      ...previous.filter(mapping => mapping.room_id !== roomId),
+      { room_id: roomId, section_id: sectionId },
+    ]);
+    setSelectedRoomId(null);
+    try {
+      const { error } = await (supabase as any)
+        .from('hotel_housekeeping_section_rooms')
+        .upsert({
+          room_id: roomId,
+          section_id: sectionId,
+          created_by: user?.id || null,
+        }, { onConflict: 'room_id' });
+      if (error) throw error;
+      toast.success(`Room ${room.room_number} moved to ${section.name}`);
+    } catch (error) {
+      console.error('[HotelFloorMap] room move failed', error);
+      setRoomMappings(previous => {
+        const withoutRoom = previous.filter(mapping => mapping.room_id !== roomId);
+        return previousSectionId
+          ? [...withoutRoom, { room_id: roomId, section_id: previousSectionId }]
+          : withoutRoom;
+      });
+      toast.error('Room could not be moved');
+    }
+  };
+
+  const unmapRoom = async (roomId: string) => {
+    const previousSectionId = mappingByRoom.get(roomId);
+    if (!previousSectionId) return;
+    setRoomMappings(previous => previous.filter(mapping => mapping.room_id !== roomId));
+    setSelectedRoomId(null);
+    try {
+      const { error } = await (supabase as any)
+        .from('hotel_housekeeping_section_rooms')
+        .delete()
+        .eq('room_id', roomId);
+      if (error) throw error;
+      toast.success('Room returned to Unmapped');
+    } catch (error) {
+      setRoomMappings(previous => [...previous, { room_id: roomId, section_id: previousSectionId }]);
+      toast.error('Room could not be unmapped');
+    }
+  };
+
+  const autoMapFloors = async () => {
+    const rows = unmappedRooms.flatMap(room => {
+      const floor = inferFloor(room);
+      const onFloor = sections.filter(section => section.floor_number === floor);
+      const preferredName = floor === 0 ? 'ground floor' : `${floor * 100} side`;
+      const target = onFloor.find(section => section.name.toLowerCase() === preferredName)
+        || (onFloor.length === 1 ? onFloor[0] : null);
+      return target ? [{ room_id: room.id, section_id: target.id, created_by: user?.id || null }] : [];
+    });
+    if (rows.length === 0) {
+      toast.info('Create one default section per floor before auto-mapping');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const { error } = await (supabase as any)
+        .from('hotel_housekeeping_section_rooms')
+        .upsert(rows, { onConflict: 'room_id' });
+      if (error) throw error;
+      setRoomMappings(previous => [
+        ...previous.filter(mapping => !rows.some(row => row.room_id === mapping.room_id)),
+        ...rows.map(({ room_id, section_id }) => ({ room_id, section_id })),
+      ]);
+      toast.success(`${rows.length} room${rows.length === 1 ? '' : 's'} mapped by floor number`);
+    } catch (error) {
+      console.error('[HotelFloorMap] auto-map failed', error);
+      toast.error('Rooms could not be auto-mapped');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openAddTask = (section: HousekeepingSection) => {
+    setTaskName('');
+    setTaskIcon('🧹');
+    setTaskDuration(15);
+    setTaskInstructions('');
+    setTaskEditor({ open: true, section });
+  };
+
+  const choosePreset = (preset: typeof AREA_PRESETS[number]) => {
+    setTaskName(preset.name);
+    setTaskIcon(preset.icon);
+    setTaskDuration(preset.duration);
+  };
+
+  const saveTask = async () => {
+    if (!taskEditor.section || !taskName.trim()) return;
+    setBusy(true);
+    try {
+      const sectionTasks = tasksBySection.get(taskEditor.section.id) || [];
+      const { data, error } = await (supabase as any)
+        .from('hotel_housekeeping_section_tasks')
+        .insert({
+          section_id: taskEditor.section.id,
+          task_name: taskName.trim(),
+          icon: taskIcon.trim() || '🧹',
+          instructions: taskInstructions.trim() || null,
+          estimated_duration: Math.max(1, Math.min(480, taskDuration)),
+          auto_assign: true,
+          sort_order: sectionTasks.length * 10 + 10,
+          created_by: user?.id || null,
+        })
+        .select('id, section_id, task_name, icon, instructions, estimated_duration, auto_assign, is_active, sort_order')
+        .single();
+      if (error) throw error;
+      setTasks(previous => [...previous, data]);
+      setTaskEditor({ open: false, section: null });
+      toast.success(`${data.task_name} will be included in Auto-Assign`);
+    } catch (error: any) {
+      console.error('[HotelFloorMap] area task save failed', error);
+      toast.error(error?.code === '23505' ? 'This area task already exists in the section' : 'Area task could not be saved');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeTask = async (task: SectionTask) => {
+    setTasks(previous => previous.filter(candidate => candidate.id !== task.id));
+    try {
+      const { error } = await (supabase as any)
+        .from('hotel_housekeeping_section_tasks')
+        .delete()
+        .eq('id', task.id);
+      if (error) throw error;
+      toast.success(`${task.task_name} removed from Auto-Assign`);
+    } catch (error) {
+      setTasks(previous => [...previous, task]);
+      toast.error('Area task could not be removed');
+    }
+  };
+
+  const startRoomDrag = (event: React.DragEvent, roomId: string) => {
+    event.dataTransfer.setData('application/x-hotelcare-room', roomId);
+    event.dataTransfer.setData('text/plain', roomId);
+    event.dataTransfer.effectAllowed = 'move';
+    setDraggingRoomId(roomId);
+    setSelectedRoomId(null);
+  };
+
+  const droppedRoomId = (event: React.DragEvent): string | null => (
+    event.dataTransfer.getData('application/x-hotelcare-room')
+    || event.dataTransfer.getData('text/plain')
+    || draggingRoomId
+    || null
+  );
+
+  const selectedRoom = selectedRoomId ? rooms.find(room => room.id === selectedRoomId) : null;
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-12"><Loader2 className="h-7 w-7 animate-spin text-muted-foreground" /></div>;
+  }
 
   return (
-    <div
-      ref={containerRef}
-      className={`absolute origin-center ${isDragging ? 'z-30' : 'z-10'}`}
-      style={{
-        left: `${layout.x}%`,
-        top: `${layout.y}%`,
-        transform: `rotate(${layout.rotation}deg)`,
-        transformOrigin: 'center center',
-      }}
-    >
-      <div
-        className={`
-          border border-border/50 rounded-lg p-2 bg-background/90 backdrop-blur-sm shadow-sm
-          transition-shadow
-          ${editMode && isSelected ? 'ring-2 ring-primary shadow-lg' : ''}
-          ${editMode ? 'border-primary/30' : ''}
-          ${editMode && selectedRoomForMove && !isSelected ? 'cursor-pointer hover:ring-2 hover:ring-blue-400' : ''}
-        `}
-        onClick={() => {
-          if (editMode && selectedRoomForMove && onDropRoomHere) {
-            onDropRoomHere();
-          }
-        }}
-      >
-        <div style={{ transform: `rotate(${-layout.rotation}deg)` }}>
-          <div className="flex items-center gap-1 mb-1">
-            {editMode && (
-              <div
-                className="cursor-grab active:cursor-grabbing p-0.5 rounded hover:bg-muted touch-none"
-                onPointerDown={onDragStart}
-                onPointerMove={onDragMove}
-                onPointerUp={onDragEnd}
-              >
-                <GripVertical className="h-3 w-3 text-muted-foreground" />
-              </div>
-            )}
-            {editMode && editingLabel ? (
-              <div className="flex items-center gap-0.5">
-                <input
-                  className="text-[10px] font-bold w-16 px-1 py-0.5 rounded border border-input bg-background"
-                  value={labelValue}
-                  onChange={(e) => setLabelValue(e.target.value)}
-                  autoFocus
-                  onClick={(e) => e.stopPropagation()}
-                />
-                <button onClick={(e) => { e.stopPropagation(); onEditLabel?.(labelValue); setEditingLabel(false); }} className="p-0.5"><Check className="h-2.5 w-2.5 text-green-600" /></button>
-                <button onClick={(e) => { e.stopPropagation(); setEditingLabel(false); }} className="p-0.5"><X className="h-2.5 w-2.5 text-red-600" /></button>
-              </div>
-            ) : (
-              <span 
-                className={`text-[10px] font-bold text-primary ${editMode ? 'cursor-pointer hover:underline' : ''}`}
-                onClick={(e) => { if (editMode) { e.stopPropagation(); setEditingLabel(true); } }}
-              >
-                {wingMeta.label}
-              </span>
-            )}
-            {editMode && editingView ? (
-              <div className="flex items-center gap-0.5">
-                <input
-                  className="text-[9px] w-20 px-1 py-0.5 rounded border border-input bg-background"
-                  value={viewValue}
-                  onChange={(e) => setViewValue(e.target.value)}
-                  placeholder="View name..."
-                  autoFocus
-                  onClick={(e) => e.stopPropagation()}
-                />
-                <button onClick={(e) => { e.stopPropagation(); onEditView?.(viewValue); setEditingView(false); }} className="p-0.5"><Check className="h-2.5 w-2.5 text-green-600" /></button>
-                <button onClick={(e) => { e.stopPropagation(); setEditingView(false); }} className="p-0.5"><X className="h-2.5 w-2.5 text-red-600" /></button>
-              </div>
-            ) : (
-              wingMeta.view ? (
-                <span 
-                  className={`text-[9px] text-muted-foreground ${editMode ? 'cursor-pointer hover:underline' : ''}`}
-                  onClick={(e) => { if (editMode) { e.stopPropagation(); setEditingView(true); } }}
-                >
-                  ({wingMeta.view})
-                </span>
-              ) : editMode ? (
-                <button 
-                  className="text-[9px] text-muted-foreground/50 hover:text-muted-foreground"
-                  onClick={(e) => { e.stopPropagation(); setEditingView(true); }}
-                >
-                  + view
-                </button>
-              ) : null
-            )}
+    <div className="space-y-4">
+      <div className="rounded-xl border bg-card p-3 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Layers className="h-4 w-4 text-primary" />
+              <h3 className="text-sm font-semibold">Operational room sections</h3>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Floors show the physical level. Sections keep nearby rooms and their shared-area cleaning together.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <Badge variant="secondary">{sections.length || legacySections.length} sections</Badge>
+              <Badge variant="secondary">{rooms.length} rooms</Badge>
+              <Badge variant="secondary">{tasks.filter(task => task.auto_assign).length} auto area tasks</Badge>
+              {unmappedRooms.length > 0 && sections.length > 0 && (
+                <Badge variant="outline" className="border-amber-400 text-amber-700">{unmappedRooms.length} unmapped</Badge>
+              )}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-1">
-            {wingRooms.map(room => (
-              <RoomChip
-                key={room.id}
-                room={room}
-                editMode={editMode}
-                assignStatus={assignments.get(room.id)?.status || null}
-                staffName={assignments.get(room.id) ? (staffMap[assignments.get(room.id)!.assigned_to] || null) : null}
-                onRoomClick={onRoomClick}
-                isSelectedForMove={selectedRoomForMove === room.id}
-                onSelectForMove={() => onSelectRoomForMove(selectedRoomForMove === room.id ? null : room.id)}
-              />
-            ))}
-          </div>
+
+          {isAdmin && (
+            <div className="flex flex-wrap items-center gap-2">
+              {editMode ? (
+                <>
+                  <Badge variant="outline" className="border-emerald-300 text-emerald-700">
+                    <Check className="mr-1 h-3 w-3" />Changes save automatically
+                  </Badge>
+                  <Button size="sm" variant="outline" onClick={() => openCreateSection(floorOrder[0] ?? 0)}>
+                    <Plus className="mr-1 h-3.5 w-3.5" />New section
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={autoMapFloors} disabled={busy || unmappedRooms.length === 0}>
+                    <Sparkles className="mr-1 h-3.5 w-3.5" />Auto-map floors
+                  </Button>
+                  <Button size="sm" onClick={() => { setEditMode(false); setSelectedRoomId(null); }}>
+                    Done
+                  </Button>
+                </>
+              ) : (
+                <Button size="sm" variant="outline" onClick={() => setEditMode(true)}>
+                  <Pencil className="mr-1 h-3.5 w-3.5" />Manage map
+                </Button>
+              )}
+            </div>
+          )}
         </div>
+
+        {editMode && (
+          <div className="mt-3 rounded-lg bg-primary/5 px-3 py-2 text-xs text-primary">
+            Drag a room into a section. On a phone, tap the room and then tap its destination section.
+            {selectedRoom && <strong className="ml-1">Room {selectedRoom.room_number} is selected.</strong>}
+          </div>
+        )}
+
+        {sections.length === 0 && !editMode && (
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+            This is the old wing grouping shown in a readable layout. An eligible manager can create operational sections from Manage map.
+          </p>
+        )}
       </div>
 
       {editMode && (
         <div
-          className="absolute -bottom-9 left-1/2 -translate-x-1/2 flex items-center gap-0.5 bg-background/95 border border-border rounded-full px-1.5 py-0.5 shadow-md whitespace-nowrap"
-          style={{ transform: `rotate(${-layout.rotation}deg)` }}
+          className={`rounded-xl border-2 border-dashed p-3 transition-colors ${
+            dragOverSectionId === 'unmapped' ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/20' : 'border-amber-300 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/10'
+          }`}
+          onClick={() => selectedRoomId && mappingByRoom.has(selectedRoomId) && void unmapRoom(selectedRoomId)}
+          onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDragOverSectionId('unmapped'); }}
+          onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOverSectionId(null); }}
+          onDrop={event => {
+            event.preventDefault();
+            const roomId = droppedRoomId(event);
+            setDragOverSectionId(null);
+            setDraggingRoomId(null);
+            if (roomId) void unmapRoom(roomId);
+          }}
         >
-          <button className="p-0.5 rounded-full hover:bg-muted transition-colors" onClick={(e) => { e.stopPropagation(); onRotate(-15); }} title="Rotate left 15°">
-            <RotateCcw className="h-3 w-3 text-muted-foreground" />
-          </button>
-          <span className="text-[9px] font-mono text-muted-foreground min-w-[28px] text-center">{Math.round(layout.rotation)}°</span>
-          <button className="p-0.5 rounded-full hover:bg-muted transition-colors" onClick={(e) => { e.stopPropagation(); onRotate(15); }} title="Rotate right 15°">
-            <RotateCw className="h-3 w-3 text-muted-foreground" />
-          </button>
-          {layout.rotation !== 0 && (
-            <button className="p-0.5 rounded-full hover:bg-destructive/10 transition-colors ml-0.5" onClick={(e) => { e.stopPropagation(); onResetRotation(); }} title="Reset to 0°">
-              <RotateCcwIcon className="h-2.5 w-2.5 text-destructive" />
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── ZoneGroupingPanel ───────────────────────────────────────────────────────
-
-interface ZoneGroupingPanelProps {
-  wings: string[];
-  zoneMapping: Record<string, string>;
-  onUpdateMapping: (mapping: Record<string, string>) => void;
-}
-
-function ZoneGroupingPanel({ wings, zoneMapping, onUpdateMapping }: ZoneGroupingPanelProps) {
-  const [newZoneName, setNewZoneName] = useState('');
-
-  const zones = useMemo(() => {
-    const map = new Map<string, string[]>();
-    wings.forEach(w => {
-      const zone = zoneMapping[w] || w;
-      if (!map.has(zone)) map.set(zone, []);
-      map.get(zone)!.push(w);
-    });
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [wings, zoneMapping]);
-
-  const handleMoveWingToZone = (wing: string, zone: string) => {
-    const updated = { ...zoneMapping, [wing]: zone };
-    onUpdateMapping(updated);
-  };
-
-  const handleCreateZone = () => {
-    if (!newZoneName.trim()) return;
-    // Zone is just a label, no action needed until wings are assigned
-    setNewZoneName('');
-    toast.success(`Zone "${newZoneName}" created — now drag wings into it`);
-  };
-
-  return (
-    <div className="space-y-2 p-3 border rounded-lg bg-muted/20">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <Layers className="h-3.5 w-3.5 text-primary" />
-          <span className="text-xs font-semibold">Zone Grouping (for Auto-Assignment)</span>
-        </div>
-      </div>
-      <p className="text-[10px] text-muted-foreground">Group wings into zones for smarter room assignment distribution</p>
-      
-      <div className="space-y-1.5">
-        {zones.map(([zone, zoneWings]) => (
-          <div key={zone} className="flex items-center gap-1.5 p-1.5 bg-background rounded border border-border/50">
-            <span className="text-[10px] font-semibold text-primary min-w-[60px]">{zone}</span>
-            <div className="flex flex-wrap gap-1">
-              {zoneWings.map(w => (
-                <Badge key={w} variant="outline" className="text-[9px] px-1 py-0">
-                  {w}
-                </Badge>
-              ))}
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">Unmapped rooms ({unmappedRooms.length})</p>
+              <p className="text-[10px] text-muted-foreground">New PMS rooms appear here. Drop a mapped room here to remove it from a section.</p>
             </div>
           </div>
-        ))}
-      </div>
-
-      <div className="flex items-center gap-1.5 pt-1">
-        <input
-          className="text-[10px] px-1.5 py-1 rounded border border-input bg-background flex-1"
-          placeholder="New zone name..."
-          value={newZoneName}
-          onChange={(e) => setNewZoneName(e.target.value)}
-        />
-        <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={handleCreateZone} disabled={!newZoneName.trim()}>
-          <Plus className="h-2.5 w-2.5 mr-0.5" /> Add Zone
-        </Button>
-      </div>
-
-      {/* Wing-to-zone assignment */}
-      <div className="space-y-1 pt-1 border-t border-border/30">
-        <p className="text-[10px] text-muted-foreground">Assign wings to zones:</p>
-        {wings.map(wing => {
-          const currentZone = zoneMapping[wing] || wing;
-          const allZoneNames = [...new Set([...Object.values(zoneMapping), ...wings])].sort();
-          return (
-            <div key={wing} className="flex items-center gap-1.5">
-              <span className="text-[10px] font-medium min-w-[40px]">{wing}</span>
-              <select
-                className="text-[10px] px-1 py-0.5 rounded border border-input bg-background flex-1"
-                value={currentZone}
-                onChange={(e) => handleMoveWingToZone(wing, e.target.value)}
-              >
-                {allZoneNames.map(z => (
-                  <option key={z} value={z}>{z}</option>
-                ))}
-              </select>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ─── Main Component ──────────────────────────────────────────────────────────
-
-export function HotelFloorMap({ rooms, assignments, staffMap, onRoomClick, hotelName, isAdmin }: HotelFloorMapProps) {
-  const [editMode, setEditMode] = useState(false);
-  const [layouts, setLayouts] = useState<Record<string, WingLayout>>({});
-  const [savedLayouts, setSavedLayouts] = useState<Record<string, WingLayout>>({});
-  const [wingMetas, setWingMetas] = useState<Record<string, WingMeta>>({});
-  const [saving, setSaving] = useState(false);
-  const [dragging, setDragging] = useState<string | null>(null);
-  const [selectedWing, setSelectedWing] = useState<string | null>(null);
-  const [selectedRoomForMove, setSelectedRoomForMove] = useState<string | null>(null);
-  const [showZonePanel, setShowZonePanel] = useState(false);
-  const [zoneMapping, setZoneMapping] = useState<Record<string, string>>({});
-  const dragStart = useRef<{ x: number; y: number; layoutX: number; layoutY: number } | null>(null);
-  const containerRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const canvasRefs = useRef<Record<number, HTMLDivElement | null>>({});
-
-  // ─── Derive floors and wings dynamically from room data ─────────────
-  const { floorOrder, floorWings, roomsByFloorWing, unassignedRooms } = useMemo(() => {
-    const floorsSet = new Set<number>();
-    const wingsByFloor = new Map<number, Set<string>>();
-    const byFloorWing = new Map<string, RoomData[]>();
-    const unassigned: RoomData[] = [];
-
-    rooms.forEach(room => {
-      const floor = room.floor_number ?? Math.floor(parseInt(room.room_number) / 100);
-      const wing = room.wing;
-
-      if (!wing) {
-        unassigned.push(room);
-        return;
-      }
-
-      floorsSet.add(floor);
-      if (!wingsByFloor.has(floor)) wingsByFloor.set(floor, new Set());
-      wingsByFloor.get(floor)!.add(wing);
-
-      const key = `${floor}-${wing}`;
-      if (!byFloorWing.has(key)) byFloorWing.set(key, []);
-      byFloorWing.get(key)!.push(room);
-    });
-
-    const order = Array.from(floorsSet).sort((a, b) => a - b);
-    const wings: Record<number, string[]> = {};
-    order.forEach(f => {
-      wings[f] = Array.from(wingsByFloor.get(f) || []).sort();
-    });
-
-    return {
-      floorOrder: order,
-      floorWings: wings,
-      roomsByFloorWing: byFloorWing,
-      unassignedRooms: unassigned,
-    };
-  }, [rooms]);
-
-  const allWings = useMemo(() => {
-    const set = new Set<string>();
-    rooms.forEach(r => { if (r.wing) set.add(r.wing); });
-    return Array.from(set).sort();
-  }, [rooms]);
-
-  // Load layouts and wing metas from DB
-  useEffect(() => {
-    if (!hotelName) return;
-    const load = async () => {
-      const [layoutRes, configRes] = await Promise.all([
-        supabase.from('hotel_floor_layouts').select('floor_number, wing, x, y, rotation').eq('hotel_name', hotelName),
-        supabase.from('hotel_configurations').select('settings').eq('hotel_name', hotelName).single(),
-      ]);
-
-      if (layoutRes.data && layoutRes.data.length > 0) {
-        const map: Record<string, WingLayout> = {};
-        layoutRes.data.forEach(row => {
-          map[`${row.floor_number}-${row.wing}`] = { x: Number(row.x), y: Number(row.y), rotation: Number(row.rotation) };
-        });
-        setLayouts(map);
-        setSavedLayouts(map);
-      }
-
-      if (configRes.data?.settings) {
-        const settings = configRes.data.settings as any;
-        if (settings.wing_metas) setWingMetas(settings.wing_metas);
-        if (settings.wing_zone_mapping) setZoneMapping(settings.wing_zone_mapping);
-      }
-    };
-    load();
-  }, [hotelName]);
-
-  const getWingMeta = useCallback((wingKey: string): WingMeta => {
-    return wingMetas[wingKey] || { label: `Wing ${wingKey}` };
-  }, [wingMetas]);
-
-  const getLayout = useCallback((floor: number, wing: string, wingIndex: number, totalWings: number): WingLayout => {
-    const key = `${floor}-${wing}`;
-    return layouts[key] || getDefaultLayout(floor, wingIndex, totalWings);
-  }, [layouts]);
-
-  const setWingLayout = useCallback((floor: number, wing: string, layout: WingLayout) => {
-    setLayouts(prev => ({ ...prev, [`${floor}-${wing}`]: layout }));
-  }, []);
-
-  // Drag handlers
-  const handleDragStart = useCallback((e: React.PointerEvent, floor: number, wing: string, wingIndex: number, totalWings: number) => {
-    if (!editMode) return;
-    e.preventDefault(); e.stopPropagation();
-    const layout = getLayout(floor, wing, wingIndex, totalWings);
-    const canvas = canvasRefs.current[floor];
-    if (!canvas) return;
-    dragStart.current = { x: e.clientX, y: e.clientY, layoutX: layout.x, layoutY: layout.y };
-    setDragging(`${floor}-${wing}`);
-    setSelectedWing(`${floor}-${wing}`);
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }, [editMode, getLayout]);
-
-  const handleDragMove = useCallback((e: React.PointerEvent, floor: number, wing: string) => {
-    if (!dragging || dragging !== `${floor}-${wing}` || !dragStart.current) return;
-    const canvas = canvasRefs.current[floor];
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const dx = ((e.clientX - dragStart.current.x) / rect.width) * 100;
-    const dy = ((e.clientY - dragStart.current.y) / rect.height) * 100;
-    setWingLayout(floor, wing, {
-      ...getLayout(floor, wing, 0, 1),
-      x: dragStart.current.layoutX + dx,
-      y: dragStart.current.layoutY + dy,
-    });
-  }, [dragging, getLayout, setWingLayout]);
-
-  const handleDragEnd = useCallback(() => {
-    setDragging(null);
-    dragStart.current = null;
-  }, []);
-
-  const handleRotate = useCallback((floor: number, wing: string, wingIndex: number, totalWings: number, delta: number) => {
-    const layout = getLayout(floor, wing, wingIndex, totalWings);
-    setWingLayout(floor, wing, { ...layout, rotation: layout.rotation + delta });
-    setSelectedWing(`${floor}-${wing}`);
-  }, [getLayout, setWingLayout]);
-
-  const handleResetRotation = useCallback((floor: number, wing: string, wingIndex: number, totalWings: number) => {
-    const layout = getLayout(floor, wing, wingIndex, totalWings);
-    setWingLayout(floor, wing, { ...layout, rotation: 0 });
-  }, [getLayout, setWingLayout]);
-
-  // Move room to a different wing
-  const handleMoveRoomToWing = useCallback(async (targetFloor: number, targetWing: string) => {
-    if (!selectedRoomForMove) return;
-    const room = rooms.find(r => r.id === selectedRoomForMove);
-    if (!room) return;
-
-    try {
-      const { error } = await supabase.from('rooms').update({ 
-        wing: targetWing, 
-        floor_number: targetFloor 
-      } as any).eq('id', room.id);
-      if (error) throw error;
-      toast.success(`Room ${room.room_number} → Wing ${targetWing} (F${targetFloor})`);
-      setSelectedRoomForMove(null);
-      // Rooms will refresh from parent
-    } catch {
-      toast.error('Failed to move room');
-    }
-  }, [selectedRoomForMove, rooms]);
-
-  // Assign unassigned room to a wing
-  const handleAssignRoom = useCallback(async (roomId: string, wing: string, floor: number) => {
-    const room = rooms.find(r => r.id === roomId);
-    if (!room) return;
-    try {
-      const { error } = await supabase.from('rooms').update({ wing, floor_number: floor } as any).eq('id', roomId);
-      if (error) throw error;
-      toast.success(`Room ${room.room_number} → Wing ${wing}`);
-    } catch {
-      toast.error('Failed to assign room');
-    }
-  }, [rooms]);
-
-  // Save all layouts, metas, and zone mapping
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-
-      // Save layouts
-      const upserts = Object.entries(layouts).map(([key, layout]) => {
-        const [floor, wing] = key.split('-');
-        return {
-          hotel_name: hotelName, floor_number: parseInt(floor), wing,
-          x: layout.x, y: layout.y, rotation: layout.rotation,
-          updated_by: user.id, updated_at: new Date().toISOString(),
-        };
-      });
-
-      const { error: layoutError } = await supabase
-        .from('hotel_floor_layouts')
-        .upsert(upserts, { onConflict: 'hotel_name,floor_number,wing' });
-      if (layoutError) throw layoutError;
-
-      // Save wing metas and zone mapping to hotel_configurations.settings
-      const { data: existing } = await supabase
-        .from('hotel_configurations')
-        .select('settings')
-        .eq('hotel_name', hotelName)
-        .single();
-
-      const currentSettings = (existing?.settings as any) || {};
-      const updatedSettings = {
-        ...currentSettings,
-        wing_metas: wingMetas,
-        wing_zone_mapping: zoneMapping,
-      };
-
-      await supabase
-        .from('hotel_configurations')
-        .update({ settings: updatedSettings } as any)
-        .eq('hotel_name', hotelName);
-
-      setSavedLayouts({ ...layouts });
-      toast.success('Floor map & zone mapping saved');
-      setEditMode(false);
-    } catch (err: any) {
-      console.error('Error saving layout:', err);
-      toast.error('Failed to save layout');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleCancelEdit = () => {
-    setLayouts({ ...savedLayouts });
-    setEditMode(false);
-    setSelectedWing(null);
-    setSelectedRoomForMove(null);
-    setShowZonePanel(false);
-  };
-
-  const updateWingMeta = (wingKey: string, updates: Partial<WingMeta>) => {
-    setWingMetas(prev => ({
-      ...prev,
-      [wingKey]: { ...(prev[wingKey] || { label: `Wing ${wingKey}` }), ...updates },
-    }));
-  };
-
-  return (
-    <div className="space-y-3">
-      {/* Admin controls */}
-      {isAdmin && (
-        <div className="flex items-center gap-2 flex-wrap">
-          {!editMode ? (
-            <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setEditMode(true)}>
-              <Pencil className="h-3 w-3" /> Edit Layout
-            </Button>
-          ) : (
-            <>
-              <Button variant="default" size="sm" className="h-7 text-xs gap-1" onClick={handleSave} disabled={saving}>
-                <Save className="h-3 w-3" /> {saving ? 'Saving...' : 'Save Layout'}
-              </Button>
-              <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setLayouts({ ...savedLayouts })}>
-                <RotateCcw className="h-3 w-3" /> Reset
-              </Button>
-              <Button 
-                variant={showZonePanel ? 'default' : 'outline'} 
-                size="sm" 
-                className="h-7 text-xs gap-1" 
-                onClick={() => setShowZonePanel(!showZonePanel)}
-              >
-                <Layers className="h-3 w-3" /> Zones
-              </Button>
-              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={handleCancelEdit}>
-                Cancel
-              </Button>
-              <span className="text-[10px] text-muted-foreground ml-2">
-                Drag ≡ to move • ±15° to rotate • Click room then wing to reassign
-              </span>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Zone Grouping Panel */}
-      {editMode && showZonePanel && (
-        <ZoneGroupingPanel
-          wings={allWings}
-          zoneMapping={zoneMapping}
-          onUpdateMapping={setZoneMapping}
-        />
-      )}
-
-      {/* Unassigned rooms panel */}
-      {editMode && unassignedRooms.length > 0 && (
-        <div className="p-2 border border-dashed border-amber-400 rounded-lg bg-amber-50/50 dark:bg-amber-950/20">
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <span className="text-[10px] font-semibold text-amber-700">⚠️ Unassigned Rooms ({unassignedRooms.length})</span>
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {unassignedRooms.sort((a, b) => parseInt(a.room_number) - parseInt(b.room_number)).map(room => (
+          <div className="flex min-h-9 flex-wrap gap-1.5">
+            {unmappedRooms.map(room => (
               <RoomChip
                 key={room.id}
                 room={room}
-                editMode={editMode}
-                assignStatus={null}
-                staffName={null}
-                isSelectedForMove={selectedRoomForMove === room.id}
-                onSelectForMove={() => setSelectedRoomForMove(selectedRoomForMove === room.id ? null : room.id)}
+                assignment={assignments.get(room.id)}
+                staffName={assignments.get(room.id) ? staffMap[assignments.get(room.id)!.assigned_to] || null : null}
+                editMode
+                selected={selectedRoomId === room.id}
+                onRoomClick={onRoomClick}
+                onSelect={roomId => setSelectedRoomId(previous => previous === roomId ? null : roomId)}
+                onDragStart={startRoomDrag}
+                onDragEnd={() => { setDraggingRoomId(null); setDragOverSectionId(null); }}
               />
             ))}
+            {unmappedRooms.length === 0 && <span className="self-center text-xs text-muted-foreground">All rooms are mapped ✓</span>}
           </div>
-          {selectedRoomForMove && unassignedRooms.find(r => r.id === selectedRoomForMove) && (
-            <p className="text-[10px] text-amber-600 mt-1">👆 Room selected — click a wing card to assign it there</p>
-          )}
         </div>
       )}
 
       {floorOrder.map(floor => {
-        const wings = floorWings[floor] || [];
-        if (wings.length === 0) return null;
-
+        const floorSections = displaySections.filter(section => section.floor_number === floor);
         return (
-          <div key={floor} className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="text-[10px] font-bold">
-                {getFloorLabel(floor)}
-              </Badge>
-              <span className="text-[10px] text-muted-foreground">
-                {wings.length} wing{wings.length !== 1 ? 's' : ''} · {wings.reduce((sum, w) => sum + (roomsByFloorWing.get(`${floor}-${w}`)?.length || 0), 0)} rooms
-              </span>
+          <section key={floor} className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="font-semibold">{floorLabel(floor)}</Badge>
+                <span className="text-xs text-muted-foreground">
+                  {floorSections.length} section{floorSections.length === 1 ? '' : 's'} · {' '}
+                  {floorSections.reduce((sum, section) => sum + (roomsBySection.get(section.id)?.length || 0), 0)} rooms
+                </span>
+              </div>
+              {editMode && (
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => openCreateSection(floor)}>
+                  <Plus className="mr-1 h-3 w-3" />Section
+                </Button>
+              )}
             </div>
 
-            <div
-              ref={el => { canvasRefs.current[floor] = el; }}
-              className="relative border border-border/30 rounded-lg overflow-visible"
-              style={{
-                minHeight: editMode ? '400px' : '120px',
-                backgroundColor: editMode ? undefined : 'hsl(var(--muted) / 0.1)',
-                backgroundImage: editMode ? 'radial-gradient(circle, hsl(var(--border)) 1px, transparent 1px)' : undefined,
-                backgroundSize: editMode ? '20px 20px' : undefined,
-              }}
-              onClick={() => editMode && setSelectedWing(null)}
-            >
-              {wings.map((wingKey, wingIndex) => {
-                const wingRooms = (roomsByFloorWing.get(`${floor}-${wingKey}`) || []).sort(
-                  (a, b) => parseInt(a.room_number) - parseInt(b.room_number)
-                );
-                if (wingRooms.length === 0) return null;
-                const layout = getLayout(floor, wingKey, wingIndex, wings.length);
-                const key = `${floor}-${wingKey}`;
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {floorSections.map(section => {
+                const sectionRooms = roomsBySection.get(section.id) || [];
+                const sectionTasks = tasksBySection.get(section.id) || [];
+                const dropTarget = dragOverSectionId === section.id;
+                const mismatchedFloors = sectionRooms.filter(room => inferFloor(room) !== section.floor_number).length;
+                const legacy = section.id.startsWith('legacy-');
 
                 return (
-                  <WingCard
-                    key={key}
-                    floor={floor}
-                    wingKey={wingKey}
-                    wingIndex={wingIndex}
-                    wingRooms={wingRooms}
-                    wingMeta={getWingMeta(wingKey)}
-                    layout={layout}
-                    editMode={editMode}
-                    isDragging={dragging === key}
-                    isSelected={selectedWing === key}
-                    assignments={assignments}
-                    staffMap={staffMap}
-                    onRoomClick={onRoomClick}
-                    onDragStart={(e) => handleDragStart(e, floor, wingKey, wingIndex, wings.length)}
-                    onDragMove={(e) => handleDragMove(e, floor, wingKey)}
-                    onDragEnd={handleDragEnd}
-                    onRotate={(delta) => handleRotate(floor, wingKey, wingIndex, wings.length, delta)}
-                    onResetRotation={() => handleResetRotation(floor, wingKey, wingIndex, wings.length)}
-                    containerRef={(el) => { containerRefs.current[key] = el; }}
-                    onEditLabel={(label) => updateWingMeta(wingKey, { label })}
-                    onEditView={(view) => updateWingMeta(wingKey, { view: view || undefined })}
-                    selectedRoomForMove={selectedRoomForMove}
-                    onSelectRoomForMove={setSelectedRoomForMove}
-                    onDropRoomHere={() => handleMoveRoomToWing(floor, wingKey)}
-                  />
+                  <div
+                    key={section.id}
+                    className={`min-w-0 rounded-xl border p-3 shadow-sm transition-all ${SECTION_COLORS[section.color] || SECTION_COLORS.slate} ${
+                      dropTarget ? 'scale-[1.01] border-primary ring-2 ring-primary/30' : ''
+                    } ${editMode && selectedRoomId ? 'cursor-pointer hover:ring-2 hover:ring-primary/30' : ''}`}
+                    onClick={() => editMode && selectedRoomId && !legacy && void moveRoomToSection(selectedRoomId, section.id)}
+                    onDragOver={!legacy && editMode ? event => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = 'move';
+                      setDragOverSectionId(section.id);
+                    } : undefined}
+                    onDragLeave={!legacy && editMode ? event => {
+                      if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOverSectionId(null);
+                    } : undefined}
+                    onDrop={!legacy && editMode ? event => {
+                      event.preventDefault();
+                      const roomId = droppedRoomId(event);
+                      setDragOverSectionId(null);
+                      setDraggingRoomId(null);
+                      if (roomId) void moveRoomToSection(roomId, section.id);
+                    } : undefined}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          <h4 className="truncate text-sm font-semibold">{section.name}</h4>
+                          <Badge variant="secondary" className="text-[10px]">{sectionRooms.length} rooms</Badge>
+                        </div>
+                        {section.description && <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">{section.description}</p>}
+                      </div>
+                      {editMode && !legacy && (
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={event => { event.stopPropagation(); openEditSection(section); }} title="Edit section">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={event => { event.stopPropagation(); setDeleteSection(section); }} title="Delete section">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    {mismatchedFloors > 0 && (
+                      <Badge variant="outline" className="mt-2 border-amber-400 text-[10px] text-amber-700">
+                        {mismatchedFloors} room floor mismatch{mismatchedFloors === 1 ? '' : 'es'}
+                      </Badge>
+                    )}
+
+                    <div className="mt-3 flex min-h-12 flex-wrap content-start gap-1.5 rounded-lg border border-black/5 bg-background/70 p-2 dark:border-white/5">
+                      {sectionRooms.map(room => (
+                        <RoomChip
+                          key={room.id}
+                          room={room}
+                          assignment={assignments.get(room.id)}
+                          staffName={assignments.get(room.id) ? staffMap[assignments.get(room.id)!.assigned_to] || null : null}
+                          editMode={editMode && !legacy}
+                          selected={selectedRoomId === room.id}
+                          onRoomClick={onRoomClick}
+                          onSelect={roomId => setSelectedRoomId(previous => previous === roomId ? null : roomId)}
+                          onDragStart={startRoomDrag}
+                          onDragEnd={() => { setDraggingRoomId(null); setDragOverSectionId(null); }}
+                        />
+                      ))}
+                      {sectionRooms.length === 0 && (
+                        <div className={`flex w-full items-center justify-center rounded border border-dashed p-3 text-center text-xs text-muted-foreground ${dropTarget ? 'bg-primary/5 text-primary' : ''}`}>
+                          {editMode ? 'Drop or tap a room here' : 'No rooms in this section'}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-3 border-t border-black/5 pt-2 dark:border-white/5">
+                      <div className="mb-1.5 flex items-center justify-between gap-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Shared-area work · auto-assigned
+                        </p>
+                        {editMode && !legacy && (
+                          <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={event => { event.stopPropagation(); openAddTask(section); }}>
+                            <Plus className="mr-1 h-3 w-3" />Area
+                          </Button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {sectionTasks.map(task => (
+                          <span key={task.id} className="inline-flex items-center gap-1 rounded-full border bg-background/80 px-2 py-1 text-[10px]" title={task.instructions || task.task_name}>
+                            <span>{task.icon}</span>
+                            <span>{task.task_name}</span>
+                            <span className="text-muted-foreground">{task.estimated_duration}m</span>
+                            {editMode && (
+                              <button type="button" className="ml-0.5 rounded-full text-muted-foreground hover:text-destructive" onClick={event => { event.stopPropagation(); void removeTask(task); }} aria-label={`Remove ${task.task_name}`}>
+                                <X className="h-3 w-3" />
+                              </button>
+                            )}
+                          </span>
+                        ))}
+                        {sectionTasks.length === 0 && <span className="text-[10px] text-muted-foreground">No recurring area work</span>}
+                      </div>
+                    </div>
+                  </div>
                 );
               })}
+
+              {editMode && floorSections.length === 0 && (
+                <button type="button" onClick={() => openCreateSection(floor)} className="flex min-h-36 items-center justify-center rounded-xl border-2 border-dashed text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary">
+                  <Plus className="mr-2 h-4 w-4" />Create a section on {floorLabel(floor)}
+                </button>
+              )}
             </div>
-          </div>
+          </section>
         );
       })}
 
       {floorOrder.length === 0 && (
-        <div className="text-center py-8 text-muted-foreground text-sm">
-          No rooms with wing/floor data. {isAdmin && 'Enable edit mode to assign rooms to wings.'}
+        <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
+          No room sections yet. {isAdmin && 'Choose Manage map, then create the first section.'}
         </div>
       )}
+
+      <Dialog open={sectionEditor.open} onOpenChange={open => !busy && setSectionEditor(previous => ({ ...previous, open }))}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{sectionEditor.section ? 'Edit section' : 'Create section'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium" htmlFor="section-name">Section name</label>
+              <input id="section-name" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={sectionName} onChange={event => setSectionName(event.target.value)} placeholder="e.g. 200 Side" autoFocus />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="section-floor">Floor number</label>
+                <input id="section-floor" type="number" min={-5} max={99} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={sectionFloor} onChange={event => setSectionFloor(Number(event.target.value))} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="section-color">Colour</label>
+                <select id="section-color" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={sectionColor} onChange={event => setSectionColor(event.target.value as SectionColor)}>
+                  {Object.keys(SECTION_COLORS).map(color => <option key={color} value={color}>{color[0].toUpperCase() + color.slice(1)}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium" htmlFor="section-description">Description (optional)</label>
+              <textarea id="section-description" rows={3} className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm" value={sectionDescription} onChange={event => setSectionDescription(event.target.value)} placeholder="Where this section is and what it covers" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSectionEditor({ open: false, section: null, floor: 0 })} disabled={busy}>Cancel</Button>
+            <Button onClick={saveSection} disabled={busy || !sectionName.trim()}>
+              {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{sectionEditor.section ? 'Save changes' : 'Create section'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={taskEditor.open} onOpenChange={open => !busy && setTaskEditor(previous => ({ ...previous, open }))}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add shared-area work to {taskEditor.section?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">Quick choices</p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {AREA_PRESETS.map(preset => (
+                  <button key={preset.name} type="button" onClick={() => choosePreset(preset)} className={`rounded-lg border p-2 text-center text-xs transition-colors hover:border-primary ${taskName === preset.name ? 'border-primary bg-primary/5' : ''}`}>
+                    <span className="block text-lg">{preset.icon}</span>
+                    <span className="block truncate">{preset.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-[72px_1fr_100px] gap-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="task-icon">Icon</label>
+                <input id="task-icon" className="w-full rounded-md border border-input bg-background px-3 py-2 text-center text-sm" value={taskIcon} onChange={event => setTaskIcon(event.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="task-name">Area or service</label>
+                <input id="task-name" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={taskName} onChange={event => setTaskName(event.target.value)} placeholder="Custom area name" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="task-duration">Minutes</label>
+                <input id="task-duration" type="number" min={1} max={480} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={taskDuration} onChange={event => setTaskDuration(Number(event.target.value))} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium" htmlFor="task-instructions">Instructions (optional)</label>
+              <textarea id="task-instructions" rows={3} className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm" value={taskInstructions} onChange={event => setTaskInstructions(event.target.value)} placeholder="What the housekeeper needs to clean or check" />
+            </div>
+            <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">
+              This work will automatically follow the housekeeper who receives most rooms in this section.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTaskEditor({ open: false, section: null })} disabled={busy}>Cancel</Button>
+            <Button onClick={saveTask} disabled={busy || !taskName.trim()}>
+              {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Add to Auto-Assign
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deleteSection} onOpenChange={open => !open && !busy && setDeleteSection(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove {deleteSection?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Its {(deleteSection && roomsBySection.get(deleteSection.id)?.length) || 0} room mappings and recurring area tasks will be removed. The rooms return to Unmapped and can be placed in another section.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={event => { event.preventDefault(); void confirmDeleteSection(); }} disabled={busy} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Remove section
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

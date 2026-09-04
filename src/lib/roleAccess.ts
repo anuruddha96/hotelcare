@@ -43,6 +43,11 @@ export function hasManagerPowers(role: string | null | undefined): boolean {
   return !!role && (MANAGER_POWER_ROLES as readonly string[]).includes(role);
 }
 
+/** Managers plus the on-property supervisor may configure housekeeping routes. */
+export function canManageHousekeepingMapping(role: string | null | undefined): boolean {
+  return hasManagerPowers(role) || role === 'supervisor';
+}
+
 /** Who may open the Revenue Management module at all. */
 export function canSeeRevenue(role: string | null | undefined): boolean {
   return role === "admin" || isExecutiveRole(role);
@@ -65,5 +70,4 @@ export function isRevenueAdmin(role: string | null | undefined): boolean {
 export function canSeeRevenuePortfolio(role: string | null | undefined): boolean {
   return role === "admin";
 }
-
 

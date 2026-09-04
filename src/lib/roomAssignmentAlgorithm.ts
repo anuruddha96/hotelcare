@@ -30,6 +30,9 @@ export interface RoomForAssignment {
   notes?: string | null;
   ready_to_clean?: boolean;
   checkout_time?: string | null;
+  /** Manager-configured operational section; preferred over legacy wings. */
+  housekeeping_section_id?: string | null;
+  housekeeping_section_name?: string | null;
 }
 
 export interface StaffForAssignment {
@@ -85,7 +88,9 @@ export function isHotelMemoriesBudapest(hotelName: string | undefined | null): b
 }
 
 export function applyMemoriesZones(rooms: RoomForAssignment[]): RoomForAssignment[] {
-  return rooms.map(room => ({ ...room, wing: getMemoriesZone(room.room_number) }));
+  return rooms.map(room => room.housekeeping_section_id
+    ? room
+    : { ...room, wing: getMemoriesZone(room.room_number) });
 }
 
 function isCheckoutRoom(room: RoomForAssignment): boolean {
@@ -211,6 +216,7 @@ function getFloor(room: RoomForAssignment): number {
 }
 
 function getZone(room: RoomForAssignment): string {
+  if (room.housekeeping_section_id) return `section-${room.housekeeping_section_id}`;
   return room.wing || `floor-${getFloor(room)}`;
 }
 

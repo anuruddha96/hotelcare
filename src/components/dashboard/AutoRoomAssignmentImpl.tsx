@@ -47,6 +47,7 @@ import {
   FairnessMetrics,
   HotelAssignmentConfig,
   RoomAffinityMap,
+  STANDARD_SHIFT_MINUTES,
   RoomForAssignment,
   StaffForAssignment,
   WingProximityMap,
@@ -60,6 +61,11 @@ import {
   getFloorFromRoomNumber,
   moveRoom,
 } from '@/lib/roomAssignmentAlgorithm';
+import {
+  assignSectionTasksToStaff,
+  sectionTaskMinutesForStaff,
+  type HousekeepingSectionTaskTemplate,
+} from '@/lib/housekeepingSectionTasks';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
 import { assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
 import { getLocalDateString } from '@/lib/utils';
@@ -184,11 +190,13 @@ export function AutoRoomAssignment({
   const [showOverAllocationDialog, setShowOverAllocationDialog] = useState(false);
   const [overAllocatedStaff, setOverAllocatedStaff] = useState<AssignmentPreview[]>([]);
   const [publicAreaAssignments, setPublicAreaAssignments] = useState<Map<string, string>>(new Map());
+  const [sectionTaskTemplates, setSectionTaskTemplates] = useState<HousekeepingSectionTaskTemplate[]>([]);
 
   const existingAssignmentsRef = useRef<Map<string, ExistingAssignment>>(new Map());
   const hotelKeysRef = useRef<string[]>([]);
   const managerHotelRef = useRef<string>('');
   const draftRestoredRef = useRef(false);
+  const roomSectionsRef = useRef<Map<string, { id: string; name: string }>>(new Map());
 
   const saveKey = getSaveKey(profile?.assigned_hotel, selectedDate);
 
@@ -205,10 +213,22 @@ export function AutoRoomAssignment({
     return { preview, room };
   }, [assignmentPreviews, selectedRoomForMove]);
 
+  const automaticSectionTasks = useMemo(
+    () => assignSectionTasksToStaff(assignmentPreviews, sectionTaskTemplates),
+    [assignmentPreviews, sectionTaskTemplates],
+  );
+
+  const staffIdsWithWork = useMemo(() => new Set([
+    ...assignmentPreviews.filter(preview => preview.rooms.length > 0).map(preview => preview.staffId),
+    ...automaticSectionTasks.map(task => task.staff_id),
+  ]), [assignmentPreviews, automaticSectionTasks]);
+
   const maxTime = useMemo(() => {
-    const active = assignmentPreviews.filter(p => p.rooms.length > 0);
-    return Math.max(...active.map(p => p.totalWithBreak), 1);
-  }, [assignmentPreviews]);
+    const active = assignmentPreviews.filter(preview => staffIdsWithWork.has(preview.staffId));
+    return Math.max(...active.map(p =>
+      p.totalWithBreak + sectionTaskMinutesForStaff(automaticSectionTasks, p.staffId)
+    ), 1);
+  }, [assignmentPreviews, automaticSectionTasks, staffIdsWithWork]);
 
   const getManagerHotel = async (): Promise<string | null> => {
     if (!profile?.assigned_hotel) return null;
@@ -229,6 +249,15 @@ export function AutoRoomAssignment({
     ...(liveRoom || {}),
     ready_to_clean: liveAssignment?.ready_to_clean ?? previous.ready_to_clean,
   });
+
+  const addSectionContext = (room: any): RoomForAssignment => {
+    const section = roomSectionsRef.current.get(room.id);
+    return {
+      ...room,
+      housekeeping_section_id: section?.id || null,
+      housekeeping_section_name: section?.name || null,
+    } as RoomForAssignment;
+  };
 
   const refreshLiveRoomState = async () => {
     const keys = hotelKeysRef.current;
@@ -251,7 +280,7 @@ export function AutoRoomAssignment({
       assignmentRows = data || [];
     }
 
-    const roomMap = new Map(roomRows.map(room => [room.id, room]));
+    const roomMap = new Map(roomRows.map(room => [room.id, addSectionContext(room)]));
     const assignmentMap = new Map(assignmentRows.map(row => [row.room_id, row]));
 
     setDirtyRooms(previous => {
@@ -260,7 +289,7 @@ export function AutoRoomAssignment({
       const additions = roomRows
         .filter(room => room.status === 'dirty' && !knownIds.has(room.id))
         .map(room => ({
-          ...room,
+          ...addSectionContext(room),
           ready_to_clean: assignmentMap.get(room.id)?.ready_to_clean ?? false,
         })) as RoomForAssignment[];
       return [...merged, ...additions];
@@ -354,7 +383,55 @@ export function AutoRoomAssignment({
         .in('hotel', hotelKeys);
       if (roomsErr) throw roomsErr;
 
-      const allHotelRooms = (roomRows || []) as RoomForAssignment[];
+      const { data: sectionRows, error: sectionError } = await (supabase as any)
+        .from('hotel_housekeeping_sections')
+        .select('id, name, floor_number')
+        .eq('hotel_name', hotelName)
+        .eq('is_active', true)
+        .order('floor_number')
+        .order('sort_order');
+      if (sectionError) throw sectionError;
+
+      const sectionById = new Map<string, { id: string; name: string; floor_number: number }>(
+        (sectionRows || []).map((section: any) => [section.id, section]),
+      );
+      let sectionRoomRows: Array<{ room_id: string; section_id: string }> = [];
+      let sectionTaskRows: any[] = [];
+      if (sectionById.size > 0) {
+        const sectionIds = Array.from(sectionById.keys());
+        const [sectionRoomsResult, sectionTasksResult] = await Promise.all([
+          (supabase as any)
+            .from('hotel_housekeeping_section_rooms')
+            .select('room_id, section_id')
+            .in('section_id', sectionIds),
+          (supabase as any)
+            .from('hotel_housekeeping_section_tasks')
+            .select('id, section_id, task_name, icon, estimated_duration, auto_assign, is_active, sort_order')
+            .in('section_id', sectionIds)
+            .eq('is_active', true)
+            .eq('auto_assign', true)
+            .order('sort_order'),
+        ]);
+        if (sectionRoomsResult.error) throw sectionRoomsResult.error;
+        if (sectionTasksResult.error) throw sectionTasksResult.error;
+        sectionRoomRows = sectionRoomsResult.data || [];
+        sectionTaskRows = sectionTasksResult.data || [];
+      }
+
+      roomSectionsRef.current = new Map(sectionRoomRows.flatMap(mapping => {
+        const section = sectionById.get(mapping.section_id);
+        return section ? [[mapping.room_id, { id: section.id, name: section.name }]] : [];
+      }));
+      setSectionTaskTemplates(sectionTaskRows.flatMap(task => {
+        const section = sectionById.get(task.section_id);
+        return section ? [{
+          ...task,
+          section_name: section.name,
+          floor_number: section.floor_number,
+        } as HousekeepingSectionTaskTemplate] : [];
+      }));
+
+      const allHotelRooms = (roomRows || []).map(addSectionContext);
       const roomIds = allHotelRooms.map(room => room.id);
       let existingRows: ExistingAssignment[] = [];
       if (roomIds.length > 0) {
@@ -419,6 +496,12 @@ export function AutoRoomAssignment({
         }
       } else {
         setEditingExistingAssignments(existingRows.length > 0);
+        const liveRoomMap = new Map(workingRooms.map(room => [room.id, room]));
+        setAssignmentPreviews(previous => previous.map(preview => buildPreview(
+          preview.staffId,
+          preview.staffName,
+          preview.rooms.map(room => liveRoomMap.get(room.id) || room),
+        )));
       }
 
       const { data: layoutData } = await supabase
@@ -678,7 +761,19 @@ export function AutoRoomAssignment({
   };
 
   const handleProceedToConfirm = () => {
-    const overAllocated = assignmentPreviews.filter(preview => preview.exceedsShift && preview.rooms.length > 0);
+    const overAllocated = assignmentPreviews
+      .filter(preview => staffIdsWithWork.has(preview.staffId))
+      .map(preview => {
+        const totalWithAreas = preview.totalWithBreak
+          + sectionTaskMinutesForStaff(automaticSectionTasks, preview.staffId);
+        return {
+          ...preview,
+          totalWithBreak: totalWithAreas,
+          exceedsShift: totalWithAreas > STANDARD_SHIFT_MINUTES,
+          overageMinutes: Math.max(0, totalWithAreas - STANDARD_SHIFT_MINUTES),
+        };
+      })
+      .filter(preview => preview.exceedsShift);
     if (overAllocated.length > 0) {
       setOverAllocatedStaff(overAllocated);
       setShowOverAllocationDialog(true);
@@ -707,6 +802,23 @@ export function AutoRoomAssignment({
       }
     }
     if (calls.length) void Promise.allSettled(calls);
+  };
+
+  const persistAutomaticSectionTasks = async (): Promise<number> => {
+    if (automaticSectionTasks.length === 0) return 0;
+    const hotelName = managerHotelRef.current || await getManagerHotel();
+    if (!hotelName) throw new Error('Hotel could not be resolved for mapped area work');
+
+    const { data, error } = await (supabase as any).rpc('assign_housekeeping_section_tasks', {
+      p_hotel_name: hotelName,
+      p_assigned_date: selectedDate,
+      p_assignments: automaticSectionTasks.map(task => ({
+        section_task_id: task.id,
+        assigned_to: task.staff_id,
+      })),
+    });
+    if (error) throw error;
+    return Number(data || 0);
   };
 
   const handleConfirmAssignment = async () => {
@@ -796,20 +908,22 @@ export function AutoRoomAssignment({
         }
       }
 
+      const mappedTaskCount = await persistAutomaticSectionTasks();
+
       localStorage.removeItem(saveKey);
       await persistAssignmentPatterns();
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
 
       const totalRooms = finalEntries.length;
-      const staffCount = assignmentPreviews.filter(preview => preview.rooms.length > 0).length;
+      const staffCount = staffIdsWithWork.size;
       onAssignmentCreated(totalRooms, staffCount);
 
       if (editingExistingAssignments) {
-        toast.success(`Assignments updated. ${totalRooms} rooms are assigned to ${staffCount} staff.`);
+        toast.success(`Assignments updated: ${totalRooms} rooms and ${mappedTaskCount} mapped area tasks.`);
         setMaintenanceHoldRoomIds(new Set());
         onOpenChange(false);
       } else {
-        toast.success(`${t('autoAssign.assigned')} ${totalRooms} ${t('autoAssign.roomsTo')} ${staffCount} ${t('autoAssign.housekeepers')}`);
+        toast.success(`${t('autoAssign.assigned')} ${totalRooms} ${t('autoAssign.roomsTo')} ${staffCount} ${t('autoAssign.housekeepers')} · ${mappedTaskCount} mapped area tasks`);
         setStep('public-areas');
       }
     } catch (error) {
@@ -859,14 +973,17 @@ export function AutoRoomAssignment({
   };
 
   const handlePrintAssignments = () => {
-    const active = assignmentPreviews.filter(preview => preview.rooms.length > 0);
+    const active = assignmentPreviews.filter(preview => staffIdsWithWork.has(preview.staffId));
     if (!active.length) return;
     const printWindow = window.open('', '_blank');
     if (!printWindow) return toast.error(t('autoAssign.popupBlocked'));
-    const body = active.map(preview => `
+    const body = active.map(preview => {
+      const mappedTasks = automaticSectionTasks.filter(task => task.staff_id === preview.staffId);
+      const totalMinutes = preview.totalWithBreak + sectionTaskMinutesForStaff(automaticSectionTasks, preview.staffId);
+      return `
       <section style="page-break-after:always;font-family:Arial;padding:20px">
         <h2>${preview.staffName}</h2>
-        <p>${selectedDate} · ${preview.rooms.length} rooms · ${formatMinutesToTime(preview.totalWithBreak)}</p>
+        <p>${selectedDate} · ${preview.rooms.length} rooms · ${mappedTasks.length} mapped areas · ${formatMinutesToTime(totalMinutes)}</p>
         <table style="width:100%;border-collapse:collapse">
           <tr><th style="border:1px solid #ddd;padding:6px">Room</th><th style="border:1px solid #ddd;padding:6px">Type</th><th style="border:1px solid #ddd;padding:6px">Floor</th><th style="border:1px solid #ddd;padding:6px">Special</th></tr>
           ${sortPreviewRooms(preview.rooms).map(room => {
@@ -879,7 +996,9 @@ export function AutoRoomAssignment({
             return `<tr><td style="border:1px solid #ddd;padding:6px"><b>${room.room_number}</b></td><td style="border:1px solid #ddd;padding:6px">${isCheckoutLike(room) ? 'Checkout' : 'Daily'}</td><td style="border:1px solid #ddd;padding:6px">F${room.floor_number ?? getFloorFromRoomNumber(room.room_number)}</td><td style="border:1px solid #ddd;padding:6px">${special || '—'}</td></tr>`;
           }).join('')}
         </table>
-      </section>`).join('');
+        ${mappedTasks.length ? `<h3 style="margin-top:20px">Mapped area work</h3><ul>${mappedTasks.map(task => `<li>${task.icon} <b>${task.task_name}</b> — ${task.section_name} (${task.estimated_duration} min)</li>`).join('')}</ul>` : ''}
+      </section>`;
+    }).join('');
     printWindow.document.write(`<!doctype html><html><head><title>Housekeeping ${selectedDate}</title></head><body>${body}</body></html>`);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
@@ -1044,9 +1163,9 @@ export function AutoRoomAssignment({
             ) : step === 'preview' ? (
               <div className="flex min-h-0 flex-1 flex-col gap-2">
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm">
-                  <p><strong>{assignmentPreviews.reduce((sum, preview) => sum + preview.rooms.length, 0)}</strong> {t('autoAssign.rooms')} → <strong>{assignmentPreviews.filter(preview => preview.rooms.length > 0).length}</strong> {t('autoAssign.staff')}</p>
+                  <p><strong>{assignmentPreviews.reduce((sum, preview) => sum + preview.rooms.length, 0)}</strong> {t('autoAssign.rooms')} + <strong>{automaticSectionTasks.length}</strong> mapped area tasks → <strong>{staffIdsWithWork.size}</strong> {t('autoAssign.staff')}</p>
                   <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                    <span>🟨 {t('autoAssign.checkout')}</span><span>🟦 {t('autoAssign.daily')}</span><span className="font-bold text-green-600">RTC</span><span className="font-bold text-red-600">HOLD</span><span className="font-bold text-blue-600">T</span><span className="font-bold text-orange-600">C</span>
+                    <span>🟨 {t('autoAssign.checkout')}</span><span>🟦 {t('autoAssign.daily')}</span><span>🧹 mapped area</span><span className="font-bold text-green-600">RTC</span><span className="font-bold text-red-600">HOLD</span><span className="font-bold text-blue-600">T</span><span className="font-bold text-orange-600">C</span>
                   </div>
                   {fairnessMetrics && <div className="flex flex-wrap gap-2 text-xs"><span>CO±{fairnessMetrics.checkoutDiff}</span><span>Daily±{fairnessMetrics.dailyDiff}</span><span>⏱{fairnessMetrics.timeSpreadMinutes}m</span><span>F↔{fairnessMetrics.splitFloorCount}</span></div>}
                 </div>
@@ -1057,7 +1176,11 @@ export function AutoRoomAssignment({
                     const daily = preview.rooms.filter(room => !isCheckoutLike(room));
                     const isDropTarget = selectedRoomForMove && selectedRoomForMove.fromStaffId !== preview.staffId;
                     const isDragOver = dragOverStaffId === preview.staffId;
-                    const workload = Math.min(100, Math.round((preview.totalWithBreak / maxTime) * 100));
+                    const mappedTasks = automaticSectionTasks.filter(task => task.staff_id === preview.staffId);
+                    const mappedTaskMinutes = sectionTaskMinutesForStaff(automaticSectionTasks, preview.staffId);
+                    const totalWithAreas = preview.totalWithBreak + mappedTaskMinutes;
+                    const exceedsShift = totalWithAreas > STANDARD_SHIFT_MINUTES;
+                    const workload = Math.min(100, Math.round((totalWithAreas / maxTime) * 100));
                     const style: React.CSSProperties = isMobile && assignmentPreviews.length >= 3 ? { minWidth: 0 } : { minWidth: isMobile ? 150 : 200, flex: '1 1 0' };
                     return (
                       <motion.div
@@ -1066,16 +1189,17 @@ export function AutoRoomAssignment({
                         data-staff-drop-id={preview.staffId}
                         style={style}
                         onClick={() => isDropTarget && selectedRoomForMove && applyRoomMove(selectedRoomForMove.roomId, selectedRoomForMove.fromStaffId, preview.staffId)}
-                        className={`flex min-h-[130px] flex-col rounded-lg border ${isDropTarget ? 'ring-2 ring-primary' : ''} ${isDragOver ? 'border-dashed bg-blue-50 ring-2 ring-blue-500 dark:bg-blue-950/30' : ''} ${justDroppedStaffId === preview.staffId ? 'ring-2 ring-green-500' : ''} ${preview.exceedsShift ? 'border-destructive' : ''}`}
+                        className={`flex min-h-[130px] flex-col rounded-lg border ${isDropTarget ? 'ring-2 ring-primary' : ''} ${isDragOver ? 'border-dashed bg-blue-50 ring-2 ring-blue-500 dark:bg-blue-950/30' : ''} ${justDroppedStaffId === preview.staffId ? 'ring-2 ring-green-500' : ''} ${exceedsShift ? 'border-destructive' : ''}`}
                       >
                         <div className="border-b bg-muted/40 px-2 py-1.5">
-                          <div className="flex items-center justify-between gap-1"><span className="truncate text-xs font-semibold">{preview.staffName}</span>{preview.exceedsShift && <AlertTriangle className="h-3 w-3 text-destructive" />}</div>
-                          <div className="mt-0.5 flex items-center justify-between text-[10px] text-muted-foreground"><span>{checkouts.length}co · {daily.length}d</span><span>{formatMinutesToTime(preview.totalWithBreak)}</span></div>
-                          <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted"><div className={`h-full ${preview.exceedsShift ? 'bg-destructive' : workload > 80 ? 'bg-amber-500' : 'bg-green-500'}`} style={{ width: `${workload}%` }} /></div>
+                          <div className="flex items-center justify-between gap-1"><span className="truncate text-xs font-semibold">{preview.staffName}</span>{exceedsShift && <AlertTriangle className="h-3 w-3 text-destructive" />}</div>
+                          <div className="mt-0.5 flex items-center justify-between text-[10px] text-muted-foreground"><span>{checkouts.length}co · {daily.length}d · {mappedTasks.length} areas</span><span>{formatMinutesToTime(totalWithAreas)}</span></div>
+                          <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted"><div className={`h-full ${exceedsShift ? 'bg-destructive' : workload > 80 ? 'bg-amber-500' : 'bg-green-500'}`} style={{ width: `${workload}%` }} /></div>
                         </div>
                         <div className="flex-1 space-y-1.5 overflow-y-auto p-1.5">
                           {checkouts.length > 0 && <div><p className="mb-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">{t('autoAssign.checkouts')}</p>{groupByFloor(checkouts).map(group => <div key={`co-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">F{group.floor}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
                           {daily.length > 0 && <div><p className="mb-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">{t('autoAssign.daily')}</p>{groupByFloor(daily).map(group => <div key={`d-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">F{group.floor}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
+                          {mappedTasks.length > 0 && <div><p className="mb-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">Mapped area work</p><div className="flex flex-wrap gap-1">{mappedTasks.map(task => <span key={task.id} className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200" title={`${task.section_name} · ${task.estimated_duration} min`}>{task.icon} {task.task_name} <span className="opacity-60">{task.section_name}</span></span>)}</div></div>}
                           {preview.rooms.length === 0 && <div className="rounded border border-dashed p-3 text-center text-[10px] text-muted-foreground">Drop or tap a room here</div>}
                         </div>
                       </motion.div>
@@ -1101,16 +1225,16 @@ export function AutoRoomAssignment({
               <div className="space-y-4 py-6 text-center">
                 <Check className="mx-auto h-14 w-14 text-green-600" />
                 <h3 className="text-xl font-semibold">{editingExistingAssignments ? 'Save assignment changes' : t('autoAssign.readyToAssign')}</h3>
-                <p className="text-muted-foreground">{assignmentPreviews.reduce((sum, preview) => sum + preview.rooms.length, 0)} {t('autoAssign.roomsWillBeAssigned')} {assignmentPreviews.filter(preview => preview.rooms.length > 0).length} {t('autoAssign.housekeepers')}.</p>
+                <p className="text-muted-foreground">{assignmentPreviews.reduce((sum, preview) => sum + preview.rooms.length, 0)} {t('autoAssign.roomsWillBeAssigned')} {staffIdsWithWork.size} {t('autoAssign.housekeepers')}. {automaticSectionTasks.length} mapped area tasks will follow their nearest section owner.</p>
                 {editingExistingAssignments && <p className="mx-auto max-w-xl rounded-lg bg-blue-50 p-3 text-sm text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">Only changed rooms will be written. Untouched assignments, ready-to-clean flags, progress, notes and PMS hold data stay unchanged.</p>}
                 {maintenanceHoldRoomIds.size > 0 && <p className="mx-auto max-w-xl rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950/30 dark:text-red-200">{maintenanceHoldRoomIds.size} selected room{maintenanceHoldRoomIds.size === 1 ? '' : 's'} will be marked Out of Order / Maintenance and removed from housekeeping assignment.</p>}
                 <div className="space-y-2 text-left">
-                  {assignmentPreviews.filter(preview => preview.rooms.length > 0).map(preview => <div key={preview.staffId} className="flex items-center justify-between rounded bg-muted p-2"><span className="font-medium">{preview.staffName}</span><div className="flex items-center gap-2"><Badge variant="outline">{preview.rooms.length} {t('autoAssign.rooms')}</Badge><span className="text-sm text-green-600">{formatMinutesToTime(preview.totalWithBreak)}</span></div></div>)}
+                  {assignmentPreviews.filter(preview => staffIdsWithWork.has(preview.staffId)).map(preview => { const areaCount = automaticSectionTasks.filter(task => task.staff_id === preview.staffId).length; const total = preview.totalWithBreak + sectionTaskMinutesForStaff(automaticSectionTasks, preview.staffId); return <div key={preview.staffId} className="flex items-center justify-between rounded bg-muted p-2"><span className="font-medium">{preview.staffName}</span><div className="flex items-center gap-2"><Badge variant="outline">{preview.rooms.length} {t('autoAssign.rooms')}</Badge><Badge variant="outline">{areaCount} areas</Badge><span className="text-sm text-green-600">{formatMinutesToTime(total)}</span></div></div>; })}
                 </div>
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="text-center"><Check className="mx-auto mb-2 h-12 w-12 text-green-600" /><h3 className="text-lg font-semibold">{t('autoAssign.roomsAssignedSuccess')}</h3><p className="text-sm text-muted-foreground">{t('autoAssign.assignPublicAreasDesc')}</p></div>
+                <div className="text-center"><Check className="mx-auto mb-2 h-12 w-12 text-green-600" /><h3 className="text-lg font-semibold">{t('autoAssign.roomsAssignedSuccess')}</h3><p className="text-sm text-muted-foreground">Mapped section tasks are already assigned. Add only any extra one-off public areas needed today.</p></div>
                 <div className="space-y-2">
                   {PUBLIC_AREAS.map(area => <div key={area.key} className="flex items-center gap-3 rounded-lg border p-3"><span className="text-lg">{area.icon}</span><span className="min-w-0 flex-1 text-sm font-medium">{area.name}</span><Select value={publicAreaAssignments.get(area.key) || ''} onValueChange={value => setPublicAreaAssignments(previous => { const next = new Map(previous); if (value === 'none') next.delete(area.key); else next.set(area.key, value); return next; })}><SelectTrigger className="w-[160px]"><SelectValue placeholder={t('autoAssign.notAssigned')} /></SelectTrigger><SelectContent><SelectItem value="none">{t('autoAssign.notAssigned')}</SelectItem>{allStaff.filter(staff => selectedStaffIds.has(staff.id)).map(staff => <SelectItem key={staff.id} value={staff.id}>{staff.full_name}</SelectItem>)}</SelectContent></Select></div>)}
                 </div>

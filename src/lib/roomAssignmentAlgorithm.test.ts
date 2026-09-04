@@ -130,4 +130,28 @@ describe('autoAssignRooms locality + fairness', () => {
     expect(updatedTarget.totalWeight).toBeGreaterThanOrEqual(0);
     expect(updatedTarget.estimatedMinutes).toBeGreaterThanOrEqual(15);
   });
+
+  it('uses a manager-mapped section instead of the old hard-coded Memories zone', () => {
+    const rooms = [
+      room('112', '112', 2, {
+        hotel: 'Hotel Memories Budapest',
+        housekeeping_section_id: 'middle',
+        housekeeping_section_name: 'Middle',
+      }),
+      room('144', '144', 2, {
+        hotel: 'Hotel Memories Budapest',
+        housekeeping_section_id: 'upper-side',
+        housekeeping_section_name: '131 / 137 / 144 Side',
+      }),
+    ];
+
+    const previews = autoAssignRooms(rooms, staff.slice(0, 2), undefined, undefined, {
+      hotelName: 'Hotel Memories Budapest',
+      randomSeed: 12,
+    });
+    const assigned = previews.flatMap(result => result.rooms);
+
+    expect(assigned.find(item => item.room_number === '112')?.housekeeping_section_id).toBe('middle');
+    expect(assigned.find(item => item.room_number === '144')?.housekeeping_section_id).toBe('upper-side');
+  });
 });
