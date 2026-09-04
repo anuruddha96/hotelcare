@@ -1,419 +1,243 @@
-import React, { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { AlertTriangle, Calendar as CalendarIcon, Clock, MapPin, Wrench, Trash2, Plus, CheckCircle, User } from 'lucide-react';
-import { format } from 'date-fns';
-import { toast } from 'sonner';
+import { AlertTriangle, Building2, CheckCircle2, Clock, Eye, Hourglass, MapPin, PauseCircle, Plus, User, Wrench } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { MaintenanceIssueDialog } from './MaintenanceIssueDialog';
-import { MaintenanceResolutionDialog } from './MaintenanceResolutionDialog';
 
-interface MaintenanceIssue {
+interface MaintenanceTicket {
   id: string;
-  room_id: string;
-  assignment_id: string | null;
-  reported_by: string;
-  issue_description: string;
-  photo_urls: string[];
-  status: string;
+  ticket_number: string;
+  title: string;
+  description: string;
+  room_number: string;
+  hotel: string | null;
   priority: string;
-  notes: string | null;
-  resolution_text: string | null;
-  resolved_at: string | null;
-  resolved_by: string | null;
+  status: 'open' | 'in_progress' | 'completed';
   created_at: string;
-  rooms: {
-    room_number: string;
-    hotel: string;
-  };
-  profiles: {
-    full_name: string;
-    nickname: string;
-  };
-  resolved_by_profile?: {
-    full_name: string;
-    nickname: string;
-  };
+  updated_at: string;
+  assigned_to: string | null;
+  attachment_urls: string[] | null;
+  completion_photos: string[] | null;
+  pending_supervisor_approval: boolean | null;
+  on_hold: boolean | null;
+  hold_reason: string | null;
+  resolution_text: string | null;
+  source: string | null;
+  assignment_method: string | null;
+  created_by_profile?: { full_name: string; nickname?: string | null } | null;
+  assigned_to_profile?: { full_name: string; nickname?: string | null } | null;
 }
 
+const textByLanguage: Record<string, Record<string, string>> = {
+  en: {
+    title: 'Maintenance', subtitle: 'One live maintenance queue shared with Housekeeping and the main Maintenance module.',
+    report: 'Report issue', active: 'Active', progress: 'In progress', hold: 'Pending / on hold', approval: 'Awaiting approval', done: 'Done', all: 'All',
+    noItems: 'No maintenance tickets in this view.', reportedBy: 'Reported by', assignedTo: 'Assigned to', unassigned: 'Unassigned',
+    noDuty: 'No maintenance staff was signed in when this was reported.', issue: 'Issue', holdReason: 'Pending reason', resolution: 'Resolution', attachments: 'Attachments',
+    created: 'Created', source: 'Source', auto: 'Auto-routed', manual: 'Manual', housekeeping: 'Housekeeping', statusOpen: 'Open', statusProgress: 'In progress', statusDone: 'Done',
+  },
+  hu: {
+    title: 'Karbantartás', subtitle: 'Egy közös, élő karbantartási sor a Takarítás és a fő Karbantartás modul számára.',
+    report: 'Hiba jelentése', active: 'Aktív', progress: 'Folyamatban', hold: 'Függőben / várakozik', approval: 'Jóváhagyásra vár', done: 'Kész', all: 'Összes',
+    noItems: 'Nincs karbantartási jegy ebben a nézetben.', reportedBy: 'Jelentette', assignedTo: 'Hozzárendelve', unassigned: 'Nincs kiosztva',
+    noDuty: 'A jelentéskor nem volt bejelentkezett karbantartó.', issue: 'Hiba', holdReason: 'Várakozás oka', resolution: 'Megoldás', attachments: 'Mellékletek',
+    created: 'Létrehozva', source: 'Forrás', auto: 'Automatikus', manual: 'Kézi', housekeeping: 'Takarítás', statusOpen: 'Nyitott', statusProgress: 'Folyamatban', statusDone: 'Kész',
+  },
+};
+
 export function MaintenancePhotosManagement() {
-  const { t } = useTranslation();
+  const { language } = useTranslation();
+  const c = textByLanguage[language] || textByLanguage.en;
   const { profile } = useAuth();
-  const [issues, setIssues] = useState<MaintenanceIssue[]>([]);
+  const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'active' | 'progress' | 'hold' | 'approval' | 'done' | 'all'>('active');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [resolutionDialog, setResolutionDialog] = useState<{
-    open: boolean;
-    issueId: string;
-    roomNumber: string;
-    issueDescription: string;
-  }>({
-    open: false,
-    issueId: '',
-    roomNumber: '',
-    issueDescription: ''
-  });
-
-  const canDelete = (profile?.role && ['admin'].includes(profile.role)) || profile?.is_super_admin;
   const canCreate = hasManagerPowers(profile?.role);
-  const canResolve = hasManagerPowers(profile?.role) || profile?.role === 'maintenance';
 
-  useEffect(() => {
-    fetchMaintenanceIssues();
-  }, [selectedDate]);
-
-  const fetchMaintenanceIssues = async () => {
+  const fetchTickets = useCallback(async () => {
+    if (!profile?.organization_slug) return;
     setLoading(true);
     try {
-      const dateStr = selectedDate.toISOString().split('T')[0];
-      
-      // Get current user's hotel to filter
-      const { data: currentUserProfile } = await supabase
-        .from('profiles')
-        .select('assigned_hotel')
-        .eq('id', (await supabase.auth.getUser()).data.user?.id)
-        .single();
-
-      const userHotel = currentUserProfile?.assigned_hotel;
-      
-      const { data, error } = await supabase
-        .from('maintenance_issues')
+      const hotelKeys = await resolveHotelKeys(profile.assigned_hotel);
+      let query = (supabase as any)
+        .from('tickets')
         .select(`
-          *,
-          rooms (
-            room_number,
-            hotel
-          )
+          id, ticket_number, title, description, room_number, hotel, priority, status,
+          created_at, updated_at, assigned_to, attachment_urls, completion_photos,
+          pending_supervisor_approval, on_hold, hold_reason, resolution_text,
+          source, assignment_method,
+          created_by_profile:profiles!tickets_created_by_fkey(full_name, nickname),
+          assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, nickname)
         `)
-        .lte('created_at', `${dateStr}T23:59:59`)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('Supabase error:', error);
-        throw error;
-      }
-      
-      // Fetch reporter profiles and resolver profiles separately
-      if (data && data.length > 0) {
-        const reporterIds = [...new Set(data.map((item: any) => item.reported_by))];
-        const resolverIds = [...new Set(data.filter((item: any) => item.resolved_by).map((item: any) => item.resolved_by))];
-        const allUserIds = [...new Set([...reporterIds, ...resolverIds])];
-        
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, full_name, nickname')
-          .in('id', allUserIds);
-        
-        // Map profiles to issues
-        let issuesWithProfiles = data.map((issue: any) => ({
-          ...issue,
-          profiles: profiles?.find((p: any) => p.id === issue.reported_by) || { full_name: 'Unknown', nickname: '' },
-          resolved_by_profile: issue.resolved_by ? profiles?.find((p: any) => p.id === issue.resolved_by) : null
-        }));
-
-        // Filter by user's assigned hotel
-        if (userHotel) {
-          issuesWithProfiles = issuesWithProfiles.filter((issue: any) => 
-            issue.rooms?.hotel === userHotel || 
-            issue.rooms?.hotel === (profile?.assigned_hotel)
-          );
-        }
-        
-        console.log('Fetched maintenance issues:', issuesWithProfiles.length, 'records');
-        setIssues(issuesWithProfiles as any);
-      } else {
-        setIssues([]);
-      }
+        .eq('department', 'maintenance')
+        .eq('organization_slug', profile.organization_slug)
+        .order('created_at', { ascending: false })
+        .limit(300);
+      if (hotelKeys.length) query = query.in('hotel', hotelKeys);
+      const { data, error } = await query;
+      if (error) throw error;
+      setTickets((data || []) as MaintenanceTicket[]);
     } catch (error) {
-      console.error('Error fetching maintenance issues:', error);
-      toast.error('Failed to fetch maintenance issues');
+      console.error('Failed to load maintenance tickets:', error);
+      setTickets([]);
     } finally {
       setLoading(false);
     }
+  }, [profile?.organization_slug, profile?.assigned_hotel]);
+
+  useEffect(() => {
+    void fetchTickets();
+    const channel = supabase
+      .channel(`housekeeping-maintenance-${profile?.id || 'anon'}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, (payload: any) => {
+        const row = payload.new || payload.old;
+        if (row?.department === 'maintenance') void fetchTickets();
+      })
+      .subscribe();
+    const onCreated = () => void fetchTickets();
+    window.addEventListener('maintenance-ticket-created', onCreated);
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener('maintenance-ticket-created', onCreated);
+    };
+  }, [fetchTickets, profile?.id]);
+
+  const visibleTickets = useMemo(() => tickets.filter(ticket => {
+    if (filter === 'all') return true;
+    if (filter === 'done') return ticket.status === 'completed';
+    if (filter === 'approval') return !!ticket.pending_supervisor_approval;
+    if (filter === 'hold') return !!ticket.on_hold;
+    if (filter === 'progress') return ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval;
+    return ticket.status !== 'completed' && !ticket.on_hold && !ticket.pending_supervisor_approval;
+  }), [tickets, filter]);
+
+  const counts = useMemo(() => ({
+    active: tickets.filter(t => t.status !== 'completed' && !t.on_hold && !t.pending_supervisor_approval).length,
+    progress: tickets.filter(t => t.status === 'in_progress' && !t.on_hold && !t.pending_supervisor_approval).length,
+    hold: tickets.filter(t => t.on_hold).length,
+    approval: tickets.filter(t => t.pending_supervisor_approval).length,
+    done: tickets.filter(t => t.status === 'completed').length,
+  }), [tickets]);
+
+  const statusLabel = (ticket: MaintenanceTicket) => {
+    if (ticket.pending_supervisor_approval) return c.approval;
+    if (ticket.on_hold) return c.hold;
+    if (ticket.status === 'in_progress') return c.statusProgress;
+    if (ticket.status === 'completed') return c.statusDone;
+    return c.statusOpen;
   };
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'urgent':
-        return 'bg-red-100 text-red-800 border-red-300';
-      case 'high':
-        return 'bg-orange-100 text-orange-800 border-orange-300';
-      case 'medium':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-300';
-      case 'low':
-        return 'bg-green-100 text-green-800 border-green-300';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-300';
-    }
+  const statusClass = (ticket: MaintenanceTicket) => {
+    if (ticket.pending_supervisor_approval) return 'bg-blue-100 text-blue-800 border-blue-200';
+    if (ticket.on_hold) return 'bg-amber-100 text-amber-800 border-amber-200';
+    if (ticket.status === 'in_progress') return 'bg-violet-100 text-violet-800 border-violet-200';
+    if (ticket.status === 'completed') return 'bg-green-100 text-green-800 border-green-200';
+    return 'bg-slate-100 text-slate-800 border-slate-200';
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-300';
-      case 'approved':
-        return 'bg-blue-100 text-blue-800 border-blue-300';
-      case 'ticket_created':
-        return 'bg-purple-100 text-purple-800 border-purple-300';
-      case 'resolved':
-        return 'bg-green-100 text-green-800 border-green-300';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-300';
-    }
-  };
-
-  const handleDeleteIssue = async (issueId: string) => {
-    if (!confirm('Are you sure you want to delete this maintenance issue?')) return;
-    
-    try {
-      const { error } = await supabase
-        .from('maintenance_issues')
-        .delete()
-        .eq('id', issueId);
-
-      if (error) throw error;
-
-      toast.success('Maintenance issue deleted successfully');
-      fetchMaintenanceIssues();
-    } catch (error: any) {
-      console.error('Error deleting issue:', error);
-      toast.error('Failed to delete maintenance issue');
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
+  const priorityClass = (priority: string) => priority === 'urgent'
+    ? 'bg-red-100 text-red-800 border-red-200'
+    : priority === 'high'
+      ? 'bg-orange-100 text-orange-800 border-orange-200'
+      : priority === 'low'
+        ? 'bg-green-50 text-green-700 border-green-200'
+        : 'bg-yellow-50 text-yellow-800 border-yellow-200';
 
   return (
-    <div className="space-y-6 p-4">
-      <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+    <div className="space-y-4 p-2 sm:p-4">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold flex items-center gap-2">
-            <Wrench className="h-6 w-6 text-destructive" />
-            {t('maintenance.pageTitle')}
-          </h2>
-          <p className="text-muted-foreground mt-1">
-            {t('maintenance.subtitle')}
-          </p>
+          <h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2"><Wrench className="h-5 w-5 text-primary" />{c.title}</h2>
+          <p className="text-sm text-muted-foreground mt-1 max-w-2xl">{c.subtitle}</p>
         </div>
-        
-        <div className="flex gap-2">
-          {canCreate && (
-            <Button onClick={() => setIsAddDialogOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              {t('maintenance.reportIssue')}
-            </Button>
-          )}
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button variant="outline" className="w-full sm:w-auto">
-                <CalendarIcon className="h-4 w-4 mr-2" />
-                {format(selectedDate, 'PPP')}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="end">
-              <Calendar
-                mode="single"
-                selected={selectedDate}
-                onSelect={(date) => date && setSelectedDate(date)}
-                initialFocus
-              />
-            </PopoverContent>
-          </Popover>
-        </div>
+        {canCreate && <Button onClick={() => setIsAddDialogOpen(true)} className="h-10"><Plus className="h-4 w-4 mr-2" />{c.report}</Button>}
       </div>
 
-      {issues.length === 0 ? (
-        <Card className="text-center py-12">
-          <CardContent>
-            <Wrench className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">
-              {t('maintenance.noIssues')}
-            </h3>
-            <p className="text-muted-foreground">
-              {t('maintenance.noIssuesDate')}
-            </p>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">{c.active}</div><div className="text-xl font-bold">{counts.active}</div></CardContent></Card>
+        <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">{c.progress}</div><div className="text-xl font-bold">{counts.progress}</div></CardContent></Card>
+        <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">{c.hold}</div><div className="text-xl font-bold">{counts.hold}</div></CardContent></Card>
+        <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">{c.approval}</div><div className="text-xl font-bold">{counts.approval}</div></CardContent></Card>
+        <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">{c.done}</div><div className="text-xl font-bold">{counts.done}</div></CardContent></Card>
+      </div>
+
+      <Tabs value={filter} onValueChange={(v) => setFilter(v as any)}>
+        <TabsList className="w-full h-auto flex flex-wrap justify-start gap-1 bg-muted/50 p-1">
+          <TabsTrigger value="active">{c.active}</TabsTrigger>
+          <TabsTrigger value="progress">{c.progress}</TabsTrigger>
+          <TabsTrigger value="hold">{c.hold}</TabsTrigger>
+          <TabsTrigger value="approval">{c.approval}</TabsTrigger>
+          <TabsTrigger value="done">{c.done}</TabsTrigger>
+          <TabsTrigger value="all">{c.all}</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {loading ? (
+        <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>
+      ) : visibleTickets.length === 0 ? (
+        <Card><CardContent className="py-12 text-center"><CheckCircle2 className="h-10 w-10 mx-auto mb-3 text-muted-foreground" /><p className="text-muted-foreground">{c.noItems}</p></CardContent></Card>
       ) : (
-        <div className="grid gap-4">
-          {issues.map((issue) => (
-            <Card 
-              key={issue.id} 
-              className={`border-2 ${
-                issue.priority === 'urgent' || issue.priority === 'high'
-                  ? 'border-destructive shadow-lg'
-                  : 'border-border'
-              }`}
-            >
-              <CardHeader>
-                <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <CardTitle className="text-xl font-bold">
-                      Room {issue.rooms?.room_number || 'N/A'}
-                    </CardTitle>
-                    <Badge className={getPriorityColor(issue.priority)}>
-                      {t(`priority.${issue.priority}`).toUpperCase()}
-                    </Badge>
-                    <Badge className={getStatusColor(issue.status)}>
-                      {t(`status.${issue.status}`).toUpperCase()}
-                    </Badge>
-                  </div>
-                  <div className="flex gap-2">
-                    {canResolve && issue.status !== 'resolved' && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="bg-green-50 hover:bg-green-100 text-green-700 border-green-300"
-                        onClick={() => setResolutionDialog({
-                          open: true,
-                          issueId: issue.id,
-                          roomNumber: issue.rooms?.room_number || 'N/A',
-                          issueDescription: issue.issue_description
-                        })}
-                      >
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        {t('maintenance.markResolved')}
-                      </Button>
-                    )}
-                    {canDelete && (
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => handleDeleteIssue(issue.id)}
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        {t('maintenance.delete')}
-                      </Button>
-                    )}
+        <div className="grid gap-3">
+          {visibleTickets.map(ticket => (
+            <Card key={ticket.id} className="border-l-4 border-l-primary/70 shadow-sm">
+              <CardHeader className="pb-2 p-3 sm:p-4">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <CardTitle className="text-base sm:text-lg">Room {ticket.room_number} · {ticket.title}</CardTitle>
+                      <Badge variant="outline" className={priorityClass(ticket.priority)}>{ticket.priority.toUpperCase()}</Badge>
+                      <Badge variant="outline" className={statusClass(ticket)}>{statusLabel(ticket)}</Badge>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground mt-1.5">
+                      <span className="flex items-center gap-1"><Building2 className="h-3 w-3" />{ticket.hotel || '—'}</span>
+                      <span>·</span><span>{ticket.ticket_number}</span>
+                      <span>·</span><span className="flex items-center gap-1"><Clock className="h-3 w-3" />{new Date(ticket.created_at).toLocaleString()}</span>
+                    </div>
                   </div>
                 </div>
               </CardHeader>
-
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                    <AlertTriangle className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">
-                        {t('maintenance.reportedBy')}
-                      </p>
-                      <p className="text-lg font-semibold">
-                        {issue.profiles?.full_name || 'Unknown'}
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                    <MapPin className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">
-                        {t('maintenance.hotel')}
-                      </p>
-                      <p className="text-lg font-semibold">
-                        {issue.rooms?.hotel || 'Unknown'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg">
-                    <Clock className="h-5 w-5 text-muted-foreground" />
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">
-                        {t('maintenance.reportedAt')}
-                      </p>
-                      <p className="text-lg font-semibold">
-                        {new Date(issue.created_at).toLocaleTimeString()}
-                      </p>
-                    </div>
-                  </div>
+              <CardContent className="p-3 sm:p-4 pt-0 space-y-3">
+                <div className="rounded-lg bg-muted/45 p-3">
+                  <div className="text-xs font-semibold text-muted-foreground mb-1 flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" />{c.issue}</div>
+                  <p className="text-sm whitespace-pre-wrap">{ticket.description}</p>
                 </div>
 
-                <div className="p-4 bg-destructive/10 rounded-lg border-2 border-destructive/30">
-                  <h4 className="font-semibold text-destructive mb-2 flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4" />
-                    {t('maintenance.issueDescription')}
-                  </h4>
-                  <p className="text-foreground">{issue.issue_description}</p>
-                  {issue.notes && (
-                    <p className="text-muted-foreground mt-2 text-sm">
-                      {t('maintenance.notes')}: {issue.notes}
-                    </p>
-                  )}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+                  <div className="rounded-lg border p-2.5"><div className="text-[11px] text-muted-foreground">{c.reportedBy}</div><div className="font-semibold flex items-center gap-1"><User className="h-3.5 w-3.5" />{ticket.created_by_profile?.full_name || 'Unknown'}</div></div>
+                  <div className="rounded-lg border p-2.5"><div className="text-[11px] text-muted-foreground">{c.assignedTo}</div><div className="font-semibold">{ticket.assigned_to_profile?.full_name || c.unassigned}</div></div>
+                  <div className="rounded-lg border p-2.5"><div className="text-[11px] text-muted-foreground">{c.source}</div><div className="font-semibold">{ticket.source?.startsWith('housekeeping') ? c.housekeeping : ticket.assignment_method?.startsWith('auto') ? c.auto : c.manual}</div></div>
                 </div>
 
-                {issue.status === 'resolved' && issue.resolution_text && (
-                  <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border-2 border-green-300 dark:border-green-700">
-                    <h4 className="font-semibold text-green-700 dark:text-green-400 mb-2 flex items-center gap-2">
-                      <CheckCircle className="h-4 w-4" />
-                      {t('maintenance.resolutionDetails')}
-                    </h4>
-                    <p className="text-foreground mb-3">{issue.resolution_text}</p>
-                    
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 pt-3 border-t border-green-300 dark:border-green-700">
-                      {issue.resolved_by_profile && (
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className="text-xs text-muted-foreground">{t('maintenance.resolvedBy')}</p>
-                            <p className="text-sm font-semibold">{issue.resolved_by_profile.full_name}</p>
-                          </div>
-                        </div>
-                      )}
-                      {issue.resolved_at && (
-                        <div className="flex items-center gap-2">
-                          <Clock className="h-4 w-4 text-muted-foreground" />
-                          <div>
-                            <p className="text-xs text-muted-foreground">{t('maintenance.resolvedAt')}</p>
-                            <p className="text-sm font-semibold">
-                              {new Date(issue.resolved_at).toLocaleString()}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                {!ticket.assigned_to && ticket.assignment_method === 'unassigned_no_staff_on_duty' && (
+                  <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 flex gap-2"><Hourglass className="h-4 w-4 shrink-0" />{c.noDuty}</div>
+                )}
+                {ticket.on_hold && ticket.hold_reason && (
+                  <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 flex gap-2"><PauseCircle className="h-4 w-4 shrink-0" /><span><strong>{c.holdReason}:</strong> {ticket.hold_reason.replaceAll('_', ' ')}</span></div>
+                )}
+                {ticket.resolution_text && (
+                  <div className="text-xs text-green-800 bg-green-50 border border-green-200 rounded-lg p-2.5"><strong>{c.resolution}:</strong> {ticket.resolution_text}</div>
                 )}
 
-                {issue.photo_urls && issue.photo_urls.length > 0 && (
+                {!!ticket.attachment_urls?.length && (
                   <div className="space-y-2">
-                    <h4 className="font-semibold flex items-center gap-2">
-                      📷 {t('maintenance.photos')} ({issue.photo_urls.length})
-                    </h4>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                      {issue.photo_urls.map((url, index) => (
-                        <Dialog key={index}>
+                    <div className="text-xs font-semibold text-muted-foreground">{c.attachments} ({ticket.attachment_urls.length})</div>
+                    <div className="flex gap-2 flex-wrap">
+                      {ticket.attachment_urls.map((url, idx) => (
+                        <Dialog key={`${ticket.id}-${idx}`}>
                           <DialogTrigger asChild>
-                            <div 
-                              className="relative aspect-square rounded-lg overflow-hidden cursor-pointer hover:opacity-80 transition-opacity border-2 border-destructive"
-                            >
-                              <img
-                                src={url}
-                                alt={`Maintenance ${index + 1}`}
-                                className="object-cover w-full h-full"
-                              />
-                            </div>
+                            <Button variant="outline" size="sm"><Eye className="h-3.5 w-3.5 mr-1" />{idx + 1}</Button>
                           </DialogTrigger>
                           <DialogContent className="max-w-4xl">
-                            <img
-                              src={url}
-                              alt={`Maintenance ${index + 1}`}
-                              className="w-full h-auto"
-                            />
+                            {url.startsWith('http') ? <img src={url} alt={`Maintenance attachment ${idx + 1}`} className="max-h-[80vh] w-auto mx-auto" /> : <p className="text-sm break-all">{url}</p>}
                           </DialogContent>
                         </Dialog>
                       ))}
@@ -431,19 +255,7 @@ export function MaintenancePhotosManagement() {
         onOpenChange={setIsAddDialogOpen}
         roomId={null}
         roomNumber="General"
-        onIssueReported={() => {
-          fetchMaintenanceIssues();
-          setIsAddDialogOpen(false);
-        }}
-      />
-
-      <MaintenanceResolutionDialog
-        open={resolutionDialog.open}
-        onOpenChange={(open) => setResolutionDialog({ ...resolutionDialog, open })}
-        issueId={resolutionDialog.issueId}
-        roomNumber={resolutionDialog.roomNumber}
-        issueDescription={resolutionDialog.issueDescription}
-        onResolved={fetchMaintenanceIssues}
+        onIssueReported={() => { setIsAddDialogOpen(false); void fetchTickets(); }}
       />
     </div>
   );
