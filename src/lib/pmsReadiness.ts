@@ -16,6 +16,10 @@ const dateOnly = (value: unknown): string | null => {
  * departed on an earlier day keeps showing RTC while the current guest is
  * still in-house. Likewise, once live Previo housekeeping reports Clean,
  * RTC must disappear: the room is already clean, not merely ready for it.
+ *
+ * Managers/reception may also release a checkout manually. That path stores
+ * manualReadyToCleanAt instead of the PMS readyToClean flags, so treat the
+ * timestamp itself as an RTC signal while keeping the same today-only guard.
  */
 export const isPmsRtcToday = (meta: Record<string, any> | null | undefined): boolean => {
   if (!meta) return false;
@@ -26,9 +30,10 @@ export const isPmsRtcToday = (meta: Record<string, any> | null | undefined): boo
   const cleanStatusId = Number(meta.previoRoomCleanStatusId ?? 0);
   if (cleanStatusId === 2 || cleanStatusId === 3) return false;
 
-  const flagged = meta.checkedOutToday === true || meta.readyToClean === true;
+  const manuallyReleased = !!meta.manualReadyToCleanAt;
+  const flagged = meta.checkedOutToday === true || meta.readyToClean === true || manuallyReleased;
   if (!flagged) return false;
-  const stamp = dateOnly(meta.readyToCleanDate ?? meta.checkedOutAt);
+  const stamp = dateOnly(meta.readyToCleanDate ?? meta.checkedOutAt ?? meta.manualReadyToCleanAt);
   if (!stamp) return false;
   const today = todayBudapest();
   return stamp === today || stamp === new Date().toISOString().split("T")[0];
