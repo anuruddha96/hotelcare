@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
 import { getSignedPhotoUrls } from '@/lib/storageUrls';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -50,6 +51,7 @@ import { format } from 'date-fns';
 import { CompletionDataView } from './CompletionDataView';
 import { ApprovalHistoryView } from './ApprovalHistoryView';
 import { LateMinibarApprovals } from './LateMinibarApprovals';
+import { ForwardedMaintenanceApprovals } from './ForwardedMaintenanceApprovals';
 
 interface LinenSummaryItem {
   display_name: string;
@@ -314,6 +316,14 @@ export function SupervisorApprovalView() {
           }
         }
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tickets' },
+        (payload: any) => {
+          const row = payload.new || payload.old;
+          if (row?.department === 'maintenance') fetchPendingMaintenanceTickets();
+        }
+      )
       .subscribe();
 
     return () => {
@@ -341,13 +351,13 @@ export function SupervisorApprovalView() {
       if (error) throw error;
       setStaff(data || []);
 
-      const { data: maintStaff, error: maintError } = await supabase.rpc('get_assignable_staff', {
-        hotel_filter: profile?.assigned_hotel
+      const { data: maintStaff, error: maintError } = await (supabase as any).rpc('get_maintenance_staff_for_hotel', {
+        _hotel: profile?.assigned_hotel || null,
+        _signed_in_only: false,
       });
 
       if (!maintError) {
-        const maintenanceOnly = (maintStaff || []).filter((s: any) => s.role === 'maintenance');
-        setMaintenanceStaff(maintenanceOnly);
+        setMaintenanceStaff((maintStaff || []).map((s: any) => ({ id: s.id, full_name: s.full_name, role: s.role })));
       }
     } catch (error) {
       console.error('Error fetching staff:', error);
@@ -366,6 +376,7 @@ export function SupervisorApprovalView() {
         .single();
 
       if (!profile?.organization_slug) return;
+      const hotelKeys = await resolveHotelKeys(profile.assigned_hotel);
 
       let query = supabase
         .from('tickets')
@@ -380,8 +391,8 @@ export function SupervisorApprovalView() {
         .order('priority', { ascending: false })
         .order('created_at', { ascending: false });
 
-      if (profile.assigned_hotel) {
-        query = query.eq('hotel', profile.assigned_hotel);
+      if (hotelKeys.length) {
+        query = query.in('hotel', hotelKeys);
       }
 
       const { data, error } = await query;
@@ -423,7 +434,9 @@ export function SupervisorApprovalView() {
           closed_at: new Date().toISOString(),
           closed_by: (await supabase.auth.getUser()).data.user?.id
         })
-        .eq('id', ticketId);
+        .eq('id', ticketId)
+        .eq('department', 'maintenance')
+        .eq('pending_supervisor_approval', true);
 
       if (error) throw error;
 
@@ -445,7 +458,8 @@ export function SupervisorApprovalView() {
           pending_supervisor_approval: false,
           status: 'in_progress'
         })
-        .eq('id', ticketId);
+        .eq('id', ticketId)
+        .eq('department', 'maintenance');
 
       if (error) throw error;
 
@@ -1342,6 +1356,7 @@ export function SupervisorApprovalView() {
 
         <TabsContent value="pending" className="space-y-6">
           <div id="pending-approvals-list" />
+          <ForwardedMaintenanceApprovals />
           {/* Date picker */}
           <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
             <div>
