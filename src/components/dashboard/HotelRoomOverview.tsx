@@ -20,7 +20,7 @@ import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
 import { usePropertyTerms } from '@/lib/propertyTerminology';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
-import { setRoomDragPayload, readRoomDragPayload, unassignRoom } from '@/lib/hkAssignmentDnd';
+import { setRoomDragPayload, readRoomDragPayload, unassignRoom, assignRoomToStaff, setHousekeeperDragPayload, readHousekeeperDragPayload, isAssignmentInProgressError } from '@/lib/hkAssignmentDnd';
 import { useUnitSelection, toggleUnitSelection, toggleUnitGroupSelection, type SelectedUnit } from '@/lib/unitSelection';
 
 import { Textarea } from '@/components/ui/textarea';
