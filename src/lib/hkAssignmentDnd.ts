@@ -96,13 +96,26 @@ export async function assignRoomToStaff(params: {
 
   if (existing) {
     if (existing.assigned_to === staffId) return;
-    const { error } = await supabase
+    // A room that is being cleaned right now must never change owner. The
+    // guard is race-safe: the update itself excludes in_progress rows, so an
+    // assignment that starts between the read and the write still cannot be
+    // moved.
+    if (existing.status === 'in_progress') {
+      throw new AssignmentInProgressError(existing.assigned_to ?? null);
+    }
+    const { data: updated, error } = await supabase
       .from('room_assignments')
       .update({ assigned_to: staffId, assigned_by: assignedBy })
-      .eq('id', existing.id);
+      .eq('id', existing.id)
+      .neq('status', 'in_progress')
+      .select('id');
     if (error) throw error;
+    if (!updated || updated.length === 0) {
+      throw new AssignmentInProgressError(existing.assigned_to ?? null);
+    }
     return;
   }
+
 
   const insert: Record<string, unknown> = {
     room_id: roomId,
