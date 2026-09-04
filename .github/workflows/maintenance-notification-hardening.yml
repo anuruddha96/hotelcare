@@ -1,0 +1,26 @@
+name: Maintenance Notification Hardening
+
+on:
+  push:
+    branches:
+      - fix/maintenance-supervisor-forwarded-i18n
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/maintenance-supervisor-forwarded-i18n
+          fetch-depth: 0
+      - run: python3 .github/scripts/maintenance_notification_hardening.py
+      - run: |
+          git config user.name "hotelcare-maintenance-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: harden maintenance realtime notifications"
+          git push origin HEAD:fix/maintenance-supervisor-forwarded-i18n
