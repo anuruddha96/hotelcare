@@ -760,6 +760,65 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     return assigneeLabel(staffMap, assignment.assigned_to);
   };
 
+  /**
+   * Inverse drag: a housekeeper chip was dropped on a room chip. The write is
+   * immediate (not staged) and refuses to touch a room that is already being
+   * cleaned.
+   */
+  const handleHousekeeperDropOnRoom = async (e: React.DragEvent, room: RoomData) => {
+    const payload = readHousekeeperDragPayload(e);
+    if (!payload) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setHkHoverRoomId(null);
+    setHkDrag(null);
+
+    const assignment = assignmentMap.get(room.id);
+    const currentName = assignment ? (staffMap[assignment.assigned_to] || null) : null;
+
+    if (assignment?.status === 'in_progress') {
+      toast.warning(
+        `Room ${room.room_number} is currently being cleaned by ${cleanName(currentName) || 'another housekeeper'}. ` +
+        `This assignment cannot be changed while cleaning is in progress. Please contact ${cleanName(currentName) || 'them'} directly.`,
+        { duration: 8000 },
+      );
+      return;
+    }
+    if (assignment?.assigned_to === payload.staffId) {
+      toast.info(`Room ${room.room_number} is already assigned to ${cleanName(payload.staffName)}`);
+      return;
+    }
+
+    try {
+      await assignRoomToStaff({
+        roomId: room.id,
+        staffId: payload.staffId,
+        assignmentDate: selectedDate,
+        assignedBy: profile?.id ?? '',
+        organizationSlug: (profile as any)?.organization_slug ?? null,
+        isCheckoutRoom: isCheckoutBucket(room),
+      });
+      setHkSuccessRoomId(room.id);
+      setTimeout(() => setHkSuccessRoomId((id) => (id === room.id ? null : id)), 1200);
+      toast.success(`${room.room_number} → ${cleanName(payload.staffName)}`);
+      await fetchData(true);
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } catch (err) {
+      if (isAssignmentInProgressError(err)) {
+        const name = cleanName(staffMap[err.currentAssigneeId ?? ''] || currentName || '');
+        toast.warning(
+          `Room ${room.room_number} is currently being cleaned by ${name || 'another housekeeper'}. ` +
+          `This assignment cannot be changed while cleaning is in progress. Please contact ${name || 'them'} directly.`,
+          { duration: 8000 },
+        );
+        return;
+      }
+      console.error('Housekeeper drop assignment failed', err);
+      toast.error('Could not assign this room. Please try again.');
+    }
+  };
+
+
   const getAssignmentStatus = (roomId: string): string | null => {
     return assignmentMap.get(roomId)?.status || null;
   };
