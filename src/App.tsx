@@ -102,10 +102,14 @@ const RootRedirect = () => {
   if (heldLoading) return <WelcomeBackOverlay context="account" step="Checking your secure session…" progress={bootstrapProgress} />;
   if (!user) return <Navigate to="/auth" replace />;
   if (!profile?.organization_slug) return <Navigate to="/auth" replace />;
-  // top_management_manager is an operational manager and must land on the
-  // same dashboard/Housekeeping view as a normal manager. Only the legacy
-  // top_management role keeps the revenue-first landing.
-  if (profile.role === "top_management" && profile.assigned_hotel) {
+
+  // Hotel Memories top managers are operational managers: they must land on
+  // the same dashboard/Housekeeping view as normal managers. Keep the existing
+  // revenue-first behaviour untouched for top managers assigned to other hotels.
+  const isMemoriesTopManager = profile.role === "top_management_manager" &&
+    ["memories-budapest", "Hotel Memories Budapest"].includes(profile.assigned_hotel || "");
+
+  if ((profile.role === "top_management" || (profile.role === "top_management_manager" && !isMemoriesTopManager)) && profile.assigned_hotel) {
     return <Navigate to={`/${profile.organization_slug}/revenue/${profile.assigned_hotel}`} replace />;
   }
   return <Navigate to={`/${profile.organization_slug}`} replace />;
