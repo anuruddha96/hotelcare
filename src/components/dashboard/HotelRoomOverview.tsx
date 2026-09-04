@@ -938,6 +938,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             ${isSelected ? 'ring-2 ring-primary ring-offset-2 shadow-md scale-105' : ''}
             ${canInteractWithRooms && !compactChips ? 'hover:scale-110 hover:shadow-md' : ''}
             ${compactChips && canInteractWithRooms ? 'hover:shadow-sm' : ''}
+            ${hkDropTarget ? 'ring-1 ring-dashed ring-primary/50' : ''}
+            ${hkHovered ? 'ring-2 ring-primary ring-offset-1 shadow-md' : ''}
+            ${hkSuccessRoomId === room.id ? 'ring-2 ring-emerald-500 ring-offset-1' : ''}
           `}
           style={venuesEnabled ? venueEdgeStyle(room.venue_id) : undefined}
         >
