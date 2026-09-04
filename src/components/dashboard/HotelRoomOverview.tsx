@@ -2146,6 +2146,41 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           </div>
         </CardHeader>
         <CardContent className="px-4 pb-3 space-y-3">
+          {/* Signed-in housekeeper tray — drag a person onto a room to assign. */}
+          {canDragAssign && signedInHousekeepers.length > 0 && (
+            <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-[11px] font-semibold text-foreground">Signed in today</span>
+                <span className="text-[10px] text-muted-foreground hidden sm:inline">
+                  — drag a housekeeper onto a {terms.unit.toLowerCase()} to assign
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {signedInHousekeepers.map((hk) => (
+                  <div
+                    key={hk.id}
+                    draggable
+                    onDragStart={(e) => {
+                      setHousekeeperDragPayload(e, { staffId: hk.id, staffName: hk.fullName });
+                      setHkDrag({ staffId: hk.id, staffName: hk.fullName });
+                    }}
+                    onDragEnd={() => { setHkDrag(null); setHkHoverRoomId(null); }}
+                    className={`flex items-center gap-1 rounded-full border bg-background px-2 py-1 text-[11px] font-medium cursor-grab active:cursor-grabbing shadow-sm hover:shadow transition-shadow ${hkDrag?.staffId === hk.id ? 'opacity-60' : ''}`}
+                    title={hk.fullName}
+                  >
+                    <GripVertical className="h-3 w-3 text-muted-foreground" />
+                    <span className="max-w-[120px] truncate">{cleanName(hk.nickname) || cleanName(hk.fullName)}</span>
+                    {hk.onBreak && (
+                      <span className="flex items-center gap-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 px-1 text-[9px] font-semibold">
+                        <Coffee className="h-2.5 w-2.5" /> On break
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {viewMode === 'map' ? (
             <HotelFloorMap
               rooms={rooms}
