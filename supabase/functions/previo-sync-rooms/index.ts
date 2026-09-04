@@ -37,15 +37,15 @@ interface PrevioRoom {
 }
 
 // Keep one canonical housekeeping-status mapping for both Fresh Sync/import
-// and the normal room-status sync path. This prevents Fresh Sync from leaving
-// stale HotelCare statuses behind after Previo reports a room as clean/dirty.
+// and the normal room-status sync path. Previo's closed operational states must
+// remain visibly blocked in HotelCare, not collapse into an ordinary dirty room.
 const mapPrevioStatus = (statusId: number): string => {
   const statusMap: Record<number, string> = {
-    1: 'dirty',      // Untidy/Dirty
-    2: 'clean',      // Clean
-    3: 'clean',      // Inspected
-    4: 'dirty',      // Out of order
-    5: 'dirty',      // Out of service
+    1: 'dirty',          // Untidy/Dirty
+    2: 'clean',          // Clean
+    3: 'clean',          // Inspected
+    4: 'out_of_order',   // Out of order / maintenance closure
+    5: 'out_of_order',   // Out of service
   };
   return statusMap[statusId] || 'dirty';
 };
@@ -227,6 +227,7 @@ serve(async (req) => {
             roomKindId: r.roomKindId,
             roomKindName: r.roomKindName,
             roomTypeId: r.roomTypeId,
+            roomCleanStatusId: r.roomCleanStatusId,
             isHourlyBased: r.isHourlyBased,
             hasCapacity: r.hasCapacity,
             extraCapacity: r.extraCapacity,
@@ -368,9 +369,6 @@ serve(async (req) => {
       );
     }
 
-
-
-
     // Get room mappings for this hotel
     const { data: pmsConfigWithMappings } = await supabase
       .from('pms_configurations')
@@ -393,7 +391,6 @@ serve(async (req) => {
     console.log(`Found ${roomMappings.length} room mappings`);
 
     // (authHeader/userId already resolved earlier)
-
 
     const syncResults = {
       total: roomsData.length,
@@ -426,11 +423,10 @@ serve(async (req) => {
         const roomNumber = mapping.hotelcare_room_number;
         console.log(`Processing room: ${roomNumber} (PrevioRoomId: ${physicalRoomId}, kind: ${roomKindId}/${roomType}, statusId: ${roomData.roomCleanStatusId} -> ${status})`);
 
-
         // Check if room exists in Hotel Care using the HotelCare hotel_id
         const { data: existingRoom } = await supabase
           .from('rooms')
-          .select('id')
+          .select('id, pms_metadata')
           .eq('room_number', roomNumber)
           .eq('hotel', hotelCareHotelId)
           .single();
@@ -444,6 +440,14 @@ serve(async (req) => {
         const roomDataToSave = {
           status: status,
           room_type: roomType,
+          pms_metadata: {
+            ...((existingRoom as any).pms_metadata || {}),
+            roomId: roomData.roomId,
+            roomKindId: roomData.roomKindId,
+            roomKindName: roomData.roomKindName,
+            roomTypeId: roomData.roomTypeId,
+            roomCleanStatusId: roomData.roomCleanStatusId,
+          },
           updated_at: new Date().toISOString(),
         };
 
@@ -456,7 +460,7 @@ serve(async (req) => {
         if (error) throw error;
         syncResults.updated++;
         console.log(`✓ Updated room ${roomNumber} to status: ${status}`);
-        
+
       } catch (error: any) {
         console.error(`Error processing room:`, error);
         syncResults.errors.push(`Room processing error: ${error.message}`);
@@ -483,7 +487,7 @@ serve(async (req) => {
     console.log('Sync completed:', syncResults);
 
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         success: true,
         message: 'Rooms synced from Previo REST API',
         results: syncResults
@@ -493,13 +497,13 @@ serve(async (req) => {
 
   } catch (error: any) {
     console.error('Previo sync error:', error);
-    
+
     // Log failed sync
     try {
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
       const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const supabase = createClient(supabaseUrl, supabaseKey);
-      
+
       await supabase.from('pms_sync_history').insert({
         sync_type: 'rooms',
         direction: 'from_previo',
