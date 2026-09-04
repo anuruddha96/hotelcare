@@ -1,1260 +1,251 @@
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
-import { supabase } from '@/integrations/supabase/client';
+import { todayBudapest } from '@/lib/budapestTime';
 import { getSignedPhotoUrls } from '@/lib/storageUrls';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Wrench, Clock, CheckCircle, Play, MessageSquare, Camera, AlertTriangle, Calendar as CalendarIcon, Pause, Timer, RotateCcw, Hourglass, Eye } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertTriangle, Building2, Camera, CheckCircle2, Clock3, Eye, FileText, MapPin, MessageSquare, PauseCircle, Play, RefreshCw, User, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
-import { format, differenceInHours, differenceInMinutes, isBefore, addHours } from 'date-fns';
 
-interface MaintenanceTicket {
-  id: string;
-  ticket_number: string;
-  title: string;
-  description: string;
-  room_number: string;
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  status: 'open' | 'in_progress' | 'completed';
-  created_at: string;
-  updated_at: string;
-  hotel?: string;
-  sla_due_date?: string;
-  on_hold?: boolean;
-  hold_reason?: string;
-  pending_supervisor_approval?: boolean;
-  created_by_profile?: {
-    full_name: string;
-    role: string;
-  };
-  completion_photos?: string[];
-  resolution_text?: string;
-}
-
-// SLA hours by priority
-const SLA_HOURS: { [key: string]: number } = {
-  urgent: 4,
-  high: 24,
-  medium: 72,
-  low: 168
+type Ticket = {
+  id: string; ticket_number: string; title: string; description: string; room_number: string; hotel: string | null;
+  priority: 'low' | 'medium' | 'high' | 'urgent'; status: 'open' | 'in_progress' | 'completed';
+  created_at: string; updated_at: string; attachment_urls: string[] | null; completion_photos: string[] | null;
+  pending_supervisor_approval: boolean | null; on_hold: boolean | null; hold_reason: string | null; resolution_text: string | null;
+  created_by_profile?: { full_name: string; role?: string } | null;
 };
 
-// Hold reasons
+type Copy = Record<string, string>;
+const EN: Copy = {
+  title: 'My Maintenance Tasks', subtitle: 'Work only on tickets assigned to you for this hotel.', signedIn: 'Signed in', notSignedIn: 'Sign in before starting work',
+  active: 'Active', approval: 'Awaiting approval', done: 'Done', noTasks: 'No maintenance tasks assigned to you.', room: 'Room', hotel: 'Hotel', reportedBy: 'Reported by',
+  issue: 'Issue', attachments: 'Attachments', start: 'Start work', note: 'Add note', hold: 'Pending / hold', resume: 'Resume work', complete: 'Complete work',
+  statusOpen: 'Open', statusProgress: 'In progress', statusHold: 'Pending', statusApproval: 'Awaiting approval', statusDone: 'Done',
+  holdReason: 'Why is this pending?', parts: 'Waiting for parts', purchase: 'Purchase in progress', access: 'Waiting for room access', approvalReason: 'Waiting for approval', contractor: 'External contractor needed', other: 'Other',
+  pendingDetails: 'Add details so the supervisor knows what is blocking the repair.', saveHold: 'Save pending reason', cancel: 'Cancel', saveNote: 'Save note', notePlaceholder: 'Write an update for the supervisor…',
+  resolution: 'What did you fix?', resolutionPlaceholder: 'Describe the repair and what was done…', photoRequired: 'Add one completion photo before submitting.', submitApproval: 'Submit for supervisor approval',
+  workStarted: 'Work started', holdSaved: 'Ticket marked pending', resumed: 'Work resumed', noteSaved: 'Note added', submitted: 'Submitted for supervisor approval', failed: 'Action failed', history: 'Recent completed work', refresh: 'Refresh',
+};
+const HU: Copy = {
+  title: 'Karbantartási feladataim', subtitle: 'Csak az Önhöz rendelt, ehhez a hotelhez tartozó jegyeken dolgozzon.', signedIn: 'Bejelentkezve', notSignedIn: 'A munka megkezdése előtt jelentkezzen be',
+  active: 'Aktív', approval: 'Jóváhagyásra vár', done: 'Kész', noTasks: 'Nincs Önhöz rendelt karbantartási feladat.', room: 'Szoba', hotel: 'Hotel', reportedBy: 'Jelentette',
+  issue: 'Hiba', attachments: 'Mellékletek', start: 'Munka indítása', note: 'Jegyzet', hold: 'Függőben', resume: 'Munka folytatása', complete: 'Munka befejezése',
+  statusOpen: 'Nyitott', statusProgress: 'Folyamatban', statusHold: 'Függőben', statusApproval: 'Jóváhagyásra vár', statusDone: 'Kész',
+  holdReason: 'Miért van függőben?', parts: 'Alkatrészre vár', purchase: 'Beszerzés folyamatban', access: 'Szobahozzáférésre vár', approvalReason: 'Jóváhagyásra vár', contractor: 'Külső szakember szükséges', other: 'Egyéb',
+  pendingDetails: 'Írjon részleteket, hogy a felügyelő lássa, mi akadályozza a javítást.', saveHold: 'Függő ok mentése', cancel: 'Mégse', saveNote: 'Jegyzet mentése', notePlaceholder: 'Írjon frissítést a felügyelőnek…',
+  resolution: 'Mit javított meg?', resolutionPlaceholder: 'Írja le a javítást és az elvégzett munkát…', photoRequired: 'A beküldés előtt adjon hozzá egy befejezési fotót.', submitApproval: 'Beküldés felügyelői jóváhagyásra',
+  workStarted: 'Munka elkezdve', holdSaved: 'Jegy függőben', resumed: 'Munka folytatva', noteSaved: 'Jegyzet hozzáadva', submitted: 'Jóváhagyásra beküldve', failed: 'A művelet sikertelen', history: 'Legutóbbi befejezett munkák', refresh: 'Frissítés',
+};
+const translations: Record<string, Copy> = {
+  en: EN, hu: HU,
+  es: { ...EN, title: 'Mis tareas de mantenimiento', subtitle: 'Trabaje solo en los tickets asignados a usted para este hotel.', signedIn: 'Registrado', notSignedIn: 'Regístrese antes de comenzar', active: 'Activos', approval: 'Pendiente de aprobación', done: 'Hecho', noTasks: 'No tiene tareas de mantenimiento asignadas.', reportedBy: 'Reportado por', issue: 'Problema', attachments: 'Adjuntos', start: 'Iniciar trabajo', note: 'Añadir nota', hold: 'Pendiente / pausa', resume: 'Reanudar', complete: 'Completar', holdReason: '¿Por qué está pendiente?', pendingDetails: 'Añada detalles para que el supervisor sepa qué bloquea la reparación.', saveHold: 'Guardar motivo', saveNote: 'Guardar nota', resolution: '¿Qué reparó?', submitApproval: 'Enviar para aprobación', history: 'Trabajos completados recientes', refresh: 'Actualizar' },
+  vi: { ...EN, title: 'Công việc bảo trì của tôi', subtitle: 'Chỉ xử lý các phiếu được giao cho bạn tại khách sạn này.', signedIn: 'Đã đăng nhập', notSignedIn: 'Hãy đăng nhập trước khi bắt đầu', active: 'Đang hoạt động', approval: 'Chờ duyệt', done: 'Hoàn tất', noTasks: 'Không có công việc bảo trì được giao.', reportedBy: 'Người báo', issue: 'Sự cố', attachments: 'Tệp đính kèm', start: 'Bắt đầu', note: 'Thêm ghi chú', hold: 'Đang chờ', resume: 'Tiếp tục', complete: 'Hoàn tất công việc', holdReason: 'Vì sao đang chờ?', pendingDetails: 'Thêm chi tiết để giám sát biết điều gì đang cản trở việc sửa chữa.', saveHold: 'Lưu lý do', saveNote: 'Lưu ghi chú', resolution: 'Bạn đã sửa gì?', submitApproval: 'Gửi để giám sát duyệt', history: 'Công việc hoàn tất gần đây', refresh: 'Làm mới' },
+  mn: { ...EN, title: 'Миний засварын ажлууд', subtitle: 'Зөвхөн энэ зочид буудалд танд хуваарилсан ажлыг гүйцэтгэнэ.', signedIn: 'Нэвтэрсэн', notSignedIn: 'Ажил эхлэхийн өмнө нэвтэрнэ үү', active: 'Идэвхтэй', approval: 'Зөвшөөрөл хүлээж байна', done: 'Дууссан', noTasks: 'Танд хуваарилсан засварын ажил алга.', reportedBy: 'Мэдээлсэн', issue: 'Асуудал', attachments: 'Хавсралт', start: 'Ажил эхлэх', note: 'Тэмдэглэл', hold: 'Хүлээгдэж байна', resume: 'Үргэлжлүүлэх', complete: 'Ажил дуусгах', holdReason: 'Яагаад хүлээгдэж байна?', saveHold: 'Шалтгаан хадгалах', saveNote: 'Тэмдэглэл хадгалах', resolution: 'Юуг зассан бэ?', submitApproval: 'Хянагчид зөвшөөрүүлэхээр илгээх', history: 'Сүүлийн дууссан ажлууд', refresh: 'Шинэчлэх' },
+  az: { ...EN, title: 'Texniki xidmət tapşırıqlarım', subtitle: 'Yalnız bu oteldə sizə təyin edilmiş tapşırıqlar üzərində işləyin.', signedIn: 'Giriş edilib', notSignedIn: 'İşə başlamazdan əvvəl giriş edin', active: 'Aktiv', approval: 'Təsdiq gözləyir', done: 'Tamamlandı', noTasks: 'Sizə təyin edilmiş texniki xidmət tapşırığı yoxdur.', reportedBy: 'Bildirən', issue: 'Problem', attachments: 'Əlavələr', start: 'İşə başla', note: 'Qeyd əlavə et', hold: 'Gözləmədə', resume: 'Davam et', complete: 'İşi tamamla', holdReason: 'Niyə gözləmədədir?', saveHold: 'Səbəbi saxla', saveNote: 'Qeydi saxla', resolution: 'Nəyi təmir etdiniz?', submitApproval: 'Nəzarətçi təsdiqinə göndər', history: 'Son tamamlanan işlər', refresh: 'Yenilə' },
+  tl: { ...EN, title: 'Mga Maintenance Task Ko', subtitle: 'Gawin lamang ang mga ticket na naka-assign sa iyo para sa hotel na ito.', signedIn: 'Naka-sign in', notSignedIn: 'Mag-sign in bago magsimula', active: 'Aktibo', approval: 'Naghihintay ng approval', done: 'Tapos', noTasks: 'Walang maintenance task na naka-assign sa iyo.', reportedBy: 'Iniulat ni', issue: 'Problema', attachments: 'Mga attachment', start: 'Simulan ang trabaho', note: 'Magdagdag ng note', hold: 'Pending / hold', resume: 'Ipagpatuloy', complete: 'Tapusin ang trabaho', holdReason: 'Bakit pending?', saveHold: 'I-save ang dahilan', saveNote: 'I-save ang note', resolution: 'Ano ang inayos mo?', submitApproval: 'Ipadala para sa approval', history: 'Kamakailang natapos na trabaho', refresh: 'I-refresh' },
+  uk: { ...EN, title: 'Мої завдання з техобслуговування', subtitle: 'Працюйте лише із заявками, призначеними вам у цьому готелі.', signedIn: 'Вхід виконано', notSignedIn: 'Увійдіть перед початком роботи', active: 'Активні', approval: 'Очікує схвалення', done: 'Готово', noTasks: 'Немає призначених вам заявок.', reportedBy: 'Повідомив', issue: 'Проблема', attachments: 'Вкладення', start: 'Почати роботу', note: 'Додати нотатку', hold: 'Очікує / пауза', resume: 'Продовжити', complete: 'Завершити роботу', holdReason: 'Чому заявка очікує?', saveHold: 'Зберегти причину', saveNote: 'Зберегти нотатку', resolution: 'Що ви виправили?', submitApproval: 'Надіслати на схвалення', history: 'Нещодавно завершені роботи', refresh: 'Оновити' },
+  ru: { ...EN, title: 'Мои задачи по техобслуживанию', subtitle: 'Работайте только с заявками, назначенными вам в этом отеле.', signedIn: 'Вход выполнен', notSignedIn: 'Войдите перед началом работы', active: 'Активные', approval: 'Ожидает одобрения', done: 'Готово', noTasks: 'Нет назначенных вам заявок.', reportedBy: 'Сообщил', issue: 'Проблема', attachments: 'Вложения', start: 'Начать работу', note: 'Добавить заметку', hold: 'Ожидание / пауза', resume: 'Продолжить', complete: 'Завершить работу', holdReason: 'Почему заявка ожидает?', saveHold: 'Сохранить причину', saveNote: 'Сохранить заметку', resolution: 'Что вы исправили?', submitApproval: 'Отправить на одобрение', history: 'Недавно завершённые работы', refresh: 'Обновить' },
+};
+
 const HOLD_REASONS = [
-  { value: 'parts_pending', labelEn: 'New parts pending', labelHu: 'Új alkatrészekre vár' },
-  { value: 'purchase_in_progress', labelEn: 'Purchase in progress', labelHu: 'Beszerzés folyamatban' },
-  { value: 'need_additional_parts', labelEn: 'Need additional parts', labelHu: 'További alkatrészek szükségesek' },
-  { value: 'waiting_for_approval', labelEn: 'Waiting for approval', labelHu: 'Jóváhagyásra vár' },
-  { value: 'other', labelEn: 'Other reason', labelHu: 'Egyéb ok' },
-];
+  ['parts_pending', 'parts'], ['purchase_in_progress', 'purchase'], ['waiting_for_access', 'access'],
+  ['waiting_for_approval', 'approvalReason'], ['external_contractor', 'contractor'], ['other', 'other'],
+] as const;
 
 export function MaintenanceStaffView() {
   const { user, profile } = useAuth();
-  const { t, language } = useTranslation();
-  const [activeTickets, setActiveTickets] = useState<MaintenanceTicket[]>([]);
-  const [pendingApprovalTickets, setPendingApprovalTickets] = useState<MaintenanceTicket[]>([]);
-  const [completedTickets, setCompletedTickets] = useState<MaintenanceTicket[]>([]);
-  const [datesWithJobs, setDatesWithJobs] = useState<Date[]>([]);
+  const { language } = useTranslation();
+  const c = translations[language] || EN;
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [completed, setCompleted] = useState<Ticket[]>([]);
+  const [signedIn, setSignedIn] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [selectedTicket, setSelectedTicket] = useState<MaintenanceTicket | null>(null);
-  const [noteDialogOpen, setNoteDialogOpen] = useState(false);
-  const [completeDialogOpen, setCompleteDialogOpen] = useState(false);
-  const [holdDialogOpen, setHoldDialogOpen] = useState(false);
-  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'active' | 'approval' | 'done'>('active');
+  const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string[]>>({});
+  const [selected, setSelected] = useState<Ticket | null>(null);
+  const [dialog, setDialog] = useState<'note' | 'hold' | 'complete' | null>(null);
   const [note, setNote] = useState('');
-  const [resolution, setResolution] = useState('');
   const [holdReason, setHoldReason] = useState('');
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
-  const [isCapturing, setIsCapturing] = useState(false);
-  const [isSignedIn, setIsSignedIn] = useState<boolean | null>(null);
-  const [showSignInPrompt, setShowSignInPrompt] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'open' | 'inProgress' | 'onHold' | 'pending'>('all');
-  const [signedPhotoUrls, setSignedPhotoUrls] = useState<{ [ticketId: string]: string[] }>({});
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const [holdDetails, setHoldDetails] = useState('');
+  const [resolution, setResolution] = useState('');
+  const [completionFile, setCompletionFile] = useState<File | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  // Translations
-  const getText = (key: string) => {
-    const translations: { [key: string]: { en: string; hu: string } } = {
-      myTasks: { en: 'My Maintenance Tasks', hu: 'Karbantartási feladataim' },
-      tasksAssigned: { en: 'Tasks assigned to you', hu: 'Önhöz rendelt feladatok' },
-      allDone: { en: 'All Done!', hu: 'Minden kész!' },
-      noTasks: { en: 'No maintenance tasks assigned to you', hu: 'Nincs Önhöz rendelt karbantartási feladat' },
-      total: { en: 'Total', hu: 'Összes' },
-      open: { en: 'Open', hu: 'Nyitott' },
-      inProgress: { en: 'In Progress', hu: 'Folyamatban' },
-      onHold: { en: 'On Hold', hu: 'Várakozik' },
-      pendingApproval: { en: 'Pending Approval', hu: 'Jóváhagyásra vár' },
-      startWork: { en: 'Start Work', hu: 'Munka indítása' },
-      addNote: { en: 'Add Note', hu: 'Jegyzet hozzáadása' },
-      markComplete: { en: 'Mark Complete', hu: 'Befejezés' },
-      completeTask: { en: 'Complete Task', hu: 'Feladat befejezése' },
-      resolution: { en: 'Resolution Description', hu: 'Megoldás leírása' },
-      resolutionPlaceholder: { en: 'Describe what was done to resolve the issue...', hu: 'Írja le, hogyan oldotta meg a problémát...' },
-      submitApproval: { en: 'Submit for Approval', hu: 'Beküldés jóváhagyásra' },
-      awaitingApproval: { en: 'This will send the task for supervisor approval.', hu: 'Ez a feladat felügyelői jóváhagyásra kerül küldésre.' },
-      reportedBy: { en: 'Reported by', hu: 'Jelentette' },
-      slaDue: { en: 'SLA Due', hu: 'SLA határidő' },
-      slaOverdue: { en: 'OVERDUE', hu: 'LEJÁRT' },
-      completionPhoto: { en: 'Completion Photo', hu: 'Befejezési fotó' },
-      photoRequired: { en: 'Photo required before completion', hu: 'Fotó szükséges a befejezés előtt' },
-      takePhoto: { en: 'Take Photo', hu: 'Fotó készítése' },
-      retakePhoto: { en: 'Retake', hu: 'Újra' },
-      viewHistory: { en: 'View History', hu: 'Előzmények' },
-      putOnHold: { en: 'Put on Hold', hu: 'Várakoztatás' },
-      removeHold: { en: 'Remove Hold', hu: 'Várakoztatás megszüntetése' },
-      holdReason: { en: 'Hold Reason', hu: 'Várakoztatás oka' },
-      selectReason: { en: 'Select a reason...', hu: 'Válasszon okot...' },
-      confirmHold: { en: 'Confirm Hold', hu: 'Várakoztatás megerősítése' },
-      ticketOnHold: { en: 'Ticket put on hold', hu: 'Jegy várakoztatva' },
-      holdRemoved: { en: 'Hold removed, work can continue', hu: 'Várakoztatás megszüntetve, folytathatja a munkát' },
-      workStarted: { en: 'Work started on ticket', hu: 'Munka elkezdve' },
-      noteAdded: { en: 'Note added successfully', hu: 'Jegyzet sikeresen hozzáadva' },
-      taskCompleted: { en: 'Task completed! Awaiting supervisor approval.', hu: 'Feladat befejezve! Jóváhagyásra vár.' },
-      cancel: { en: 'Cancel', hu: 'Mégse' },
-      saveNote: { en: 'Save Note', hu: 'Jegyzet mentése' },
-      room: { en: 'Room', hu: 'Szoba' },
-      history: { en: 'Completed Jobs History', hu: 'Befejezett munkák előzményei' },
-      noJobsOnDate: { en: 'No completed jobs on this date', hu: 'Nincs befejezett munka ezen a napon' },
-      capturing: { en: 'Capture', hu: 'Rögzítés' },
-      reopenCase: { en: 'Reopen Case', hu: 'Újranyitás' },
-      caseReopened: { en: 'Case reopened for further work', hu: 'Ügy újranyitva további munkára' },
-      awaitingManagerReview: { en: 'Awaiting manager review', hu: 'Vezetői felülvizsgálatra vár' },
-      viewDetails: { en: 'View Details', hu: 'Részletek' },
-    };
-    return translations[key]?.[language === 'hu' ? 'hu' : 'en'] || key;
-  };
+  const loadAttachmentUrls = useCallback(async (rows: Ticket[]) => {
+    const map: Record<string, string[]> = {};
+    for (const ticket of rows) {
+      const direct: string[] = [];
+      const privatePaths: string[] = [];
+      for (const value of ticket.attachment_urls || []) {
+        if (value.startsWith('http://') || value.startsWith('https://')) direct.push(value);
+        else privatePaths.push(value);
+      }
+      const signed = privatePaths.length ? await getSignedPhotoUrls(privatePaths, 'ticket-attachments') : [];
+      map[ticket.id] = [...direct, ...signed];
+    }
+    setAttachmentUrls(map);
+  }, []);
 
-  const getHoldReasonLabel = (value: string) => {
-    const reason = HOLD_REASONS.find(r => r.value === value);
-    return reason ? (language === 'hu' ? reason.labelHu : reason.labelEn) : value;
-  };
-
-  const fetchAssignedTickets = async () => {
+  const refresh = useCallback(async () => {
     if (!user?.id) return;
-    
     setLoading(true);
     try {
-      // Fetch active tickets (not completed, not pending approval)
-      const { data: activeData, error: activeError } = await supabase
-        .from('tickets')
-        .select(`
-          *,
+      const today = todayBudapest();
+      const [{ data: attendance }, { data: activeData, error: activeError }, { data: completedData }] = await Promise.all([
+        supabase.from('staff_attendance').select('id').eq('user_id', user.id).eq('work_date', today).eq('status', 'checked_in').limit(1),
+        (supabase as any).from('tickets').select(`
+          id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at,
+          attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text,
           created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
-        `)
-        .eq('assigned_to', user.id)
-        .eq('department', 'maintenance')
-        .neq('status', 'completed')
-        .eq('pending_supervisor_approval', false)
-        .order('priority', { ascending: false })
-        .order('created_at', { ascending: false });
-
+        `).eq('assigned_to', user.id).eq('department', 'maintenance').neq('status', 'completed').order('priority', { ascending: false }).order('created_at', { ascending: false }),
+        (supabase as any).from('tickets').select(`
+          id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at,
+          attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text,
+          created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
+        `).eq('assigned_to', user.id).eq('department', 'maintenance').eq('status', 'completed').order('closed_at', { ascending: false }).limit(30),
+      ]);
       if (activeError) throw activeError;
-      
-      // Fetch pending approval tickets
-      const { data: pendingData, error: pendingError } = await supabase
-        .from('tickets')
-        .select(`
-          *,
-          created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
-        `)
-        .eq('assigned_to', user.id)
-        .eq('department', 'maintenance')
-        .eq('pending_supervisor_approval', true)
-        .order('updated_at', { ascending: false });
-
-      if (pendingError) throw pendingError;
-      
-      const parseTickets = (data: any[]) => (data || []).map((d: any) => ({
-        id: d.id,
-        ticket_number: d.ticket_number,
-        title: d.title,
-        description: d.description,
-        room_number: d.room_number,
-        priority: d.priority,
-        status: d.status,
-        created_at: d.created_at,
-        updated_at: d.updated_at,
-        hotel: d.hotel,
-        sla_due_date: d.sla_due_date,
-        on_hold: d.on_hold,
-        hold_reason: d.hold_reason,
-        pending_supervisor_approval: d.pending_supervisor_approval,
-        created_by_profile: d.created_by_profile,
-        completion_photos: d.completion_photos,
-        resolution_text: d.resolution_text,
-      }));
-      
-      // Sort by priority
-      const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 };
-      const active = parseTickets(activeData);
-      active.sort((a, b) => (priorityOrder[a.priority] ?? 4) - (priorityOrder[b.priority] ?? 4));
-      
-      setActiveTickets(active);
-      const pending = parseTickets(pendingData);
-      setPendingApprovalTickets(pending);
-      
-      // Load signed URLs for pending approval tickets that have photos
-      loadSignedUrlsForTickets(pending);
+      setSignedIn(!!attendance?.length);
+      const activeRows = (activeData || []) as Ticket[];
+      const completedRows = (completedData || []) as Ticket[];
+      setTickets(activeRows);
+      setCompleted(completedRows);
+      void loadAttachmentUrls([...activeRows, ...completedRows]);
     } catch (error) {
-      console.error('Error fetching tickets:', error);
-      toast.error('Failed to load maintenance tasks');
+      console.error('Maintenance task load failed:', error);
+      toast.error(c.failed);
     } finally {
       setLoading(false);
     }
-  };
-  
-  // Load signed URLs for tickets with completion photos
-  const loadSignedUrlsForTickets = async (tickets: MaintenanceTicket[]) => {
-    const urlsMap: { [ticketId: string]: string[] } = {};
-    
-    for (const ticket of tickets) {
-      if (ticket.completion_photos && ticket.completion_photos.length > 0) {
-        const signedUrls = await getSignedPhotoUrls(ticket.completion_photos, 'ticket-attachments');
-        if (signedUrls.length > 0) {
-          urlsMap[ticket.id] = signedUrls;
-        }
-      }
-    }
-    
-    setSignedPhotoUrls(prev => ({ ...prev, ...urlsMap }));
-  };
-
-  const fetchCompletedTickets = async (date: Date) => {
-    if (!user?.id) return;
-    
-    try {
-      const dateStr = format(date, 'yyyy-MM-dd');
-      const nextDay = format(new Date(date.getTime() + 86400000), 'yyyy-MM-dd');
-      
-      const { data, error } = await supabase
-        .from('tickets')
-        .select(`
-          *,
-          created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
-        `)
-        .eq('assigned_to', user.id)
-        .eq('department', 'maintenance')
-        .eq('status', 'completed')
-        .gte('closed_at', dateStr)
-        .lt('closed_at', nextDay)
-        .order('closed_at', { ascending: false });
-
-      if (error) throw error;
-      setCompletedTickets(data || []);
-    } catch (error) {
-      console.error('Error fetching completed tickets:', error);
-    }
-  };
-
-  const fetchDatesWithJobs = async () => {
-    if (!user?.id) return;
-    
-    try {
-      // Get the last 60 days of completed tickets
-      const sixtyDaysAgo = new Date();
-      sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
-      
-      const { data, error } = await supabase
-        .from('tickets')
-        .select('closed_at')
-        .eq('assigned_to', user.id)
-        .eq('department', 'maintenance')
-        .eq('status', 'completed')
-        .gte('closed_at', sixtyDaysAgo.toISOString())
-        .not('closed_at', 'is', null);
-
-      if (error) throw error;
-      
-      const dates = (data || []).map(d => new Date(d.closed_at));
-      setDatesWithJobs(dates);
-    } catch (error) {
-      console.error('Error fetching dates with jobs:', error);
-    }
-  };
-
-  // Check if user is signed in
-  const checkSignInStatus = async () => {
-    if (!user?.id) return;
-    
-    try {
-      const today = new Date().toISOString().split('T')[0];
-      const { data, error } = await supabase
-        .from('staff_attendance')
-        .select('id, status')
-        .eq('user_id', user.id)
-        .eq('work_date', today)
-        .single();
-      
-      if (error && error.code !== 'PGRST116') {
-        console.error('Error checking sign-in status:', error);
-      }
-      
-      // User is signed in if they have a record and haven't checked out
-      setIsSignedIn(data && data.status !== 'checked_out');
-    } catch (error) {
-      console.error('Error checking sign-in status:', error);
-      setIsSignedIn(false);
-    }
-  };
+  }, [user?.id, loadAttachmentUrls, c.failed]);
 
   useEffect(() => {
-    fetchAssignedTickets();
-    fetchDatesWithJobs();
-    checkSignInStatus();
-    
-    // Set up real-time subscription for INSERT events
-    const channel = supabase
-      .channel('maintenance-tickets-insert')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'tickets',
-        },
-        (payload) => {
-          // Check if ticket is assigned to current user
-          if ((payload.new as any).assigned_to === user?.id) {
-            fetchAssignedTickets();
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'tickets',
-          filter: `assigned_to=eq.${user?.id}`,
-        },
-        () => {
-          fetchAssignedTickets();
-        }
-      )
+    void refresh();
+    if (!user?.id) return;
+    const channel = supabase.channel(`maintenance-staff-${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets', filter: `assigned_to=eq.${user.id}` }, () => void refresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_attendance', filter: `user_id=eq.${user.id}` }, () => void refresh())
       .subscribe();
-      
-    // Real-time attendance status
-    const attendanceChannel = supabase
-      .channel('attendance-status')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'staff_attendance',
-          filter: `user_id=eq.${user?.id}`,
-        },
-        () => {
-          checkSignInStatus();
-        }
-      )
-      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [refresh, user?.id]);
 
-    // Polling fallback every 15 seconds when tab is visible
-    const startPolling = () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-      pollingRef.current = setInterval(() => {
-        if (document.visibilityState === 'visible') {
-          fetchAssignedTickets();
-        }
-      }, 15000);
-    };
+  const addComment = async (ticketId: string, content: string) => {
+    if (!user?.id || !content.trim()) return;
+    const { error } = await supabase.from('comments').insert({ ticket_id: ticketId, user_id: user.id, content: content.trim() });
+    if (error) throw error;
+  };
 
-    startPolling();
+  const startWork = async (ticket: Ticket) => {
+    if (!signedIn) { toast.error(c.notSignedIn); return; }
+    const { error } = await supabase.from('tickets').update({ status: 'in_progress', on_hold: false, hold_reason: null, updated_at: new Date().toISOString() }).eq('id', ticket.id).eq('assigned_to', user?.id);
+    if (error) { toast.error(c.failed); return; }
+    await addComment(ticket.id, `▶ ${c.workStarted}`).catch(console.error);
+    toast.success(c.workStarted); void refresh();
+  };
 
-    // Refresh on focus
-    const handleFocus = () => {
-      fetchAssignedTickets();
-    };
+  const saveNote = async () => {
+    if (!selected || !note.trim()) return;
+    try { await addComment(selected.id, note); toast.success(c.noteSaved); setNote(''); setDialog(null); } catch { toast.error(c.failed); }
+  };
 
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        fetchAssignedTickets();
-      }
-    };
-
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      supabase.removeChannel(channel);
-      supabase.removeChannel(attendanceChannel);
-      if (pollingRef.current) clearInterval(pollingRef.current);
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (historyDialogOpen) {
-      fetchCompletedTickets(selectedDate);
-    }
-  }, [selectedDate, historyDialogOpen]);
-
-  const handleStartWork = async (ticket: MaintenanceTicket) => {
-    // Check if user is signed in first
-    if (!isSignedIn) {
-      toast.error(t('attendance.checkInRequired'));
-      setShowSignInPrompt(true);
-      return;
-    }
-    
+  const saveHold = async () => {
+    if (!selected || !holdReason) return;
     try {
-      const { error } = await supabase
-        .from('tickets')
-        .update({ 
-          status: 'in_progress', 
-          on_hold: false,
-          hold_reason: null,
-          updated_at: new Date().toISOString() 
-        })
-        .eq('id', ticket.id);
-
+      const { error } = await supabase.from('tickets').update({ status: 'in_progress', on_hold: true, hold_reason: holdReason, updated_at: new Date().toISOString() }).eq('id', selected.id).eq('assigned_to', user?.id);
       if (error) throw error;
-      toast.success(getText('workStarted'));
-      fetchAssignedTickets();
-    } catch (error) {
-      console.error('Error starting work:', error);
-      toast.error('Failed to start work');
-    }
+      const label = c[HOLD_REASONS.find(([value]) => value === holdReason)?.[1] || 'other'];
+      await addComment(selected.id, `⏸ ${label}${holdDetails.trim() ? ` — ${holdDetails.trim()}` : ''}`);
+      toast.success(c.holdSaved); setHoldReason(''); setHoldDetails(''); setDialog(null); void refresh();
+    } catch { toast.error(c.failed); }
   };
 
-  const handleAddNote = async () => {
-    if (!selectedTicket || !note.trim()) return;
-    
-    try {
-      const { error } = await supabase
-        .from('comments')
-        .insert({
-          ticket_id: selectedTicket.id,
-          user_id: user?.id,
-          content: note,
-        });
+  const resumeWork = async (ticket: Ticket) => {
+    if (!signedIn) { toast.error(c.notSignedIn); return; }
+    const { error } = await supabase.from('tickets').update({ on_hold: false, hold_reason: null, status: 'in_progress', updated_at: new Date().toISOString() }).eq('id', ticket.id).eq('assigned_to', user?.id);
+    if (error) { toast.error(c.failed); return; }
+    await addComment(ticket.id, `▶ ${c.resumed}`).catch(console.error); toast.success(c.resumed); void refresh();
+  };
 
+  const submitCompletion = async () => {
+    if (!selected || !resolution.trim() || !completionFile || !user?.id) { toast.error(c.photoRequired); return; }
+    try {
+      const ext = completionFile.name.split('.').pop() || 'jpg';
+      const path = `${selected.id}/completion-${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from('ticket-attachments').upload(path, completionFile, { upsert: false });
+      if (uploadError) throw uploadError;
+      const { error } = await supabase.from('tickets').update({
+        status: 'in_progress', resolution_text: resolution.trim(), completion_photos: [path], pending_supervisor_approval: true,
+        on_hold: false, hold_reason: null, updated_at: new Date().toISOString(),
+      }).eq('id', selected.id).eq('assigned_to', user.id);
       if (error) throw error;
-      toast.success(getText('noteAdded'));
-      setNote('');
-      setNoteDialogOpen(false);
-    } catch (error) {
-      console.error('Error adding note:', error);
-      toast.error('Failed to add note');
-    }
+      await addComment(selected.id, `✅ ${c.submitted}: ${resolution.trim()}`);
+      toast.success(c.submitted); setResolution(''); setCompletionFile(null); setDialog(null); void refresh();
+    } catch (error) { console.error(error); toast.error(c.failed); }
   };
 
-  const handlePutOnHold = async () => {
-    if (!selectedTicket || !holdReason) {
-      toast.error(language === 'hu' ? 'Kérjük, válasszon okot' : 'Please select a reason');
-      return;
-    }
-    
-    try {
-      const reasonLabel = HOLD_REASONS.find(r => r.value === holdReason)?.[language === 'hu' ? 'labelHu' : 'labelEn'] || holdReason;
-      
-      // Update ticket with hold status
-      const { error: updateError } = await supabase
-        .from('tickets')
-        .update({
-          on_hold: true,
-          hold_reason: holdReason,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', selectedTicket.id);
+  const filtered = activeTab === 'approval' ? tickets.filter(t => t.pending_supervisor_approval) : activeTab === 'done' ? completed : tickets.filter(t => !t.pending_supervisor_approval);
+  const counts = { active: tickets.filter(t => !t.pending_supervisor_approval).length, approval: tickets.filter(t => t.pending_supervisor_approval).length, done: completed.length };
 
-      if (updateError) throw updateError;
-
-      // Add a comment with the hold reason
-      await supabase
-        .from('comments')
-        .insert({
-          ticket_id: selectedTicket.id,
-          user_id: user?.id,
-          content: `🔒 ${getText('putOnHold')}: ${reasonLabel}`,
-        });
-
-      toast.success(getText('ticketOnHold'));
-      setHoldReason('');
-      setHoldDialogOpen(false);
-      fetchAssignedTickets();
-    } catch (error) {
-      console.error('Error putting ticket on hold:', error);
-      toast.error('Failed to put ticket on hold');
-    }
-  };
-
-  const handleRemoveHold = async (ticket: MaintenanceTicket) => {
-    try {
-      const { error } = await supabase
-        .from('tickets')
-        .update({
-          on_hold: false,
-          hold_reason: null,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', ticket.id);
-
-      if (error) throw error;
-
-      // Add a comment
-      await supabase
-        .from('comments')
-        .insert({
-          ticket_id: ticket.id,
-          user_id: user?.id,
-          content: `🔓 ${getText('removeHold')}`,
-        });
-
-      toast.success(getText('holdRemoved'));
-      fetchAssignedTickets();
-    } catch (error) {
-      console.error('Error removing hold:', error);
-      toast.error('Failed to remove hold');
-    }
-  };
-
-  const handleReopenCase = async (ticket: MaintenanceTicket) => {
-    try {
-      const { error } = await supabase
-        .from('tickets')
-        .update({
-          pending_supervisor_approval: false,
-          status: 'in_progress',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', ticket.id);
-
-      if (error) throw error;
-
-      // Add a comment
-      await supabase
-        .from('comments')
-        .insert({
-          ticket_id: ticket.id,
-          user_id: user?.id,
-          content: `🔄 ${getText('reopenCase')}`,
-        });
-
-      toast.success(getText('caseReopened'));
-      fetchAssignedTickets();
-    } catch (error) {
-      console.error('Error reopening case:', error);
-      toast.error('Failed to reopen case');
-    }
-  };
-
-  const startCamera = async () => {
-    try {
-      // Stop any existing stream first
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-        streamRef.current = null;
-      }
-      
-      setIsCapturing(true);
-      
-      // Request camera with fallback
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { facingMode: 'environment' } 
-        });
-      } catch (err) {
-        // Fallback to any camera
-        console.log('Environment camera not available, trying default camera');
-        stream = await navigator.mediaDevices.getUserMedia({ 
-          video: true 
-        });
-      }
-      
-      streamRef.current = stream;
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        // Wait for video to be ready
-        await new Promise<void>((resolve) => {
-          if (videoRef.current) {
-            videoRef.current.onloadedmetadata = () => {
-              videoRef.current?.play().then(() => resolve()).catch(() => resolve());
-            };
-          } else {
-            resolve();
-          }
-        });
-      }
-    } catch (error) {
-      console.error('Error accessing camera:', error);
-      toast.error(language === 'hu' ? 'Nem sikerült elérni a kamerát' : 'Failed to access camera');
-      setIsCapturing(false);
-    }
-  };
-
-  const capturePhoto = () => {
-    if (!videoRef.current) return;
-    
-    const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(videoRef.current, 0, 0);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-      setCapturedPhoto(dataUrl);
-      stopCamera();
-    }
-  };
-
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    setIsCapturing(false);
-  };
-
-  const handleCompleteTicket = async () => {
-    if (!selectedTicket || !resolution.trim()) {
-      toast.error(language === 'hu' ? 'Kérjük, adja meg a megoldás leírását' : 'Please provide a resolution description');
-      return;
-    }
-    
-    if (!capturedPhoto) {
-      toast.error(language === 'hu' ? 'Kérjük, készítsen fotót a befejezett munkáról' : 'Please take a photo of the completed work');
-      return;
-    }
-    
-    try {
-      // Upload the photo
-      const photoBlob = await fetch(capturedPhoto).then(r => r.blob());
-      const fileName = `${selectedTicket.id}/completion-${Date.now()}.jpg`;
-      
-      const { error: uploadError } = await supabase.storage
-        .from('ticket-attachments')
-        .upload(fileName, photoBlob);
-      
-      if (uploadError) {
-        console.error('Upload error:', uploadError);
-        toast.error('Failed to upload photo');
-        return;
-      }
-      
-      // Store only the path, NOT the public URL (bucket is private)
-      // The path will be used to generate signed URLs when displaying
-      
-      // Update ticket - set pending_supervisor_approval to true
-      const { error } = await supabase
-        .from('tickets')
-        .update({
-          status: 'in_progress',
-          resolution_text: resolution,
-          pending_supervisor_approval: true,
-          on_hold: false,
-          hold_reason: null,
-          completion_photos: [fileName], // Store path only, not URL
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', selectedTicket.id);
-
-      if (error) throw error;
-      toast.success(getText('taskCompleted'));
-      setResolution('');
-      setCapturedPhoto(null);
-      setCompleteDialogOpen(false);
-      fetchAssignedTickets();
-    } catch (error) {
-      console.error('Error completing ticket:', error);
-      toast.error('Failed to complete task');
-    }
-  };
-
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'urgent': return 'bg-red-500 text-white';
-      case 'high': return 'bg-orange-500 text-white';
-      case 'medium': return 'bg-yellow-500 text-black';
-      case 'low': return 'bg-green-500 text-white';
-      default: return 'bg-gray-500 text-white';
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'open': return 'bg-blue-100 text-blue-800';
-      case 'in_progress': return 'bg-amber-100 text-amber-800';
-      case 'completed': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getSlaInfo = (ticket: MaintenanceTicket) => {
-    const createdAt = new Date(ticket.created_at);
-    const slaHours = SLA_HOURS[ticket.priority] || 72;
-    const dueDate = addHours(createdAt, slaHours);
-    const now = new Date();
-    const isOverdue = isBefore(dueDate, now);
-    const hoursRemaining = differenceInHours(dueDate, now);
-    const minutesRemaining = differenceInMinutes(dueDate, now) % 60;
-    
-    return { dueDate, isOverdue, hoursRemaining, minutesRemaining };
-  };
-
-  const summary = {
-    total: activeTickets.length + pendingApprovalTickets.length,
-    open: activeTickets.filter(t => t.status === 'open').length,
-    inProgress: activeTickets.filter(t => t.status === 'in_progress' && !t.on_hold).length,
-    onHold: activeTickets.filter(t => t.on_hold).length,
-    pendingApproval: pendingApprovalTickets.length,
-  };
-
-  // Filter tickets based on active filter
-  const getFilteredTickets = () => {
-    switch (activeFilter) {
-      case 'open':
-        return activeTickets.filter(t => t.status === 'open');
-      case 'inProgress':
-        return activeTickets.filter(t => t.status === 'in_progress' && !t.on_hold);
-      case 'onHold':
-        return activeTickets.filter(t => t.on_hold);
-      case 'pending':
-        return [];
-      default:
-        return activeTickets;
-    }
-  };
-
-  const filteredTickets = getFilteredTickets();
-  const showPendingSection = activeFilter === 'all' || activeFilter === 'pending';
-
-  // Check if a date has jobs
-  const hasJobsOnDate = (date: Date) => {
-    return datesWithJobs.some(d => 
-      d.getFullYear() === date.getFullYear() &&
-      d.getMonth() === date.getMonth() &&
-      d.getDate() === date.getDate()
-    );
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center p-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
+  const status = (ticket: Ticket) => ticket.pending_supervisor_approval ? c.statusApproval : ticket.on_hold ? c.statusHold : ticket.status === 'in_progress' ? c.statusProgress : ticket.status === 'completed' ? c.statusDone : c.statusOpen;
+  const statusClass = (ticket: Ticket) => ticket.pending_supervisor_approval ? 'bg-blue-100 text-blue-800 border-blue-200' : ticket.on_hold ? 'bg-amber-100 text-amber-800 border-amber-200' : ticket.status === 'in_progress' ? 'bg-violet-100 text-violet-800 border-violet-200' : ticket.status === 'completed' ? 'bg-green-100 text-green-800 border-green-200' : 'bg-slate-100 text-slate-800 border-slate-200';
+  const priorityClass = (p: string) => p === 'urgent' ? 'bg-red-100 text-red-800' : p === 'high' ? 'bg-orange-100 text-orange-800' : p === 'low' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800';
 
   return (
-    <div className="space-y-4 px-2 sm:px-0">
-      <div className="flex flex-col sm:flex-row justify-between items-start gap-2">
-        <div>
-          <h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
-            <Wrench className="h-5 w-5 sm:h-6 sm:w-6" />
-            {getText('myTasks')}
-          </h2>
-          <p className="text-sm text-muted-foreground">{getText('tasksAssigned')}</p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => setHistoryDialogOpen(true)}>
-          <CalendarIcon className="h-4 w-4 mr-1" />
-          {getText('viewHistory')}
-        </Button>
+    <div className="space-y-4 px-2 sm:px-0 max-w-4xl mx-auto">
+      <div className="flex items-start justify-between gap-3">
+        <div><h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2"><Wrench className="h-5 w-5" />{c.title}</h2><p className="text-sm text-muted-foreground">{c.subtitle}</p></div>
+        <Button size="sm" variant="outline" onClick={() => void refresh()}><RefreshCw className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">{c.refresh}</span></Button>
       </div>
 
-      {/* Summary Cards - Clickable filters */}
-      <div className="grid grid-cols-5 gap-1.5 sm:gap-3">
-        <Card 
-          className={`cursor-pointer transition-all ${activeFilter === 'all' ? 'ring-2 ring-primary' : ''} bg-primary/5`}
-          onClick={() => setActiveFilter('all')}
-        >
-          <CardContent className="p-2 sm:p-3 text-center">
-            <p className="text-lg sm:text-xl font-bold">{summary.total}</p>
-            <p className="text-[10px] sm:text-xs text-muted-foreground">{getText('total')}</p>
-          </CardContent>
-        </Card>
-        <Card 
-          className={`cursor-pointer transition-all ${activeFilter === 'open' ? 'ring-2 ring-blue-500' : ''} bg-blue-50`}
-          onClick={() => setActiveFilter('open')}
-        >
-          <CardContent className="p-2 sm:p-3 text-center">
-            <p className="text-lg sm:text-xl font-bold text-blue-600">{summary.open}</p>
-            <p className="text-[10px] sm:text-xs text-muted-foreground">{getText('open')}</p>
-          </CardContent>
-        </Card>
-        <Card 
-          className={`cursor-pointer transition-all ${activeFilter === 'inProgress' ? 'ring-2 ring-amber-500' : ''} bg-amber-50`}
-          onClick={() => setActiveFilter('inProgress')}
-        >
-          <CardContent className="p-2 sm:p-3 text-center">
-            <p className="text-lg sm:text-xl font-bold text-amber-600">{summary.inProgress}</p>
-            <p className="text-[10px] sm:text-xs text-muted-foreground truncate">{getText('inProgress')}</p>
-          </CardContent>
-        </Card>
-        <Card 
-          className={`cursor-pointer transition-all ${activeFilter === 'onHold' ? 'ring-2 ring-orange-500' : ''} bg-orange-50`}
-          onClick={() => setActiveFilter('onHold')}
-        >
-          <CardContent className="p-2 sm:p-3 text-center">
-            <p className="text-lg sm:text-xl font-bold text-orange-600">{summary.onHold}</p>
-            <p className="text-[10px] sm:text-xs text-muted-foreground">{getText('onHold')}</p>
-          </CardContent>
-        </Card>
-        <Card 
-          className={`cursor-pointer transition-all ${activeFilter === 'pending' ? 'ring-2 ring-purple-500' : ''} bg-purple-50`}
-          onClick={() => setActiveFilter('pending')}
-        >
-          <CardContent className="p-2 sm:p-3 text-center">
-            <p className="text-lg sm:text-xl font-bold text-purple-600">{summary.pendingApproval}</p>
-            <p className="text-[10px] sm:text-xs text-muted-foreground truncate">{getText('pendingApproval')}</p>
-          </CardContent>
-        </Card>
+      <div className={`rounded-lg border p-3 flex items-center gap-2 text-sm ${signedIn ? 'bg-green-50 border-green-200 text-green-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+        {signedIn ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}<strong>{signedIn ? c.signedIn : c.notSignedIn}</strong>
       </div>
 
-      {/* Active Tasks */}
-      {activeTickets.length === 0 && pendingApprovalTickets.length === 0 ? (
-        <Card className="p-6 text-center">
-          <CheckCircle className="h-10 w-10 mx-auto text-green-500 mb-3" />
-          <h3 className="text-base font-semibold">{getText('allDone')}</h3>
-          <p className="text-sm text-muted-foreground">{getText('noTasks')}</p>
+      <div className="grid grid-cols-3 gap-2">
+        <button onClick={() => setActiveTab('active')} className={`rounded-xl border p-3 text-left ${activeTab === 'active' ? 'border-primary bg-primary/5' : ''}`}><div className="text-xs text-muted-foreground">{c.active}</div><div className="text-xl font-bold">{counts.active}</div></button>
+        <button onClick={() => setActiveTab('approval')} className={`rounded-xl border p-3 text-left ${activeTab === 'approval' ? 'border-primary bg-primary/5' : ''}`}><div className="text-xs text-muted-foreground">{c.approval}</div><div className="text-xl font-bold">{counts.approval}</div></button>
+        <button onClick={() => setActiveTab('done')} className={`rounded-xl border p-3 text-left ${activeTab === 'done' ? 'border-primary bg-primary/5' : ''}`}><div className="text-xs text-muted-foreground">{c.done}</div><div className="text-xl font-bold">{counts.done}</div></button>
+      </div>
+
+      {loading ? <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div> : filtered.length === 0 ? (
+        <Card><CardContent className="py-12 text-center"><CheckCircle2 className="h-10 w-10 mx-auto mb-3 text-muted-foreground" /><p className="text-muted-foreground">{c.noTasks}</p></CardContent></Card>
+      ) : <div className="space-y-3">{filtered.map(ticket => (
+        <Card key={ticket.id} className={`overflow-hidden border-l-4 ${ticket.priority === 'urgent' ? 'border-l-red-500' : ticket.priority === 'high' ? 'border-l-orange-500' : 'border-l-primary/60'}`}>
+          <CardHeader className="p-3 pb-2">
+            <div className="flex items-start justify-between gap-2"><div className="min-w-0"><CardTitle className="text-lg flex items-center gap-2 flex-wrap"><span>{c.room} {ticket.room_number}</span><Badge className={priorityClass(ticket.priority)}>{ticket.priority.toUpperCase()}</Badge><Badge variant="outline" className={statusClass(ticket)}>{status(ticket)}</Badge></CardTitle><div className="text-xs text-muted-foreground mt-1">{ticket.ticket_number}</div></div></div>
+          </CardHeader>
+          <CardContent className="p-3 pt-0 space-y-3">
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-lg bg-muted/50 p-2"><div className="text-muted-foreground flex items-center gap-1"><Building2 className="h-3 w-3" />{c.hotel}</div><div className="font-semibold truncate">{ticket.hotel || '—'}</div></div>
+              <div className="rounded-lg bg-muted/50 p-2"><div className="text-muted-foreground flex items-center gap-1"><User className="h-3 w-3" />{c.reportedBy}</div><div className="font-semibold truncate">{ticket.created_by_profile?.full_name || 'Unknown'}</div></div>
+            </div>
+            <div className="rounded-lg border p-3"><div className="text-xs text-muted-foreground font-semibold mb-1 flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" />{c.issue}</div><p className="text-sm whitespace-pre-wrap">{ticket.description}</p></div>
+            {ticket.on_hold && ticket.hold_reason && <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 p-2.5 text-xs flex gap-2"><PauseCircle className="h-4 w-4 shrink-0" />{c[HOLD_REASONS.find(([v]) => v === ticket.hold_reason)?.[1] || 'other']}</div>}
+            {!!attachmentUrls[ticket.id]?.length && <div className="space-y-1.5"><div className="text-xs font-semibold text-muted-foreground">{c.attachments} ({attachmentUrls[ticket.id].length})</div><div className="flex gap-2 flex-wrap">{attachmentUrls[ticket.id].map((url, idx) => <Dialog key={idx}><DialogTrigger asChild><Button size="sm" variant="outline"><Eye className="h-3.5 w-3.5 mr-1" />{idx + 1}</Button></DialogTrigger><DialogContent className="max-w-4xl"><img src={url} alt={`Attachment ${idx + 1}`} className="max-h-[80vh] w-auto mx-auto" /></DialogContent></Dialog>)}</div></div>}
+            {ticket.resolution_text && <div className="rounded-lg bg-green-50 border border-green-200 p-2.5 text-xs text-green-800"><strong>{c.resolution}:</strong> {ticket.resolution_text}</div>}
+            {activeTab !== 'done' && <div className="grid grid-cols-2 sm:flex gap-2">
+              {ticket.status === 'open' && !ticket.pending_supervisor_approval && <Button onClick={() => void startWork(ticket)} disabled={!signedIn} className="h-10"><Play className="h-4 w-4 mr-1" />{c.start}</Button>}
+              {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => { setSelected(ticket); setDialog('hold'); }}><PauseCircle className="h-4 w-4 mr-1" />{c.hold}</Button>}
+              {ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => void resumeWork(ticket)} disabled={!signedIn}><Play className="h-4 w-4 mr-1" />{c.resume}</Button>}
+              {!ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => { setSelected(ticket); setDialog('note'); }}><MessageSquare className="h-4 w-4 mr-1" />{c.note}</Button>}
+              {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => { setSelected(ticket); setDialog('complete'); }} className="bg-green-600 hover:bg-green-700"><CheckCircle2 className="h-4 w-4 mr-1" />{c.complete}</Button>}
+            </div>}
+            <div className="text-[11px] text-muted-foreground flex items-center gap-1"><Clock3 className="h-3 w-3" />{new Date(ticket.updated_at || ticket.created_at).toLocaleString()}</div>
+          </CardContent>
         </Card>
-      ) : (
-        <div className="space-y-4">
-          {/* Active Tickets Section */}
-          {filteredTickets.length > 0 && activeFilter !== 'pending' && (
-            <div className="space-y-3">
-              {filteredTickets.map((ticket) => {
-                const slaInfo = getSlaInfo(ticket);
-                const isOnHold = ticket.on_hold;
-                
-                return (
-                  <Card 
-                    key={ticket.id} 
-                    className={`overflow-hidden border-l-4 ${isOnHold ? 'bg-orange-50/50 border-l-orange-500' : ''}`}
-                    style={{ borderLeftColor: isOnHold ? undefined : (ticket.priority === 'urgent' ? '#ef4444' : ticket.priority === 'high' ? '#f97316' : ticket.priority === 'medium' ? '#eab308' : '#22c55e') }}
-                  >
-                    <CardHeader className="pb-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Badge variant="outline" className="font-mono">
-                              {getText('room')} {ticket.room_number}
-                            </Badge>
-                            <Badge className={getPriorityColor(ticket.priority)}>
-                              {ticket.priority.toUpperCase()}
-                            </Badge>
-                            {isOnHold ? (
-                              <Badge className="bg-orange-500 text-white">
-                                <Pause className="h-3 w-3 mr-1" />
-                                {getText('onHold')}
-                              </Badge>
-                            ) : (
-                              <Badge className={getStatusColor(ticket.status)}>
-                                {ticket.status === 'in_progress' ? getText('inProgress') : getText(ticket.status)}
-                              </Badge>
-                            )}
-                          </div>
-                          <CardTitle className="text-lg">{ticket.title}</CardTitle>
-                        </div>
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">
-                          #{ticket.ticket_number}
-                        </span>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <p className="text-sm text-muted-foreground">{ticket.description}</p>
-                      
-                      {/* Hold Reason Display */}
-                      {isOnHold && ticket.hold_reason && (
-                        <div className="p-3 rounded-lg bg-orange-100 border border-orange-300 flex items-start gap-3">
-                          <Pause className="h-5 w-5 text-orange-600 mt-0.5" />
-                          <div>
-                            <p className="text-sm font-medium text-orange-800">{getText('holdReason')}:</p>
-                            <p className="text-sm text-orange-700">{getHoldReasonLabel(ticket.hold_reason)}</p>
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* SLA Info */}
-                      {!isOnHold && (
-                        <div className={`p-3 rounded-lg flex items-center gap-3 ${slaInfo.isOverdue ? 'bg-red-100 border border-red-300' : 'bg-blue-50 border border-blue-200'}`}>
-                          <Timer className={`h-5 w-5 ${slaInfo.isOverdue ? 'text-red-600' : 'text-blue-600'}`} />
-                          <div>
-                            <p className={`text-sm font-medium ${slaInfo.isOverdue ? 'text-red-700' : 'text-blue-700'}`}>
-                              {slaInfo.isOverdue ? getText('slaOverdue') : getText('slaDue')}
-                            </p>
-                            <p className={`text-xs ${slaInfo.isOverdue ? 'text-red-600' : 'text-blue-600'}`}>
-                              {slaInfo.isOverdue 
-                                ? `${Math.abs(slaInfo.hoursRemaining)}h ${Math.abs(slaInfo.minutesRemaining)}m ago`
-                                : `${slaInfo.hoursRemaining}h ${slaInfo.minutesRemaining}m remaining`
-                              }
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                      
-                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <CalendarIcon className="h-3 w-3" />
-                          {format(new Date(ticket.created_at), 'MMM d, yyyy HH:mm')}
-                        </span>
-                        {ticket.created_by_profile && (
-                          <span>{getText('reportedBy')}: {ticket.created_by_profile.full_name}</span>
-                        )}
-                      </div>
+      ))}</div>}
 
-                      <div className="flex flex-wrap gap-2">
-                        {/* Show Remove Hold button if on hold */}
-                        {isOnHold && (
-                          <Button
-                            size="sm"
-                            onClick={() => handleRemoveHold(ticket)}
-                            className="flex items-center gap-1 bg-orange-600 hover:bg-orange-700"
-                          >
-                            <Play className="h-4 w-4" />
-                            {getText('removeHold')}
-                          </Button>
-                        )}
-                        
-                        {ticket.status === 'open' && !isOnHold && (
-                          <Button
-                            size="sm"
-                            onClick={() => handleStartWork(ticket)}
-                            className="flex items-center gap-1"
-                          >
-                            <Play className="h-4 w-4" />
-                            {getText('startWork')}
-                          </Button>
-                        )}
-                        
-                        {ticket.status === 'in_progress' && !isOnHold && (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setSelectedTicket(ticket);
-                                setNoteDialogOpen(true);
-                              }}
-                              className="flex items-center gap-1"
-                            >
-                              <MessageSquare className="h-4 w-4" />
-                              {getText('addNote')}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setSelectedTicket(ticket);
-                                setHoldDialogOpen(true);
-                              }}
-                              className="flex items-center gap-1"
-                            >
-                              <Pause className="h-4 w-4" />
-                              {getText('putOnHold')}
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={() => {
-                                setSelectedTicket(ticket);
-                                setCompleteDialogOpen(true);
-                              }}
-                              className="flex items-center gap-1 bg-green-600 hover:bg-green-700"
-                            >
-                              <CheckCircle className="h-4 w-4" />
-                              {getText('markComplete')}
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
+      <Dialog open={dialog === 'note'} onOpenChange={(open) => !open && setDialog(null)}><DialogContent><DialogHeader><DialogTitle>{c.note}</DialogTitle></DialogHeader><Textarea value={note} onChange={e => setNote(e.target.value)} placeholder={c.notePlaceholder} rows={4} /><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => setDialog(null)}>{c.cancel}</Button><Button onClick={() => void saveNote()} disabled={!note.trim()}>{c.saveNote}</Button></div></DialogContent></Dialog>
 
-          {/* Pending Approval Section */}
-          {pendingApprovalTickets.length > 0 && showPendingSection && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Hourglass className="h-5 w-5 text-purple-600" />
-                <h3 className="text-lg font-semibold">{getText('pendingApproval')}</h3>
-                <Badge className="bg-purple-100 text-purple-800">{pendingApprovalTickets.length}</Badge>
-              </div>
-              
-              {pendingApprovalTickets.map((ticket) => (
-                <Card key={ticket.id} className="overflow-hidden border-l-4 border-l-purple-500 bg-purple-50/30">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Badge variant="outline" className="font-mono">
-                            {getText('room')} {ticket.room_number}
-                          </Badge>
-                          <Badge className={getPriorityColor(ticket.priority)}>
-                            {ticket.priority.toUpperCase()}
-                          </Badge>
-                          <Badge className="bg-purple-500 text-white">
-                            <Hourglass className="h-3 w-3 mr-1" />
-                            {getText('pendingApproval')}
-                          </Badge>
-                        </div>
-                        <CardTitle className="text-lg">{ticket.title}</CardTitle>
-                      </div>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        #{ticket.ticket_number}
-                      </span>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="p-3 rounded-lg bg-purple-100 border border-purple-300 flex items-start gap-3">
-                      <Hourglass className="h-5 w-5 text-purple-600 mt-0.5" />
-                      <div>
-                        <p className="text-sm font-medium text-purple-800">{getText('awaitingManagerReview')}</p>
-                        {ticket.resolution_text && (
-                          <p className="text-sm text-purple-700 mt-1">{getText('resolution')}: {ticket.resolution_text}</p>
-                        )}
-                      </div>
-                    </div>
-                    
-                    {/* Show completion photo if exists - use signed URLs */}
-                    {signedPhotoUrls[ticket.id] && signedPhotoUrls[ticket.id].length > 0 && (
-                      <div className="flex gap-2">
-                        {signedPhotoUrls[ticket.id].map((photoUrl, idx) => (
-                          <img 
-                            key={idx} 
-                            src={photoUrl} 
-                            alt="Completion" 
-                            className="w-20 h-20 object-cover rounded-lg border"
-                          />
-                        ))}
-                      </div>
-                    )}
-                    
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleReopenCase(ticket)}
-                        className="flex items-center gap-1"
-                      >
-                        <RotateCcw className="h-4 w-4" />
-                        {getText('reopenCase')}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      <Dialog open={dialog === 'hold'} onOpenChange={(open) => !open && setDialog(null)}><DialogContent><DialogHeader><DialogTitle>{c.holdReason}</DialogTitle></DialogHeader><Select value={holdReason} onValueChange={setHoldReason}><SelectTrigger><SelectValue placeholder={c.holdReason} /></SelectTrigger><SelectContent>{HOLD_REASONS.map(([value, key]) => <SelectItem key={value} value={value}>{c[key]}</SelectItem>)}</SelectContent></Select><Textarea value={holdDetails} onChange={e => setHoldDetails(e.target.value)} placeholder={c.pendingDetails} rows={3} /><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => setDialog(null)}>{c.cancel}</Button><Button onClick={() => void saveHold()} disabled={!holdReason}>{c.saveHold}</Button></div></DialogContent></Dialog>
 
-      {/* Add Note Dialog */}
-      <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{getText('addNote')} - {selectedTicket?.title}</DialogTitle>
-          </DialogHeader>
-          <Textarea
-            placeholder={language === 'hu' ? 'Adja meg a jegyzetét...' : 'Enter your note or update...'}
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            rows={4}
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setNoteDialogOpen(false)}>
-              {getText('cancel')}
-            </Button>
-            <Button onClick={handleAddNote} disabled={!note.trim()}>
-              {getText('saveNote')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Hold Dialog */}
-      <Dialog open={holdDialogOpen} onOpenChange={setHoldDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{getText('putOnHold')} - {selectedTicket?.title}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium">{getText('holdReason')}</label>
-              <Select value={holdReason} onValueChange={setHoldReason}>
-                <SelectTrigger>
-                  <SelectValue placeholder={getText('selectReason')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {HOLD_REASONS.map((reason) => (
-                    <SelectItem key={reason.value} value={reason.value}>
-                      {language === 'hu' ? reason.labelHu : reason.labelEn}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setHoldDialogOpen(false)}>
-              {getText('cancel')}
-            </Button>
-            <Button onClick={handlePutOnHold} disabled={!holdReason}>
-              {getText('confirmHold')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Complete Dialog */}
-      <Dialog open={completeDialogOpen} onOpenChange={(open) => {
-        if (!open) stopCamera();
-        setCompleteDialogOpen(open);
-      }}>
-        <DialogContent className="max-w-lg max-h-[85dvh] overflow-hidden flex flex-col">
-          <DialogHeader className="flex-shrink-0">
-            <DialogTitle className="text-base">{getText('completeTask')} - {selectedTicket?.title}</DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-3 px-1 pb-4">
-            {/* Photo Capture */}
-            <div>
-              <label className="text-sm font-medium flex items-center gap-2">
-                <Camera className="h-4 w-4" />
-                {getText('completionPhoto')} *
-              </label>
-              <p className="text-xs text-muted-foreground mb-2">{getText('photoRequired')}</p>
-              
-              {isCapturing ? (
-                <div className="space-y-2">
-                  <video 
-                    ref={videoRef} 
-                    autoPlay 
-                    playsInline 
-                    className="w-full max-h-[35dvh] rounded-lg bg-black object-cover"
-                  />
-                  <div className="flex gap-2">
-                    <Button onClick={capturePhoto} className="flex-1">
-                      <Camera className="h-4 w-4 mr-2" />
-                      {getText('capturing')}
-                    </Button>
-                    <Button variant="outline" onClick={stopCamera}>
-                      {getText('cancel')}
-                    </Button>
-                  </div>
-                </div>
-              ) : capturedPhoto ? (
-                <div className="space-y-2">
-                  <img src={capturedPhoto} alt="Completion" className="w-full max-h-[30dvh] rounded-lg object-contain" />
-                  <Button variant="outline" onClick={() => {
-                    setCapturedPhoto(null);
-                    startCamera();
-                  }} className="w-full" size="sm">
-                    {getText('retakePhoto')}
-                  </Button>
-                </div>
-              ) : (
-                <Button onClick={startCamera} variant="outline" className="w-full">
-                  <Camera className="h-4 w-4 mr-2" />
-                  {getText('takePhoto')}
-                </Button>
-              )}
-            </div>
-            
-            <div>
-              <label className="text-sm font-medium">{getText('resolution')} *</label>
-              <Textarea
-                placeholder={getText('resolutionPlaceholder')}
-                value={resolution}
-                onChange={(e) => setResolution(e.target.value)}
-                rows={2}
-                className="resize-none"
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {getText('awaitingApproval')}
-            </p>
-          </div>
-          <DialogFooter className="flex-shrink-0 border-t pt-3 gap-2">
-            <Button variant="outline" size="sm" onClick={() => setCompleteDialogOpen(false)}>
-              {getText('cancel')}
-            </Button>
-            <Button 
-              onClick={handleCompleteTicket} 
-              disabled={!resolution.trim() || !capturedPhoto} 
-              className="bg-green-600 hover:bg-green-700"
-              size="sm"
-            >
-              {getText('submitApproval')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* History Dialog */}
-      <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{getText('history')}</DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Calendar
-                mode="single"
-                selected={selectedDate}
-                onSelect={(date) => date && setSelectedDate(date)}
-                modifiers={{
-                  hasJobs: (date) => hasJobsOnDate(date)
-                }}
-                modifiersStyles={{
-                  hasJobs: { 
-                    fontWeight: 'bold',
-                    position: 'relative',
-                  }
-                }}
-                components={{
-                  DayContent: ({ date }) => (
-                    <div className="relative">
-                      {date.getDate()}
-                      {hasJobsOnDate(date) && (
-                        <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-primary" />
-                      )}
-                    </div>
-                  )
-                }}
-              />
-            </div>
-            <div className="space-y-2 max-h-80 overflow-y-auto">
-              <h4 className="font-medium">{format(selectedDate, 'PPP')}</h4>
-              {completedTickets.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{getText('noJobsOnDate')}</p>
-              ) : (
-                completedTickets.map((ticket) => (
-                  <Card key={ticket.id} className="p-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="font-medium text-sm">{ticket.title}</p>
-                        <p className="text-xs text-muted-foreground">{getText('room')} {ticket.room_number}</p>
-                      </div>
-                      <Badge className={getPriorityColor(ticket.priority)} variant="outline">
-                        {ticket.priority}
-                      </Badge>
-                    </div>
-                    {ticket.resolution_text && (
-                      <p className="text-xs mt-2 text-muted-foreground">{ticket.resolution_text}</p>
-                    )}
-                  </Card>
-                ))
-              )}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <Dialog open={dialog === 'complete'} onOpenChange={(open) => !open && setDialog(null)}><DialogContent><DialogHeader><DialogTitle>{c.complete}</DialogTitle></DialogHeader><Textarea value={resolution} onChange={e => setResolution(e.target.value)} placeholder={c.resolutionPlaceholder} rows={4} /><input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => setCompletionFile(e.target.files?.[0] || null)} /><Button variant="outline" onClick={() => fileRef.current?.click()}><Camera className="h-4 w-4 mr-2" />{completionFile ? completionFile.name : c.photoRequired}</Button><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => setDialog(null)}>{c.cancel}</Button><Button onClick={() => void submitCompletion()} disabled={!resolution.trim() || !completionFile} className="bg-green-600 hover:bg-green-700"><CheckCircle2 className="h-4 w-4 mr-1" />{c.submitApproval}</Button></div></DialogContent></Dialog>
     </div>
   );
 }
