@@ -61,7 +61,9 @@ export function readRoomDragPayload(e: React.DragEvent): RoomDragPayload | null 
 /**
  * Assign (or reassign) a unit to a housekeeper for a given date.
  * Existing assignment metadata (type, ready-to-clean, PMS hold, notes) is
- * preserved — only the owner changes.
+ * preserved — only the owner changes. Optional insert-only values are used
+ * when a room did not have an assignment yet; they never overwrite an
+ * existing assignment during a reassign.
  */
 export async function assignRoomToStaff(params: {
   roomId: string;
@@ -70,8 +72,19 @@ export async function assignRoomToStaff(params: {
   assignedBy: string;
   organizationSlug?: string | null;
   isCheckoutRoom?: boolean;
+  readyToClean?: boolean;
+  priority?: number;
 }): Promise<void> {
-  const { roomId, staffId, assignmentDate, assignedBy, organizationSlug, isCheckoutRoom } = params;
+  const {
+    roomId,
+    staffId,
+    assignmentDate,
+    assignedBy,
+    organizationSlug,
+    isCheckoutRoom,
+    readyToClean,
+    priority,
+  } = params;
 
   const { data: existing, error: findErr } = await supabase
     .from('room_assignments')
@@ -100,6 +113,8 @@ export async function assignRoomToStaff(params: {
     status: 'assigned',
   };
   if (organizationSlug) insert.organization_slug = organizationSlug;
+  if (readyToClean !== undefined) insert.ready_to_clean = readyToClean;
+  if (priority !== undefined) insert.priority = priority;
 
   const { error } = await supabase.from('room_assignments').insert(insert as never);
   if (error) throw error;
