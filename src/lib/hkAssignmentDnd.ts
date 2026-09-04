@@ -57,6 +57,49 @@ export function readRoomDragPayload(e: React.DragEvent): RoomDragPayload | null 
   };
 }
 
+// ---------------------------------------------------------------------------
+// Inverse drag: a housekeeper chip dragged onto a room chip.
+// Separate DataTransfer keys so it can never be mistaken for a room drag.
+// ---------------------------------------------------------------------------
+
+export const HOUSEKEEPER_DRAG_TYPE = 'hk-housekeeper';
+
+export interface HousekeeperDragPayload {
+  staffId: string;
+  staffName: string;
+}
+
+export function setHousekeeperDragPayload(e: React.DragEvent, payload: HousekeeperDragPayload) {
+  e.dataTransfer.setData(HOUSEKEEPER_DRAG_TYPE, '1');
+  e.dataTransfer.setData('housekeeperid', payload.staffId);
+  e.dataTransfer.setData('housekeepername', payload.staffName);
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+export function readHousekeeperDragPayload(e: React.DragEvent): HousekeeperDragPayload | null {
+  const staffId = e.dataTransfer.getData('housekeeperid');
+  if (!staffId) return null;
+  return { staffId, staffName: e.dataTransfer.getData('housekeepername') || '' };
+}
+
+/** Thrown when a room cannot be reassigned because cleaning already started. */
+export class AssignmentInProgressError extends Error {
+  readonly code = 'assignment_in_progress' as const;
+  readonly currentAssigneeId: string | null;
+
+  constructor(currentAssigneeId: string | null) {
+    super('Room assignment is in progress and cannot be reassigned');
+    this.name = 'AssignmentInProgressError';
+    this.currentAssigneeId = currentAssigneeId;
+  }
+}
+
+export function isAssignmentInProgressError(err: unknown): err is AssignmentInProgressError {
+  return !!err && typeof err === 'object' && (err as { code?: string }).code === 'assignment_in_progress';
+}
+
+
+
 
 /**
  * Assign (or reassign) a unit to a housekeeper for a given date.
