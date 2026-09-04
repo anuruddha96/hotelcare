@@ -27,6 +27,7 @@ import { money, currencySymbol } from "@/lib/revenueCurrency";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { supabase } from "@/integrations/supabase/client";
 import { useMarketRates } from "@/hooks/useMarketRates";
+import { usePortfolioSnapshots, type PortfolioSnapshot } from "@/hooks/usePortfolioSnapshots";
 
 const PICKUP_COLOR = "hsl(28 96% 60%)";
 const CANCEL_COLOR = "hsl(199 89% 60%)";
@@ -112,16 +113,6 @@ function barColor(gained: number): string {
 interface HotelRef {
   hotel_id: string;
   hotel_name: string;
-}
-
-interface SnapshotRow {
-  hotel_id: string;
-  stay_date: string;
-  rooms_sold: number | null;
-  occupancy_pct: number | null;
-  adr_eur: number | null;
-  revenue_eur: number | null;
-  rooms_available: number | null;
 }
 
 interface Props {
@@ -298,7 +289,6 @@ export default function MarketIntelligenceChart({
   const [showEvents, setShowEvents] = useState(true);
   const [customDays, setCustomDays] = useState(7);
   const [baseline, setBaseline] = useState("__ours__");
-  const [snapshots, setSnapshots] = useState<SnapshotRow[]>([]);
   const [eurRateByHotel, setEurRateByHotel] = useState<Map<string, number>>(new Map());
   const [prefs, setPrefs] = useState<MarketPrefs>(() => loadPrefs(hotelId));
 
@@ -315,6 +305,12 @@ export default function MarketIntelligenceChart({
   const hotelIds = useMemo(() => hotels.map((h) => h.hotel_id), [hotels]);
   const idsKey = hotelIds.join(",");
   const horizonEnd = metrics.length ? metrics[Math.min(metrics.length, 190) - 1].stay_date : null;
+  const today = budapestToday();
+  const monthStart = `${selectedMonth}-01`;
+  const monthEnd = new Date(Date.UTC(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)), 0)).toISOString().slice(0, 10);
+  const from = monthStart < today ? monthStart : today;
+  const horizonTo = horizonEnd ?? new Date(Date.now() + 190 * 86_400_000).toISOString().slice(0, 10);
+  const portfolio = usePortfolioSnapshots(hotelIds, from, horizonTo > monthEnd ? horizonTo : monthEnd);
 
   useEffect(() => {
     if (hotelIds.length === 0) { setEurRateByHotel(new Map()); return; }
@@ -334,29 +330,14 @@ export default function MarketIntelligenceChart({
     return () => { cancelled = true; };
   }, [idsKey]);
 
-  useEffect(() => {
-    if (hotelIds.length === 0) { setSnapshots([]); return; }
-    let cancelled = false;
-    void (async () => {
-      const today = budapestToday();
-      const monthStart = `${selectedMonth}-01`;
-      const from = monthStart < today ? monthStart : today;
-      const end = horizonEnd ?? new Date(Date.now() + 190 * 86_400_000).toISOString().slice(0, 10);
-      const { data, error } = await supabase.rpc("revenue_portfolio_latest_snapshots", { _hotel_ids: hotelIds, _from: from, _to: end });
-      if (cancelled || error) return;
-      setSnapshots((data ?? []) as SnapshotRow[]);
-    })();
-    return () => { cancelled = true; };
-  }, [idsKey, horizonEnd, selectedMonth]);
-
   const latestByHotelDate = useMemo(() => {
-    const map = new Map<string, SnapshotRow>();
-    for (const row of snapshots) {
+    const map = new Map<string, PortfolioSnapshot>();
+    for (const row of portfolio.data ?? []) {
       const key = `${row.hotel_id}|${row.stay_date}`;
       if (!map.has(key)) map.set(key, row);
     }
     return map;
-  }, [snapshots]);
+  }, [portfolio.data]);
 
   const demandByDate = useMemo(() => {
     const perDate = new Map<string, number[]>();
@@ -478,12 +459,12 @@ export default function MarketIntelligenceChart({
 
   const comparisonBenchmark = useMemo(() => {
     const valid = comparison.filter((x) => x.occ != null && x.adr != null);
-    if (!valid.length) return { occ: null as number | null, adr: null as number | null };
+    if (valid.length < 2 || portfolio.isError || portfolio.isPending) return { occ: null as number | null, adr: null as number | null };
     return {
       occ: Math.round(valid.reduce((s, x) => s + (x.occ ?? 0), 0) / valid.length),
       adr: Math.round(valid.reduce((s, x) => s + (x.adr ?? 0), 0) / valid.length),
     };
-  }, [comparison]);
+  }, [comparison, portfolio.isError, portfolio.isPending]);
 
   const rateDomain = useMemo<[number, number] | undefined>(() => {
     const values: number[] = [];
@@ -565,7 +546,60 @@ export default function MarketIntelligenceChart({
       </CardHeader>
 
       <CardContent className="space-y-5 px-2 pb-4 sm:px-4">
-        {compare && comparison.length > 0 && <div><div className="mb-2"><p className="text-xs font-semibold">Hotel comparison</p><p className="text-[10px] text-muted-foreground">Same nights in {selectedMonth}. Cards are easier to compare than overlapping hotel lines.</p></div><div className={isMobile ? "flex snap-x gap-2 overflow-x-auto pb-2" : "grid grid-cols-2 gap-2 xl:grid-cols-4"}>{comparison.map((s, i) => { const occDelta = s.occ != null && comparisonBenchmark.occ != null ? s.occ - comparisonBenchmark.occ : null; const adrDelta = s.adr != null && comparisonBenchmark.adr != null ? s.adr - comparisonBenchmark.adr : null; return <div key={s.hotel_id} className={`rounded-xl border p-3 ${isMobile ? "min-w-[245px] snap-start" : ""} ${s.hotel_id === hotelId ? "border-primary bg-primary/[0.03]" : ""}`}><div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: colorFor(s.hotel_id, i) }} /><p className="min-w-0 flex-1 truncate text-xs font-semibold">{s.hotel_name}</p>{s.hotel_id === hotelId && <Badge variant="secondary" className="h-5 px-1.5 text-[9px]">This hotel</Badge>}</div><div className="mt-3 grid grid-cols-3 gap-2"><div><p className="text-[9px] uppercase text-muted-foreground">Occ</p><p className="text-lg font-semibold tabular-nums">{s.occ == null ? "—" : `${s.occ}%`}</p>{occDelta != null && <p className="text-[9px] text-muted-foreground">{occDelta >= 0 ? "+" : ""}{occDelta} pts vs portfolio</p>}</div><div><p className="text-[9px] uppercase text-muted-foreground">ADR</p><p className="text-lg font-semibold tabular-nums">{eurMoney(s.adr)}</p>{adrDelta != null && <p className="text-[9px] text-muted-foreground">{adrDelta >= 0 ? "+" : "−"}€{Math.abs(adrDelta)} vs portfolio</p>}</div><div><p className="text-[9px] uppercase text-muted-foreground">RevPAR</p><p className="text-lg font-semibold tabular-nums">{eurMoney(s.revpar)}</p></div></div></div>; })}</div></div>}
+        {compare && comparison.length > 0 && (
+          <section aria-label="Hotel comparison" aria-busy={portfolio.isFetching}>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-semibold">Hotel comparison</p>
+                <p className="text-[10px] text-muted-foreground">Same nights in {selectedMonth}. Occupancy, average daily rate and revenue per available room.</p>
+              </div>
+              <Button size="sm" variant="outline" className="h-8 text-xs" disabled={portfolio.isFetching} onClick={() => void portfolio.refetch()}>
+                {portfolio.isFetching ? "Loading comparison…" : portfolio.isError ? "Retry comparison" : "Refresh comparison"}
+              </Button>
+            </div>
+            {portfolio.isError && (
+              <p role="alert" className="mb-2 text-xs text-destructive">
+                {portfolio.data?.length ? "Comparison could not refresh. Showing the last loaded figures." : "Comparison figures could not load. Please retry."}
+              </p>
+            )}
+            <div className={isMobile ? "flex snap-x gap-2 overflow-x-auto pb-2" : "grid grid-cols-2 gap-2 xl:grid-cols-4"}>
+              {comparison.map((s, i) => {
+                const occDelta = s.occ != null && comparisonBenchmark.occ != null ? s.occ - comparisonBenchmark.occ : null;
+                const adrDelta = s.adr != null && comparisonBenchmark.adr != null ? s.adr - comparisonBenchmark.adr : null;
+                return (
+                  <div key={s.hotel_id} className={`rounded-xl border p-3 ${isMobile ? "min-w-[245px] snap-start" : ""} ${s.hotel_id === hotelId ? "border-primary bg-primary/[0.03]" : ""}`}>
+                    <div className="flex items-center gap-2">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: colorFor(s.hotel_id, i) }} />
+                      <p className="min-w-0 flex-1 truncate text-xs font-semibold">{s.hotel_name}</p>
+                      {s.hotel_id === hotelId && <Badge variant="secondary" className="h-5 px-1.5 text-[9px]">This hotel</Badge>}
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      <div>
+                        <p className="text-[9px] uppercase text-muted-foreground">Occ</p>
+                        <p className="text-lg font-semibold tabular-nums">{s.occ == null ? "—" : `${s.occ}%`}</p>
+                        {occDelta != null && <p className="text-[9px] text-muted-foreground">{occDelta >= 0 ? "+" : ""}{occDelta} pts vs portfolio</p>}
+                      </div>
+                      <div>
+                        <p className="text-[9px] uppercase text-muted-foreground">ADR</p>
+                        <p className="text-lg font-semibold tabular-nums">{eurMoney(s.adr)}</p>
+                        {adrDelta != null && <p className="text-[9px] text-muted-foreground">{adrDelta >= 0 ? "+" : "−"}€{Math.abs(adrDelta)} vs portfolio</p>}
+                      </div>
+                      <div>
+                        <p className="text-[9px] uppercase text-muted-foreground">RevPAR</p>
+                        <p className="text-lg font-semibold tabular-nums">{eurMoney(s.revpar)}</p>
+                      </div>
+                    </div>
+                    {s.nights === 0 ? (
+                      <p className="mt-2 text-[10px] text-muted-foreground">
+                        {portfolio.isFetching ? "Loading figures…" : portfolio.isError ? "Figures unavailable. Retry above." : "No figures available for these nights."}
+                      </p>
+                    ) : <p className="mt-2 text-[10px] text-muted-foreground">{s.nights} nights with data</p>}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         <section className="rounded-xl border bg-card p-2 sm:p-3">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1"><div><p className="text-sm font-semibold">Pickup & demand</p><p className="text-[10px] text-muted-foreground">Bookings and cancellations with one clear demand signal.</p></div><div className="flex items-center gap-3 text-[10px]"><LegendChip color={PICKUP_COLOR} label="Booked" shape="bar" /><LegendChip color={CANCEL_COLOR} label="Cancelled" shape="bar" /><LegendChip color={demandMetricColor} label={demandMetricLabel} /></div></div>
