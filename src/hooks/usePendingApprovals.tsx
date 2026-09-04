@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { todayBudapest } from '@/lib/budapestTime';
 
 export function usePendingApprovals() {
   const [pendingCount, setPendingCount] = useState(0);
@@ -7,8 +8,10 @@ export function usePendingApprovals() {
 
   const fetchPendingCount = useCallback(async () => {
       try {
-        const dateStr = new Date().toISOString().split('T')[0];
-        
+        // Housekeeping business date follows the property's Budapest calendar,
+        // not UTC (which can roll over two hours earlier in summer).
+        const dateStr = todayBudapest();
+
         // Get current user's organization, hotel, and role
         const { data: currentUser } = await supabase.auth.getUser();
         if (!currentUser.user) {
@@ -27,8 +30,7 @@ export function usePendingApprovals() {
 
         const userOrgSlug = profile?.organization_slug;
         const userHotel = profile?.assigned_hotel;
-        const userRole = profile?.role;
-        
+
         if (!userOrgSlug || !userHotel) {
           // Strict per-hotel scoping: without an active hotel we never show org-wide totals
           setPendingCount(0);
@@ -117,7 +119,9 @@ export function usePendingApprovals() {
   useEffect(() => {
     fetchPendingCount();
 
-    // Set up real-time subscription for pending count
+    // Set up real-time subscription for pending count. RLS restricts RD Hotels
+    // room assignment events to the active property; the refetch remains
+    // hotel-scoped as a second layer of protection.
     const channel = supabase
       .channel('pending-approvals-count')
       .on(
