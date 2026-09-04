@@ -50,7 +50,7 @@ export function PMSNavigation() {
             const path = `${basePath}/${item.key}`;
             const isActive = location.pathname.startsWith(path)
               || (item.key === 'reception' && (location.pathname.startsWith(`${basePath}/front-desk`) || location.pathname === `${basePath}/reservations`));
-            const label = item.label ?? (item.labelKey ? t(item.labelKey) : item.key);
+            const label = item.labelKey ? t(item.labelKey) : item.key;
             return (
               <Link key={item.key} to={path}>
                 <Button

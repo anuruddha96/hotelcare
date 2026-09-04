@@ -57,6 +57,49 @@ export function readRoomDragPayload(e: React.DragEvent): RoomDragPayload | null 
   };
 }
 
+// ---------------------------------------------------------------------------
+// Inverse drag: a housekeeper chip dragged onto a room chip.
+// Separate DataTransfer keys so it can never be mistaken for a room drag.
+// ---------------------------------------------------------------------------
+
+export const HOUSEKEEPER_DRAG_TYPE = 'hk-housekeeper';
+
+export interface HousekeeperDragPayload {
+  staffId: string;
+  staffName: string;
+}
+
+export function setHousekeeperDragPayload(e: React.DragEvent, payload: HousekeeperDragPayload) {
+  e.dataTransfer.setData(HOUSEKEEPER_DRAG_TYPE, '1');
+  e.dataTransfer.setData('housekeeperid', payload.staffId);
+  e.dataTransfer.setData('housekeepername', payload.staffName);
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+export function readHousekeeperDragPayload(e: React.DragEvent): HousekeeperDragPayload | null {
+  const staffId = e.dataTransfer.getData('housekeeperid');
+  if (!staffId) return null;
+  return { staffId, staffName: e.dataTransfer.getData('housekeepername') || '' };
+}
+
+/** Thrown when a room cannot be reassigned because cleaning already started. */
+export class AssignmentInProgressError extends Error {
+  readonly code = 'assignment_in_progress' as const;
+  readonly currentAssigneeId: string | null;
+
+  constructor(currentAssigneeId: string | null) {
+    super('Room assignment is in progress and cannot be reassigned');
+    this.name = 'AssignmentInProgressError';
+    this.currentAssigneeId = currentAssigneeId;
+  }
+}
+
+export function isAssignmentInProgressError(err: unknown): err is AssignmentInProgressError {
+  return !!err && typeof err === 'object' && (err as { code?: string }).code === 'assignment_in_progress';
+}
+
+
+
 
 /**
  * Assign (or reassign) a unit to a housekeeper for a given date.
@@ -96,13 +139,26 @@ export async function assignRoomToStaff(params: {
 
   if (existing) {
     if (existing.assigned_to === staffId) return;
-    const { error } = await supabase
+    // A room that is being cleaned right now must never change owner. The
+    // guard is race-safe: the update itself excludes in_progress rows, so an
+    // assignment that starts between the read and the write still cannot be
+    // moved.
+    if (existing.status === 'in_progress') {
+      throw new AssignmentInProgressError(existing.assigned_to ?? null);
+    }
+    const { data: updated, error } = await supabase
       .from('room_assignments')
       .update({ assigned_to: staffId, assigned_by: assignedBy })
-      .eq('id', existing.id);
+      .eq('id', existing.id)
+      .neq('status', 'in_progress')
+      .select('id');
     if (error) throw error;
+    if (!updated || updated.length === 0) {
+      throw new AssignmentInProgressError(existing.assigned_to ?? null);
+    }
     return;
   }
+
 
   const insert: Record<string, unknown> = {
     room_id: roomId,

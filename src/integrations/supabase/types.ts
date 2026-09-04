@@ -2107,6 +2107,70 @@ export type Database = {
         }
         Relationships: []
       }
+      dirty_linen_public_area_counts: {
+        Row: {
+          area_type: string
+          count: number
+          created_at: string
+          hotel: string
+          housekeeper_id: string
+          id: string
+          linen_item_id: string
+          organization_slug: string | null
+          task_id: string | null
+          updated_at: string
+          work_date: string
+        }
+        Insert: {
+          area_type: string
+          count?: number
+          created_at?: string
+          hotel: string
+          housekeeper_id: string
+          id?: string
+          linen_item_id: string
+          organization_slug?: string | null
+          task_id?: string | null
+          updated_at?: string
+          work_date?: string
+        }
+        Update: {
+          area_type?: string
+          count?: number
+          created_at?: string
+          hotel?: string
+          housekeeper_id?: string
+          id?: string
+          linen_item_id?: string
+          organization_slug?: string | null
+          task_id?: string | null
+          updated_at?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dirty_linen_public_area_counts_housekeeper_id_fkey"
+            columns: ["housekeeper_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dirty_linen_public_area_counts_linen_item_id_fkey"
+            columns: ["linen_item_id"]
+            isOneToOne: false
+            referencedRelation: "dirty_linen_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dirty_linen_public_area_counts_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "general_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dnd_photos: {
         Row: {
           assignment_date: string
@@ -7455,6 +7519,119 @@ export type Database = {
         }
         Relationships: []
       }
+      revenue_min_stay_automation_runs: {
+        Row: {
+          changes_applied: number
+          changes_attempted: number
+          changes_failed: number
+          dates_evaluated: number
+          finished_at: string | null
+          hotel_id: string
+          id: string
+          organization_slug: string | null
+          started_at: string
+          status: string
+          summary: Json
+        }
+        Insert: {
+          changes_applied?: number
+          changes_attempted?: number
+          changes_failed?: number
+          dates_evaluated?: number
+          finished_at?: string | null
+          hotel_id: string
+          id?: string
+          organization_slug?: string | null
+          started_at?: string
+          status?: string
+          summary?: Json
+        }
+        Update: {
+          changes_applied?: number
+          changes_attempted?: number
+          changes_failed?: number
+          dates_evaluated?: number
+          finished_at?: string | null
+          hotel_id?: string
+          id?: string
+          organization_slug?: string | null
+          started_at?: string
+          status?: string
+          summary?: Json
+        }
+        Relationships: []
+      }
+      revenue_min_stay_decisions: {
+        Row: {
+          created_at: string
+          current_min_stay: number | null
+          days_out: number
+          error: string | null
+          event_impact: string | null
+          event_title: string | null
+          hotel_id: string
+          id: string
+          month_occupancy_pct: number | null
+          occupancy_pct: number | null
+          organization_slug: string | null
+          pickup_24h: number
+          reason: string
+          rooms_left: number | null
+          run_id: string | null
+          status: string
+          stay_date: string
+          target_min_stay: number
+        }
+        Insert: {
+          created_at?: string
+          current_min_stay?: number | null
+          days_out: number
+          error?: string | null
+          event_impact?: string | null
+          event_title?: string | null
+          hotel_id: string
+          id?: string
+          month_occupancy_pct?: number | null
+          occupancy_pct?: number | null
+          organization_slug?: string | null
+          pickup_24h?: number
+          reason: string
+          rooms_left?: number | null
+          run_id?: string | null
+          status?: string
+          stay_date: string
+          target_min_stay: number
+        }
+        Update: {
+          created_at?: string
+          current_min_stay?: number | null
+          days_out?: number
+          error?: string | null
+          event_impact?: string | null
+          event_title?: string | null
+          hotel_id?: string
+          id?: string
+          month_occupancy_pct?: number | null
+          occupancy_pct?: number | null
+          organization_slug?: string | null
+          pickup_24h?: number
+          reason?: string
+          rooms_left?: number | null
+          run_id?: string | null
+          status?: string
+          stay_date?: string
+          target_min_stay?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "revenue_min_stay_decisions_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "revenue_min_stay_automation_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       revenue_notification_reads: {
         Row: {
           created_at: string
@@ -7794,6 +7971,13 @@ export type Database = {
           max_markdowns_per_day: number
           maximum_increase: number | null
           min_movement_eur: number
+          min_stay_automation_enabled: boolean
+          min_stay_automation_horizon_days: number
+          min_stay_automation_live: boolean
+          min_stay_change_cooldown_hours: number
+          min_stay_live_activated_at: string | null
+          min_stay_max_nights: number
+          min_stay_shadow_started_at: string | null
           minimum_adr: number | null
           mode: string
           month_pace_guard_enabled: boolean
@@ -7814,6 +7998,7 @@ export type Database = {
           pickup_increase_ladder: Json | null
           pickup_lookback_hours: number
           positive_pickup_enabled: boolean
+          proactive_ladder_repair_enabled: boolean
           protect_high_occupancy: boolean
           raise_on_any_pickup: boolean
           rebook_window_hours: number
@@ -7913,6 +8098,13 @@ export type Database = {
           max_markdowns_per_day?: number
           maximum_increase?: number | null
           min_movement_eur?: number
+          min_stay_automation_enabled?: boolean
+          min_stay_automation_horizon_days?: number
+          min_stay_automation_live?: boolean
+          min_stay_change_cooldown_hours?: number
+          min_stay_live_activated_at?: string | null
+          min_stay_max_nights?: number
+          min_stay_shadow_started_at?: string | null
           minimum_adr?: number | null
           mode?: string
           month_pace_guard_enabled?: boolean
@@ -7933,6 +8125,7 @@ export type Database = {
           pickup_increase_ladder?: Json | null
           pickup_lookback_hours?: number
           positive_pickup_enabled?: boolean
+          proactive_ladder_repair_enabled?: boolean
           protect_high_occupancy?: boolean
           raise_on_any_pickup?: boolean
           rebook_window_hours?: number
@@ -8032,6 +8225,13 @@ export type Database = {
           max_markdowns_per_day?: number
           maximum_increase?: number | null
           min_movement_eur?: number
+          min_stay_automation_enabled?: boolean
+          min_stay_automation_horizon_days?: number
+          min_stay_automation_live?: boolean
+          min_stay_change_cooldown_hours?: number
+          min_stay_live_activated_at?: string | null
+          min_stay_max_nights?: number
+          min_stay_shadow_started_at?: string | null
           minimum_adr?: number | null
           mode?: string
           month_pace_guard_enabled?: boolean
@@ -8052,6 +8252,7 @@ export type Database = {
           pickup_increase_ladder?: Json | null
           pickup_lookback_hours?: number
           positive_pickup_enabled?: boolean
+          proactive_ladder_repair_enabled?: boolean
           protect_high_occupancy?: boolean
           raise_on_any_pickup?: boolean
           rebook_window_hours?: number
@@ -9679,6 +9880,7 @@ export type Database = {
       tickets: {
         Row: {
           assigned_to: string | null
+          assignment_method: string | null
           attachment_urls: string[] | null
           category: string | null
           closed_at: string | null
@@ -9688,9 +9890,11 @@ export type Database = {
           created_by: string
           department: string | null
           description: string
+          forwarded_at: string | null
           hold_reason: string | null
           hotel: string | null
           id: string
+          legacy_maintenance_issue_id: string | null
           on_hold: boolean | null
           organization_slug: string | null
           pending_supervisor_approval: boolean | null
@@ -9700,6 +9904,9 @@ export type Database = {
           room_number: string
           sla_breach_reason: string | null
           sla_due_date: string | null
+          source: string
+          source_assignment_id: string | null
+          source_room_id: string | null
           status: Database["public"]["Enums"]["ticket_status"]
           sub_category: string | null
           sub_sub_category: string | null
@@ -9712,6 +9919,7 @@ export type Database = {
         }
         Insert: {
           assigned_to?: string | null
+          assignment_method?: string | null
           attachment_urls?: string[] | null
           category?: string | null
           closed_at?: string | null
@@ -9721,9 +9929,11 @@ export type Database = {
           created_by: string
           department?: string | null
           description: string
+          forwarded_at?: string | null
           hold_reason?: string | null
           hotel?: string | null
           id?: string
+          legacy_maintenance_issue_id?: string | null
           on_hold?: boolean | null
           organization_slug?: string | null
           pending_supervisor_approval?: boolean | null
@@ -9733,6 +9943,9 @@ export type Database = {
           room_number: string
           sla_breach_reason?: string | null
           sla_due_date?: string | null
+          source?: string
+          source_assignment_id?: string | null
+          source_room_id?: string | null
           status?: Database["public"]["Enums"]["ticket_status"]
           sub_category?: string | null
           sub_sub_category?: string | null
@@ -9745,6 +9958,7 @@ export type Database = {
         }
         Update: {
           assigned_to?: string | null
+          assignment_method?: string | null
           attachment_urls?: string[] | null
           category?: string | null
           closed_at?: string | null
@@ -9754,9 +9968,11 @@ export type Database = {
           created_by?: string
           department?: string | null
           description?: string
+          forwarded_at?: string | null
           hold_reason?: string | null
           hotel?: string | null
           id?: string
+          legacy_maintenance_issue_id?: string | null
           on_hold?: boolean | null
           organization_slug?: string | null
           pending_supervisor_approval?: boolean | null
@@ -9766,6 +9982,9 @@ export type Database = {
           room_number?: string
           sla_breach_reason?: string | null
           sla_due_date?: string | null
+          source?: string
+          source_assignment_id?: string | null
+          source_room_id?: string | null
           status?: Database["public"]["Enums"]["ticket_status"]
           sub_category?: string | null
           sub_sub_category?: string | null
@@ -9796,6 +10015,27 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tickets_legacy_maintenance_issue_id_fkey"
+            columns: ["legacy_maintenance_issue_id"]
+            isOneToOne: false
+            referencedRelation: "maintenance_issues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tickets_source_assignment_id_fkey"
+            columns: ["source_assignment_id"]
+            isOneToOne: false
+            referencedRelation: "room_assignments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tickets_source_room_id_fkey"
+            columns: ["source_room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
             referencedColumns: ["id"]
           },
           {
@@ -10188,6 +10428,26 @@ export type Database = {
       }
     }
     Views: {
+      revenue_competitor_market_daily: {
+        Row: {
+          active_competitor_count: number | null
+          average_rate_eur: number | null
+          competitors: Json | null
+          excluded_competitors: Json | null
+          excluded_outlier_count: number | null
+          freshest_captured_at: string | null
+          hotel_id: string | null
+          max_rate_eur: number | null
+          median_rate_eur: number | null
+          min_rate_eur: number | null
+          observed_competitor_count: number | null
+          organization_slug: string | null
+          raw_average_rate_eur: number | null
+          stay_date: string | null
+          validated_competitor_count: number | null
+        }
+        Relationships: []
+      }
       v_training_completion_by_role: {
         Row: {
           completed_users: number | null
@@ -10320,6 +10580,7 @@ export type Database = {
             }[]
           }
       cleanup_old_photos: { Args: never; Returns: undefined }
+      close_empty_revenue_push_runs: { Args: never; Returns: number }
       complete_revenue_sync:
         | {
             Args: {
@@ -10345,6 +10606,23 @@ export type Database = {
           p_username?: string
         }
         Returns: Json
+      }
+      create_housekeeping_maintenance_ticket: {
+        Args: {
+          _assignment_id: string
+          _description: string
+          _photo_urls?: string[]
+          _priority?: string
+          _room_id: string
+        }
+        Returns: {
+          assigned_to: string
+          assignee_name: string
+          assignment_method: string
+          hotel: string
+          id: string
+          ticket_number: string
+        }[]
       }
       create_user_with_profile:
         | {
@@ -10537,6 +10815,17 @@ export type Database = {
         Args: { target_date?: string; user_id: string }
         Returns: Json
       }
+      get_maintenance_staff_for_hotel: {
+        Args: { _hotel: string; _signed_in_only?: boolean }
+        Returns: {
+          assigned_hotel: string
+          checked_in_at: string
+          full_name: string
+          id: string
+          is_signed_in: boolean
+          role: string
+        }[]
+      }
       get_next_housekeeper_sequence: {
         Args: { p_org_slug: string }
         Returns: number
@@ -10712,9 +11001,21 @@ export type Database = {
           organization_slug: string
         }[]
       }
+      invoke_ottofiori_market_scan: {
+        Args: { _force?: boolean }
+        Returns: number
+      }
       is_revenue_user: { Args: { _uid: string }; Returns: boolean }
       is_super_admin: { Args: { user_id: string }; Returns: boolean }
       is_top_management: { Args: { _user_id: string }; Returns: boolean }
+      maintenance_hotel_matches: {
+        Args: {
+          _organization_slug: string
+          _profile_hotel: string
+          _ticket_hotel: string
+        }
+        Returns: boolean
+      }
       manager_assignable_role: {
         Args: { _role: Database["public"]["Enums"]["user_role"] }
         Returns: boolean
@@ -10842,6 +11143,10 @@ export type Database = {
       pi_user_hotel: { Args: never; Returns: string }
       pi_user_org: { Args: never; Returns: string }
       pi_user_role: { Args: never; Returns: string }
+      pick_active_maintenance_staff: {
+        Args: { _hotel: string; _organization_slug: string }
+        Returns: string
+      }
       pms_add_folio_item: {
         Args: {
           _amount: number
@@ -10988,6 +11293,10 @@ export type Database = {
           source: string
           stay_date: string
         }[]
+      }
+      rdhotels_assignment_in_active_hotel: {
+        Args: { _room_id: string; _user_id: string }
+        Returns: boolean
       }
       reconcile_competitor_rates: {
         Args: {

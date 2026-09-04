@@ -649,7 +649,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       const today = selectedDate;
       const { data } = await supabase
         .from('staff_attendance')
-        .select('user_id, status, break_type')
+        .select('user_id, status, break_type, break_started_at, check_in_time, check_out_time')
         .eq('work_date', today);
 
       const attendanceMap: Record<string, any> = {};
@@ -898,6 +898,17 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           hotelName={managerHotelName}
           staffMap={Object.fromEntries(housekeepingStaff.map(s => [s.id, s.full_name]))}
           refreshKey={overviewRefreshKey}
+          signedInHousekeepers={canDragAssign
+            ? housekeepingStaff
+                .map((s) => ({ staff: s, att: staffAttendance[s.id] }))
+                .filter(({ att }) => !!att && !att.check_out_time && ['checked_in', 'on_break'].includes(att.status))
+                .map(({ staff, att }) => ({
+                  id: staff.id,
+                  fullName: staff.full_name,
+                  nickname: staff.nickname,
+                  onBreak: att.status === 'on_break',
+                }))
+            : []}
         />
       )}
 

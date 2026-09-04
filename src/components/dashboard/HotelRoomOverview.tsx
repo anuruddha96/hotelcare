@@ -14,13 +14,13 @@ import { UI_HINTS } from '@/lib/ui-hints';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings, MessageSquare, Ban, AlertTriangle } from 'lucide-react';
+import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings, MessageSquare, Ban, AlertTriangle, GripVertical, Coffee } from 'lucide-react';
 import { StructuredRoomNote } from '@/components/pms/StructuredRoomNote';
 import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
 import { usePropertyTerms } from '@/lib/propertyTerminology';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
-import { setRoomDragPayload, readRoomDragPayload, unassignRoom } from '@/lib/hkAssignmentDnd';
+import { setRoomDragPayload, readRoomDragPayload, unassignRoom, assignRoomToStaff, setHousekeeperDragPayload, readHousekeeperDragPayload, isAssignmentInProgressError } from '@/lib/hkAssignmentDnd';
 import { useUnitSelection, toggleUnitSelection, toggleUnitGroupSelection, type SelectedUnit } from '@/lib/unitSelection';
 
 import { Textarea } from '@/components/ui/textarea';
@@ -88,11 +88,20 @@ interface StaffMap {
   [id: string]: string;
 }
 
+export interface SignedInHousekeeper {
+  id: string;
+  fullName: string;
+  nickname?: string | null;
+  onBreak?: boolean;
+}
+
 interface HotelRoomOverviewProps {
   selectedDate: string;
   hotelName: string;
   staffMap: StaffMap;
   refreshKey?: number;
+  /** Housekeepers signed in for selectedDate at this hotel (already scoped). */
+  signedInHousekeepers?: SignedInHousekeeper[];
 }
 
 const ROOM_SIZE_OPTIONS = [
@@ -159,7 +168,7 @@ function isOverdue(assignment: AssignmentData | undefined, startedAt?: string): 
   return false;
 }
 
-export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKey }: HotelRoomOverviewProps) {
+export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKey, signedInHousekeepers = [] }: HotelRoomOverviewProps) {
   const { profile } = useAuth();
   const { t } = useTranslation();
   const terms = usePropertyTerms();
@@ -191,6 +200,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [syncFlash, setSyncFlash] = useState(false);
   const [pendingUnassign, setPendingUnassign] = useState<{ roomId: string; roomNumber: string; staffName: string | null } | null>(null);
   const [unassigning, setUnassigning] = useState(false);
+  // Inverse drag: a housekeeper chip from the tray dropped onto a room chip.
+  const [hkDrag, setHkDrag] = useState<{ staffId: string; staffName: string } | null>(null);
+  const [hkHoverRoomId, setHkHoverRoomId] = useState<string | null>(null);
+  const [hkSuccessRoomId, setHkSuccessRoomId] = useState<string | null>(null);
+
 
   const isManagerOrAdmin = hasManagerPowers(profile?.role);
   const isSupervisor = profile?.role === 'supervisor';
@@ -746,6 +760,65 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     return assigneeLabel(staffMap, assignment.assigned_to);
   };
 
+  /**
+   * Inverse drag: a housekeeper chip was dropped on a room chip. The write is
+   * immediate (not staged) and refuses to touch a room that is already being
+   * cleaned.
+   */
+  const handleHousekeeperDropOnRoom = async (e: React.DragEvent, room: RoomData) => {
+    const payload = readHousekeeperDragPayload(e);
+    if (!payload) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setHkHoverRoomId(null);
+    setHkDrag(null);
+
+    const assignment = assignmentMap.get(room.id);
+    const currentName = assignment ? (staffMap[assignment.assigned_to] || null) : null;
+
+    if (assignment?.status === 'in_progress') {
+      toast.warning(
+        `Room ${room.room_number} is currently being cleaned by ${cleanName(currentName) || 'another housekeeper'}. ` +
+        `This assignment cannot be changed while cleaning is in progress. Please contact ${cleanName(currentName) || 'them'} directly.`,
+        { duration: 8000 },
+      );
+      return;
+    }
+    if (assignment?.assigned_to === payload.staffId) {
+      toast.info(`Room ${room.room_number} is already assigned to ${cleanName(payload.staffName)}`);
+      return;
+    }
+
+    try {
+      await assignRoomToStaff({
+        roomId: room.id,
+        staffId: payload.staffId,
+        assignmentDate: selectedDate,
+        assignedBy: profile?.id ?? '',
+        organizationSlug: (profile as any)?.organization_slug ?? null,
+        isCheckoutRoom: isCheckoutBucket(room),
+      });
+      setHkSuccessRoomId(room.id);
+      setTimeout(() => setHkSuccessRoomId((id) => (id === room.id ? null : id)), 1200);
+      toast.success(`${room.room_number} → ${cleanName(payload.staffName)}`);
+      await fetchData(true);
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } catch (err) {
+      if (isAssignmentInProgressError(err)) {
+        const name = cleanName(staffMap[err.currentAssigneeId ?? ''] || currentName || '');
+        toast.warning(
+          `Room ${room.room_number} is currently being cleaned by ${name || 'another housekeeper'}. ` +
+          `This assignment cannot be changed while cleaning is in progress. Please contact ${name || 'them'} directly.`,
+          { duration: 8000 },
+        );
+        return;
+      }
+      console.error('Housekeeper drop assignment failed', err);
+      toast.error('Could not assign this room. Please try again.');
+    }
+  };
+
+
   const getAssignmentStatus = (roomId: string): string | null => {
     return assignmentMap.get(roomId)?.status || null;
   };
@@ -792,9 +865,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       assignedToName: assignment ? staffMap[assignment.assigned_to] ?? null : null,
     });
 
+    const hkDropTarget = !!hkDrag && canDragAssign;
+    const hkHovered = hkDropTarget && hkHoverRoomId === room.id;
+
     const chipContent = (
       <div 
-        className="flex flex-col items-center gap-0.5 select-none"
+        className={`flex flex-col items-center gap-0.5 select-none transition-transform ${hkHovered ? 'scale-110' : ''}`}
+        onDragOver={hkDropTarget ? (e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; setHkHoverRoomId(room.id); } : undefined}
+        onDragEnter={hkDropTarget ? (e) => { e.preventDefault(); e.stopPropagation(); setHkHoverRoomId(room.id); } : undefined}
+        onDragLeave={hkDropTarget ? () => setHkHoverRoomId((id) => (id === room.id ? null : id)) : undefined}
+        onDrop={hkDropTarget ? (e) => { void handleHousekeeperDropOnRoom(e, room); } : undefined}
         draggable={canDragAssign ? true : undefined}
         onDragStart={canDragAssign ? (e) => {
           setRoomDragPayload(e, {
@@ -858,6 +938,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             ${isSelected ? 'ring-2 ring-primary ring-offset-2 shadow-md scale-105' : ''}
             ${canInteractWithRooms && !compactChips ? 'hover:scale-110 hover:shadow-md' : ''}
             ${compactChips && canInteractWithRooms ? 'hover:shadow-sm' : ''}
+            ${hkDropTarget ? 'ring-1 ring-dashed ring-primary/50' : ''}
+            ${hkHovered ? 'ring-2 ring-primary ring-offset-1 shadow-md' : ''}
+            ${hkSuccessRoomId === room.id ? 'ring-2 ring-emerald-500 ring-offset-1' : ''}
           `}
           style={venuesEnabled ? venueEdgeStyle(room.venue_id) : undefined}
         >
@@ -2063,6 +2146,41 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           </div>
         </CardHeader>
         <CardContent className="px-4 pb-3 space-y-3">
+          {/* Signed-in housekeeper tray — drag a person onto a room to assign. */}
+          {canDragAssign && signedInHousekeepers.length > 0 && (
+            <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-[11px] font-semibold text-foreground">Signed in today</span>
+                <span className="text-[10px] text-muted-foreground hidden sm:inline">
+                  — drag a housekeeper onto a {terms.unit.toLowerCase()} to assign
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {signedInHousekeepers.map((hk) => (
+                  <div
+                    key={hk.id}
+                    draggable
+                    onDragStart={(e) => {
+                      setHousekeeperDragPayload(e, { staffId: hk.id, staffName: hk.fullName });
+                      setHkDrag({ staffId: hk.id, staffName: hk.fullName });
+                    }}
+                    onDragEnd={() => { setHkDrag(null); setHkHoverRoomId(null); }}
+                    className={`flex items-center gap-1 rounded-full border bg-background px-2 py-1 text-[11px] font-medium cursor-grab active:cursor-grabbing shadow-sm hover:shadow transition-shadow ${hkDrag?.staffId === hk.id ? 'opacity-60' : ''}`}
+                    title={hk.fullName}
+                  >
+                    <GripVertical className="h-3 w-3 text-muted-foreground" />
+                    <span className="max-w-[120px] truncate">{cleanName(hk.nickname) || cleanName(hk.fullName)}</span>
+                    {hk.onBreak && (
+                      <span className="flex items-center gap-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 px-1 text-[9px] font-semibold">
+                        <Coffee className="h-2.5 w-2.5" /> On break
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {viewMode === 'map' ? (
             <HotelFloorMap
               rooms={rooms}
