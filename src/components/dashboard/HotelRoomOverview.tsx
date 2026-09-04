@@ -168,7 +168,7 @@ function isOverdue(assignment: AssignmentData | undefined, startedAt?: string): 
   return false;
 }
 
-export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKey }: HotelRoomOverviewProps) {
+export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKey, signedInHousekeepers = [] }: HotelRoomOverviewProps) {
   const { profile } = useAuth();
   const { t } = useTranslation();
   const terms = usePropertyTerms();
