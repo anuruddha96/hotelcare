@@ -24,6 +24,9 @@ export function NotificationPermissionBanner() {
     if (!user?.id || !profile?.organization_slug || !profile?.assigned_hotel) return;
     let disposed = false;
     let channel: ReturnType<typeof supabase.channel> | null = null;
+    const assignedSeen = new Set<string>();
+    const pendingSeen = new Set<string>();
+    const approvedSeen = new Set<string>();
 
     const copy: Record<string, { title: string; assigned: string; forwarded: string; approval: string; approved: string; room: string }> = {
       en: { title: 'Maintenance', assigned: 'New maintenance task assigned', forwarded: 'New maintenance request forwarded', approval: 'Repair submitted for supervisor approval', approved: 'Your maintenance repair was approved', room: 'Room' },
@@ -40,36 +43,56 @@ export function NotificationPermissionBanner() {
     const setup = async () => {
       const keys = await resolveHotelKeys(profile.assigned_hotel);
       const hotelKeys = keys.length ? keys : [profile.assigned_hotel];
-      if (disposed) return;
       const c = copy[language] || copy.en;
-      const supervisorRoles = new Set(['manager', 'housekeeping_manager', 'maintenance_manager', 'supervisor', 'admin']);
+      const supervisorRoles = new Set(['manager', 'housekeeping_manager', 'maintenance_manager', 'supervisor', 'admin', 'top_management', 'top_management_manager']);
+
+      let existingQuery = (supabase as any)
+        .from('tickets')
+        .select('id, assigned_to, pending_supervisor_approval, supervisor_approved, status')
+        .eq('department', 'maintenance')
+        .eq('organization_slug', profile.organization_slug)
+        .neq('source', 'housekeeping_legacy_backfill');
+      if (hotelKeys.length) existingQuery = existingQuery.in('hotel', hotelKeys);
+      const { data: existingRows } = await existingQuery;
+      for (const row of existingRows || []) {
+        if (row.assigned_to === user.id && row.status !== 'completed') assignedSeen.add(row.id);
+        if (row.pending_supervisor_approval === true) pendingSeen.add(row.id);
+        if (row.assigned_to === user.id && row.supervisor_approved === true) approvedSeen.add(row.id);
+      }
+      if (disposed) return;
 
       channel = supabase
         .channel(`maintenance-notifications-${user.id}-${profile.assigned_hotel}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, (payload: any) => {
           const row = payload.new || payload.old;
-          const old = payload.old || {};
           if (!row || row.department !== 'maintenance') return;
           if (row.organization_slug !== profile.organization_slug) return;
           if (row.source === 'housekeeping_legacy_backfill') return;
           if (row.hotel && !hotelKeys.includes(row.hotel)) return;
 
           const suffix = row.room_number ? ` · ${c.room} ${row.room_number}` : '';
-          const newlyAssignedToMe = row.assigned_to === user.id && (payload.eventType === 'INSERT' || old.assigned_to !== user.id);
-          if (newlyAssignedToMe) {
-            void showNotification(`${c.assigned}${suffix}`, 'info', c.title);
+          const isMine = row.assigned_to === user.id;
+          if (!isMine) assignedSeen.delete(row.id);
+          if (row.pending_supervisor_approval !== true) pendingSeen.delete(row.id);
+          if (row.supervisor_approved !== true) approvedSeen.delete(row.id);
+
+          if (isMine && row.supervisor_approved === true && !approvedSeen.has(row.id)) {
+            approvedSeen.add(row.id);
+            void showNotification(`${c.approved}${suffix}`, 'success', c.title);
             return;
           }
-
-          if (row.assigned_to === user.id && payload.eventType === 'UPDATE' && old.supervisor_approved !== true && row.supervisor_approved === true) {
-            void showNotification(`${c.approved}${suffix}`, 'success', c.title);
+          if (isMine && row.supervisor_approved !== true && !assignedSeen.has(row.id)) {
+            assignedSeen.add(row.id);
+            void showNotification(`${c.assigned}${suffix}`, 'info', c.title);
             return;
           }
 
           if (!supervisorRoles.has(profile.role || '')) return;
           if (payload.eventType === 'INSERT' && row.created_by !== user.id) {
             void showNotification(`${c.forwarded}${suffix}`, row.priority === 'urgent' ? 'warning' : 'info', c.title);
-          } else if (payload.eventType === 'UPDATE' && old.pending_supervisor_approval !== true && row.pending_supervisor_approval === true) {
+          }
+          if (row.pending_supervisor_approval === true && !pendingSeen.has(row.id)) {
+            pendingSeen.add(row.id);
             void showNotification(`${c.approval}${suffix}`, 'warning', c.title);
           }
         })
