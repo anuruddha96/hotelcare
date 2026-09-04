@@ -5,6 +5,7 @@ import { useAuth } from './useAuth';
 import { useTranslation } from './useTranslation';
 import { serviceWorkerManager } from '@/lib/serviceWorkerManager';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { canReceiveHousekeepingOperationalNotifications } from '@/lib/notificationAudience';
 
 // Add CSS for flash animation (only once)
 if (typeof document !== 'undefined' && !document.getElementById('notification-flash-style')) {
@@ -59,7 +60,6 @@ export function useNotifications() {
       return false;
     }
 
-    // Check current permission
     if (Notification.permission === 'granted') {
       return true;
     }
@@ -70,22 +70,18 @@ export function useNotifications() {
     }
 
     try {
-      // iOS Web Push works only when installed to Home Screen (standalone)
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
       const isStandalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (navigator as any).standalone === true;
       if (isIOS && !isStandalone) {
-        // Inform user how to enable on iOS Safari
         toast.info(t('notifications.iosInstructions'));
         setNotificationPermission('default');
         return false;
       }
 
-      // Request permission - must be triggered by user interaction on iOS
       const permission = await Notification.requestPermission();
       setNotificationPermission(permission);
 
       if (user?.id && permission !== 'default') {
-        // Save preference to database
         await supabase
           .from('notification_preferences')
           .upsert({
@@ -95,11 +91,9 @@ export function useNotifications() {
       }
 
       if (permission === 'granted') {
-        // Mobile browsers (notably iOS PWAs) should use the Service Worker
-        // notification API rather than the window Notification constructor.
         await serviceWorkerManager.sendNotification(
           'Hotel Care',
-          'You will now receive notifications for room assignments and approvals.',
+          'You will now receive Hotel Care notifications relevant to your role.',
           { timestamp: Date.now(), url: window.location.href }
         );
       }
@@ -117,11 +111,10 @@ export function useNotifications() {
       if (!sharedAudioContext) {
         sharedAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       }
-      // Resume context and play a near-silent blip to unlock
       sharedAudioContext.resume?.();
       const osc = sharedAudioContext.createOscillator();
       const gain = sharedAudioContext.createGain();
-      gain.gain.value = 0.0001; // inaudible unlock blip
+      gain.gain.value = 0.0001;
       osc.connect(gain);
       gain.connect(sharedAudioContext.destination);
       osc.start();
@@ -133,25 +126,20 @@ export function useNotifications() {
     }
   }, []);
 
-  // Enhanced iOS-compatible notification sound - rich two-tone chime
   const playNotificationSound = useCallback(() => {
     try {
-      // Vibration for mobile devices
       if ('vibrate' in navigator) {
         navigator.vibrate([200, 100, 200, 100, 200]);
       }
 
-      // Use Web Audio API for a rich two-tone chime
       try {
         if (!sharedAudioContext) {
           sharedAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
         }
         const ctx = sharedAudioContext;
         ctx.resume?.();
-
         const now = ctx.currentTime;
 
-        // Create a rich two-tone chime (C5 + E5) with harmonics
         const playTone = (freq: number, startTime: number, duration: number, volume: number) => {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
@@ -166,41 +154,29 @@ export function useNotifications() {
           osc.stop(startTime + duration + 0.05);
         };
 
-        // First chime: C5 (523Hz) + overtone
         playTone(523, now, 0.3, 0.15);
-        playTone(1046, now, 0.2, 0.05); // octave overtone
-
-        // Second chime: E5 (659Hz) + overtone, slightly delayed
+        playTone(1046, now, 0.2, 0.05);
         playTone(659, now + 0.15, 0.35, 0.12);
-        playTone(1318, now + 0.15, 0.25, 0.04); // octave overtone
-
-        // Soft third: G5 (784Hz) for a pleasant resolution
+        playTone(1318, now + 0.15, 0.25, 0.04);
         playTone(784, now + 0.3, 0.3, 0.06);
-
       } catch (webAudioError) {
         console.log('Web Audio not supported:', webAudioError);
       }
-
     } catch (error) {
       console.log('Notification sound not supported:', error);
     }
   }, []);
 
-  // Show browser notification using Service Worker for persistence
   const showBrowserNotification = useCallback(async (title: string, message: string) => {
     if ('Notification' in window && Notification.permission === 'granted') {
       try {
-        // Use service worker for persistent notifications
         await serviceWorkerManager.sendNotification(title, message, {
           timestamp: Date.now(),
           url: window.location.href,
         });
-
         return true;
       } catch (error) {
         console.error('Service Worker notification failed, using fallback:', error);
-
-        // Desktop fallback. Some mobile browsers do not allow this constructor.
         try {
           const notification = new Notification(title, {
             body: message,
@@ -218,16 +194,13 @@ export function useNotifications() {
     return null;
   }, []);
 
-  // Enhanced notification with sound, browser notification, and visual fallback
   const showNotification = useCallback(async (
     message: string,
     type: 'success' | 'info' | 'warning' = 'info',
     title?: string
   ) => {
-    // Play sound and vibration
     playNotificationSound();
 
-    // Show toast notification
     toast[type](message, {
       duration: 4000,
       position: 'top-center',
@@ -241,15 +214,11 @@ export function useNotifications() {
       }
     });
 
-    // Always brand the title with "Hotel Care" prefix when sending OS-level notification
     const brandedTitle = title ? `Hotel Care · ${title}` : 'Hotel Care';
 
-    // Use ServiceWorkerRegistration.showNotification for installed mobile apps/PWAs.
     if (title && notificationPermission === 'granted') {
       await showBrowserNotification(brandedTitle, message);
     } else if (notificationPermission === 'default' && title) {
-      // This succeeds on desktop when the browser allows it. On iOS the user
-      // must grant permission from the explicit notification banner/button.
       try {
         const granted = await requestNotificationPermission();
         if (granted) {
@@ -259,12 +228,11 @@ export function useNotifications() {
         console.log('Failed to request notification permission:', error);
       }
     }
-
   }, [playNotificationSound, showBrowserNotification, notificationPermission, requestNotificationPermission]);
 
-  // Listen for new assignments, break requests, and pending approvals.
-  // Every manager-facing event is scoped to the ACTIVE property; RD Hotels
-  // properties share one organization_slug so org-only filtering is not enough.
+  // Listen for personal assignments plus housekeeping manager actions. All
+  // manager-facing housekeeping events are scoped to the ACTIVE property and
+  // routed only to the operational roles that must act on them.
   useEffect(() => {
     if (!user?.id || !profile?.assigned_hotel) return;
 
@@ -302,15 +270,6 @@ export function useNotifications() {
         return comparable.some((key) => activeHotelKeys.includes(key));
       };
 
-      const approvalRoles = new Set([
-        'manager',
-        'housekeeping_manager',
-        'admin',
-        'top_management',
-        'top_management_manager',
-        'supervisor',
-      ]);
-
       channel = supabase
         .channel(`notifications-channel-${user.id}-${profile.assigned_hotel}`)
         .on(
@@ -343,13 +302,10 @@ export function useNotifications() {
             const newRecord = payload.new as any;
             const oldRecord = payload.old as any;
 
-            // Notify eligible supervisors only for a NEW completion belonging
-            // to their currently selected/assigned hotel.
             if (
               oldRecord.status !== 'completed' &&
               newRecord.status === 'completed' &&
-              !!profile?.role &&
-              approvalRoles.has(profile.role) &&
+              canReceiveHousekeepingOperationalNotifications(profile?.role) &&
               await isRoomInActiveHotel(newRecord.room_id)
             ) {
               showNotification(
@@ -368,7 +324,7 @@ export function useNotifications() {
             table: 'break_requests'
           },
           async (payload) => {
-            if (!approvalRoles.has(profile.role || '')) return;
+            if (!canReceiveHousekeepingOperationalNotifications(profile?.role)) return;
             const newRecord = payload.new as any;
             const staffId = newRecord.user_id || newRecord.requested_by;
             if (!(await isUserInActiveHotel(staffId))) return;
