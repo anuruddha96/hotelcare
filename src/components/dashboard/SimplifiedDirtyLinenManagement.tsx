@@ -255,49 +255,74 @@ export function SimplifiedDirtyLinenManagement() {
   );
 
   const renderDesktopTable = () => (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse border">
+    <div className="w-full overflow-hidden rounded-md border">
+      <table className="w-full table-fixed border-collapse">
+        <colgroup>
+          <col className="w-[12%]" />
+          {allLinenItems.map((item) => (
+            <col key={item.id} />
+          ))}
+          <col className="w-[7%]" />
+        </colgroup>
         <thead>
-          <tr className="bg-muted">
-            <th className="border p-3 text-left font-bold min-w-[150px]">{t('linen.housekeepers')}</th>
-            {allLinenItems.map((item) => (
-              <th key={item.id} className="border p-2 text-center font-bold text-xs sm:text-sm whitespace-nowrap">
-                {translateLinenItem(item.display_name, t)}
-              </th>
-            ))}
-            <th className="border p-3 text-center font-bold bg-primary/10 min-w-[100px]">{t('linen.total').toUpperCase()}</th>
+          <tr className="bg-muted/80">
+            <th className="border-r border-b px-2 py-2 text-left text-[10px] xl:text-xs font-bold leading-tight break-words [hyphens:auto]">
+              {t('linen.housekeepers')}
+            </th>
+            {allLinenItems.map((item) => {
+              const label = translateLinenItem(item.display_name, t);
+              return (
+                <th
+                  key={item.id}
+                  title={label}
+                  className="border-r border-b px-1 py-2 text-center font-bold text-[9px] lg:text-[10px] xl:text-xs leading-[1.15] whitespace-normal break-words [hyphens:auto] align-middle"
+                >
+                  {label}
+                </th>
+              );
+            })}
+            <th className="border-b px-1 py-2 text-center font-bold text-[10px] xl:text-xs leading-tight bg-primary/10 break-words">
+              {t('linen.total').toUpperCase()}
+            </th>
           </tr>
         </thead>
         <tbody>
           {housekeeperData.length === 0 ? (
             <tr>
-              <td colSpan={allLinenItems.length + 2} className="border p-8 text-center text-muted-foreground">
+              <td colSpan={allLinenItems.length + 2} className="p-8 text-center text-muted-foreground">
                 {t('linen.noData')}
               </td>
             </tr>
           ) : (
             <>
               {housekeeperData.map((hk, index) => (
-                <tr key={index} className="hover:bg-accent/30 transition">
-                  <td className="border p-3 font-medium">{hk.housekeeper_name}</td>
+                <tr key={index} className="even:bg-muted/20 hover:bg-accent/30 transition-colors">
+                  <td
+                    title={hk.housekeeper_name}
+                    className="border-r border-b px-2 py-2 text-xs lg:text-sm font-medium leading-tight break-words [hyphens:auto]"
+                  >
+                    {hk.housekeeper_name}
+                  </td>
                   {allLinenItems.map((item) => (
-                    <td key={item.id} className="border p-3 text-center">
+                    <td key={item.id} className="border-r border-b px-1 py-2 text-center text-xs lg:text-sm tabular-nums">
                       {hk.items[item.name] || 0}
                     </td>
                   ))}
-                  <td className="border p-3 text-center font-bold bg-primary/5">
+                  <td className="border-b px-1 py-2 text-center text-xs lg:text-sm font-bold tabular-nums bg-primary/5">
                     {hk.total}
                   </td>
                 </tr>
               ))}
-              <tr className="bg-accent font-bold">
-                <td className="border p-3">{t('linen.total').toUpperCase()}</td>
+              <tr className="bg-accent/80 font-bold">
+                <td className="border-r px-2 py-2 text-xs lg:text-sm leading-tight break-words">
+                  {t('linen.total').toUpperCase()}
+                </td>
                 {allLinenItems.map((item) => (
-                  <td key={item.id} className="border p-3 text-center">
+                  <td key={item.id} className="border-r px-1 py-2 text-center text-xs lg:text-sm tabular-nums">
                     {itemTotals.get(item.name) || 0}
                   </td>
                 ))}
-                <td className="border p-3 text-center bg-primary/10 text-lg">
+                <td className="px-1 py-2 text-center bg-primary/10 text-sm lg:text-base tabular-nums">
                   {grandTotal}
                 </td>
               </tr>
