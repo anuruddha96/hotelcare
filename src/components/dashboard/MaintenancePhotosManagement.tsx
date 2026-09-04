@@ -221,7 +221,7 @@ export function MaintenancePhotosManagement() {
                   <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 flex gap-2"><Hourglass className="h-4 w-4 shrink-0" />{c.noDuty}</div>
                 )}
                 {ticket.on_hold && ticket.hold_reason && (
-                  <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 flex gap-2"><PauseCircle className="h-4 w-4 shrink-0" /><span><strong>{c.holdReason}:</strong> {ticket.hold_reason.replaceAll('_', ' ')}</span></div>
+                  <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 flex gap-2"><PauseCircle className="h-4 w-4 shrink-0" /><span><strong>{c.holdReason}:</strong> {ticket.hold_reason.replace(/_/g, ' ')}</span></div>
                 )}
                 {ticket.resolution_text && (
                   <div className="text-xs text-green-800 bg-green-50 border border-green-200 rounded-lg p-2.5"><strong>{c.resolution}:</strong> {ticket.resolution_text}</div>

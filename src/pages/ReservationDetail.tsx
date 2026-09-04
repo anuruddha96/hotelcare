@@ -342,7 +342,7 @@ const ReservationDetail = () => {
                       <div key={event.id} className="flex gap-3 text-sm">
                         <div className="mt-1 h-2 w-2 rounded-full bg-primary shrink-0" />
                         <div className="min-w-0">
-                          <p className="font-medium capitalize">{String(event.event_type || '').replaceAll('_', ' ')}</p>
+                          <p className="font-medium capitalize">{String(event.event_type || '').replace(/_/g, ' ')}</p>
                           {reason && <p className="text-xs text-muted-foreground mt-0.5">{reason}</p>}
                           <p className="text-[11px] text-muted-foreground mt-0.5">{new Date(event.created_at).toLocaleString()}</p>
                         </div>
