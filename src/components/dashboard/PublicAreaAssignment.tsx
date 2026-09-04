@@ -32,6 +32,9 @@ const PUBLIC_AREAS = [
   { key: 'stairways_cleaning', name: 'Stairways & Corridors', icon: '🚶', description: 'Stairways, corridors, and elevators' },
   { key: 'breakfast_room_cleaning', name: 'Breakfast Room', icon: '🍽️', description: 'Breakfast and dining room' },
   { key: 'dining_area_cleaning', name: 'Dining Area', icon: '🍴', description: 'Restaurant and dining spaces' },
+  { key: 'gym_cleaning', name: 'Gym', icon: '🏋️', description: 'Gym and fitness area, including used towels' },
+  { key: 'sauna_cleaning', name: 'Sauna', icon: '♨️', description: 'Sauna area, including used towels' },
+  { key: 'jacuzzi_cleaning', name: 'Jacuzzi', icon: '🫧', description: 'Jacuzzi area, including used towels' },
 ];
 
 export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onAssigned }: PublicAreaAssignmentProps) {
@@ -82,7 +85,6 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
       const staffName = staff.find(s => s.id === selectedStaffId)?.full_name || 'staff';
       toast.success(`Assigned ${selectedAreas.size} public area(s) to ${staffName}`);
       
-      // Reset
       setSelectedStaffId('');
       setSelectedAreas(new Set());
       setNotes('');
@@ -109,7 +111,6 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
 
         <div className="flex-1 min-h-0 overflow-y-auto px-1">
           <div className="space-y-4">
-            {/* Select Housekeeper */}
             <div className="space-y-2">
               <label className="text-sm font-medium">{t('publicArea.selectHousekeeper')}</label>
               <Select value={selectedStaffId} onValueChange={setSelectedStaffId}>
@@ -126,7 +127,6 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
               </Select>
             </div>
 
-            {/* Select Areas */}
             <div className="space-y-2">
               <label className="text-sm font-medium">{t('publicArea.selectAreas')} ({selectedAreas.size} {t('publicArea.selected')})</label>
               <div className="grid grid-cols-1 gap-2">
@@ -152,7 +152,6 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
               </div>
             </div>
 
-            {/* Priority */}
             <div className="space-y-2">
               <label className="text-sm font-medium">{t('publicArea.priority')}</label>
               <Select value={String(priority)} onValueChange={(v) => setPriority(Number(v))}>
@@ -167,7 +166,6 @@ export function PublicAreaAssignment({ open, onOpenChange, staff, hotelName, onA
               </Select>
             </div>
 
-            {/* Notes */}
             <div className="space-y-2">
               <label className="text-sm font-medium">{t('publicArea.notes')}</label>
               <Textarea

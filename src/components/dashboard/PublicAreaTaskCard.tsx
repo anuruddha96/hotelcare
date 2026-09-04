@@ -3,8 +3,9 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { MapPin, Play, CheckCircle, Clock, Loader2 } from 'lucide-react';
+import { MapPin, Play, CheckCircle, Loader2, Shirt } from 'lucide-react';
 import { toast } from 'sonner';
+import { PublicAreaDirtyLinenDialog, PublicLinenArea } from './PublicAreaDirtyLinenDialog';
 
 interface PublicAreaTask {
   id: string;
@@ -16,6 +17,7 @@ interface PublicAreaTask {
   started_at: string | null;
   completed_at: string | null;
   notes: string | null;
+  hotel: string;
 }
 
 const AREA_ICONS: Record<string, string> = {
@@ -29,6 +31,15 @@ const AREA_ICONS: Record<string, string> = {
   stairways_cleaning: '🚶',
   breakfast_room_cleaning: '🍽️',
   dining_area_cleaning: '🍴',
+  gym_cleaning: '🏋️',
+  sauna_cleaning: '♨️',
+  jacuzzi_cleaning: '🫧',
+};
+
+const LINEN_AREA_BY_TASK: Partial<Record<string, PublicLinenArea>> = {
+  gym_cleaning: 'gym',
+  sauna_cleaning: 'sauna',
+  jacuzzi_cleaning: 'jacuzzi',
 };
 
 interface PublicAreaTaskCardProps {
@@ -39,7 +50,9 @@ interface PublicAreaTaskCardProps {
 
 export function PublicAreaTaskCard({ task, onStatusUpdate, readOnly = false }: PublicAreaTaskCardProps) {
   const [loading, setLoading] = useState(false);
+  const [linenOpen, setLinenOpen] = useState(false);
   const icon = AREA_ICONS[task.task_type] || '📍';
+  const linenArea = LINEN_AREA_BY_TASK[task.task_type];
 
   const handleStart = async () => {
     setLoading(true);
@@ -80,8 +93,8 @@ export function PublicAreaTaskCard({ task, onStatusUpdate, readOnly = false }: P
   };
 
   const priorityLabel = task.priority >= 3 ? 'Urgent' : task.priority >= 2 ? 'High' : 'Normal';
-  const priorityColor = task.priority >= 3 ? 'bg-red-100 text-red-700 border-red-200' 
-    : task.priority >= 2 ? 'bg-amber-100 text-amber-700 border-amber-200' 
+  const priorityColor = task.priority >= 3 ? 'bg-red-100 text-red-700 border-red-200'
+    : task.priority >= 2 ? 'bg-amber-100 text-amber-700 border-amber-200'
     : 'bg-muted text-muted-foreground';
 
   const statusColor = task.status === 'completed' ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/40 dark:text-green-300'
@@ -89,50 +102,72 @@ export function PublicAreaTaskCard({ task, onStatusUpdate, readOnly = false }: P
     : 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/40 dark:text-orange-300';
 
   return (
-    <Card className={`overflow-hidden ${task.status === 'completed' ? 'opacity-70' : ''}`}>
-      <CardContent className="p-3">
-        <div className="flex items-start gap-3">
-          <span className="text-2xl">{icon}</span>
-          <div className="flex-1 min-w-0 space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <h4 className="text-sm font-semibold truncate">{task.task_name}</h4>
-              <Badge variant="outline" className={`text-[10px] shrink-0 ${statusColor}`}>
-                {task.status === 'completed' ? 'Done' : task.status === 'in_progress' ? 'In Progress' : 'Assigned'}
-              </Badge>
-            </div>
-
-            {task.task_description && (
-              <p className="text-xs text-muted-foreground line-clamp-2">{task.task_description}</p>
-            )}
-
-            <div className="flex items-center gap-2 flex-wrap">
-              <Badge variant="outline" className={`text-[10px] ${priorityColor}`}>{priorityLabel}</Badge>
-              <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                <MapPin className="h-3 w-3" />
-                Public Area
+    <>
+      <Card className={`overflow-hidden ${task.status === 'completed' ? 'opacity-80' : ''}`}>
+        <CardContent className="p-3">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">{icon}</span>
+            <div className="flex-1 min-w-0 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="text-sm font-semibold truncate">{task.task_name}</h4>
+                <Badge variant="outline" className={`text-[10px] shrink-0 ${statusColor}`}>
+                  {task.status === 'completed' ? 'Done' : task.status === 'in_progress' ? 'In Progress' : 'Assigned'}
+                </Badge>
               </div>
-            </div>
 
-            {/* Action buttons for housekeepers */}
-            {!readOnly && task.status !== 'completed' && (
-              <div className="flex gap-2 mt-2">
-                {task.status === 'assigned' && (
-                  <Button size="sm" variant="default" className="h-7 text-xs" onClick={handleStart} disabled={loading}>
-                    {loading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
-                    Start
-                  </Button>
-                )}
-                {task.status === 'in_progress' && (
-                  <Button size="sm" variant="default" className="h-7 text-xs bg-green-600 hover:bg-green-700" onClick={handleComplete} disabled={loading}>
-                    {loading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <CheckCircle className="h-3 w-3 mr-1" />}
-                    Complete
-                  </Button>
-                )}
+              {task.task_description && (
+                <p className="text-xs text-muted-foreground line-clamp-2">{task.task_description}</p>
+              )}
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant="outline" className={`text-[10px] ${priorityColor}`}>{priorityLabel}</Badge>
+                <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <MapPin className="h-3 w-3" />
+                  Public Area
+                </div>
               </div>
-            )}
+
+              {!readOnly && (
+                <div className="flex gap-2 mt-2 flex-wrap">
+                  {task.status === 'assigned' && (
+                    <Button size="sm" variant="default" className="h-8 text-xs" onClick={handleStart} disabled={loading}>
+                      {loading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
+                      Start
+                    </Button>
+                  )}
+                  {task.status === 'in_progress' && (
+                    <Button size="sm" variant="default" className="h-8 text-xs bg-green-600 hover:bg-green-700" onClick={handleComplete} disabled={loading}>
+                      {loading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <CheckCircle className="h-3 w-3 mr-1" />}
+                      Complete
+                    </Button>
+                  )}
+                  {linenArea && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs border-primary/40"
+                      onClick={() => setLinenOpen(true)}
+                    >
+                      <Shirt className="h-3.5 w-3.5 mr-1" />
+                      Dirty linen / towels
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+
+      {linenArea && (
+        <PublicAreaDirtyLinenDialog
+          open={linenOpen}
+          onOpenChange={setLinenOpen}
+          areaType={linenArea}
+          hotel={task.hotel}
+          taskId={task.id}
+        />
+      )}
+    </>
   );
 }
