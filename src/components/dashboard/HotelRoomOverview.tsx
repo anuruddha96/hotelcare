@@ -200,6 +200,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [syncFlash, setSyncFlash] = useState(false);
   const [pendingUnassign, setPendingUnassign] = useState<{ roomId: string; roomNumber: string; staffName: string | null } | null>(null);
   const [unassigning, setUnassigning] = useState(false);
+  // Inverse drag: a housekeeper chip from the tray dropped onto a room chip.
+  const [hkDrag, setHkDrag] = useState<{ staffId: string; staffName: string } | null>(null);
+  const [hkHoverRoomId, setHkHoverRoomId] = useState<string | null>(null);
+  const [hkSuccessRoomId, setHkSuccessRoomId] = useState<string | null>(null);
+
 
   const isManagerOrAdmin = hasManagerPowers(profile?.role);
   const isSupervisor = profile?.role === 'supervisor';
