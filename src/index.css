@@ -408,3 +408,41 @@ All colors MUST be HSL.
     margin: 0;
   }
 }
+
+/* Housekeeping room checklist: use native emoji glyphs instead of SVGs.
+   The shared AssignedRoomCard is used by every hotel and both daily/checkout
+   flows. Native emoji avoids the iOS/PWA regression where Lucide SVGs can
+   disappear while their coloured circular wrappers remain visible. */
+[data-training="room-work-tools"] .grid > button > span:first-child > svg {
+  display: none;
+}
+
+[data-training="room-work-tools"] .grid > button > span:first-child::before {
+  font-size: 1.25rem;
+  line-height: 1;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}
+
+[data-training="room-work-tools"] [data-training="room-photos-button"] > span:first-child::before {
+  content: "📸";
+}
+
+[data-training="room-work-tools"] [data-training="dnd-button"] > span:first-child::before {
+  content: "🚫";
+}
+
+[data-training="room-work-tools"] [data-training="dirty-linen-button"] > span:first-child::before {
+  content: "🧺";
+}
+
+[data-training="room-work-tools"] .grid > button:not([data-training]) > span:first-child::before {
+  content: "🥤";
+}
+
+[data-training="room-work-tools"] [data-training="lost-found-button"] > span:first-child::before {
+  content: "🔎";
+}
+
+[data-training="room-work-tools"] [data-training="maintenance-button"] > span:first-child::before {
+  content: "🔧";
+}
