@@ -56,13 +56,18 @@ export function getGuestDeclinedServiceComment(notes?: string | null): string | 
     .map((line) => line.trim())
     .filter(Boolean);
 
-  const cleanDetail = (value: string) => value
-    .replace(LEGACY_NO_SERVICE_MARKER, '')
-    .replace(MEMORIES_NO_BOARD_MARKER, '')
-    .replace(/^Guest confirmed no service required\s*[—–-]?\s*/i, '')
-    .replace(/^No Service\s*[—–-]\s*Guest declined(?:\s*\/\s*no cleaning requested today)?\.?\s*/i, '')
-    .replace(/^Door checked\s*[—–-]\s*no green Clean My Room card\s*\/\s*no cleaning request\.?\s*/i, '')
-    .trim();
+  const cleanDetail = (value: string) => {
+    const withoutMarkers = value
+      .replace(LEGACY_NO_SERVICE_MARKER, '')
+      .replace(MEMORIES_NO_BOARD_MARKER, '')
+      .trim();
+
+    return withoutMarkers
+      .replace(/^Guest confirmed no service required\s*[—–-]?\s*/i, '')
+      .replace(/^No Service\s*[—–-]\s*Guest declined(?:\s*\/\s*no cleaning requested today)?\.?\s*/i, '')
+      .replace(/^Door checked\s*[—–-]\s*no green Clean My Room card\s*\/\s*no cleaning request\.?\s*/i, '')
+      .trim();
+  };
 
   // Prefer the explicit No Service line because it is the housekeeper's final
   // decision and often contains the guest's comment.
