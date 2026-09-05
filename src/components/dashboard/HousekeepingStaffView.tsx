@@ -295,6 +295,28 @@ export function HousekeepingStaffView() {
     }
   };
 
+
+  // Today's own workload split, used by the filter chips and the sections below.
+  const roomWorkload = allAssignments.filter((a: any) => a.status !== 'cancelled');
+  const checkoutCount = roomWorkload.filter((a: any) => a.assignment_type === 'checkout_cleaning').length;
+  const dailyCount = roomWorkload.length - checkoutCount;
+  const openPublicTasks = publicTasks.filter((task: any) => task.status !== 'cancelled');
+  const visibleAssignments = workFilter === 'public'
+    ? []
+    : workFilter === 'checkout'
+      ? assignments.filter((a: any) => a.assignment_type === 'checkout_cleaning')
+      : workFilter === 'daily'
+        ? assignments.filter((a: any) => a.assignment_type !== 'checkout_cleaning')
+        : assignments;
+  const visiblePublicTasks = workFilter === 'checkout' || workFilter === 'daily' ? [] : openPublicTasks;
+  const workloadFilters = (
+    <HousekeeperWorkloadFilters
+      counts={{ checkout: checkoutCount, daily: dailyCount, publicAreas: openPublicTasks.length }}
+      value={workFilter}
+      onChange={setWorkFilter}
+    />
+  );
+
   if (isMobile) {
     return <MobileHousekeepingView />;
   }
@@ -526,15 +548,15 @@ export function HousekeepingStaffView() {
       </div>
 
       {/* Public Area Tasks */}
-      {publicTasks.length > 0 && (
+      {visiblePublicTasks.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <MapPin className="h-4 w-4 text-primary" />
-            <h3 className="text-lg font-semibold">Public Area Tasks</h3>
-            <Badge variant="outline" className="text-xs">{publicTasks.length}</Badge>
+            <h3 className="text-lg font-semibold">{t('hkFilter.publicAreas')}</h3>
+            <Badge variant="outline" className="text-xs">{visiblePublicTasks.length}</Badge>
           </div>
           <div className="space-y-2">
-            {publicTasks.map(task => (
+            {visiblePublicTasks.map(task => (
               <PublicAreaTaskCard
                 key={task.id}
                 task={task}
