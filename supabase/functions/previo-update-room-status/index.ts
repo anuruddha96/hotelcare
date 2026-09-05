@@ -20,10 +20,10 @@ serve(async (req) => {
   let hotelForLog: string = 'unknown';
 
   try {
-    const { roomId, status } = await req.json();
+    const { roomId, status, assignmentId } = await req.json();
     roomIdForLog = roomId;
 
-    console.log('Updating Previo room status via REST API:', { roomId, status });
+    console.log('Updating Previo room status via REST API:', { roomId, status, assignmentId });
 
     // Get room information from HotelCare
     const { data: room, error: roomError } = await supabase
@@ -36,6 +36,53 @@ serve(async (req) => {
       throw new Error(`Room not found: ${roomId}`);
     }
     hotelForLog = room.hotel;
+
+    // A completed housekeeping assignment can mean either "cleaned" or
+    // "guest declined / no service". Never translate a guest-declined
+    // completion into Previo Clean. The assignment id makes this guard exact
+    // and avoids guessing from another completion for the same room/date.
+    if (status === 'clean' && assignmentId) {
+      const { data: assignment, error: assignmentError } = await supabase
+        .from('room_assignments')
+        .select('service_result, notes')
+        .eq('id', assignmentId)
+        .eq('room_id', roomId)
+        .maybeSingle();
+
+      if (assignmentError) {
+        console.error('[previo-update-room-status] Failed to validate housekeeping outcome:', assignmentError);
+        throw new Error(`Could not validate housekeeping outcome for assignment ${assignmentId}`);
+      }
+
+      const guestDeclined = assignment?.service_result === 'guest_declined'
+        || String(assignment?.notes || '').includes('[NO_SERVICE]');
+
+      if (guestDeclined) {
+        console.log(`[previo-update-room-status] Skipping clean push for guest-declined assignment ${assignmentId}`);
+        await supabase.from('pms_sync_history').insert({
+          hotel_id: room.hotel,
+          sync_type: 'room_status_update',
+          direction: 'push',
+          sync_status: 'skipped',
+          data: {
+            room_id: roomId,
+            room_number: room.room_number,
+            assignment_id: assignmentId,
+            requested_status: status,
+            reason: 'guest_declined_service',
+          },
+        });
+        return new Response(
+          JSON.stringify({
+            success: true,
+            skipped: true,
+            reason: 'guest_declined_service',
+            message: 'No Service assignment must not mark the room clean in Previo',
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+    }
 
     // Resolve room.hotel (which may be either the hotel_id slug or the
     // human hotel_name) to the pms_configurations.hotel_id slug.
@@ -153,6 +200,7 @@ serve(async (req) => {
         data: {
           room_id: roomId,
           room_number: room.room_number,
+          assignment_id: assignmentId ?? null,
           roomCleanStatusId: previoStatusId,
           hotelcare_status: status,
           previo_room_id: previoRoomId,

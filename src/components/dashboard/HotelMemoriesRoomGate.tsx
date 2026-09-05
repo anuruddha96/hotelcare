@@ -15,6 +15,8 @@ import { RoomCommunicationPanel } from './RoomCommunicationPanel';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
 import { todayBudapest } from '@/lib/budapestTime';
 import {
+  HOUSEKEEPING_SERVICE_RESULT_GUEST_DECLINED,
+  LEGACY_NO_SERVICE_MARKER,
   MEMORIES_GREEN_BOARD_MARKER,
   MEMORIES_NO_BOARD_MARKER,
   appendAssignmentMarker,
@@ -32,6 +34,7 @@ type MemoriesAssignment = {
   priority: number;
   estimated_duration: number;
   notes: string;
+  service_result?: 'cleaned' | 'guest_declined' | null;
   started_at?: string | null;
   completed_at?: string | null;
   ready_to_clean?: boolean;
@@ -273,16 +276,26 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
         MEMORIES_NO_BOARD_MARKER,
         message,
       );
-      const finalNotes = withNoBoard.includes('[NO_SERVICE]')
+      const finalNotes = withNoBoard.includes(LEGACY_NO_SERVICE_MARKER)
         ? withNoBoard
-        : `[NO_SERVICE]\n${withNoBoard}`.trim();
+        : `${LEGACY_NO_SERVICE_MARKER}\n${withNoBoard}`.trim();
 
-      const { error } = await supabase
+      // service_result is the first-class outcome. Keep the legacy marker in
+      // notes only for cached/older clients; the new supervisor UI filters all
+      // technical markers and shows only the final No Service outcome/comment.
+      const { error } = await (supabase as any)
         .from('room_assignments')
         .update({
           status: 'completed',
           completed_at: now,
+          service_result: HOUSEKEEPING_SERVICE_RESULT_GUEST_DECLINED,
           notes: finalNotes,
+          is_dnd: false,
+          dnd_marked_at: null,
+          dnd_marked_by: null,
+          dnd_attempt_count: 0,
+          dnd_first_attempt_at: null,
+          dnd_retry_unlocked_at: null,
         })
         .eq('id', assignment.id);
       if (error) throw error;
@@ -291,10 +304,10 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
       setNoCleaningOpen(false);
       setDoorChecked(false);
       setNoCleaningNote('');
-      toast.success(`Room ${assignment.rooms?.room_number ?? ''}: no cleaning required today`);
+      toast.success(`Room ${assignment.rooms?.room_number ?? ''}: No Service recorded for today`);
     } catch (error) {
-      console.error('Failed to record Hotel Memories no-cleaning result:', error);
-      toast.error('Could not save the no-cleaning result. Please try again.');
+      console.error('Failed to record Hotel Memories no-service result:', error);
+      toast.error('Could not save the No Service result. Please try again.');
     } finally {
       setSavingNoCleaning(false);
     }
@@ -373,7 +386,7 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
               className="w-full min-h-12 border-slate-400 whitespace-normal"
             >
               <ShieldCheck className="h-5 w-5 mr-2 shrink-0" />
-              No board / no cleaning request
+              No Service Today
             </Button>
           </div>
 
@@ -386,11 +399,11 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
       <Dialog open={noCleaningOpen} onOpenChange={setNoCleaningOpen}>
         <DialogContent className="w-[calc(100vw-1rem)] max-w-md">
           <DialogHeader>
-            <DialogTitle>No cleaning requested · Room {assignment.rooms?.room_number || 'N/A'}</DialogTitle>
+            <DialogTitle>No Service Today · Room {assignment.rooms?.room_number || 'N/A'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Use this after checking the door. A photo is optional and should show only the door/sign — never photograph the guest.
+              Use this after checking the door or when the guest declines housekeeping. A photo is optional and should show only the door/sign — never photograph the guest.
             </p>
 
             <div className="flex items-start gap-3 p-3 rounded-lg border bg-muted/40">
@@ -408,7 +421,7 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
             <Textarea
               value={noCleaningNote}
               onChange={(e) => setNoCleaningNote(e.target.value)}
-              placeholder="Optional note, e.g. guest said no cleaning today"
+              placeholder="Optional No Service comment, e.g. guest confirmed no cleaning today"
               rows={2}
             />
 
@@ -431,7 +444,7 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
                 disabled={!doorChecked || savingNoCleaning}
                 className="w-full bg-slate-700 hover:bg-slate-800 text-white"
               >
-                {savingNoCleaning ? 'Saving…' : 'Save · no cleaning'}
+                {savingNoCleaning ? 'Saving…' : 'Save · No Service Today'}
               </Button>
               <Button variant="outline" onClick={cancelNoCleaning} className="w-full">
                 Cancel
