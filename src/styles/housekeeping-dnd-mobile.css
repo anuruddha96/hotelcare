@@ -133,3 +133,31 @@
     overflow-wrap: anywhere;
   }
 }
+
+/* Manager/supervisor room board: DND must be readable without relying on a
+   subtle colour ring. HotelRoomOverview already adds ring-purple-500 when the
+   room is DND; turn that existing state hook into an explicit badge. */
+.flex.flex-col.items-center.gap-0\.5 > .relative.rounded.border.ring-purple-500 {
+  border-color: rgb(220 38 38) !important;
+  box-shadow: 0 0 0 2px rgb(220 38 38 / 0.9), 0 0 0 4px rgb(255 255 255 / 0.9);
+}
+
+.dark .flex.flex-col.items-center.gap-0\.5 > .relative.rounded.border.ring-purple-500 {
+  box-shadow: 0 0 0 2px rgb(248 113 113 / 0.95), 0 0 0 4px rgb(15 23 42 / 0.9);
+}
+
+.flex.flex-col.items-center.gap-0\.5 > .relative.rounded.border.ring-purple-500::after {
+  content: "DND";
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.125rem;
+  padding: 0 0.2rem;
+  border-radius: 0.2rem;
+  background: rgb(220 38 38);
+  color: white;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1rem;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+}
