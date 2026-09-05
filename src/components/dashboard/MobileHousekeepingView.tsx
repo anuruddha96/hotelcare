@@ -318,6 +318,25 @@ export function MobileHousekeepingView() {
     />
   );
 
+
+  // Keep the public-area counts/cards live when a manager reassigns work.
+  useEffect(() => {
+    if (!user?.id) return;
+    const channel = supabase
+      .channel(`public-tasks-${user.id}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'general_tasks',
+        filter: `assigned_to=eq.${user.id}`,
+      }, () => { fetchPublicTasks(); })
+      .subscribe();
+    const onChanged = () => fetchPublicTasks();
+    window.addEventListener('hk-assignments-changed', onChanged);
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener('hk-assignments-changed', onChanged);
+    };
+  }, [user?.id, selectedDate]);
+
   // Initialize summary on component mount
   useEffect(() => {
     if (user?.id) {
