@@ -107,12 +107,15 @@ export function usePendingApprovals() {
           .in('requester.assigned_hotel', hotelKeys);
         setBreakRequestCount(breakError ? 0 : (breakData || []).length);
 
-        // Late minibar additions awaiting supervisor review (hotel-scoped)
+        // Late minibar additions and unresolved physical refills both need a
+        // manager's attention. A blocked refill can stay open across days after
+        // the Previo charge was already confirmed, so count it in the same
+        // hotel-scoped minibar action queue.
         try {
           const { data: lateMinibar } = await (supabase as any)
             .from('room_minibar_usage')
             .select('id, rooms:room_id(hotel)')
-            .eq('pending_supervisor_review', true)
+            .or('pending_supervisor_review.eq.true,refill_status.eq.blocked_guest_inside')
             .eq('organization_slug', userOrgSlug)
             .limit(500);
           const hotelKeySet = new Set(hotelKeys);
