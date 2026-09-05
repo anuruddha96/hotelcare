@@ -1,11 +1,17 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { MapPin, Play, CheckCircle, Loader2, Shirt } from 'lucide-react';
+import { Play, CheckCircle, Loader2, Shirt, Clock } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from '@/hooks/useTranslation';
 import { PublicAreaDirtyLinenDialog, PublicLinenArea } from './PublicAreaDirtyLinenDialog';
+import {
+  publicAreaTaskCopy,
+  isExceptionalPublicAreaTask,
+  formatElapsed,
+} from '@/lib/publicAreaTasks';
 
 interface PublicAreaTask {
   id: string;
@@ -48,113 +54,135 @@ interface PublicAreaTaskCardProps {
   readOnly?: boolean;
 }
 
+/**
+ * Housekeeper execution card. Deliberately minimal: area name, one plain
+ * instruction, one big action. No mapped-section / zone / category metadata —
+ * managers keep that in the configuration and auto-assign screens.
+ */
 export function PublicAreaTaskCard({ task, onStatusUpdate, readOnly = false }: PublicAreaTaskCardProps) {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [linenOpen, setLinenOpen] = useState(false);
-  const icon = AREA_ICONS[task.task_type] || '📍';
+  const [now, setNow] = useState(() => Date.now());
+  const inFlight = useRef(false);
+
+  const icon = AREA_ICONS[task.task_type] || '🧹';
   const linenArea = LINEN_AREA_BY_TASK[task.task_type];
+  const { title, instruction } = publicAreaTaskCopy(task, t);
+  const isDone = task.status === 'completed';
+  const isRunning = task.status === 'in_progress';
 
-  const handleStart = async () => {
+  useEffect(() => {
+    if (!isRunning || !task.started_at) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, [isRunning, task.started_at]);
+
+  // Both transitions are conditional on the current status, so a double tap or
+  // a stale card can never re-open or re-close a task.
+  const transition = async (
+    from: string,
+    patch: Record<string, unknown>,
+    nextStatus: string,
+    conflictMessage: string,
+    failureMessage: string,
+  ) => {
+    if (inFlight.current || loading) return;
+    inFlight.current = true;
     setLoading(true);
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('general_tasks')
-        .update({ status: 'in_progress', started_at: new Date().toISOString() })
-        .eq('id', task.id);
+        .update(patch as any)
+        .eq('id', task.id)
+        .eq('status', from)
+        .select('id');
 
       if (error) throw error;
-      toast.success(`Started: ${task.task_name}`);
-      onStatusUpdate?.(task.id, 'in_progress');
+      if (!data || data.length === 0) {
+        toast.info(conflictMessage);
+        onStatusUpdate?.(task.id, nextStatus);
+        return;
+      }
+      onStatusUpdate?.(task.id, nextStatus);
     } catch (error) {
-      console.error('Error starting task:', error);
-      toast.error('Failed to start task');
+      console.error('[PublicAreaTaskCard] transition failed:', error);
+      toast.error(failureMessage);
     } finally {
       setLoading(false);
+      inFlight.current = false;
     }
   };
 
-  const handleComplete = async () => {
-    setLoading(true);
-    try {
-      const { error } = await supabase
-        .from('general_tasks')
-        .update({ status: 'completed', completed_at: new Date().toISOString() })
-        .eq('id', task.id);
+  const handleStart = () => transition(
+    'assigned',
+    { status: 'in_progress', started_at: new Date().toISOString() },
+    'in_progress',
+    t('publicAreaTask.alreadyStarted'),
+    t('publicAreaTask.startFailed'),
+  );
 
-      if (error) throw error;
-      toast.success(`Completed: ${task.task_name}`);
-      onStatusUpdate?.(task.id, 'completed');
-    } catch (error) {
-      console.error('Error completing task:', error);
-      toast.error('Failed to complete task');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const handleFinish = () => transition(
+    'in_progress',
+    { status: 'completed', completed_at: new Date().toISOString() },
+    'completed',
+    t('publicAreaTask.alreadyFinished'),
+    t('publicAreaTask.finishFailed'),
+  );
 
-  const priorityLabel = task.priority >= 3 ? 'Urgent' : task.priority >= 2 ? 'High' : 'Normal';
-  const priorityColor = task.priority >= 3 ? 'bg-red-100 text-red-700 border-red-200'
-    : task.priority >= 2 ? 'bg-amber-100 text-amber-700 border-amber-200'
-    : 'bg-muted text-muted-foreground';
-
-  const statusColor = task.status === 'completed' ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/40 dark:text-green-300'
-    : task.status === 'in_progress' ? 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300'
-    : 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/40 dark:text-orange-300';
+  const elapsed = isRunning ? formatElapsed(task.started_at, now) : '';
 
   return (
     <>
-      <Card className={`overflow-hidden ${task.status === 'completed' ? 'opacity-80' : ''}`}>
-        <CardContent className="p-3">
-          <div className="flex items-start gap-3">
-            <span className="text-2xl">{icon}</span>
-            <div className="flex-1 min-w-0 space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <h4 className="text-sm font-semibold truncate">{task.task_name}</h4>
-                <Badge variant="outline" className={`text-[10px] shrink-0 ${statusColor}`}>
-                  {task.status === 'completed' ? 'Done' : task.status === 'in_progress' ? 'In Progress' : 'Assigned'}
+      <Card className={isDone ? 'opacity-70' : ''}>
+        <CardContent className="flex items-center gap-3 p-3">
+          <span className="text-xl leading-none" aria-hidden>{icon}</span>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h4 className="truncate text-sm font-semibold">{title}</h4>
+              {isExceptionalPublicAreaTask(task) && (
+                <Badge variant="outline" className="shrink-0 border-red-300 bg-red-50 text-[10px] text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
+                  {t('publicAreaTask.urgent')}
                 </Badge>
-              </div>
-
-              {task.task_description && (
-                <p className="text-xs text-muted-foreground line-clamp-2">{task.task_description}</p>
-              )}
-
-              <div className="flex items-center gap-2 flex-wrap">
-                <Badge variant="outline" className={`text-[10px] ${priorityColor}`}>{priorityLabel}</Badge>
-                <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                  <MapPin className="h-3 w-3" />
-                  Public Area
-                </div>
-              </div>
-
-              {!readOnly && (
-                <div className="flex gap-2 mt-2 flex-wrap">
-                  {task.status === 'assigned' && (
-                    <Button size="sm" variant="default" className="h-8 text-xs" onClick={handleStart} disabled={loading}>
-                      {loading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
-                      Start
-                    </Button>
-                  )}
-                  {task.status === 'in_progress' && (
-                    <Button size="sm" variant="default" className="h-8 text-xs bg-green-600 hover:bg-green-700" onClick={handleComplete} disabled={loading}>
-                      {loading ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <CheckCircle className="h-3 w-3 mr-1" />}
-                      Complete
-                    </Button>
-                  )}
-                  {linenArea && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-8 text-xs border-primary/40"
-                      onClick={() => setLinenOpen(true)}
-                    >
-                      <Shirt className="h-3.5 w-3.5 mr-1" />
-                      Dirty linen / towels
-                    </Button>
-                  )}
-                </div>
               )}
             </div>
+            <p className="line-clamp-2 text-xs text-muted-foreground">{instruction}</p>
+            {isRunning && elapsed && (
+              <p className="mt-0.5 flex items-center gap-1 text-[11px] text-blue-600 dark:text-blue-300">
+                <Clock className="h-3 w-3" />{elapsed}
+              </p>
+            )}
+          </div>
+
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            {readOnly || isDone ? (
+              <Badge
+                variant="outline"
+                className={isDone
+                  ? 'border-green-300 bg-green-50 text-[11px] text-green-700 dark:border-green-800 dark:bg-green-950/40 dark:text-green-300'
+                  : 'text-[11px]'}
+              >
+                {isDone ? t('publicAreaTask.done') : isRunning ? t('publicAreaTask.inProgress') : t('publicAreaTask.toDo')}
+              </Badge>
+            ) : isRunning ? (
+              <Button size="sm" className="h-10 min-w-[104px] bg-green-600 text-sm hover:bg-green-700" onClick={handleFinish} disabled={loading}>
+                {loading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-1 h-4 w-4" />}
+                {t('publicAreaTask.finish')}
+              </Button>
+            ) : (
+              <Button size="sm" className="h-10 min-w-[104px] text-sm" onClick={handleStart} disabled={loading}>
+                {loading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Play className="mr-1 h-4 w-4" />}
+                {t('publicAreaTask.start')}
+              </Button>
+            )}
+
+            {!readOnly && linenArea && !isDone && (
+              <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => setLinenOpen(true)}>
+                <Shirt className="mr-1 h-3.5 w-3.5" />
+                {t('publicAreaTask.linen')}
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
