@@ -1312,6 +1312,55 @@ export function AutoRoomAssignment({
                   })}
                 </div>
 
+                {sectionTasks.length > 0 && (
+                  <div className="rounded-lg border bg-card p-2">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold">
+                        <MapPin className="h-3.5 w-3.5 text-primary" />
+                        Public areas
+                        <Badge variant="outline" className="text-[10px]">{sectionTasks.length}</Badge>
+                      </div>
+                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={shufflePublicAreas}>
+                        <Shuffle className="mr-1 h-3.5 w-3.5" />Shuffle public areas
+                      </Button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {sectionTasks.map(task => (
+                        <motion.div
+                          key={task.id}
+                          drag={!task.lockedStatus}
+                          dragSnapToOrigin
+                          dragMomentum={false}
+                          onDragStart={() => setDraggingAreaTaskId(task.id)}
+                          onDrag={(_, info) => setDragOverStaffId(getDropStaffAtPoint(info.point.x, info.point.y, task.staff_id))}
+                          onDragEnd={(_, info) => {
+                            const target = getDropStaffAtPoint(info.point.x, info.point.y, task.staff_id);
+                            setDraggingAreaTaskId(null);
+                            setDragOverStaffId(null);
+                            if (target) movePublicAreaTask(task.id, target);
+                          }}
+                          onClick={() => task.lockedStatus && movePublicAreaTask(task.id, task.staff_id)}
+                          className={`flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] ${
+                            task.lockedStatus
+                              ? 'cursor-not-allowed border-dashed opacity-70'
+                              : 'cursor-grab bg-background active:cursor-grabbing'
+                          } ${draggingAreaTaskId === task.id ? 'ring-2 ring-primary' : ''}`}
+                        >
+                          <span aria-hidden>{task.icon || '🧹'}</span>
+                          <span className="font-medium">{task.task_name}</span>
+                          <span className="text-muted-foreground">→ {task.staff_name}</span>
+                          {task.lockedStatus && (
+                            <Badge variant="outline" className="ml-0.5 text-[9px]">
+                              {task.lockedStatus === 'completed' ? 'Done' : 'In progress'}
+                            </Badge>
+                          )}
+                        </motion.div>
+                      ))}
+                    </div>
+                    <p className="mt-1.5 text-[10px] text-muted-foreground">Drag an area onto a housekeeper column to move it. Started or finished areas stay with their housekeeper.</p>
+                  </div>
+                )}
+
                 {selectedRoomContext ? (
                   <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-2 shadow-sm">
                     <span className="text-xs font-medium">Room {selectedRoomContext.room.room_number} selected</span>
