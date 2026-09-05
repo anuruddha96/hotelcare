@@ -783,6 +783,65 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     return raw;
   })();
   const hasManagerNotes = !!managerVisibleNote;
+
+  // A supervisor reassigning a completed room means the previous completion was
+  // not approved. Store only the supervisor's reason in a tagged assignment note,
+  // then turn it into a short housekeeper-facing instruction here. Also recognize
+  // the legacy generic note so rooms already reassigned today become clearer.
+  const rawAssignmentNote = (assignment.notes || '').trim();
+  const recheckMatch = rawAssignmentNote.match(/^\[SUPERVISOR_RECHECK(?::(same|handover))?\]\s*(.*)$/s);
+  const isLegacySupervisorRecheck = rawAssignmentNote === 'Reassigned - Previous completion needs review';
+  const isSupervisorRecheck = !!recheckMatch || isLegacySupervisorRecheck;
+  const recheckScope = recheckMatch?.[1] || 'handover';
+  const supervisorRecheckReason = (recheckMatch?.[2] || '').trim().replace(/[.!?]+$/, '');
+  const recheckCopy = (() => {
+    switch (language) {
+      case 'vi':
+        return {
+          title: 'CẦN KIỂM TRA LẠI',
+          introSelf: 'Giám sát chưa duyệt lần hoàn thành trước của bạn.',
+          introHandover: 'Giám sát chưa duyệt lần hoàn thành trước.',
+          reason: 'Lý do',
+          action: 'Vui lòng kiểm tra lại phòng.'
+        };
+      case 'hu':
+        return {
+          title: 'ÚJRA ELLENŐRIZENDŐ',
+          introSelf: 'A felügyelő nem hagyta jóvá az előző befejezésedet.',
+          introHandover: 'A felügyelő nem hagyta jóvá az előző befejezést.',
+          reason: 'Ok',
+          action: 'Kérjük, ellenőrizd újra a szobát.'
+        };
+      case 'es':
+        return {
+          title: 'REVISAR DE NUEVO',
+          introSelf: 'El supervisor no aprobó tu finalización anterior.',
+          introHandover: 'El supervisor no aprobó la finalización anterior.',
+          reason: 'Motivo',
+          action: 'Por favor, revisa la habitación de nuevo.'
+        };
+      case 'mn':
+        return {
+          title: 'ДАХИН ШАЛГАХ ШААРДЛАГАТАЙ',
+          introSelf: 'Хянагч таны өмнөх дуусгалтыг зөвшөөрөөгүй.',
+          introHandover: 'Хянагч өмнөх дуусгалтыг зөвшөөрөөгүй.',
+          reason: 'Шалтгаан',
+          action: 'Өрөөг дахин шалгана уу.'
+        };
+      default:
+        return {
+          title: 'NEEDS RECHECK',
+          introSelf: 'Supervisor did not approve your previous completion.',
+          introHandover: 'Supervisor did not approve the previous completion.',
+          reason: 'Reason',
+          action: 'Please check the room again.'
+        };
+    }
+  })();
+  const recheckIntro = recheckScope === 'same' ? recheckCopy.introSelf : recheckCopy.introHandover;
+  const displayAssignmentNote = isSupervisorRecheck
+    ? `${recheckIntro}${supervisorRecheckReason ? ` ${recheckCopy.reason}: ${supervisorRecheckReason}.` : ''} ${recheckCopy.action}`
+    : rawAssignmentNote;
   // Prefer PMS-inferred bed config, but fall back to the manager-set
   // `bed_configuration` column so manual bed setup instructions still reach
   // the housekeeper when there's no housekeeping note to infer from.
@@ -1019,14 +1078,14 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               <div className="flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
                 <div className="flex-1">
-                  <p className="text-xs font-semibold text-amber-900 dark:text-amber-300 uppercase tracking-wide">📝 {t('housekeeping.assignmentNotes')}</p>
+                  <p className="text-xs font-semibold text-amber-900 dark:text-amber-300 uppercase tracking-wide">{isSupervisorRecheck ? `⚠️ ${recheckCopy.title}` : `📝 ${t('housekeeping.assignmentNotes')}`}</p>
                   <p className="text-sm text-amber-800 dark:text-amber-200 font-semibold mt-0.5">
-                    {translatedAssignmentNote || (shouldTranslateContent(language) ? translateText(assignment.notes, language) : assignment.notes)}
+                    {translatedAssignmentNote || (isSupervisorRecheck ? displayAssignmentNote : (shouldTranslateContent(language) ? translateText(displayAssignmentNote, language) : displayAssignmentNote))}
                   </p>
                   {!translatedAssignmentNote && (
                     <button
                       className="mt-1.5 flex items-center gap-1 text-xs text-amber-600 hover:text-amber-800 font-medium"
-                      onClick={() => handleTranslateNote(assignment.notes, setTranslatedAssignmentNote)}
+                      onClick={() => handleTranslateNote(displayAssignmentNote, setTranslatedAssignmentNote)}
                       disabled={translating}
                     >
                       {translating ? <LucideLoader className="h-3 w-3 animate-spin" /> : <Globe className="h-3 w-3" />}

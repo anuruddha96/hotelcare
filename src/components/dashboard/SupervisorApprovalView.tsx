@@ -164,6 +164,7 @@ export function SupervisorApprovalView({
   const [reassignDialogOpen, setReassignDialogOpen] = useState(false);
   const [selectedAssignment, setSelectedAssignment] = useState<string | null>(null);
   const [selectedHousekeeper, setSelectedHousekeeper] = useState<string>('');
+  const [reassignmentReason, setReassignmentReason] = useState('');
   const [earlySignoutRequests, setEarlySignoutRequests] = useState<any[]>([]);
   const [signedPhotoUrls, setSignedPhotoUrls] = useState<{ [ticketId: string]: string[] }>({});
   const [completionPhotoUrls, setCompletionPhotoUrls] = useState<{ [assignmentId: string]: string[] }>({});
@@ -925,6 +926,11 @@ export function SupervisorApprovalView({
   const handleReassignment = async () => {
     if (!selectedAssignment || !selectedHousekeeper) return;
 
+    const reason = reassignmentReason.trim();
+    if (!reason) {
+      toast.error('Please add a short reason for the recheck');
+      return;
+    }
 
     try {
       const assignment = pendingAssignments.find(a => a.id === selectedAssignment);
@@ -968,7 +974,7 @@ export function SupervisorApprovalView({
           estimated_duration: assignment.estimated_duration,
           priority: assignment.priority,
           organization_slug: assignment.organization_slug,
-          notes: `Reassigned - Previous completion needs review`
+          notes: `[SUPERVISOR_RECHECK:${selectedHousekeeper === assignment.assigned_to ? 'same' : 'handover'}] ${reason}`
         });
 
       if (error) throw error;
@@ -987,6 +993,7 @@ export function SupervisorApprovalView({
       setReassignDialogOpen(false);
       setSelectedAssignment(null);
       setSelectedHousekeeper('');
+      setReassignmentReason('');
     } catch (error: any) {
       console.error('Error reassigning room:', error);
       toast.error(error?.message ? `Failed to reassign room: ${error.message}` : 'Failed to reassign room');
@@ -1288,6 +1295,7 @@ export function SupervisorApprovalView({
         if (!open) {
           setSelectedAssignment(null);
           setSelectedHousekeeper('');
+          setReassignmentReason('');
         }
       }}
     >
@@ -1315,6 +1323,21 @@ export function SupervisorApprovalView({
               </SelectContent>
             </Select>
           </div>
+          <div>
+            <label className="text-sm font-medium text-foreground mb-2 block">
+              Why was the previous completion not approved? <span className="text-destructive">*</span>
+            </label>
+            <Textarea
+              value={reassignmentReason}
+              onChange={(e) => setReassignmentReason(e.target.value)}
+              placeholder="e.g. Bathroom floor still dirty"
+              rows={3}
+              maxLength={240}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              This reason will be shown directly to the housekeeper so they know what to check again.
+            </p>
+          </div>
           <div className="flex justify-end gap-3">
             <Button 
               variant="outline" 
@@ -1322,13 +1345,14 @@ export function SupervisorApprovalView({
                 setReassignDialogOpen(false);
                 setSelectedAssignment(null);
                 setSelectedHousekeeper('');
+                setReassignmentReason('');
               }}
             >
               {t('common.cancel')}
             </Button>
             <Button 
               onClick={handleReassignment}
-              disabled={!selectedHousekeeper}
+              disabled={!selectedHousekeeper || !reassignmentReason.trim()}
             >
               {t('supervisor.confirmReassign')}
             </Button>
