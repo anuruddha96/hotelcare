@@ -51,13 +51,16 @@ export class ServiceWorkerManager {
         return;
       }
 
+      const tag = data?.tag || 'hotel-notification';
+
       // Send message to service worker to show notification
       if (navigator.serviceWorker.controller) {
         navigator.serviceWorker.controller.postMessage({
           type: 'SHOW_NOTIFICATION',
           title,
           body,
-          data
+          data,
+          tag,
         });
       } else {
         // Fallback: show notification directly
@@ -65,7 +68,7 @@ export class ServiceWorkerManager {
           body,
           icon: '/favicon.ico',
           badge: '/favicon.ico',
-          tag: 'hotel-notification',
+          tag,
           requireInteraction: true,
           data
         } as any);
