@@ -67,6 +67,7 @@ import {
   type HousekeepingSectionTaskTemplate,
 } from '@/lib/housekeepingSectionTasks';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
+import { isRoomEligibleForAutoAssign } from '@/lib/autoAssignRoomEligibility';
 import { assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
 import { getLocalDateString } from '@/lib/utils';
 
@@ -122,7 +123,10 @@ const needsLinenChange = (room: RoomForAssignment): boolean =>
   !!room.linen_change_required && !isCheckoutLike(room);
 
 function getSaveKey(hotel: string | null | undefined, date: string): string {
-  return `auto_assignment_${hotel || 'unknown'}_${date}`;
+  // v2 invalidates drafts created by the old dirty-only room filter. Without
+  // this, a manager could reopen today's two-room draft after the fix and
+  // still not see the full PMS workload until manually regenerating it.
+  return `auto_assignment_v2_${hotel || 'unknown'}_${date}`;
 }
 
 function roomOrdinal(roomNumber: string): number {
@@ -240,16 +244,6 @@ export function AutoRoomAssignment({
     return data?.hotel_name || profile.assigned_hotel;
   };
 
-  const mergeLiveRoom = (
-    previous: RoomForAssignment,
-    liveRoom: any | undefined,
-    liveAssignment: any | undefined,
-  ): RoomForAssignment => ({
-    ...previous,
-    ...(liveRoom || {}),
-    ready_to_clean: liveAssignment?.ready_to_clean ?? previous.ready_to_clean,
-  });
-
   const addSectionContext = (room: any): RoomForAssignment => {
     const section = roomSectionsRef.current.get(room.id);
     return {
@@ -280,26 +274,33 @@ export function AutoRoomAssignment({
       assignmentRows = data || [];
     }
 
-    const roomMap = new Map(roomRows.map(room => [room.id, addSectionContext(room)]));
     const assignmentMap = new Map(assignmentRows.map(row => [row.room_id, row]));
+    const activeRoomIds = new Set(assignmentRows
+      .filter(row => ['assigned', 'in_progress', 'dnd_pending_retry'].includes(row.status))
+      .map(row => row.room_id));
+    const completedRoomIds = new Set(assignmentRows
+      .filter(row => row.status === 'completed')
+      .map(row => row.room_id));
+    const availableRooms = roomRows
+      .filter(room => isRoomEligibleForAutoAssign(room, {
+        hasActiveAssignment: activeRoomIds.has(room.id),
+        hasCompletedAssignment: completedRoomIds.has(room.id),
+      }))
+      .map(room => ({
+        ...addSectionContext(room),
+        ready_to_clean: assignmentMap.get(room.id)?.ready_to_clean ?? false,
+      })) as RoomForAssignment[];
+    const availableRoomMap = new Map(availableRooms.map(room => [room.id, room]));
 
-    setDirtyRooms(previous => {
-      const knownIds = new Set(previous.map(room => room.id));
-      const merged = previous.map(room => mergeLiveRoom(room, roomMap.get(room.id), assignmentMap.get(room.id)));
-      const additions = roomRows
-        .filter(room => room.status === 'dirty' && !knownIds.has(room.id))
-        .map(room => ({
-          ...addSectionContext(room),
-          ready_to_clean: assignmentMap.get(room.id)?.ready_to_clean ?? false,
-        })) as RoomForAssignment[];
-      return [...merged, ...additions];
-    });
+    setDirtyRooms(availableRooms);
 
     setAssignmentPreviews(previous => previous.map(preview =>
       buildPreview(
         preview.staffId,
         preview.staffName,
-        preview.rooms.map(room => mergeLiveRoom(room, roomMap.get(room.id), assignmentMap.get(room.id))),
+        preview.rooms
+          .map(room => availableRoomMap.get(room.id))
+          .filter(Boolean) as RoomForAssignment[],
       ),
     ));
   };
@@ -433,23 +434,32 @@ export function AutoRoomAssignment({
 
       const allHotelRooms = (roomRows || []).map(addSectionContext);
       const roomIds = allHotelRooms.map(room => room.id);
-      let existingRows: ExistingAssignment[] = [];
+      let assignmentRows: ExistingAssignment[] = [];
       if (roomIds.length > 0) {
         const { data, error } = await supabase
           .from('room_assignments')
           .select('id, room_id, assigned_to, assignment_type, status, priority, ready_to_clean, pms_hold, pms_hold_reason')
           .eq('assignment_date', selectedDate)
-          .in('room_id', roomIds)
-          .in('status', ['assigned', 'in_progress', 'dnd_pending_retry']);
+          .in('room_id', roomIds);
         if (error) throw error;
-        existingRows = (data || []) as ExistingAssignment[];
+        assignmentRows = (data || []) as ExistingAssignment[];
       }
+
+      const existingRows = assignmentRows.filter(row =>
+        ['assigned', 'in_progress', 'dnd_pending_retry'].includes(row.status)
+      );
+      const completedRoomIds = new Set(assignmentRows
+        .filter(row => row.status === 'completed')
+        .map(row => row.room_id));
 
       existingAssignmentsRef.current = new Map(existingRows.map(row => [row.room_id, row]));
       const existingByRoom = existingAssignmentsRef.current;
       const assignedRoomIds = new Set(existingRows.map(row => row.room_id));
       const workingRooms = allHotelRooms
-        .filter(room => room.status === 'dirty' || assignedRoomIds.has(room.id))
+        .filter(room => isRoomEligibleForAutoAssign(room, {
+          hasActiveAssignment: assignedRoomIds.has(room.id),
+          hasCompletedAssignment: completedRoomIds.has(room.id),
+        }))
         .map(room => ({
           ...room,
           ready_to_clean: existingByRoom.get(room.id)?.ready_to_clean ?? false,
