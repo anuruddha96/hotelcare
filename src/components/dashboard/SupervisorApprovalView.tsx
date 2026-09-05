@@ -177,18 +177,21 @@ export function SupervisorApprovalView({
   const [translatingApprovalMsg, setTranslatingApprovalMsg] = useState<string | null>(null);
 
   // Minibar gate: when a manager tries to approve a room (or bulk of rooms)
-  // that has minibar consumption logged today, hold the approval and force
-  // them to confirm (a) the minibar was refilled and (b) they added the
-  // charge to Previo manually — since minibar consumption is not synced.
+  // that has minibar consumption logged today, hold the approval and require
+  // confirmation of the Previo charge plus the physical refill outcome. For a
+  // single stayover room, "guest inside" is a valid outcome that carries the
+  // physical refill forward instead of forcing a false refill confirmation.
   type MinibarGateItem = { room: string; qty: number; name: string; price: number };
   const [minibarGate, setMinibarGate] = useState<{
     title: string;
     items: MinibarGateItem[];
     total: number;
     usageIds: string[];
+    allowGuestInside: boolean;
     onConfirm: () => void | Promise<void>;
   } | null>(null);
   const [gateRefilled, setGateRefilled] = useState(false);
+  const [gateGuestInside, setGateGuestInside] = useState(false);
   const [gateAddedToPrevio, setGateAddedToPrevio] = useState(false);
   const [gateBusy, setGateBusy] = useState(false);
 
@@ -234,28 +237,67 @@ export function SupervisorApprovalView({
     return { items, total, usageIds };
   };
 
-  // After a supervisor confirms the minibar gate (refilled + added to Previo),
-  // mark the exact rows shown in the gate as cleared. Without this the same
-  // uncleared rows re-fire the gate on every subsequent day's approval — the
-  // root cause of "no consumption today but manager still got the popup".
+  // Physical refill completed now. Also record that the Previo charge was
+  // confirmed in this approval flow so the same consumption can never be
+  // charged again during a later follow-up.
   const markMinibarUsageCleared = async (usageIds: string[]) => {
     if (!usageIds || usageIds.length === 0) return;
-    try {
-      const { data: authData } = await supabase.auth.getUser();
-      const uid = authData?.user?.id ?? null;
-      await supabase
-        .from('room_minibar_usage')
-        .update({ is_cleared: true, cleared_at: new Date().toISOString(), cleared_by: uid })
-        .in('id', usageIds)
-        .eq('is_cleared', false);
-    } catch (e) {
-      console.error('Failed to mark minibar usage as cleared', e);
-    }
+    const { data: authData } = await supabase.auth.getUser();
+    const uid = authData?.user?.id ?? null;
+    const now = new Date().toISOString();
+    const { error } = await (supabase as any)
+      .from('room_minibar_usage')
+      .update({
+        is_cleared: true,
+        cleared_at: now,
+        cleared_by: uid,
+        refill_status: 'refilled',
+        refill_blocked_reason: null,
+        refill_blocked_at: null,
+        refill_blocked_by: null,
+        refill_resolved_at: now,
+        refill_resolved_by: uid,
+        previo_charge_confirmed_at: now,
+        previo_charge_confirmed_by: uid,
+      })
+      .in('id', usageIds)
+      .eq('is_cleared', false);
+    if (error) throw error;
+  };
+
+  // Guest/no-access outcome: approve the housekeeping completion and billing,
+  // but deliberately keep the physical refill unresolved. A DB trigger carries
+  // a reminder to the next room assignment and the minibar follow-up queue
+  // remains visible until a manager later marks it refilled.
+  const markMinibarRefillBlocked = async (usageIds: string[]) => {
+    if (!usageIds || usageIds.length === 0) return;
+    const { data: authData } = await supabase.auth.getUser();
+    const uid = authData?.user?.id ?? null;
+    const now = new Date().toISOString();
+    const { error } = await (supabase as any)
+      .from('room_minibar_usage')
+      .update({
+        is_cleared: false,
+        cleared_at: null,
+        cleared_by: null,
+        pending_supervisor_review: false,
+        refill_status: 'blocked_guest_inside',
+        refill_blocked_reason: 'guest_inside',
+        refill_blocked_at: now,
+        refill_blocked_by: uid,
+        refill_resolved_at: null,
+        refill_resolved_by: null,
+        previo_charge_confirmed_at: now,
+        previo_charge_confirmed_by: uid,
+      })
+      .in('id', usageIds);
+    if (error) throw error;
   };
 
   const resetMinibarGate = () => {
     setMinibarGate(null);
     setGateRefilled(false);
+    setGateGuestInside(false);
     setGateAddedToPrevio(false);
     setGateBusy(false);
   };
@@ -779,12 +821,14 @@ export function SupervisorApprovalView({
       return performApproval(assignmentId);
     }
     setGateRefilled(false);
+    setGateGuestInside(false);
     setGateAddedToPrevio(false);
     setMinibarGate({
       title: `${t('common.room')} ${assignment.rooms?.room_number || ''} — ${t('minibarGate.minibarUsed')}`,
       items,
       total,
       usageIds,
+      allowGuestInside: true,
       onConfirm: () => performApproval(assignmentId),
     });
   };
@@ -912,12 +956,15 @@ export function SupervisorApprovalView({
       return performBulkApprove(hotelName);
     }
     setGateRefilled(false);
+    setGateGuestInside(false);
     setGateAddedToPrevio(false);
+    const uniqueMinibarRooms = new Set(items.map((item) => item.room));
     setMinibarGate({
       title: `${hotelName} — ${t('minibarGate.itemsAcrossRooms').replace('{count}', String(items.length))}`,
       items,
       total,
       usageIds,
+      allowGuestInside: uniqueMinibarRooms.size === 1,
       onConfirm: () => performBulkApprove(hotelName),
     });
   };
@@ -1366,7 +1413,7 @@ export function SupervisorApprovalView({
             className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 px-1 sm:px-3 py-2 h-auto text-[11px] sm:text-sm leading-tight whitespace-normal text-center min-w-0"
           >
             <AlertTriangle className="h-4 w-4 shrink-0" />
-            <span className="break-words">{t('minibar.lateAdditions')}</span>
+            <span className="break-words">Minibar follow-up</span>
             {lateMinibarCount > 0 && (
               <Badge className="h-5 px-1.5 text-xs">{lateMinibarCount}</Badge>
             )}
@@ -1902,9 +1949,9 @@ export function SupervisorApprovalView({
       {/* Shared Reassign Dialog */}
       {renderReassignDialog()}
 
-      {/* Minibar confirmation gate — blocks approval until manager confirms
-          the minibar was refilled AND the charge was added to Previo (since
-          minibar consumption is NOT auto-synced to Previo). */}
+      {/* Minibar confirmation gate — the Previo charge is always required. The
+          physical outcome can be either refilled now or, for a single room,
+          blocked by a guest/no-access condition and carried forward. */}
       <Dialog open={!!minibarGate} onOpenChange={(o) => { if (!o && !gateBusy) resetMinibarGate(); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -1921,6 +1968,11 @@ export function SupervisorApprovalView({
                 <p className="text-xs mt-1">
                   {t('minibarGate.notice')}
                 </p>
+                {minibarGate.allowGuestInside && (
+                  <p className="text-xs mt-1 font-medium">
+                    If the guest is inside or access is blocked, use the option below instead of confirming a refill that did not happen.
+                  </p>
+                )}
               </div>
 
               <div className="max-h-40 overflow-y-auto rounded border bg-muted/30 p-2 text-xs space-y-1">
@@ -1937,15 +1989,47 @@ export function SupervisorApprovalView({
               </div>
 
               <div className="space-y-2">
-                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                <label className="flex items-start gap-2 text-sm cursor-pointer rounded-md border border-border p-2.5">
                   <Checkbox
                     checked={gateRefilled}
-                    onCheckedChange={(v) => setGateRefilled(v === true)}
+                    onCheckedChange={(v) => {
+                      const checked = v === true;
+                      setGateRefilled(checked);
+                      if (checked) setGateGuestInside(false);
+                    }}
                     className="mt-0.5"
                   />
                   <span>{t('minibarGate.confirmRefilled')}</span>
                 </label>
-                <label className="flex items-start gap-2 text-sm cursor-pointer">
+
+                {minibarGate.allowGuestInside ? (
+                  <label className="flex items-start gap-2 text-sm cursor-pointer rounded-md border border-orange-200 bg-orange-50/70 p-2.5">
+                    <Checkbox
+                      checked={gateGuestInside}
+                      onCheckedChange={(v) => {
+                        const checked = v === true;
+                        setGateGuestInside(checked);
+                        if (checked) setGateRefilled(false);
+                      }}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <span className="font-medium flex items-center gap-1">
+                        <DoorClosed className="h-3.5 w-3.5" />
+                        Guest is inside — I cannot refill now
+                      </span>
+                      <span className="block text-xs text-muted-foreground mt-0.5">
+                        Approve the cleaned room but keep this minibar refill pending. The next assignment will show a reminder, and this consumption will not be charged in Previo again.
+                      </span>
+                    </span>
+                  </label>
+                ) : (
+                  <div className="rounded-md border border-orange-200 bg-orange-50 p-2.5 text-xs text-orange-900">
+                    If one room cannot be entered because the guest is inside, cancel this bulk approval and approve that room individually. This avoids marking other rooms as blocked by mistake.
+                  </div>
+                )}
+
+                <label className="flex items-start gap-2 text-sm cursor-pointer rounded-md border border-border p-2.5">
                   <Checkbox
                     checked={gateAddedToPrevio}
                     onCheckedChange={(v) => setGateAddedToPrevio(v === true)}
@@ -1961,19 +2045,33 @@ export function SupervisorApprovalView({
                 </Button>
                 <Button
                   size="sm"
-                  disabled={!gateRefilled || !gateAddedToPrevio || gateBusy}
+                  disabled={
+                    !gateAddedToPrevio ||
+                    (!gateRefilled && !(minibarGate.allowGuestInside && gateGuestInside)) ||
+                    gateBusy
+                  }
                   className="bg-green-600 hover:bg-green-700 text-white"
                   onClick={async () => {
                     if (!minibarGate) return;
                     setGateBusy(true);
-                    const idsToClear = minibarGate.usageIds;
+                    const usageIds = minibarGate.usageIds;
+                    const blockedByGuest = minibarGate.allowGuestInside && gateGuestInside;
                     try {
                       await minibarGate.onConfirm();
-                      // Only clear after the approval succeeded so we don't
-                      // hide items if the approval itself errored out.
-                      await markMinibarUsageCleared(idsToClear);
-                    } finally {
+                      if (blockedByGuest) {
+                        // This intentionally runs after approval. Checkout approval
+                        // performs a legacy auto-clear sweep, so the blocked write
+                        // restores the exact gate rows to pending when necessary.
+                        await markMinibarRefillBlocked(usageIds);
+                        toast.success('Room approved. Minibar refill saved as pending because the guest is inside.');
+                      } else {
+                        await markMinibarUsageCleared(usageIds);
+                      }
                       resetMinibarGate();
+                    } catch (error) {
+                      console.error('Failed to save minibar approval outcome', error);
+                      toast.error('Room approval was processed, but the minibar follow-up could not be saved. Please try again.');
+                      setGateBusy(false);
                     }
                   }}
                 >
