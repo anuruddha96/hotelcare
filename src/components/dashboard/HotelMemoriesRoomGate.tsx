@@ -178,6 +178,8 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
 
       onStatusUpdate(assignment.id, 'completed');
       setNoCleaningOpen(false);
+      setDoorChecked(false);
+      setNoCleaningNote('');
       toast.success(`Room ${assignment.rooms?.room_number ?? ''}: no cleaning required today`);
     } catch (error) {
       console.error('Failed to record Hotel Memories no-cleaning result:', error);
@@ -185,6 +187,12 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
     } finally {
       setSavingNoCleaning(false);
     }
+  };
+
+  const cancelNoCleaning = () => {
+    setNoCleaningOpen(false);
+    setDoorChecked(false);
+    setNoCleaningNote('');
   };
 
   return (
@@ -243,13 +251,7 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
         </CardContent>
       </Card>
 
-      <Dialog open={noCleaningOpen} onOpenChange={(open) => {
-        setNoCleaningOpen(open);
-        if (!open && !evidenceOpen) {
-          setDoorChecked(false);
-          setNoCleaningNote('');
-        }
-      }}>
+      <Dialog open={noCleaningOpen} onOpenChange={setNoCleaningOpen}>
         <DialogContent className="w-[calc(100vw-1rem)] max-w-md">
           <DialogHeader>
             <DialogTitle>No cleaning requested · Room {assignment.rooms?.room_number || 'N/A'}</DialogTitle>
@@ -299,7 +301,7 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
               >
                 {savingNoCleaning ? 'Saving…' : 'Save · no cleaning'}
               </Button>
-              <Button variant="outline" onClick={() => setNoCleaningOpen(false)} className="w-full">
+              <Button variant="outline" onClick={cancelNoCleaning} className="w-full">
                 Cancel
               </Button>
             </div>
