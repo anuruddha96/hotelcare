@@ -45,7 +45,7 @@ const DIRECTION_FILTERS: Array<{ value: DirectionFilter; label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'increase', label: 'Raised' },
   { value: 'decrease', label: 'Lowered' },
-  { value: 'hold', label: 'Held' },
+  { value: 'hold', label: 'Unchanged' },
 ];
 
 /** Bell + inbox for revenue price-automation activity. */
@@ -373,12 +373,12 @@ export function RevenueAutomationNotifications() {
                             <Badge
                               variant={row.direction === 'hold' ? 'secondary' : 'outline'}
                               className={cn(
-                                'text-[10px] px-1.5 py-0 capitalize',
+                                'text-[10px] px-1.5 py-0',
                                 row.direction === 'increase' && 'border-emerald-500/50 text-emerald-600',
                                 row.direction === 'decrease' && 'border-amber-500/60 text-amber-600',
                               )}
                             >
-                              {row.direction}
+                              {row.direction === 'hold' ? 'No change' : row.direction}
                             </Badge>
                           </td>
                           <td className="px-2.5 py-2 whitespace-nowrap tabular-nums">
