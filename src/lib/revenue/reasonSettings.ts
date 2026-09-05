@@ -21,15 +21,15 @@ export const REASON_SETTINGS: Record<string, ReasonInfo> = {
       "Ottofiori checks the current stay date every 30 minutes. Automatic same-day markdowns stop at the authorised €100 floor or at 15:00, whichever happens first.",
   },
   same_day_recent_pickup: {
-    title: "Arrival today — recent pickup, price held",
+    title: "Arrival today — recent pickup, no change",
     explain:
-      "A genuine booking arrived during the current 30-minute observation window, which is evidence that the current price is selling. HotelCare holds this cycle and checks again 30 minutes later.",
+      "A genuine booking arrived during the current 30-minute observation window, which is evidence that the current price is selling. HotelCare left the rate unchanged for this check and will check again 30 minutes later.",
     settings: [],
   },
   same_day_dedicated: {
     title: "Arrival today — handled by the 30-minute worker",
     explain:
-      "The normal hourly revenue engine intentionally leaves today's stay date alone because a dedicated sell-out worker evaluates it every 30 minutes. This prevents two automation clocks from competing over the same rate.",
+      "The normal hourly revenue engine intentionally leaves today's stay date unchanged because a dedicated sell-out worker evaluates it every 30 minutes. This prevents two automation clocks from competing over the same rate.",
     settings: [],
   },
   same_day_cutoff: {
@@ -53,5 +53,12 @@ export const REASON_SETTINGS: Record<string, ReasonInfo> = {
     settings: [],
     note:
       "Safety still applies: manual locks, the short cancellation wait, the absolute room-rate floor, recent-peak markdown depth and the final-window daily decrease allowance.",
+  },
+
+  price_floor_protected: {
+    title: "Protected minimum reached — no change",
+    explain:
+      "HotelCare checked this stay date, but the current rate is already at or below its protected minimum. The price was left unchanged. Automation is still running and will check the date again on the next scheduled run.",
+    settings: [],
   },
 };
