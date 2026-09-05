@@ -56,8 +56,9 @@ interface PublicAreaTaskCardProps {
 
 /**
  * Housekeeper execution card. Deliberately minimal: area name, one plain
- * instruction, one big action. No mapped-section / zone / category metadata —
- * managers keep that in the configuration and auto-assign screens.
+ * instruction, a short section cue when needed, and one big action. The
+ * manager-only "Mapped section:" wording and other configuration metadata stay
+ * hidden from housekeepers.
  */
 export function PublicAreaTaskCard({ task, onStatusUpdate, readOnly = false }: PublicAreaTaskCardProps) {
   const { t } = useTranslation();
@@ -68,7 +69,7 @@ export function PublicAreaTaskCard({ task, onStatusUpdate, readOnly = false }: P
 
   const icon = AREA_ICONS[task.task_type] || '🧹';
   const linenArea = LINEN_AREA_BY_TASK[task.task_type];
-  const { title, instruction } = publicAreaTaskCopy(task, t);
+  const { title, instruction, location } = publicAreaTaskCopy(task, t);
   const isDone = task.status === 'completed';
   const isRunning = task.status === 'in_progress';
 
@@ -139,8 +140,13 @@ export function PublicAreaTaskCard({ task, onStatusUpdate, readOnly = false }: P
           <span className="text-xl leading-none" aria-hidden>{icon}</span>
 
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h4 className="truncate text-sm font-semibold">{title}</h4>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h4 className="min-w-0 text-sm font-semibold">{title}</h4>
+              {location && (
+                <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  {location}
+                </span>
+              )}
               {isExceptionalPublicAreaTask(task) && (
                 <Badge variant="outline" className="shrink-0 border-red-300 bg-red-50 text-[10px] text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
                   {t('publicAreaTask.urgent')}
