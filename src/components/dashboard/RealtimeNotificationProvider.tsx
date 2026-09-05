@@ -102,14 +102,22 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
     };
 
     const findVisibleRoomCard = (): HTMLElement | null => {
-      const expected = `Room ${roomNumber}`;
+      const targetNumber = roomNumber.trim();
       const candidates = Array.from(
         document.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6,p,span,div'),
       );
 
       for (const candidate of candidates) {
         if (candidate.children.length > 0) continue;
-        if (candidate.textContent?.trim() !== expected) continue;
+        const text = candidate.textContent?.trim() || '';
+        if (!text.endsWith(targetNumber)) continue;
+
+        // Avoid matching Room 215 while targeting room 15. The character
+        // immediately before the target number may be a translated label,
+        // punctuation or whitespace, but not another digit.
+        const prefix = text.slice(0, Math.max(0, text.length - targetNumber.length));
+        if (prefix && /\d$/.test(prefix)) continue;
+        if (text.length > targetNumber.length + 32) continue;
         if (candidate.getClientRects().length === 0) continue;
 
         const card = candidate.closest<HTMLElement>('.bg-card');
