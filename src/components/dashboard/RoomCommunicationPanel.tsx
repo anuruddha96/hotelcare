@@ -14,10 +14,19 @@ type RoomMessage = {
   note_type: string;
 };
 
+type MessageAuthor = {
+  id: string;
+  full_name?: string | null;
+  nickname?: string | null;
+  role?: string | null;
+};
+
 interface RoomCommunicationPanelProps {
   assignmentId: string;
   roomId: string;
   roomNumber: string;
+  /** Manager views can pass the selected work date; housekeeper views default to today. */
+  dateLabel?: string;
   /** Hide an empty panel on compact/optional room cards until someone writes. */
   hideWhenEmpty?: boolean;
 }
@@ -32,10 +41,12 @@ export function RoomCommunicationPanel({
   assignmentId,
   roomId,
   roomNumber,
+  dateLabel,
   hideWhenEmpty = false,
 }: RoomCommunicationPanelProps) {
   const { user } = useAuth();
   const [messages, setMessages] = useState<RoomMessage[]>([]);
+  const [authors, setAuthors] = useState<Record<string, MessageAuthor>>({});
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
 
@@ -58,7 +69,28 @@ export function RoomCommunicationPanel({
       return;
     }
 
-    setMessages((data || []) as RoomMessage[]);
+    const rows = (data || []) as RoomMessage[];
+    setMessages(rows);
+
+    const authorIds = Array.from(new Set(rows.map((row) => row.created_by).filter(Boolean)));
+    if (authorIds.length === 0) {
+      setAuthors({});
+      return;
+    }
+
+    const { data: profileRows, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, full_name, nickname, role')
+      .in('id', authorIds);
+
+    if (profileError) {
+      console.error('Failed to load room message authors:', profileError);
+      return;
+    }
+
+    const nextAuthors: Record<string, MessageAuthor> = {};
+    for (const author of (profileRows || []) as MessageAuthor[]) nextAuthors[author.id] = author;
+    setAuthors(nextAuthors);
   }, [assignmentId, roomId]);
 
   useEffect(() => {
@@ -108,7 +140,27 @@ export function RoomCommunicationPanel({
     }
   };
 
+  const authorLabel = (message: RoomMessage) => {
+    if (message.created_by === user?.id) return 'You';
+    const author = authors[message.created_by];
+    if (!author) return 'Team member';
+
+    const name = String(author.nickname || author.full_name || '').trim();
+    const role = String(author.role || '').toLowerCase();
+    const roleLabel = role === 'housekeeping'
+      ? 'Housekeeper'
+      : role === 'reception'
+        ? 'Reception'
+        : ['manager', 'housekeeping_manager', 'admin', 'top_management', 'top_management_manager', 'supervisor'].includes(role)
+          ? 'Manager'
+          : 'Team member';
+
+    return name ? `${roleLabel} · ${name}` : roleLabel;
+  };
+
   if (hideWhenEmpty && messages.length === 0) return null;
+
+  const threadDate = dateLabel?.trim() || 'today';
 
   return (
     <section className="rounded-xl border-2 border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-950/20 p-3 space-y-3">
@@ -116,8 +168,8 @@ export function RoomCommunicationPanel({
         <div className="flex items-center gap-2 min-w-0">
           <MessageSquare className="h-4 w-4 text-blue-600 shrink-0" />
           <div>
-            <p className="text-sm font-semibold">Room messages · today</p>
-            <p className="text-[11px] text-muted-foreground">Room {roomNumber} · this conversation belongs to today’s assignment only</p>
+            <p className="text-sm font-semibold">Room messages · {threadDate}</p>
+            <p className="text-[11px] text-muted-foreground">Room {roomNumber} · this conversation belongs to this work-date assignment only</p>
           </div>
         </div>
         {messages.length > 0 && (
@@ -144,10 +196,10 @@ export function RoomCommunicationPanel({
                 }`}
               >
                 <div className="flex items-center justify-between gap-2 mb-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {mine ? 'You' : 'Supervisor / manager'}
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground truncate">
+                    {authorLabel(message)}
                   </span>
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-[10px] text-muted-foreground shrink-0">
                     {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
@@ -160,14 +212,14 @@ export function RoomCommunicationPanel({
           })}
         </div>
       ) : (
-        <p className="text-xs text-muted-foreground">No room messages yet today.</p>
+        <p className="text-xs text-muted-foreground">No room messages for this work date yet.</p>
       )}
 
       <div className="flex items-end gap-2">
         <Textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="Reply about this room…"
+          placeholder="Write a message about this room…"
           rows={2}
           className="min-h-[56px] text-sm bg-background"
           onKeyDown={(event) => {
