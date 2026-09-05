@@ -161,7 +161,13 @@ const copies: Record<string, Copy> = {
   },
 };
 
-export function ForwardedMaintenanceApprovals() {
+interface ForwardedMaintenanceApprovalsProps {
+  hideWhenEmpty?: boolean;
+}
+
+export function ForwardedMaintenanceApprovals({
+  hideWhenEmpty = false,
+}: ForwardedMaintenanceApprovalsProps = {}) {
   const { profile } = useAuth();
   const { language } = useTranslation();
   const c = copies[language] || copies.en;
@@ -270,6 +276,8 @@ export function ForwardedMaintenanceApprovals() {
       return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
     });
   }, [tickets]);
+
+  if (hideWhenEmpty && !loading && sortedTickets.length === 0) return null;
 
   return (
     <section id="forwarded-maintenance-approvals" className="space-y-3">

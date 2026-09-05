@@ -1,10 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { todayBudapest } from '@/lib/budapestTime';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
 
 export function usePendingApprovals() {
-  const [pendingCount, setPendingCount] = useState(0);
+  const [roomCount, setRoomCount] = useState(0);
   const [maintenanceTicketCount, setMaintenanceTicketCount] = useState(0);
+  const [earlySignoutCount, setEarlySignoutCount] = useState(0);
+  const [breakRequestCount, setBreakRequestCount] = useState(0);
+  const [lateMinibarCount, setLateMinibarCount] = useState(0);
 
   const fetchPendingCount = useCallback(async () => {
       try {
@@ -15,8 +19,11 @@ export function usePendingApprovals() {
         // Get current user's organization, hotel, and role
         const { data: currentUser } = await supabase.auth.getUser();
         if (!currentUser.user) {
-          setPendingCount(0);
+          setRoomCount(0);
           setMaintenanceTicketCount(0);
+          setEarlySignoutCount(0);
+          setBreakRequestCount(0);
+          setLateMinibarCount(0);
           return;
         }
 
@@ -33,45 +40,36 @@ export function usePendingApprovals() {
 
         if (!userOrgSlug || !userHotel) {
           // Strict per-hotel scoping: without an active hotel we never show org-wide totals
-          setPendingCount(0);
+          setRoomCount(0);
           setMaintenanceTicketCount(0);
+          setEarlySignoutCount(0);
+          setBreakRequestCount(0);
+          setLateMinibarCount(0);
           return;
         }
 
-        // Resolve hotel display name from hotel_configurations
-        let resolvedHotelName = userHotel;
-        if (userHotel) {
-          const { data: hotelConfig } = await supabase
-            .from('hotel_configurations')
-            .select('hotel_name')
-            .eq('hotel_id', userHotel)
-            .maybeSingle();
-          if (hotelConfig?.hotel_name) {
-            resolvedHotelName = hotelConfig.hotel_name;
-          }
-        }
+        // Use the same alias set as the approval page so the badge and queue can
+        // never disagree when a property is stored by ID in one table and display
+        // name in another.
+        const hotelKeys = await resolveHotelKeys(userHotel);
+        if (hotelKeys.length === 0) hotelKeys.push(userHotel);
 
         // Build query for pending room assignments approvals
         let query = supabase
           .from('room_assignments')
           .select('id, rooms!inner(hotel)')
           .eq('status', 'completed')
-          .eq('supervisor_approved', false)
+          .or('supervisor_approved.eq.false,supervisor_approved.is.null')
           .eq('assignment_date', dateStr)
           .eq('organization_slug', userOrgSlug);
 
-        // Always scope to the active hotel (admins switch hotels via HotelSwitcher).
-        if (resolvedHotelName && resolvedHotelName !== userHotel) {
-          query = query.or(`hotel.eq.${userHotel},hotel.eq.${resolvedHotelName}`, { referencedTable: 'rooms' });
-        } else {
-          query = query.eq('rooms.hotel', userHotel);
-        }
+        query = query.in('rooms.hotel', hotelKeys);
 
         const { data, error } = await query;
 
         if (error) throw error;
 
-        setPendingCount((data || []).length);
+        setRoomCount((data || []).length);
 
         // Fetch pending maintenance ticket approvals
         let ticketQuery = supabase
@@ -81,17 +79,33 @@ export function usePendingApprovals() {
           .eq('department', 'maintenance')
           .eq('organization_slug', userOrgSlug);
 
-        if (resolvedHotelName && resolvedHotelName !== userHotel) {
-          ticketQuery = ticketQuery.or(`hotel.eq.${userHotel},hotel.eq.${resolvedHotelName}`);
-        } else {
-          ticketQuery = ticketQuery.or(`hotel.eq.${userHotel},hotel.ilike.%${userHotel}%`);
-        }
+        ticketQuery = ticketQuery.in('hotel', hotelKeys);
 
         const { data: ticketData, error: ticketError } = await ticketQuery;
 
         if (!ticketError) {
           setMaintenanceTicketCount((ticketData || []).length);
+        } else {
+          setMaintenanceTicketCount(0);
         }
+
+        // Early sign-out requests are approvals too. Scope them through the
+        // requesting staff member so another property's request is never counted.
+        const { data: signoutData, error: signoutError } = await (supabase as any)
+          .from('early_signout_requests')
+          .select('id, requester:profiles!early_signout_requests_user_id_fkey!inner(assigned_hotel)')
+          .eq('status', 'pending')
+          .eq('organization_slug', userOrgSlug)
+          .in('requester.assigned_hotel', hotelKeys);
+        setEarlySignoutCount(signoutError ? 0 : (signoutData || []).length);
+
+        const { data: breakData, error: breakError } = await (supabase as any)
+          .from('break_requests')
+          .select('id, requester:profiles!break_requests_user_id_fkey!inner(assigned_hotel)')
+          .eq('status', 'pending')
+          .eq('organization_slug', userOrgSlug)
+          .in('requester.assigned_hotel', hotelKeys);
+        setBreakRequestCount(breakError ? 0 : (breakData || []).length);
 
         // Late minibar additions awaiting supervisor review (hotel-scoped)
         try {
@@ -101,18 +115,22 @@ export function usePendingApprovals() {
             .eq('pending_supervisor_review', true)
             .eq('organization_slug', userOrgSlug)
             .limit(500);
+          const hotelKeySet = new Set(hotelKeys);
           const lateCount = (lateMinibar || []).filter((r: any) => {
             const h = r.rooms?.hotel;
-            return h && (h === userHotel || h === resolvedHotelName);
+            return h && hotelKeySet.has(h);
           }).length;
-          setPendingCount((prev) => prev + lateCount);
+          setLateMinibarCount(lateCount);
         } catch {
-          /* swallow — non-critical */
+          setLateMinibarCount(0);
         }
       } catch (error) {
         console.error('Error fetching pending count:', error);
-        setPendingCount(0);
+        setRoomCount(0);
         setMaintenanceTicketCount(0);
+        setEarlySignoutCount(0);
+        setBreakRequestCount(0);
+        setLateMinibarCount(0);
       }
   }, []);
 
@@ -143,6 +161,21 @@ export function usePendingApprovals() {
         },
         () => fetchPendingCount()
       )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'early_signout_requests' },
+        () => fetchPendingCount()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'break_requests' },
+        () => fetchPendingCount()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'room_minibar_usage' },
+        () => fetchPendingCount()
+      )
       .subscribe();
 
     return () => {
@@ -154,6 +187,18 @@ export function usePendingApprovals() {
     fetchPendingCount();
   }, [fetchPendingCount]);
 
-  return { pendingCount, maintenanceTicketCount, totalCount: pendingCount + maintenanceTicketCount, refetch };
+  const pendingCount = roomCount + earlySignoutCount + breakRequestCount;
+  const totalCount = pendingCount + maintenanceTicketCount + lateMinibarCount;
+
+  return {
+    pendingCount,
+    roomCount,
+    maintenanceTicketCount,
+    earlySignoutCount,
+    breakRequestCount,
+    lateMinibarCount,
+    totalCount,
+    refetch,
+  };
 
 }

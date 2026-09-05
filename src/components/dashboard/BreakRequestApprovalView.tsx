@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +10,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { Clock, CheckCircle, XCircle, User, Calendar } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
 
 interface BreakRequest {
   id: string;
@@ -29,8 +30,12 @@ interface BreakRequest {
   };
 }
 
-export function BreakRequestApprovalView() {
-  const { user } = useAuth();
+interface BreakRequestApprovalViewProps {
+  hideWhenEmpty?: boolean;
+}
+
+export function BreakRequestApprovalView({ hideWhenEmpty = false }: BreakRequestApprovalViewProps = {}) {
+  const { user, profile } = useAuth();
   const { t } = useTranslation();
   const [requests, setRequests] = useState<BreakRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,8 +43,41 @@ export function BreakRequestApprovalView() {
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const [showRejectionInput, setShowRejectionInput] = useState<string | null>(null);
 
+  const fetchBreakRequests = useCallback(async () => {
+    if (!profile?.organization_slug || !profile?.assigned_hotel) {
+      setRequests([]);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const hotelKeys = await resolveHotelKeys(profile.assigned_hotel);
+      if (hotelKeys.length === 0) hotelKeys.push(profile.assigned_hotel);
+      let query = (supabase as any)
+        .from('break_requests')
+        .select(`
+          *,
+          profiles!break_requests_user_id_fkey!inner(full_name, nickname, assigned_hotel),
+          break_types(display_name, duration_minutes, icon_name)
+        `)
+        .eq('status', 'pending')
+        .eq('organization_slug', profile.organization_slug)
+        .order('requested_at', { ascending: false });
+
+      query = query.in('profiles.assigned_hotel', hotelKeys);
+      const { data, error } = await query;
+      if (error) throw error;
+      setRequests(data || []);
+    } catch (error) {
+      console.error('Error fetching break requests:', error);
+      toast.error(t('breakRequest.fetchError'));
+    } finally {
+      setLoading(false);
+    }
+  }, [profile?.organization_slug, profile?.assigned_hotel, t]);
+
   useEffect(() => {
-    fetchBreakRequests();
+    void fetchBreakRequests();
     
     // Set up real-time listener
     const channel = supabase
@@ -52,7 +90,7 @@ export function BreakRequestApprovalView() {
           table: 'break_requests'
         },
         () => {
-          fetchBreakRequests();
+          void fetchBreakRequests();
         }
       )
       .subscribe();
@@ -60,28 +98,7 @@ export function BreakRequestApprovalView() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
-
-  const fetchBreakRequests = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('break_requests')
-        .select(`
-          *,
-          profiles!break_requests_user_id_fkey(full_name, nickname),
-          break_types(display_name, duration_minutes, icon_name)
-        `)
-        .order('requested_at', { ascending: false });
-
-      if (error) throw error;
-      setRequests(data || []);
-    } catch (error) {
-      console.error('Error fetching break requests:', error);
-      toast.error(t('breakRequest.fetchError'));
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [fetchBreakRequests]);
 
   const handleApprove = async (requestId: string) => {
     setProcessingId(requestId);
@@ -98,7 +115,7 @@ export function BreakRequestApprovalView() {
       if (error) throw error;
       
       toast.success(t('breakRequest.approved'));
-      fetchBreakRequests();
+      void fetchBreakRequests();
     } catch (error) {
       console.error('Error approving break request:', error);
       toast.error(t('breakRequest.approveError'));
@@ -130,7 +147,7 @@ export function BreakRequestApprovalView() {
       toast.success(t('breakRequest.rejected'));
       setRejectionReason('');
       setShowRejectionInput(null);
-      fetchBreakRequests();
+      void fetchBreakRequests();
     } catch (error) {
       console.error('Error rejecting break request:', error);
       toast.error(t('breakRequest.rejectError'));
@@ -161,7 +178,7 @@ export function BreakRequestApprovalView() {
   }
 
   const pendingRequests = requests.filter(req => req.status === 'pending');
-  const processedRequests = requests.filter(req => req.status !== 'pending');
+  if (hideWhenEmpty && pendingRequests.length === 0) return null;
 
   return (
     <div className="space-y-6">
@@ -265,37 +282,6 @@ export function BreakRequestApprovalView() {
           </div>
         )}
       </div>
-
-      {processedRequests.length > 0 && (
-        <div>
-          <h3 className="text-md font-medium mb-4">{t('breakRequest.processedRequests')}</h3>
-          <div className="space-y-2">
-            {processedRequests.slice(0, 10).map((request) => (
-              <Card key={request.id} className="py-2">
-                <CardContent className="py-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="font-medium">{request.profiles.full_name}</span>
-                      <span className="text-sm text-muted-foreground">
-                        {request.break_types.display_name}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {formatDistanceToNow(new Date(request.requested_at), { addSuffix: true })}
-                      </span>
-                    </div>
-                    {getStatusBadge(request.status)}
-                  </div>
-                  {request.status === 'rejected' && request.rejection_reason && (
-                    <p className="text-xs text-red-600 mt-1">
-                      {t('breakRequest.rejectionReason')}: {request.rejection_reason}
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

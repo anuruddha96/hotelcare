@@ -14,7 +14,7 @@ describe('maintenance launch readiness wiring', () => {
     expect(source).toContain("query = query.in('hotel', hotelKeys)");
     expect(source).toContain("rpc('get_maintenance_staff_for_hotel'");
     expect(source).toContain("table: 'tickets'");
-    expect(source).toContain('<ForwardedMaintenanceApprovals />');
+    expect(source).toContain('<ForwardedMaintenanceApprovals hideWhenEmpty />');
   });
 
   it('keeps maintenance notifications scoped by organization and hotel aliases', () => {

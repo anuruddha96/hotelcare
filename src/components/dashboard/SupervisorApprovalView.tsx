@@ -52,6 +52,7 @@ import { CompletionDataView } from './CompletionDataView';
 import { ApprovalHistoryView } from './ApprovalHistoryView';
 import { LateMinibarApprovals } from './LateMinibarApprovals';
 import { ForwardedMaintenanceApprovals } from './ForwardedMaintenanceApprovals';
+import { BreakRequestApprovalView } from './BreakRequestApprovalView';
 
 interface LinenSummaryItem {
   display_name: string;
@@ -134,7 +135,15 @@ function getMinutesSince(dateStr: string): number {
   return Math.round((Date.now() - new Date(dateStr).getTime()) / 60000);
 }
 
-export function SupervisorApprovalView() {
+interface SupervisorApprovalViewProps {
+  lateMinibarCount?: number;
+  breakRequestCount?: number;
+}
+
+export function SupervisorApprovalView({
+  lateMinibarCount = 0,
+  breakRequestCount = 0,
+}: SupervisorApprovalViewProps = {}) {
   const { t, language } = useTranslation();
   const { showNotification } = useNotifications();
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
@@ -268,7 +277,8 @@ export function SupervisorApprovalView() {
     const roomCount = pendingAssignments.length;
     const maintenanceCount = pendingMaintenanceTickets.length;
     const earlySignoutCount = earlySignoutRequests.length;
-    const totalCount = roomCount + maintenanceCount + earlySignoutCount;
+    const staffRequestCount = earlySignoutCount + breakRequestCount;
+    const totalCount = roomCount + maintenanceCount + staffRequestCount;
 
     // Find oldest pending
     let oldestMinutes = 0;
@@ -291,8 +301,8 @@ export function SupervisorApprovalView() {
       }
     }
 
-    return { hotelCounts, roomCount, maintenanceCount, earlySignoutCount, totalCount, oldestMinutes, flaggedCount };
-  }, [hotelGroups, pendingAssignments, pendingMaintenanceTickets, earlySignoutRequests]);
+    return { hotelCounts, roomCount, maintenanceCount, earlySignoutCount, staffRequestCount, totalCount, oldestMinutes, flaggedCount };
+  }, [hotelGroups, pendingAssignments, pendingMaintenanceTickets, earlySignoutRequests, breakRequestCount]);
 
   useEffect(() => {
     fetchPendingAssignments();
@@ -474,14 +484,14 @@ export function SupervisorApprovalView() {
   const fetchPendingAssignments = async () => {
     setLoading(true);
     try {
-      const dateStr = selectedDate.toISOString().split('T')[0];
+      const dateStr = format(selectedDate, 'yyyy-MM-dd');
       
       const { data: currentUser } = await supabase.auth.getUser();
       if (!currentUser.user) return;
 
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('organization_slug')
+        .select('organization_slug, assigned_hotel')
         .eq('id', currentUser.user.id)
         .single();
 
@@ -493,8 +503,10 @@ export function SupervisorApprovalView() {
         setEarlySignoutRequests([]);
         return;
       }
+      const hotelKeys = await resolveHotelKeys(profile.assigned_hotel);
+      if (profile.assigned_hotel && hotelKeys.length === 0) hotelKeys.push(profile.assigned_hotel);
       
-      const { data: assignmentData, error: assignmentError } = await supabase
+      let assignmentQuery = supabase
         .from('room_assignments')
         .select(`
           *,
@@ -519,14 +531,19 @@ export function SupervisorApprovalView() {
           )
         `)
         .eq('status', 'completed')
-        .eq('supervisor_approved', false)
+        .or('supervisor_approved.eq.false,supervisor_approved.is.null')
         .eq('assignment_date', dateStr)
         .eq('organization_slug', userOrgSlug)
         .order('completed_at', { ascending: false });
 
+      if (hotelKeys.length) {
+        assignmentQuery = assignmentQuery.in('rooms.hotel', hotelKeys);
+      }
+
+      const { data: assignmentData, error: assignmentError } = await assignmentQuery;
       if (assignmentError) throw assignmentError;
 
-      const { data: earlySignoutData, error: earlySignoutError } = await supabase
+      let earlySignoutQuery = (supabase as any)
         .from('early_signout_requests')
         .select(`
           id,
@@ -534,14 +551,20 @@ export function SupervisorApprovalView() {
           requested_at,
           status,
           rejection_reason,
-          profiles!user_id (
+          profiles!user_id!inner (
             full_name,
-            nickname
+            nickname,
+            assigned_hotel
           )
         `)
         .eq('status', 'pending')
         .eq('organization_slug', userOrgSlug)
         .order('requested_at', { ascending: false });
+
+      if (hotelKeys.length) {
+        earlySignoutQuery = earlySignoutQuery.in('profiles.assigned_hotel', hotelKeys);
+      }
+      const { data: earlySignoutData, error: earlySignoutError } = await earlySignoutQuery;
 
       if (earlySignoutError) throw earlySignoutError;
       
@@ -1344,6 +1367,9 @@ export function SupervisorApprovalView() {
           >
             <AlertTriangle className="h-4 w-4 shrink-0" />
             <span className="break-words">{t('minibar.lateAdditions')}</span>
+            {lateMinibarCount > 0 && (
+              <Badge className="h-5 px-1.5 text-xs">{lateMinibarCount}</Badge>
+            )}
           </TabsTrigger>
           <TabsTrigger
             value="history"
@@ -1356,7 +1382,6 @@ export function SupervisorApprovalView() {
 
         <TabsContent value="pending" className="space-y-6">
           <div id="pending-approvals-list" />
-          <ForwardedMaintenanceApprovals />
           {/* Date picker */}
           <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
             <div>
@@ -1384,7 +1409,7 @@ export function SupervisorApprovalView() {
 
           {/* Summary Dashboard */}
           {summaryStats.totalCount > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
               {/* Room Approvals */}
               <HelpTooltip hint={UI_HINTS["approval.rooms"]}>
                 <Card className="border-l-4 border-l-green-500">
@@ -1397,6 +1422,18 @@ export function SupervisorApprovalView() {
                   </CardContent>
                 </Card>
               </HelpTooltip>
+
+              {summaryStats.staffRequestCount > 0 && (
+                <Card className="border-l-4 border-l-violet-500">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-1">
+                      <User className="h-4 w-4 text-violet-600" />
+                      <span className="text-xs font-medium text-muted-foreground">Staff requests</span>
+                    </div>
+                    <p className="text-2xl font-bold text-foreground">{summaryStats.staffRequestCount}</p>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Maintenance */}
               <HelpTooltip hint={UI_HINTS["approval.maintenance"]}>
@@ -1845,6 +1882,12 @@ export function SupervisorApprovalView() {
               )}
             </div>
           )}
+
+          <BreakRequestApprovalView hideWhenEmpty />
+
+          {/* Active repairs are useful context, but they are not approvals. Keep
+              them after the actionable queue and hide the section when empty. */}
+          <ForwardedMaintenanceApprovals hideWhenEmpty />
         </TabsContent>
 
         <TabsContent value="late-minibar" className="space-y-6">

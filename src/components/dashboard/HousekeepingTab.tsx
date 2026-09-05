@@ -13,7 +13,6 @@ import { EasyRoomAssignment } from './EasyRoomAssignment';
 import { PerformanceLeaderboard } from './PerformanceLeaderboard';
 import { MinibarTrackingView } from './MinibarTrackingView';
 import { SupervisorApprovalView } from './SupervisorApprovalView';
-import { BreakRequestApprovalView } from './BreakRequestApprovalView';
 import { CompanySettings } from './CompanySettings';
 import { AttendanceManagement } from './AttendanceManagement';
 import { DailyPhotosManagement } from './DailyPhotosManagement';
@@ -73,7 +72,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   const initialManagerAccess = ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager', 'marketing', 'control_finance', 'hr', 'front_office'].includes(initialRole);
   const [activeTab, setActiveTab] = useState(initialManagerAccess || initialRole === 'reception' ? 'manage' : 'assignments');
   const [orderedTabs, setOrderedTabs] = useState<string[]>([]);
-  const { totalCount: pendingCount } = usePendingApprovals();
+  const { totalCount: pendingCount, lateMinibarCount, breakRequestCount } = usePendingApprovals();
 
   useEffect(() => {
     const fetchUserRole = async () => {
@@ -419,7 +418,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
         <TabsTrigger 
           key={tabId}
           value={tabId} 
-          className="flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit relative"
+          className="group flex items-center gap-1 sm:gap-2 whitespace-nowrap px-3 sm:px-4 text-xs sm:text-sm min-w-fit relative"
         >
           <HelpTooltip hint={UI_HINTS[config.hintKey || '']}>
             <span className="flex items-center gap-1 sm:gap-2">
@@ -427,9 +426,12 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
               <span className="hidden xs:inline">{t('supervisor.pendingApprovals')}</span>
               <span className="xs:hidden">Approval</span>
               {pendingCount > 0 && (
-                <Badge variant="destructive" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs animate-pulse">
+                <span
+                  aria-label={`${pendingCount} pending approvals`}
+                  className="ml-1 inline-flex min-w-5 h-5 px-1.5 items-center justify-center rounded-full bg-red-600 text-white text-xs font-bold shadow-sm group-data-[state=active]:bg-white group-data-[state=active]:text-primary"
+                >
                   {pendingCount}
-                </Badge>
+                </span>
               )}
             </span>
           </HelpTooltip>
@@ -549,8 +551,10 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
 
             <TabsContent value="supervisor" className="space-y-6">
               <div className="space-y-6">
-                <SupervisorApprovalView />
-                <BreakRequestApprovalView />
+                <SupervisorApprovalView
+                  lateMinibarCount={lateMinibarCount}
+                  breakRequestCount={breakRequestCount}
+                />
               </div>
             </TabsContent>
 
