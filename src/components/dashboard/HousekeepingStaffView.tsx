@@ -493,6 +493,7 @@ export function HousekeepingStaffView() {
 
       {/* Today's Tasks */}
       <div className="space-y-3">
+        {workloadFilters}
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold">{t('housekeeping.todaysTasks')}</h3>
           {assignments.length > 0 && (
@@ -502,7 +503,7 @@ export function HousekeepingStaffView() {
           )}
         </div>
         
-        {assignments.length === 0 ? (
+        {visibleAssignments.length === 0 ? (
           <Card className="text-center py-8">
             <CardContent>
               {summary.total_assigned === 0 ? (
@@ -529,7 +530,7 @@ export function HousekeepingStaffView() {
           </Card>
         ) : (
           <div className="space-y-3">
-            {assignments
+            {visibleAssignments
               .map((assignment) => (
                 <ErrorBoundary
                   key={assignment.id}
