@@ -75,11 +75,11 @@ const REASON_RULES: Array<{ match: RegExp; reason: RunReason }> = [
     },
   },
   {
-    match: /held|skipped/i,
+    match: /held|skipped|unchanged|no change/i,
     reason: {
-      label: "Some dates held",
+      label: "Some dates unchanged",
       explain:
-        "A few dates were left unchanged — usually sold out, too close in, or already at a limit.",
+        "These dates were checked, but no price change was made because a pricing rule or safety limit applied. Automation is still running.",
     },
   },
 ];
@@ -179,7 +179,7 @@ export function runPreview(run: AutomationRunLike): string {
     if (run.run.status === "timed_out") return `Timed out · ${run.run.dates_evaluated.toLocaleString()} dates checked`;
     const changed = run.run.dates_increased + run.run.dates_decreased;
     if (run.run.mode === "shadow") {
-      return `Review only · ${changed.toLocaleString()} dates identified · ${run.run.dates_held.toLocaleString()} held`;
+      return `Review only · ${changed.toLocaleString()} dates identified · ${run.run.dates_held.toLocaleString()} unchanged`;
     }
     const verified = run.run.cells_verified ?? 0;
     const accepted = run.run.cells_published ?? 0;
