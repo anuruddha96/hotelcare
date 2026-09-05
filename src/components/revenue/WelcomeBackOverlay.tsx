@@ -7,18 +7,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
-
-type Line = { id: string; quote: string; by: string };
-
-/** Offline safety net — the live pool lives in `motivational_quotes`. */
-const FALLBACK_LINES: Line[] = [
-  { id: "f1", quote: "Quality is not an act, it is a habit.", by: "Aristotle" },
-  { id: "f2", quote: "Plans are nothing; planning is everything.", by: "Dwight D. Eisenhower" },
-  { id: "f3", quote: "It always seems impossible until it's done.", by: "Nelson Mandela" },
-  { id: "f4", quote: "You can't manage what you don't measure — so let's go measure.", by: "Peter Drucker" },
-  { id: "f5", quote: "Slow is smooth, smooth is fast.", by: "A patient operator" },
-];
+import { useAuth } from "@/hooks/useAuth";
+import {
+  quoteAudienceForRole,
+  quotePoolForAudience,
+  type MotivationalQuote,
+  type QuoteAudience,
+} from "@/lib/roleMotivationalQuotes";
 
 const GREETINGS = [
   "Welcome back",
@@ -39,71 +34,65 @@ function daySeed(): number {
 }
 
 /* ------------------------------------------------------------------ */
-/* Rotation: no repeat until the whole pool has had its turn           */
+/* Role-aware rotation                                                 */
 /* ------------------------------------------------------------------ */
 
-const ROTATION_KEY = "hc.quoteRotation.v1";
-const POOL_KEY = "hc.quotePool.v1";
+const ROTATION_KEY = "hc.quoteRotation.v2";
 type Rotation = { seen: string[] };
 
-function readRotation(): Rotation {
+function readRotation(audience: QuoteAudience): Rotation {
   try {
-    const raw = localStorage.getItem(ROTATION_KEY);
+    const raw = localStorage.getItem(`${ROTATION_KEY}.${audience}`);
     const parsed = raw ? (JSON.parse(raw) as Rotation) : null;
     if (parsed && Array.isArray(parsed.seen)) return { seen: parsed.seen };
   } catch { /* corrupt or unavailable storage — start a fresh cycle */ }
   return { seen: [] };
 }
 
-/** The live pool, remembered across reloads. Without this the very first
- * overlay of every page load fell back to the same five hard-coded lines,
- * which is why people kept seeing the same quote again and again. */
-function readStoredPool(): Line[] | null {
-  try {
-    const raw = localStorage.getItem(POOL_KEY);
-    const parsed = raw ? (JSON.parse(raw) as Line[]) : null;
-    if (Array.isArray(parsed) && parsed.length) return parsed;
-  } catch { /* ignore */ }
-  return null;
-}
-
-function writeStoredPool(pool: Line[]) {
-  try { localStorage.setItem(POOL_KEY, JSON.stringify(pool)); } catch { /* ignore */ }
-}
-
 /**
- * Picks the next quote this person has not seen in the current cycle. When
- * every quote has had its turn the cycle starts over, so a line only ever
- * comes back after all the others — and never twice on the same day.
+ * Picks the next quote this role has not seen in the current cycle. Each role
+ * audience owns its own history, so a housekeeping session can never inherit a
+ * revenue/management quote simply because another user used this device first.
  */
-function nextQuote(pool: Line[]): Line {
-  if (pool.length === 0) return FALLBACK_LINES[0];
-  const { seen } = readRotation();
-  let unseen = pool.filter((l) => !seen.includes(l.id));
+function nextQuote(pool: MotivationalQuote[], audience: QuoteAudience): MotivationalQuote {
+  const safePool = pool.length ? pool : quotePoolForAudience("hospitality");
+  const { seen } = readRotation(audience);
+  let unseen = safePool.filter((line) => !seen.includes(line.id));
   let history = seen;
+
   if (unseen.length === 0) {
     // Cycle complete: reset, but keep the last line out of the running so the
     // fresh cycle never opens with the quote that just closed the old one.
     const last = seen[seen.length - 1];
-    unseen = pool.filter((l) => l.id !== last);
+    unseen = safePool.filter((line) => line.id !== last);
     history = [];
-    if (unseen.length === 0) unseen = pool;
+    if (unseen.length === 0) unseen = safePool;
   }
+
   const chosen = unseen[Math.floor(Math.random() * unseen.length)];
   try {
     localStorage.setItem(
-      ROTATION_KEY,
+      `${ROTATION_KEY}.${audience}`,
       JSON.stringify({ seen: [...history, chosen.id].slice(-500) } satisfies Rotation),
     );
   } catch { /* private mode — rotation degrades to random, still no crash */ }
   return chosen;
 }
 
-/** Module-level pool + current quote so simultaneous overlays (app-level and
- * page-level) show the same single line instead of two different ones. */
-let poolCache: Line[] | null = readStoredPool();
-let activeLine: { line: Line; shownAt: number } | null = null;
-const QUOTE_HOLD_MS = 10_000; // one quote stays "the" quote across a refresh burst
+/** Keep simultaneous overlays for the same role on the same line. The cache is
+ * separated by audience so switching accounts/roles cannot leak a quote from a
+ * different job family. */
+const activeLines = new Map<QuoteAudience, { line: MotivationalQuote; shownAt: number }>();
+const QUOTE_HOLD_MS = 10_000;
+
+function activeQuoteForAudience(audience: QuoteAudience): MotivationalQuote {
+  const current = activeLines.get(audience);
+  if (current && Date.now() - current.shownAt < QUOTE_HOLD_MS) return current.line;
+
+  const picked = nextQuote(quotePoolForAudience(audience), audience);
+  activeLines.set(audience, { line: picked, shownAt: Date.now() });
+  return picked;
+}
 
 export function WelcomeBackOverlay({
   name,
@@ -125,38 +114,21 @@ export function WelcomeBackOverlay({
   onSignOut?: () => void;
   context?: "account" | "revenue";
 }) {
-  // One quote per showing: pick from the cached pool when we have it,
-  // otherwise a fallback line — and never swap mid-display, so two lines
-  // never appear one after another during a single overlay.
-  const [line] = useState<Line>(() => {
-    if (activeLine && Date.now() - activeLine.shownAt < QUOTE_HOLD_MS) {
-      return activeLine.line;
-    }
-    const pool = poolCache ?? FALLBACK_LINES;
-    const picked = nextQuote(pool);
-    activeLine = { line: picked, shownAt: Date.now() };
-    return picked;
-  });
+  const { profile } = useAuth();
+  const audience = useMemo(() => quoteAudienceForRole(profile?.role), [profile?.role]);
 
-  // Refresh the shared pool in the background for the NEXT showing and keep a
-  // copy on disk, so a cold load already has the full pool to rotate through.
+  // Pick from the authenticated user's role pool. During the very first part of
+  // session restoration the profile can still be unknown, so we use a neutral
+  // hospitality line. As soon as the trusted profile arrives it is replaced by
+  // a quote from the correct role pool.
+  const [line, setLine] = useState<MotivationalQuote>(() => activeQuoteForAudience(audience));
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const { data } = await supabase
-        .from("motivational_quotes")
-        .select("id, quote, author")
-        .eq("is_active", true)
-        .order("created_at", { ascending: true })
-        .limit(300);
-      if (cancelled || !data?.length) return;
-      const pool = data.map((r) => ({ id: String(r.id), quote: r.quote, by: r.author }));
-      poolCache = pool;
-      writeStoredPool(pool);
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
+    setLine((current) => {
+      const rolePool = quotePoolForAudience(audience);
+      if (rolePool.some((candidate) => candidate.id === current.id)) return current;
+      return activeQuoteForAudience(audience);
+    });
+  }, [audience]);
 
   const greeting = useMemo(() => GREETINGS[daySeed() % GREETINGS.length], []);
   const [dots, setDots] = useState(1);
@@ -164,7 +136,6 @@ export function WelcomeBackOverlay({
     const id = window.setInterval(() => setDots((d) => (d % 3) + 1), 600);
     return () => window.clearInterval(id);
   }, []);
-
 
   const first = (name ?? "").trim().split(" ")[0];
 
