@@ -27,6 +27,8 @@ interface RoomCommunicationPanelProps {
   roomNumber: string;
   /** Manager views can pass the selected work date; housekeeper views default to today. */
   dateLabel?: string;
+  /** Historical assignment conversations remain visible for audit but cannot send new work. */
+  readOnly?: boolean;
   /** Hide an empty panel on compact/optional room cards until someone writes. */
   hideWhenEmpty?: boolean;
 }
@@ -42,6 +44,7 @@ export function RoomCommunicationPanel({
   roomId,
   roomNumber,
   dateLabel,
+  readOnly = false,
   hideWhenEmpty = false,
 }: RoomCommunicationPanelProps) {
   const { user } = useAuth();
@@ -117,7 +120,7 @@ export function RoomCommunicationPanel({
 
   const sendReply = async () => {
     const content = draft.trim();
-    if (!content || !user?.id || sending) return;
+    if (readOnly || !content || !user?.id || sending) return;
 
     setSending(true);
     try {
@@ -215,31 +218,35 @@ export function RoomCommunicationPanel({
         <p className="text-xs text-muted-foreground">No room messages for this work date yet.</p>
       )}
 
-      <div className="flex items-end gap-2">
-        <Textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="Write a message about this room…"
-          rows={2}
-          className="min-h-[56px] text-sm bg-background"
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              void sendReply();
-            }
-          }}
-        />
-        <Button
-          type="button"
-          size="icon"
-          className="h-10 w-10 shrink-0"
-          disabled={sending || !draft.trim()}
-          onClick={() => void sendReply()}
-          aria-label="Send room message"
-        >
-          <Send className="h-4 w-4" />
-        </Button>
-      </div>
+      {readOnly ? (
+        <p className="text-[11px] text-muted-foreground">Historical thread · read only</p>
+      ) : (
+        <div className="flex items-end gap-2">
+          <Textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="Write a message about this room…"
+            rows={2}
+            className="min-h-[56px] text-sm bg-background"
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                void sendReply();
+              }
+            }}
+          />
+          <Button
+            type="button"
+            size="icon"
+            className="h-10 w-10 shrink-0"
+            disabled={sending || !draft.trim()}
+            onClick={() => void sendReply()}
+            aria-label="Send room message"
+          >
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
     </section>
   );
 }
