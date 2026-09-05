@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Camera, CheckCircle2, DoorOpen, MessageSquare, ShieldCheck } from 'lucide-react';
+import { BellOff, Camera, CheckCircle2, DoorOpen, MessageSquare, ShieldCheck } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { AssignedRoomCard } from './AssignedRoomCard';
+import { EnhancedDNDPhotoCapture } from './EnhancedDNDPhotoCapture';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
@@ -77,6 +78,8 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
   const [doorChecked, setDoorChecked] = useState(false);
   const [noCleaningNote, setNoCleaningNote] = useState('');
   const [savingNoCleaning, setSavingNoCleaning] = useState(false);
+  const [secondDndOpen, setSecondDndOpen] = useState(false);
+  const [savingSecondDnd, setSavingSecondDnd] = useState(false);
 
   const roomFlags = useMemo(
     () => parseRoomFlags(assignment.rooms?.notes ?? null),
@@ -100,6 +103,110 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
     assignment.status === 'assigned' &&
     !hasTowelRequest &&
     !hasCleanRequest;
+
+  const secondAttemptNumber = Math.max(2, (assignment.dnd_attempt_count ?? 1) + 1);
+
+  const finalizeSecondDnd = async () => {
+    if (savingSecondDnd) return;
+    setSavingSecondDnd(true);
+    try {
+      const now = new Date().toISOString();
+      const { data: authData } = await supabase.auth.getUser();
+      const userId = authData.user?.id ?? null;
+
+      const { error: assignmentError } = await supabase
+        .from('room_assignments')
+        .update({
+          status: 'completed',
+          is_dnd: true,
+          dnd_marked_at: now,
+          dnd_marked_by: userId,
+          dnd_attempt_count: secondAttemptNumber,
+          completed_at: now,
+        } as any)
+        .eq('id', assignment.id);
+      if (assignmentError) throw assignmentError;
+
+      const { error: roomError } = await supabase
+        .from('rooms')
+        .update({
+          is_dnd: true,
+          dnd_marked_at: now,
+          dnd_marked_by: userId,
+        })
+        .eq('id', assignment.room_id);
+      if (roomError) throw roomError;
+
+      setSecondDndOpen(false);
+      onStatusUpdate(assignment.id, 'completed');
+      toast.success(`Room ${assignment.rooms?.room_number ?? '—'} — second DND attempt recorded and sent for supervisor approval`);
+    } catch (error) {
+      console.error('Failed to finalize Hotel Memories second DND attempt:', error);
+      toast.error('Could not save the second DND attempt. Please try again.');
+    } finally {
+      setSavingSecondDnd(false);
+    }
+  };
+
+  // At Hotel Memories the generic room card changes the normal DND button into
+  // a smaller retry banner after attempt one, while the retry room also sorts
+  // near the bottom of the mobile list. Give the housekeeper an unmistakable,
+  // property-specific second-attempt action before the normal card. The normal
+  // card remains underneath so “start cleaning” is still available if the DND
+  // sign has been removed.
+  if (isMemories && assignment.status === 'dnd_pending_retry') {
+    return (
+      <div className="space-y-3">
+        <Card className="border-2 border-orange-500 bg-orange-50 dark:bg-orange-950/30 shadow-md">
+          <CardHeader className="pb-2">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <CardTitle className="text-lg font-bold text-orange-900 dark:text-orange-100">
+                  🔕 DND · SECOND ATTEMPT
+                </CardTitle>
+                <p className="text-sm font-semibold text-orange-800 dark:text-orange-200 mt-1">
+                  Room {assignment.rooms?.room_number || 'N/A'}
+                </p>
+              </div>
+              <Badge className="bg-orange-600 text-white whitespace-normal text-center">
+                Attempt {secondAttemptNumber}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-orange-900 dark:text-orange-100 leading-relaxed">
+              Please check the door again. If the DND sign is still there, use the large button below and take a fresh door photo. This sends the room to the supervisor for approval.
+            </p>
+            <Button
+              size="lg"
+              onClick={() => setSecondDndOpen(true)}
+              disabled={savingSecondDnd}
+              className="w-full min-h-14 bg-orange-600 hover:bg-orange-700 text-white text-base font-bold whitespace-normal shadow-sm"
+              data-training="memories-dnd-second-attempt-button"
+            >
+              <BellOff className="h-5 w-5 mr-2 shrink-0" />
+              DND still on door → Take 2nd attempt photo
+            </Button>
+            <p className="text-xs text-orange-800 dark:text-orange-200 text-center">
+              If the DND sign has been removed, use “Start” on the room card below instead.
+            </p>
+          </CardContent>
+        </Card>
+
+        <AssignedRoomCard assignment={assignment} onStatusUpdate={onStatusUpdate} />
+
+        <EnhancedDNDPhotoCapture
+          open={secondDndOpen}
+          onOpenChange={setSecondDndOpen}
+          roomNumber={assignment.rooms?.room_number || 'N/A'}
+          roomId={assignment.room_id}
+          assignmentId={assignment.id}
+          attemptNumber={secondAttemptNumber}
+          onPhotoUploaded={finalizeSecondDnd}
+        />
+      </div>
+    );
+  }
 
   if (!isOptionalDaily) {
     const shouldShowGreenBoardAsCleanRequest = greenBoardReleased || initialGreenRequest;
