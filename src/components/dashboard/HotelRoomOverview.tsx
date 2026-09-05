@@ -192,6 +192,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [popoverNotes, setPopoverNotes] = useState<string>('');
+  const popoverNotesSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [popoverNotesSaveState, setPopoverNotesSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | 'noshow' | 'arrival' | null>(null);
   const justDraggedRef = useRef<number>(0);
   const [managerMessage, setManagerMessage] = useState('');
@@ -430,6 +432,51 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const canInteractWithRooms = isManagerOrAdmin || isReception;
   const [roomNotes, setRoomNotes] = useState('');
 
+
+  const savePopoverRoomNotes = useCallback(async (
+    room: RoomData,
+    noteText: string,
+    assignmentStatus?: string,
+    notify: boolean = false,
+  ) => {
+    try {
+      setPopoverNotesSaveState('saving');
+      const currentFlags = parseRoomFlags(room.notes);
+      const { buildRoomNotes } = await import('@/lib/room-service-flags');
+      const newFullNotes = buildRoomNotes(
+        {
+          collectExtraTowels: currentFlags.collectExtraTowels,
+          roomCleaning: currentFlags.roomCleaning,
+        },
+        noteText,
+      );
+
+      if (newFullNotes !== (room.notes || '')) {
+        const { error } = await supabase
+          .from('rooms')
+          .update({ notes: newFullNotes || null } as any)
+          .eq('id', room.id);
+        if (error) throw error;
+
+        setRooms(prev => prev.map(r =>
+          r.id === room.id ? { ...r, notes: newFullNotes || null } : r,
+        ));
+      }
+
+      setPopoverNotesSaveState('saved');
+      if (assignmentStatus === 'completed' && notify) {
+        toast.warning(`⚠️ Room ${room.room_number} was already cleaned. The housekeeper will need to be informed.`, { duration: 5000 });
+      }
+      if (notify) toast.success(`Notes saved for room ${room.room_number}`);
+      return true;
+    } catch (error) {
+      console.error('Failed to save room notes:', error);
+      setPopoverNotesSaveState('error');
+      if (notify) toast.error('Failed to save notes');
+      return false;
+    }
+  }, []);
+
   // Format a YYYY-MM-DD date for the "Yesterday — {date}" header without
   // dragging in a date library.
   const formatPrevDate = (iso: string | null): string => {
@@ -498,6 +545,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       setHoveredRoomId(roomId);
       const flags = parseRoomFlags(room.notes);
       setPopoverNotes(flags.cleanNotes);
+      setPopoverNotesSaveState('idle');
     }, 150);
   }, [isMobile, canInteractWithRooms]);
 
@@ -1376,7 +1424,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 )}
               </div>
 
-              {/* Notes - auto-save on blur */}
+              {/* Notes - explicit save + debounced auto-save while typing */}
               {isManagerOrAdmin && (
                 <div className="border-t border-border pt-1.5 space-y-1.5">
                   {room.notes && profile?.role === 'admin' && (
@@ -1386,37 +1434,58 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     className="w-full text-xs p-1.5 rounded border border-input bg-background min-h-[36px] resize-none placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                     placeholder={t('roomOverview.managerNotes')}
                     value={popoverNotes}
-                    onChange={(e) => setPopoverNotes(e.target.value)}
+                    onChange={(e) => {
+                      const nextNotes = e.target.value;
+                      setPopoverNotes(nextNotes);
+                      setPopoverNotesSaveState('idle');
+                      if (popoverNotesSaveTimerRef.current) clearTimeout(popoverNotesSaveTimerRef.current);
+                      popoverNotesSaveTimerRef.current = setTimeout(() => {
+                        popoverNotesSaveTimerRef.current = null;
+                        void savePopoverRoomNotes(room, nextNotes, assignmentStatus);
+                      }, 600);
+                    }}
                     onClick={(e) => e.stopPropagation()}
-                    onBlur={async (e) => {
-                      const textarea = e.target as HTMLTextAreaElement;
-                      // Preserve flags when saving notes
-                      const currentFlags = parseRoomFlags(room.notes);
-                      const { buildRoomNotes } = await import('@/lib/room-service-flags');
-                      const newFullNotes = buildRoomNotes(
-                        { collectExtraTowels: currentFlags.collectExtraTowels, roomCleaning: currentFlags.roomCleaning },
-                        popoverNotes
-                      );
-                      if (newFullNotes !== (room.notes || '')) {
-                        try {
-                          if (assignmentStatus === 'completed') {
-                            toast.warning(`⚠️ Room ${room.room_number} was already cleaned. The housekeeper will need to be informed.`, { duration: 5000 });
-                          }
-                          await supabase.from('rooms').update({ notes: newFullNotes || null } as any).eq('id', room.id);
-                          setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: newFullNotes || null } : r));
-                          // Show inline saved indicator
-                          const parent = textarea.parentElement;
-                          if (parent) {
-                            const indicator = document.createElement('span');
-                            indicator.className = 'text-[10px] text-emerald-600 font-medium animate-in fade-in';
-                            indicator.textContent = '✓ Auto-saved';
-                            parent.appendChild(indicator);
-                            setTimeout(() => indicator.remove(), 2000);
-                          }
-                        } catch { toast.error('Failed to save notes'); }
+                    onBlur={() => {
+                      if (popoverNotesSaveTimerRef.current) {
+                        clearTimeout(popoverNotesSaveTimerRef.current);
+                        popoverNotesSaveTimerRef.current = null;
                       }
+                      void savePopoverRoomNotes(room, popoverNotes, assignmentStatus);
                     }}
                   />
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-[10px] ${
+                      popoverNotesSaveState === 'error'
+                        ? 'text-red-600'
+                        : popoverNotesSaveState === 'saved'
+                          ? 'text-emerald-600'
+                          : 'text-muted-foreground'
+                    }`}>
+                      {popoverNotesSaveState === 'saving'
+                        ? 'Saving…'
+                        : popoverNotesSaveState === 'saved'
+                          ? '✓ Saved automatically'
+                          : popoverNotesSaveState === 'error'
+                            ? 'Save failed'
+                            : 'Auto-saves while typing'}
+                    </span>
+                    <button
+                      type="button"
+                      className="px-2 py-1 rounded text-[11px] font-semibold border border-input bg-background hover:bg-muted transition-colors disabled:opacity-50"
+                      disabled={popoverNotesSaveState === 'saving'}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (popoverNotesSaveTimerRef.current) {
+                          clearTimeout(popoverNotesSaveTimerRef.current);
+                          popoverNotesSaveTimerRef.current = null;
+                        }
+                        void savePopoverRoomNotes(room, popoverNotes, assignmentStatus, true);
+                      }}
+                    >
+                      {popoverNotesSaveState === 'saving' ? 'Saving…' : 'Save Notes'}
+                    </button>
+                  </div>
                 </div>
               )}
 
