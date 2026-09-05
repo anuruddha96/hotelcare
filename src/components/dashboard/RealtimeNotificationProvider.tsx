@@ -51,16 +51,18 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
       const timer = setTimeout(async () => {
         instructionTimers.delete(record.id);
 
-        const { data: latest, error: assignmentError } = await supabase
-          .from('room_assignments')
+        // The new columns are introduced by the paired DB migration. Cast this
+        // one query until generated Supabase types are refreshed.
+        const { data: latest, error: assignmentError } = await (supabase
+          .from('room_assignments') as any)
           .select('id, room_id, assigned_to, manager_instruction_text, manager_instruction_updated_at')
           .eq('id', record.id)
           .maybeSingle();
 
         if (assignmentError || !latest || latest.assigned_to !== user.id) return;
 
-        const latestVersion = String((latest as any).manager_instruction_updated_at || '');
-        const latestText = String((latest as any).manager_instruction_text || '').trim();
+        const latestVersion = String(latest.manager_instruction_updated_at || '');
+        const latestText = String(latest.manager_instruction_text || '').trim();
         if (!latestVersion || !latestText) return;
         if (deliveredInstructionVersions.get(record.id) === latestVersion) return;
 
