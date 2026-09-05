@@ -68,7 +68,6 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
   const initialGreenRequest = hasMemoriesGreenBoardRequest(assignment.notes);
   const [greenBoardReleased, setGreenBoardReleased] = useState(initialGreenRequest);
   const [updatedAssignmentNotes, setUpdatedAssignmentNotes] = useState<string | null>(null);
-  const [updatedRoomNotes, setUpdatedRoomNotes] = useState<string | null>(null);
   const [savingGreenBoard, setSavingGreenBoard] = useState(false);
   const [noCleaningOpen, setNoCleaningOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
@@ -77,8 +76,8 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
   const [savingNoCleaning, setSavingNoCleaning] = useState(false);
 
   const roomFlags = useMemo(
-    () => parseRoomFlags(updatedRoomNotes ?? assignment.rooms?.notes ?? null),
-    [assignment.rooms?.notes, updatedRoomNotes],
+    () => parseRoomFlags(assignment.rooms?.notes ?? null),
+    [assignment.rooms?.notes],
   );
 
   const pmsMeta = assignment.rooms?.pms_metadata;
@@ -100,12 +99,19 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
     !hasCleanRequest;
 
   if (!isOptionalDaily) {
-    const releasedAssignment = greenBoardReleased
+    const shouldShowGreenBoardAsCleanRequest = greenBoardReleased || initialGreenRequest;
+    const releasedAssignment = shouldShowGreenBoardAsCleanRequest
       ? {
           ...assignment,
           notes: updatedAssignmentNotes ?? assignment.notes,
           rooms: assignment.rooms
-            ? { ...assignment.rooms, notes: updatedRoomNotes ?? assignment.rooms.notes }
+            ? {
+                ...assignment.rooms,
+                // Render the existing clean-room UI for this assignment only.
+                // Do not persist ROOM_CLEANING on the room itself because a
+                // physical green-board request is valid only for today's task.
+                notes: toggleFlag(assignment.rooms.notes ?? null, 'ROOM_CLEANING', true),
+              }
             : assignment.rooms,
         }
       : assignment;
@@ -117,26 +123,21 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
     if (!assignment.rooms) return;
     setSavingGreenBoard(true);
     try {
-      const nextRoomNotes = toggleFlag(assignment.rooms.notes ?? null, 'ROOM_CLEANING', true);
       const nextAssignmentNotes = appendAssignmentMarker(
         assignment.notes,
         MEMORIES_GREEN_BOARD_MARKER,
         'Green Clean My Room card seen at the door — cleaning requested.',
       );
 
-      const { error: roomError } = await supabase
-        .from('rooms')
-        .update({ notes: nextRoomNotes })
-        .eq('id', assignment.room_id);
-      if (roomError) throw roomError;
-
+      // Keep the physical door-card request assignment-scoped. Writing the
+      // ROOM_CLEANING flag to rooms.notes could make today's request leak into
+      // a future stayover day; the assignment marker is already date-specific.
       const { error: assignmentError } = await supabase
         .from('room_assignments')
         .update({ notes: nextAssignmentNotes })
         .eq('id', assignment.id);
       if (assignmentError) throw assignmentError;
 
-      setUpdatedRoomNotes(nextRoomNotes);
       setUpdatedAssignmentNotes(nextAssignmentNotes);
       setGreenBoardReleased(true);
       toast.success(`Room ${assignment.rooms.room_number}: cleaning request recorded`);
