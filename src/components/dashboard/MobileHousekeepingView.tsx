@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, AlertTriangle, Camera, Shirt, MapPin, Ban, BellOff } from 'lucide-react';
-import { AssignedRoomCard } from './AssignedRoomCard';
+import { HotelMemoriesRoomGate } from './HotelMemoriesRoomGate';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { DirtyLinenDialog } from './DirtyLinenDialog';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
@@ -17,6 +17,9 @@ import { format } from 'date-fns';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useTranslation } from '@/hooks/useTranslation';
 import { getLocalDateString } from '@/lib/utils';
+import { parseRoomFlags } from '@/lib/room-service-flags';
+import { hasMemoriesGreenBoardRequest, isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { todayBudapest } from '@/lib/budapestTime';
 
 interface Assignment {
   id: string;
@@ -43,6 +46,7 @@ interface Assignment {
     bed_configuration?: string | null;
     notes?: string | null;
     pms_metadata?: any;
+    is_checkout_room?: boolean | null;
   } | null;
 }
 
@@ -52,6 +56,15 @@ interface Summary {
   in_progress: number;
   pending: number;
 }
+
+const isCheckoutAssignment = (assignment: any): boolean => {
+  const pmsMeta = assignment.rooms?.pms_metadata;
+  const hasFreshPms = pmsMeta?.pmsSyncDate === todayBudapest();
+  const pmsSaysCheckout = !!assignment.rooms?.is_checkout_room || pmsMeta?.scheduledDepartureToday === true;
+  return hasFreshPms
+    ? pmsSaysCheckout
+    : assignment.assignment_type === 'checkout_cleaning' || pmsSaysCheckout;
+};
 
 export function MobileHousekeepingView() {
   const { user, profile } = useAuth();
@@ -173,7 +186,7 @@ export function MobileHousekeepingView() {
       if (roomIds.length > 0) {
         const { data: roomRows, error: roomsError } = await supabase
           .from('rooms')
-          .select('id, room_number, hotel, status, room_name, floor_number, bed_type, bed_configuration, notes, pms_metadata, towel_change_required, linen_change_required, guest_nights_stayed')
+          .select('id, room_number, hotel, status, room_name, floor_number, bed_type, bed_configuration, notes, pms_metadata, towel_change_required, linen_change_required, guest_nights_stayed, is_checkout_room')
           .in('id', roomIds);
           
         console.log('Rooms fetch result:', { roomRows, roomsError });
@@ -196,7 +209,10 @@ export function MobileHousekeepingView() {
       // Show ALL assignments including checkout rooms not ready
       // Checkout rooms will display a "waiting for checkout" indicator
 
-      // Sort with unified priority: in_progress > high priority > ready checkouts (by floor) > daily (by floor) > waiting checkouts > completed
+      // Sort with unified priority. Hotel Memories Budapest has a property-only
+      // stayover policy: ready checkout > towel change > explicit clean request
+      // > optional daily door-check > waiting checkout. Other hotels keep the
+      // existing generic priority behavior unchanged.
       // Auto-unlock DND retries: at/after 14:30, or when no other rooms remain active
       try {
         const nowD = new Date();
@@ -222,15 +238,29 @@ export function MobileHousekeepingView() {
       assignmentsData.sort((a, b) => {
         const getBucket = (x: any): number => {
           if (x.status === 'in_progress') return 0;
-          if (x.status === 'completed') return 6;
-          if (x.status === 'cancelled') return 7;
+          if (x.status === 'completed') return 8;
+          if (x.status === 'cancelled') return 9;
           if (x.status === 'dnd_pending_retry') {
-            return x.dnd_retry_unlocked_at ? 4 : 5;
+            return x.dnd_retry_unlocked_at ? 6 : 7;
           }
+
+          if (isHotelMemoriesBudapest(x.rooms?.hotel)) {
+            const checkout = isCheckoutAssignment(x);
+            const flags = parseRoomFlags(x.rooms?.notes ?? null);
+            const greenBoardRequest = hasMemoriesGreenBoardRequest(x.notes);
+
+            if (checkout && x.ready_to_clean) return 1;
+            if (!checkout && x.rooms?.towel_change_required) return 2;
+            if (!checkout && (flags.roomCleaning || greenBoardRequest)) return 3;
+            if (!checkout && x.assignment_type === 'daily_cleaning') return 4;
+            if (checkout && !x.ready_to_clean) return 5;
+            return 4;
+          }
+
           if ((x.priority ?? 1) >= 3) return 1;
-          if (x.assignment_type === 'checkout_cleaning' && x.ready_to_clean) return 2;
-          if (x.assignment_type === 'daily_cleaning') return 3;
-          if (x.assignment_type === 'checkout_cleaning' && !x.ready_to_clean) return 4;
+          if (isCheckoutAssignment(x) && x.ready_to_clean) return 2;
+          if (!isCheckoutAssignment(x)) return 3;
+          if (isCheckoutAssignment(x) && !x.ready_to_clean) return 4;
           return 3;
         };
 
@@ -299,15 +329,15 @@ export function MobileHousekeepingView() {
 
   // Today's own workload split, used by the filter chips and the sections below.
   const roomWorkload = allAssignments.filter((a: any) => a.status !== 'cancelled');
-  const checkoutCount = roomWorkload.filter((a: any) => a.assignment_type === 'checkout_cleaning').length;
+  const checkoutCount = roomWorkload.filter((a: any) => isCheckoutAssignment(a)).length;
   const dailyCount = roomWorkload.length - checkoutCount;
   const openPublicTasks = publicTasks.filter((task: any) => task.status !== 'cancelled');
   const visibleAssignments = workFilter === 'public'
     ? []
     : workFilter === 'checkout'
-      ? assignments.filter((a: any) => a.assignment_type === 'checkout_cleaning')
+      ? assignments.filter((a: any) => isCheckoutAssignment(a))
       : workFilter === 'daily'
-        ? assignments.filter((a: any) => a.assignment_type !== 'checkout_cleaning')
+        ? assignments.filter((a: any) => !isCheckoutAssignment(a))
         : assignments;
   const visiblePublicTasks = workFilter === 'checkout' || workFilter === 'daily' ? [] : openPublicTasks;
   const workloadFilters = (
@@ -592,7 +622,7 @@ export function MobileHousekeepingView() {
                   fallbackTitle={`Room ${assignment.rooms?.room_number ?? ''}`.trim()}
                   fallbackMessage="This room card failed to load. Tap Retry — other rooms are unaffected."
                 >
-                  <AssignedRoomCard
+                  <HotelMemoriesRoomGate
                     assignment={assignment}
                     onStatusUpdate={handleStatusUpdate}
                   />
