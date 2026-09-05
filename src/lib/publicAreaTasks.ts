@@ -2,9 +2,9 @@
 //
 // `general_tasks` rows carry manager/configuration data: `task_type` keys,
 // internal instructions and a "Mapped section: <zone>" prefix written by the
-// `assign_housekeeping_section_tasks` RPC. Housekeepers must never see that.
-// Here we reduce every row to one short area name plus one plain instruction,
-// both translated through the normal `t()` bundle.
+// `assign_housekeeping_section_tasks` RPC. Housekeepers should not see the
+// verbose manager metadata, but they still need a short location cue when the
+// same kind of work exists in more than one section (for example two staircases).
 
 export interface PublicAreaTaskLike {
   task_name: string;
@@ -39,12 +39,50 @@ const AREA_MATCHERS: Array<[string, RegExp]> = [
   ['commonAreas', /common|public|shared|kozos|közös|comun|común|chung|нийт|спільн/i],
 ];
 
+// Only replace a task's stored name with a translated generic area name when
+// the stored name itself is generic. Specific names such as "Storage 1",
+// "Small Corridor" and "New-side Decorations" must stay intact; otherwise two
+// different configured tasks become visually identical on the housekeeper UI.
+const GENERIC_TASK_NAMES: Partial<Record<string, RegExp>> = {
+  staircase: /^(staircase|stairs?|stairways?|steps)$/i,
+  elevator: /^(lift|elevator)$/i,
+  corridor: /^(corridor|hallway)$/i,
+  toilet: /^(public\s+)?(toilet|restroom|wc|washroom)$/i,
+  decorations: /^decorations?$/i,
+  breakfast: /^(breakfast|breakfast\s+room)$/i,
+  dining: /^(dining|dining\s+area|restaurant)$/i,
+  kitchen: /^kitchen$/i,
+  gym: /^(gym|fitness)$/i,
+  sauna: /^sauna$/i,
+  jacuzzi: /^(jacuzzi|whirlpool)$/i,
+  laundry: /^laundry$/i,
+  reception: /^reception$/i,
+  lobby: /^lobby$/i,
+  office: /^(office|back\s+office)$/i,
+  entrance: /^(entrance|entry)$/i,
+  terrace: /^(terrace|balcony)$/i,
+  storage: /^(storage|storeroom|store\s+room)$/i,
+  trolley: /^(trolley|cart)$/i,
+  windows: /^windows?$/i,
+  commonAreas: /^(common|public|shared)(\s+areas?)?$/i,
+};
+
 export function resolvePublicAreaKey(task: PublicAreaTaskLike): string | null {
   const haystack = `${task.task_type || ''} ${task.task_name || ''}`;
   for (const [key, pattern] of AREA_MATCHERS) {
     if (pattern.test(haystack)) return key;
   }
   return null;
+}
+
+/**
+ * Pull only the useful section name out of manager metadata. The housekeeper
+ * sees e.g. "200 Side", never the verbose "Mapped section:" label.
+ */
+export function extractPublicAreaSection(description: string | null | undefined): string {
+  if (!description) return '';
+  const match = description.match(/^\s*(?:mapped section|section|zone)\s*:\s*(.+?)\s*$/im);
+  return match?.[1]?.trim() || '';
 }
 
 /**
@@ -65,11 +103,13 @@ export function stripManagerMetadata(description: string | null | undefined): st
 export interface PublicAreaTaskCopy {
   title: string;
   instruction: string;
+  location: string;
 }
 
 /**
- * One translated title + one short instruction for the housekeeper card.
- * Falls back to the manager's own free text, then to a generic instruction.
+ * One translated/genuine title + one short translated instruction for the
+ * housekeeper card. A concise section name is returned separately so equal
+ * area types from different mapped sections are never mistaken for duplicates.
  */
 export function publicAreaTaskCopy(
   task: PublicAreaTaskLike,
@@ -77,19 +117,26 @@ export function publicAreaTaskCopy(
 ): PublicAreaTaskCopy {
   const key = resolvePublicAreaKey(task);
   const freeText = stripManagerMetadata(task.task_description);
+  const location = extractPublicAreaSection(task.task_description);
+  const storedTitle = (task.task_name || '').trim();
 
   const translatedTitle = key ? t(`publicAreaTask.area.${key}.name`) : '';
   const translatedInstruction = key ? t(`publicAreaTask.area.${key}.instruction`) : '';
+  const hasTranslatedTitle = !!translatedTitle && !translatedTitle.startsWith('publicAreaTask.');
+  const genericNameMatcher = key ? GENERIC_TASK_NAMES[key] : undefined;
+  const storedNameIsGeneric = !!genericNameMatcher && genericNameMatcher.test(storedTitle);
 
-  const title = translatedTitle && !translatedTitle.startsWith('publicAreaTask.')
+  // Generic configured names can be translated. Specific configured names are
+  // operational identifiers and must not be collapsed to a generic category.
+  const title = hasTranslatedTitle && (storedNameIsGeneric || !storedTitle)
     ? translatedTitle
-    : task.task_name;
+    : (storedTitle || translatedTitle || t('publicAreaTask.generic'));
 
   const instruction = translatedInstruction && !translatedInstruction.startsWith('publicAreaTask.')
     ? translatedInstruction
     : (freeText || t('publicAreaTask.generic'));
 
-  return { title, instruction };
+  return { title, instruction, location };
 }
 
 /** Only exceptional work deserves a chip on the housekeeper card. */
