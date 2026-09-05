@@ -213,6 +213,20 @@ function decideNextTwoDays(input: DecisionInput, settings: DecisionSettings): De
   const unclampedTarget = whole(current - step);
   const target = Math.max(unclampedTarget, safetyFloor);
   const movement = target - current;
+
+  // Sell-out mode is a markdown-only policy. A protective floor must never
+  // turn the attempted decrease into an increase and leave the parent decision
+  // labelled "decrease". If the current rate is already at/below that floor,
+  // leave the price unchanged and explain that automation is still active.
+  if (target >= current) {
+    return blocked(
+      input,
+      settings,
+      "price_floor_protected",
+      `No price change: the current €${current} rate is already at or below the protected minimum of €${safetyFloor}. Sell-out mode only lowers prices; automation is still running.`,
+    );
+  }
+
   if (Math.abs(movement) < settings.minMovementEur) {
     return blocked(
       input,
