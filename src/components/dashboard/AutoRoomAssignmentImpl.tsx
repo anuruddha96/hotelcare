@@ -30,6 +30,7 @@ import {
   MapPin,
   Printer,
   RefreshCw,
+  Shuffle,
   Trash2,
   Undo2,
   Users,
