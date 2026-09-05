@@ -4,6 +4,7 @@ import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
 import { getSignedPhotoUrls } from '@/lib/storageUrls';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { getSupervisorApprovalNote } from '@/lib/supervisorApprovalNote';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -1206,7 +1207,7 @@ export function SupervisorApprovalView({
               }`} />
               <p className={`text-xs ${
                 assignment.notes.includes('[NO_SERVICE]') ? 'text-gray-700 dark:text-gray-300' : 'text-amber-800'
-              }`}>{assignment.notes}</p>
+              }`}>{getSupervisorApprovalNote(assignment.notes)}</p>
             </div>
           )}
 
