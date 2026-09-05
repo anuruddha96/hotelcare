@@ -444,6 +444,24 @@ export function AutoRoomAssignment({
         sectionTaskRows = sectionTasksResult.data || [];
       }
 
+      // Public-area rows already created for this hotel/date: anything past
+      // 'assigned' is being worked on and must keep its current owner.
+      const sectionTaskIds = sectionTaskRows.map((task: any) => task.id);
+      if (sectionTaskIds.length > 0) {
+        const { data: liveTaskRows } = await (supabase as any)
+          .from('general_tasks')
+          .select('housekeeping_section_task_id, status, assigned_to')
+          .eq('hotel', hotelName)
+          .eq('assigned_date', selectedDate)
+          .in('housekeeping_section_task_id', sectionTaskIds);
+        setLockedSectionTasks(new Map((liveTaskRows || []).map((row: any) => [
+          row.housekeeping_section_task_id,
+          { status: row.status as string, assignedTo: row.assigned_to as string | null },
+        ])));
+      } else {
+        setLockedSectionTasks(new Map());
+      }
+
       roomSectionsRef.current = new Map(sectionRoomRows.flatMap(mapping => {
         const section = sectionById.get(mapping.section_id);
         return section ? [[mapping.room_id, { id: section.id, name: section.name }]] : [];
@@ -795,6 +813,56 @@ export function AutoRoomAssignment({
     return null;
   };
 
+  /** Move one public-area task to another housekeeper (blocked once started). */
+  const movePublicAreaTask = (taskId: string, toStaffId: string) => {
+    const task = sectionTasks.find(item => item.id === taskId);
+    if (!task) return;
+    if (task.lockedStatus) {
+      toast.warning(
+        task.lockedStatus === 'completed'
+          ? `${task.task_name} is already finished and cannot be moved.`
+          : `${task.task_name} is already being worked on by ${task.staff_name}. It cannot be reassigned now.`
+      );
+      return;
+    }
+    if (task.staff_id === toStaffId) return;
+    setSectionTaskOwners(previous => new Map(previous).set(taskId, toStaffId));
+    const toName = assignmentPreviews.find(p => p.staffId === toStaffId)?.staffName || 'housekeeper';
+    toast.success(`${task.task_name} → ${toName}`);
+  };
+
+  /** Redistribute only the movable public-area tasks across the busiest-last staff. */
+  const shufflePublicAreas = () => {
+    const eligible = assignmentPreviews.filter(preview => selectedStaffIds.has(preview.staffId));
+    if (eligible.length === 0) return;
+    const movable = sectionTasks.filter(task => !task.lockedStatus);
+    if (movable.length === 0) {
+      toast.info('No public areas can be moved right now.');
+      return;
+    }
+
+    // Start from the room workload plus the minutes already pinned by locked tasks.
+    const load = new Map(eligible.map(preview => [preview.staffId, preview.totalWithBreak]));
+    for (const task of sectionTasks) {
+      if (!task.lockedStatus) continue;
+      load.set(task.staff_id, (load.get(task.staff_id) || 0) + task.estimated_duration);
+    }
+
+    const next = new Map(sectionTaskOwners);
+    for (const task of [...movable].sort((a, b) => b.estimated_duration - a.estimated_duration)) {
+      const owner = eligible
+        .slice()
+        .sort((a, b) =>
+          (load.get(a.staffId) || 0) - (load.get(b.staffId) || 0)
+          || a.staffName.localeCompare(b.staffName)
+        )[0];
+      next.set(task.id, owner.staffId);
+      load.set(owner.staffId, (load.get(owner.staffId) || 0) + task.estimated_duration);
+    }
+    setSectionTaskOwners(next);
+    toast.success(`Shuffled ${movable.length} public area${movable.length === 1 ? '' : 's'}.`);
+  };
+
   const handleProceedToConfirm = () => {
     const overAllocated = assignmentPreviews
       .filter(preview => staffIdsWithWork.has(preview.staffId))
@@ -847,10 +915,12 @@ export function AutoRoomAssignment({
     const { data, error } = await (supabase as any).rpc('assign_housekeeping_section_tasks', {
       p_hotel_name: hotelName,
       p_assigned_date: selectedDate,
-      p_assignments: sectionTasks.map(task => ({
-        section_task_id: task.id,
-        assigned_to: task.staff_id,
-      })),
+      p_assignments: sectionTasks
+        .filter(task => !task.lockedStatus)
+        .map(task => ({
+          section_task_id: task.id,
+          assigned_to: task.staff_id,
+        })),
     });
     if (error) throw error;
     return Number(data || 0);
