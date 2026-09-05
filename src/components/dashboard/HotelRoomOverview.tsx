@@ -14,7 +14,7 @@ import { UI_HINTS } from '@/lib/ui-hints';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings, MessageSquare, Ban, AlertTriangle, GripVertical, Coffee } from 'lucide-react';
+import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings, Ban, AlertTriangle, GripVertical, Coffee } from 'lucide-react';
 import { StructuredRoomNote } from '@/components/pms/StructuredRoomNote';
 import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
@@ -27,6 +27,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { getLocalDateString } from '@/lib/utils';
 import { HotelFloorMap } from './HotelFloorMap';
+import { RoomCommunicationPanel } from './RoomCommunicationPanel';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
@@ -65,6 +66,7 @@ interface RoomData {
 
 
 interface AssignmentData {
+  id: string;
   room_id: string;
   assigned_to: string;
   status: string;
@@ -196,7 +198,6 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [popoverNotesSaveState, setPopoverNotesSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | 'noshow' | 'arrival' | null>(null);
   const justDraggedRef = useRef<number>(0);
-  const [managerMessage, setManagerMessage] = useState('');
   const [previousDayDate, setPreviousDayDate] = useState<string | null>(null);
   const [previousAssignments, setPreviousAssignments] = useState<Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>>(new Map());
   const [syncFlash, setSyncFlash] = useState(false);
@@ -339,7 +340,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           .order('room_number'),
         supabase
           .from('room_assignments')
-          .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes')
+          .select('id, room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes')
           .eq('assignment_date', selectedDate),
         supabase
           .from('general_tasks')
@@ -1109,7 +1110,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           <PopoverContent 
             side="top" 
             align="center"
-            className="w-56 p-0 shadow-lg"
+            className="w-80 max-w-[calc(100vw-1rem)] p-0 shadow-lg"
             onMouseEnter={handlePopoverEnter}
             onMouseLeave={handlePopoverLeave}
             onOpenAutoFocus={(e) => e.preventDefault()}
@@ -1489,45 +1490,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 </div>
               )}
 
-              {/* Send Message to Housekeeper */}
+              {/* Date-scoped two-way room communication */}
               {isManagerOrAdmin && assignment && (
                 <div className="border-t border-border pt-1.5">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">💬 {t('roomOverview.messageHousekeeper')}</p>
-                  <div className="flex gap-1">
-                    <input
-                      className="flex-1 text-xs p-1.5 rounded border border-input bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-                      placeholder={t('roomOverview.typeMessage')}
-                      value={managerMessage}
-                      onChange={(e) => setManagerMessage(e.target.value)}
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).nextElementSibling?.dispatchEvent(new Event('click', { bubbles: true })); } }}
-                    />
-                    <button
-                      className="px-2 py-1.5 rounded text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-                      disabled={!managerMessage.trim() || actionLoading === `msg-${room.id}`}
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        if (!managerMessage.trim()) return;
-                        setActionLoading(`msg-${room.id}`);
-                        try {
-                          const userId = (await supabase.auth.getUser()).data.user?.id;
-                          const { error } = await supabase.from('housekeeping_notes').insert({
-                            room_id: room.id,
-                            assignment_id: null,
-                            content: managerMessage,
-                            note_type: 'message',
-                            created_by: userId
-                          } as any);
-                          if (error) throw error;
-                          setManagerMessage('');
-                          toast.success(`Message sent for Room ${room.room_number}`);
-                        } catch { toast.error('Failed to send'); }
-                        finally { setActionLoading(null); }
-                      }}
-                    >
-                      <MessageSquare className="h-3 w-3" />
-                    </button>
-                  </div>
+                  <RoomCommunicationPanel
+                    assignmentId={assignment.id}
+                    roomId={room.id}
+                    roomNumber={room.room_number}
+                    dateLabel={selectedDate}
+                    readOnly={selectedDate !== todayBudapest()}
+                  />
                 </div>
               )}
 
@@ -2188,7 +2160,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   { label: t('legend.towelChange'), cls: 'bg-blue-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'T', hint: UI_HINTS["room.towelChange"] },
                   { label: 'Clean Room', cls: 'bg-orange-500 text-white text-[8px] font-bold px-0.5', isText: true, text: 'C', hint: UI_HINTS["room.linenChange"] },
                   { label: t('legend.roomCleaning'), cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RC', hint: t('legend.roomCleaningHint') },
-                  { label: t('legend.extraTowels'), cls: 'bg-orange-500 text-white text-[8px] font-bold px-0.5', isText: true, text: '🧺', hint: t('legend.extraTowelsHint') },
+                  { label: t('legend.extraTowels'), cls: 'bg-orange-500 text-white text-[8px] font-bold px-0.5', isText: true, text: '🧺', hint: UI_HINTS["room.extraTowels"] },
                   { label: t('legend.readyToClean'), cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC', hint: UI_HINTS["room.rtc"] },
                   { label: t('legend.approved'), cls: 'text-[10px]', isText: true, text: '✅', hint: t('legend.approvedHint') },
                   // Additional badges that render on the chip but were missing from the legend:
@@ -2522,6 +2494,17 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                         Save Notes
                       </Button>
                     </div>
+                  )}
+
+                  {/* Same date-scoped conversation as the desktop room-chip popover */}
+                  {isManagerOrAdmin && assignment && (
+                    <RoomCommunicationPanel
+                      assignmentId={assignment.id}
+                      roomId={selectedRoom.id}
+                      roomNumber={selectedRoom.room_number}
+                      dateLabel={selectedDate}
+                      readOnly={selectedDate !== todayBudapest()}
+                    />
                   )}
 
                   {/* Quick Actions Section */}
