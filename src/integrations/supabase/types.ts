@@ -2457,6 +2457,8 @@ export type Database = {
           created_at: string
           estimated_duration: number | null
           hotel: string
+          housekeeping_section_id: string | null
+          housekeeping_section_task_id: string | null
           id: string
           notes: string | null
           organization_slug: string | null
@@ -2477,6 +2479,8 @@ export type Database = {
           created_at?: string
           estimated_duration?: number | null
           hotel: string
+          housekeeping_section_id?: string | null
+          housekeeping_section_task_id?: string | null
           id?: string
           notes?: string | null
           organization_slug?: string | null
@@ -2497,6 +2501,8 @@ export type Database = {
           created_at?: string
           estimated_duration?: number | null
           hotel?: string
+          housekeeping_section_id?: string | null
+          housekeeping_section_task_id?: string | null
           id?: string
           notes?: string | null
           organization_slug?: string | null
@@ -2508,7 +2514,22 @@ export type Database = {
           task_type?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "general_tasks_housekeeping_section_id_fkey"
+            columns: ["housekeeping_section_id"]
+            isOneToOne: false
+            referencedRelation: "hotel_housekeeping_sections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "general_tasks_housekeeping_section_task_id_fkey"
+            columns: ["housekeeping_section_task_id"]
+            isOneToOne: false
+            referencedRelation: "hotel_housekeeping_section_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       google_business_connections: {
         Row: {
@@ -3396,6 +3417,140 @@ export type Database = {
           wing?: string
           x?: number
           y?: number
+        }
+        Relationships: []
+      }
+      hotel_housekeeping_section_rooms: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          room_id: string
+          section_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          room_id: string
+          section_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          room_id?: string
+          section_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hotel_housekeeping_section_rooms_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: true
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hotel_housekeeping_section_rooms_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "hotel_housekeeping_sections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hotel_housekeeping_section_tasks: {
+        Row: {
+          auto_assign: boolean
+          created_at: string
+          created_by: string | null
+          estimated_duration: number
+          icon: string
+          id: string
+          instructions: string | null
+          is_active: boolean
+          section_id: string
+          sort_order: number
+          task_name: string
+          updated_at: string
+        }
+        Insert: {
+          auto_assign?: boolean
+          created_at?: string
+          created_by?: string | null
+          estimated_duration?: number
+          icon?: string
+          id?: string
+          instructions?: string | null
+          is_active?: boolean
+          section_id: string
+          sort_order?: number
+          task_name: string
+          updated_at?: string
+        }
+        Update: {
+          auto_assign?: boolean
+          created_at?: string
+          created_by?: string | null
+          estimated_duration?: number
+          icon?: string
+          id?: string
+          instructions?: string | null
+          is_active?: boolean
+          section_id?: string
+          sort_order?: number
+          task_name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hotel_housekeeping_section_tasks_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "hotel_housekeeping_sections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hotel_housekeeping_sections: {
+        Row: {
+          color: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          floor_number: number
+          hotel_name: string
+          id: string
+          is_active: boolean
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          floor_number: number
+          hotel_name: string
+          id?: string
+          is_active?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          floor_number?: number
+          hotel_name?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string
         }
         Relationships: []
       }
@@ -10486,6 +10641,14 @@ export type Database = {
           spend_today: number
           within_budget: boolean
         }[]
+      }
+      assign_housekeeping_section_tasks: {
+        Args: {
+          p_assigned_date: string
+          p_assignments: Json
+          p_hotel_name: string
+        }
+        Returns: number
       }
       billable_room_count: { Args: { _hotel_id: string }; Returns: number }
       billing_realised_revenue: {
