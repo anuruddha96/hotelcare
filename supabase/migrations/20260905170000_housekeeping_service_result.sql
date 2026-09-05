@@ -65,13 +65,17 @@ begin
 
   -- Only infer `cleaned` on a genuine transition into completed with a real
   -- completion timestamp. DND and maintenance outcomes are deliberately not
-  -- classified as cleaned.
+  -- classified as cleaned. Keep INSERT/UPDATE branches separate so OLD is
+  -- never dereferenced during an INSERT trigger invocation.
   if new.service_result is null
      and new.assignment_type in ('daily_cleaning', 'checkout_cleaning', 'deep_cleaning')
      and new.completed_at is not null
-     and coalesce(new.is_dnd, false) = false
-     and (tg_op = 'INSERT' or old.status is distinct from 'completed') then
-    new.service_result := 'cleaned';
+     and coalesce(new.is_dnd, false) = false then
+    if tg_op = 'INSERT' then
+      new.service_result := 'cleaned';
+    elsif old.status is distinct from 'completed' then
+      new.service_result := 'cleaned';
+    end if;
   end if;
 
   return new;
