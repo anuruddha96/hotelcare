@@ -4,6 +4,7 @@ import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
 import { getSignedPhotoUrls } from '@/lib/storageUrls';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { getGuestDeclinedServiceComment, isGuestDeclinedService } from '@/lib/hotel-memories-housekeeping';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -67,6 +68,7 @@ interface PendingAssignment {
   priority: number;
   estimated_duration: number;
   notes: string;
+  service_result?: 'cleaned' | 'guest_declined' | null;
   completed_at: string;
   started_at: string | null;
   supervisor_approved: boolean;
@@ -334,9 +336,11 @@ export function SupervisorApprovalView({
       if (mins > oldestMinutes) oldestMinutes = mins;
     }
 
-    // Count flagged items (suspiciously fast or very slow)
+    // Count flagged items (suspiciously fast or very slow). No Service is not
+    // a cleaning session, so a short duration must never be flagged.
     let flaggedCount = 0;
     for (const a of pendingAssignments) {
+      if (isGuestDeclinedService(a.service_result, a.notes)) continue;
       if (a.started_at) {
         const dur = getDurationMinutes(a.started_at, a.completed_at);
         const indicator = getSpeedIndicator(a.assignment_type, dur);
@@ -611,7 +615,7 @@ export function SupervisorApprovalView({
 
       if (earlySignoutError) throw earlySignoutError;
       
-      setPendingAssignments(assignmentData || []);
+      setPendingAssignments((assignmentData || []) as PendingAssignment[]);
       setEarlySignoutRequests(earlySignoutData || []);
 
       // Load completion photo thumbnails, dirty linen summaries, and housekeeper messages
@@ -739,6 +743,7 @@ export function SupervisorApprovalView({
     setPendingAssignments(prev => prev.filter(a => a.id !== assignmentId));
     try {
       const assignment = previousAssignments.find(a => a.id === assignmentId);
+      const guestDeclined = isGuestDeclinedService(assignment?.service_result, assignment?.notes);
 
       const updateData: any = {
         supervisor_approved: true,
@@ -754,9 +759,9 @@ export function SupervisorApprovalView({
       if (error) throw error;
 
       // Checkout-room housekeeping approval implies the minibar was restocked
-      // by the manager. Sweep any lingering pending rows so the next day starts
-      // fresh (fix for prior-day rows appearing in reception overview).
-      if (assignment?.room_id && assignment?.assignment_type === 'checkout_cleaning') {
+      // by the manager only when actual cleaning happened. A No Service outcome
+      // must not clear/refill anything because the room was not entered.
+      if (!guestDeclined && assignment?.room_id && assignment?.assignment_type === 'checkout_cleaning') {
         try {
           const uid = (await supabase.auth.getUser()).data.user?.id ?? null;
           await supabase
@@ -789,18 +794,25 @@ export function SupervisorApprovalView({
         }
       }
 
-      // Push status to Previo (gated to test hotels inside the edge function)
-      const pmsResult = assignment?.room_id
-        ? await pushCleanStatusToPrevio(assignment.room_id)
+      // No Service means "handled, but not cleaned". Never mark that room clean
+      // in Previo. The edge function also validates assignmentId as a second
+      // safety barrier in case another caller accidentally tries the push.
+      const pmsResult = !guestDeclined && assignment?.room_id
+        ? await pushCleanStatusToPrevio(assignment.room_id, assignment.id)
         : { status: 'skipped' as const };
 
-      toast.success('Assignment approved successfully');
+      toast.success(guestDeclined ? 'No Service outcome approved' : 'Assignment approved successfully');
       if (pmsResult.status === 'success') {
         showNotification('✓ Synced to PMS (Previo)', 'success');
       } else if (pmsResult.status === 'failed') {
         showNotification(`PMS sync failed: ${pmsResult.error ?? 'unknown error'}`, 'warning');
       }
-      showNotification(t('supervisor.roomMarkedClean'), 'success');
+
+      if (guestDeclined) {
+        showNotification('No Service approved — room was not marked clean in PMS', 'success');
+      } else {
+        showNotification(t('supervisor.roomMarkedClean'), 'success');
+      }
       fetchPendingAssignments();
     } catch (error) {
       console.error('Error updating assignment approval:', error);
@@ -814,6 +826,13 @@ export function SupervisorApprovalView({
     if (!assignment?.room_id) {
       return performApproval(assignmentId);
     }
+
+    // Guest-declined/no-service rooms were not entered, so a cleaning approval
+    // must not be blocked by a minibar refill confirmation.
+    if (isGuestDeclinedService(assignment.service_result, assignment.notes)) {
+      return performApproval(assignmentId);
+    }
+
     const roomNumberByRoomId: Record<string, string> = {
       [assignment.room_id]: assignment.rooms?.room_number || '—',
     };
@@ -843,6 +862,7 @@ export function SupervisorApprovalView({
    */
   const pushCleanStatusToPrevio = async (
     roomId: string,
+    assignmentId?: string,
   ): Promise<{ status: 'success' | 'skipped' | 'failed'; error?: string }> => {
     const logAttempt = async (
       syncStatus: 'success' | 'skipped' | 'failed',
@@ -856,7 +876,7 @@ export function SupervisorApprovalView({
           direction: 'push',
           sync_status: syncStatus,
           error_message: errorMessage ?? null,
-          data: { room_id: roomId, source: 'approval_ui', ...details },
+          data: { room_id: roomId, assignment_id: assignmentId ?? null, source: 'approval_ui', ...details },
         } as any);
       } catch (logErr) {
         console.error('Failed to log Previo push attempt:', logErr);
@@ -865,7 +885,7 @@ export function SupervisorApprovalView({
 
     try {
       const { data, error } = await supabase.functions.invoke('previo-update-room-status', {
-        body: { roomId, status: 'clean' },
+        body: { roomId, status: 'clean', assignmentId },
       });
       if (error) {
         console.error('❌ Previo update error:', error);
@@ -873,7 +893,7 @@ export function SupervisorApprovalView({
         return { status: 'failed', error: error.message };
       }
       if (data?.skipped) {
-        await logAttempt('skipped', { reason: data?.message ?? 'skipped by edge function' });
+        await logAttempt('skipped', { reason: data?.reason ?? data?.message ?? 'skipped by edge function' });
         return { status: 'skipped' };
       }
       if (data?.success) {
@@ -917,13 +937,16 @@ export function SupervisorApprovalView({
 
         if (!error) {
           approved++;
-          // Push to Previo (gated to test hotel inside the edge function).
-          // Fire per-row so one failure doesn't break the batch.
-          if (assignment.room_id) {
-            const pms = await pushCleanStatusToPrevio(assignment.room_id);
+          const guestDeclined = isGuestDeclinedService(assignment.service_result, assignment.notes);
+          // Fire per-row so one failure doesn't break the batch. No Service
+          // outcomes count as intentionally skipped and never reach Previo.
+          if (assignment.room_id && !guestDeclined) {
+            const pms = await pushCleanStatusToPrevio(assignment.room_id, assignment.id);
             if (pms.status === 'success') pmsSynced++;
             else if (pms.status === 'failed') pmsFailed++;
             else pmsSkipped++;
+          } else if (guestDeclined) {
+            pmsSkipped++;
           }
         }
       } catch (e) {
@@ -936,9 +959,9 @@ export function SupervisorApprovalView({
     setBulkProgress(0);
     const pmsSummary =
       pmsSynced > 0 || pmsFailed > 0
-        ? ` · PMS: ${pmsSynced} synced${pmsFailed ? `, ${pmsFailed} failed` : ''}${pmsSkipped ? `, ${pmsSkipped} skipped` : ''}`
+        ? ` · PMS: ${pmsSynced} synced${pmsFailed ? `, ${pmsFailed} failed` : ''}${pmsSkipped ? `, ${pmsSkipped} not sent` : ''}`
         : pmsSkipped > 0
-        ? ` · PMS: ${pmsSkipped} skipped (non-test hotel)`
+        ? ` · PMS: ${pmsSkipped} not sent (No Service or integration skipped)`
         : '';
     toast.success(`${approved} rooms approved for ${hotelName}${pmsSummary}`);
     fetchPendingAssignments();
@@ -947,9 +970,10 @@ export function SupervisorApprovalView({
   const handleBulkApprove = async (hotelName: string) => {
     const assignments = hotelGroups[hotelName];
     if (!assignments || assignments.length === 0) return;
-    const roomIds = assignments.map(a => a.room_id).filter(Boolean) as string[];
+    const cleanAssignments = assignments.filter(a => !isGuestDeclinedService(a.service_result, a.notes));
+    const roomIds = cleanAssignments.map(a => a.room_id).filter(Boolean) as string[];
     const roomNumberByRoomId: Record<string, string> = {};
-    for (const a of assignments) {
+    for (const a of cleanAssignments) {
       if (a.room_id) roomNumberByRoomId[a.room_id] = a.rooms?.room_number || '—';
     }
     const { items, total, usageIds } = await fetchMinibarForRooms(roomIds, roomNumberByRoomId);
@@ -1090,8 +1114,10 @@ export function SupervisorApprovalView({
   };
 
   const renderAssignmentCard = (assignment: PendingAssignment) => {
+    const guestDeclined = isGuestDeclinedService(assignment.service_result, assignment.notes);
+    const guestDeclinedComment = getGuestDeclinedServiceComment(assignment.notes);
     const durationMins = getDurationMinutes(assignment.started_at, assignment.completed_at);
-    const speedIndicator = assignment.started_at ? getSpeedIndicator(assignment.assignment_type, durationMins) : null;
+    const speedIndicator = !guestDeclined && assignment.started_at ? getSpeedIndicator(assignment.assignment_type, durationMins) : null;
     const SpeedIcon = speedIndicator?.icon || Timer;
     const isExpanded = expandedCards.has(assignment.id);
     const housekeepingNote = assignment.rooms?.notes?.trim() || '';
@@ -1100,15 +1126,21 @@ export function SupervisorApprovalView({
       || null;
     const hasDetails = !!(
       completionPhotoUrls[assignment.id]?.length ||
-      linenSummaries[assignment.id]?.length ||
-      inferredBedInstruction ||
-      housekeepingNote ||
-      assignment.rooms?.is_dnd
+      (!guestDeclined && (
+        linenSummaries[assignment.id]?.length ||
+        inferredBedInstruction ||
+        housekeepingNote ||
+        assignment.rooms?.is_dnd
+      ))
     );
 
     return (
       <Card key={assignment.id} className={`border shadow-sm hover:shadow-md transition-all duration-200 ${
-        speedIndicator?.severity === 'warning' ? 'border-l-4 border-l-orange-400' : 'border-l-4 border-l-green-400'
+        guestDeclined
+          ? 'border-l-4 border-l-slate-500'
+          : speedIndicator?.severity === 'warning'
+          ? 'border-l-4 border-l-orange-400'
+          : 'border-l-4 border-l-green-400'
       }`}>
         <CardContent className="p-3 sm:p-4 space-y-2">
           {/* Compact Header: Room + Type + Speed + Actions */}
@@ -1124,6 +1156,11 @@ export function SupervisorApprovalView({
                 <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${speedIndicator.color}`}>
                   <SpeedIcon className="h-3 w-3 mr-0.5" />
                   {speedIndicator.label}
+                </Badge>
+              )}
+              {guestDeclined && (
+                <Badge className="bg-slate-600 text-white text-[10px] px-1.5 py-0.5">
+                  🚫 No Service — Guest declined
                 </Badge>
               )}
             </div>
@@ -1150,13 +1187,20 @@ export function SupervisorApprovalView({
             </div>
           </div>
 
-          {/* Single-line summary: Cleaned by · Duration · Started */}
+          {/* Single-line summary. Do not label a No Service outcome as cleaned. */}
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground flex-wrap">
             <User className="h-3 w-3 shrink-0" />
             <span className="font-semibold text-foreground">{assignment.profiles?.full_name || 'Unknown'}</span>
-            <span>·</span>
-            {assignment.started_at ? (
+            {guestDeclined ? (
               <>
+                <span>·</span>
+                <span>No cleaning performed</span>
+                <span>·</span>
+                <span>Recorded {new Date(assignment.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              </>
+            ) : assignment.started_at ? (
+              <>
+                <span>·</span>
                 <Timer className={`h-3 w-3 shrink-0 ${speedIndicator?.severity === 'warning' ? 'text-orange-600' : 'text-green-600'}`} />
                 <span className={`font-bold ${speedIndicator?.severity === 'warning' ? 'text-orange-700' : 'text-green-700'}`}>
                   {calculateDuration(assignment.started_at, assignment.completed_at)}
@@ -1165,14 +1209,16 @@ export function SupervisorApprovalView({
                 <span>Started {new Date(assignment.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
               </>
             ) : (
-              <span>{t('supervisor.durationNA')}</span>
+              <>
+                <span>·</span>
+                <span>{t('supervisor.durationNA')}</span>
+              </>
             )}
           </div>
 
-          {/* Special Requirements - always visible when present.
-              Checkout cleans always include a full towel/linen change, so the
-              extra "Towel Change" badge is redundant noise there. */}
-          {((assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required) && assignment.assignment_type !== 'checkout_cleaning') && (
+          {/* Special Requirements are cleaning instructions and therefore are
+              irrelevant after the final outcome is No Service. */}
+          {!guestDeclined && ((assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required) && assignment.assignment_type !== 'checkout_cleaning') && (
             <div className="flex flex-wrap gap-1.5">
               {assignment.rooms.towel_change_required && (
                 <Badge className="bg-blue-500 text-white text-[10px] px-1.5 py-0.5">
@@ -1187,30 +1233,35 @@ export function SupervisorApprovalView({
             </div>
           )}
 
-          {/* No Service Badge */}
-          {assignment.notes?.includes('[NO_SERVICE]') && (
-            <Badge className="bg-gray-500 text-white text-[10px] px-1.5 py-0.5">
-              🚫 {t('housekeeping.noServiceBadge') || 'No Service'}
-            </Badge>
-          )}
-
-          {/* Notes - always visible when present */}
-          {assignment.notes && (
-            <div className={`p-2 rounded-md border flex items-start gap-1.5 ${
-              assignment.notes.includes('[NO_SERVICE]')
-                ? 'bg-gray-50 border-gray-300 dark:bg-gray-900/30 dark:border-gray-600'
-                : 'bg-amber-50 border-amber-200'
-            }`}>
-              <AlertTriangle className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${
-                assignment.notes.includes('[NO_SERVICE]') ? 'text-gray-500' : 'text-amber-600'
-              }`} />
-              <p className={`text-xs ${
-                assignment.notes.includes('[NO_SERVICE]') ? 'text-gray-700 dark:text-gray-300' : 'text-amber-800'
-              }`}>{assignment.notes}</p>
+          {/* No Service: show only the final outcome + the housekeeper's actual
+              comment. Never expose [NO_SERVICE], green-board or no-board marker
+              strings in the approval card. */}
+          {guestDeclined && (
+            <div className="p-2 rounded-md border flex items-start gap-1.5 bg-slate-50 border-slate-300 dark:bg-slate-900/30 dark:border-slate-600">
+              <DoorClosed className="h-3.5 w-3.5 mt-0.5 shrink-0 text-slate-600" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                  Guest declined housekeeping / no cleaning requested today.
+                </p>
+                {guestDeclinedComment && (
+                  <p className="text-xs text-slate-700 dark:text-slate-300 mt-0.5 whitespace-pre-wrap break-words">
+                    {guestDeclinedComment}
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
-          {housekeepingNote && currentUserRole === 'admin' && (
+          {/* Ordinary assignment notes remain unchanged for real cleaning
+              completions. */}
+          {!guestDeclined && assignment.notes && (
+            <div className="p-2 rounded-md border flex items-start gap-1.5 bg-amber-50 border-amber-200">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
+              <p className="text-xs text-amber-800">{assignment.notes}</p>
+            </div>
+          )}
+
+          {!guestDeclined && housekeepingNote && currentUserRole === 'admin' && (
             <div className="p-2 rounded-md border flex items-start gap-1.5 bg-amber-50 border-amber-200">
               <FileText className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
               <p className="text-xs text-amber-800">{housekeepingNote}</p>
@@ -1259,34 +1310,44 @@ export function SupervisorApprovalView({
 
               {isExpanded && (
                 <div className="mt-2 space-y-2 pl-4 border-l-2 border-muted">
-                  {/* DND & Bed Config */}
-                  <div className="flex flex-wrap gap-1.5">
-                    {assignment.rooms?.is_dnd && (
-                      <Badge className="text-[10px] bg-orange-100 text-orange-800 border border-orange-300 px-1.5 py-0">
-                        DND
-                      </Badge>
-                    )}
-                    {inferredBedInstruction && (
-                      <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 px-1.5 py-0">
-                        <BedDouble className="h-3 w-3 mr-0.5" />
-                        {inferredBedInstruction}
-                      </Badge>
-                    )}
-                    {assignment.rooms?.floor_number && (
-                      <Badge variant="outline" className="text-[10px] bg-muted px-1.5 py-0">
-                        F{assignment.rooms.floor_number}
-                      </Badge>
-                    )}
-                  </div>
+                  {/* DND, bed and room-service details apply only to actual
+                      cleaning outcomes. Floor remains safe context. */}
+                  {!guestDeclined && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {assignment.rooms?.is_dnd && (
+                        <Badge className="text-[10px] bg-orange-100 text-orange-800 border border-orange-300 px-1.5 py-0">
+                          DND
+                        </Badge>
+                      )}
+                      {inferredBedInstruction && (
+                        <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 px-1.5 py-0">
+                          <BedDouble className="h-3 w-3 mr-0.5" />
+                          {inferredBedInstruction}
+                        </Badge>
+                      )}
+                      {assignment.rooms?.floor_number && (
+                        <Badge variant="outline" className="text-[10px] bg-muted px-1.5 py-0">
+                          F{assignment.rooms.floor_number}
+                        </Badge>
+                      )}
+                    </div>
+                  )}
 
                   {/* Start/Complete times */}
                   <div className="text-xs text-muted-foreground">
-                    {t('approvals.started')}: {assignment.started_at ? new Date(assignment.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
-                    {' · '}
-                    {t('approvals.completed')}: {new Date(assignment.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {guestDeclined ? (
+                      <>No Service recorded: {new Date(assignment.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</>
+                    ) : (
+                      <>
+                        {t('approvals.started')}: {assignment.started_at ? new Date(assignment.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                        {' · '}
+                        {t('approvals.completed')}: {new Date(assignment.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </>
+                    )}
                   </div>
 
-                  {/* Photos */}
+                  {/* Photos: optional door evidence remains visible when the
+                      housekeeper chose to capture it; it is never required. */}
                   {completionPhotoUrls[assignment.id] && completionPhotoUrls[assignment.id].length > 0 && (
                     <div className="flex items-center gap-1.5">
                       {completionPhotoUrls[assignment.id].slice(0, 4).map((url, idx) => (
@@ -1305,8 +1366,8 @@ export function SupervisorApprovalView({
                     </div>
                   )}
 
-                  {/* Linen */}
-                  {linenSummaries[assignment.id] && linenSummaries[assignment.id].length > 0 && (
+                  {/* Linen is irrelevant when no service was performed. */}
+                  {!guestDeclined && linenSummaries[assignment.id] && linenSummaries[assignment.id].length > 0 && (
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-[10px] text-muted-foreground">🧺 Linen:</span>
                       {linenSummaries[assignment.id].map((item, idx) => (
@@ -1317,13 +1378,16 @@ export function SupervisorApprovalView({
                     </div>
                   )}
 
-                  {/* Completion Data */}
-                  <CompletionDataView
-                    assignmentId={assignment.id}
-                    roomId={assignment.room_id}
-                    assignmentDate={assignment.assignment_date}
-                    housekeeperId={assignment.assigned_to}
-                  />
+                  {/* Cleaning completion data is intentionally hidden for No
+                      Service so managers cannot mistake it for work performed. */}
+                  {!guestDeclined && (
+                    <CompletionDataView
+                      assignmentId={assignment.id}
+                      roomId={assignment.room_id}
+                      assignmentDate={assignment.assignment_date}
+                      housekeeperId={assignment.assigned_to}
+                    />
+                  )}
                 </div>
               )}
             </div>
@@ -1713,6 +1777,7 @@ export function SupervisorApprovalView({
                           <Badge variant="outline" className="text-xs shrink-0">{assignments.length}</Badge>
                           {(() => {
                             const flagged = assignments.filter(a => {
+                              if (isGuestDeclinedService(a.service_result, a.notes)) return false;
                               if (!a.started_at) return false;
                               const dur = getDurationMinutes(a.started_at, a.completed_at);
                               return getSpeedIndicator(a.assignment_type, dur).severity === 'warning';
@@ -1742,9 +1807,10 @@ export function SupervisorApprovalView({
                             <AlertDialogHeader>
                               <AlertDialogTitle>Approve all {assignments.length} rooms for {hotel}?</AlertDialogTitle>
                               <AlertDialogDescription>
-                                This will approve all pending room completions for this hotel. 
+                                This will approve all pending room completions for this hotel. No Service outcomes will be approved without marking the room clean in Previo.
                                 {(() => {
                                   const flagged = assignments.filter(a => {
+                                    if (isGuestDeclinedService(a.service_result, a.notes)) return false;
                                     if (!a.started_at) return false;
                                     const dur = getDurationMinutes(a.started_at, a.completed_at);
                                     return getSpeedIndicator(a.assignment_type, dur).severity === 'warning';
