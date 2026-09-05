@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -21,6 +20,10 @@ jobs:
 
       - name: Apply focused room-notes patch
         run: |
+          if git log -1 --pretty=%B | grep -q '^Fix desktop housekeeping notes saving$'; then
+            echo "Patch commit already applied."
+            exit 0
+          fi
           python3 - <<'PY'
           from pathlib import Path
 
@@ -181,6 +184,10 @@ jobs:
 
       - name: Commit fix to branch
         run: |
+          if git diff --quiet; then
+            echo "No source changes to commit."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/components/dashboard/HotelRoomOverview.tsx
