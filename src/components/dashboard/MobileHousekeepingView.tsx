@@ -11,6 +11,7 @@ import { DirtyLinenDialog } from './DirtyLinenDialog';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
 import { SimplifiedPhotoCapture } from './SimplifiedPhotoCapture';
 import { PublicAreaTaskCard } from './PublicAreaTaskCard';
+import { HousekeeperWorkloadFilters, WorkloadFilter } from './HousekeeperWorkloadFilters';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -59,6 +60,7 @@ export function MobileHousekeepingView() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [allAssignments, setAllAssignments] = useState<Assignment[]>([]);
   const [publicTasks, setPublicTasks] = useState<any[]>([]);
+  const [workFilter, setWorkFilter] = useState<WorkloadFilter>('all');
   const [summary, setSummary] = useState<Summary>({ total_assigned: 0, completed: 0, in_progress: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));

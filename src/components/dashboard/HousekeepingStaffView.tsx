@@ -9,6 +9,7 @@ import { AssignedRoomCard } from './AssignedRoomCard';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { MobileHousekeepingView } from './MobileHousekeepingView';
 import { PublicAreaTaskCard } from './PublicAreaTaskCard';
+import { HousekeeperWorkloadFilters, WorkloadFilter } from './HousekeeperWorkloadFilters';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -60,6 +61,7 @@ export function HousekeepingStaffView() {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [allAssignments, setAllAssignments] = useState<Assignment[]>([]);
   const [publicTasks, setPublicTasks] = useState<any[]>([]);
+  const [workFilter, setWorkFilter] = useState<WorkloadFilter>('all');
   const [summary, setSummary] = useState<Summary>({ total_assigned: 0, completed: 0, in_progress: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
