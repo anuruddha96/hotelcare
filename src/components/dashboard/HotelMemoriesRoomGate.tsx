@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Camera, CheckCircle2, DoorOpen, ShieldCheck } from 'lucide-react';
+import { Camera, CheckCircle2, DoorOpen, MessageSquare, ShieldCheck } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { AssignedRoomCard } from './AssignedRoomCard';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
+import { RoomCommunicationPanel } from './RoomCommunicationPanel';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
 import { todayBudapest } from '@/lib/budapestTime';
 import {
@@ -33,6 +34,8 @@ type MemoriesAssignment = {
   started_at?: string | null;
   completed_at?: string | null;
   ready_to_clean?: boolean;
+  manager_instruction_text?: string | null;
+  manager_instruction_updated_at?: string | null;
   [key: string]: any;
   rooms: {
     room_number: string;
@@ -196,6 +199,8 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
     setNoCleaningNote('');
   };
 
+  const managerInstruction = String(assignment.manager_instruction_text || '').trim();
+
   return (
     <>
       <Card className="border-l-4 border-l-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/10 shadow-sm">
@@ -213,6 +218,25 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {managerInstruction && (
+            <div className="rounded-xl border-2 border-blue-500 bg-blue-50 dark:bg-blue-950/30 p-3 shadow-sm">
+              <div className="flex items-start gap-2">
+                <MessageSquare className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-bold uppercase tracking-wide text-blue-700 dark:text-blue-300">Manager instruction</p>
+                  <p className="text-sm font-semibold leading-snug whitespace-pre-wrap break-words mt-1">{managerInstruction}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <RoomCommunicationPanel
+            assignmentId={assignment.id}
+            roomId={assignment.room_id}
+            roomNumber={assignment.rooms?.room_number || 'N/A'}
+            hideWhenEmpty
+          />
+
           <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-background/80 p-4">
             <div className="flex items-start gap-3">
               <DoorOpen className="h-5 w-5 text-emerald-600 mt-0.5 shrink-0" />
