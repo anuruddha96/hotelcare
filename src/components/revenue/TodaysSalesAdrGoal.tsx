@@ -190,7 +190,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   const storageKey = `hc.revenue.salesGoals.${hotelId ?? "default"}`;
   const [goals, setGoals] = useState<SalesGoals>(DEFAULT_GOALS);
   const [goalsOpen, setGoalsOpen] = useState(false);
-  const [goalsSeeded, setGoalsSeeded] = useState(false);
+  const [, setGoalsSeeded] = useState(false);
 
   useEffect(() => {
     if (!hotelId) return;
@@ -333,24 +333,10 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   /** Only the live ones drive every KPI. */
   const liveBookings = useMemo(() => periodBookings.filter((b) => !b.cancelled), [periodBookings]);
 
-  // First visit for a property: seed the target from what it actually sells,
-  // in its own currency. A euro default of 120 is meaningless for a forint
-  // property and made the ADR target read as nothing at all.
-  useEffect(() => {
-    if (goalsSeeded || loading || !hotelId) return;
-    const recent = allBookings.filter((b) => !b.cancelled && b.adr !== null);
-    if (recent.length < 3) return;
-    const adrs = recent.map((b) => b.adr as number).sort((a, b) => a - b);
-    const median = adrs[Math.floor(adrs.length / 2)];
-    if (!median || !Number.isFinite(median)) return;
-    const nights = Math.max(1, Math.round(recent.reduce((s, b) => s + b.roomNights, 0) / 30));
-    saveGoals({
-      targetAdr: Math.round(median),
-      targetRoomNights: nights,
-      targetValue: Math.round(median) * nights,
-      promoBudget: 0,
-    });
-  }, [goalsSeeded, loading, hotelId, allBookings, saveGoals]);
+  // Revenue goals are management inputs. Booking data must never infer, overwrite,
+  // or persist ADR/room-night/value targets automatically. If a shared target has
+  // not been configured yet, the UI keeps the existing/default value until a
+  // manager explicitly changes it in the Goals controls.
 
 
   const kpi = useMemo(() => {
