@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { formatWhen } from "@/lib/rateAudit";
 import type { RateAuditRow } from "@/lib/rateAudit";
@@ -158,35 +159,20 @@ function buildBookingItems(liveRows: BookingNightHistoryRow[], cancelledRows: Bo
   });
 }
 
-function BookingHistory({ history, automation }: { history: RateAuditRow[]; automation: AutomationAction[] }) {
+function BookingHistory({ hotelId, date, roomTypeName }: {
+  hotelId: string | null;
+  date: string | null;
+  roomTypeName: string | null;
+}) {
   const [items, setItems] = useState<BookingHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  const context = useMemo(() => {
-    const audit = history.find((r) => !!r.stay_date && !!r.payload?.room_type_name);
-    if (audit?.stay_date && audit.payload?.room_type_name) {
-      return {
-        date: audit.stay_date,
-        roomTypeName: audit.payload.room_type_name,
-        auditId: audit.id,
-        automationId: null as string | null,
-      };
-    }
-    const action = automation.find((a) => !!a.stay_date && !!a.room_type_name);
-    return action?.room_type_name ? {
-      date: action.stay_date,
-      roomTypeName: action.room_type_name,
-      auditId: null as string | null,
-      automationId: action.id,
-    } : null;
-  }, [history, automation]);
-
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      if (!context) {
+      if (!hotelId || !date || !roomTypeName) {
         setItems([]);
         setLoading(false);
         setError("Booking history could not be matched to this rate cell yet.");
@@ -195,42 +181,22 @@ function BookingHistory({ history, automation }: { history: RateAuditRow[]; auto
       setLoading(true);
       setError(null);
       try {
-        let hotelId: string | null = null;
-        if (context.auditId) {
-          const { data, error: idError } = await supabase
-            .from("rate_change_audit")
-            .select("hotel_id")
-            .eq("id", context.auditId)
-            .maybeSingle();
-          if (idError) throw idError;
-          hotelId = (data as { hotel_id?: string | null } | null)?.hotel_id ?? null;
-        } else if (context.automationId) {
-          const { data, error: idError } = await supabase
-            .from("revenue_pickup_automation_actions")
-            .select("hotel_id")
-            .eq("id", context.automationId)
-            .maybeSingle();
-          if (idError) throw idError;
-          hotelId = (data as { hotel_id?: string | null } | null)?.hotel_id ?? null;
-        }
-        if (!hotelId) throw new Error("Hotel could not be resolved for this rate cell.");
-
         const select = "res_id, room_key, stay_date, room_type_name, guests, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, status_id";
         const [live, gone] = await Promise.all([
           supabase
             .from("revenue_booking_nights")
             .select(select)
             .eq("hotel_id", hotelId)
-            .eq("stay_date", context.date)
-            .eq("room_type_name", context.roomTypeName)
+            .eq("stay_date", date)
+            .eq("room_type_name", roomTypeName)
             .order("created_at_pms", { ascending: false })
             .limit(100),
           supabase
             .from("revenue_cancelled_nights")
             .select(`${select}, cancelled_at`)
             .eq("hotel_id", hotelId)
-            .eq("stay_date", context.date)
-            .eq("room_type_name", context.roomTypeName)
+            .eq("stay_date", date)
+            .eq("room_type_name", roomTypeName)
             .order("cancelled_at", { ascending: false })
             .limit(100),
         ]);
@@ -251,7 +217,7 @@ function BookingHistory({ history, automation }: { history: RateAuditRow[]; auto
     };
     void run();
     return () => { cancelled = true; };
-  }, [context, reloadKey]);
+  }, [hotelId, date, roomTypeName, reloadKey]);
 
   if (loading) {
     return <div className="rounded-md border px-3 py-4 text-xs text-muted-foreground">Loading bookings for this room type and stay date…</div>;
@@ -310,34 +276,44 @@ export default function RateCellHistory({ history, names, draftPrice, sendingPri
   hold?: AutomationAction | null;
   expanded?: boolean;
 }) {
+  const { hotelId: routeHotelId } = useParams<{ hotelId?: string }>();
   const [showAll, setShowAll] = useState(expanded);
   const [tab, setTab] = useState<"price" | "bookings">("price");
+  const [sheetContext, setSheetContext] = useState<{ date: string; roomTypeName: string } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const entries = groupCellChanges(history, automation, names, { automationDetail });
   const status = statusLine(entries, draftPrice, sendingPrice);
 
-  const cellRoomType = history.find((r) => r.payload?.room_type_name)?.payload?.room_type_name
-    ?? automation.find((a) => a.room_type_name)?.room_type_name
-    ?? null;
+  const auditContext = history.find((r) => !!r.stay_date && !!r.payload?.room_type_name);
+  const automationContext = automation.find((a) => !!a.stay_date && !!a.room_type_name);
+  const contextDate = auditContext?.stay_date ?? automationContext?.stay_date ?? sheetContext?.date ?? null;
+  const contextRoomType = auditContext?.payload?.room_type_name ?? automationContext?.room_type_name ?? sheetContext?.roomTypeName ?? null;
 
   // The parent grid deliberately keeps the raw PMS room name for price keys.
-  // Its mobile sheet title used that identifier as display text as well. Correct
-  // only the visible heading here so lookups remain untouched.
+  // Its mobile sheet title used that identifier as display text as well. Read
+  // the selected cell from that heading as a fallback (so booking history also
+  // works before an audit row exists), then correct only the visible room name.
   useEffect(() => {
-    if (!expanded || !cellRoomType) return;
-    const english = englishRoomTypeName(cellRoomType);
-    if (english === cellRoomType) return;
+    if (!expanded) return;
     const dialog = rootRef.current?.closest('[role="dialog"]');
     if (!dialog) return;
     const title = Array.from(dialog.querySelectorAll<HTMLElement>("h1,h2,h3,[role='heading']"))
-      .find((node) => node.textContent?.includes(cellRoomType));
+      .find((node) => /\d{4}-\d{2}-\d{2}/.test(node.textContent ?? ""));
     if (!title?.textContent) return;
     const original = title.textContent;
-    title.textContent = original.replace(cellRoomType, english);
+    const match = original.match(/^(.*?)\s*·\s*\d+\s+guests?\s*·\s*(\d{4}-\d{2}-\d{2})/i);
+    const rawRoomType = (contextRoomType ?? match?.[1] ?? "").trim();
+    const date = contextDate ?? match?.[2] ?? null;
+    if (rawRoomType && date) {
+      setSheetContext((prev) => prev?.date === date && prev.roomTypeName === rawRoomType ? prev : { date, roomTypeName: rawRoomType });
+    }
+    const english = rawRoomType ? englishRoomTypeName(rawRoomType) : rawRoomType;
+    if (!rawRoomType || english === rawRoomType) return;
+    title.textContent = original.replace(rawRoomType, english);
     return () => {
       if (title.isConnected && title.textContent?.includes(english)) title.textContent = original;
     };
-  }, [expanded, cellRoomType]);
+  }, [expanded, contextDate, contextRoomType]);
 
   // Previo is the authoritative live source. A successful read-back that differs
   // from HotelCare's request is synchronization history, not an alarm. The live
@@ -418,7 +394,7 @@ export default function RateCellHistory({ history, names, draftPrice, sendingPri
       </div>
       {tab === "price"
         ? priceHistory
-        : <BookingHistory history={history} automation={automation} />}
+        : <BookingHistory hotelId={routeHotelId ?? null} date={contextDate} roomTypeName={contextRoomType} />}
     </div>
   );
 }
