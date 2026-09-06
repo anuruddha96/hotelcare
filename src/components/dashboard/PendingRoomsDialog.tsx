@@ -9,6 +9,8 @@ import { Clock, MapPin, CheckCircle, AlertCircle, Calendar, Star, X, ArrowLeftRi
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { HotelMemoriesManagerStatusDialog } from './HotelMemoriesManagerStatusDialog';
 
 export type PendingRoomsMode = 'pending' | 'dnd_retry';
 
@@ -276,6 +278,10 @@ export function PendingRoomsDialog({
     ? (assignments.length === 1 ? 'room waiting for second attempt' : 'rooms waiting for second attempt')
     : t('manager.roomsPending');
 
+  const memoriesHotelName = !loading
+    ? assignments.find((assignment) => isHotelMemoriesBudapest(assignment.hotel))?.hotel || null
+    : null;
+
   if (loading) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -285,6 +291,20 @@ export function PendingRoomsDialog({
           </div>
         </DialogContent>
       </Dialog>
+    );
+  }
+
+  if (memoriesHotelName) {
+    return (
+      <HotelMemoriesManagerStatusDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        staffId={staffId}
+        staffName={staffName}
+        selectedDate={selectedDate}
+        hotelName={memoriesHotelName}
+        status={isDndRetry ? 'dnd_pending_retry' : 'assigned'}
+      />
     );
   }
 
