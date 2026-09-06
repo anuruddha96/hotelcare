@@ -1,6 +1,8 @@
 import React from 'react';
 import { MotionConfig } from 'framer-motion';
+import { useAuth } from '@/hooks/useAuth';
 import { AutoRoomAssignment as AutoRoomAssignmentImpl } from './AutoRoomAssignmentImpl';
+import { MemoriesZoneAutoAssignment } from './MemoriesZoneAutoAssignment';
 
 /**
  * Motion reports drag gesture points in page coordinates, while the Auto Assign
@@ -24,7 +26,20 @@ const toViewportPoint = ({ x, y }: { x: number; y: number }) => {
 
 type AutoRoomAssignmentProps = React.ComponentProps<typeof AutoRoomAssignmentImpl>;
 
+function isHotelMemoriesKey(value?: string | null) {
+  const key = (value || '').trim().toLowerCase();
+  return key === 'hotel memories budapest' || key === 'memories-budapest';
+}
+
 export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
+  const { profile } = useAuth();
+
+  // Hotel Memories has a property-specific operational layout. Keep every
+  // other tenant/hotel on the existing Auto Assign implementation unchanged.
+  if (isHotelMemoriesKey(profile?.assigned_hotel)) {
+    return <MemoriesZoneAutoAssignment {...props} />;
+  }
+
   return (
     <MotionConfig transformPagePoint={toViewportPoint}>
       <AutoRoomAssignmentImpl {...props} />
