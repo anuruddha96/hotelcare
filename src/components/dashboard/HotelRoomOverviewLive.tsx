@@ -1,0 +1,2734 @@
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from '@/hooks/useTranslation';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
+import { canManageHousekeepingMapping, hasManagerPowers } from '@/lib/roleAccess';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { HelpTooltip } from '@/components/ui/help-tooltip';
+import { UI_HINTS } from '@/lib/ui-hints';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, ArrowLeftRight, Loader2, RefreshCw, ChevronDown, Settings, Ban, AlertTriangle, GripVertical, Coffee } from 'lucide-react';
+import { StructuredRoomNote } from '@/components/pms/StructuredRoomNote';
+import { summarizePmsNote } from '@/lib/pmsNoteParser';
+import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
+import { usePropertyTerms } from '@/lib/propertyTerminology';
+import { useTenantFeatures } from '@/hooks/useTenantFeatures';
+import { setRoomDragPayload, readRoomDragPayload, unassignRoom, assignRoomToStaff, setHousekeeperDragPayload, readHousekeeperDragPayload, isAssignmentInProgressError } from '@/lib/hkAssignmentDnd';
+import { useUnitSelection, toggleUnitSelection, toggleUnitGroupSelection, type SelectedUnit } from '@/lib/unitSelection';
+
+import { Textarea } from '@/components/ui/textarea';
+import { toast } from 'sonner';
+import { getLocalDateString } from '@/lib/utils';
+import { HotelFloorMap } from './HotelFloorMap';
+import { RoomCommunicationPanel } from './RoomCommunicationPanel';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { todayBudapest } from '@/lib/budapestTime';
+import { isPmsRtcToday } from '@/lib/pmsReadiness';
+import { assigneeLabel, cleanName } from '@/lib/staffNames';
+import { useVenues } from '@/hooks/useVenues';
+import { venueColor, venueEdgeStyle } from '@/lib/venueColors';
+
+
+interface RoomData {
+  id: string;
+  hotel: string | null;
+  room_number: string;
+  floor_number: number | null;
+  venue_id?: string | null;
+
+  status: string | null;
+  last_cleaned_at: string | null;
+  is_checkout_room: boolean | null;
+  is_dnd: boolean | null;
+  notes: string | null;
+  room_size_sqm: number | null;
+  wing: string | null;
+  room_category: string | null;
+  elevator_proximity: number | null;
+  room_type: string | null;
+  bed_type: string | null;
+  bed_configuration?: string | null;
+  room_name: string | null;
+  guest_nights_stayed: number | null;
+  towel_change_required: boolean | null;
+  linen_change_required: boolean | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  pms_metadata?: any;
+}
+
+
+interface AssignmentData {
+  id: string;
+  room_id: string;
+  assigned_to: string;
+  status: string;
+  assignment_type: string;
+  started_at: string | null;
+  supervisor_approved: boolean | null;
+  ready_to_clean: boolean | null;
+  pms_hold?: boolean | null;
+  notes: string | null;
+}
+
+interface PublicAreaTask {
+  id: string;
+  task_name: string;
+  task_type: string;
+  assigned_to: string;
+  status: string;
+}
+
+interface StaffMap {
+  [id: string]: string;
+}
+
+export interface SignedInHousekeeper {
+  id: string;
+  fullName: string;
+  nickname?: string | null;
+  onBreak?: boolean;
+}
+
+interface HotelRoomOverviewProps {
+  selectedDate: string;
+  hotelName: string;
+  staffMap: StaffMap;
+  refreshKey?: number;
+  /** Housekeepers signed in for selectedDate at this hotel (already scoped). */
+  signedInHousekeepers?: SignedInHousekeeper[];
+}
+
+const ROOM_SIZE_OPTIONS = [
+  { value: '15', label: 'S', fullLabel: 'Small (~15m²)' },
+  { value: '25', label: 'M', fullLabel: 'Medium (~25m²)' },
+  { value: '35', label: 'L', fullLabel: 'Large (~35m²)' },
+  { value: '45', label: 'XL', fullLabel: 'Extra Large (~45m²)' },
+];
+
+const HOTEL_ROOM_CATEGORIES: Record<string, string[]> = {
+  'Hotel Ottofiori': [
+    'Economy Double Room',
+    'Deluxe Double or Twin Room',
+    'Deluxe Queen Room',
+    'Deluxe Triple Room',
+    'Deluxe Quadruple Room',
+  ],
+  default: [
+    'Deluxe Double or Twin Room with Synagogue View',
+    'Deluxe Double or Twin Room',
+    'Deluxe Queen Room',
+    'Deluxe Triple Room',
+    'Deluxe Quadruple Room',
+    'Comfort Quadruple Room',
+    'Comfort Double Room with Small Window',
+    'Deluxe Single Room',
+  ],
+};
+
+function getSizeLabel(sqm: number | null): string | null {
+  if (!sqm) return null;
+  if (sqm <= 18) return 'S';
+  if (sqm <= 30) return 'M';
+  if (sqm <= 40) return 'L';
+  return 'XL';
+}
+
+const STATUS_COLORS: Record<string, string> = {
+  clean: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200 dark:border-emerald-600',
+  dirty: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-600',
+  in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200 dark:border-sky-600',
+  out_of_order: 'bg-red-200 text-red-900 border-red-500 dark:bg-red-900/50 dark:text-red-200 dark:border-red-600',
+  inspected: 'bg-teal-200 text-teal-900 border-teal-500 dark:bg-teal-900/50 dark:text-teal-200 dark:border-teal-600',
+  pending_approval: 'bg-violet-200 text-violet-900 border-violet-500 dark:bg-violet-900/50 dark:text-violet-200 dark:border-violet-600',
+  overdue: 'bg-rose-300 text-rose-950 border-rose-600 dark:bg-rose-900/60 dark:text-rose-200 dark:border-rose-500',
+};
+
+const TASK_STATUS_COLORS: Record<string, string> = {
+  assigned: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-600',
+  in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200 dark:border-sky-600',
+  completed: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200 dark:border-emerald-600',
+};
+
+const DEFAULT_COLOR = 'bg-muted text-muted-foreground border-border';
+
+// Check if a room assignment is overdue (assigned > 2 hours ago without completion)
+function isOverdue(assignment: AssignmentData | undefined, startedAt?: string): boolean {
+  if (!assignment || assignment.status === 'completed') return false;
+  if (assignment.status === 'in_progress' && startedAt) {
+    const started = new Date(startedAt).getTime();
+    const now = Date.now();
+    return (now - started) > 2 * 60 * 60 * 1000; // 2 hours
+  }
+  return false;
+}
+
+export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKey, signedInHousekeepers = [] }: HotelRoomOverviewProps) {
+  const { profile } = useAuth();
+  const { t } = useTranslation();
+  const terms = usePropertyTerms();
+  const { venuesEnabled } = useTenantFeatures();
+  const { venues } = useVenues();
+  const isMobile = useIsMobile();
+  const [rooms, setRooms] = useState<RoomData[]>([]);
+  const [assignments, setAssignments] = useState<AssignmentData[]>([]);
+  const [publicAreaTasks, setPublicAreaTasks] = useState<PublicAreaTask[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [averageCleanTime, setAverageCleanTime] = useState<number | null>(null);
+  const [selectedRoom, setSelectedRoom] = useState<RoomData | null>(null);
+  const [roomSizeDialogOpen, setRoomSizeDialogOpen] = useState(false);
+  const [selectedSize, setSelectedSize] = useState<string>('25');
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [savingSize, setSavingSize] = useState(false);
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [showLegend, setShowLegend] = useState(true);
+  const [hoveredRoomId, setHoveredRoomId] = useState<string | null>(null);
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [popoverNotes, setPopoverNotes] = useState<string>('');
+  const popoverNotesSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [popoverNotesSaveState, setPopoverNotesSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [dragOverSection, setDragOverSection] = useState<'checkout' | 'daily' | 'noshow' | 'arrival' | null>(null);
+  const justDraggedRef = useRef<number>(0);
+  const [previousDayDate, setPreviousDayDate] = useState<string | null>(null);
+  const [previousAssignments, setPreviousAssignments] = useState<Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>>(new Map());
+  const [syncFlash, setSyncFlash] = useState(false);
+  const [pendingUnassign, setPendingUnassign] = useState<{ roomId: string; roomNumber: string; staffName: string | null } | null>(null);
+  const [unassigning, setUnassigning] = useState(false);
+  // Inverse drag: a housekeeper chip from the tray dropped onto a room chip.
+  const [hkDrag, setHkDrag] = useState<{ staffId: string; staffName: string } | null>(null);
+  const [hkHoverRoomId, setHkHoverRoomId] = useState<string | null>(null);
+  const [hkSuccessRoomId, setHkSuccessRoomId] = useState<string | null>(null);
+
+
+  const isManagerOrAdmin = hasManagerPowers(profile?.role);
+  const isSupervisor = profile?.role === 'supervisor';
+  // Supervisors may move work around the board (RLS keeps them inside their
+  // scoped venues) but keep every other manager-only mutation untouched.
+  const canDragAssign = !!isManagerOrAdmin || isSupervisor;
+  // Tap-to-select assignment: works identically with a mouse and on touch,
+  // where native HTML5 drag never fires.
+  const selectedUnits = useUnitSelection();
+  const selectionEnabled = venuesEnabled && canDragAssign;
+  // Rental portfolios (SLNT) have many small units: keep the chips tight so a
+  // whole venue fits on one phone screen and tapping stays easy.
+  const compactChips = terms.isProperty;
+  // Dense multi-column venue layout so ~60 units fit without endless scrolling.
+  const [denseVenues, setDenseVenues] = useState<boolean>(() => {
+    try { return localStorage.getItem('hc-dense-venues') !== '0'; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('hc-dense-venues', denseVenues ? '1' : '0'); } catch { /* ignore */ }
+  }, [denseVenues]);
+  const selectedUnitIds = new Set(selectedUnits.map((u) => u.roomId));
+  const longPressRef = useRef<NodeJS.Timeout | null>(null);
+  const longPressFiredRef = useRef(false);
+
+  // Auto-scroll the page while dragging near the top/bottom edge, so a chip at
+  // the top of a long board can still reach the housekeeper cards below.
+  useEffect(() => {
+    if (!canDragAssign) return;
+    const EDGE = 90;
+    const onDragOver = (e: DragEvent) => {
+      const y = e.clientY;
+      const h = window.innerHeight;
+      if (y < EDGE) window.scrollBy({ top: -Math.ceil((EDGE - y) / 4), behavior: 'auto' });
+      else if (y > h - EDGE) window.scrollBy({ top: Math.ceil((y - (h - EDGE)) / 4), behavior: 'auto' });
+    };
+    window.addEventListener('dragover', onDragOver);
+    return () => window.removeEventListener('dragover', onDragOver);
+  }, [canDragAssign]);
+
+  const isExecViewer = profile?.role && ['top_management', 'top_management_manager'].includes(profile.role);
+  const isReception = profile?.role === 'reception';
+  const canViewFullOverview = isManagerOrAdmin || isExecViewer || isReception;
+  const [refreshing, setRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchData();
+    setRefreshing(false);
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, [selectedDate, hotelName, refreshKey]);
+
+  // Listen for PMS sync completion broadcast from either entry point and
+  // flash a soft green glow on the card + refetch.
+  useEffect(() => {
+    const onSynced = () => {
+      setSyncFlash(true);
+      fetchData(true);
+      setTimeout(() => setSyncFlash(false), 2000);
+    };
+    const onAssignmentsChanged = () => fetchData(true);
+    window.addEventListener('pms-sync-completed', onSynced);
+    window.addEventListener('hk-assignments-changed', onAssignmentsChanged);
+    return () => {
+      window.removeEventListener('pms-sync-completed', onSynced);
+      window.removeEventListener('hk-assignments-changed', onAssignmentsChanged);
+    };
+  }, []);
+
+  // Auto-refresh: realtime subscription on rooms/assignments + visibility-aware polling
+  // Ensures stale checkout flags clear from the UI as soon as the PMS poll updates the DB.
+  useEffect(() => {
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+    const safeFetch = () => {
+      if (cancelled || document.hidden) return;
+      fetchData(true); // silent: no loading skeleton, no blink
+    };
+
+    // Realtime: any change to rooms or today's assignments triggers a refetch (debounced)
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefetch = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(safeFetch, 500);
+    };
+
+    const channel = supabase
+      .channel(`room-overview-${hotelName}-${selectedDate}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, (payload: any) => {
+        const rowHotel = payload?.new?.hotel ?? payload?.old?.hotel;
+        if (!rowHotel || rowHotel === hotelName) scheduleRefetch();
+        else {
+          void resolveHotelKeys(hotelName).then(keys => {
+            if ((keys.length ? keys : [hotelName]).includes(rowHotel)) scheduleRefetch();
+          });
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_assignments', filter: `assignment_date=eq.${selectedDate}` }, scheduleRefetch)
+      .subscribe();
+
+    // Polling fallback every 60s while tab is visible
+    pollTimer = setInterval(safeFetch, 60_000);
+
+    // Refresh immediately when the tab becomes visible again
+    const onVisible = () => { if (!document.hidden) safeFetch(); };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      cancelled = true;
+      if (pollTimer) clearInterval(pollTimer);
+      if (debounceTimer) clearTimeout(debounceTimer);
+      supabase.removeChannel(channel);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [selectedDate, hotelName]);
+
+  const fetchData = async (silent: boolean = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const hotelKeys = await resolveHotelKeys(hotelName);
+      const keys = hotelKeys.length ? hotelKeys : [hotelName];
+      const [roomsRes, assignmentsRes, tasksRes, completedRes] = await Promise.all([
+        supabase
+          .from('rooms')
+          .select('id, hotel, room_number, floor_number, venue_id, status, last_cleaned_at, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, bed_configuration, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, updated_at, pms_metadata')
+          .in('hotel', keys)
+          .order('room_number'),
+        supabase
+          .from('room_assignments')
+          .select('id, room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes')
+          .eq('assignment_date', selectedDate),
+        supabase
+          .from('general_tasks')
+          .select('id, task_name, task_type, assigned_to, status')
+          .in('hotel', keys)
+          .eq('assigned_date', selectedDate),
+        supabase
+          .from('room_assignments')
+          .select('started_at, completed_at, room_id')
+          .eq('assignment_date', selectedDate)
+          .eq('status', 'completed')
+          .not('started_at', 'is', null)
+          .not('completed_at', 'is', null)
+      ]);
+
+      const assignmentRoomIds = new Set((assignmentsRes.data || []).map((a: any) => a.room_id));
+      const dedupedRooms = dedupeRoomsByNumber(roomsRes.data || [], assignmentRoomIds);
+      setRooms(dedupedRooms);
+      
+      const roomIds = new Set(dedupedRooms.map(r => r.id));
+      setAssignments((assignmentsRes.data || []).filter(a => roomIds.has(a.room_id)));
+      setPublicAreaTasks(tasksRes.data || []);
+
+      // Load a READ-ONLY snapshot of the previous working day so admins can
+      // compare where things stopped yesterday vs where things stand today.
+      // Non-admin users only see today, so we skip this query entirely for them.
+      const wantsPreviousDay =
+        profile?.role === 'admin' || profile?.role === 'top_management';
+      try {
+        const roomIdList = Array.from(roomIds);
+        if (wantsPreviousDay && roomIdList.length > 0) {
+          const { data: prevDateRow } = await supabase
+            .from('room_assignments')
+            .select('assignment_date')
+            .in('room_id', roomIdList)
+            .lt('assignment_date', selectedDate)
+            .order('assignment_date', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          const prevDate = (prevDateRow as any)?.assignment_date || null;
+          setPreviousDayDate(prevDate);
+          if (prevDate) {
+            const { data: prevAssignRows } = await supabase
+              .from('room_assignments')
+              .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes, completed_at, assignment_date')
+              .in('room_id', roomIdList)
+              .eq('assignment_date', prevDate);
+            const map = new Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>();
+            for (const a of (prevAssignRows || []) as any[]) {
+              // If multiple rows exist for the same room on that day, keep the
+              // most "final" one (completed > in_progress > assigned).
+              const existing = map.get(a.room_id);
+              const rank = (s: string) => s === 'completed' ? 3 : s === 'in_progress' ? 2 : 1;
+              if (!existing || rank(a.status) >= rank(existing.status)) map.set(a.room_id, a);
+            }
+            setPreviousAssignments(map);
+          } else {
+            setPreviousAssignments(new Map());
+          }
+        } else {
+          setPreviousDayDate(null);
+          setPreviousAssignments(new Map());
+        }
+      } catch (e) {
+        console.error('Error fetching previous-day snapshot:', e);
+        setPreviousDayDate(null);
+        setPreviousAssignments(new Map());
+      }
+
+
+      // Calculate ACT from completed assignments for this hotel's rooms
+      const completedForHotel = (completedRes.data || []).filter(a => roomIds.has(a.room_id));
+      if (completedForHotel.length > 0) {
+        const totalMinutes = completedForHotel.reduce((sum, a) => {
+          const start = new Date(a.started_at!).getTime();
+          const end = new Date(a.completed_at!).getTime();
+          return sum + (end - start) / 60000;
+        }, 0);
+        setAverageCleanTime(Math.round(totalMinutes / completedForHotel.length));
+      } else {
+        setAverageCleanTime(null);
+      }
+    } catch (error) {
+      console.error('Error fetching room overview:', error);
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
+
+  const canInteractWithRooms = isManagerOrAdmin || isReception;
+  const [roomNotes, setRoomNotes] = useState('');
+
+
+  const savePopoverRoomNotes = useCallback(async (
+    room: RoomData,
+    noteText: string,
+    assignmentStatus?: string,
+    notify: boolean = false,
+  ) => {
+    try {
+      setPopoverNotesSaveState('saving');
+      const currentFlags = parseRoomFlags(room.notes);
+      const { buildRoomNotes } = await import('@/lib/room-service-flags');
+      const newFullNotes = buildRoomNotes(
+        {
+          collectExtraTowels: currentFlags.collectExtraTowels,
+          roomCleaning: currentFlags.roomCleaning,
+        },
+        noteText,
+      );
+
+      if (newFullNotes !== (room.notes || '')) {
+        const { error } = await supabase
+          .from('rooms')
+          .update({ notes: newFullNotes || null } as any)
+          .eq('id', room.id);
+        if (error) throw error;
+
+        setRooms(prev => prev.map(r =>
+          r.id === room.id ? { ...r, notes: newFullNotes || null } : r,
+        ));
+      }
+
+      setPopoverNotesSaveState('saved');
+      if (assignmentStatus === 'completed' && notify) {
+        toast.warning(`⚠️ Room ${room.room_number} was already cleaned. The housekeeper will need to be informed.`, { duration: 5000 });
+      }
+      if (notify) toast.success(`Notes saved for room ${room.room_number}`);
+      return true;
+    } catch (error) {
+      console.error('Failed to save room notes:', error);
+      setPopoverNotesSaveState('error');
+      if (notify) toast.error('Failed to save notes');
+      return false;
+    }
+  }, []);
+
+  // Format a YYYY-MM-DD date for the "Yesterday — {date}" header without
+  // dragging in a date library.
+  const formatPrevDate = (iso: string | null): string => {
+    if (!iso) return '';
+    try {
+      const [y, m, d] = iso.split('-').map(Number);
+      return new Date(y, (m || 1) - 1, d || 1).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    } catch { return iso; }
+  };
+
+
+  const dedupeRoomsByNumber = (roomList: RoomData[], assignmentRoomIds: Set<string>) => {
+    const byNumber = new Map<string, RoomData>();
+    const score = (room: RoomData) => {
+      let value = 0;
+      if (assignmentRoomIds.has(room.id)) value += 1000;
+      if (room.hotel === hotelName) value += 500;
+      if (room.pms_metadata?.roomId) value += 120;
+      if (room.pms_metadata?.scheduledDepartureToday === true || room.pms_metadata?.checkedOutToday === true) value += 80;
+      if (room.is_checkout_room) value += 40;
+      if (room.updated_at) value += Math.min(30, Math.max(0, (Date.now() - new Date(room.updated_at).getTime()) / -3_600_000 + 30));
+      return value;
+    };
+
+    for (const room of roomList) {
+      const key = String(room.room_number || '').trim();
+      const current = byNumber.get(key);
+      if (!current || score(room) > score(current)) byNumber.set(key, room);
+    }
+
+    return Array.from(byNumber.values()).sort((a, b) =>
+      String(a.room_number).localeCompare(String(b.room_number), undefined, { numeric: true }),
+    );
+  };
+
+  const handleRoomClick = (room: RoomData) => {
+    if (!canInteractWithRooms) return;
+    // Ignore the synthetic click that some browsers fire right after a drag.
+    if (Date.now() - justDraggedRef.current < 600) return;
+    // On mobile, open the dialog directly. On desktop, popover handles it.
+    if (isMobile) {
+      setSelectedRoom(room);
+      setSelectedSize(String(room.room_size_sqm || 25));
+      setSelectedCategory(room.room_category || '');
+      setRoomNotes(room.notes || '');
+      setRoomSizeDialogOpen(true);
+    }
+  };
+
+  const openSettingsDialog = (room: RoomData) => {
+    setSelectedRoom(room);
+    setSelectedSize(String(room.room_size_sqm || 25));
+    setSelectedCategory(room.room_category || '');
+    setRoomNotes(room.notes || '');
+    setHoveredRoomId(null);
+    setRoomSizeDialogOpen(true);
+  };
+
+  const handleHoverEnter = useCallback((roomId: string, room: RoomData) => {
+    if (isMobile || !canInteractWithRooms) return;
+    // Suppress hover popover briefly after a drag so the dragged chip
+    // doesn't auto-open its advanced detail menu.
+    if (Date.now() - justDraggedRef.current < 600) return;
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    hoverTimeoutRef.current = setTimeout(() => {
+      setHoveredRoomId(roomId);
+      const flags = parseRoomFlags(room.notes);
+      setPopoverNotes(flags.cleanNotes);
+      setPopoverNotesSaveState('idle');
+    }, 150);
+  }, [isMobile, canInteractWithRooms]);
+
+  const handleHoverLeave = useCallback(() => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    hoverTimeoutRef.current = setTimeout(() => {
+      setHoveredRoomId(null);
+    }, 200);
+  }, []);
+
+  const handlePopoverEnter = useCallback(() => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+  }, []);
+
+  const handlePopoverLeave = useCallback(() => {
+    hoverTimeoutRef.current = setTimeout(() => {
+      setHoveredRoomId(null);
+    }, 150);
+  }, []);
+
+  const handleSaveSize = async () => {
+    if (!selectedRoom) return;
+    setSavingSize(true);
+    try {
+      const { error } = await supabase
+        .from('rooms')
+        .update({ 
+          room_size_sqm: parseInt(selectedSize, 10),
+          room_category: selectedCategory === 'none' ? null : selectedCategory || null
+        })
+        .eq('id', selectedRoom.id);
+
+      if (error) throw error;
+      
+      // Update local state
+      setRooms(prev => prev.map(r => 
+        r.id === selectedRoom.id ? { ...r, room_size_sqm: parseInt(selectedSize, 10), room_category: selectedCategory === 'none' ? null : selectedCategory || null } : r
+      ));
+      toast.success(`Room ${selectedRoom.room_number} size updated`);
+      setRoomSizeDialogOpen(false);
+    } catch (error) {
+      console.error('Error updating room size:', error);
+      toast.error('Failed to update room size');
+    } finally {
+      setSavingSize(false);
+    }
+  };
+
+  const assignmentMap = new Map<string, AssignmentData>();
+  assignments.forEach(a => assignmentMap.set(a.room_id, a));
+
+  // A room counts as a "checkout room" in Team View only when the guest
+  // departs today. Departure-tomorrow rooms stay in Daily Rooms and show the
+  // C/O+1 badge so managers can see them without removing today's stayovers.
+  const isScheduledCheckoutRoom = (room: RoomData) =>
+    room.pms_metadata?.scheduledDepartureToday === true;
+
+  // When today's PMS snapshot is present, PMS is the single source of truth
+  // for the bucket. Assignment type is only a fallback for rooms with no
+  // fresh PMS data (it can be stale when auto-assign ran before the sync).
+  const hasFreshPms = (room: RoomData) =>
+    (room.pms_metadata as any)?.pmsSyncDate === todayBudapest();
+
+  const isCheckoutBucket = (room: RoomData) => {
+    // A manager's explicit "switch to Daily" for today wins over everything.
+    if ((room.pms_metadata as any)?.manual_daily === true) return false;
+    if (room.is_checkout_room || isScheduledCheckoutRoom(room)) return true;
+    if (hasFreshPms(room)) return false;
+    return assignmentMap.get(room.id)?.assignment_type === 'checkout_cleaning';
+  };
+
+
+  const isArrivalOnly = (room: RoomData) =>
+    !isCheckoutBucket(room) &&
+    hasFreshPms(room) &&
+    (room.pms_metadata as any)?.arrivalToday === true &&
+    (room.pms_metadata as any)?.occupiedToday !== true;
+
+  const checkoutRooms = rooms.filter(isCheckoutBucket);
+  const arrivalRooms = rooms.filter(r => isArrivalOnly(r) && (r.pms_metadata as any)?.isNoShow !== true);
+  const dailyRooms = rooms.filter(r => {
+    if (isCheckoutBucket(r)) return false;
+    // No-show rooms surface in their own section below.
+    if ((r.pms_metadata as any)?.isNoShow === true) return false;
+    // Arrivals get their own section (vacant room, guest expected today).
+    if (isArrivalOnly(r)) return false;
+    return true;
+  });
+
+
+  const isPmsNoShow = (room: RoomData) =>
+    (room.pms_metadata as any)?.isNoShow === true;
+
+  const isNoShow = (room: RoomData) => {
+    if (isPmsNoShow(room)) return true;
+    return room.notes?.toLowerCase().includes('no show') || false;
+  };
+
+  const isEarlyCheckout = (room: RoomData) => {
+    // Only surface the Early Checkout badge on real checkout rooms. A daily
+    // room whose notes still contain "Early Checkout" from yesterday must
+    // not display the badge.
+    if (!room.is_checkout_room) return false;
+    return room.notes?.toLowerCase().includes('early checkout') || false;
+  };
+
+  const noShowRooms = rooms.filter(r => isNoShow(r) && !isEarlyCheckout(r) && !r.is_checkout_room);
+  const earlyCheckoutRooms = rooms.filter(r => isEarlyCheckout(r));
+
+  // ---- Shared manager actions (chip popover + detail dialog) ----------------
+
+  const mergeRoomMetadata = async (room: RoomData, patch: Record<string, any>) => {
+    const nextMeta = { ...((room.pms_metadata as any) || {}), ...patch };
+    const { error } = await supabase
+      .from('rooms')
+      .update({ pms_metadata: nextMeta } as any)
+      .eq('id', room.id);
+    if (error) throw error;
+    setRooms(prev => prev.map(r => r.id === room.id ? { ...r, pms_metadata: nextMeta } : r));
+    return nextMeta;
+  };
+
+  // Manual release of a checkout room. Stamped in pms_metadata so the next PMS
+  // refresh does not re-block the room as "guest still in house".
+  const releaseReadyToClean = async (room: RoomData) => {
+    const { error } = await supabase
+      .from('room_assignments')
+      .update({ ready_to_clean: true, pms_hold: false, pms_hold_reason: null } as any)
+      .eq('room_id', room.id)
+      .eq('assignment_date', selectedDate)
+      .eq('assignment_type', 'checkout_cleaning');
+    if (error) throw error;
+    await mergeRoomMetadata(room, {
+      manualReadyToCleanAt: new Date().toISOString(),
+      manualReadyToCleanBy: profile?.full_name || profile?.id || null,
+    });
+    setAssignments(prev => prev.map(a => a.room_id === room.id ? { ...a, ready_to_clean: true } : a));
+  };
+
+  // Switch a room between the Checkout and Daily buckets. The manual decision
+  // is persisted as a sticky override so the next PMS sync keeps it for today.
+  const switchRoomType = async (room: RoomData, newIsCheckout: boolean) => {
+    const nowIso = new Date().toISOString();
+    const by = profile?.full_name || profile?.id || null;
+    const meta = (room.pms_metadata as any) || {};
+    const nextMeta = {
+      ...meta,
+      manual_checkout: newIsCheckout,
+      manual_daily: !newIsCheckout,
+      manual_moved_at: nowIso,
+      manual_moved_by: by,
+      ...(newIsCheckout
+        ? { manual_checkout_at: nowIso, manual_checkout_by: by }
+        : { manual_daily_at: nowIso, manual_daily_by: by, scheduledDepartureToday: false, departureTime: null, checkedOutToday: false }),
+    };
+    const { error: roomErr } = await supabase
+      .from('rooms')
+      .update({ is_checkout_room: newIsCheckout, pms_metadata: nextMeta } as any)
+      .eq('id', room.id);
+    if (roomErr) throw roomErr;
+
+    const assignment = assignmentMap.get(room.id);
+    if (assignment) {
+      const { error: asgErr } = await supabase
+        .from('room_assignments')
+        .update({
+          assignment_type: newIsCheckout ? 'checkout_cleaning' : 'daily_cleaning',
+          // Daily rooms are immediately cleanable; a fresh checkout waits for release.
+          ready_to_clean: newIsCheckout ? false : true,
+        } as any)
+        .eq('room_id', room.id)
+        .eq('assignment_date', selectedDate);
+      if (asgErr) throw asgErr;
+      setAssignments(prev => prev.map(a => a.room_id === room.id
+        ? { ...a, assignment_type: newIsCheckout ? 'checkout_cleaning' : 'daily_cleaning', ready_to_clean: !newIsCheckout }
+        : a));
+    }
+    setRooms(prev => prev.map(r => r.id === room.id
+      ? { ...r, is_checkout_room: newIsCheckout, pms_metadata: nextMeta }
+      : r));
+
+    await supabase.from('pms_change_events').insert({
+      hotel_id: room.hotel,
+      room_id: room.id,
+      room_label: room.room_number,
+      event_type: 'room_type_switched_manual',
+      source: 'manager_ui',
+      before: { is_checkout_room: !newIsCheckout },
+      after: { is_checkout_room: newIsCheckout },
+      is_conflict: false,
+    } as any);
+  };
+
+  // Manually mark / unmark a room as a no-show for today.
+  const setManualNoShow = async (room: RoomData, value: boolean) => {
+    const nowIso = new Date().toISOString();
+    await mergeRoomMetadata(room, value
+      ? {
+          manual_no_show: true,
+          manual_no_show_at: nowIso,
+          manual_no_show_by: profile?.full_name || profile?.id || null,
+          isNoShow: true,
+        }
+      : {
+          manual_no_show: false,
+          manual_no_show_at: nowIso,
+          manual_no_show_by: profile?.full_name || profile?.id || null,
+          isNoShow: false,
+        });
+    await supabase.from('pms_change_events').insert({
+      hotel_id: room.hotel,
+      room_id: room.id,
+      room_label: room.room_number,
+      event_type: value ? 'no_show_marked_manual' : 'no_show_cleared_manual',
+      source: 'manager_ui',
+      before: { isNoShow: !value },
+      after: { isNoShow: value },
+      is_conflict: false,
+    } as any);
+  };
+
+
+
+  const groupByFloor = (roomList: RoomData[]) => {
+    const floorMap = new Map<number, RoomData[]>();
+    roomList.forEach(room => {
+      const floor = room.floor_number ?? (Math.floor(parseInt(room.room_number) / 100) || 0);
+      if (!floorMap.has(floor)) floorMap.set(floor, []);
+      floorMap.get(floor)!.push(room);
+    });
+    return Array.from(floorMap.entries()).sort((a, b) => a[0] - b[0]);
+  };
+
+  // Portfolio tenants (SLNT) have every unit on "floor 0"; the meaningful
+  // grouping is the physical address, so group by venue instead.
+  const groupByVenue = (roomList: RoomData[]) => {
+    const map = new Map<string, RoomData[]>();
+    roomList.forEach(room => {
+      const key = room.venue_id ?? '__none__';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(room);
+    });
+    const nameOf = (key: string) =>
+      key === '__none__' ? 'No venue set' : (venues.find(v => v.id === key)?.name ?? 'No venue set');
+
+    return Array.from(map.entries())
+      .map(([key, list]) => ({
+        key,
+        name: nameOf(key),
+        rooms: [...list].sort((a, b) => a.room_number.localeCompare(b.room_number, undefined, { numeric: true })),
+      }))
+      .sort((a, b) => (a.key === '__none__' ? 1 : b.key === '__none__' ? -1 : a.name.localeCompare(b.name)));
+  };
+
+
+
+  const getStaffName = (roomId: string): string | null => {
+    const assignment = assignmentMap.get(roomId);
+    if (!assignment) return null;
+    return assigneeLabel(staffMap, assignment.assigned_to);
+  };
+
+  /**
+   * Inverse drag: a housekeeper chip was dropped on a room chip. The write is
+   * immediate (not staged) and refuses to touch a room that is already being
+   * cleaned.
+   */
+  const handleHousekeeperDropOnRoom = async (e: React.DragEvent, room: RoomData) => {
+    const payload = readHousekeeperDragPayload(e);
+    if (!payload) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setHkHoverRoomId(null);
+    setHkDrag(null);
+
+    const assignment = assignmentMap.get(room.id);
+    const currentName = assignment ? (staffMap[assignment.assigned_to] || null) : null;
+
+    if (assignment?.status === 'in_progress') {
+      toast.warning(
+        `Room ${room.room_number} is currently being cleaned by ${cleanName(currentName) || 'another housekeeper'}. ` +
+        `This assignment cannot be changed while cleaning is in progress. Please contact ${cleanName(currentName) || 'them'} directly.`,
+        { duration: 8000 },
+      );
+      return;
+    }
+    if (assignment?.assigned_to === payload.staffId) {
+      toast.info(`Room ${room.room_number} is already assigned to ${cleanName(payload.staffName)}`);
+      return;
+    }
+
+    try {
+      await assignRoomToStaff({
+        roomId: room.id,
+        staffId: payload.staffId,
+        assignmentDate: selectedDate,
+        assignedBy: profile?.id ?? '',
+        organizationSlug: (profile as any)?.organization_slug ?? null,
+        isCheckoutRoom: isCheckoutBucket(room),
+      });
+      setHkSuccessRoomId(room.id);
+      setTimeout(() => setHkSuccessRoomId((id) => (id === room.id ? null : id)), 1200);
+      toast.success(`${room.room_number} → ${cleanName(payload.staffName)}`);
+      await fetchData(true);
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } catch (err) {
+      if (isAssignmentInProgressError(err)) {
+        const name = cleanName(staffMap[err.currentAssigneeId ?? ''] || currentName || '');
+        toast.warning(
+          `Room ${room.room_number} is currently being cleaned by ${name || 'another housekeeper'}. ` +
+          `This assignment cannot be changed while cleaning is in progress. Please contact ${name || 'them'} directly.`,
+          { duration: 8000 },
+        );
+        return;
+      }
+      console.error('Housekeeper drop assignment failed', err);
+      toast.error('Could not assign this room. Please try again.');
+    }
+  };
+
+
+  const getAssignmentStatus = (roomId: string): string | null => {
+    return assignmentMap.get(roomId)?.status || null;
+  };
+
+  const renderRoomChip = (room: RoomData) => {
+    const assignment = assignmentMap.get(room.id);
+    const assignmentStatus = assignment?.status || null;
+    const roomFlags = parseRoomFlags(room.notes);
+    const isPendingApproval = assignmentStatus === 'completed' && assignment?.supervisor_approved === false;
+    const roomOverdue = isOverdue(assignment, assignment?.started_at || undefined);
+    
+    let statusKey: string;
+    if (roomOverdue) statusKey = 'overdue';
+    else if (isPendingApproval) statusKey = 'pending_approval';
+    else if (assignmentStatus === 'in_progress') statusKey = 'in_progress';
+    else if (assignmentStatus === 'completed' && assignment?.supervisor_approved) statusKey = 'clean';
+    else if (assignmentStatus === 'completed') statusKey = 'pending_approval';
+    // No assignment for today: only treat room.status='clean' as clean when
+    // last_cleaned_at falls on the selected date — otherwise it's stale and
+    // must render as dirty so managers can assign it.
+    else {
+      const cleanedToday = !!room.last_cleaned_at &&
+        new Date(room.last_cleaned_at).toISOString().slice(0, 10) === selectedDate;
+      if (room.status === 'clean' && cleanedToday) statusKey = 'clean';
+      else if (room.status && room.status !== 'clean') statusKey = room.status;
+      else statusKey = 'dirty';
+    }
+    
+    const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
+    const isDND = room.is_dnd;
+    const noShow = isNoShow(room) && !isEarlyCheckout(room);
+    const earlyCheckout = isEarlyCheckout(room);
+    const staffName = getStaffName(room.id);
+    const sizeLabel = getSizeLabel(room.room_size_sqm);
+    const isCheckout = isCheckoutBucket(room);
+    const canMarkReadyToClean = isCheckout && assignment?.assignment_type === 'checkout_cleaning' && assignment?.pms_hold !== true;
+    const isPopoverOpen = hoveredRoomId === room.id && !isMobile && canInteractWithRooms && !selectionEnabled;
+    const isSelected = selectedUnitIds.has(room.id);
+    const asSelectedUnit = (): SelectedUnit => ({
+      roomId: room.id,
+      roomNumber: room.room_number,
+      sourceType: isCheckout ? 'checkout' : 'daily',
+      assignedTo: assignment?.assigned_to ?? null,
+      assignedToName: assignment ? staffMap[assignment.assigned_to] ?? null : null,
+    });
+
+    const hkDropTarget = !!hkDrag && canDragAssign;
+    const hkHovered = hkDropTarget && hkHoverRoomId === room.id;
+
+    const chipContent = (
+      <div 
+        className={`flex flex-col items-center gap-0.5 select-none transition-transform ${hkHovered ? 'scale-110' : ''}`}
+        onDragOver={hkDropTarget ? (e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; setHkHoverRoomId(room.id); } : undefined}
+        onDragEnter={hkDropTarget ? (e) => { e.preventDefault(); e.stopPropagation(); setHkHoverRoomId(room.id); } : undefined}
+        onDragLeave={hkDropTarget ? () => setHkHoverRoomId((id) => (id === room.id ? null : id)) : undefined}
+        onDrop={hkDropTarget ? (e) => { void handleHousekeeperDropOnRoom(e, room); } : undefined}
+        draggable={canDragAssign ? true : undefined}
+        onDragStart={canDragAssign ? (e) => {
+          setRoomDragPayload(e, {
+            roomId: room.id,
+            roomNumber: room.room_number,
+            sourceType: isCheckout ? 'checkout' : 'daily',
+            origin: 'overview',
+            assignedTo: assignment?.assigned_to ?? null,
+            assignedToName: assignment ? staffMap[assignment.assigned_to] ?? null : null,
+          });
+          (e.currentTarget as HTMLElement).style.opacity = '0.5';
+          justDraggedRef.current = Date.now();
+          setHoveredRoomId(null);
+          if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+        } : undefined}
+        onDragEnd={canDragAssign ? (e) => {
+          (e.currentTarget as HTMLElement).style.opacity = '1';
+          setDragOverSection(null);
+          justDraggedRef.current = Date.now();
+          setHoveredRoomId(null);
+        } : undefined}
+        // Selection mode: a plain tap/click picks the unit, a long press (or
+        // right click) still opens the unit detail dialog.
+        onTouchStart={selectionEnabled ? () => {
+          longPressFiredRef.current = false;
+          if (longPressRef.current) clearTimeout(longPressRef.current);
+          longPressRef.current = setTimeout(() => {
+            longPressFiredRef.current = true;
+            openSettingsDialog(room);
+          }, 550);
+        } : undefined}
+        onTouchEnd={selectionEnabled ? () => {
+          if (longPressRef.current) clearTimeout(longPressRef.current);
+        } : undefined}
+        onTouchMove={selectionEnabled ? () => {
+          if (longPressRef.current) clearTimeout(longPressRef.current);
+        } : undefined}
+        onContextMenu={selectionEnabled ? (e) => { e.preventDefault(); openSettingsDialog(room); } : undefined}
+        onClick={() => {
+          if (selectionEnabled) {
+            if (longPressFiredRef.current) { longPressFiredRef.current = false; return; }
+            if (Date.now() - justDraggedRef.current < 600) return;
+            toggleUnitSelection(asSelectedUnit());
+            return;
+          }
+          handleRoomClick(room);
+        }}
+        onMouseEnter={() => handleHoverEnter(room.id, room)}
+        onMouseLeave={handleHoverLeave}
+        style={{ cursor: canDragAssign ? 'pointer' : canInteractWithRooms ? 'pointer' : 'default' }}
+      >
+        <div
+          className={`
+            relative rounded border transition-all text-center
+            ${compactChips ? 'px-1.5 py-0.5 text-[11px] font-semibold leading-tight min-w-[34px]' : 'px-2 py-1 text-xs font-bold border-2 min-w-[40px]'}
+            ${colorClass}
+            ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
+            ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
+            ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}
+            ${roomOverdue ? 'animate-pulse' : ''}
+            ${isSelected ? 'ring-2 ring-primary ring-offset-2 shadow-md scale-105' : ''}
+            ${canInteractWithRooms && !compactChips ? 'hover:scale-110 hover:shadow-md' : ''}
+            ${compactChips && canInteractWithRooms ? 'hover:shadow-sm' : ''}
+            ${hkDropTarget ? 'ring-1 ring-dashed ring-primary/50' : ''}
+            ${hkHovered ? 'ring-2 ring-primary ring-offset-1 shadow-md' : ''}
+            ${hkSuccessRoomId === room.id ? 'ring-2 ring-emerald-500 ring-offset-1' : ''}
+          `}
+          style={venuesEnabled ? venueEdgeStyle(room.venue_id) : undefined}
+        >
+          {isSelected && (
+            <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[9px] font-bold shadow">
+              ✓
+            </span>
+          )}
+
+
+          {room.room_number}
+          {(room.pms_metadata as any)?.isNoShow === true && (
+            <span
+              className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white"
+              title="PMS reports no reservation — guest did not arrive"
+            >NS</span>
+          )}
+          {(room.pms_metadata as any)?.notArrived === true && (room.pms_metadata as any)?.isNoShow !== true && (
+            <span
+              className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-slate-500 text-white"
+              title="Arrival expected today — guest has not checked in yet"
+            >NA</span>
+          )}
+
+          {room.pms_metadata?.manual_checkout === true && (
+            <span
+              className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-amber-500 text-white"
+              title="Manually moved by a manager (not from PMS)"
+            >M</span>
+          )}
+          {room.pms_metadata?.roomId && room.updated_at && (Date.now() - new Date(room.updated_at as any).getTime() < 2 * 3600 * 1000) && (
+            <span
+              className="ml-0.5 inline-block h-1.5 w-1.5 rounded-full bg-blue-500 ring-1 ring-blue-300 animate-fade-in"
+              title="Newly synced from Previo (last 2h)"
+            />
+          )}
+
+          {(() => {
+            const meta: any = room.pms_metadata || {};
+            if (meta.scheduledDepartureTomorrow !== true) return null;
+            if (meta.scheduledDepartureToday) return null;
+            // Never show C/O+1 on a room that is already checking out today
+            // (manual C/O, checkout assignment, PMS scheduled departure, or
+            // checked-out flag). The guest is leaving today, so a
+            // "departs tomorrow" hint would be misleading noise.
+            if (isCheckout) return null;
+            if (meta.checkedOutToday === true) return null;
+            // Extra safety: if the PMS also gave us night counts, only paint
+            // C/O+1 when this is the guest's LAST night (currentNight === totalNights).
+            const cn = Number(meta.currentNight);
+            const tn = Number(meta.totalNights);
+            if (Number.isFinite(cn) && Number.isFinite(tn) && cn > 0 && tn > 0 && cn !== tn) return null;
+            return (
+              <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-indigo-600 text-white" title="Guest departs tomorrow — plan checkout cleaning">C/O+1</span>
+            );
+          })()}
+          {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
+          {room.towel_change_required && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
+          {room.linen_change_required && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
+          {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RC</span>}
+          {roomFlags.collectExtraTowels && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">🧺</span>}
+          {(() => {
+            // Only a departure confirmed by PMS *today* counts as RTC.
+            const pmsRtc = isCheckout && isPmsRtcToday((room as any).pms_metadata);
+            const showRtc = (assignment?.ready_to_clean || (!assignment && pmsRtc))
+              && isCheckout
+              && !(assignment?.status === 'completed' && assignment?.supervisor_approved);
+            return showRtc ? (
+              <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RTC</span>
+            ) : null;
+          })()}
+          {assignment?.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-gray-500 text-white">NS</span>}
+          {assignment?.status === 'completed' && assignment?.supervisor_approved && !assignment?.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 text-[9px]">✅</span>}
+          {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
+          {noShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
+          {earlyCheckout && <span className="ml-0.5 text-[9px]">🔶</span>}
+          {isPendingApproval && <span className="ml-0.5 text-[9px]">⏳</span>}
+          {roomOverdue && <span className="ml-0.5 text-[9px]">🔴</span>}
+          {sizeLabel && <span className="ml-0.5 text-[8px] opacity-70">{sizeLabel}</span>}
+        </div>
+        {/* Bed config & staff name indicators below chip */}
+        <div className="flex flex-col items-center gap-0">
+          {!compactChips && (room as any).bed_configuration && (
+            <span className="text-[8px] text-purple-600 dark:text-purple-400 font-semibold truncate max-w-[48px]">
+              {(() => {
+                const bc = (room as any).bed_configuration;
+                if (bc.includes('Double')) return 'DB';
+                if (bc.includes('Twin') && bc.includes('Sep')) return 'TW-S';
+                if (bc.includes('Twin')) return 'TW';
+                if (bc.includes('Single')) return 'SGL';
+                if (bc.includes('Baby')) return '👶BB';
+                if (bc.includes('Sofa')) return 'SOFA';
+                if (bc.includes('Extra') || bc.includes('Cot')) return '+COT';
+                return bc.substring(0, 3).toUpperCase();
+              })()}
+            </span>
+          )}
+          {roomFlags.cleanNotes && (
+            <span className="text-[8px]" title={summarizePmsNote(roomFlags.cleanNotes) || roomFlags.cleanNotes}>📝</span>
+          )}
+          {staffName && (
+            <span className="text-[9px] text-muted-foreground font-medium leading-tight text-center max-w-[76px] break-words" title={staffMap[assignment?.assigned_to ?? ''] || staffName || undefined}>
+              {staffName}
+            </span>
+          )}
+
+        </div>
+      </div>
+    );
+
+    // Desktop: hover popover with quick actions
+    if (!isMobile && canInteractWithRooms) {
+      return (
+        <Popover key={room.id} open={isPopoverOpen}>
+          <PopoverTrigger asChild>
+            {chipContent}
+          </PopoverTrigger>
+          <PopoverContent 
+            side="top" 
+            align="center"
+            className="w-80 max-w-[calc(100vw-1rem)] p-0 shadow-lg"
+            onMouseEnter={handlePopoverEnter}
+            onMouseLeave={handlePopoverLeave}
+            onOpenAutoFocus={(e) => e.preventDefault()}
+          >
+            <div className="p-2.5 space-y-2">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-bold text-foreground">{terms.unit} {room.room_number}</span>
+                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 uppercase ${
+                  statusKey === 'clean' ? 'bg-emerald-100 text-emerald-700 border-emerald-300' :
+                  statusKey === 'in_progress' ? 'bg-sky-100 text-sky-700 border-sky-300' :
+                  statusKey === 'pending_approval' ? 'bg-violet-100 text-violet-700 border-violet-300' :
+                  'bg-amber-100 text-amber-700 border-amber-300'
+                }`}>
+                  {statusKey === 'pending_approval' ? t('roomOverview.statusPending') : statusKey === 'clean' ? t('roomOverview.statusClean') : statusKey === 'dirty' ? t('roomOverview.statusDirty') : statusKey === 'in_progress' ? t('roomOverview.statusInProgress') : statusKey.replace(/_/g, ' ')}
+                </Badge>
+              </div>
+
+              {/* Ready to Clean - PROMINENT for checkout rooms */}
+              {canMarkReadyToClean && assignment && !assignment.ready_to_clean && isManagerOrAdmin && (
+                <button
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-bold bg-emerald-500 text-white hover:bg-emerald-600 transition-colors shadow-sm"
+                  disabled={actionLoading === `ready-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`ready-${room.id}`);
+                    try {
+                      await releaseReadyToClean(room);
+                      toast.success(`Room ${room.room_number} ready to clean`);
+                    } catch { toast.error('Failed'); }
+                    finally { setActionLoading(null); }
+                  }}
+
+                >
+                  <CheckCircle className="h-4 w-4" /> ✅ {t('roomOverview.markReadyToClean')}
+                </button>
+              )}
+              {canMarkReadyToClean && assignment?.ready_to_clean && (
+                <div className="w-full space-y-1.5">
+                  <div className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+                    ✅ {t('roomOverview.readyToClean')}
+                  </div>
+                  {isManagerOrAdmin && (
+                    <button
+                      className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100 transition-colors"
+                      disabled={actionLoading === `revert-rtc-${room.id}`}
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        setActionLoading(`revert-rtc-${room.id}`);
+                        try {
+                          const { error } = await supabase
+                            .from('room_assignments')
+                            .update({ ready_to_clean: false, pms_hold: false, pms_hold_reason: null } as any)
+                            .eq('room_id', room.id)
+                            .eq('assignment_date', selectedDate)
+                            .eq('assignment_type', 'checkout_cleaning');
+                          if (error) throw error;
+                          // Drop the manual-release stamp so the PMS sync can
+                          // keep the room blocked while the guest is in house.
+                          await mergeRoomMetadata(room, { manualReadyToCleanAt: null, manualReadyToCleanBy: null });
+                          // Audit trail so cron/reconcile understands this was intentional.
+
+                          await supabase.from('pms_change_events').insert({
+                            hotel_id: room.hotel,
+                            room_id: room.id,
+                            room_label: room.room_number,
+                            event_type: 'rtc_reverted_manual',
+                            source: 'manager_ui',
+                            before: { ready_to_clean: true },
+                            after: { ready_to_clean: false },
+                            is_conflict: false,
+                          } as any);
+                          setAssignments(prev => prev.map(a => a.room_id === room.id ? { ...a, ready_to_clean: false } : a));
+                          toast.success(`Room ${room.room_number} reverted from Ready to Clean`);
+                        } catch { toast.error('Failed to revert'); }
+                        finally { setActionLoading(null); }
+                      }}
+                    >
+                      ↩ Revert Ready to Clean
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Manager override: mark / clear no-show for today */}
+              {isManagerOrAdmin && (
+                <button
+                  className={`w-full flex items-center justify-center gap-1 px-2 py-1.5 rounded text-[11px] font-semibold border transition-colors ${
+                    isPmsNoShow(room)
+                      ? 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200'
+                      : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                  }`}
+                  disabled={actionLoading === `noshow-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`noshow-${room.id}`);
+                    try {
+                      const next = !isPmsNoShow(room);
+                      await setManualNoShow(room, next);
+                      toast.success(`Room ${room.room_number} ${next ? t('roomOverview.markedNoShow') : t('roomOverview.noShowCleared')}`);
+                    } catch { toast.error('Failed to update no-show'); }
+                    finally { setActionLoading(null); }
+                  }}
+                >
+                  {isPmsNoShow(room) ? t('roomOverview.clearNoShow') : t('roomOverview.markNoShow')}
+                </button>
+              )}
+
+
+
+
+              {/* Services Section */}
+              <div className="space-y-1">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">{t('roomOverview.services')}</p>
+                <button
+                  className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+                    room.towel_change_required 
+                      ? 'bg-red-100 text-red-800 border border-red-200 hover:bg-red-200' 
+                      : 'bg-muted/50 text-muted-foreground hover:bg-muted border border-transparent'
+                  }`}
+                  disabled={actionLoading === `towel-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`towel-${room.id}`);
+                    const newVal = !room.towel_change_required;
+                    try {
+                      // Check if room is already completed
+                      if (assignmentStatus === 'completed') {
+                        toast.warning(`⚠️ Room ${room.room_number} was already cleaned. Please inform the housekeeper separately.`, { duration: 5000 });
+                      }
+                      const { error } = await supabase.from('rooms').update({ towel_change_required: newVal } as any).eq('id', room.id);
+                      if (error) throw error;
+                      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, towel_change_required: newVal } : r));
+                      toast.success(`Towel ${newVal ? 'enabled' : 'disabled'} — ${room.room_number}`);
+                    } catch { toast.error('Failed'); }
+                    finally { setActionLoading(null); }
+                  }}
+                >
+                  <span>🔄 {t('roomOverview.towelChange')}</span>
+                  <span className="text-[10px]">{room.towel_change_required ? `✓ ${t('roomOverview.required')}` : t('roomOverview.off')}</span>
+                </button>
+                <button
+                  className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+                    room.linen_change_required 
+                      ? 'bg-purple-100 text-purple-800 border border-purple-200 hover:bg-purple-200' 
+                      : 'bg-muted/50 text-muted-foreground hover:bg-muted border border-transparent'
+                  }`}
+                  disabled={actionLoading === `linen-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`linen-${room.id}`);
+                    const newVal = !room.linen_change_required;
+                    try {
+                      if (assignmentStatus === 'completed') {
+                        toast.warning(`⚠️ Room ${room.room_number} was already cleaned. Please inform the housekeeper separately.`, { duration: 5000 });
+                      }
+                      const { error } = await supabase.from('rooms').update({ linen_change_required: newVal } as any).eq('id', room.id);
+                      if (error) throw error;
+                      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, linen_change_required: newVal } : r));
+                      toast.success(`Bed Linen ${newVal ? 'enabled' : 'disabled'} — ${room.room_number}`);
+                    } catch { toast.error('Failed'); }
+                    finally { setActionLoading(null); }
+                  }}
+                >
+                  <span>🛏️ {t('roomOverview.cleanRoomC')}</span>
+                  <span className="text-[10px]">{room.linen_change_required ? `✓ ${t('roomOverview.required')}` : t('roomOverview.off')}</span>
+                </button>
+                <button
+                  className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+                    roomFlags.roomCleaning 
+                      ? 'bg-blue-100 text-blue-800 border border-blue-200 hover:bg-blue-200' 
+                      : 'bg-muted/50 text-muted-foreground hover:bg-muted border border-transparent'
+                  }`}
+                  disabled={actionLoading === `rc-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`rc-${room.id}`);
+                    const newVal = !roomFlags.roomCleaning;
+                    try {
+                      if (assignmentStatus === 'completed') {
+                        toast.warning(`⚠️ Room ${room.room_number} was already cleaned. Please inform the housekeeper separately.`, { duration: 5000 });
+                      }
+                      const updatedNotes = toggleFlag(room.notes, 'ROOM_CLEANING', newVal);
+                      const { error } = await supabase.from('rooms').update({ notes: updatedNotes || null } as any).eq('id', room.id);
+                      if (error) throw error;
+                      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: updatedNotes || null } : r));
+                      toast.success(`Room Cleaning ${newVal ? 'enabled' : 'disabled'} — ${room.room_number}`);
+                    } catch { toast.error('Failed'); }
+                    finally { setActionLoading(null); }
+                  }}
+                >
+                  <span>🧹 {t('roomOverview.roomCleaningRC')}</span>
+                  <span className="text-[10px]">{roomFlags.roomCleaning ? `✓ ${t('roomOverview.required')}` : t('roomOverview.off')}</span>
+                </button>
+                <button
+                  className={`w-full flex items-center justify-between px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+                    roomFlags.collectExtraTowels 
+                      ? 'bg-orange-100 text-orange-800 border border-orange-200 hover:bg-orange-200' 
+                      : 'bg-muted/50 text-muted-foreground hover:bg-muted border border-transparent'
+                  }`}
+                  disabled={actionLoading === `extratowel-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`extratowel-${room.id}`);
+                    const newVal = !roomFlags.collectExtraTowels;
+                    try {
+                      if (assignmentStatus === 'completed') {
+                        toast.warning(`⚠️ Room ${room.room_number} was already cleaned. Please inform the housekeeper separately.`, { duration: 5000 });
+                      }
+                      const updatedNotes = toggleFlag(room.notes, 'COLLECT_EXTRA_TOWELS', newVal);
+                      const { error } = await supabase.from('rooms').update({ notes: updatedNotes || null } as any).eq('id', room.id);
+                      if (error) throw error;
+                      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: updatedNotes || null } : r));
+                      toast.success(`Collect Extra Towels ${newVal ? 'enabled' : 'disabled'} — ${room.room_number}`);
+                    } catch { toast.error('Failed'); }
+                    finally { setActionLoading(null); }
+                  }}
+                >
+                  <span>🧺 {t('roomOverview.collectExtraTowels')}</span>
+                  <span className="text-[10px]">{roomFlags.collectExtraTowels ? `✓ ${t('roomOverview.yes')}` : t('roomOverview.off')}</span>
+                </button>
+              </div>
+
+              {/* Bed Configuration */}
+              {isManagerOrAdmin && (
+                <div className="border-t border-border pt-1.5">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t('roomOverview.bedConfig')}</p>
+                  <select
+                    className="w-full text-xs p-1.5 rounded border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                    value={(room as any).bed_configuration || ''}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={async (e) => {
+                      const val = e.target.value || null;
+                      try {
+                        const { error } = await supabase.from('rooms').update({ bed_configuration: val } as any).eq('id', room.id);
+                        if (error) throw error;
+                        setRooms(prev => prev.map(r => r.id === room.id ? { ...r, bed_configuration: val } as any : r));
+                        toast.success(`Bed config updated — ${room.room_number}`);
+                      } catch { toast.error('Failed'); }
+                    }}
+                  >
+                    <option value="">{t('roomOverview.bedNone')}</option>
+                    <option value="Double Bed">{t('roomOverview.bedDouble')}</option>
+                    <option value="Twin Beds">{t('roomOverview.bedTwin')}</option>
+                    <option value="Twin Beds Separated">{t('roomOverview.bedTwinSeparated')}</option>
+                    <option value="Single Bed">{t('roomOverview.bedSingle')}</option>
+                    <option value="Baby Bed">{t('roomOverview.bedBaby')}</option>
+                    <option value="Extra Cot Added">{t('roomOverview.bedExtraCot')}</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Quick Actions */}
+              <div className="space-y-1 border-t border-border pt-1.5">
+                {/* Switch Type */}
+                <button
+                  className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors"
+                  disabled={actionLoading === `switch-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`switch-${room.id}`);
+                    const newIsCheckout = !isCheckout;
+                    try {
+                      await switchRoomType(room, newIsCheckout);
+                      toast.success(`Room ${room.room_number} → ${newIsCheckout ? 'Checkout' : 'Daily'}`);
+                      await fetchData();
+                    } catch { toast.error('Failed'); }
+                    finally { setActionLoading(null); }
+                  }}
+
+                >
+                  <ArrowLeftRight className="h-3 w-3" /> {isCheckout ? t('roomOverview.switchToDaily') : t('roomOverview.switchToCheckout')}
+                </button>
+
+                {/* Status change - hidden for checkout rooms not yet ready */}
+                {room.status === 'clean' && (
+                  <button
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                    disabled={actionLoading === `dirty-${room.id}`}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      setActionLoading(`dirty-${room.id}`);
+                      try {
+                        await supabase.from('rooms').update({ status: 'dirty' } as any).eq('id', room.id);
+                        setRooms(prev => prev.map(r => r.id === room.id ? { ...r, status: 'dirty' } : r));
+                        toast.success(`Room ${room.room_number} → Dirty`);
+                      } catch { toast.error('Failed'); }
+                      finally { setActionLoading(null); }
+                    }}
+                  >
+                    {t('roomOverview.markAsDirty')}
+                  </button>
+                )}
+                {(room.status === 'dirty' || room.status === 'in_progress') && !(isCheckout && !assignment?.ready_to_clean) && (
+                  <button
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                    disabled={actionLoading === `clean-${room.id}`}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      setActionLoading(`clean-${room.id}`);
+                      try {
+                        const nowIso = new Date().toISOString();
+                        await supabase.from('rooms').update({ status: 'clean', last_cleaned_at: nowIso } as any).eq('id', room.id);
+                        setRooms(prev => prev.map(r => r.id === room.id ? { ...r, status: 'clean', last_cleaned_at: nowIso } : r));
+                        toast.success(`Room ${room.room_number} → Clean`);
+                      } catch { toast.error('Failed'); }
+                      finally { setActionLoading(null); }
+                    }}
+                  >
+                    <CheckCircle className="h-3 w-3" /> {t('roomOverview.markAsClean')}
+                  </button>
+                )}
+              </div>
+
+              {/* Notes - explicit save + debounced auto-save while typing */}
+              {isManagerOrAdmin && (
+                <div className="border-t border-border pt-1.5 space-y-1.5">
+                  {room.notes && profile?.role === 'admin' && (
+                    <StructuredRoomNote notes={room.notes} />
+                  )}
+                  <textarea
+                    className="w-full text-xs p-1.5 rounded border border-input bg-background min-h-[36px] resize-none placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    placeholder={t('roomOverview.managerNotes')}
+                    value={popoverNotes}
+                    onChange={(e) => {
+                      const nextNotes = e.target.value;
+                      setPopoverNotes(nextNotes);
+                      setPopoverNotesSaveState('idle');
+                      if (popoverNotesSaveTimerRef.current) clearTimeout(popoverNotesSaveTimerRef.current);
+                      popoverNotesSaveTimerRef.current = setTimeout(() => {
+                        popoverNotesSaveTimerRef.current = null;
+                        void savePopoverRoomNotes(room, nextNotes, assignmentStatus);
+                      }, 600);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={() => {
+                      if (popoverNotesSaveTimerRef.current) {
+                        clearTimeout(popoverNotesSaveTimerRef.current);
+                        popoverNotesSaveTimerRef.current = null;
+                      }
+                      void savePopoverRoomNotes(room, popoverNotes, assignmentStatus);
+                    }}
+                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-[10px] ${
+                      popoverNotesSaveState === 'error'
+                        ? 'text-red-600'
+                        : popoverNotesSaveState === 'saved'
+                          ? 'text-emerald-600'
+                          : 'text-muted-foreground'
+                    }`}>
+                      {popoverNotesSaveState === 'saving'
+                        ? 'Saving…'
+                        : popoverNotesSaveState === 'saved'
+                          ? '✓ Saved automatically'
+                          : popoverNotesSaveState === 'error'
+                            ? 'Save failed'
+                            : 'Auto-saves while typing'}
+                    </span>
+                    <button
+                      type="button"
+                      className="px-2 py-1 rounded text-[11px] font-semibold border border-input bg-background hover:bg-muted transition-colors disabled:opacity-50"
+                      disabled={popoverNotesSaveState === 'saving'}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (popoverNotesSaveTimerRef.current) {
+                          clearTimeout(popoverNotesSaveTimerRef.current);
+                          popoverNotesSaveTimerRef.current = null;
+                        }
+                        void savePopoverRoomNotes(room, popoverNotes, assignmentStatus, true);
+                      }}
+                    >
+                      {popoverNotesSaveState === 'saving' ? 'Saving…' : 'Save Notes'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Date-scoped two-way room communication */}
+              {isManagerOrAdmin && assignment && (
+                <div className="border-t border-border pt-1.5">
+                  <RoomCommunicationPanel
+                    assignmentId={assignment.id}
+                    roomId={room.id}
+                    roomNumber={room.room_number}
+                    dateLabel={selectedDate}
+                    readOnly={selectedDate !== todayBudapest()}
+                  />
+                </div>
+              )}
+
+              {/* No Service Override */}
+              {isManagerOrAdmin && assignment && !assignment.notes?.includes('[NO_SERVICE]') && (
+                <button
+                  className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-medium bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  disabled={actionLoading === `ns-${room.id}`}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setActionLoading(`ns-${room.id}`);
+                    try {
+                      const now = new Date().toISOString();
+                      const currentNotes = assignment.notes || '';
+                      await supabase.from('room_assignments').update({
+                        status: 'completed',
+                        completed_at: now,
+                        notes: `${currentNotes}\n[NO_SERVICE] Manager override`.trim()
+                      } as any).eq('room_id', room.id).eq('assignment_date', selectedDate);
+                      toast.success(`Room ${room.room_number} marked No Service`);
+                      await fetchData();
+                    } catch { toast.error('Failed'); }
+                    finally { setActionLoading(null); }
+                  }}
+                >
+                  <Ban className="h-3 w-3" /> {t('roomOverview.markNoService')}
+                </button>
+              )}
+
+              {/* Settings link */}
+              {isManagerOrAdmin && (
+                <button
+                  className="w-full flex items-center gap-1.5 px-2 py-1 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openSettingsDialog(room);
+                  }}
+                >
+                  <Settings className="h-3 w-3" /> {t('roomOverview.roomSettings')}
+                </button>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+      );
+    }
+
+    // Mobile / non-interactive: simple chip (click opens dialog on mobile)
+    return (
+      <React.Fragment key={room.id}>
+        {chipContent}
+      </React.Fragment>
+    );
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetType: 'checkout' | 'daily' | 'noshow' | 'arrival') => {
+    e.preventDefault();
+    setDragOverSection(null);
+    justDraggedRef.current = Date.now();
+    setHoveredRoomId(null);
+    const payload = readRoomDragPayload(e);
+    if (!payload) return;
+    const { roomId, roomNumber, sourceType } = payload;
+
+    // A chip dragged out of a housekeeper card and dropped back on the board
+    // means "take this off them". On staged boards the move is queued for the
+    // blanket Apply; elsewhere we keep the per-move confirmation.
+    if (payload.origin === 'housekeeper') {
+      if (venuesEnabled && canDragAssign) {
+        window.dispatchEvent(new CustomEvent('hk-stage-unassign', {
+          detail: {
+            roomId,
+            roomNumber,
+            fromStaffId: payload.assignedTo || null,
+            fromStaffName: payload.assignedToName || null,
+          },
+        }));
+        return;
+      }
+      setPendingUnassign({ roomId, roomNumber, staffName: payload.assignedToName || null });
+      return;
+    }
+
+
+    if (sourceType === targetType) return;
+    // Retyping a unit between checkout/daily stays a manager-only action.
+    if (!isManagerOrAdmin) return;
+
+
+    // Dropping onto "no-show" behaves like moving back to daily (managers
+    // typically drag a no-show back to daily to reassign / clean it).
+    const effectiveTarget: 'checkout' | 'daily' = targetType === 'checkout' ? 'checkout' : 'daily';
+    const newIsCheckout = effectiveTarget === 'checkout';
+    const newAssignmentType = newIsCheckout ? 'checkout_cleaning' : 'daily_cleaning';
+    const assignment = assignmentMap.get(roomId);
+    const movedRoom = rooms.find(r => r.id === roomId);
+    const newMeta = {
+      ...(movedRoom?.pms_metadata || {}),
+      manual_checkout: newIsCheckout,
+      manual_moved_at: new Date().toISOString(),
+      manual_moved_by: profile?.id || null,
+    };
+
+    // Optimistic update
+    setRooms(prev => prev.map(r => r.id === roomId ? { ...r, is_checkout_room: newIsCheckout, pms_metadata: newMeta } : r));
+
+    try {
+      const roomUpdate = supabase.from('rooms').update({ is_checkout_room: newIsCheckout, pms_metadata: newMeta } as any).eq('id', roomId);
+      const promises: any[] = [roomUpdate];
+      if (assignment) {
+        const assignmentUpdate: any = { assignment_type: newAssignmentType };
+        if (newIsCheckout) {
+          assignmentUpdate.ready_to_clean = false;
+        } else {
+          assignmentUpdate.ready_to_clean = null;
+        }
+        promises.push(
+          supabase.from('room_assignments').update(assignmentUpdate).eq('room_id', roomId).eq('assignment_date', selectedDate)
+        );
+      }
+      await Promise.all(promises);
+      toast.success(`Room ${roomNumber} → ${newIsCheckout ? 'Checkout' : 'Daily'} (manual)`);
+      await fetchData();
+    } catch {
+      toast.error('Failed to switch room type');
+      await fetchData(); // revert
+    }
+  };
+
+  // Lookup: room by id — used to render yesterday's snapshot chips.
+  const roomsById = new Map<string, RoomData>();
+  rooms.forEach(r => roomsById.set(r.id, r));
+
+  // Read-only chip for yesterday's snapshot. No handlers, no popover, no
+  // dropdowns — pure display of how the room stood at end of prior day.
+  const renderReadOnlyChip = (
+    room: RoomData,
+    prev: AssignmentData & { completed_at: string | null },
+  ) => {
+    const isCheckout = prev.assignment_type === 'checkout_cleaning' || room.is_checkout_room;
+    const status = prev.status;
+    const approved = !!prev.supervisor_approved;
+    let statusKey: string;
+    if (status === 'completed' && approved) statusKey = 'clean';
+    else if (status === 'completed') statusKey = 'pending_approval';
+    else if (status === 'in_progress') statusKey = 'in_progress';
+    else statusKey = 'dirty';
+    const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
+    const roomFlags = parseRoomFlags(room.notes);
+    const isDND = room.is_dnd;
+    const noShow = isNoShow(room) && !isEarlyCheckout(room);
+    const earlyCheckout = isEarlyCheckout(room);
+    const sizeLabel = getSizeLabel(room.room_size_sqm);
+    const staffName = assigneeLabel(staffMap, prev.assigned_to);
+    return (
+      <div className="flex flex-col items-center gap-0.5 select-none opacity-60 saturate-75 transition-opacity hover:opacity-80" style={{ cursor: 'not-allowed' }}>
+        <div
+          className={`
+            px-2 py-1 rounded text-xs font-bold border-2 min-w-[40px] text-center ${colorClass}
+            ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
+            ${noShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
+            ${earlyCheckout ? 'ring-2 ring-orange-500 ring-offset-1' : ''}
+          `}
+          title={`Yesterday · ${isCheckout ? 'Checkout' : 'Daily'} · ${status}${approved ? ' (approved)' : ''}`}
+        >
+          {room.room_number}
+          {room.pms_metadata?.manual_checkout === true && (
+            <span
+              className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-amber-500 text-white"
+              title="Manually moved by a manager (not from PMS)"
+            >M</span>
+          )}
+          {isCheckout && <span className="ml-0.5 text-[9px] opacity-80">C/O</span>}
+          {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
+          {room.towel_change_required && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
+          {room.linen_change_required && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
+          {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RC</span>}
+          {roomFlags.collectExtraTowels && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">🧺</span>}
+          {prev.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-gray-500 text-white">NS</span>}
+          {status === 'completed' && approved && <span className="ml-0.5 text-[9px]">✅</span>}
+          {status === 'completed' && !approved && <span className="ml-0.5 text-[9px]">⏳</span>}
+          {status === 'in_progress' && <span className="ml-0.5 text-[9px]">⏱</span>}
+          {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
+          {noShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
+          {earlyCheckout && <span className="ml-0.5 text-[9px]">🔶</span>}
+          {sizeLabel && <span className="ml-0.5 text-[8px] opacity-70">{sizeLabel}</span>}
+        </div>
+        <div className="flex flex-col items-center gap-0">
+          {(room as any).bed_configuration && (
+            <span className="text-[8px] text-purple-600 dark:text-purple-400 font-semibold truncate max-w-[48px]">
+              {(() => {
+                const bc = (room as any).bed_configuration;
+                if (bc.includes('Double')) return 'DB';
+                if (bc.includes('Twin') && bc.includes('Sep')) return 'TW-S';
+                if (bc.includes('Twin')) return 'TW';
+                if (bc.includes('Single')) return 'SGL';
+                if (bc.includes('Baby')) return '👶BB';
+                if (bc.includes('Sofa')) return 'SOFA';
+                if (bc.includes('Extra') || bc.includes('Cot')) return '+COT';
+                return bc.substring(0, 3).toUpperCase();
+              })()}
+            </span>
+          )}
+          {roomFlags.cleanNotes && (
+            <span className="text-[8px]" title={summarizePmsNote(roomFlags.cleanNotes) || roomFlags.cleanNotes}>📝</span>
+          )}
+          {staffName && (
+            <span className="text-[9px] text-muted-foreground font-medium leading-tight text-center max-w-[76px] break-words" title={staffMap[prev.assigned_to] || staffName || undefined}>{staffName}</span>
+          )}
+          {prev.completed_at && (
+            <span className="text-[8px] text-muted-foreground/80">
+              {new Date(prev.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode, sectionType: 'checkout' | 'daily' | 'noshow' | 'arrival') => {
+    // Right column: live today rooms for this section (unchanged).
+    const todayRooms = roomList;
+
+    // Left column: read-only snapshot of yesterday's rooms that belonged to
+    // this same section (checkout vs daily) — sourced from previousAssignments,
+    // NOT from today's live room list.
+    const previousEntries: Array<{ room: RoomData; prev: AssignmentData & { completed_at: string | null } }> = [];
+    previousAssignments.forEach((prev, roomId) => {
+      const room = roomsById.get(roomId);
+      if (!room) return;
+      const wasCheckout = prev.assignment_type === 'checkout_cleaning' || room.is_checkout_room;
+      if (sectionType === 'checkout' && !wasCheckout) return;
+      if (sectionType === 'daily' && wasCheckout) return;
+      if (sectionType === 'noshow') return; // no yesterday snapshot for no-show
+      previousEntries.push({ room, prev });
+    });
+
+    const floors = groupByFloor(roomList);
+    const dndCount = roomList.filter(r => r.is_dnd).length;
+    const isDragOver = dragOverSection === sectionType;
+
+    const renderTodayVenueRows = (roomsForColumn: RoomData[]) => {
+      const groups = groupByVenue(roomsForColumn);
+      if (groups.length === 0) {
+        return <p className="text-xs text-muted-foreground pl-1">{t('team.noRooms')}</p>;
+      }
+      return (
+        <div>
+          <div className="mb-1 flex justify-end">
+            <button
+              type="button"
+              className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+              onClick={() => setDenseVenues(v => !v)}
+            >
+              {denseVenues ? 'Roomy view' : 'Compact view'}
+            </button>
+          </div>
+          <div className={denseVenues ? 'columns-1 sm:columns-2 xl:columns-3 gap-2' : 'space-y-2'}>
+            {groups.map(group => {
+              const color = venueColor(group.key === '__none__' ? null : group.key);
+              const dragProps = canDragAssign ? {
+                draggable: true,
+                onDragStart: (e: React.DragEvent) => {
+                  const first = group.rooms[0];
+                  if (!first) return;
+                  const nameFor = (roomId: string) => {
+                    const a = assignmentMap.get(roomId);
+                    return a ? staffMap[a.assigned_to] ?? null : null;
+                  };
+                  setRoomDragPayload(e, {
+                    roomId: first.id,
+                    roomNumber: first.room_number,
+                    sourceType: sectionType,
+                    origin: 'overview' as const,
+                    assignedTo: assignmentMap.get(first.id)?.assigned_to ?? null,
+                    assignedToName: nameFor(first.id),
+                    bulk: group.rooms.map(r => ({
+                      roomId: r.id,
+                      roomNumber: r.room_number,
+                      sourceType: sectionType,
+                      assignedTo: assignmentMap.get(r.id)?.assigned_to ?? null,
+                      assignedToName: nameFor(r.id),
+                    })),
+                  });
+
+                },
+              } : {};
+              const onPillClick = selectionEnabled ? () => {
+                toggleUnitGroupSelection(group.rooms.map(r => ({
+                  roomId: r.id,
+                  roomNumber: r.room_number,
+                  sourceType: sectionType === 'checkout' ? 'checkout' : 'daily',
+                  assignedTo: assignmentMap.get(r.id)?.assigned_to ?? null,
+                  assignedToName: (() => {
+                    const a = assignmentMap.get(r.id);
+                    return a ? staffMap[a.assigned_to] ?? null : null;
+                  })(),
+                })));
+              } : undefined;
+
+              return (
+                <div
+                  key={group.key}
+                  className={`rounded-md border border-border/50 bg-muted/20 p-1.5 ${denseVenues ? 'mb-2 break-inside-avoid' : ''}`}
+                >
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span
+                      {...dragProps}
+                      onClick={onPillClick}
+                      title={canDragAssign
+                        ? `Tap to select all ${group.rooms.length} ${terms.unitPlural.toLowerCase()} of ${group.name} (or drag)`
+                        : group.name}
+                      style={{ cursor: canDragAssign || selectionEnabled ? 'pointer' : 'default' }}
+                      className="inline-flex items-center gap-1 rounded-full bg-background/70 border border-border/60 px-1.5 py-0.5 shrink-0"
+                    >
+                      <span className="h-2.5 w-1.5 rounded-full shrink-0" style={color ? { backgroundColor: color } : undefined} />
+                      <span className="text-[10px] font-semibold text-foreground max-w-[130px] truncate">{group.name}</span>
+                      <span className="text-[9px] text-muted-foreground">{group.rooms.length}</span>
+                      {selectionEnabled && (
+                        <span className="text-[9px] text-primary font-medium">
+                          {group.rooms.every(r => selectedUnitIds.has(r.id)) ? '−' : '+'}
+                        </span>
+                      )}
+                    </span>
+
+                    {group.rooms.map(room => (
+                      <div key={room.id} className="animate-fade-in">
+                        {renderRoomChip(room)}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    };
+
+    const renderTodayFloorRows = (roomsForColumn: RoomData[]) => {
+      if (venuesEnabled) return renderTodayVenueRows(roomsForColumn);
+      const columnFloors = groupByFloor(roomsForColumn);
+      if (columnFloors.length === 0) {
+        return <p className="text-xs text-muted-foreground pl-1">{t('team.noRooms')}</p>;
+      }
+      return (
+        <div className="space-y-1.5">
+          {columnFloors.map(([floor, floorRooms]) => (
+            <div key={floor} className="flex items-start gap-2">
+              <Badge variant="outline" className="text-[10px] min-w-[28px] text-center shrink-0 mt-0.5">
+                F{floor}
+              </Badge>
+              <div className="flex flex-wrap gap-1.5">
+                {floorRooms.map(room => (
+                  <div key={room.id} className="animate-fade-in">
+                    {renderRoomChip(room)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    };
+
+
+    const renderPrevFloorRows = () => {
+      if (previousEntries.length === 0) {
+        return <p className="text-xs text-muted-foreground pl-1">{t('team.noRooms')}</p>;
+      }
+      // Group by floor manually since entries carry both room + prev.
+      const floorMap = new Map<number, typeof previousEntries>();
+      for (const entry of previousEntries) {
+        const f = entry.room.floor_number ?? (Math.floor(parseInt(entry.room.room_number) / 100) || 0);
+        if (!floorMap.has(f)) floorMap.set(f, []);
+        floorMap.get(f)!.push(entry);
+      }
+      const sorted = Array.from(floorMap.entries()).sort((a, b) => a[0] - b[0]);
+      return (
+        <div className="space-y-1.5">
+          {sorted.map(([floor, entries]) => (
+            <div key={floor} className="flex items-start gap-2">
+              <Badge variant="outline" className="text-[10px] min-w-[28px] text-center shrink-0 mt-0.5">
+                F{floor}
+              </Badge>
+              <div className="flex flex-wrap gap-1.5">
+                {entries
+                  .sort((a, b) => String(a.room.room_number).localeCompare(String(b.room.room_number), undefined, { numeric: true }))
+                  .map(({ room, prev }) => (
+                    <div key={room.id} className="animate-fade-in">
+                      {renderReadOnlyChip(room, prev)}
+                    </div>
+                  ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    };
+
+    return (
+      <div
+        className={`space-y-2 rounded-lg transition-all duration-200 ${
+          isDragOver ? 'ring-2 ring-primary/40 bg-primary/5 p-2 -m-2' : ''
+        }`}
+        onDragOver={canDragAssign ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOverSection(sectionType); } : undefined}
+        onDragEnter={canDragAssign ? (e) => { e.preventDefault(); setDragOverSection(sectionType); } : undefined}
+        onDragLeave={canDragAssign ? (e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverSection(null);
+        } : undefined}
+        onDrop={canDragAssign ? (e) => handleDrop(e, sectionType) : undefined}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 flex-wrap">
+            {icon}
+            <span className="text-sm font-semibold">{title}</span>
+            <Badge variant="secondary" className="text-xs">{roomList.length}</Badge>
+            {sectionType === 'checkout' && roomList.length > 0 && (() => {
+              const manualCount = roomList.filter(r => r.pms_metadata?.manual_checkout === true).length;
+              const pmsCount = roomList.filter(r => r.is_checkout_room && !r.pms_metadata?.manual_checkout).length;
+              if (pmsCount === 0 && manualCount === 0) return null;
+              return (
+                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <span>{pmsCount} PMS</span>
+                  <span className="opacity-40">·</span>
+                  <span className={manualCount > 0 ? 'font-semibold text-amber-700 dark:text-amber-500' : ''}>
+                    {manualCount} manual
+                  </span>
+                </span>
+              );
+            })()}
+            {sectionType === 'noshow' && (
+              <span className="text-[10px] text-red-700 dark:text-red-300 font-medium">
+                {t('team.noShowExplainer')}
+              </span>
+            )}
+            {isDragOver && <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30 animate-pulse">{t('roomOverview.dropHere')}</Badge>}
+            {selectionEnabled && roomList.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[10px]"
+                onClick={() => toggleUnitGroupSelection(roomList.map(r => {
+                  const a = assignmentMap.get(r.id);
+                  return {
+                    roomId: r.id,
+                    roomNumber: r.room_number,
+                    sourceType: sectionType === 'checkout' ? 'checkout' : 'daily',
+                    assignedTo: a?.assigned_to ?? null,
+                    assignedToName: a ? staffMap[a.assigned_to] ?? null : null,
+                  };
+                }))}
+              >
+                {roomList.every(r => selectedUnitIds.has(r.id)) ? 'Deselect all' : 'Select all'}
+              </Button>
+            )}
+          </div>
+          {dndCount > 0 && (
+            <Badge variant="outline" className="text-purple-600 border-purple-300 text-xs">
+              <EyeOff className="h-3 w-3 mr-1" /> {dndCount} DND
+            </Badge>
+          )}
+        </div>
+
+        {floors.length === 0 && previousEntries.length === 0 ? (
+          <p className="text-xs text-muted-foreground pl-6">{t('roomOverview.noRooms')}</p>
+        ) : (() => {
+          // Two-column Yesterday/Today split is admin-only. All other eligible
+          // users (managers, housekeeping_managers, reception, exec viewers)
+          // see just the Today column on every device.
+          const showYesterdayColumn =
+            profile?.role === 'admin' || profile?.role === 'top_management';
+          if (!showYesterdayColumn) {
+            return renderTodayFloorRows(todayRooms);
+          }
+          return (
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+              {/* LEFT — Yesterday, read-only snapshot (admins/top-management only) */}
+              <div className="rounded-md border border-border/60 bg-muted/20 p-2 pointer-events-none">
+                <div className="mb-2 flex items-center justify-between gap-2 pointer-events-auto">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('team.yesterdayCarried')}{previousDayDate ? ` — ${formatPrevDate(previousDayDate)}` : ''}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Badge variant="outline" className="text-[9px] uppercase tracking-wide border-border/70 text-muted-foreground">
+                      {t('team.readOnly')}
+                    </Badge>
+                    <Badge variant="secondary" className="text-[10px] opacity-70">{previousEntries.length}</Badge>
+                  </div>
+                </div>
+                {renderPrevFloorRows()}
+              </div>
+              {/* RIGHT — Today, live */}
+              <div className="rounded-md border border-blue-200 bg-blue-50/35 p-2 dark:border-blue-900/50 dark:bg-blue-950/15">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">{t('team.todayPmsManual')}</span>
+                  <Badge variant="outline" className="border-blue-300 bg-blue-600 text-[10px] text-white">{todayRooms.length} {t('team.new')}</Badge>
+                </div>
+                {renderTodayFloorRows(todayRooms)}
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+    );
+  };
+
+
+  const renderPublicAreas = () => {
+    if (publicAreaTasks.length === 0) return null;
+
+    return (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <MapPin className="h-3.5 w-3.5 text-emerald-600" />
+          <span className="text-sm font-semibold">{t('roomOverview.publicAreas')}</span>
+          <Badge variant="secondary" className="text-xs">{publicAreaTasks.length}</Badge>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {publicAreaTasks.map(task => {
+            const colorClass = TASK_STATUS_COLORS[task.status] || DEFAULT_COLOR;
+            const staffName = cleanName(staffMap[task.assigned_to]) || null;
+            const shortName = assigneeLabel(staffMap, task.assigned_to);
+
+            return (
+              <TooltipProvider key={task.id} delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex flex-col items-center gap-0.5">
+                      <div className={`px-2 py-1 rounded text-xs font-semibold border ${colorClass} min-w-[40px] text-center`}>
+                        {task.task_name}
+                      </div>
+                      {shortName && (
+                        <span className="text-[9px] text-muted-foreground font-medium leading-tight text-center max-w-[76px] break-words" title={staffName || undefined}>
+                          {shortName}
+                        </span>
+                      )}
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">
+                    <div className="space-y-1">
+                      <p className="font-semibold">{task.task_name}</p>
+                      <p>Status: {task.status}</p>
+                      {staffName && <p>Assigned: {staffName}</p>}
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="py-4">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary" />
+            Loading room overview...
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <Card id="hotel-room-overview" className={`border-primary/20 transition-shadow duration-500 ${syncFlash ? 'ring-2 ring-emerald-400 ring-offset-2 shadow-[0_0_0_6px_hsl(142_71%_45%/0.15)]' : ''}`}>
+        <CardHeader className="pb-2 pt-3 px-3 sm:px-4 space-y-3">
+          {/* Row 1: Title + actions */}
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-sm sm:text-base font-semibold flex items-center gap-1.5 min-w-0">
+              <Hotel className="h-4 w-4 text-primary shrink-0" />
+              <span className="truncate">{t('team.hotelRoomOverview')}</span>
+            </CardTitle>
+            <div className="flex items-center gap-1 shrink-0">
+              {canViewFullOverview && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2 text-xs"
+                  onClick={() => setViewMode(viewMode === 'list' ? 'map' : 'list')}
+                  aria-label={viewMode === 'list' ? 'Switch to map view' : 'Switch to list view'}
+                >
+                  <MapIcon className="h-3.5 w-3.5 sm:mr-1" />
+                  <span className="hidden sm:inline">{viewMode === 'list' ? 'Map' : 'List'}</span>
+                </Button>
+              )}
+              <HelpTooltip hint={UI_HINTS["room.refresh"]}>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="h-8 px-2 sm:px-3 text-xs font-semibold shadow-sm"
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                  aria-label="Refresh"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 sm:mr-1 ${refreshing ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">{refreshing ? t('team.refreshing') : t('team.refresh')}</span>
+                </Button>
+              </HelpTooltip>
+            </div>
+          </div>
+
+          {/* Row 2: Compact stat grid */}
+          <div className="grid grid-cols-4 gap-2">
+            <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-center">
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('team.total')}</div>
+              <div className="text-sm font-semibold leading-tight">{rooms.length}</div>
+            </div>
+            <div className={`rounded-lg border px-2 py-1.5 text-center ${earlyCheckoutRooms.length > 0 ? 'bg-orange-50 border-orange-200 dark:bg-orange-900/20 dark:border-orange-700' : 'bg-muted/40'}`}>
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('team.earlyCheckout')}</div>
+              <div className={`text-sm font-semibold leading-tight ${earlyCheckoutRooms.length > 0 ? 'text-orange-700 dark:text-orange-300' : ''}`}>{earlyCheckoutRooms.length}</div>
+            </div>
+            <div className={`rounded-lg border px-2 py-1.5 text-center ${noShowRooms.length > 0 ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-700' : 'bg-muted/40'}`}>
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('team.noShow')}</div>
+              <div className={`text-sm font-semibold leading-tight ${noShowRooms.length > 0 ? 'text-red-700 dark:text-red-300' : ''}`}>{noShowRooms.length}</div>
+            </div>
+            <TooltipProvider delayDuration={200}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-center cursor-help">
+                    <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('team.act')}</div>
+                    <div className="text-sm font-semibold leading-tight">{averageCleanTime !== null ? `${averageCleanTime}m` : '--'}</div>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  {t('room.actTooltip')}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+
+          {/* Row 3: Toggle Legend (collapsed by default) */}
+          <div>
+            <button
+              onClick={() => setShowLegend(prev => !prev)}
+              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ChevronDown className={`h-3 w-3 transition-transform ${showLegend ? '' : '-rotate-90'}`} />
+              {showLegend ? t('legend.hideLegend') : t('legend.showLegend')}
+            </button>
+            {showLegend && (
+              <div data-training="room-legend" className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-3 gap-y-1.5 mt-2 p-2 rounded-md bg-muted/30 border border-border/50">
+                {[
+                  { label: t('legend.approvedClean'), cls: 'bg-emerald-200 border-emerald-500', hint: t('legend.approvedCleanHint') },
+                  { label: t('legend.dirtyAssigned'), cls: 'bg-amber-200 border-amber-500', hint: t('legend.dirtyAssignedHint') },
+                  { label: t('legend.inProgress'), cls: 'bg-sky-200 border-sky-500', hint: t('legend.inProgressHint') },
+                  { label: t('legend.pendingApproval'), cls: 'bg-violet-200 border-violet-500', hint: UI_HINTS["room.pendingApproval"] },
+                  { label: t('legend.overdue'), cls: 'bg-rose-300 border-rose-600', hint: UI_HINTS["room.overdue"] },
+                  { label: t('legend.outOfOrder'), cls: 'bg-red-200 border-red-500', hint: t('legend.outOfOrderHint') },
+                  { label: t('legend.dnd'), cls: 'ring-2 ring-purple-500 bg-muted', hint: UI_HINTS["room.dnd"] },
+                  { label: t('legend.noShow'), cls: 'ring-2 ring-red-600 bg-muted', hint: UI_HINTS["room.noShow"] },
+                  { label: t('legend.earlyCheckout'), cls: 'ring-2 ring-orange-500 bg-muted', hint: UI_HINTS["room.earlyCheckout"] },
+                  { label: t('legend.towelChange'), cls: 'bg-blue-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'T', hint: UI_HINTS["room.towelChange"] },
+                  { label: 'Clean Room', cls: 'bg-orange-500 text-white text-[8px] font-bold px-0.5', isText: true, text: 'C', hint: UI_HINTS["room.linenChange"] },
+                  { label: t('legend.roomCleaning'), cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RC', hint: t('legend.roomCleaningHint') },
+                  { label: t('legend.extraTowels'), cls: 'bg-orange-500 text-white text-[8px] font-bold px-0.5', isText: true, text: '🧺', hint: UI_HINTS["room.extraTowels"] },
+                  { label: t('legend.readyToClean'), cls: 'bg-green-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'RTC', hint: UI_HINTS["room.rtc"] },
+                  { label: t('legend.approved'), cls: 'text-[10px]', isText: true, text: '✅', hint: t('legend.approvedHint') },
+                  // Additional badges that render on the chip but were missing from the legend:
+                  { label: t('legend.manualCheckout'), cls: 'bg-amber-500 text-white text-[8px] font-bold px-0.5', isText: true, text: 'M', hint: t('legend.manualCheckoutHint') },
+                  { label: t('legend.newlySynced'), cls: 'bg-blue-500 ring-1 ring-blue-300', hint: t('legend.newlySyncedHint') },
+                  { label: t('legend.departsTomorrow'), cls: 'bg-indigo-600 text-white text-[8px] font-bold px-0.5', isText: true, text: 'C/O+1', hint: t('legend.departsTomorrowHint') },
+                  { label: t('legend.shabbat'), cls: 'text-blue-700 dark:text-blue-300 text-[9px] font-extrabold', isText: true, text: 'SH', hint: t('legend.shabbatHint') },
+                  { label: t('legend.noService'), cls: 'bg-gray-500 text-white text-[8px] font-bold px-0.5', isText: true, text: 'NS', hint: t('legend.noServiceHint') },
+                  { label: t('legend.hasNote'), cls: 'text-[10px]', isText: true, text: '📝', hint: t('legend.hasNoteHint') },
+                ].map(item => (
+                  <HelpTooltip key={item.label} hint={(item as any).hint}>
+                    <div className="flex items-center gap-1 cursor-help">
+                      {(item as any).isText ? (
+                        <span className={`rounded ${item.cls}`}>{(item as any).text}</span>
+                      ) : (
+                        <div className={`w-3 h-3 rounded border-2 ${item.cls}`} />
+                      )}
+                      <span className="text-[10px] text-muted-foreground">{item.label}</span>
+                    </div>
+                  </HelpTooltip>
+                ))}
+              </div>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="px-4 pb-3 space-y-3">
+          {/* Signed-in housekeeper tray — drag a person onto a room to assign. */}
+          {canDragAssign && signedInHousekeepers.length > 0 && (
+            <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-[11px] font-semibold text-foreground">Signed in today</span>
+                <span className="text-[10px] text-muted-foreground hidden sm:inline">
+                  — drag a housekeeper onto a {terms.unit.toLowerCase()} to assign
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {signedInHousekeepers.map((hk) => (
+                  <div
+                    key={hk.id}
+                    draggable
+                    onDragStart={(e) => {
+                      setHousekeeperDragPayload(e, { staffId: hk.id, staffName: hk.fullName });
+                      setHkDrag({ staffId: hk.id, staffName: hk.fullName });
+                    }}
+                    onDragEnd={() => { setHkDrag(null); setHkHoverRoomId(null); }}
+                    className={`flex items-center gap-1 rounded-full border bg-background px-2 py-1 text-[11px] font-medium cursor-grab active:cursor-grabbing shadow-sm hover:shadow transition-shadow ${hkDrag?.staffId === hk.id ? 'opacity-60' : ''}`}
+                    title={hk.fullName}
+                  >
+                    <GripVertical className="h-3 w-3 text-muted-foreground" />
+                    <span className="max-w-[120px] truncate">{cleanName(hk.nickname) || cleanName(hk.fullName)}</span>
+                    {hk.onBreak && (
+                      <span className="flex items-center gap-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 px-1 text-[9px] font-semibold">
+                        <Coffee className="h-2.5 w-2.5" /> On break
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {viewMode === 'map' ? (
+            <HotelFloorMap
+              rooms={rooms}
+              assignments={assignmentMap}
+              staffMap={staffMap}
+              onRoomClick={canInteractWithRooms ? handleRoomClick : undefined}
+              hotelName={hotelName}
+              isAdmin={canManageHousekeepingMapping(profile?.role)}
+            />
+          ) : (
+            <>
+               {renderSection(terms.isProperty ? terms.checkoutSection : t('team.checkoutRooms'), checkoutRooms, <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'checkout')}
+               <div className="border-t border-border/50" />
+               {renderSection(terms.isProperty ? terms.dailySection : t('team.dailyRooms'), dailyRooms, <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'daily')}
+               {arrivalRooms.length > 0 && (
+                 <>
+                   <div className="border-t border-border/50" />
+                   {renderSection(terms.isProperty ? `Arrival ${terms.unitPlural}` : t('team.arrivalRooms'), arrivalRooms, <BedDouble className="h-3.5 w-3.5 text-emerald-600" />, 'arrival')}
+                 </>
+               )}
+               {noShowRooms.length > 0 && (
+                 <>
+                   <div className="border-t border-border/50" />
+                   {renderSection(terms.isProperty ? terms.noShowSection : t('team.noShowRooms'), noShowRooms, <BedDouble className="h-3.5 w-3.5 text-red-600" />, 'noshow')}
+                 </>
+               )}
+
+            </>
+          )}
+          {publicAreaTasks.length > 0 && (
+            <>
+              <div className="border-t border-border/50" />
+              {renderPublicAreas()}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Room Edit Dialog */}
+      <Dialog open={roomSizeDialogOpen} onOpenChange={setRoomSizeDialogOpen}>
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-sm max-h-[85vh] overflow-y-auto p-4 sm:p-6">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {terms.unit} {selectedRoom?.room_number} {selectedRoom?.wing ? `(Wing ${selectedRoom.wing})` : ''}
+              {selectedRoom && (
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                  selectedRoom.status === 'clean' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' :
+                  selectedRoom.status === 'in_progress' ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300' :
+                  'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                }`}>
+                  {selectedRoom.status === 'in_progress' ? 'In Progress' : selectedRoom.status === 'clean' ? 'Clean' : 'Dirty'}
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {/* Room Status */}
+            {selectedRoom && (() => {
+              const assignment = assignmentMap.get(selectedRoom.id);
+              const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || selectedRoom.is_checkout_room || isScheduledCheckoutRoom(selectedRoom);
+              const canMarkReadyToClean = isCheckout && assignment?.assignment_type === 'checkout_cleaning' && assignment?.pms_hold !== true;
+              const roomStatus = selectedRoom.status;
+              return (
+                <>
+                  {/* Room Status Section */}
+                  <div className="space-y-2 pb-3 border-b">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">🔄 Change Room Status</label>
+                    <p className="text-[11px] text-muted-foreground -mt-1">{t('roomOverview.manualStatusHint')}</p>
+                    <div className="flex gap-2">
+                      {roomStatus === 'clean' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                          disabled={actionLoading === 'dirty'}
+                          onClick={async () => {
+                            setActionLoading('dirty');
+                            try {
+                              const { error } = await supabase
+                                .from('rooms')
+                                .update({ status: 'dirty' } as any)
+                                .eq('id', selectedRoom.id);
+                              if (error) throw error;
+                              setRooms(prev => prev.map(r => r.id === selectedRoom.id ? { ...r, status: 'dirty' } : r));
+                              toast.success(`Room ${selectedRoom.room_number} marked as dirty`);
+                              setRoomSizeDialogOpen(false);
+                              await fetchData();
+                            } catch (err) {
+                              toast.error('Failed to update room status');
+                            } finally {
+                              setActionLoading(null);
+                            }
+                          }}
+                        >
+                          {actionLoading === 'dirty' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                          Mark as Dirty
+                        </Button>
+                      )}
+                      {(roomStatus === 'dirty' || roomStatus === 'in_progress') && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-600 dark:text-emerald-300 dark:hover:bg-emerald-900/30"
+                          disabled={actionLoading === 'clean'}
+                          onClick={async () => {
+                            setActionLoading('clean');
+                            try {
+                              const { error } = await supabase
+                                .from('rooms')
+                                .update({ status: 'clean' } as any)
+                                .eq('id', selectedRoom.id);
+                              if (error) throw error;
+                              setRooms(prev => prev.map(r => r.id === selectedRoom.id ? { ...r, status: 'clean' } : r));
+                              toast.success(`Room ${selectedRoom.room_number} marked as clean`);
+                              setRoomSizeDialogOpen(false);
+                              await fetchData();
+                            } catch (err) {
+                              toast.error('Failed to update room status');
+                            } finally {
+                              setActionLoading(null);
+                            }
+                          }}
+                        >
+                          {actionLoading === 'clean' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
+                          Mark as Clean
+                        </Button>
+                      )}
+                      {roomStatus === 'dirty' && assignment?.status === 'assigned' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 gap-1.5 border-sky-300 text-sky-700 hover:bg-sky-50 dark:border-sky-600 dark:text-sky-300 dark:hover:bg-sky-900/30"
+                          disabled={actionLoading === 'start'}
+                          onClick={async () => {
+                            setActionLoading('start');
+                            try {
+                              const nowIso = new Date().toISOString();
+                              const updatePayload: any = {
+                                status: 'in_progress',
+                                // Always set a fresh start time; the DB trigger is
+                                // the final source of truth and will use server now().
+                                started_at: nowIso,
+                              };
+                              const { error } = await supabase
+                                .from('room_assignments')
+                                .update(updatePayload)
+                                .eq('room_id', selectedRoom.id)
+                                .eq('assignment_date', selectedDate);
+                              if (error) throw error;
+                              setAssignments(prev => prev.map(a => a.room_id === selectedRoom.id ? { ...a, status: 'in_progress', started_at: nowIso } : a));
+                              setRooms(prev => prev.map(r => r.id === selectedRoom.id ? { ...r, status: 'in_progress' } : r));
+                              toast.success(`Room ${selectedRoom.room_number} cleaning started`);
+                              setRoomSizeDialogOpen(false);
+                              await fetchData();
+                            } catch (err) {
+                              toast.error('Failed to start cleaning');
+                            } finally {
+                              setActionLoading(null);
+                            }
+                          }}
+                        >
+                          {actionLoading === 'start' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                          Start Cleaning
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Special Instructions Section */}
+                  <div className="space-y-2 pb-3 border-b">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">🧺 Towel & Linen Change</label>
+                    <div className="grid grid-cols-1 gap-2">
+                      <Button
+                        variant={selectedRoom.towel_change_required ? "default" : "outline"}
+                        size="sm"
+                        className={`w-full justify-start gap-2 text-xs ${selectedRoom.towel_change_required 
+                          ? 'bg-red-600 hover:bg-red-700 text-white' 
+                          : 'border-border hover:bg-accent'}`}
+                        disabled={actionLoading === 'towel'}
+                        onClick={async () => {
+                          setActionLoading('towel');
+                          const newVal = !selectedRoom.towel_change_required;
+                          try {
+                            const { error } = await supabase
+                              .from('rooms')
+                              .update({ towel_change_required: newVal } as any)
+                              .eq('id', selectedRoom.id);
+                            if (error) throw error;
+                            setRooms(prev => prev.map(r => r.id === selectedRoom.id ? { ...r, towel_change_required: newVal } : r));
+                            setSelectedRoom(prev => prev ? { ...prev, towel_change_required: newVal } : prev);
+                            toast.success(`Towel change ${newVal ? 'enabled' : 'disabled'} for room ${selectedRoom.room_number}`);
+                          } catch (err) {
+                            toast.error('Failed to toggle towel change');
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                      >
+                        {actionLoading === 'towel' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                        🔄 Towel: {selectedRoom.towel_change_required ? 'Required' : 'Not Required'}
+                      </Button>
+                      <Button
+                        variant={selectedRoom.linen_change_required ? "default" : "outline"}
+                        size="sm"
+                        className={`w-full justify-start gap-2 text-xs ${selectedRoom.linen_change_required 
+                          ? 'bg-red-600 hover:bg-red-700 text-white' 
+                          : 'border-border hover:bg-accent'}`}
+                        disabled={actionLoading === 'linen'}
+                        onClick={async () => {
+                          setActionLoading('linen');
+                          const newVal = !selectedRoom.linen_change_required;
+                          try {
+                            const { error } = await supabase
+                              .from('rooms')
+                              .update({ linen_change_required: newVal } as any)
+                              .eq('id', selectedRoom.id);
+                            if (error) throw error;
+                            setRooms(prev => prev.map(r => r.id === selectedRoom.id ? { ...r, linen_change_required: newVal } : r));
+                            setSelectedRoom(prev => prev ? { ...prev, linen_change_required: newVal } : prev);
+                            toast.success(`Linen change ${newVal ? 'enabled' : 'disabled'} for room ${selectedRoom.room_number}`);
+                          } catch (err) {
+                            toast.error('Failed to toggle linen change');
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                      >
+                        {actionLoading === 'linen' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                        🛏️ Linen: {selectedRoom.linen_change_required ? 'Required' : 'Not Required'}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Housekeeping Notes Section - only for managers/admins */}
+                  {isManagerOrAdmin && (
+                    <div className="space-y-2 pb-3 border-b">
+                      <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">📝 Housekeeping Notes</label>
+                      {selectedRoom?.notes && profile?.role === 'admin' && (
+                        <StructuredRoomNote notes={selectedRoom.notes} />
+                      )}
+                      <Textarea
+                        value={roomNotes}
+                        onChange={(e) => setRoomNotes(e.target.value)}
+                        placeholder="Add notes for housekeepers..."
+                        className="min-h-[60px] text-sm"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                        disabled={actionLoading === 'notes'}
+                        onClick={async () => {
+                          setActionLoading('notes');
+                          try {
+                            const { error } = await supabase
+                              .from('rooms')
+                              .update({ notes: roomNotes || null } as any)
+                              .eq('id', selectedRoom.id);
+                            if (error) throw error;
+                            setRooms(prev => prev.map(r => r.id === selectedRoom.id ? { ...r, notes: roomNotes || null } : r));
+                            toast.success(`Notes saved for room ${selectedRoom.room_number}`);
+                          } catch (err) {
+                            toast.error('Failed to save notes');
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                      >
+                        {actionLoading === 'notes' ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+                        Save Notes
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Same date-scoped conversation as the desktop room-chip popover */}
+                  {isManagerOrAdmin && assignment && (
+                    <RoomCommunicationPanel
+                      assignmentId={assignment.id}
+                      roomId={selectedRoom.id}
+                      roomNumber={selectedRoom.room_number}
+                      dateLabel={selectedDate}
+                      readOnly={selectedDate !== todayBudapest()}
+                    />
+                  )}
+
+                  {/* Quick Actions Section */}
+                  <div className="space-y-2 pb-3 border-b">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">⚡ Quick Actions</label>
+                    {/* Mark Ready to Clean */}
+                    {canMarkReadyToClean && isManagerOrAdmin && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full justify-start gap-2"
+                        disabled={actionLoading === 'ready' || (assignment?.ready_to_clean === true)}
+                        onClick={async () => {
+                          setActionLoading('ready');
+                          try {
+                            if (assignment) {
+                              await releaseReadyToClean(selectedRoom);
+                            } else {
+                              const { error } = await supabase
+                                .from('rooms')
+                                .update({ status: 'ready_to_clean' } as any)
+                                .eq('id', selectedRoom.id);
+                              if (error) throw error;
+                            }
+                            toast.success(`Room ${selectedRoom.room_number} marked as ready to clean`);
+                            setRoomSizeDialogOpen(false);
+                            await fetchData();
+                          } catch (err) {
+                            toast.error('Failed to mark room as ready');
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                      >
+                        {actionLoading === 'ready' ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4 text-green-600" />}
+                        {assignment?.ready_to_clean ? '✅ Already Marked Ready' : 'Mark as Ready to Clean'}
+                      </Button>
+                    )}
+                    {/* Switch Room Type */}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full justify-start gap-2"
+                      disabled={actionLoading === 'switch'}
+                      onClick={async () => {
+                        setActionLoading('switch');
+                        const newIsCheckout = !isCheckout;
+                        try {
+                          await switchRoomType(selectedRoom, newIsCheckout);
+                          toast.success(`Room ${selectedRoom.room_number} switched to ${newIsCheckout ? 'Checkout' : 'Daily'}`);
+                          setRoomSizeDialogOpen(false);
+                          await fetchData();
+                        } catch (err) {
+                          toast.error('Failed to switch room type');
+                        } finally {
+                          setActionLoading(null);
+                        }
+                      }}
+                    >
+                      {actionLoading === 'switch' ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowLeftRight className="h-4 w-4 text-blue-600" />}
+                      Switch to {isCheckout ? 'Daily' : 'Checkout'}
+                    </Button>
+                    {/* Mark / clear no-show */}
+                    {isManagerOrAdmin && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full justify-start gap-2"
+                        disabled={actionLoading === 'noshow'}
+                        onClick={async () => {
+                          setActionLoading('noshow');
+                          try {
+                            const next = !isPmsNoShow(selectedRoom);
+                            await setManualNoShow(selectedRoom, next);
+                            toast.success(`Room ${selectedRoom.room_number} ${next ? t('roomOverview.markedNoShow') : t('roomOverview.noShowCleared')}`);
+                            setRoomSizeDialogOpen(false);
+                            await fetchData();
+                          } catch {
+                            toast.error('Failed to update no-show');
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                      >
+                        {actionLoading === 'noshow' ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertTriangle className="h-4 w-4 text-rose-600" />}
+                        {isPmsNoShow(selectedRoom) ? t('roomOverview.clearNoShow') : t('roomOverview.markNoShow')}
+                      </Button>
+                    )}
+
+                  </div>
+                </>
+              );
+            })()}
+
+            {/* Room Settings Section - only for managers/admins */}
+            {isManagerOrAdmin && (
+              <>
+                <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">⚙️ Room Settings</label>
+                <p className="text-xs text-muted-foreground">Size affects auto-assignment workload balancing.</p>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">{t('roomOverview.roomSize')}</label>
+                  <Select value={selectedSize} onValueChange={setSelectedSize}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select size" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ROOM_SIZE_OPTIONS.map(opt => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.fullLabel}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">{t('roomOverview.roomCategory')}</label>
+                  <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">{t('common.none')}</SelectItem>
+                      {(HOTEL_ROOM_CATEGORIES[hotelName] || HOTEL_ROOM_CATEGORIES.default).map(cat => (
+                        <SelectItem key={cat} value={cat}>
+                          {cat}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {/* Bed Configuration */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">🛏️ Bed Configuration</label>
+                  <p className="text-xs text-muted-foreground">{t('roomOverview.bedRequirementHint')}</p>
+                  <Select
+                    value={(selectedRoom as any)?.bed_configuration || 'none'}
+                    onValueChange={async (val) => {
+                      const newVal = val === 'none' ? null : val;
+                      try {
+                        const { error } = await supabase
+                          .from('rooms')
+                          .update({ bed_configuration: newVal } as any)
+                          .eq('id', selectedRoom!.id);
+                        if (error) throw error;
+                        setRooms(prev => prev.map(r => r.id === selectedRoom!.id ? { ...r, bed_configuration: newVal } : r));
+                        setSelectedRoom((prev: any) => prev ? { ...prev, bed_configuration: newVal } : prev);
+                        toast.success(`Bed configuration updated for room ${selectedRoom!.room_number}`);
+                      } catch (err) {
+                        toast.error('Failed to update bed configuration');
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select bed configuration" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">{t('common.none')}</SelectItem>
+                      <SelectItem value="Double Bed">{t('bed.doubleBed')}</SelectItem>
+                      <SelectItem value="Twin Beds">{t('bed.twinBeds')}</SelectItem>
+                      <SelectItem value="Twin Beds Separated">{t('bed.twinBedsSeparated')}</SelectItem>
+                      <SelectItem value="Single Bed">{t('bed.singleBed')}</SelectItem>
+                      <SelectItem value="Sofa Bed">Sofa Bed</SelectItem>
+                      <SelectItem value="Extra Cot Added">{t('bed.extraCotAdded')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button variant="outline" onClick={() => setRoomSizeDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleSaveSize} disabled={savingSize}>
+                    {savingSize ? 'Saving...' : 'Save'}
+                  </Button>
+                </div>
+              </>
+            )}
+            {!isManagerOrAdmin && (
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => setRoomSizeDialogOpen(false)}>
+                  Close
+                </Button>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!pendingUnassign} onOpenChange={(o) => { if (!o) setPendingUnassign(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unassign {terms.unit.toLowerCase()}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingUnassign?.staffName
+                ? `${pendingUnassign.roomNumber} will be removed from ${pendingUnassign.staffName} and returned to the unassigned board.`
+                : `${pendingUnassign?.roomNumber ?? ''} will be returned to the unassigned board.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={unassigning}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={unassigning}
+              onClick={async (e) => {
+                e.preventDefault();
+                if (!pendingUnassign) return;
+                setUnassigning(true);
+                try {
+                  await unassignRoom(pendingUnassign.roomId, selectedDate);
+                  toast.success(`${pendingUnassign.roomNumber} unassigned`);
+                  setPendingUnassign(null);
+                  await fetchData();
+                  window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+                } catch {
+                  toast.error('Failed to unassign');
+                } finally {
+                  setUnassigning(false);
+                }
+              }}
+            >
+              {unassigning ? 'Removing…' : 'Unassign'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+
+  );
+}
