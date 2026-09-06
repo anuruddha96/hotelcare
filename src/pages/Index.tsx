@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
-import { PMSNavigation } from '@/components/layout/PMSNavigation';
 import { Dashboard } from '@/components/dashboard/Dashboard';
 import { HotelSelectionScreen } from '@/components/dashboard/HotelSelectionScreen';
 import { isReceptionRole } from '@/lib/roleAccess';
@@ -121,7 +120,6 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
       <Header />
-      <PMSNavigation />
       <Dashboard />
     </div>
   );
