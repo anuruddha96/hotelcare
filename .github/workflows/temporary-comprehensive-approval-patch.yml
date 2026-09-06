@@ -1,0 +1,51 @@
+name: Temporary comprehensive approval patch
+
+on:
+  push:
+    branches:
+      - feature/comprehensive-room-approvals
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/comprehensive-room-approvals
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Apply approval UI patch
+        run: python .github/scripts/patch_comprehensive_approvals.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run focused approval tests
+        run: npm test -- src/lib/approval-instruction-context.test.ts
+
+      - name: Build application
+        run: npm run build
+
+      - name: Commit verified UI integration
+        run: |
+          if git diff --quiet -- src/components/dashboard/SupervisorApprovalView.tsx; then
+            echo "No UI changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/dashboard/SupervisorApprovalView.tsx
+          git commit -m "Integrate comprehensive housekeeping approval context"
+          git push origin HEAD:feature/comprehensive-room-approvals
