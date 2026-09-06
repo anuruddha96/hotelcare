@@ -22,6 +22,8 @@ type MarketRow = {
   competitors: CompetitorDetail[] | null;
 };
 
+type MarketQuality = "none" | "low" | "partial" | "good";
+
 const STYLE_ID = "hotelcare-competitor-pricing-grid-style";
 const ROW_ATTR = "data-hc-competitor-pricing-row";
 
@@ -42,13 +44,62 @@ function hotelFromPath(): string | null {
   return decodeURIComponent(parts[revenue + 1]);
 }
 
+function marketRate(row: MarketRow | undefined): number | null {
+  if (!row) return null;
+  // Median is deliberately preferred over the arithmetic average. A single
+  // unusually expensive/cheap competitor should not drag the calendar signal.
+  return numberOf(row.median_rate_eur) ?? numberOf(row.average_rate_eur);
+}
+
+function qualityFor(active: number, observed: number): {
+  key: MarketQuality;
+  label: string;
+  short: string;
+} {
+  if (observed <= 0) return { key: "none", label: "No market data", short: "—" };
+  if (observed < 3) return { key: "low", label: "Low confidence", short: "Low" };
+
+  // Coverage and absolute sample size both matter. Three quotes out of a large
+  // comp set are useful, but should not look as authoritative as broad coverage.
+  if (active <= 0) {
+    return observed >= 5
+      ? { key: "good", label: "High confidence", short: "High" }
+      : { key: "partial", label: "Medium confidence", short: "Med" };
+  }
+
+  const coverage = observed / active;
+  if (observed >= 5 && coverage >= 0.6) {
+    return { key: "good", label: "High confidence", short: "High" };
+  }
+  if (observed >= 3 && coverage >= 0.35) {
+    return { key: "partial", label: "Medium confidence", short: "Med" };
+  }
+  return { key: "low", label: "Low confidence", short: "Low" };
+}
+
+function capturedLabel(value: string | null): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function ensureStyle() {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
     [${ROW_ATTR}="1"] > div:first-child {
-      position: relative;
+      position: sticky !important;
+      left: 0 !important;
+      z-index: 35 !important;
+      background: hsl(var(--card)) !important;
+      box-shadow: 1px 0 0 hsl(var(--border));
       font-size: 0 !important;
       color: transparent !important;
     }
@@ -135,11 +186,16 @@ function tooltipFor(date: string, row: MarketRow | undefined): string {
   if (!row) return `${date} · no fresh competitor prices yet`;
   const active = numberOf(row.active_competitor_count) ?? 0;
   const observed = numberOf(row.observed_competitor_count) ?? 0;
+  const quality = qualityFor(active, observed);
+  const robustRate = marketRate(row);
+  const freshest = capturedLabel(row.freshest_captured_at);
   const lines = [
-    `${date} · competitor market average ${euro(row.average_rate_eur)}`,
-    `Median ${euro(row.median_rate_eur)} · range ${euro(row.min_rate_eur)}–${euro(row.max_rate_eur)}`,
-    `${observed}/${active} active competitors have a fresh verified EUR rate`,
+    `${date} · robust market rate ${euro(robustRate)} (median)`,
+    `Confidence: ${quality.label} · coverage ${observed}/${active || "?"} active competitors`,
+    `Arithmetic average ${euro(row.average_rate_eur)} · range ${euro(row.min_rate_eur)}–${euro(row.max_rate_eur)}`,
   ];
+  if (freshest) lines.push(`Freshest market capture: ${freshest}`);
+
   const details = Array.isArray(row.competitors) ? row.competitors : [];
   if (details.length) {
     lines.push("", "Competitors:");
@@ -147,7 +203,12 @@ function tooltipFor(date: string, row: MarketRow | undefined): string {
       lines.push(`• ${detail.name || "Competitor"}: ${euro(detail.rate_eur)}`);
     }
   }
-  lines.push("", "The calendar shows the arithmetic average. Pricing automation keeps using the safer validated market median/outlier guard rather than blindly matching this number.");
+
+  lines.push(
+    "",
+    "The calendar shows the median because it is more resistant to one unusually high or low competitor quote.",
+    "This is a market price benchmark, not a demand score by itself. Read it together with Pickup, Occupancy, Left to sell and Events before changing price.",
+  );
   return lines.join("\n");
 }
 
@@ -208,8 +269,9 @@ export default function CompetitorPricingGridBridge() {
       const label = row.firstElementChild as HTMLElement | null;
       if (!label) return;
       const railed = label.getBoundingClientRect().width < 70;
-      label.dataset.hcMarketLabel = railed ? "Mkt" : "Market avg";
-      label.title = "Average public competitor price for 2 adults / 1 night from the active Hotel Authority comp set. Hover a date to see every available competitor quote and the validated median.";
+      label.dataset.hcMarketLabel = railed ? "Mkt" : "Market rate";
+      label.title = "Robust competitor market rate for 2 adults / 1 night. The calendar uses the validated median, while coverage and confidence show how much comparable market evidence is available. This is a price benchmark, not demand by itself.";
+      label.setAttribute("aria-label", "Market rate. Robust competitor median with coverage confidence; use together with pickup, occupancy, remaining inventory and events.");
 
       const sticky = row.parentElement;
       if (!sticky) return;
@@ -227,20 +289,19 @@ export default function CompetitorPricingGridBridge() {
         const market = marketRef.current.get(date);
         const active = numberOf(market?.active_competitor_count) ?? 0;
         const observed = numberOf(market?.observed_competitor_count) ?? 0;
-        const average = numberOf(market?.average_rate_eur);
+        const robustRate = marketRate(market);
+        const quality = qualityFor(active, observed);
         cell.dataset.hcMarketCell = "1";
-        cell.dataset.hcMarketRate = average == null ? "—" : `€${Math.round(average)}`;
-        cell.dataset.hcMarketCoverage = active > 0 ? `${observed}/${active}` : observed > 0 ? `${observed} comps` : "no data";
-        cell.dataset.hcMarketQuality = observed === 0
-          ? "none"
-          : observed < 2
-            ? "low"
-            : active > 0 && observed < Math.ceil(active / 2)
-              ? "partial"
-              : "good";
+        cell.dataset.hcMarketRate = robustRate == null ? "—" : `€${Math.round(robustRate)}`;
+        cell.dataset.hcMarketCoverage = observed === 0
+          ? "no data"
+          : active > 0
+            ? `${observed}/${active} · ${quality.short}`
+            : `${observed} comps · ${quality.short}`;
+        cell.dataset.hcMarketQuality = quality.key;
         cell.title = tooltipFor(date, market);
         cell.setAttribute("aria-label", market
-          ? `${date}: competitor average ${euro(market.average_rate_eur)}, ${observed} of ${active} competitors`
+          ? `${date}: robust competitor market rate ${euro(robustRate)}, ${quality.label.toLowerCase()}, ${observed} of ${active || "unknown"} active competitors observed`
           : `${date}: no fresh competitor pricing`);
       }
     };
