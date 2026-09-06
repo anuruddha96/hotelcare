@@ -1,5 +1,5 @@
 import { parseRoomFlags } from './room-service-flags';
-import { hasMemoriesGreenBoardRequest } from './hotel-memories-housekeeping';
+import { MEMORIES_GREEN_BOARD_MARKER } from './hotel-memories-housekeeping';
 
 export interface ApprovalInstructionContext {
   snapshotAvailable: boolean;
@@ -70,6 +70,7 @@ export function resolveApprovalInstructionContext(assignment: any): ApprovalInst
   const assignmentNotes = snapshotAvailable
     ? (snapshot?.assignment_notes ?? '')
     : (assignment?.notes ?? '');
+  const assignmentNoteText = typeof assignmentNotes === 'string' ? assignmentNotes : '';
 
   const parsedRoomNotes = parseRoomFlags(
     typeof room?.notes === 'string' ? room.notes : null,
@@ -86,13 +87,12 @@ export function resolveApprovalInstructionContext(assignment: any): ApprovalInst
     linenChangeRequired: asBoolean(room?.linen_change_required),
     collectExtraTowels: parsedRoomNotes.collectExtraTowels,
     roomCleaningRequested: parsedRoomNotes.roomCleaning,
-    greenBoardRequested: hasMemoriesGreenBoardRequest(
-      typeof assignmentNotes === 'string' ? assignmentNotes : null,
-    ),
+    // This is intentionally marker-based. hasMemoriesGreenBoardRequest also
+    // applies hotel/date policy rules, while an approval record must report
+    // what was captured in the original brief regardless of today's policy.
+    greenBoardRequested: assignmentNoteText.includes(MEMORIES_GREEN_BOARD_MARKER),
     managerInstruction: cleanOperationalInstruction(parsedRoomNotes.cleanNotes),
-    assignmentInstruction: cleanOperationalInstruction(
-      typeof assignmentNotes === 'string' ? assignmentNotes : '',
-    ),
+    assignmentInstruction: cleanOperationalInstruction(assignmentNoteText),
     bedInstruction: readBedInstruction(room),
     isDnd: asBoolean(room?.is_dnd),
     floorNumber: room?.floor_number == null ? null : asNumber(room.floor_number),
