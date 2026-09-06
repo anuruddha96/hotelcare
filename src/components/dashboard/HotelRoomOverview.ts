@@ -1,7 +1,7 @@
 import React from 'react';
 import { todayBudapest } from '@/lib/budapestTime';
 import { HotelRoomOverview as LiveHotelRoomOverview } from './HotelRoomOverviewLive';
-import { HistoricalHotelRoomOverview } from './HistoricalHotelRoomOverview';
+import { HistoricalHotelRoomOverviewSaved } from './HistoricalHotelRoomOverviewSaved';
 import { RoomPriorityQuickSetter } from './RoomPriorityQuickSetter';
 
 export type { SignedInHousekeeper } from './HotelRoomOverviewLive';
@@ -9,17 +9,14 @@ export type { SignedInHousekeeper } from './HotelRoomOverviewLive';
 type HotelRoomOverviewProps = React.ComponentProps<typeof LiveHotelRoomOverview>;
 
 /**
- * Historical dates must never read the mutable live `rooms` state. The live
- * component remains unchanged for today/future planning, while past dates are
- * replayed from date-scoped assignments + archived PMS daily snapshots.
- *
- * Hotel Memories' rich housekeeper-style room details now live behind the
- * existing Team View status counters (Done / Working / Pending / DND), rather
- * than rendering a second full room list below this overview.
+ * Today/future stays on the existing live overview without visual changes.
+ * Past dates replay the immutable per-business-date snapshot in the same room
+ * overview layout and remain read-only, so tomorrow's view of today preserves
+ * the operational badges/statuses managers saw during the day.
  */
 export function HotelRoomOverview(props: HotelRoomOverviewProps) {
   if (props.selectedDate < todayBudapest()) {
-    return React.createElement(HistoricalHotelRoomOverview, props);
+    return React.createElement(HistoricalHotelRoomOverviewSaved, props);
   }
 
   return React.createElement(RoomPriorityQuickSetter, {
