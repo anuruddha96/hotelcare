@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-type CompetitorDetail = {
+export type CompetitorDetail = {
   competitor_id?: string;
   name?: string;
   rate_eur?: number | string | null;
@@ -10,16 +10,33 @@ type CompetitorDetail = {
   source_page_url?: string | null;
 };
 
-type MarketRow = {
+export type MarketRow = {
   stay_date: string;
   active_competitor_count: number | string | null;
   observed_competitor_count: number | string | null;
+  validated_competitor_count?: number | string | null;
+  excluded_outlier_count?: number | string | null;
   average_rate_eur: number | string | null;
   median_rate_eur: number | string | null;
   min_rate_eur: number | string | null;
   max_rate_eur: number | string | null;
+  raw_average_rate_eur?: number | string | null;
   freshest_captured_at: string | null;
   competitors: CompetitorDetail[] | null;
+};
+
+export type MarketSignalQuality = "none" | "low" | "medium" | "high";
+
+export type MarketSignal = {
+  referenceRate: number | null;
+  active: number;
+  observed: number;
+  validated: number;
+  excluded: number;
+  confidencePct: number;
+  quality: MarketSignalQuality;
+  qualityLabel: string;
+  coverageLabel: string;
 };
 
 const STYLE_ID = "hotelcare-competitor-pricing-grid-style";
@@ -28,6 +45,10 @@ const ROW_ATTR = "data-hc-competitor-pricing-row";
 function numberOf(value: unknown): number | null {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
 }
 
 function euro(value: unknown): string {
@@ -42,13 +63,177 @@ function hotelFromPath(): string | null {
   return decodeURIComponent(parts[revenue + 1]);
 }
 
-function ensureStyle() {
-  if (document.getElementById(STYLE_ID)) return;
-  const style = document.createElement("style");
-  style.id = STYLE_ID;
-  style.textContent = `
+function freshnessScore(capturedAt: string | null | undefined, nowMs: number): number {
+  if (!capturedAt) return 0.55;
+  const capturedMs = Date.parse(capturedAt);
+  if (!Number.isFinite(capturedMs)) return 0.55;
+  const ageHours = Math.max(0, (nowMs - capturedMs) / 3_600_000);
+  if (ageHours <= 6) return 1;
+  if (ageHours <= 18) return 0.85;
+  if (ageHours <= 30) return 0.65;
+  return 0.25;
+}
+
+function agreementScore(row: MarketRow, validated: number): number {
+  if (validated <= 1) return 0.35;
+  const median = numberOf(row.median_rate_eur);
+  const min = numberOf(row.min_rate_eur);
+  const max = numberOf(row.max_rate_eur);
+  if (median == null || median <= 0 || min == null || max == null || max < min) return 0.55;
+  // A 0–20% market spread is strong agreement. By an 80% spread the quotes
+  // are too dispersed to call the reference highly reliable.
+  const relativeSpread = Math.max(0, (max - min) / median);
+  return clamp01(1 - relativeSpread / 0.8);
+}
+
+/**
+ * Convert the persisted competitor evidence into a manager-facing market signal.
+ *
+ * The reference rate is the validated median, not the arithmetic average. That
+ * keeps a single expensive/cheap quote from pulling the visible market anchor.
+ * Confidence deliberately combines four independent checks: comp-set coverage,
+ * source confidence, quote freshness and cross-competitor agreement.
+ */
+export function marketSignalFor(row: MarketRow | undefined, nowMs = Date.now()): MarketSignal {
+  if (!row) {
+    return {
+      referenceRate: null,
+      active: 0,
+      observed: 0,
+      validated: 0,
+      excluded: 0,
+      confidencePct: 0,
+      quality: "none",
+      qualityLabel: "No data",
+      coverageLabel: "no data",
+    };
+  }
+
+  const active = Math.max(0, Math.round(numberOf(row.active_competitor_count) ?? 0));
+  const observed = Math.max(0, Math.round(numberOf(row.observed_competitor_count) ?? 0));
+  const details = Array.isArray(row.competitors) ? row.competitors : [];
+  const validatedFromView = numberOf(row.validated_competitor_count);
+  const validated = Math.max(0, Math.round(
+    validatedFromView ?? (details.length > 0 ? details.length : observed),
+  ));
+  const excluded = Math.max(0, Math.round(
+    numberOf(row.excluded_outlier_count) ?? Math.max(0, observed - validated),
+  ));
+  const referenceRate = numberOf(row.median_rate_eur) ?? numberOf(row.average_rate_eur);
+
+  if (validated === 0 || referenceRate == null) {
+    return {
+      referenceRate: null,
+      active,
+      observed,
+      validated,
+      excluded,
+      confidencePct: 0,
+      quality: "none",
+      qualityLabel: "No validated market data",
+      coverageLabel: active > 0 ? `0/${active}` : "no data",
+    };
+  }
+
+  const coverage = active > 0 ? clamp01(validated / active) : Math.min(0.75, validated / 4);
+  const confidenceValues = details
+    .map((detail) => numberOf(detail.confidence))
+    .filter((value): value is number => value != null)
+    .map(clamp01);
+  // Reconciled rows without a model confidence are still usable, but they do
+  // not deserve the same certainty as an explicitly high-confidence quote.
+  const sourceConfidence = confidenceValues.length
+    ? confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length
+    : 0.65;
+  const freshness = freshnessScore(row.freshest_captured_at, nowMs);
+  const agreement = agreementScore(row, validated);
+
+  const confidence = clamp01(
+    coverage * 0.45
+      + sourceConfidence * 0.20
+      + freshness * 0.20
+      + agreement * 0.15,
+  );
+  const confidencePct = Math.round(confidence * 100);
+
+  let quality: MarketSignalQuality;
+  let qualityLabel: string;
+  if (validated < 2 || confidencePct < 45) {
+    quality = "low";
+    qualityLabel = "Low confidence";
+  } else if (confidencePct < 75) {
+    quality = "medium";
+    qualityLabel = "Medium confidence";
+  } else {
+    quality = "high";
+    qualityLabel = "High confidence";
+  }
+
+  return {
+    referenceRate,
+    active,
+    observed,
+    validated,
+    excluded,
+    confidencePct,
+    quality,
+    qualityLabel,
+    coverageLabel: active > 0 ? `${validated}/${active}` : `${validated} comps`,
+  };
+}
+
+export function tooltipFor(
+  date: string,
+  row: MarketRow | undefined,
+  demandTitle?: string | null,
+  nowMs = Date.now(),
+): string {
+  const signal = marketSignalFor(row, nowMs);
+  const lines: string[] = [];
+
+  if (demandTitle) lines.push(demandTitle.trim());
+  else lines.push(`${date} · Hotel Care demand grade`);
+
+  lines.push("");
+  if (!row || signal.referenceRate == null) {
+    lines.push("Market reference: no fresh validated competitor rate yet.");
+  } else {
+    lines.push(`Market reference ${euro(signal.referenceRate)} · ${signal.qualityLabel} (${signal.confidencePct}%)`);
+    lines.push(`${signal.validated}/${signal.active || signal.validated} active competitors validated${signal.excluded > 0 ? ` · ${signal.excluded} statistical outlier${signal.excluded === 1 ? "" : "s"} excluded` : ""}`);
+    lines.push(`Validated range ${euro(row.min_rate_eur)}–${euro(row.max_rate_eur)} · arithmetic average ${euro(row.average_rate_eur)}`);
+
+    const details = Array.isArray(row.competitors) ? row.competitors : [];
+    if (details.length) {
+      lines.push("", "Validated competitor quotes:");
+      for (const detail of details) {
+        const confidence = numberOf(detail.confidence);
+        const confidenceText = confidence == null ? "" : ` · ${Math.round(clamp01(confidence) * 100)}% source confidence`;
+        lines.push(`• ${detail.name || "Competitor"}: ${euro(detail.rate_eur)}${confidenceText}`);
+      }
+    }
+  }
+
+  lines.push(
+    "",
+    "How Hotel Care treats market evidence:",
+    "• comparable public standard-double price, 2 adults / 1 night",
+    "• EUR only — no silent currency conversion",
+    "• fresh reconciled quotes only (up to 30 hours old)",
+    "• statistical outliers excluded before the reference is calculated",
+    "• the visible reference uses the validated median, not a blind average",
+    "",
+    "Market price pressure is not the same as city occupancy. The first line is Hotel Care's property demand grade from your own pickup, pace and inventory pressure; the second line adds external market-price context.",
+  );
+  return lines.join("\n");
+}
+
+export function competitorGridStyleText(): string {
+  return `
     [${ROW_ATTR}="1"] > div:first-child {
-      position: relative;
+      position: sticky !important;
+      left: 0 !important;
+      z-index: 40 !important;
+      background: hsl(var(--card)) !important;
       font-size: 0 !important;
       color: transparent !important;
     }
@@ -70,39 +255,42 @@ function ensureStyle() {
       justify-content: center !important;
       gap: 1px !important;
       font-size: 0 !important;
-      color: transparent !important;
-      background: hsl(var(--card)) !important;
     }
-    [${ROW_ATTR}="1"] > button > * { display: none !important; }
     [${ROW_ATTR}="1"] > button::before {
-      content: attr(data-hc-market-rate);
-      color: hsl(var(--foreground));
-      font-size: 10px;
-      line-height: 11px;
+      content: attr(data-hc-demand-label);
+      color: inherit;
+      font-size: 9.5px;
+      line-height: 10px;
       font-weight: 700;
-      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
     }
     [${ROW_ATTR}="1"] > button::after {
-      content: attr(data-hc-market-coverage);
-      color: hsl(var(--muted-foreground));
+      content: attr(data-hc-market-summary);
+      color: inherit;
       font-size: 8px;
       line-height: 9px;
-      font-weight: 500;
+      font-weight: 600;
+      opacity: .82;
+      white-space: nowrap;
       font-variant-numeric: tabular-nums;
     }
-    [${ROW_ATTR}="1"] > button[data-hc-market-quality="none"] {
-      background: hsl(var(--muted) / .32) !important;
-    }
     [${ROW_ATTR}="1"] > button[data-hc-market-quality="low"] {
-      background: hsl(var(--warning, 38 92% 50%) / .12) !important;
+      box-shadow: inset 0 -2px 0 hsl(var(--destructive) / .75);
     }
-    [${ROW_ATTR}="1"] > button[data-hc-market-quality="partial"] {
-      background: hsl(var(--primary) / .055) !important;
+    [${ROW_ATTR}="1"] > button[data-hc-market-quality="medium"] {
+      box-shadow: inset 0 -2px 0 hsl(var(--warning, 38 92% 50%) / .8);
     }
-    [${ROW_ATTR}="1"] > button[data-hc-market-quality="good"] {
-      background: hsl(var(--primary) / .10) !important;
+    [${ROW_ATTR}="1"] > button[data-hc-market-quality="high"] {
+      box-shadow: inset 0 -2px 0 hsl(var(--primary) / .8);
     }
   `;
+}
+
+function ensureStyle() {
+  if (document.getElementById(STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = STYLE_ID;
+  style.textContent = competitorGridStyleText();
   document.head.appendChild(style);
 }
 
@@ -117,48 +305,19 @@ function findDemandRow(): HTMLElement | null {
     const row = label.parentElement as HTMLElement | null;
     if (!row || !row.classList.contains("flex")) continue;
     row.setAttribute(ROW_ATTR, "1");
-    // The old demand buttons open an unrelated demand dialog. Market cells are
-    // read-only reference data, so stop that delegated React click while this
-    // row is acting as the competitor-price row.
-    row.addEventListener("click", (event) => {
-      if ((event.target as HTMLElement | null)?.closest("button[data-hc-market-cell='1']")) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    }, true);
     return row;
   }
   return null;
 }
 
-function tooltipFor(date: string, row: MarketRow | undefined): string {
-  if (!row) return `${date} · no fresh competitor prices yet`;
-  const active = numberOf(row.active_competitor_count) ?? 0;
-  const observed = numberOf(row.observed_competitor_count) ?? 0;
-  const lines = [
-    `${date} · competitor market average ${euro(row.average_rate_eur)}`,
-    `Median ${euro(row.median_rate_eur)} · range ${euro(row.min_rate_eur)}–${euro(row.max_rate_eur)}`,
-    `${observed}/${active} active competitors have a fresh verified EUR rate`,
-  ];
-  const details = Array.isArray(row.competitors) ? row.competitors : [];
-  if (details.length) {
-    lines.push("", "Competitors:");
-    for (const detail of details) {
-      lines.push(`• ${detail.name || "Competitor"}: ${euro(detail.rate_eur)}`);
-    }
-  }
-  lines.push("", "The calendar shows the arithmetic average. Pricing automation keeps using the safer validated market median/outlier guard rather than blindly matching this number.");
-  return lines.join("\n");
-}
-
 /**
- * Lightweight bridge for the existing large Previo-style calendar.
+ * Compatibility bridge for the large Previo-style pricing calendar.
  *
- * The revenue grid is deliberately left untouched structurally: this component
- * replaces only its legacy Demand presentation at runtime, which avoids a risky
- * rewrite of the pricing/editing grid. The actual market data comes from the
- * RLS-protected revenue_competitor_market_daily view. A future grid refactor can
- * consume the same view directly without changing the data contract.
+ * The React grid still owns its real demand row. This bridge no longer replaces
+ * that demand information: it keeps the demand band as the first line and adds a
+ * robust, confidence-labelled competitor reference as the second line. This is
+ * intentionally a presentation bridge so the pricing/editing grid remains low
+ * risk while managers get both internal demand and external market context.
  */
 export default function CompetitorPricingGridBridge() {
   const marketRef = useRef<Map<string, MarketRow>>(new Map());
@@ -179,7 +338,7 @@ export default function CompetitorPricingGridBridge() {
         const endIso = end.toISOString().slice(0, 10);
         const { data, error } = await (supabase as any)
           .from("revenue_competitor_market_daily")
-          .select("stay_date,active_competitor_count,observed_competitor_count,average_rate_eur,median_rate_eur,min_rate_eur,max_rate_eur,freshest_captured_at,competitors")
+          .select("stay_date,active_competitor_count,observed_competitor_count,validated_competitor_count,excluded_outlier_count,average_rate_eur,median_rate_eur,min_rate_eur,max_rate_eur,raw_average_rate_eur,freshest_captured_at,competitors")
           .eq("hotel_id", hotelId)
           .gte("stay_date", today)
           .lte("stay_date", endIso)
@@ -208,12 +367,12 @@ export default function CompetitorPricingGridBridge() {
       const label = row.firstElementChild as HTMLElement | null;
       if (!label) return;
       const railed = label.getBoundingClientRect().width < 70;
-      label.dataset.hcMarketLabel = railed ? "Mkt" : "Market avg";
-      label.title = "Average public competitor price for 2 adults / 1 night from the active Hotel Authority comp set. Hover a date to see every available competitor quote and the validated median.";
+      label.dataset.hcMarketLabel = railed ? "D/M" : "Demand + market";
+      label.title = "Demand is Hotel Care's property-level demand grade from your own booking pace, pickup and inventory pressure. Market is a robust median of fresh validated competitor prices. The two are shown together because competitor price is useful context, but it is not the same thing as market occupancy or demand.";
 
-      const sticky = row.parentElement;
-      if (!sticky) return;
-      const dateNodes = Array.from(sticky.querySelectorAll<HTMLElement>("button[data-date]"));
+      const grid = row.parentElement;
+      if (!grid) return;
+      const dateNodes = Array.from(grid.querySelectorAll<HTMLElement>("button[data-date]"));
       const dates: string[] = [];
       for (const node of dateNodes) {
         const d = node.dataset.date;
@@ -224,24 +383,34 @@ export default function CompetitorPricingGridBridge() {
         const cell = cells[i];
         const date = dates[i];
         if (!date) continue;
+
+        // Capture React's genuine demand presentation exactly once before we
+        // decorate it. textContent remains available even after CSS shrinks the
+        // original text node to zero, so re-renders can still be detected.
+        const liveDemandLabel = (cell.textContent ?? "").replace(/\s+/g, " ").trim() || "·";
+        const originalTitle = cell.title;
+        if (!cell.dataset.hcDemandLabel || (liveDemandLabel !== "·" && liveDemandLabel !== cell.dataset.hcDemandLabel)) {
+          cell.dataset.hcDemandLabel = liveDemandLabel;
+        }
+        if (!cell.dataset.hcDemandTitle || (originalTitle && !originalTitle.includes("How Hotel Care treats market evidence:"))) {
+          cell.dataset.hcDemandTitle = originalTitle;
+        }
+
         const market = marketRef.current.get(date);
-        const active = numberOf(market?.active_competitor_count) ?? 0;
-        const observed = numberOf(market?.observed_competitor_count) ?? 0;
-        const average = numberOf(market?.average_rate_eur);
+        const signal = marketSignalFor(market);
         cell.dataset.hcMarketCell = "1";
-        cell.dataset.hcMarketRate = average == null ? "—" : `€${Math.round(average)}`;
-        cell.dataset.hcMarketCoverage = active > 0 ? `${observed}/${active}` : observed > 0 ? `${observed} comps` : "no data";
-        cell.dataset.hcMarketQuality = observed === 0
-          ? "none"
-          : observed < 2
-            ? "low"
-            : active > 0 && observed < Math.ceil(active / 2)
-              ? "partial"
-              : "good";
-        cell.title = tooltipFor(date, market);
-        cell.setAttribute("aria-label", market
-          ? `${date}: competitor average ${euro(market.average_rate_eur)}, ${observed} of ${active} competitors`
-          : `${date}: no fresh competitor pricing`);
+        cell.dataset.hcMarketQuality = signal.quality;
+        cell.dataset.hcMarketSummary = signal.referenceRate == null
+          ? "Mkt —"
+          : `${euro(signal.referenceRate)} · ${signal.coverageLabel}`;
+        cell.dataset.hcMarketConfidence = signal.qualityLabel;
+        cell.title = tooltipFor(date, market, cell.dataset.hcDemandTitle);
+        cell.setAttribute(
+          "aria-label",
+          signal.referenceRate == null
+            ? `${date}: demand ${cell.dataset.hcDemandLabel || "not available"}; no validated market reference`
+            : `${date}: demand ${cell.dataset.hcDemandLabel || "not available"}; market reference ${euro(signal.referenceRate)}, ${signal.qualityLabel.toLowerCase()}, ${signal.coverageLabel} competitors validated`,
+        );
       }
     };
 
