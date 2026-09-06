@@ -25,6 +25,8 @@ export interface ApprovalInstructionContext {
 const LEGACY_GREEN_BOARD_MARKER = '[GREEN_BOARD]';
 const TECHNICAL_MARKERS = /\[(?:GREEN_BOARD(?:_CLEAN_REQUEST)?|NO_BOARD(?:_NO_CLEANING)?|NO_SERVICE)\]/gi;
 const SUPERVISOR_RECHECK_MARKER = /\[SUPERVISOR_RECHECK:([^\]]+)\]/gi;
+const PMS_SECTION_RE = /(Recepce|Reception|Kuchyn[ěe]|Kitchen|Syst[ée]m|Poznámka)\s*:\s*/i;
+const HOUSEKEEPING_SECTION_RE = /^(Housekeeping|Takar[ií]t[aá]s|H[oó]zvezet[ée]s)\s*:/i;
 
 /**
  * Approval cards are manager-facing operational records. Never expose the
@@ -38,6 +40,29 @@ export function cleanOperationalInstruction(value: string | null | undefined): s
     .replace(TECHNICAL_MARKERS, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Match the filtering already used on the housekeeper room card: when Previo
+ * has packed reception/kitchen/system notes into the room note, expose only the
+ * housekeeping section. Otherwise a normal manager-entered free-text note is
+ * retained in full.
+ */
+export function managerVisibleRoomInstruction(value: string | null | undefined): string {
+  const raw = cleanOperationalInstruction(value);
+  if (!raw) return '';
+
+  if (PMS_SECTION_RE.test(raw) || /Housekeeping\s*:/i.test(raw)) {
+    return raw
+      .split(/\s•\s|\s\|\s/)
+      .map(part => part.trim())
+      .filter(part => HOUSEKEEPING_SECTION_RE.test(part))
+      .map(part => part.replace(/^[^:]+:\s*/, '').trim())
+      .filter(Boolean)
+      .join(' • ');
+  }
+
+  return raw;
 }
 
 function asBoolean(value: unknown): boolean {
@@ -55,6 +80,13 @@ function readBedInstruction(room: any): string | null {
   const inferred = metadata?.inferredBedConfig?.value;
   const value = manual || inferred || room?.bed_configuration || null;
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function combineUniqueInstructions(...values: Array<string | null | undefined>): string {
+  const parts = values
+    .map(value => cleanOperationalInstruction(value))
+    .filter(Boolean);
+  return Array.from(new Set(parts)).join(' • ');
 }
 
 /**
@@ -76,6 +108,10 @@ export function resolveApprovalInstructionContext(assignment: any): ApprovalInst
   const parsedRoomNotes = parseRoomFlags(
     typeof room?.notes === 'string' ? room.notes : null,
   );
+  const roomManagerInstruction = managerVisibleRoomInstruction(parsedRoomNotes.cleanNotes);
+  const directManagerInstruction = snapshotAvailable
+    ? snapshot?.manager_instruction_text
+    : assignment?.manager_instruction_text;
 
   return {
     snapshotAvailable,
@@ -93,7 +129,7 @@ export function resolveApprovalInstructionContext(assignment: any): ApprovalInst
     // assignments remain understandable after the marker was renamed.
     greenBoardRequested: assignmentNoteText.includes(MEMORIES_GREEN_BOARD_MARKER)
       || assignmentNoteText.includes(LEGACY_GREEN_BOARD_MARKER),
-    managerInstruction: cleanOperationalInstruction(parsedRoomNotes.cleanNotes),
+    managerInstruction: combineUniqueInstructions(directManagerInstruction, roomManagerInstruction),
     assignmentInstruction: cleanOperationalInstruction(assignmentNoteText),
     bedInstruction: readBedInstruction(room),
     isDnd: asBoolean(room?.is_dnd),
