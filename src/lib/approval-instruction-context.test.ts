@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   cleanOperationalInstruction,
+  managerVisibleRoomInstruction,
   resolveApprovalInstructionContext,
 } from './approval-instruction-context';
 
@@ -21,7 +22,7 @@ describe('approval instruction context', () => {
         captured_at: '2026-09-06T08:54:00Z',
         assignment_type: 'daily_cleaning',
         priority: 3,
-        assignment_notes: '[GREEN_BOARD] Please clean before noon',
+        assignment_notes: '[GREEN_BOARD_CLEAN_REQUEST] Please clean before noon',
         room: {
           towel_change_required: true,
           linen_change_required: true,
@@ -88,6 +89,31 @@ describe('approval instruction context', () => {
     expect(context.floorNumber).toBe(3);
   });
 
+  it('uses dedicated manager instructions together with housekeeping-only room notes', () => {
+    const context = resolveApprovalInstructionContext({
+      instruction_snapshot: {
+        frozen: true,
+        assignment_type: 'daily_cleaning',
+        priority: 2,
+        assignment_notes: '',
+        manager_instruction_text: 'VIP guest — place extra water',
+        room: {
+          notes: 'Reception: late arrival | Housekeeping: Baby cot beside bed | Kitchen: vegan breakfast',
+        },
+      },
+    });
+
+    expect(context.managerInstruction).toBe('VIP guest — place extra water • Baby cot beside bed');
+  });
+
+  it('filters PMS department blobs from the manager-visible housekeeping note', () => {
+    expect(
+      managerVisibleRoomInstruction(
+        'Reception: payment pending | Housekeeping: Leave two extra towels | Kitchen: gluten free',
+      ),
+    ).toBe('Leave two extra towels');
+  });
+
   it('uses manual bed setup before inferred or generic bed configuration', () => {
     const context = resolveApprovalInstructionContext({
       instruction_snapshot: {
@@ -109,10 +135,10 @@ describe('approval instruction context', () => {
     expect(context.bedInstruction).toBe('Baby Cot + Double');
   });
 
-  it('removes internal transport markers but preserves human instructions', () => {
+  it('removes current and legacy transport markers but preserves human instructions', () => {
     expect(
       cleanOperationalInstruction(
-        '[GREEN_BOARD] [SUPERVISOR_RECHECK:Please recheck bathroom] [NO_BOARD] Guest asked for extra water',
+        '[GREEN_BOARD_CLEAN_REQUEST] [SUPERVISOR_RECHECK:Please recheck bathroom] [NO_BOARD_NO_CLEANING] [NO_SERVICE] Guest asked for extra water',
       ),
     ).toBe('Please recheck bathroom Guest asked for extra water');
   });
