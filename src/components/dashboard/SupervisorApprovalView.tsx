@@ -50,6 +50,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format } from 'date-fns';
 import { CompletionDataView } from './CompletionDataView';
+import { ApprovalReviewContext } from './ApprovalReviewContext';
 import { ApprovalHistoryView } from './ApprovalHistoryView';
 import { LateMinibarApprovals } from './LateMinibarApprovals';
 import { ForwardedMaintenanceApprovals } from './ForwardedMaintenanceApprovals';
@@ -76,6 +77,7 @@ interface PendingAssignment {
   assignment_date: string;
   organization_slug?: string | null;
   completion_photos?: string[] | null;
+  instruction_snapshot?: any | null;
   rooms: {
     room_number: string;
     hotel: string;
@@ -1120,19 +1122,9 @@ export function SupervisorApprovalView({
     const speedIndicator = !guestDeclined && assignment.started_at ? getSpeedIndicator(assignment.assignment_type, durationMins) : null;
     const SpeedIcon = speedIndicator?.icon || Timer;
     const isExpanded = expandedCards.has(assignment.id);
-    const housekeepingNote = assignment.rooms?.notes?.trim() || '';
-    const inferredBedInstruction = assignment.rooms?.pms_metadata?.inferredBedConfig?.value
-      || assignment.rooms?.bed_configuration
-      || null;
-    const hasDetails = !!(
-      completionPhotoUrls[assignment.id]?.length ||
-      (!guestDeclined && (
-        linenSummaries[assignment.id]?.length ||
-        inferredBedInstruction ||
-        housekeepingNote ||
-        assignment.rooms?.is_dnd
-      ))
-    );
+    // Every real cleaning exposes its captured work details. No Service only
+    // expands when optional door/evidence photos were captured.
+    const hasDetails = !guestDeclined || Boolean(completionPhotoUrls[assignment.id]?.length);
 
     return (
       <Card key={assignment.id} className={`border shadow-sm hover:shadow-md transition-all duration-200 ${
@@ -1216,22 +1208,11 @@ export function SupervisorApprovalView({
             )}
           </div>
 
-          {/* Special Requirements are cleaning instructions and therefore are
-              irrelevant after the final outcome is No Service. */}
-          {!guestDeclined && ((assignment.rooms?.towel_change_required || assignment.rooms?.linen_change_required) && assignment.assignment_type !== 'checkout_cleaning') && (
-            <div className="flex flex-wrap gap-1.5">
-              {assignment.rooms.towel_change_required && (
-                <Badge className="bg-blue-500 text-white text-[10px] px-1.5 py-0.5">
-                  🏺 Towel Change
-                </Badge>
-              )}
-              {assignment.rooms.linen_change_required && (
-                <Badge className="bg-purple-500 text-white text-[10px] px-1.5 py-0.5">
-                  🛏️ Linen Change
-                </Badge>
-              )}
-            </div>
-          )}
+          {/* What the housekeeper was originally asked to do, plus the exact
+              assignment conversation. This uses the frozen instruction
+              snapshot for new assignments and a labelled legacy fallback
+              for older rows. */}
+          <ApprovalReviewContext assignment={assignment} guestDeclined={guestDeclined} />
 
           {/* No Service: show only the final outcome + the housekeeper's actual
               comment. Never expose [NO_SERVICE], green-board or no-board marker
@@ -1252,51 +1233,6 @@ export function SupervisorApprovalView({
             </div>
           )}
 
-          {/* Ordinary assignment notes remain unchanged for real cleaning
-              completions. */}
-          {!guestDeclined && assignment.notes && (
-            <div className="p-2 rounded-md border flex items-start gap-1.5 bg-amber-50 border-amber-200">
-              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
-              <p className="text-xs text-amber-800">{assignment.notes}</p>
-            </div>
-          )}
-
-          {!guestDeclined && housekeepingNote && currentUserRole === 'admin' && (
-            <div className="p-2 rounded-md border flex items-start gap-1.5 bg-amber-50 border-amber-200">
-              <FileText className="h-3.5 w-3.5 mt-0.5 shrink-0 text-amber-600" />
-              <p className="text-xs text-amber-800">{housekeepingNote}</p>
-            </div>
-          )}
-
-          {/* Housekeeper Messages with Translate */}
-          {housekeeperNotes[assignment.id] && housekeeperNotes[assignment.id].length > 0 && (
-            <div className="space-y-1">
-              <div className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground uppercase">
-                <MessageSquare className="h-3 w-3" /> Housekeeper Messages
-              </div>
-              {housekeeperNotes[assignment.id].map(msg => (
-                <div key={msg.id} className="p-2 bg-muted/50 rounded-md border border-border">
-                  <p className="text-xs text-foreground">{translatedApprovalMsgs[msg.id] || msg.content}</p>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="text-[10px] text-muted-foreground">
-                      {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    {!translatedApprovalMsgs[msg.id] && (
-                      <button
-                        className="text-[10px] text-primary hover:underline flex items-center gap-0.5"
-                        onClick={() => handleTranslateApprovalMsg(msg.id, msg.content)}
-                        disabled={translatingApprovalMsg === msg.id}
-                      >
-                        {translatingApprovalMsg === msg.id ? <LucideLoader className="h-2.5 w-2.5 animate-spin" /> : <Globe className="h-2.5 w-2.5" />}
-                        Translate
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
           {/* Expandable Details */}
           {hasDetails && (
             <div>
@@ -1310,29 +1246,6 @@ export function SupervisorApprovalView({
 
               {isExpanded && (
                 <div className="mt-2 space-y-2 pl-4 border-l-2 border-muted">
-                  {/* DND, bed and room-service details apply only to actual
-                      cleaning outcomes. Floor remains safe context. */}
-                  {!guestDeclined && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {assignment.rooms?.is_dnd && (
-                        <Badge className="text-[10px] bg-orange-100 text-orange-800 border border-orange-300 px-1.5 py-0">
-                          DND
-                        </Badge>
-                      )}
-                      {inferredBedInstruction && (
-                        <Badge variant="outline" className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 px-1.5 py-0">
-                          <BedDouble className="h-3 w-3 mr-0.5" />
-                          {inferredBedInstruction}
-                        </Badge>
-                      )}
-                      {assignment.rooms?.floor_number && (
-                        <Badge variant="outline" className="text-[10px] bg-muted px-1.5 py-0">
-                          F{assignment.rooms.floor_number}
-                        </Badge>
-                      )}
-                    </div>
-                  )}
-
                   {/* Start/Complete times */}
                   <div className="text-xs text-muted-foreground">
                     {guestDeclined ? (
