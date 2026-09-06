@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -36,8 +36,9 @@ const ROOM_DOT: Record<string, string> = {
 };
 
 const COL_W = 50;
-const LABEL_W = 184;
+const LABEL_W = 160;
 const ROW_H = 42;
+const DEFAULT_WINDOW_DAYS = 21;
 
 type WindowDays = 14 | 21 | 31;
 
@@ -49,6 +50,10 @@ function sourceCode(source?: string | null): string {
   if (s.includes('walk')) return 'W';
   if (s.includes('direct')) return 'D';
   return 'R';
+}
+
+function centeredStartDate(windowDays: number): Date {
+  return addDays(startOfDay(new Date()), -Math.floor(windowDays / 2));
 }
 
 /**
@@ -64,14 +69,40 @@ export function ReservationCalendar({
 }: ReservationCalendarProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [startDate, setStartDate] = useState(() => addDays(startOfDay(new Date()), -2));
-  const [days, setDays] = useState<WindowDays>(21);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [days, setDays] = useState<WindowDays>(DEFAULT_WINDOW_DAYS);
+  const [startDate, setStartDate] = useState(() => centeredStartDate(DEFAULT_WINDOW_DAYS));
 
   const dateRange = useMemo(
     () => Array.from({ length: days }, (_, i) => addDays(startDate, i)),
     [startDate, days],
   );
   const rangeEnd = useMemo(() => addDays(startDate, days), [startDate, days]);
+  const todayIndex = useMemo(
+    () => dateRange.findIndex((date) => isSameDay(date, new Date())),
+    [dateRange],
+  );
+
+  // Whenever Today is part of the currently rendered range, position its date
+  // column in the middle of the usable grid viewport. This runs when the range
+  // is opened/reset, not while the user manually drags the planner sideways.
+  useEffect(() => {
+    if (todayIndex < 0) return;
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const usableWidth = Math.max(COL_W, scroller.clientWidth - LABEL_W);
+      const requestedLeft = todayIndex * COL_W - (usableWidth - COL_W) / 2;
+      const maxLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+      scroller.scrollTo({
+        left: Math.min(maxLeft, Math.max(0, requestedLeft)),
+        behavior: 'auto',
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [todayIndex, days, startDate]);
 
   const monthGroups = useMemo(() => {
     const groups: Array<{ key: string; label: string; count: number }> = [];
@@ -122,6 +153,17 @@ export function ReservationCalendar({
     navigate(`${basePath}/reservations/${r.id}`);
   };
 
+  const changeWindowDays = (count: WindowDays) => {
+    const today = startOfDay(new Date());
+    const todayIsInCurrentRange = today >= startDate && today < rangeEnd;
+    setDays(count);
+    if (todayIsInCurrentRange) setStartDate(centeredStartDate(count));
+  };
+
+  const goToToday = () => {
+    setStartDate(centeredStartDate(days));
+  };
+
   return (
     <Card data-training="res-planner" className="overflow-hidden">
       <CardHeader className="p-2.5 border-b border-border bg-card">
@@ -139,7 +181,7 @@ export function ReservationCalendar({
                   variant={days === count ? 'default' : 'ghost'}
                   size="sm"
                   className="rounded-none h-8 px-2.5 text-xs"
-                  onClick={() => setDays(count)}
+                  onClick={() => changeWindowDays(count)}
                 >
                   {count}d
                 </Button>
@@ -148,7 +190,7 @@ export function ReservationCalendar({
             <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => setStartDate(addDays(startDate, -7))}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setStartDate(addDays(startOfDay(new Date()), -2))}>
+            <Button type="button" variant="outline" size="sm" className="h-8" onClick={goToToday}>
               {t('pms.planner.today')}
             </Button>
             <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => setStartDate(addDays(startDate, 7))}>
@@ -173,11 +215,15 @@ export function ReservationCalendar({
           </div>
         )}
 
-        <div className="overflow-x-auto overscroll-x-contain">
+        <div
+          ref={scrollRef}
+          className="overflow-auto overscroll-contain max-h-[68vh] sm:max-h-[72vh]"
+          data-training="res-planner-scroll"
+        >
           <div style={{ minWidth: LABEL_W + gridWidth }}>
             <div className="flex border-b border-border bg-muted/25 sticky top-0 z-30">
               <div
-                className="shrink-0 sticky left-0 z-40 bg-card border-r border-border flex items-center px-3 text-xs font-semibold"
+                className="shrink-0 sticky left-0 z-50 bg-card border-r border-border flex items-center px-3 text-xs font-semibold shadow-[4px_0_8px_-7px_rgba(0,0,0,0.6)]"
                 style={{ width: LABEL_W }}
               >
                 {t('pms.res.room')}
@@ -197,7 +243,7 @@ export function ReservationCalendar({
 
             <div className="flex border-b border-border sticky top-7 bg-card z-30">
               <div
-                className="shrink-0 sticky left-0 z-40 bg-card border-r border-border px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground"
+                className="shrink-0 sticky left-0 z-50 bg-card border-r border-border px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground shadow-[4px_0_8px_-7px_rgba(0,0,0,0.6)]"
                 style={{ width: LABEL_W }}
               >
                 {sortedRooms.length} {t('pms.unified.rooms')}
@@ -209,7 +255,8 @@ export function ReservationCalendar({
                   return (
                     <div
                       key={date.toISOString()}
-                      className={`text-center border-r border-border py-1 ${todayCell ? 'bg-amber-100 dark:bg-amber-950/35' : weekend ? 'bg-muted/35' : ''}`}
+                      data-today={todayCell ? 'true' : undefined}
+                      className={`text-center border-r border-border py-1 ${todayCell ? 'bg-amber-100 dark:bg-amber-950/35 ring-1 ring-inset ring-amber-400/60' : weekend ? 'bg-muted/35' : ''}`}
                       style={{ width: COL_W }}
                     >
                       <div className="text-[9px] uppercase text-muted-foreground">{format(date, 'EEE')}</div>
@@ -234,7 +281,7 @@ export function ReservationCalendar({
               return (
                 <div key={room.id} className={`flex border-b border-border ${roomIndex % 2 ? 'bg-muted/[0.10]' : 'bg-card'} hover:bg-accent/10 transition-colors`}>
                   <div
-                    className="shrink-0 sticky left-0 z-20 bg-inherit border-r border-border px-2.5 flex items-center gap-2"
+                    className="shrink-0 sticky left-0 z-20 bg-card border-r border-border px-2.5 flex items-center gap-2 shadow-[4px_0_8px_-7px_rgba(0,0,0,0.6)]"
                     style={{ width: LABEL_W, height: ROW_H }}
                   >
                     <span className={`h-2 w-2 rounded-full shrink-0 ${ROOM_DOT[room.status ?? ''] ?? 'bg-muted-foreground/40'}`} />
