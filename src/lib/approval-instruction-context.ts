@@ -22,7 +22,8 @@ export interface ApprovalInstructionContext {
   roomStatusAtBrief: string | null;
 }
 
-const TECHNICAL_MARKERS = /\[(?:GREEN_BOARD|NO_BOARD|NO_SERVICE)\]/gi;
+const LEGACY_GREEN_BOARD_MARKER = '[GREEN_BOARD]';
+const TECHNICAL_MARKERS = /\[(?:GREEN_BOARD(?:_CLEAN_REQUEST)?|NO_BOARD(?:_NO_CLEANING)?|NO_SERVICE)\]/gi;
 const SUPERVISOR_RECHECK_MARKER = /\[SUPERVISOR_RECHECK:([^\]]+)\]/gi;
 
 /**
@@ -87,10 +88,11 @@ export function resolveApprovalInstructionContext(assignment: any): ApprovalInst
     linenChangeRequired: asBoolean(room?.linen_change_required),
     collectExtraTowels: parsedRoomNotes.collectExtraTowels,
     roomCleaningRequested: parsedRoomNotes.roomCleaning,
-    // This is intentionally marker-based. hasMemoriesGreenBoardRequest also
-    // applies hotel/date policy rules, while an approval record must report
-    // what was captured in the original brief regardless of today's policy.
-    greenBoardRequested: assignmentNoteText.includes(MEMORIES_GREEN_BOARD_MARKER),
+    // Approval history is evidence, not a re-evaluation of today's policy.
+    // Recognize both the current marker and the short legacy marker so older
+    // assignments remain understandable after the marker was renamed.
+    greenBoardRequested: assignmentNoteText.includes(MEMORIES_GREEN_BOARD_MARKER)
+      || assignmentNoteText.includes(LEGACY_GREEN_BOARD_MARKER),
     managerInstruction: cleanOperationalInstruction(parsedRoomNotes.cleanNotes),
     assignmentInstruction: cleanOperationalInstruction(assignmentNoteText),
     bedInstruction: readBedInstruction(room),
