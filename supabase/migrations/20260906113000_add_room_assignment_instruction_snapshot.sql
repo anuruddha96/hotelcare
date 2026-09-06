@@ -15,6 +15,7 @@ CREATE OR REPLACE FUNCTION public.build_room_assignment_instruction_snapshot(
   p_assignment_type text,
   p_priority numeric,
   p_assignment_notes text,
+  p_manager_instruction_text text,
   p_frozen boolean,
   p_source text
 )
@@ -46,6 +47,10 @@ BEGIN
       'assignment_type', p_assignment_type,
       'priority', p_priority,
       'assignment_notes', p_assignment_notes,
+      -- Some deployments already carry a dedicated manager instruction field
+      -- while older ones keep the instruction in room.notes. Reading it via
+      -- to_jsonb makes this migration backward-compatible with both schemas.
+      'manager_instruction_text', p_manager_instruction_text,
       'room', jsonb_strip_nulls(
         jsonb_build_object(
           'room_number', room_payload -> 'room_number',
@@ -82,6 +87,7 @@ AS $$
 DECLARE
   should_freeze boolean;
   snapshot_source text;
+  assignment_payload jsonb;
 BEGIN
   -- Once work started, the brief is historical evidence. Runtime completion
   -- notes may continue changing, but they must not rewrite what was requested.
@@ -93,6 +99,7 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  assignment_payload := to_jsonb(NEW);
   should_freeze := NEW.started_at IS NOT NULL
     OR NEW.status::text IN ('in_progress', 'completed');
 
@@ -107,6 +114,7 @@ BEGIN
     NEW.assignment_type::text,
     NEW.priority,
     NEW.notes,
+    assignment_payload ->> 'manager_instruction_text',
     should_freeze,
     snapshot_source
   );
@@ -119,7 +127,7 @@ DROP TRIGGER IF EXISTS capture_room_assignment_instruction_snapshot_trigger
   ON public.room_assignments;
 
 CREATE TRIGGER capture_room_assignment_instruction_snapshot_trigger
-BEFORE INSERT OR UPDATE OF status, started_at, room_id, assignment_type, priority, notes
+BEFORE INSERT OR UPDATE
 ON public.room_assignments
 FOR EACH ROW
 EXECUTE FUNCTION public.capture_room_assignment_instruction_snapshot();
@@ -139,6 +147,7 @@ BEGIN
     a.assignment_type::text,
     a.priority,
     a.notes,
+    to_jsonb(a) ->> 'manager_instruction_text',
     false,
     'room_instruction_update'
   )
@@ -181,6 +190,7 @@ SET instruction_snapshot = public.build_room_assignment_instruction_snapshot(
   a.assignment_type::text,
   a.priority,
   a.notes,
+  to_jsonb(a) ->> 'manager_instruction_text',
   false,
   'migration_unstarted_backfill'
 )
