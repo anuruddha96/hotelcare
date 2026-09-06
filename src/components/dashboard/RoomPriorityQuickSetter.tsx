@@ -86,6 +86,7 @@ export function RoomPriorityQuickSetter({
   const [desktopOpen, setDesktopOpen] = useState(false);
   const [mobilePortalTarget, setMobilePortalTarget] = useState<HTMLElement | null>(null);
   const [savingPriority, setSavingPriority] = useState<number | null>(null);
+  const [interactionKey, setInteractionKey] = useState(0);
 
   const canSetPriority = hasManagerPowers(profile?.role);
 
@@ -174,6 +175,7 @@ export function RoomPriorityQuickSetter({
     const roomNumber = roomNumberFromClick(event.target, rootRef.current);
     if (!roomNumber) return;
 
+    setInteractionKey((value) => value + 1);
     void loadPriority(roomNumber);
 
     // In the normal hotel board a desktop click has no competing modal, so a
@@ -219,7 +221,7 @@ export function RoomPriorityQuickSetter({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [canSetPriority, isMobile, selection?.roomNumber]);
+  }, [canSetPriority, interactionKey, isMobile, selection?.roomNumber]);
 
   const updatePriority = async (newPriority: number) => {
     if (!selection?.assignmentId || selection.status === 'completed') return;
