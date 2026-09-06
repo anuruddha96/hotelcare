@@ -82,7 +82,6 @@ type AssignmentRow = {
 
 type WorkClass = {
   bucket: number;
-  label: string;
   shortLabel: string;
   tone: 'blue' | 'orange' | 'emerald' | 'slate' | 'purple';
 };
@@ -110,19 +109,15 @@ const priorityLabel = (priority?: number | null) => {
 const roomNumberSort = (a?: string | null, b?: string | null) =>
   String(a || '').localeCompare(String(b || ''), undefined, { numeric: true });
 
-const isCheckoutAssignment = (assignment: AssignmentRow, selectedDate: string): boolean => {
+const isCheckoutAssignment = (assignment: AssignmentRow, selectedDate: string) => {
   if (assignment.assignment_type === 'checkout_cleaning') return true;
-
-  // Live room flags are mutable. Only use them for today's view; historical
-  // drilldowns must keep the assignment type that was recorded on that date.
   if (selectedDate !== todayBudapest()) return false;
-
   const room = assignment.rooms;
   const meta = room?.pms_metadata || {};
   return !!room?.is_checkout_room || meta?.scheduledDepartureToday === true;
 };
 
-const managerVisibleRoomNote = (notes?: string | null): string => {
+const managerVisibleRoomNote = (notes?: string | null) => {
   const raw = (parseRoomFlags(notes || null).cleanNotes || '').trim();
   if (!raw) return '';
 
@@ -140,16 +135,12 @@ const managerVisibleRoomNote = (notes?: string | null): string => {
 };
 
 const getWorkClass = (assignment: AssignmentRow, selectedDate: string): WorkClass => {
-  if (assignment.status === 'in_progress') {
-    return { bucket: 0, label: 'In progress now', shortLabel: 'IN PROGRESS', tone: 'blue' };
-  }
-  if (assignment.status === 'completed') {
-    return { bucket: 8, label: 'Completed', shortLabel: 'DONE', tone: 'emerald' };
-  }
+  if (assignment.status === 'in_progress') return { bucket: 0, shortLabel: 'IN PROGRESS', tone: 'blue' };
+  if (assignment.status === 'completed') return { bucket: 8, shortLabel: 'DONE', tone: 'emerald' };
   if (assignment.status === 'dnd_pending_retry') {
     return assignment.dnd_retry_unlocked_at
-      ? { bucket: 6, label: 'DND second attempt', shortLabel: 'DND RETRY', tone: 'purple' }
-      : { bucket: 7, label: 'DND retry waiting', shortLabel: 'DND WAIT', tone: 'purple' };
+      ? { bucket: 6, shortLabel: 'DND RETRY', tone: 'purple' }
+      : { bucket: 7, shortLabel: 'DND WAIT', tone: 'purple' };
   }
 
   const checkout = isCheckoutAssignment(assignment, selectedDate);
@@ -157,22 +148,16 @@ const getWorkClass = (assignment: AssignmentRow, selectedDate: string): WorkClas
   const flags = parseRoomFlags(room?.notes || null);
   const greenBoardRequest = hasMemoriesGreenBoardRequest(assignment.notes);
 
-  if (checkout && assignment.ready_to_clean) {
-    return { bucket: 1, label: 'Checkout priority', shortLabel: '1 · CHECKOUT', tone: 'orange' };
-  }
-  if (!checkout && room?.towel_change_required) {
-    return { bucket: 2, label: 'Towel-change priority', shortLabel: '2 · TOWEL', tone: 'blue' };
-  }
+  if (checkout && assignment.ready_to_clean) return { bucket: 1, shortLabel: '1 · CHECKOUT', tone: 'orange' };
+  if (!checkout && room?.towel_change_required) return { bucket: 2, shortLabel: '2 · TOWEL', tone: 'blue' };
   if (!checkout && (flags.roomCleaning || greenBoardRequest)) {
-    return { bucket: 3, label: 'Explicit clean request', shortLabel: '3 · CLEAN REQUEST', tone: 'emerald' };
+    return { bucket: 3, shortLabel: '3 · CLEAN REQUEST', tone: 'emerald' };
   }
   if (!checkout && assignment.assignment_type === 'daily_cleaning') {
-    return { bucket: 4, label: 'Optional daily · check door', shortLabel: '4 · OPTIONAL', tone: 'emerald' };
+    return { bucket: 4, shortLabel: '4 · OPTIONAL', tone: 'emerald' };
   }
-  if (checkout && !assignment.ready_to_clean) {
-    return { bucket: 5, label: 'Waiting for guest checkout', shortLabel: 'WAITING C/O', tone: 'orange' };
-  }
-  return { bucket: 4, label: 'Daily room', shortLabel: 'DAILY', tone: 'slate' };
+  if (checkout && !assignment.ready_to_clean) return { bucket: 5, shortLabel: 'WAITING C/O', tone: 'orange' };
+  return { bucket: 4, shortLabel: 'DAILY', tone: 'slate' };
 };
 
 const toneClasses = (tone: WorkClass['tone']) => {
@@ -214,10 +199,10 @@ function MemoriesManagerRoomCard({
   const greenBoardRequest = hasMemoriesGreenBoardRequest(assignment.notes);
   const declined = isGuestDeclinedService(assignment.service_result, assignment.notes);
   const optionalDaily =
+    assignment.status === 'assigned' &&
     workClass.bucket === 4 &&
     !checkout &&
-    assignment.assignment_type === 'daily_cleaning' &&
-    assignment.status === 'assigned';
+    assignment.assignment_type === 'daily_cleaning';
   const managerNote = managerVisibleRoomNote(room.notes);
   const managerInstruction = String(assignment.manager_instruction_text || '').trim();
   const bedConfig =
@@ -229,25 +214,15 @@ function MemoriesManagerRoomCard({
   const canChangePendingWork = canEdit && ['assigned', 'dnd_pending_retry'].includes(assignment.status);
 
   return (
-    <Card
-      className={`overflow-hidden ${
-        optionalDaily
-          ? 'border-l-4 border-l-emerald-500 bg-emerald-50/30 dark:bg-emerald-950/10'
-          : ''
-      }`}
-    >
+    <Card className={optionalDaily ? 'overflow-hidden border-l-4 border-l-emerald-500 bg-emerald-50/30 dark:bg-emerald-950/10' : 'overflow-hidden'}>
       <CardHeader className="pb-3">
         {checkout && !assignment.ready_to_clean && assignment.status === 'assigned' && (
           <div className="mb-2 rounded-lg border border-orange-300 bg-orange-50 px-3 py-2 dark:border-orange-800 dark:bg-orange-950/30">
             <div className="flex items-start gap-2">
               <Clock className="mt-0.5 h-4 w-4 shrink-0 text-orange-600" />
               <div>
-                <p className="text-sm font-semibold text-orange-900 dark:text-orange-100">
-                  Waiting for guest checkout
-                </p>
-                <p className="text-xs text-orange-700 dark:text-orange-300">
-                  Guest is still in room · housekeeper cannot start yet.
-                </p>
+                <p className="text-sm font-semibold text-orange-900 dark:text-orange-100">Waiting for guest checkout</p>
+                <p className="text-xs text-orange-700 dark:text-orange-300">Guest is still in room · housekeeper cannot start yet.</p>
               </div>
             </div>
           </div>
@@ -262,12 +237,8 @@ function MemoriesManagerRoomCard({
             </p>
           </div>
           <div className="flex max-w-full flex-wrap justify-end gap-1">
-            <Badge variant="outline" className={toneClasses(workClass.tone)}>
-              {workClass.shortLabel}
-            </Badge>
-            <Badge variant="outline">
-              {STATUS_LABELS[assignment.status] || assignment.status.replace(/_/g, ' ')}
-            </Badge>
+            <Badge variant="outline" className={toneClasses(workClass.tone)}>{workClass.shortLabel}</Badge>
+            <Badge variant="outline">{STATUS_LABELS[assignment.status] || assignment.status.replace(/_/g, ' ')}</Badge>
             <Badge variant="secondary">{priorityLabel(assignment.priority)} priority</Badge>
           </div>
         </div>
@@ -275,14 +246,10 @@ function MemoriesManagerRoomCard({
 
       <CardContent className="space-y-3 pt-0">
         <div className="flex flex-wrap gap-1.5 text-xs">
-          <Badge variant={checkout ? 'default' : 'secondary'}>
-            {checkout ? '🚪 Checkout Clean' : '🛏 Daily room'}
-          </Badge>
+          <Badge variant={checkout ? 'default' : 'secondary'}>{checkout ? '🚪 Checkout Clean' : '🛏 Daily room'}</Badge>
           {room.towel_change_required && !checkout && <Badge variant="outline">🔄 Towel change</Badge>}
           {room.linen_change_required && !checkout && <Badge variant="outline">🛏 Linen change</Badge>}
-          {(flags.roomCleaning || greenBoardRequest) && !checkout && (
-            <Badge variant="outline">✅ Clean requested</Badge>
-          )}
+          {(flags.roomCleaning || greenBoardRequest) && !checkout && <Badge variant="outline">✅ Clean requested</Badge>}
           {nights && <Badge variant="outline">🌙 Night {nights}</Badge>}
           {declined && <Badge variant="outline">No Service</Badge>}
           {assignment.status === 'dnd_pending_retry' && <Badge variant="outline">🔕 DND retry</Badge>}
@@ -296,7 +263,7 @@ function MemoriesManagerRoomCard({
               <div>
                 <p className="text-sm font-semibold">Check the guest&apos;s door first</p>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  No towel change or clean request is active. This is the same optional daily-room state the housekeeper sees: clean only when the green “Clean My Room” card is outside, the guest asks for cleaning, or another service request appears.
+                  No towel change or clean request is active. Clean only when the green “Clean My Room” card is outside, the guest asks for cleaning, or another service request appears.
                 </p>
               </div>
             </div>
@@ -308,9 +275,7 @@ function MemoriesManagerRoomCard({
             <div className="flex items-start gap-2">
               <BedDouble className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-wide text-blue-700 dark:text-blue-300">
-                  Bed configuration
-                </p>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-blue-700 dark:text-blue-300">Bed configuration</p>
                 <p className="text-sm font-semibold">{String(bedConfig)}</p>
               </div>
             </div>
@@ -322,32 +287,19 @@ function MemoriesManagerRoomCard({
             <div className="flex items-start gap-2">
               <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
               <div className="min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
-                  Manager notes
-                </p>
-                {managerInstruction && (
-                  <p className="whitespace-pre-wrap break-words text-sm font-semibold">{managerInstruction}</p>
-                )}
-                {managerNote && managerNote !== managerInstruction && (
-                  <p className="whitespace-pre-wrap break-words text-sm">{managerNote}</p>
-                )}
+                <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">Manager notes</p>
+                {managerInstruction && <p className="whitespace-pre-wrap break-words text-sm font-semibold">{managerInstruction}</p>}
+                {managerNote && managerNote !== managerInstruction && <p className="whitespace-pre-wrap break-words text-sm">{managerNote}</p>}
               </div>
             </div>
           </div>
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-xs text-muted-foreground">
-          <span>
-            {assignment.estimated_duration ? `${assignment.estimated_duration} min` : 'Duration not set'} · Room status:{' '}
-            {room.status || 'unknown'}
-          </span>
+          <span>{assignment.estimated_duration ? `${assignment.estimated_duration} min` : 'Duration not set'} · Room status: {room.status || 'unknown'}</span>
           {assignment.status === 'completed' && (
             <span className="flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-300">
-              {assignment.supervisor_approved ? (
-                <ShieldCheck className="h-3.5 w-3.5" />
-              ) : (
-                <CheckCircle2 className="h-3.5 w-3.5" />
-              )}
+              {assignment.supervisor_approved ? <ShieldCheck className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
               {assignment.supervisor_approved ? 'Approved' : 'Awaiting approval'}
             </span>
           )}
@@ -365,13 +317,7 @@ function MemoriesManagerRoomCard({
                   size="sm"
                   variant={(assignment.priority ?? 1) === priority ? 'default' : 'outline'}
                   className="h-7 px-2.5 text-xs"
-                  onClick={() =>
-                    onPatch(
-                      assignment.id,
-                      { priority },
-                      `Room ${room.room_number}: priority set to ${priorityLabel(priority)}`,
-                    )
-                  }
+                  onClick={() => onPatch(assignment.id, { priority }, `Room ${room.room_number}: priority set to ${priorityLabel(priority)}`)}
                 >
                   {priorityLabel(priority)}
                 </Button>
@@ -383,9 +329,7 @@ function MemoriesManagerRoomCard({
                 type="button"
                 size="sm"
                 className="h-8"
-                onClick={() =>
-                  onPatch(assignment.id, { ready_to_clean: true }, `Room ${room.room_number} marked ready to clean`)
-                }
+                onClick={() => onPatch(assignment.id, { ready_to_clean: true }, `Room ${room.room_number} marked ready to clean`)}
               >
                 <CheckCircle2 className="mr-1.5 h-4 w-4" /> Mark ready to clean
               </Button>
@@ -398,19 +342,12 @@ function MemoriesManagerRoomCard({
                   onValueChange={(value) =>
                     onPatch(
                       assignment.id,
-                      {
-                        assignment_type: value,
-                        ready_to_clean: value === 'daily_cleaning',
-                      },
-                      `Room ${room.room_number} changed to ${
-                        value === 'checkout_cleaning' ? 'Checkout Cleaning' : 'Daily Cleaning'
-                      }`,
+                      { assignment_type: value, ready_to_clean: value === 'daily_cleaning' },
+                      `Room ${room.room_number} changed to ${value === 'checkout_cleaning' ? 'Checkout Cleaning' : 'Daily Cleaning'}`,
                     )
                   }
                 >
-                  <SelectTrigger className="h-8 w-[175px] text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger className="h-8 w-[175px] text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="checkout_cleaning">Checkout Cleaning</SelectItem>
                     <SelectItem value="daily_cleaning">Daily Cleaning</SelectItem>
@@ -446,9 +383,7 @@ export function HotelMemoriesManagerStatusDialog({
   const { profile } = useAuth();
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const canSee =
-    isHotelMemoriesBudapest(hotelName) &&
-    (hasManagerPowers(profile?.role) || profile?.role === 'supervisor');
+  const canSee = isHotelMemoriesBudapest(hotelName) && (hasManagerPowers(profile?.role) || profile?.role === 'supervisor');
   const canEdit = hasManagerPowers(profile?.role);
 
   const fetchAssignments = useCallback(async () => {
@@ -459,25 +394,13 @@ export function HotelMemoriesManagerStatusDialog({
 
     setLoading(true);
     try {
+      // Select every assignment column so this remains compatible with hotels
+      // where optional outcome fields have not been migrated yet. The rich
+      // display itself is still hard-filtered to Hotel Memories room rows.
       const { data, error } = await (supabase as any)
         .from('room_assignments')
         .select(`
-          id,
-          room_id,
-          assigned_to,
-          assignment_type,
-          status,
-          priority,
-          estimated_duration,
-          notes,
-          ready_to_clean,
-          pms_hold,
-          supervisor_approved,
-          manager_instruction_text,
-          service_result,
-          dnd_retry_unlocked_at,
-          started_at,
-          completed_at,
+          *,
           rooms!inner(
             id,
             hotel,
@@ -503,7 +426,6 @@ export function HotelMemoriesManagerStatusDialog({
       const rows = (data || [])
         .map((row: any) => ({ ...row, rooms: row.rooms || null }))
         .filter((row: AssignmentRow) => isHotelMemoriesBudapest(row.rooms?.hotel)) as AssignmentRow[];
-
       setAssignments(rows);
     } catch (error) {
       console.error('[Hotel Memories manager status drilldown] Failed to load assignments', error);
@@ -519,7 +441,6 @@ export function HotelMemoriesManagerStatusDialog({
 
   useEffect(() => {
     if (!open || !canSee) return;
-
     let timer: ReturnType<typeof setTimeout> | null = null;
     const refreshSoon = () => {
       if (timer) clearTimeout(timer);
@@ -528,22 +449,17 @@ export function HotelMemoriesManagerStatusDialog({
 
     const channel = supabase
       .channel(`hmb-manager-status-${staffId}-${status}-${selectedDate}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'room_assignments',
-          filter: `assignment_date=eq.${selectedDate}`,
-        },
-        refreshSoon,
-      )
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'room_assignments',
+        filter: `assignment_date=eq.${selectedDate}`,
+      }, refreshSoon)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, refreshSoon)
       .subscribe();
 
     window.addEventListener('hk-assignments-changed', refreshSoon);
     window.addEventListener('pms-sync-completed', refreshSoon);
-
     return () => {
       if (timer) clearTimeout(timer);
       supabase.removeChannel(channel);
@@ -552,50 +468,30 @@ export function HotelMemoriesManagerStatusDialog({
     };
   }, [canSee, fetchAssignments, open, selectedDate, staffId, status]);
 
-  const sortedAssignments = useMemo(
-    () =>
-      [...assignments].sort((a, b) => {
-        const bucketDiff = getWorkClass(a, selectedDate).bucket - getWorkClass(b, selectedDate).bucket;
-        if (bucketDiff !== 0) return bucketDiff;
+  const sortedAssignments = useMemo(() => [...assignments].sort((a, b) => {
+    const bucketDiff = getWorkClass(a, selectedDate).bucket - getWorkClass(b, selectedDate).bucket;
+    if (bucketDiff !== 0) return bucketDiff;
+    const priorityDiff = (b.priority ?? 1) - (a.priority ?? 1);
+    if (priorityDiff !== 0) return priorityDiff;
+    const floorDiff = (a.rooms?.floor_number ?? 999) - (b.rooms?.floor_number ?? 999);
+    return floorDiff || roomNumberSort(a.rooms?.room_number, b.rooms?.room_number);
+  }), [assignments, selectedDate]);
 
-        // Inside a work class, preserve explicit manager priority before floor/room.
-        const priorityDiff = (b.priority ?? 1) - (a.priority ?? 1);
-        if (priorityDiff !== 0) return priorityDiff;
-
-        const floorDiff = (a.rooms?.floor_number ?? 999) - (b.rooms?.floor_number ?? 999);
-        if (floorDiff !== 0) return floorDiff;
-        return roomNumberSort(a.rooms?.room_number, b.rooms?.room_number);
-      }),
-    [assignments, selectedDate],
-  );
-
-  const patchAssignment = useCallback(
-    async (assignmentId: string, patch: Record<string, any>, message: string) => {
-      try {
-        const { error } = await (supabase as any)
-          .from('room_assignments')
-          .update(patch)
-          .eq('id', assignmentId);
-        if (error) throw error;
-
-        setAssignments((current) =>
-          current.map((assignment) =>
-            assignment.id === assignmentId ? { ...assignment, ...patch } : assignment,
-          ),
-        );
-        toast.success(message);
-        window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
-      } catch (error) {
-        console.error('[Hotel Memories manager status drilldown] Failed to update assignment', error);
-        toast.error('Could not update room');
-      }
-    },
-    [],
-  );
+  const patchAssignment = useCallback(async (assignmentId: string, patch: Record<string, any>, message: string) => {
+    try {
+      const { error } = await (supabase as any).from('room_assignments').update(patch).eq('id', assignmentId);
+      if (error) throw error;
+      setAssignments((current) => current.map((assignment) => assignment.id === assignmentId ? { ...assignment, ...patch } : assignment));
+      toast.success(message);
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } catch (error) {
+      console.error('[Hotel Memories manager status drilldown] Failed to update assignment', error);
+      toast.error('Could not update room');
+    }
+  }, []);
 
   const removeAssignment = useCallback(async (assignmentId: string, roomNumber: string) => {
     if (!window.confirm(`Unassign Room ${roomNumber}?`)) return;
-
     try {
       const { error } = await supabase.from('room_assignments').delete().eq('id', assignmentId);
       if (error) throw error;
@@ -634,9 +530,7 @@ export function HotelMemoriesManagerStatusDialog({
         ) : (
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-medium">
-                {sortedAssignments.length} {sortedAssignments.length === 1 ? 'room' : 'rooms'}
-              </p>
+              <p className="text-sm font-medium">{sortedAssignments.length} {sortedAssignments.length === 1 ? 'room' : 'rooms'}</p>
               <Badge variant="outline">Hotel Memories only</Badge>
             </div>
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
