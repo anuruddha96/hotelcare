@@ -2,9 +2,10 @@ import { useLocation, useParams, Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import {
-  LayoutDashboard,
-  Users,
+  Wrench,
   DoorOpen,
+  Users,
+  Clock,
   Radio,
   TrendingUp,
   Receipt,
@@ -12,12 +13,72 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
-const PMS_NAV_ITEMS = [
-  { key: 'reception', icon: DoorOpen, labelKey: 'pms.unified.reception', roles: ['admin', 'manager', 'reception', 'front_office', 'housekeeping_manager', 'top_management', 'top_management_manager'] },
-  { key: 'guests', icon: Users, labelKey: 'pms.guests', roles: ['admin', 'manager', 'reception', 'front_office', 'top_management', 'top_management_manager'] },
-  { key: 'channel-manager', icon: Radio, labelKey: 'pms.channelManager', roles: ['admin', 'manager', 'top_management', 'top_management_manager'] },
-  { key: 'revenue', icon: TrendingUp, labelKey: 'pms.revenue', roles: ['admin', 'top_management', 'top_management_manager'] },
-  { key: 'purchase-invoices', icon: Receipt, labelKey: 'pms.purchaseInvoices', roles: ['admin', 'top_management', 'control_finance', 'control_manager', 'back_office_manager'] },
+type NavigationItem = {
+  key: string;
+  icon: typeof DoorOpen;
+  label: string;
+  href: (basePath: string) => string;
+  roles: string[];
+};
+
+const MANAGEMENT_ROLES = [
+  'admin',
+  'manager',
+  'housekeeping_manager',
+  'top_management',
+  'top_management_manager',
+];
+
+const PMS_NAV_ITEMS: NavigationItem[] = [
+  {
+    key: 'maintenance',
+    icon: Wrench,
+    label: 'Maintenance',
+    href: (basePath) => `${basePath}?tab=tickets`,
+    roles: MANAGEMENT_ROLES,
+  },
+  {
+    key: 'reception',
+    icon: DoorOpen,
+    label: 'Reception',
+    href: (basePath) => `${basePath}/reception`,
+    roles: [...MANAGEMENT_ROLES, 'reception', 'front_office'],
+  },
+  {
+    key: 'housekeeping',
+    icon: Users,
+    label: 'Housekeeping',
+    href: (basePath) => `${basePath}?tab=housekeeping`,
+    roles: MANAGEMENT_ROLES,
+  },
+  {
+    key: 'hr',
+    icon: Clock,
+    label: 'HR',
+    href: (basePath) => `${basePath}?tab=attendance`,
+    roles: MANAGEMENT_ROLES,
+  },
+  {
+    key: 'revenue',
+    icon: TrendingUp,
+    label: 'Revenue Management',
+    href: (basePath) => `${basePath}/revenue`,
+    roles: ['admin', 'top_management', 'top_management_manager'],
+  },
+  {
+    key: 'channel-manager',
+    icon: Radio,
+    label: 'Channel Manager',
+    href: (basePath) => `${basePath}/channel-manager`,
+    roles: ['admin', 'manager', 'top_management', 'top_management_manager'],
+  },
+  {
+    key: 'purchase-invoices',
+    icon: Receipt,
+    label: 'Invoices',
+    href: (basePath) => `${basePath}/purchase-invoices`,
+    roles: ['admin', 'top_management', 'control_finance', 'control_manager', 'back_office_manager'],
+  },
 ];
 
 export function PMSNavigation() {
@@ -33,26 +94,34 @@ export function PMSNavigation() {
 
   if (!profile || visibleItems.length === 0) return null;
 
+  const isReceptionPath =
+    location.pathname.startsWith(`${basePath}/reception`) ||
+    location.pathname.startsWith(`${basePath}/reservations`) ||
+    location.pathname.startsWith(`${basePath}/front-desk`) ||
+    location.pathname.startsWith(`${basePath}/guests`);
+
+  const activeKey = (() => {
+    if (isReceptionPath) return 'reception';
+    if (location.pathname.startsWith(`${basePath}/revenue`)) return 'revenue';
+    if (location.pathname.startsWith(`${basePath}/channel-manager`)) return 'channel-manager';
+    if (location.pathname.startsWith(`${basePath}/purchase-invoices`)) return 'purchase-invoices';
+    if (location.pathname === basePath || location.pathname === `${basePath}/`) {
+      const tab = new URLSearchParams(location.search).get('tab');
+      if (tab === 'tickets') return 'maintenance';
+      if (tab === 'attendance') return 'hr';
+      return 'housekeeping';
+    }
+    return '';
+  })();
+
   return (
-    <nav className="w-full bg-card border-b border-border">
+    <nav className="w-full bg-card border-b border-border" aria-label={t('pms.operations')}>
       <div className="container mx-auto px-3 sm:px-4">
         <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide py-1">
-          <Link to={basePath}>
-            <Button variant="ghost" size="sm" className="shrink-0 gap-1.5 text-muted-foreground hover:text-foreground">
-              <LayoutDashboard className="h-4 w-4" />
-              <span className="hidden sm:inline text-xs">{t('pms.operations')}</span>
-            </Button>
-          </Link>
-
-          <div className="h-5 w-px bg-border shrink-0" />
-
           {visibleItems.map((item) => {
-            const path = `${basePath}/${item.key}`;
-            const isActive = location.pathname.startsWith(path)
-              || (item.key === 'reception' && (location.pathname.startsWith(`${basePath}/front-desk`) || location.pathname === `${basePath}/reservations`));
-            const label = item.labelKey ? t(item.labelKey) : item.key;
+            const isActive = activeKey === item.key;
             return (
-              <Link key={item.key} to={path}>
+              <Link key={item.key} to={item.href(basePath)}>
                 <Button
                   variant={isActive ? 'default' : 'ghost'}
                   size="sm"
@@ -64,7 +133,7 @@ export function PMSNavigation() {
                   )}
                 >
                   <item.icon className="h-4 w-4" />
-                  <span className="hidden sm:inline">{label}</span>
+                  <span className="hidden sm:inline">{item.label}</span>
                 </Button>
               </Link>
             );
