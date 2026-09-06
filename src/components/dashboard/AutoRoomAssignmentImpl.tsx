@@ -828,6 +828,8 @@ export function AutoRoomAssignment({
     }
     if (task.staff_id === toStaffId) return;
     setSectionTaskOwners(previous => new Map(previous).set(taskId, toStaffId));
+    setJustDroppedStaffId(toStaffId);
+    setTimeout(() => setJustDroppedStaffId(current => current === toStaffId ? null : current), 650);
     const toName = assignmentPreviews.find(p => p.staffId === toStaffId)?.staffName || 'housekeeper';
     toast.success(`${task.task_name} → ${toName}`);
   };
@@ -1193,6 +1195,49 @@ export function AutoRoomAssignment({
     );
   };
 
+  const renderPublicAreaChip = (task: (typeof sectionTasks)[number], ownerStaffId: string) => (
+    <motion.div
+      key={task.id}
+      layout
+      data-public-area-task-id={task.id}
+      drag={!task.lockedStatus}
+      dragMomentum={false}
+      dragElastic={0.16}
+      dragSnapToOrigin
+      whileDrag={task.lockedStatus ? undefined : { scale: 1.08, zIndex: 80, boxShadow: '0 12px 30px rgba(15,23,42,.24)' }}
+      onDragStart={() => {
+        if (task.lockedStatus) return;
+        setDraggingAreaTaskId(task.id);
+        setSelectedRoomForMove(null);
+      }}
+      onDrag={(_, info) => {
+        if (!task.lockedStatus) setDragOverStaffId(getDropStaffAtPoint(info.point.x, info.point.y, ownerStaffId));
+      }}
+      onDragEnd={(_, info) => {
+        if (task.lockedStatus) return;
+        const target = getDropStaffAtPoint(info.point.x, info.point.y, ownerStaffId);
+        setDraggingAreaTaskId(null);
+        setDragOverStaffId(null);
+        if (target) movePublicAreaTask(task.id, target);
+      }}
+      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] leading-tight font-medium select-none touch-none border border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200 ${
+        task.lockedStatus
+          ? 'cursor-not-allowed border-dashed opacity-70'
+          : 'cursor-grab active:cursor-grabbing hover:bg-emerald-100 dark:hover:bg-emerald-900/50'
+      } ${draggingAreaTaskId === task.id ? 'opacity-75 ring-2 ring-primary' : ''}`}
+      title={`${task.task_name} · ${task.section_name} · ${task.estimated_duration} min${task.lockedStatus ? ` · ${task.lockedStatus === 'completed' ? 'Done' : 'In progress'}` : ' · Drag to another housekeeper'}`}
+    >
+      <span aria-hidden>{task.icon || '🧹'}</span>
+      <span className="font-semibold">{task.task_name}</span>
+      <span className="text-[9px] opacity-60">{task.section_name}</span>
+      {task.lockedStatus && (
+        <span className="rounded border px-1 text-[8px] opacity-80">
+          {task.lockedStatus === 'completed' ? 'Done' : 'Working'}
+        </span>
+      )}
+    </motion.div>
+  );
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1305,8 +1350,8 @@ export function AutoRoomAssignment({
                         <div className="flex-1 space-y-1.5 overflow-y-auto p-1.5">
                           {checkouts.length > 0 && <div><p className="mb-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">{t('autoAssign.checkouts')}</p>{groupByFloor(checkouts).map(group => <div key={`co-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">F{group.floor}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
                           {daily.length > 0 && <div><p className="mb-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">{t('autoAssign.daily')}</p>{groupByFloor(daily).map(group => <div key={`d-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">F{group.floor}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
-                          {mappedTasks.length > 0 && <div><p className="mb-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">Mapped area work</p><div className="flex flex-wrap gap-1">{mappedTasks.map(task => <span key={task.id} className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[9px] text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200" title={`${task.section_name} · ${task.estimated_duration} min`}>{task.icon} {task.task_name} <span className="opacity-60">{task.section_name}</span></span>)}</div></div>}
-                          {preview.rooms.length === 0 && <div className="rounded border border-dashed p-3 text-center text-[10px] text-muted-foreground">Drop or tap a room here</div>}
+                          {mappedTasks.length > 0 && <div><p className="mb-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">Public areas · drag to reassign</p><div className="flex flex-wrap gap-1">{mappedTasks.map(task => renderPublicAreaChip(task, preview.staffId))}</div></div>}
+                          {preview.rooms.length === 0 && mappedTasks.length === 0 && <div className={`rounded border border-dashed p-3 text-center text-[10px] text-muted-foreground ${isDragOver ? 'border-primary bg-primary/5' : ''}`}>Drop a room or public area here</div>}
                         </div>
                       </motion.div>
                     );
@@ -1314,51 +1359,14 @@ export function AutoRoomAssignment({
                 </div>
 
                 {sectionTasks.length > 0 && (
-                  <div className="rounded-lg border bg-card p-2">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 text-xs font-semibold">
-                        <MapPin className="h-3.5 w-3.5 text-primary" />
-                        Public areas
-                        <Badge variant="outline" className="text-[10px]">{sectionTasks.length}</Badge>
-                      </div>
-                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={shufflePublicAreas}>
-                        <Shuffle className="mr-1 h-3.5 w-3.5" />Shuffle public areas
-                      </Button>
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <MapPin className="h-3.5 w-3.5 text-primary" />
+                      <span><strong className="text-foreground">{sectionTasks.length} public area task{sectionTasks.length === 1 ? '' : 's'}</strong> · drag the green area chips directly between housekeeper columns.</span>
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {sectionTasks.map(task => (
-                        <motion.div
-                          key={task.id}
-                          drag={!task.lockedStatus}
-                          dragSnapToOrigin
-                          dragMomentum={false}
-                          onDragStart={() => setDraggingAreaTaskId(task.id)}
-                          onDrag={(_, info) => setDragOverStaffId(getDropStaffAtPoint(info.point.x, info.point.y, task.staff_id))}
-                          onDragEnd={(_, info) => {
-                            const target = getDropStaffAtPoint(info.point.x, info.point.y, task.staff_id);
-                            setDraggingAreaTaskId(null);
-                            setDragOverStaffId(null);
-                            if (target) movePublicAreaTask(task.id, target);
-                          }}
-                          onClick={() => task.lockedStatus && movePublicAreaTask(task.id, task.staff_id)}
-                          className={`flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] ${
-                            task.lockedStatus
-                              ? 'cursor-not-allowed border-dashed opacity-70'
-                              : 'cursor-grab bg-background active:cursor-grabbing'
-                          } ${draggingAreaTaskId === task.id ? 'ring-2 ring-primary' : ''}`}
-                        >
-                          <span aria-hidden>{task.icon || '🧹'}</span>
-                          <span className="font-medium">{task.task_name}</span>
-                          <span className="text-muted-foreground">→ {task.staff_name}</span>
-                          {task.lockedStatus && (
-                            <Badge variant="outline" className="ml-0.5 text-[9px]">
-                              {task.lockedStatus === 'completed' ? 'Done' : 'In progress'}
-                            </Badge>
-                          )}
-                        </motion.div>
-                      ))}
-                    </div>
-                    <p className="mt-1.5 text-[10px] text-muted-foreground">Drag an area onto a housekeeper column to move it. Started or finished areas stay with their housekeeper.</p>
+                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={shufflePublicAreas}>
+                      <Shuffle className="mr-1 h-3.5 w-3.5" />Shuffle public areas
+                    </Button>
                   </div>
                 )}
 
@@ -1371,7 +1379,7 @@ export function AutoRoomAssignment({
                     <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedRoomForMove(null)}>Cancel</Button>
                   </div>
                 ) : (
-                  <p className="text-center text-[10px] text-muted-foreground">{t('autoAssign.dragToReassign')} · {t('autoAssign.tapToMove')} · tap a room for Remove / Maintenance</p>
+                  <p className="text-center text-[10px] text-muted-foreground">{t('autoAssign.dragToReassign')} · public areas use the same drag-and-drop columns · {t('autoAssign.tapToMove')} · tap a room for Remove / Maintenance</p>
                 )}
 
                 {maintenanceHoldRoomIds.size > 0 && <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 dark:bg-red-950/30 dark:text-red-200"><Wrench className="mr-1 inline h-3.5 w-3.5" />{maintenanceHoldRoomIds.size} room{maintenanceHoldRoomIds.size === 1 ? '' : 's'} will be placed on maintenance hold when you confirm.</div>}
