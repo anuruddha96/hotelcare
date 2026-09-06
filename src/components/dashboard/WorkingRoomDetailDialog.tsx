@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,6 +11,7 @@ import { Clock, MapPin, User, CheckCircle, AlertCircle } from 'lucide-react';
 import { format, differenceInMinutes } from 'date-fns';
 import { toast } from 'sonner';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { HotelMemoriesManagerStatusDialog } from './HotelMemoriesManagerStatusDialog';
 
 interface WorkingRoomDetailDialogProps {
   open: boolean;
@@ -146,6 +148,10 @@ export function WorkingRoomDetailDialog({
     return 'on_track';
   };
 
+  const memoriesHotelName = !loading
+    ? assignments.find((assignment) => isHotelMemoriesBudapest(assignment.hotel))?.hotel || null
+    : null;
+
   if (loading) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -155,6 +161,20 @@ export function WorkingRoomDetailDialog({
           </div>
         </DialogContent>
       </Dialog>
+    );
+  }
+
+  if (memoriesHotelName) {
+    return (
+      <HotelMemoriesManagerStatusDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        staffId={staffId}
+        staffName={staffName}
+        selectedDate={selectedDate}
+        hotelName={memoriesHotelName}
+        status="in_progress"
+      />
     );
   }
 

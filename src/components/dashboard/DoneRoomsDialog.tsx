@@ -5,6 +5,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Clock, MapPin, CheckCircle } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { HotelMemoriesManagerStatusDialog } from './HotelMemoriesManagerStatusDialog';
 
 interface DoneRoomsDialogProps {
   open: boolean;
@@ -104,6 +106,27 @@ export function DoneRoomsDialog({
         return type;
     }
   };
+
+  // Hotel Memories keeps the compact housekeeper summary card on the Team
+  // View. Clicking Done opens the rich housekeeper-style room cards in a
+  // dialog instead of adding a second full room list to the page.
+  const memoriesHotelName = !loading
+    ? assignments.find((assignment) => isHotelMemoriesBudapest(assignment.rooms?.hotel))?.rooms?.hotel || null
+    : null;
+
+  if (memoriesHotelName) {
+    return (
+      <HotelMemoriesManagerStatusDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        staffId={staffId}
+        staffName={staffName}
+        selectedDate={selectedDate}
+        hotelName={memoriesHotelName}
+        status="completed"
+      />
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
