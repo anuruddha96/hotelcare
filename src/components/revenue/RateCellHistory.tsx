@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useParams } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
 import { formatWhen } from "@/lib/rateAudit";
 import type { RateAuditRow } from "@/lib/rateAudit";
 import { groupCellChanges, type LogicalChange } from "@/lib/rateChangeGroups";
@@ -43,6 +45,228 @@ function statusLine(entries: LogicalChange[], draftPrice?: number | null, sendin
   }
 }
 
+/**
+ * PMS room names are identifiers elsewhere in the revenue grid, so we keep the
+ * raw value for lookups and only clean it at the presentation edge. Previo can
+ * occasionally send Czech fallback names even while HotelCare is in English.
+ */
+export function englishRoomTypeName(name: string): string {
+  const exact: Record<string, string> = {
+    "Deluxe Čtyřlůžkový Pokoj": "Deluxe Quadruple Room",
+  };
+  if (exact[name]) return exact[name];
+  return name
+    .replace(/Čtyřlůžkový Pokoj/gi, "Quadruple Room")
+    .replace(/Třílůžkový Pokoj/gi, "Triple Room")
+    .replace(/Dvoulůžkový Pokoj/gi, "Double Room")
+    .replace(/Jednolůžkový Pokoj/gi, "Single Room");
+}
+
+type BookingNightHistoryRow = {
+  res_id: string;
+  room_key?: string | null;
+  stay_date: string;
+  room_type_name: string | null;
+  guests: number | null;
+  nightly_price_eur: number | null;
+  total_price_eur: number | null;
+  stay_from: string | null;
+  stay_to: string | null;
+  source_name: string | null;
+  created_at_pms: string | null;
+  status_id?: number | null;
+  cancelled_at?: string | null;
+};
+
+type BookingHistoryItem = {
+  key: string;
+  resId: string;
+  createdAt: string | null;
+  cancelledAt: string | null;
+  stayFrom: string;
+  stayTo: string;
+  guests: number;
+  nightlyPrice: number | null;
+  totalPrice: number | null;
+  source: string | null;
+  status: "confirmed" | "option" | "cancelled" | "no_show";
+};
+
+function bookingStatus(statusId: number | null | undefined, cancelled: boolean): BookingHistoryItem["status"] {
+  if (statusId === 8) return "no_show";
+  if (cancelled || statusId === 7) return "cancelled";
+  if (statusId === 1) return "option";
+  return "confirmed";
+}
+
+function bookingStatusLabel(status: BookingHistoryItem["status"]): string {
+  if (status === "no_show") return "No-show";
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function bookingStatusTone(status: BookingHistoryItem["status"]): string {
+  if (status === "cancelled" || status === "no_show") return "bg-destructive/10 text-destructive";
+  if (status === "option") return "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300";
+  return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300";
+}
+
+function sourceLabel(source: string | null): string {
+  if (!source) return "Unknown source";
+  return source
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function bookingWhen(iso: string | null): string {
+  if (!iso) return "time unavailable";
+  return new Date(iso).toLocaleString(undefined, {
+    timeZone: "Europe/Budapest",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function buildBookingItems(liveRows: BookingNightHistoryRow[], cancelledRows: BookingNightHistoryRow[]): BookingHistoryItem[] {
+  const seen = new Map<string, BookingHistoryItem>();
+  const add = (row: BookingNightHistoryRow, cancelled: boolean) => {
+    const key = `${row.res_id}|${row.room_key ?? ""}`;
+    const item: BookingHistoryItem = {
+      key,
+      resId: row.res_id,
+      createdAt: row.created_at_pms,
+      cancelledAt: cancelled ? row.cancelled_at ?? null : null,
+      stayFrom: row.stay_from ?? row.stay_date,
+      stayTo: row.stay_to ?? row.stay_date,
+      guests: row.guests ?? 1,
+      nightlyPrice: row.nightly_price_eur == null ? null : Number(row.nightly_price_eur),
+      totalPrice: row.total_price_eur == null ? null : Number(row.total_price_eur),
+      source: row.source_name,
+      status: bookingStatus(row.status_id, cancelled),
+    };
+    const existing = seen.get(key);
+    // A cancellation is the latest truth when both mirrors temporarily contain
+    // the same reservation-room during a PMS sync.
+    if (!existing || cancelled) seen.set(key, item);
+  };
+  liveRows.forEach((r) => add(r, false));
+  cancelledRows.forEach((r) => add(r, true));
+  return Array.from(seen.values()).sort((a, b) => {
+    const aAt = a.createdAt ?? a.cancelledAt ?? "";
+    const bAt = b.createdAt ?? b.cancelledAt ?? "";
+    return bAt.localeCompare(aAt);
+  });
+}
+
+function BookingHistory({ hotelId, date, roomTypeName }: {
+  hotelId: string | null;
+  date: string | null;
+  roomTypeName: string | null;
+}) {
+  const [items, setItems] = useState<BookingHistoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!hotelId || !date || !roomTypeName) {
+        setItems([]);
+        setLoading(false);
+        setError("Booking history could not be matched to this rate cell yet.");
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      try {
+        const select = "res_id, room_key, stay_date, room_type_name, guests, nightly_price_eur, total_price_eur, stay_from, stay_to, source_name, created_at_pms, status_id";
+        const [live, gone] = await Promise.all([
+          supabase
+            .from("revenue_booking_nights")
+            .select(select)
+            .eq("hotel_id", hotelId)
+            .eq("stay_date", date)
+            .eq("room_type_name", roomTypeName)
+            .order("created_at_pms", { ascending: false })
+            .limit(100),
+          supabase
+            .from("revenue_cancelled_nights")
+            .select(`${select}, cancelled_at`)
+            .eq("hotel_id", hotelId)
+            .eq("stay_date", date)
+            .eq("room_type_name", roomTypeName)
+            .order("cancelled_at", { ascending: false })
+            .limit(100),
+        ]);
+        if (live.error) throw live.error;
+        if (gone.error) throw gone.error;
+        if (cancelled) return;
+        setItems(buildBookingItems(
+          (live.data ?? []) as unknown as BookingNightHistoryRow[],
+          (gone.data ?? []) as unknown as BookingNightHistoryRow[],
+        ));
+      } catch (e) {
+        if (cancelled) return;
+        setItems([]);
+        setError((e as Error).message || "Booking history could not be loaded.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void run();
+    return () => { cancelled = true; };
+  }, [hotelId, date, roomTypeName, reloadKey]);
+
+  if (loading) {
+    return <div className="rounded-md border px-3 py-4 text-xs text-muted-foreground">Loading bookings for this room type and stay date…</div>;
+  }
+  if (error) {
+    return (
+      <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3 text-xs">
+        <p className="text-destructive">{error}</p>
+        <button type="button" className="text-primary underline underline-offset-2" onClick={() => setReloadKey((v) => v + 1)}>Try again</button>
+      </div>
+    );
+  }
+  if (items.length === 0) {
+    return (
+      <div className="rounded-md border px-3 py-4 text-xs text-muted-foreground">
+        No bookings were recorded for this room type on this stay date.
+      </div>
+    );
+  }
+
+  const active = items.filter((b) => b.status !== "cancelled" && b.status !== "no_show").length;
+  return (
+    <div className="space-y-2">
+      <div className="rounded-md border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
+        <strong className="text-foreground">{items.length}</strong> booking record{items.length === 1 ? "" : "s"} touched this room type on this date · {active} currently active.
+      </div>
+      {items.map((b) => (
+        <div key={b.key} className="space-y-1 rounded-md border px-3 py-2.5 text-xs">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="font-semibold">Booking #{b.resId}</p>
+              <p className="text-[11px] text-muted-foreground">Booked {bookingWhen(b.createdAt)} · {sourceLabel(b.source)}</p>
+            </div>
+            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${bookingStatusTone(b.status)}`}>{bookingStatusLabel(b.status)}</span>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Stay {b.stayFrom} → {b.stayTo} · {b.guests} guest{b.guests === 1 ? "" : "s"}
+          </p>
+          <p className="text-[11px]">
+            Sold at <strong className="tabular-nums">{moneyBase(b.nightlyPrice)}</strong> / night
+            {b.totalPrice != null ? <span className="text-muted-foreground"> · booking total {moneyBase(b.totalPrice)}</span> : null}
+          </p>
+          {b.cancelledAt ? <p className="text-[11px] text-destructive">Cancelled {bookingWhen(b.cancelledAt)}</p> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function RateCellHistory({ history, names, draftPrice, sendingPrice, automation = [], hold = null, expanded = false }: {
   history: RateAuditRow[];
   names: Map<string, string>;
@@ -52,9 +276,44 @@ export default function RateCellHistory({ history, names, draftPrice, sendingPri
   hold?: AutomationAction | null;
   expanded?: boolean;
 }) {
+  const { hotelId: routeHotelId } = useParams<{ hotelId?: string }>();
   const [showAll, setShowAll] = useState(expanded);
+  const [tab, setTab] = useState<"price" | "bookings">("price");
+  const [sheetContext, setSheetContext] = useState<{ date: string; roomTypeName: string } | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const entries = groupCellChanges(history, automation, names, { automationDetail });
   const status = statusLine(entries, draftPrice, sendingPrice);
+
+  const auditContext = history.find((r) => !!r.stay_date && !!r.payload?.room_type_name);
+  const automationContext = automation.find((a) => !!a.stay_date && !!a.room_type_name);
+  const contextDate = auditContext?.stay_date ?? automationContext?.stay_date ?? sheetContext?.date ?? null;
+  const contextRoomType = auditContext?.payload?.room_type_name ?? automationContext?.room_type_name ?? sheetContext?.roomTypeName ?? null;
+
+  // The parent grid deliberately keeps the raw PMS room name for price keys.
+  // Its mobile sheet title used that identifier as display text as well. Read
+  // the selected cell from that heading as a fallback (so booking history also
+  // works before an audit row exists), then correct only the visible room name.
+  useEffect(() => {
+    if (!expanded) return;
+    const dialog = rootRef.current?.closest('[role="dialog"]');
+    if (!dialog) return;
+    const title = Array.from(dialog.querySelectorAll<HTMLElement>("h1,h2,h3,[role='heading']"))
+      .find((node) => /\d{4}-\d{2}-\d{2}/.test(node.textContent ?? ""));
+    if (!title?.textContent) return;
+    const original = title.textContent;
+    const match = original.match(/^(.*?)\s*·\s*\d+\s+guests?\s*·\s*(\d{4}-\d{2}-\d{2})/i);
+    const rawRoomType = (contextRoomType ?? match?.[1] ?? "").trim();
+    const date = contextDate ?? match?.[2] ?? null;
+    if (rawRoomType && date) {
+      setSheetContext((prev) => prev?.date === date && prev.roomTypeName === rawRoomType ? prev : { date, roomTypeName: rawRoomType });
+    }
+    const english = rawRoomType ? englishRoomTypeName(rawRoomType) : rawRoomType;
+    if (!rawRoomType || english === rawRoomType) return;
+    title.textContent = original.replace(rawRoomType, english);
+    return () => {
+      if (title.isConnected && title.textContent?.includes(english)) title.textContent = original;
+    };
+  }, [expanded, contextDate, contextRoomType]);
 
   // Previo is the authoritative live source. A successful read-back that differs
   // from HotelCare's request is synchronization history, not an alarm. The live
@@ -80,8 +339,6 @@ export default function RateCellHistory({ history, names, draftPrice, sendingPri
     </div>
   ) : null;
 
-  if (entries.length === 0) return <div className="space-y-1"><p className={`text-[11px] ${status.tone}`}>{status.text}</p>{authoritativeSyncNote}{holdNote}<p className="text-[11px] text-muted-foreground">No price changes recorded for this room type and date yet.</p></div>;
-
   const block = (e: LogicalChange) => {
     const delta = e.old != null && e.next != null ? Math.round((e.next - e.old) * 100) / 100 : null;
     const pct = e.old && e.next != null && e.old !== 0 ? Math.round(((e.next - e.old) / e.old) * 1000) / 10 : null;
@@ -100,10 +357,44 @@ export default function RateCellHistory({ history, names, draftPrice, sendingPri
   const rest = entries.length - shown.length;
   let lastBucket: string | null = null;
 
-  return <div className="space-y-2">
-    <p className={`text-xs font-medium ${status.tone}`}>{status.text}</p>
-    {authoritativeSyncNote}{holdNote}
-    <div className="space-y-2">{shown.map((e) => { const bucket = dayBucket(e.at); const heading = bucket !== lastBucket ? bucket : null; lastBucket = bucket; return <div key={e.id} className="space-y-1">{heading && <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70">{heading}</p>}{block(e)}</div>; })}</div>
-    {!expanded && rest > 0 && <button type="button" className="text-[11px] text-primary underline underline-offset-2" onClick={(ev) => { ev.stopPropagation(); setShowAll((v) => !v); }}>{showAll ? "Show less" : `${rest} more change${rest === 1 ? "" : "s"}`}</button>}
-  </div>;
+  const priceHistory = entries.length === 0 ? (
+    <div className="space-y-1">
+      <p className={`text-[11px] ${status.tone}`}>{status.text}</p>
+      {authoritativeSyncNote}{holdNote}
+      <p className="text-[11px] text-muted-foreground">No price changes recorded for this room type and date yet.</p>
+    </div>
+  ) : (
+    <div className="space-y-2">
+      <p className={`text-xs font-medium ${status.tone}`}>{status.text}</p>
+      {authoritativeSyncNote}{holdNote}
+      <div className="space-y-2">{shown.map((e) => { const bucket = dayBucket(e.at); const heading = bucket !== lastBucket ? bucket : null; lastBucket = bucket; return <div key={e.id} className="space-y-1">{heading && <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70">{heading}</p>}{block(e)}</div>; })}</div>
+      {!expanded && rest > 0 && <button type="button" className="text-[11px] text-primary underline underline-offset-2" onClick={(ev) => { ev.stopPropagation(); setShowAll((v) => !v); }}>{showAll ? "Show less" : `${rest} more change${rest === 1 ? "" : "s"}`}</button>}
+    </div>
+  );
+
+  if (!expanded) return <div ref={rootRef}>{priceHistory}</div>;
+
+  return (
+    <div ref={rootRef} className="space-y-3">
+      <div className="grid grid-cols-2 rounded-md border bg-muted/20 p-1">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setTab("price"); }}
+          className={`rounded px-2 py-1.5 text-xs font-medium transition-colors ${tab === "price" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`}
+        >
+          Price history
+        </button>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setTab("bookings"); }}
+          className={`rounded px-2 py-1.5 text-xs font-medium transition-colors ${tab === "bookings" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`}
+        >
+          Booking history
+        </button>
+      </div>
+      {tab === "price"
+        ? priceHistory
+        : <BookingHistory hotelId={routeHotelId ?? null} date={contextDate} roomTypeName={contextRoomType} />}
+    </div>
+  );
 }
