@@ -98,9 +98,6 @@ export function isAssignmentInProgressError(err: unknown): err is AssignmentInPr
   return !!err && typeof err === 'object' && (err as { code?: string }).code === 'assignment_in_progress';
 }
 
-
-
-
 /**
  * Assign (or reassign) a unit to a housekeeper for a given date.
  * Existing assignment metadata (type, ready-to-clean, PMS hold, notes) is
@@ -159,7 +156,6 @@ export async function assignRoomToStaff(params: {
     return;
   }
 
-
   const insert: Record<string, unknown> = {
     room_id: roomId,
     assigned_to: staffId,
@@ -185,3 +181,230 @@ export async function unassignRoom(roomId: string, assignmentDate: string): Prom
     .eq('assignment_date', assignmentDate);
   if (error) throw error;
 }
+
+// ---------------------------------------------------------------------------
+// Mobile touch / pen bridge for the existing HTML5 housekeeper -> room DnD.
+//
+// iOS/Android browsers do not reliably emit HTML5 drag events for draggable
+// elements. The room board already has the correct dragstart/drop handlers and
+// realtime assignment write path, so we translate a touch/pen pointer gesture
+// into the same drag event contract instead of maintaining a second assignment
+// implementation. This is intentionally scoped to the signed-in housekeeper
+// pills inside #hotel-room-overview; room dragging and every other draggable in
+// the application keep their existing behaviour.
+// ---------------------------------------------------------------------------
+
+type MobileDragDataTransfer = DataTransfer & {
+  __hotelcareData?: Map<string, string>;
+};
+
+type MobilePointerDrag = {
+  pointerId: number;
+  source: HTMLElement;
+  dataTransfer: MobileDragDataTransfer;
+  overTarget: Element | null;
+  ghost: HTMLElement | null;
+};
+
+const MOBILE_DND_INSTALL_KEY = '__hotelcareMobileHousekeeperDndInstalled';
+
+function createMobileDataTransfer(): MobileDragDataTransfer {
+  const data = new Map<string, string>();
+  const transfer = {
+    dropEffect: 'move',
+    effectAllowed: 'move',
+    files: [] as unknown as FileList,
+    items: [] as unknown as DataTransferItemList,
+    types: [] as string[],
+    setData(format: string, value: string) {
+      const key = String(format);
+      data.set(key, String(value));
+      this.types = Array.from(data.keys());
+    },
+    getData(format: string) {
+      return data.get(String(format)) ?? '';
+    },
+    clearData(format?: string) {
+      if (format === undefined) data.clear();
+      else data.delete(String(format));
+      this.types = Array.from(data.keys());
+    },
+    setDragImage() {
+      // We render a lightweight finger-following clone below instead.
+    },
+    __hotelcareData: data,
+  } as unknown as MobileDragDataTransfer;
+  return transfer;
+}
+
+function dispatchMobileDragEvent(
+  type: 'dragstart' | 'dragenter' | 'dragover' | 'dragleave' | 'drop' | 'dragend',
+  target: Element,
+  dataTransfer: DataTransfer,
+  clientX: number,
+  clientY: number,
+  relatedTarget: Element | null = null,
+): boolean {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperties(event, {
+    dataTransfer: { configurable: true, value: dataTransfer },
+    clientX: { configurable: true, value: clientX },
+    clientY: { configurable: true, value: clientY },
+    relatedTarget: { configurable: true, value: relatedTarget },
+  });
+  return target.dispatchEvent(event);
+}
+
+function findMobileHousekeeperSource(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof Element)) return null;
+  const draggable = target.closest<HTMLElement>('[draggable="true"]');
+  if (!draggable || !draggable.closest('#hotel-room-overview')) return null;
+
+  // Signed-in housekeeper pills are the only draggable controls in the room
+  // overview with the GripVertical icon. This avoids intercepting room-chip
+  // dragging, venue dragging, or unrelated draggable controls elsewhere.
+  if (!draggable.querySelector('svg.lucide-grip-vertical')) return null;
+  return draggable;
+}
+
+function createMobileDragGhost(source: HTMLElement, x: number, y: number): HTMLElement | null {
+  if (typeof document === 'undefined' || !document.body) return null;
+  const ghost = source.cloneNode(true) as HTMLElement;
+  const rect = source.getBoundingClientRect();
+  ghost.removeAttribute('draggable');
+  ghost.setAttribute('aria-hidden', 'true');
+  Object.assign(ghost.style, {
+    position: 'fixed',
+    left: '0px',
+    top: '0px',
+    width: `${Math.max(rect.width, 44)}px`,
+    minHeight: `${Math.max(rect.height, 32)}px`,
+    margin: '0',
+    pointerEvents: 'none',
+    zIndex: '2147483646',
+    opacity: '0.92',
+    transform: `translate3d(${Math.round(x + 14)}px, ${Math.round(y + 14)}px, 0)`,
+  });
+  document.body.appendChild(ghost);
+  return ghost;
+}
+
+function moveMobileDragGhost(ghost: HTMLElement | null, x: number, y: number) {
+  if (!ghost) return;
+  ghost.style.transform = `translate3d(${Math.round(x + 14)}px, ${Math.round(y + 14)}px, 0)`;
+}
+
+function removeMobileDragGhost(ghost: HTMLElement | null) {
+  if (ghost?.parentNode) ghost.parentNode.removeChild(ghost);
+}
+
+function mobileDropTargetAt(x: number, y: number, source: HTMLElement): Element | null {
+  const hit = document.elementFromPoint(x, y);
+  if (!hit || source.contains(hit)) return null;
+
+  // Room chips themselves are draggable. Stabilising the target at the nearest
+  // draggable avoids dragleave/dragenter flicker while a finger crosses the
+  // badges inside one room chip. If the pointer is over a non-draggable area,
+  // keep the exact hit so existing section-level handlers can still receive it.
+  return hit.closest('[draggable="true"]') ?? hit;
+}
+
+function autoScrollMobileDrag(y: number) {
+  const edge = 76;
+  const height = window.innerHeight;
+  if (y < edge) {
+    window.scrollBy({ top: -Math.ceil((edge - y) / 4), behavior: 'auto' });
+  } else if (y > height - edge) {
+    window.scrollBy({ top: Math.ceil((y - (height - edge)) / 4), behavior: 'auto' });
+  }
+}
+
+function installMobileHousekeeperDragBridge() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  const win = window as Window & Record<string, unknown>;
+  if (win[MOBILE_DND_INSTALL_KEY]) return;
+  win[MOBILE_DND_INSTALL_KEY] = true;
+
+  let active: MobilePointerDrag | null = null;
+
+  const finish = (event: PointerEvent, shouldDrop: boolean) => {
+    if (!active || event.pointerId !== active.pointerId) return;
+    const current = active;
+    active = null;
+
+    event.preventDefault();
+    const target = mobileDropTargetAt(event.clientX, event.clientY, current.source) ?? current.overTarget;
+    if (shouldDrop && target) {
+      dispatchMobileDragEvent('drop', target, current.dataTransfer, event.clientX, event.clientY);
+    }
+    if (current.overTarget && current.overTarget !== target) {
+      dispatchMobileDragEvent('dragleave', current.overTarget, current.dataTransfer, event.clientX, event.clientY, target);
+    }
+    dispatchMobileDragEvent('dragend', current.source, current.dataTransfer, event.clientX, event.clientY, target);
+    removeMobileDragGhost(current.ghost);
+    try {
+      if (current.source.hasPointerCapture(event.pointerId)) current.source.releasePointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is an enhancement; older WebViews may not implement it.
+    }
+  };
+
+  document.addEventListener('pointerdown', (event) => {
+    if (event.pointerType === 'mouse' || active) return;
+    const source = findMobileHousekeeperSource(event.target);
+    if (!source) return;
+
+    // Housekeeper pills have no tap action today, so reserving the gesture for
+    // assignment does not steal another control. Preventing the native gesture
+    // here is what makes vertical drag reliable on Safari instead of scrolling.
+    if (event.cancelable) event.preventDefault();
+
+    const dataTransfer = createMobileDataTransfer();
+    dispatchMobileDragEvent('dragstart', source, dataTransfer, event.clientX, event.clientY);
+
+    // Defensive check: only continue if the existing React dragstart handler
+    // actually populated a housekeeper payload. If markup changes later, this
+    // bridge fails closed instead of turning another draggable into an assignee.
+    if (!dataTransfer.getData('housekeeperid')) {
+      dispatchMobileDragEvent('dragend', source, dataTransfer, event.clientX, event.clientY);
+      return;
+    }
+
+    active = {
+      pointerId: event.pointerId,
+      source,
+      dataTransfer,
+      overTarget: null,
+      ghost: createMobileDragGhost(source, event.clientX, event.clientY),
+    };
+
+    try { source.setPointerCapture(event.pointerId); } catch { /* optional */ }
+  }, { passive: false, capture: true });
+
+  document.addEventListener('pointermove', (event) => {
+    if (!active || event.pointerId !== active.pointerId) return;
+    if (event.cancelable) event.preventDefault();
+
+    moveMobileDragGhost(active.ghost, event.clientX, event.clientY);
+    autoScrollMobileDrag(event.clientY);
+
+    const target = mobileDropTargetAt(event.clientX, event.clientY, active.source);
+    if (target !== active.overTarget) {
+      if (active.overTarget) {
+        dispatchMobileDragEvent('dragleave', active.overTarget, active.dataTransfer, event.clientX, event.clientY, target);
+      }
+      if (target) {
+        dispatchMobileDragEvent('dragenter', target, active.dataTransfer, event.clientX, event.clientY, active.overTarget);
+      }
+      active.overTarget = target;
+    }
+    if (target) {
+      dispatchMobileDragEvent('dragover', target, active.dataTransfer, event.clientX, event.clientY);
+    }
+  }, { passive: false, capture: true });
+
+  document.addEventListener('pointerup', (event) => finish(event, true), { passive: false, capture: true });
+  document.addEventListener('pointercancel', (event) => finish(event, false), { passive: false, capture: true });
+}
+
+installMobileHousekeeperDragBridge();
