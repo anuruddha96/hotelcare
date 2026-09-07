@@ -118,6 +118,19 @@ type DecisionFacts = {
   event: EventSignal;
 };
 
+type PlannedChange = {
+  stayDate: string;
+  current: number;
+  target: number;
+  reason: string;
+  daysOut: number;
+  occupancyPct: number | null;
+  roomsLeft: number | null;
+  pickup24h: number;
+  eventTitle: string | null;
+  eventImpact: string | null;
+};
+
 function decideMinStay(f: DecisionFacts, maxNights: number): { target: number; reason: string } {
   const occ = f.occupancy ?? 0;
   const left = f.roomsLeft;
@@ -130,19 +143,17 @@ function decideMinStay(f: DecisionFacts, maxNights: number): { target: number; r
 
   if (left !== null && left <= 0) return { target: f.current, reason: "sold_out_hold" };
 
+  // The final seven days are conversion-first without exceptions. A high event,
+  // strong pickup, 95% occupancy or one last room is not a reason to hide that
+  // room from one-night shoppers. If inventory remains, minLOS must be 1.
+  if (f.daysOut <= 7) {
+    return { target: 1, reason: "final_week_open_to_one_night" };
+  }
+
   // Soft future months must remain discoverable to one-night shoppers. This is
   // intentionally stronger than a generic weekend restriction.
   if (monthOcc > 0 && monthOcc < 45) {
     return { target: 1, reason: `soft_month_${Math.round(monthOcc)}pct_release` };
-  }
-
-  // Final seven days are conversion-first. MLOS survives only under proven
-  // compression, never just because the date is Friday or Saturday.
-  if (f.daysOut <= 7) {
-    if ((weekend || highEvent) && occ >= 90 && left !== null && left <= 2 && pickup >= 1) {
-      return { target: two, reason: "final_week_compression" };
-    }
-    return { target: 1, reason: "final_week_open_to_one_night" };
   }
 
   if (f.daysOut <= 14) {
@@ -173,6 +184,25 @@ function eventStrength(v: unknown): number {
   return s === "high" ? 3 : s === "medium" ? 2 : s === "low" ? 1 : 0;
 }
 
+function reasonDetail(change: PlannedChange): string {
+  if (change.reason === "final_week_open_to_one_night") {
+    const left = change.roomsLeft == null ? "inventory remains" : `${change.roomsLeft} room${change.roomsLeft === 1 ? "" : "s"} left`;
+    return `${change.daysOut} day${change.daysOut === 1 ? "" : "s"} to arrival, ${left}. Opened to 1-night stays so the remaining inventory is visible to last-minute shoppers.`;
+  }
+  if (change.reason.startsWith("event_compression")) {
+    return `${change.eventTitle ?? "High-impact event"} supports a ${change.target}-night minimum at current demand.`;
+  }
+  if (change.reason.startsWith("weekend_compression")) {
+    return `Weekend demand supports a ${change.target}-night minimum at current occupancy and pickup.`;
+  }
+  if (change.reason.startsWith("soft_month_")) {
+    return "The stay month is still soft, so the date was opened to one-night shoppers.";
+  }
+  return change.target === 1
+    ? "Demand does not justify a stay-length restriction, so the date is open for one night."
+    : `Demand supports a ${change.target}-night minimum for this date.`;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok");
   if (req.method !== "POST") return json({ ok: false, error: "POST required" }, 405);
@@ -195,7 +225,7 @@ Deno.serve(async (req: Request) => {
     if ((active ?? []).length > 0) return json({ ok: true, skipped: true, reason: "run_already_in_progress" });
 
     const { data: rule, error: ruleError } = await admin.from("revenue_pickup_automation_rules")
-      .select("hotel_id,organization_slug,min_stay_automation_enabled,min_stay_automation_horizon_days,min_stay_max_nights,min_stay_change_cooldown_hours")
+      .select("id,hotel_id,organization_slug,min_stay_automation_enabled,min_stay_automation_horizon_days,min_stay_max_nights,min_stay_change_cooldown_hours")
       .eq("hotel_id", hotelId).maybeSingle();
     if (ruleError) throw ruleError;
     if (!rule?.min_stay_automation_enabled) return json({ ok: true, skipped: true, reason: "disabled" });
@@ -307,7 +337,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const decisions: any[] = [];
-    const changes: Array<{ stayDate: string; current: number; target: number; reason: string }> = [];
+    const changes: PlannedChange[] = [];
     for (let d = today; d <= horizonDate; d = addDays(d, 1)) {
       const daysOut = daysBetween(today, d);
       const snap = snapByDate.get(d);
@@ -327,6 +357,8 @@ Deno.serve(async (req: Request) => {
       const changed = decision.target !== current;
       const lastAt = lastAppliedAt.get(d) ?? 0;
       const inCooldown = changed && cooldownHours > 0 && lastAt > 0 && now.getTime() - lastAt < cooldownHours * 3_600_000;
+      // Releasing a final-week restriction is urgent and must not wait behind a
+      // prior MLOS change's generic 12-hour cooldown.
       const releaseOverride = daysOut <= 7 && decision.target === 1 && current > 1;
       const status = !changed ? "unchanged" : (inCooldown && !releaseOverride ? "cooldown" : "pending");
       decisions.push({
@@ -336,7 +368,13 @@ Deno.serve(async (req: Request) => {
         month_occupancy_pct: facts.monthOcc, event_impact: facts.event.impact, event_title: facts.event.title,
         reason: decision.reason, status,
       });
-      if (status === "pending") changes.push({ stayDate: d, current, target: decision.target, reason: decision.reason });
+      if (status === "pending") {
+        changes.push({
+          stayDate: d, current, target: decision.target, reason: decision.reason,
+          daysOut, occupancyPct: occupancy, roomsLeft: left, pickup24h: facts.pickup24h,
+          eventTitle: facts.event.title, eventImpact: facts.event.impact,
+        });
+      }
     }
 
     for (let i = 0; i < decisions.length; i += 250) {
@@ -358,6 +396,8 @@ Deno.serve(async (req: Request) => {
 
     let applied = 0;
     let failed = 0;
+    const appliedDates = new Set<string>();
+    const failedDates = new Set<string>();
     const groupResults: any[] = [];
     for (const group of groups) {
       let allOk = true;
@@ -382,10 +422,12 @@ Deno.serve(async (req: Request) => {
         if (error) throw error;
         await admin.from("revenue_min_stay_decisions").update({ status: "applied" }).eq("run_id", runId).in("stay_date", group.dates);
         applied += group.dates.length;
+        group.dates.forEach((d) => appliedDates.add(d));
       } else {
         const error = errors.join("; ").slice(0, 1000);
         await admin.from("revenue_min_stay_decisions").update({ status: "failed", error }).eq("run_id", runId).in("stay_date", group.dates);
         failed += group.dates.length;
+        group.dates.forEach((d) => failedDates.add(d));
       }
       groupResults.push({ from: group.from, to: group.to, target: group.target, ok: allOk, error: errors[0] ?? null });
     }
@@ -401,6 +443,57 @@ Deno.serve(async (req: Request) => {
       finished_at: new Date().toISOString(), dates_evaluated: decisions.length,
       changes_attempted: changes.length, changes_applied: applied, changes_failed: failed, summary,
     }).eq("id", runId);
+
+    // Only runs that actually changed a restriction (or failed to) create an
+    // inbox item. Hourly no-op evaluations stay silent, so managers get useful
+    // evidence that MLOS automation worked without notification noise.
+    if (applied > 0 || failed > 0) {
+      const notificationChanges = changes
+        .filter((c) => appliedDates.has(c.stayDate) || failedDates.has(c.stayDate))
+        .map((c) => ({
+          stay_date: c.stayDate,
+          change_type: "minimum_stay",
+          old_min_stay: c.current,
+          new_min_stay: c.target,
+          status: appliedDates.has(c.stayDate) ? "applied" : "failed",
+          reason: c.reason,
+          reason_detail: reasonDetail(c),
+          days_out: c.daysOut,
+          occupancy_pct: c.occupancyPct,
+          rooms_left: c.roomsLeft,
+          pickup_24h: c.pickup24h,
+          event_title: c.eventTitle,
+          event_impact: c.eventImpact,
+          min_stay_run_id: runId,
+        }));
+      const opened = notificationChanges.filter((c) => c.status === "applied" && c.new_min_stay === 1).length;
+      const compressed = notificationChanges.filter((c) => c.status === "applied" && c.new_min_stay > 1).length;
+      const parts = [
+        applied > 0 ? `${applied} date${applied === 1 ? "" : "s"} updated in Previo` : null,
+        opened > 0 ? `${opened} opened to 1 night` : null,
+        compressed > 0 ? `${compressed} set to 2 nights` : null,
+        failed > 0 ? `${failed} failed` : null,
+      ].filter(Boolean);
+      const { error: notificationError } = await admin.from("revenue_automation_notifications").insert({
+        hotel_id: hotelId,
+        organization_slug: rule.organization_slug,
+        notification_type: "min_stay_automation",
+        run_source: "automatic",
+        actor_name: "Automatic minimum stay",
+        actor_user_id: null,
+        rule_id: rule.id ?? null,
+        action_ids: [],
+        pickups_count: 0,
+        actions_count: applied,
+        pushed_count: applied,
+        failed_count: failed,
+        currency: null,
+        severity: failed > 0 ? "warning" : "info",
+        summary: `Minimum stay automation · ${parts.join(" · ")}`,
+        changes: notificationChanges,
+      });
+      if (notificationError) console.error("minimum-stay notification insert failed", notificationError);
+    }
 
     return json({ ok: failed === 0, run_id: runId, ...summary });
   } catch (e) {
