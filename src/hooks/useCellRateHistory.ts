@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { cellKey, type RateAuditRow } from "@/lib/rateAudit";
-import { RECENT_WINDOW_MS } from "@/lib/rateOrigin";
 
 /**
- * Real, per-cell price history — read on demand, one stay date at a time.
+ * Real, per-cell revenue history — read on demand, one stay date at a time.
  *
  * The shared audit window could only ever hold the newest rows for the whole
  * hotel, so on a busy day the lower room types (Deluxe Queen, Luxury Triple …)
  * had a change dot but an empty drawer. `rate_cell_history` returns the last
- * few rows for EVERY cell on one date, which is a few hundred rows at most and
+ * few rows for EVERY cell on one date, including minimum-stay automation, and
  * is fetched only when a cell is actually opened or hovered.
  */
 export function useCellRateHistory(hotelId?: string | null, perCell = 8) {
@@ -47,7 +46,10 @@ export function useCellRateHistory(hotelId?: string | null, perCell = 8) {
     if (inflight.current.has(date)) return;
     inflight.current.add(date);
     try {
-      const since = new Date(Date.now() - RECENT_WINDOW_MS * 4).toISOString();
+      // Cell history is an investigation surface, not a transient marker. Keep
+      // 90 days so a manager searching an older date can still see why MLOS or
+      // price automation changed it.
+      const since = new Date(Date.now() - 90 * 86_400_000).toISOString();
       const { data, error } = await supabase.rpc("rate_cell_history", {
         p_hotel_id: hotelId,
         p_stay_date: date,
