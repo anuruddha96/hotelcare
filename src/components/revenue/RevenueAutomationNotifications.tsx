@@ -38,6 +38,12 @@ const money = (value: number | null | undefined, currency: string | null | undef
     ? '—'
     : `${Math.round(Number(value))} ${currency ?? ''}`.trim();
 
+const nights = (value: number | null | undefined) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  return `${n} night${n === 1 ? '' : 's'}`;
+};
+
 
 type DirectionFilter = 'all' | 'increase' | 'decrease' | 'hold';
 
@@ -48,7 +54,7 @@ const DIRECTION_FILTERS: Array<{ value: DirectionFilter; label: string }> = [
   { value: 'hold', label: 'Unchanged' },
 ];
 
-/** Bell + inbox for revenue price-automation activity. */
+/** Bell + inbox for revenue automation activity: prices and stay restrictions. */
 export function RevenueAutomationNotifications() {
   const canSee = useCanSeeAutomationNotifications();
   const navigate = useNavigate();
@@ -69,9 +75,9 @@ export function RevenueAutomationNotifications() {
     if (!canSee || welcomed.current || unreadCount === 0) return;
     welcomed.current = true;
     const unread = items.filter((n) => !n.read);
-    const prices = unread.reduce((sum, n) => sum + (n.actions_count || n.changes.length), 0);
+    const changes = unread.reduce((sum, n) => sum + (n.actions_count || n.changes.length), 0);
     toast.message(
-      `While you were away, HotelCare updated ${prices} price${prices === 1 ? '' : 's'} across ${unread.length} automation run${unread.length === 1 ? '' : 's'}`,
+      `While you were away, HotelCare completed ${changes} revenue automation update${changes === 1 ? '' : 's'} across ${unread.length} run${unread.length === 1 ? '' : 's'}`,
       {
         action: { label: 'View', onClick: () => setOpen(true) },
         duration: 10_000,
@@ -89,7 +95,9 @@ export function RevenueAutomationNotifications() {
     setReasonFilter(null);
     setSearch('');
     if (!item.read) void markRead(item.id);
-    if (item.automation_run_id) {
+    // Minimum-stay notifications carry their own date-level changes and do not
+    // point at the price-engine decision table.
+    if (item.automation_run_id && item.notification_type !== 'min_stay_automation') {
       setDecisionsLoading(true);
       void loadDecisions(item.automation_run_id)
         .then(setDecisions)
@@ -118,7 +126,7 @@ export function RevenueAutomationNotifications() {
     <>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Button variant="ghost" size="icon" className="relative h-8 w-8 sm:h-9 sm:w-9 shrink-0" aria-label="Pricing notifications">
+          <Button variant="ghost" size="icon" className="relative h-8 w-8 sm:h-9 sm:w-9 shrink-0" aria-label="Revenue automation notifications">
             <Bell className="h-4 w-4" />
             {unreadCount > 0 && (
               <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-semibold flex items-center justify-center">
@@ -129,7 +137,7 @@ export function RevenueAutomationNotifications() {
         </PopoverTrigger>
         <PopoverContent align="end" className="w-[340px] sm:w-[400px] p-0">
           <div className="flex items-center justify-between px-3 py-2 border-b">
-            <span className="text-sm font-semibold">Pricing activity</span>
+            <span className="text-sm font-semibold">Revenue automation</span>
             {unreadCount > 0 && (
               <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => void markAllRead()}>
                 Mark all read
@@ -142,6 +150,7 @@ export function RevenueAutomationNotifications() {
             )}
             {items.map((item) => {
               const failed = item.failed_count > 0;
+              const minStay = item.notification_type === 'min_stay_automation';
               return (
                 <button
                   key={item.id}
@@ -162,7 +171,7 @@ export function RevenueAutomationNotifications() {
                     )}
                     <span className="text-sm font-medium truncate">{item.hotel_name}</span>
                     <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
-                      {item.run_source === 'automatic' ? 'Automatic' : 'Manual'}
+                      {minStay ? 'Minimum stay' : item.run_source === 'automatic' ? 'Pricing' : 'Manual'}
                     </Badge>
                     <span className="ml-auto text-[11px] text-muted-foreground shrink-0">
                       {relativeTime(item.created_at)}
@@ -171,7 +180,6 @@ export function RevenueAutomationNotifications() {
                   <p className={cn('mt-1 text-xs', failed ? 'text-destructive font-medium' : 'text-muted-foreground')}>
                     {runPreview(item)}
                   </p>
-
                   <p className="mt-0.5 text-[11px] text-muted-foreground truncate">{item.actor_name}</p>
                 </button>
               );
@@ -185,14 +193,13 @@ export function RevenueAutomationNotifications() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {detail?.failed_count ? <AlertTriangle className="h-4 w-4 text-destructive" /> : <Bell className="h-4 w-4" />}
-              {detail?.hotel_name} — price update
+              {detail?.hotel_name} — {detail?.notification_type === 'min_stay_automation' ? 'minimum stay update' : 'price update'}
             </DialogTitle>
             <DialogDescription>
               {detail
-                ? `${detail.run_source === 'automatic' ? 'Run automatically' : `Started by ${detail.actor_name}`} · ${relativeTime(detail.created_at)}`
+                ? `${detail.run_source === 'automatic' ? (detail.notification_type === 'min_stay_automation' ? 'Minimum-stay automation' : 'Run automatically') : `Started by ${detail.actor_name}`} · ${relativeTime(detail.created_at)}`
                 : ''}
             </DialogDescription>
-
           </DialogHeader>
 
           {detail && (
@@ -340,7 +347,6 @@ export function RevenueAutomationNotifications() {
                 </div>
               )}
 
-
               {decisionsLoading ? (
                 <div className="flex min-h-28 items-center justify-center rounded-lg border text-sm text-muted-foreground">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading run breakdown…
@@ -411,15 +417,54 @@ export function RevenueAutomationNotifications() {
                               />
                             </div>
                           </td>
-
-
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : detail.notification_type === 'min_stay_automation' && detail.changes.length > 0 ? (
+                <div className="rounded-lg border overflow-x-auto">
+                  <table className="w-full text-[13px]">
+                    <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                      <tr className="text-left">
+                        <th className="px-2.5 py-2 font-semibold">Stay date</th>
+                        <th className="px-2.5 py-2 font-semibold">Minimum stay</th>
+                        <th className="px-2.5 py-2 font-semibold">Demand</th>
+                        <th className="px-2.5 py-2 font-semibold">Why</th>
+                        <th className="px-2.5 py-2 font-semibold">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.changes.map((row, index) => (
+                        <tr key={`${row.stay_date}-${index}`} className="border-t align-top odd:bg-muted/30">
+                          <td className="px-2.5 py-2 whitespace-nowrap font-medium tabular-nums">{row.stay_date}</td>
+                          <td className="px-2.5 py-2 whitespace-nowrap tabular-nums">
+                            <span className="text-muted-foreground">{nights(row.old_min_stay)}</span>
+                            <ArrowRight className="inline h-3 w-3 mx-1" />
+                            <span className="font-semibold">{nights(row.new_min_stay)}</span>
+                          </td>
+                          <td className="px-2.5 py-2 whitespace-nowrap">
+                            {row.occupancy_pct != null ? `${Math.round(Number(row.occupancy_pct))}% sold` : 'Occupancy —'}
+                            {row.rooms_left != null ? <span className="block text-xs text-muted-foreground">{row.rooms_left} room{Number(row.rooms_left) === 1 ? '' : 's'} left</span> : null}
+                          </td>
+                          <td className="px-2.5 py-2 min-w-[240px]">
+                            <p>{row.reason_detail ?? row.reason?.replace(/_/g, ' ') ?? 'Automatic minimum-stay rule'}</p>
+                            {row.event_title && <p className="mt-0.5 text-xs text-muted-foreground">Event: {row.event_title}</p>}
+                          </td>
+                          <td className="px-2.5 py-2">
+                            <Badge
+                              variant={row.status === 'failed' ? 'destructive' : 'secondary'}
+                              className="text-[10px] px-1.5 py-0"
+                            >
+                              {row.status === 'failed' ? 'Failed' : 'Live in Previo'}
+                            </Badge>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               ) : detail.changes.length > 0 ? (
-
                 <div className="rounded-lg border overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 bg-muted/80 backdrop-blur">
@@ -458,8 +503,7 @@ export function RevenueAutomationNotifications() {
               ) : (
                 <div className="rounded-lg border p-4 text-center">
                   <p className="text-sm text-muted-foreground">
-                    This run applied a rule across the whole calendar, so the prices are summarised here rather
-                    than listed one by one.
+                    This run applied a revenue rule across the calendar, so the result is summarised here rather than listed one by one.
                   </p>
                   <Button
                     size="sm"
