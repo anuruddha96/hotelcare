@@ -4,15 +4,14 @@
 // adds the near-arrival sell-out rules that must outrank portfolio ADR guarding:
 //   • ARRIVAL TODAY is owned exclusively by revenue-same-day-sellout, which
 //     checks the current stay date every 30 minutes until 15:00.
-//   • TOMORROW / DAY+2 use the dedicated final sell-out markdown while inventory
-//     is still soft.
-//   • DAY+3..DAY+7 keep the normal smart engine (pickup, market, event, pace),
-//     but a theoretical ADR floor may NOT lift or freeze a soft date. Once the
-//     date reaches 90% occupancy or two rooms left, ADR/yield protection takes
-//     control again so the last inventory can bank a stronger rate.
-//   • DAY+3..DAY+90 also gets a market-rebalance retry when validated competitor
-//     evidence says the hotel's reference rate is materially above the comp set,
-//     occupancy is soft, inventory remains and there has been no net pickup.
+//   • DAY+1..DAY+7 are a dedicated occupancy-first sell-out window. While any
+//     room remains, the engine may only hold or reduce the price — pickup,
+//     events, ADR floors and scarcity may slow a markdown, but never turn the
+//     last unsold rooms into an automatic increase.
+//   • DAY+8..DAY+90 keeps the normal smart engine and gets a market-rebalance
+//     retry when validated competitor evidence says the hotel's reference rate
+//     is materially above the comp set, occupancy is soft, inventory remains
+//     and there has been no net pickup.
 //
 // Keeping today's normal hourly engine out of the rate is deliberate: two
 // independent clocks must never compete over the same arrival-day price.
@@ -61,32 +60,30 @@ export function isFinalSelloutWindow(input: DecisionInput): boolean {
 }
 
 /**
- * Last-seven-day occupancy priority.
+ * Final-seven-day occupancy priority.
  *
- * Portfolio ADR is still important, but it must not manufacture a close-in
- * increase while several rooms remain unsold. Scarcity wins the switch back:
- * at 90%+ occupancy OR two rooms left, this override stops and the core engine
- * is free to protect/yield ADR again. If both inventory signals are missing we
- * fail closed and leave the core safeguards untouched.
+ * Once arrival is within seven days, an unsold room is still an unsold room at
+ * 70%, 95% or with only one room left. Scarcity must therefore never disable
+ * the occupancy-first policy. If room inventory is known it is authoritative;
+ * otherwise occupancy below 100% is enough to keep the date in sell-out mode.
  */
 export function isCloseInSelloutPriority(input: DecisionInput): boolean {
   if (input.daysOut < 1 || input.daysOut > 7) return false;
 
-  const occupancyKnown = input.occupancyPct != null && Number.isFinite(Number(input.occupancyPct));
   const roomsKnown = input.roomsRemaining != null && Number.isFinite(Number(input.roomsRemaining));
-  if (!occupancyKnown && !roomsKnown) return false;
+  if (roomsKnown) return Number(input.roomsRemaining) > 0;
 
-  if (occupancyKnown && Number(input.occupancyPct) >= 90) return false;
-  if (roomsKnown && Number(input.roomsRemaining) <= 2) return false;
+  const occupancyKnown = input.occupancyPct != null && Number.isFinite(Number(input.occupancyPct));
+  if (occupancyKnown) return Number(input.occupancyPct) < 100;
 
-  return true;
+  return false;
 }
 
 /**
- * In a soft D+1..D+7 date ADR remains a monthly KPI, not a close-in price floor.
- * Strip only ADR-derived floors/freezes and preserve every real safety boundary:
- * configured minimum rate, campaign/depth floor, manual locks, cancellation
- * cooldown, daily movement limits, market validation and pickup logic.
+ * In D+1..D+7 ADR remains a KPI, not a close-in price floor. Strip ADR-derived
+ * floors/freezes while preserving real safety boundaries such as the configured
+ * minimum price, the campaign markdown budget, explicit manager locks and the
+ * cancellation cooldown.
  */
 export function withoutCloseInAdrProtection(input: DecisionInput): DecisionInput {
   if (!isCloseInSelloutPriority(input)) return input;
@@ -99,18 +96,29 @@ export function withoutCloseInAdrProtection(input: DecisionInput): DecisionInput
   };
 }
 
-/** Smart whole-euro markdown retained for tomorrow and day+2. */
+/**
+ * Whole-euro final-week step. More unsold inventory or softer occupancy makes
+ * the step stronger; pickup can soften it, never reverse it. One or two last
+ * rooms still take a meaningful €3 step instead of being frozen by scarcity.
+ */
 export function finalSelloutStep(input: DecisionInput): number {
   const netPickup = Math.max(0, input.pickup24h - input.cancellations24h);
   const occ = input.occupancyPct;
   const remaining = input.roomsRemaining ?? 0;
-  let step = input.daysOut <= 0 ? 5 : input.daysOut === 1 ? 4 : 3;
 
-  if (netPickup >= 2 || (occ != null && occ >= 85) || remaining <= 2) {
-    step = 3;
-  } else if (netPickup === 1 || (occ != null && occ >= 75)) {
-    step = Math.max(3, step - 1);
-  }
+  let step = input.daysOut === 1 ? 4 : 3;
+  if ((occ != null && occ < 70) || remaining >= 6) step = Math.max(step, 5);
+  else if ((occ != null && occ < 85) || remaining >= 3) step = Math.max(step, 4);
+
+  // Pickup proves the current offer can convert, so slow the cut by one euro,
+  // but do not raise/freeze an unsold date inside the final seven days.
+  if (netPickup > 0) step = Math.max(3, step - 1);
+
+  // With only one/two rooms or 90%+ occupancy preserve some scarcity value,
+  // while still making a conversion move toward a full house.
+  if (remaining > 0 && remaining <= 2) step = Math.min(step, 3);
+  if (occ != null && occ >= 90) step = Math.min(step, 3);
+
   return whole(step);
 }
 
@@ -173,10 +181,20 @@ function commonSafetyHold(input: DecisionInput, settings: DecisionSettings): Dec
   return null;
 }
 
-/** Tomorrow/day+2 policy while inventory is still soft. */
-function decideNextTwoDays(input: DecisionInput, settings: DecisionSettings): Decision {
+/**
+ * D+1..D+7 occupancy-first policy. This branch deliberately bypasses normal
+ * pickup/event/ADR lifts and normal high-occupancy/low-inventory holds. It still
+ * keeps the hard safety stack: manual protection, cancellation cooldown,
+ * direction-change cooldown, daily markdown count/budget and the configured
+ * minimum/campaign floor.
+ */
+function decideFinalSevenDays(input: DecisionInput, settings: DecisionSettings): Decision {
   const safety = commonSafetyHold(input, settings);
   if (safety) return safety;
+
+  if (input.roomsRemaining != null && input.roomsRemaining <= 0) {
+    return blocked(input, settings, "sold_out", "The date is sold out; the closing price stays.");
+  }
 
   const win = windowFor(input.daysOut, settings.windowRules);
   const paceTarget = paceTargetFor(input.daysOut, settings.paceBands);
@@ -184,6 +202,44 @@ function decideNextTwoDays(input: DecisionInput, settings: DecisionSettings): De
     ? Math.round((input.occupancyPct - paceTarget) * 10) / 10
     : null;
   const current = whole(input.currentPrice!);
+
+  // Avoid an immediate up/down oscillation if a prior hourly run raised the
+  // date just before it entered this policy. After the short configured
+  // direction cooldown, occupancy-first selling resumes automatically.
+  const sinceLast = hoursSince(input.lastDecisionAt, settings.now);
+  if (input.lastDirection === "increase"
+    && sinceLast != null
+    && sinceLast < Math.max(0, settings.directionChangeHours)) {
+    return blocked(
+      input,
+      settings,
+      "direction_cooldown",
+      `This date went up ${Math.round(sinceLast * 10) / 10}h ago; final-week sell-out waits ${settings.directionChangeHours}h before reversing direction.`,
+    );
+  }
+
+  const maxMarkdowns = Math.max(0, settings.maxMarkdownsPerDay ?? 0);
+  if (maxMarkdowns > 0 && (input.markdownsToday ?? 0) >= maxMarkdowns) {
+    return blocked(
+      input,
+      settings,
+      "markdown_limit",
+      `Final-week sell-out has already lowered this date ${input.markdownsToday} time(s) today; the limit is ${maxMarkdowns}.`,
+    );
+  }
+
+  if (win.min_hours_between_decreases > 0) {
+    const sinceDecrease = hoursSince(input.lastDecreaseAt, settings.now);
+    if (sinceDecrease != null && sinceDecrease < win.min_hours_between_decreases) {
+      return blocked(
+        input,
+        settings,
+        "decrease_frequency",
+        `This date was already lowered ${Math.round(sinceDecrease * 10) / 10}h ago; ${win.min_hours_between_decreases}h must pass.`,
+      );
+    }
+  }
+
   const requestedStep = finalSelloutStep(input);
   const dailyBudget = Math.max(0, win.max_daily_decrease - Math.abs(input.movedDownTodayEur));
   if (dailyBudget <= 0) {
@@ -191,11 +247,15 @@ function decideNextTwoDays(input: DecisionInput, settings: DecisionSettings): De
       input,
       settings,
       "daily_budget_spent",
-      `Final sell-out mode has already used its €${win.max_daily_decrease} decrease allowance for this date today.`,
+      `Final-week sell-out has already used its €${win.max_daily_decrease} decrease allowance for this date today.`,
     );
   }
   const step = Math.min(requestedStep, dailyBudget);
 
+  // In the final week the only commercial floor above the configured absolute
+  // minimum is the fill campaign's total-drop budget. ADR/month floors and the
+  // generic recent-peak depth guard are intentionally not allowed to strand an
+  // unsold room this close to arrival.
   const fill = settings.fill?.enabled ? settings.fill : null;
   const inFillWindow = fill != null && input.daysOut <= Math.max(0, fill.windowDays);
   const campaignFloor = inFillWindow
@@ -203,27 +263,18 @@ function decideNextTwoDays(input: DecisionInput, settings: DecisionSettings): De
     && input.campaignStartPrice > 0
     ? whole(input.campaignStartPrice * (1 - Math.max(0, fill!.maxTotalDropPct) / 100))
     : null;
-  const depthPct = Math.max(0, settings.maxMarkdownDepthPct ?? 0);
-  const depthFloor = depthPct > 0 && input.recentPeakPrice != null
-    && Number.isFinite(input.recentPeakPrice) && Number(input.recentPeakPrice) > 0
-    ? whole(Number(input.recentPeakPrice) * (1 - depthPct / 100))
-    : null;
-  const safetyFloor = Math.max(whole(input.minPrice!), campaignFloor ?? 0, depthFloor ?? 0);
+  const safetyFloor = Math.max(whole(input.minPrice!), campaignFloor ?? 0);
 
   const unclampedTarget = whole(current - step);
   const target = Math.max(unclampedTarget, safetyFloor);
   const movement = target - current;
 
-  // Sell-out mode is a markdown-only policy. A protective floor must never
-  // turn the attempted decrease into an increase and leave the parent decision
-  // labelled "decrease". If the current rate is already at/below that floor,
-  // leave the price unchanged and explain that automation is still active.
   if (target >= current) {
     return blocked(
       input,
       settings,
       "price_floor_protected",
-      `No price change: the current €${current} rate is already at or below the protected minimum of €${safetyFloor}. Sell-out mode only lowers prices; automation is still running.`,
+      `No price change: €${current} is already at or below the protected final-week floor of €${safetyFloor}. Automation is still checking the date.`,
     );
   }
 
@@ -232,16 +283,19 @@ function decideNextTwoDays(input: DecisionInput, settings: DecisionSettings): De
       input,
       settings,
       "below_min_movement",
-      `Final sell-out mode wanted to lower €${requestedStep}, but the remaining safe movement is under €${settings.minMovementEur} (safety floor €${safetyFloor}).`,
+      `Final-week sell-out wanted to lower €${requestedStep}, but the remaining safe movement is under €${settings.minMovementEur} (floor €${safetyFloor}).`,
     );
   }
 
   const netPickup = Math.max(0, input.pickup24h - input.cancellations24h);
   const occupancyText = input.occupancyPct == null ? "occupancy unknown" : `${Math.round(input.occupancyPct)}% sold`;
-  const arrivalText = input.daysOut === 1 ? "arrival tomorrow" : "arrival in 2 days";
+  const arrivalText = input.daysOut === 1 ? "arrival tomorrow" : `arrival in ${input.daysOut} days`;
   const pickupText = netPickup > 0
-    ? `${netPickup} net booking${netPickup === 1 ? "" : "s"} in 24h; pickup reduced the cut but cannot raise an unsold final-3-day date`
+    ? `${netPickup} net booking${netPickup === 1 ? "" : "s"} in 24h softened the markdown, but cannot raise an unsold final-week date`
     : "no net pickup in 24h";
+  const roomsText = input.roomsRemaining == null
+    ? "inventory still available"
+    : `${input.roomsRemaining} room${input.roomsRemaining === 1 ? "" : "s"} left`;
 
   return {
     stayDate: input.stayDate,
@@ -253,8 +307,8 @@ function decideNextTwoDays(input: DecisionInput, settings: DecisionSettings): De
     targetPrice: target,
     paceTargetPct: paceTarget,
     paceGapPct: gap,
-    reason: "final_3_day_fill",
-    reasonDetail: `${input.roomsRemaining} room${input.roomsRemaining === 1 ? "" : "s"} left, ${occupancyText}, ${arrivalText}; ${pickupText}. Sell-out priority lowers €${Math.abs(movement)} toward 100% occupancy.`,
+    reason: "final_7_day_fill",
+    reasonDetail: `${roomsText}, ${occupancyText}, ${arrivalText}; ${pickupText}. Occupancy-first sell-out lowers €${Math.abs(movement)} toward 100% occupancy.`,
     capApplied: target !== unclampedTarget ? safetyFloor : step !== requestedStep ? dailyBudget : null,
     blocked: false,
   };
@@ -278,11 +332,11 @@ export function marketRebalanceCap(input: DecisionInput, settings: DecisionSetti
   const pct = occ < 75
     ? configuredLow
     : Math.min(configuredHigh, 120);
-  return whole(Number(market.median) * pct / 100);
+  return whole(Number(input.market.median) * pct / 100);
 }
 
 export function isMarketRebalanceCandidate(input: DecisionInput, settings: DecisionSettings): boolean {
-  if (input.daysOut < 3 || input.daysOut > 90) return false;
+  if (input.daysOut < 8 || input.daysOut > 90) return false;
   if (input.currentPrice == null || !(input.currentPrice > 0)) return false;
   if (input.occupancyPct == null || !Number.isFinite(Number(input.occupancyPct))) return false;
   if (Number(input.occupancyPct) >= 85) return false;
@@ -353,9 +407,10 @@ function marketPressureRetry(input: DecisionInput, settings: DecisionSettings): 
 }
 
 /**
- * A single booking is useful evidence, but with soft occupancy it is not enough
- * to make an already-uncompetitive date more expensive. Two bookings, scarcity
- * or >=85% occupancy can still justify the core engine's increase.
+ * A single booking is useful evidence outside the final seven days, but with
+ * soft occupancy it is not enough to make an already-uncompetitive date more
+ * expensive. Two bookings, scarcity or >=85% occupancy can still justify the
+ * core engine's increase from day eight onward.
  */
 function suppressWeakSinglePickupIncrease(
   input: DecisionInput,
@@ -378,10 +433,10 @@ function suppressWeakSinglePickupIncrease(
 
 export function decideDate(input: DecisionInput, settings: DecisionSettings): Decision {
   // A manager price change is authoritative for the full configured hold.
-  // Previously genuine pickup could override a soft hold and immediately lift a
-  // manually reduced rate again. That made emergency competitiveness fixes look
-  // as if they "did not stick". During the hold, neither pickup, ADR, events nor
-  // fill mode may alter the date; a later run can resume from the manager's rate.
+  // During the hold, neither pickup, ADR, events nor fill mode may alter the
+  // date; a later run resumes from the manager's rate. Ordinary Ottofiori edits
+  // are configured for one hour, while explicit manager locks keep their own
+  // longer expiry.
   const manualHoldActive = Boolean(
     input.manualHoldUntil && Date.parse(input.manualHoldUntil) > settings.now.getTime(),
   );
@@ -414,30 +469,23 @@ export function decideDate(input: DecisionInput, settings: DecisionSettings): De
     );
   }
 
-  const closeInSellout = isCloseInSelloutPriority(input);
-
-  // Tomorrow/day+2: while several rooms remain, retain the stronger dedicated
-  // sell-out markdown. When scarcity arrives (>=90% or <=2 rooms), hand the date
-  // back to the normal engine so the final inventory can yield ADR upward.
-  if (closeInSellout && input.daysOut <= 2) {
-    return decideNextTwoDays(input, settings);
+  // D+1..D+7: if anything remains unsold, conversion is the controlling goal.
+  // Do not route these dates back through occupancy, scarcity, event or ADR
+  // increases — that was the gap that stranded Ottofiori's final rooms.
+  if (isCloseInSelloutPriority(input)) {
+    return decideFinalSevenDays(withoutCloseInAdrProtection(input), settings);
   }
 
-  // Day+3..Day+7: keep the full smart engine, but remove only ADR-derived
-  // artificial floors/freezes while inventory is soft. Genuine pickup, market,
-  // event and occupancy signals may still raise the rate; "bank the ADR target"
-  // alone may not.
-  const coreInput = closeInSellout ? withoutCloseInAdrProtection(input) : input;
-  let decision = decideDateCore(coreInput, settings);
+  let decision = decideDateCore(input, settings);
 
   // Do not overreact to one booking while a date is still soft.
-  decision = suppressWeakSinglePickupIncrease(coreInput, settings, decision);
+  decision = suppressWeakSinglePickupIncrease(input, settings, decision);
 
-  // If the normal pace engine would hold an overpriced soft date, let validated
-  // market evidence request a second evaluation. The retry still goes through
-  // the full core safety stack and can therefore legitimately remain a hold.
+  // From day eight onward, validated market evidence may request a second
+  // evaluation of an overpriced soft date. The retry still passes through the
+  // core safety stack and can legitimately remain a hold.
   if (decision.direction !== "decrease") {
-    const marketRetry = marketPressureRetry(coreInput, settings);
+    const marketRetry = marketPressureRetry(input, settings);
     if (marketRetry) decision = marketRetry;
   }
 
