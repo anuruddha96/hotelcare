@@ -5,6 +5,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import {
+  clearLiveSectionTaskSnapshot,
+  setLiveSectionTaskSnapshot,
+} from '@/lib/housekeepingSectionTasks';
 import { AutoRoomAssignment as AutoRoomAssignmentImpl } from './AutoRoomAssignmentImpl';
 import { MemoriesZoneAutoAssignment } from './MemoriesZoneAutoAssignment';
 
@@ -64,41 +68,41 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   const { profile } = useAuth();
   const isMemories = isHotelMemoriesKey(profile?.assigned_hotel);
   const [memoriesView, setMemoriesView] = useState<MemoriesAutoAssignView>('housekeeper');
-  const [validatedDraftKey, setValidatedDraftKey] = useState<string | null>(null);
+  const [preparedRealityKey, setPreparedRealityKey] = useState<string | null>(null);
 
   const draftKey = getAutoAssignDraftKey(profile?.assigned_hotel, props.selectedDate);
-  const draftNeedsValidation = props.open
-    && hasSavedDraft(draftKey)
-    && validatedDraftKey !== draftKey;
-  const liveAssignmentStateReady = !draftNeedsValidation;
+  const realityKey = profile?.assigned_hotel
+    ? `${profile.assigned_hotel}|${props.selectedDate}`
+    : null;
+  const liveAssignmentStateReady = !props.open
+    || (!!realityKey && preparedRealityKey === realityKey);
 
   /**
-   * A saved Auto Assign preview is only a pre-assignment draft. Once real room
-   * assignments exist for the selected date, the database must win every time.
+   * Auto Assign has two very different modes:
+   *  - before assignment, it is allowed to calculate a new room/public-area plan;
+   *  - after assignment, the persisted database rows are the source of truth.
    *
-   * Previously, opening the modal could restore a browser snapshot from an
-   * earlier visit and then preserve it while loading live data. That made old
-   * housekeepers (including staff who are not working today) appear on the
-   * current assignment board. Validate any saved preview before mounting the
-   * assignment implementation so stale browser state cannot override live
-   * room_assignments rows.
+   * Prepare that reality before mounting the assignment board. This prevents a
+   * browser draft from overriding today's room owners and, equally importantly,
+   * prevents the current public-area configuration from replacing the exact set
+   * and owners that the manager already assigned earlier in the day.
    */
   useEffect(() => {
     if (!props.open) {
-      setValidatedDraftKey(null);
+      setPreparedRealityKey(null);
+      clearLiveSectionTaskSnapshot();
       return;
     }
-    if (!draftKey || !hasSavedDraft(draftKey) || validatedDraftKey === draftKey) return;
+    if (!realityKey) return;
 
     let cancelled = false;
+    setPreparedRealityKey(null);
+    clearLiveSectionTaskSnapshot();
 
-    const validateSavedPreview = async () => {
+    const prepareLiveReality = async () => {
       try {
         const assignedHotel = profile?.assigned_hotel;
-        if (!assignedHotel) {
-          removeSavedDraft(draftKey);
-          return;
-        }
+        if (!assignedHotel) return;
 
         const { data: hotelConfig, error: hotelConfigError } = await supabase
           .from('hotel_configurations')
@@ -118,6 +122,7 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
         if (roomsError) throw roomsError;
 
         const roomIds = (roomRows || []).map(room => room.id);
+        let hasLiveAssignments = false;
         if (roomIds.length > 0) {
           const { data: liveRows, error: assignmentsError } = await supabase
             .from('room_assignments')
@@ -127,26 +132,50 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
             .in('status', ['assigned', 'in_progress', 'dnd_pending_retry'])
             .limit(1);
           if (assignmentsError) throw assignmentsError;
+          hasLiveAssignments = (liveRows || []).length > 0;
+        }
 
-          if ((liveRows || []).length > 0) {
-            removeSavedDraft(draftKey);
-          }
+        if (hasLiveAssignments) {
+          // A saved preview is only a pre-assignment draft. Once real rows exist,
+          // the database wins and the browser copy must not be restored.
+          if (draftKey && hasSavedDraft(draftKey)) removeSavedDraft(draftKey);
+
+          const { data: liveAreaRows, error: liveAreaError } = await (supabase as any)
+            .from('general_tasks')
+            .select('housekeeping_section_task_id, assigned_to')
+            .eq('hotel', hotelName)
+            .eq('assigned_date', props.selectedDate)
+            .not('housekeeping_section_task_id', 'is', null)
+            .not('assigned_to', 'is', null);
+          if (liveAreaError) throw liveAreaError;
+
+          // An empty snapshot is intentional: it means rooms were assigned but
+          // no mapped public areas were assigned for that date. Do not inject
+          // newly configured areas into the historical/current-day reality.
+          setLiveSectionTaskSnapshot((liveAreaRows || []).map((row: any) => ({
+            taskId: row.housekeeping_section_task_id as string,
+            assignedTo: row.assigned_to as string,
+          })));
+        } else {
+          // No real room assignment yet: use the normal automatic area planner.
+          clearLiveSectionTaskSnapshot();
         }
       } catch (error) {
         // Correct live data is more important than keeping an unverified browser
-        // draft. Fall back to a fresh Supabase load instead of stale staff/rooms.
-        console.warn('[AutoRoomAssignment] Discarding unverified saved preview.', error);
-        removeSavedDraft(draftKey);
+        // draft. Fall back to a fresh database load rather than stale local data.
+        console.warn('[AutoRoomAssignment] Could not prepare live assignment reality.', error);
+        if (draftKey && hasSavedDraft(draftKey)) removeSavedDraft(draftKey);
+        clearLiveSectionTaskSnapshot();
       } finally {
-        if (!cancelled) setValidatedDraftKey(draftKey);
+        if (!cancelled) setPreparedRealityKey(realityKey);
       }
     };
 
-    void validateSavedPreview();
+    void prepareLiveReality();
     return () => {
       cancelled = true;
     };
-  }, [draftKey, profile?.assigned_hotel, props.open, props.selectedDate, validatedDraftKey]);
+  }, [draftKey, profile?.assigned_hotel, props.open, props.selectedDate, realityKey]);
 
   useEffect(() => {
     if (!isMemories || !props.open || typeof window === 'undefined') return;
