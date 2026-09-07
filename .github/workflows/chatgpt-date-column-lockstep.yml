@@ -31,10 +31,8 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Validate and apply patch
-        run: |
-          git apply --check .github/date-column-lockstep.patch
-          git apply .github/date-column-lockstep.patch
+      - name: Apply exact-match source patch
+        run: python .github/date-column-lockstep.patch
 
       - name: Run Revenue Engine V2 regression tests
         run: deno test supabase/functions/_shared/engineV2*_test.ts
