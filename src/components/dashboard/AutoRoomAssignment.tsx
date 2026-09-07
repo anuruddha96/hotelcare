@@ -3,6 +3,8 @@ import { MotionConfig } from 'framer-motion';
 import { MapPin, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
+import { supabase } from '@/integrations/supabase/client';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { AutoRoomAssignment as AutoRoomAssignmentImpl } from './AutoRoomAssignmentImpl';
 import { MemoriesZoneAutoAssignment } from './MemoriesZoneAutoAssignment';
 
@@ -36,10 +38,115 @@ function isHotelMemoriesKey(value?: string | null) {
   return key === 'hotel memories budapest' || key === 'memories-budapest';
 }
 
+function getAutoAssignDraftKey(hotel: string | null | undefined, date: string) {
+  return hotel ? `auto_assignment_v2_${hotel}_${date}` : null;
+}
+
+function hasSavedDraft(key: string | null) {
+  if (!key || typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(key) !== null;
+  } catch {
+    return false;
+  }
+}
+
+function removeSavedDraft(key: string | null) {
+  if (!key || typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Browser storage is best-effort only.
+  }
+}
+
 export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   const { profile } = useAuth();
   const isMemories = isHotelMemoriesKey(profile?.assigned_hotel);
   const [memoriesView, setMemoriesView] = useState<MemoriesAutoAssignView>('housekeeper');
+  const [validatedDraftKey, setValidatedDraftKey] = useState<string | null>(null);
+
+  const draftKey = getAutoAssignDraftKey(profile?.assigned_hotel, props.selectedDate);
+  const draftNeedsValidation = props.open
+    && hasSavedDraft(draftKey)
+    && validatedDraftKey !== draftKey;
+  const liveAssignmentStateReady = !draftNeedsValidation;
+
+  /**
+   * A saved Auto Assign preview is only a pre-assignment draft. Once real room
+   * assignments exist for the selected date, the database must win every time.
+   *
+   * Previously, opening the modal could restore a browser snapshot from an
+   * earlier visit and then preserve it while loading live data. That made old
+   * housekeepers (including staff who are not working today) appear on the
+   * current assignment board. Validate any saved preview before mounting the
+   * assignment implementation so stale browser state cannot override live
+   * room_assignments rows.
+   */
+  useEffect(() => {
+    if (!props.open) {
+      setValidatedDraftKey(null);
+      return;
+    }
+    if (!draftKey || !hasSavedDraft(draftKey) || validatedDraftKey === draftKey) return;
+
+    let cancelled = false;
+
+    const validateSavedPreview = async () => {
+      try {
+        const assignedHotel = profile?.assigned_hotel;
+        if (!assignedHotel) {
+          removeSavedDraft(draftKey);
+          return;
+        }
+
+        const { data: hotelConfig, error: hotelConfigError } = await supabase
+          .from('hotel_configurations')
+          .select('hotel_name')
+          .eq('hotel_id', assignedHotel)
+          .maybeSingle();
+        if (hotelConfigError) throw hotelConfigError;
+
+        const hotelName = hotelConfig?.hotel_name || assignedHotel;
+        const resolvedKeys = await resolveHotelKeys(hotelName);
+        const hotelKeys = resolvedKeys.length ? resolvedKeys : [hotelName];
+
+        const { data: roomRows, error: roomsError } = await supabase
+          .from('rooms')
+          .select('id')
+          .in('hotel', hotelKeys);
+        if (roomsError) throw roomsError;
+
+        const roomIds = (roomRows || []).map(room => room.id);
+        if (roomIds.length > 0) {
+          const { data: liveRows, error: assignmentsError } = await supabase
+            .from('room_assignments')
+            .select('id')
+            .eq('assignment_date', props.selectedDate)
+            .in('room_id', roomIds)
+            .in('status', ['assigned', 'in_progress', 'dnd_pending_retry'])
+            .limit(1);
+          if (assignmentsError) throw assignmentsError;
+
+          if ((liveRows || []).length > 0) {
+            removeSavedDraft(draftKey);
+          }
+        }
+      } catch (error) {
+        // Correct live data is more important than keeping an unverified browser
+        // draft. Fall back to a fresh Supabase load instead of stale staff/rooms.
+        console.warn('[AutoRoomAssignment] Discarding unverified saved preview.', error);
+        removeSavedDraft(draftKey);
+      } finally {
+        if (!cancelled) setValidatedDraftKey(draftKey);
+      }
+    };
+
+    void validateSavedPreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [draftKey, profile?.assigned_hotel, props.open, props.selectedDate, validatedDraftKey]);
 
   useEffect(() => {
     if (!isMemories || !props.open || typeof window === 'undefined') return;
@@ -92,7 +199,7 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
         <MotionConfig transformPagePoint={toViewportPoint}>
           <AutoRoomAssignmentImpl
             {...props}
-            open={props.open && memoriesView === 'housekeeper'}
+            open={props.open && liveAssignmentStateReady && memoriesView === 'housekeeper'}
             onOpenChange={(open) => {
               if (!open && memoriesView === 'housekeeper') props.onOpenChange(false);
             }}
@@ -112,7 +219,10 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
 
   return (
     <MotionConfig transformPagePoint={toViewportPoint}>
-      <AutoRoomAssignmentImpl {...props} />
+      <AutoRoomAssignmentImpl
+        {...props}
+        open={props.open && liveAssignmentStateReady}
+      />
     </MotionConfig>
   );
 }
