@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { AssignmentPreview, RoomForAssignment } from './roomAssignmentAlgorithm';
 import {
   assignSectionTasksToStaff,
+  clearLiveSectionTaskSnapshot,
   sectionTaskMinutesForStaff,
+  setLiveSectionTaskSnapshot,
   type HousekeepingSectionTaskTemplate,
 } from './housekeepingSectionTasks';
 
@@ -48,6 +50,10 @@ const task = (
   is_active: true,
   sort_order: 0,
   ...overrides,
+});
+
+afterEach(() => {
+  clearLiveSectionTaskSnapshot();
 });
 
 describe('assignSectionTasksToStaff', () => {
@@ -96,5 +102,41 @@ describe('assignSectionTasksToStaff', () => {
     );
 
     expect(result.map(item => item.id)).toEqual(['active']);
+  });
+
+  it('replays the exact persisted public-area task set and owners for an existing assignment', () => {
+    setLiveSectionTaskSnapshot([
+      { taskId: 'guest-toilet', assignedTo: 'bea' },
+      { taskId: 'storage-1', assignedTo: 'anu' },
+    ]);
+
+    const result = assignSectionTasksToStaff(
+      [
+        preview('anu', [room('101', 'middle')], 45),
+        preview('bea', [room('102', 'middle')], 45),
+      ],
+      [
+        task('guest-toilet', 'middle'),
+        task('storage-1', 'middle'),
+        task('new-lobby-task', 'middle'),
+      ],
+    );
+
+    expect(result.map(item => item.id)).toEqual(['guest-toilet', 'storage-1']);
+    expect(result.map(item => [item.id, item.staff_id])).toEqual([
+      ['guest-toilet', 'bea'],
+      ['storage-1', 'anu'],
+    ]);
+  });
+
+  it('keeps an existing date at zero public areas when the persisted snapshot is empty', () => {
+    setLiveSectionTaskSnapshot([]);
+
+    const result = assignSectionTasksToStaff(
+      [preview('anu', [room('101', 'middle')], 45)],
+      [task('new-area-added-later', 'middle')],
+    );
+
+    expect(result).toEqual([]);
   });
 });
