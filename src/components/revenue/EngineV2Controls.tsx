@@ -18,6 +18,7 @@ export interface EngineV2ConfigPatch {
   min_movement_eur: number;
   direction_change_hours: number;
   manual_hold_hours: number;
+  date_column_lockstep_enabled: boolean;
   adr_guard_enabled: boolean;
   adr_target_eur: number;
   adr_window_days: number;
@@ -93,6 +94,7 @@ export default function EngineV2Controls({
   min_movement_eur,
   direction_change_hours,
   manual_hold_hours,
+  date_column_lockstep_enabled,
   adr_guard_enabled,
   adr_target_eur,
   adr_window_days,
@@ -154,6 +156,19 @@ export default function EngineV2Controls({
           min={0}
           max={168}
           onChange={(value) => value !== null && onChange({ manual_hold_hours: value })}
+        />
+      </div>
+
+      <div className="flex items-start justify-between gap-3 rounded-lg border bg-background/70 p-3">
+        <div>
+          <Label className="text-xs font-semibold">Move the whole date column together</Label>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+            Every room type and guest level on this stay date moves by the same € amount. A room-type floor or ceiling does not freeze the date; only the hotel's absolute safety boundary can stop the column.
+          </p>
+        </div>
+        <Switch
+          checked={date_column_lockstep_enabled}
+          onCheckedChange={(checked) => onChange({ date_column_lockstep_enabled: checked })}
         />
       </div>
 

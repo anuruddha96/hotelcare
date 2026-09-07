@@ -81,12 +81,13 @@ interface Rule {
   markdown_depth_pct: number;
 
   // Engine V2 values are persisted on the same hotel rule and are shown in
-  // the Ottofiori Automation panel. The engine reads these exact fields.
+  // the hotel's Automation panel. The engine reads these exact fields.
   engine_version?: number;
   mode?: string | null;
   min_movement_eur: number;
   direction_change_hours: number;
   manual_hold_hours: number;
+  date_column_lockstep_enabled: boolean;
   adr_guard_enabled: boolean;
   adr_window_days: number;
   window_rules: EngineV2WindowRule[];
@@ -176,6 +177,7 @@ const DEFAULT_RULE: Rule = {
   min_movement_eur: 3,
   direction_change_hours: 6,
   manual_hold_hours: 24,
+  date_column_lockstep_enabled: false,
   adr_guard_enabled: false,
   adr_window_days: 7,
   window_rules: [],
@@ -451,6 +453,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
           min_movement_eur: (loaded as any).min_movement_eur ?? 3,
           direction_change_hours: (loaded as any).direction_change_hours ?? 6,
           manual_hold_hours: (loaded as any).manual_hold_hours ?? 24,
+          date_column_lockstep_enabled: Boolean((loaded as any).date_column_lockstep_enabled),
           adr_guard_enabled: Boolean((loaded as any).adr_guard_enabled),
           adr_window_days: (loaded as any).adr_window_days ?? 7,
           window_rules: Array.isArray((loaded as any).window_rules) ? (loaded as any).window_rules : [],
@@ -544,6 +547,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       rebook_window_hours: source.rule.rebook_window_hours ?? 24,
       max_markdowns_per_day: source.rule.max_markdowns_per_day ?? 1,
       markdown_depth_pct: source.rule.markdown_depth_pct ?? 12,
+      date_column_lockstep_enabled: source.rule.date_column_lockstep_enabled ?? false,
       cancellation_markdown_enabled: source.rule.cancellation_markdown_enabled ?? true,
       cancellation_wait_minutes: source.rule.cancellation_wait_minutes ?? 60,
       immediate_sell_mode_enabled: source.rule.immediate_sell_mode_enabled ?? true,
@@ -642,6 +646,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       min_movement_eur: rule.min_movement_eur,
       direction_change_hours: rule.direction_change_hours,
       manual_hold_hours: rule.manual_hold_hours,
+      date_column_lockstep_enabled: rule.date_column_lockstep_enabled,
       adr_guard_enabled: rule.adr_guard_enabled,
       adr_window_days: rule.adr_window_days,
       window_rules: rule.window_rules,
@@ -690,6 +695,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
         pickup_increase_ladder: normaliseLadder((saved as any).pickup_increase_ladder),
         raise_on_any_pickup: (saved as any).raise_on_any_pickup !== false,
         occupancy_lift_ladder: normaliseOccupancyLadder((saved as any).occupancy_lift_ladder),
+        date_column_lockstep_enabled: Boolean((saved as any).date_column_lockstep_enabled),
         window_rules: Array.isArray((saved as any).window_rules) ? (saved as any).window_rules : [],
       });
     }
@@ -800,7 +806,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
   }
 
   const cur = rule.currency;
-  const showOttofioriV2Controls = hotelId === "ottofiori" && Number(rule.engine_version ?? 1) >= 2;
+  const showV2Controls = Number(rule.engine_version ?? 1) >= 2;
 
   return (
     <>
@@ -973,7 +979,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                   </div>
                 )}
 
-                {showOttofioriV2Controls && (
+                {showV2Controls && (
                   <EngineV2Controls
                     currency={rule.currency}
                     engineVersion={Number(rule.engine_version ?? 2)}
@@ -982,6 +988,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                     min_movement_eur={rule.min_movement_eur}
                     direction_change_hours={rule.direction_change_hours}
                     manual_hold_hours={rule.manual_hold_hours}
+                    date_column_lockstep_enabled={rule.date_column_lockstep_enabled}
                     adr_guard_enabled={rule.adr_guard_enabled}
                     adr_target_eur={rule.adr_target_eur}
                     adr_window_days={rule.adr_window_days}
