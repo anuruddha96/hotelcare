@@ -76,6 +76,9 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
     : null;
   const liveAssignmentStateReady = !props.open
     || (!!realityKey && preparedRealityKey === realityKey);
+  const assignmentInstanceKey = props.open && liveAssignmentStateReady
+    ? `open:${realityKey || 'unknown'}`
+    : 'closed';
 
   /**
    * Auto Assign has two very different modes:
@@ -227,6 +230,7 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
 
         <MotionConfig transformPagePoint={toViewportPoint}>
           <AutoRoomAssignmentImpl
+            key={assignmentInstanceKey}
             {...props}
             open={props.open && liveAssignmentStateReady && memoriesView === 'housekeeper'}
             onOpenChange={(open) => {
@@ -249,6 +253,7 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   return (
     <MotionConfig transformPagePoint={toViewportPoint}>
       <AutoRoomAssignmentImpl
+        key={assignmentInstanceKey}
         {...props}
         open={props.open && liveAssignmentStateReady}
       />
