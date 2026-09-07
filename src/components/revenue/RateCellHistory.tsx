@@ -43,6 +43,36 @@ function statusLine(entries: LogicalChange[], draftPrice?: number | null, sendin
   }
 }
 
+function minStayExplanation(row: RateAuditRow): string {
+  const p = row.payload;
+  const reason = String(p?.reason ?? "");
+  if (reason === "final_week_open_to_one_night") {
+    const left = p?.rooms_left == null
+      ? "inventory remains"
+      : `${p.rooms_left} room${Number(p.rooms_left) === 1 ? "" : "s"} left`;
+    return `${p?.days_out ?? "Few"} day${Number(p?.days_out) === 1 ? "" : "s"} to arrival, ${left}. Opened to one-night shoppers to help finish the remaining rooms.`;
+  }
+  if (reason.startsWith("event_compression")) {
+    return `${p?.event_title ?? "High-impact event"} and current demand supported the longer minimum stay.`;
+  }
+  if (reason.startsWith("weekend_compression")) {
+    return "Weekend occupancy and pickup supported the longer minimum stay.";
+  }
+  if (reason.startsWith("soft_month_")) {
+    return "The month is still soft, so automation opened this date to one-night shoppers.";
+  }
+  if (String(p?.status ?? "") === "failed") {
+    return "Automation attempted this minimum-stay update, but Previo did not confirm it.";
+  }
+  return row.notes ?? "Minimum stay was changed automatically from the current demand and booking-window rules.";
+}
+
+function nightsLabel(value: number | null | undefined): string {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  return `${n} night${n === 1 ? "" : "s"}`;
+}
+
 export default function RateCellHistory({ history, names, draftPrice, sendingPrice, automation = [], hold = null, expanded = false }: {
   history: RateAuditRow[];
   names: Map<string, string>;
@@ -53,14 +83,20 @@ export default function RateCellHistory({ history, names, draftPrice, sendingPri
   expanded?: boolean;
 }) {
   const [showAll, setShowAll] = useState(expanded);
-  const entries = groupCellChanges(history, automation, names, { automationDetail });
+  const minStayEntries = [...(history ?? [])]
+    .filter((row) => row.source === "automation_min_stay" || row.payload?.change_type === "minimum_stay")
+    .sort((a, b) => b.performed_at.localeCompare(a.performed_at));
+  const priceHistory = (history ?? []).filter(
+    (row) => row.source !== "automation_min_stay" && row.payload?.change_type !== "minimum_stay",
+  );
+  const entries = groupCellChanges(priceHistory, automation, names, { automationDetail });
   const status = statusLine(entries, draftPrice, sendingPrice);
 
   // Previo is the authoritative live source. A successful read-back that differs
   // from HotelCare's request is synchronization history, not an alarm. The live
   // price is adopted by reconciliation; the next automation run can then repair
   // a bad ladder/floor/ceiling from that real PMS baseline.
-  const latestPrevioDifference = [...(history ?? [])]
+  const latestPrevioDifference = [...priceHistory]
     .filter((row) => row.source === "previo_different")
     .sort((a, b) => b.performed_at.localeCompare(a.performed_at))[0] ?? null;
   const latestConfirmed = entries.find((entry) => entry.phase === "confirmed") ?? null;
@@ -80,7 +116,31 @@ export default function RateCellHistory({ history, names, draftPrice, sendingPri
     </div>
   ) : null;
 
-  if (entries.length === 0) return <div className="space-y-1"><p className={`text-[11px] ${status.tone}`}>{status.text}</p>{authoritativeSyncNote}{holdNote}<p className="text-[11px] text-muted-foreground">No price changes recorded for this room type and date yet.</p></div>;
+  const minStayBlock = minStayEntries.length > 0 ? (
+    <div className="rounded-md border bg-muted/30 px-2.5 py-2 text-[11px]">
+      <p className="font-medium">Minimum stay automation</p>
+      <div className="mt-1.5 space-y-1.5">
+        {minStayEntries.slice(0, expanded || showAll ? minStayEntries.length : 3).map((row) => {
+          const p = row.payload;
+          const failed = String(p?.status ?? "") === "failed";
+          return (
+            <div key={`minstay-${row.id}`} className="border-l-2 border-border pl-2">
+              <p className={failed ? "font-medium text-destructive" : "font-medium"}>
+                {nightsLabel(p?.old_min_stay)} → {nightsLabel(p?.new_min_stay)}
+                {failed ? " · not applied" : " · applied in Previo"}
+              </p>
+              <p className="text-muted-foreground">Automatic minimum stay · {formatWhen(row.performed_at)}</p>
+              <p className="mt-0.5 text-muted-foreground">{minStayExplanation(row)}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  ) : null;
+
+  if (entries.length === 0 && minStayEntries.length === 0) {
+    return <div className="space-y-1"><p className={`text-[11px] ${status.tone}`}>{status.text}</p>{authoritativeSyncNote}{holdNote}<p className="text-[11px] text-muted-foreground">No price or minimum-stay changes recorded for this room type and date yet.</p></div>;
+  }
 
   const block = (e: LogicalChange) => {
     const delta = e.old != null && e.next != null ? Math.round((e.next - e.old) * 100) / 100 : null;
@@ -98,12 +158,13 @@ export default function RateCellHistory({ history, names, draftPrice, sendingPri
   const limit = expanded ? entries.length : (showAll ? entries.length : 3);
   const shown = entries.slice(0, limit);
   const rest = entries.length - shown.length;
+  const hiddenMinStay = Math.max(0, minStayEntries.length - (expanded || showAll ? minStayEntries.length : 3));
   let lastBucket: string | null = null;
 
   return <div className="space-y-2">
     <p className={`text-xs font-medium ${status.tone}`}>{status.text}</p>
-    {authoritativeSyncNote}{holdNote}
-    <div className="space-y-2">{shown.map((e) => { const bucket = dayBucket(e.at); const heading = bucket !== lastBucket ? bucket : null; lastBucket = bucket; return <div key={e.id} className="space-y-1">{heading && <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70">{heading}</p>}{block(e)}</div>; })}</div>
-    {!expanded && rest > 0 && <button type="button" className="text-[11px] text-primary underline underline-offset-2" onClick={(ev) => { ev.stopPropagation(); setShowAll((v) => !v); }}>{showAll ? "Show less" : `${rest} more change${rest === 1 ? "" : "s"}`}</button>}
+    {authoritativeSyncNote}{holdNote}{minStayBlock}
+    {shown.length > 0 && <div className="space-y-2">{shown.map((e) => { const bucket = dayBucket(e.at); const heading = bucket !== lastBucket ? bucket : null; lastBucket = bucket; return <div key={e.id} className="space-y-1">{heading && <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70">{heading}</p>}{block(e)}</div>; })}</div>}
+    {!expanded && (rest > 0 || hiddenMinStay > 0) && <button type="button" className="text-[11px] text-primary underline underline-offset-2" onClick={(ev) => { ev.stopPropagation(); setShowAll((v) => !v); }}>{showAll ? "Show less" : `${rest + hiddenMinStay} more change${rest + hiddenMinStay === 1 ? "" : "s"}`}</button>}
   </div>;
 }
