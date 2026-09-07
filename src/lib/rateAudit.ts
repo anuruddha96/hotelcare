@@ -27,6 +27,19 @@ export interface RateAuditRow {
     confirmation_status?: string;
     push_run_id?: string | null;
     origin?: string | null;
+    /** Minimum-stay automation is surfaced in the same on-demand cell history. */
+    change_type?: "minimum_stay" | string;
+    old_min_stay?: number | null;
+    new_min_stay?: number | null;
+    reason?: string | null;
+    status?: string | null;
+    days_out?: number | null;
+    occupancy_pct?: number | null;
+    rooms_left?: number | null;
+    pickup_24h?: number | null;
+    event_title?: string | null;
+    event_impact?: string | null;
+    min_stay_run_id?: string | null;
     /** Set when someone checked Previo and closed a "did not land" flag. */
     resolved_at?: string | null;
     resolved_by?: string | null;
