@@ -1,0 +1,93 @@
+/* Hotel Room Overview legend readability
+ *
+ * The component still carries older Tailwind layout utilities for backwards
+ * compatibility. These scoped rules intentionally override only the legend so
+ * it is readable on narrow phones and does not become a long single flex row on
+ * larger screens.
+ */
+[data-training="room-legend"] {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  column-gap: 0.9rem !important;
+  row-gap: 0.5rem !important;
+  padding: 0.625rem !important;
+}
+
+[data-training="room-legend"] > * {
+  min-width: 0;
+}
+
+[data-training="room-legend"] > * > div,
+[data-training="room-legend"] > div {
+  min-width: 0;
+  align-items: flex-start;
+}
+
+[data-training="room-legend"] span.text-\[10px\] {
+  font-size: 0.6875rem !important;
+  line-height: 1.25 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+}
+
+/* The legacy component hard-codes the linen-change legend item as "Clean Room"
+ * and a C badge. Present it consistently as one CR = Change Room concept. */
+[data-training="room-legend"] span.bg-orange-500 {
+  font-size: 0 !important;
+  min-width: 1.4rem;
+  text-align: center;
+}
+
+[data-training="room-legend"] span.bg-orange-500::after {
+  content: "CR";
+  font-size: 0.625rem;
+  line-height: 1rem;
+}
+
+[data-training="room-legend"] > :nth-child(11) > span:last-child,
+[data-training="room-legend"] > :nth-child(11) > div > span:last-child {
+  font-size: 0 !important;
+}
+
+[data-training="room-legend"] > :nth-child(11) > span:last-child::after,
+[data-training="room-legend"] > :nth-child(11) > div > span:last-child::after {
+  content: "Change Room";
+  font-size: 0.6875rem;
+  line-height: 1.25;
+}
+
+/* ROOM_CLEANING was an older notes flag for the same operational action.
+ * The database migration canonicalizes it to linen_change_required. Hide the
+ * duplicate legend row while old clients transition. */
+[data-training="room-legend"] > :nth-child(12) {
+  display: none !important;
+}
+
+@media (min-width: 420px) {
+  [data-training="room-legend"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (min-width: 768px) {
+  [data-training="room-legend"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (min-width: 1280px) {
+  [data-training="room-legend"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (min-width: 640px) {
+  [data-training="room-legend"] span.text-\[10px\] {
+    font-size: 0.75rem !important;
+  }
+
+  [data-training="room-legend"] > :nth-child(11) > span:last-child::after,
+  [data-training="room-legend"] > :nth-child(11) > div > span:last-child::after {
+    font-size: 0.75rem;
+  }
+}
