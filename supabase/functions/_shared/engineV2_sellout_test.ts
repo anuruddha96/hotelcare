@@ -16,6 +16,9 @@ const NOW = new Date("2026-09-01T11:30:00Z");
 const settings: DecisionSettings = {
   ...DEFAULT_DECISION_SETTINGS,
   now: NOW,
+  directionChangeHours: 2,
+  maxMarkdownsPerDay: 3,
+  fill: { enabled: true, windowDays: 90, maxTotalDropPct: 20 },
   paceBands: [
     { min_days_out: 0, max_days_out: 2, target_occupancy_pct: 100 },
     { min_days_out: 3, max_days_out: 7, target_occupancy_pct: 90 },
@@ -94,20 +97,20 @@ Deno.test("arrival today stops automatic sellout pricing at 15:00 Budapest", () 
   assertEquals(decision.reason, "same_day_cutoff");
 });
 
-Deno.test("legacy sellout helper still tempers tomorrow/day+2 moves", () => {
-  assertEquals(finalSelloutStep(input({ pickup24h: 0, cancellations24h: 0, occupancyPct: 60 })), 5);
-  assertEquals(finalSelloutStep(input({ pickup24h: 1, cancellations24h: 0, occupancyPct: 60 })), 4);
-  assertEquals(finalSelloutStep(input({ pickup24h: 4, cancellations24h: 1, occupancyPct: 86 })), 3);
+Deno.test("final-week step is stronger with more inventory and pickup only softens it", () => {
+  assertEquals(finalSelloutStep(input({ daysOut: 1, pickup24h: 0, cancellations24h: 0, occupancyPct: 60, roomsRemaining: 7 })), 5);
+  assertEquals(finalSelloutStep(input({ daysOut: 1, pickup24h: 1, cancellations24h: 0, occupancyPct: 60, roomsRemaining: 7 })), 4);
+  assertEquals(finalSelloutStep(input({ daysOut: 4, pickup24h: 3, cancellations24h: 1, occupancyPct: 95, roomsRemaining: 1 })), 3);
 });
 
-Deno.test("tomorrow keeps smart sellout markdowns while inventory is soft", () => {
+Deno.test("tomorrow remains markdown-only while a room is unsold", () => {
   const tomorrow = decideDate(input({
     stayDate: "2026-09-02",
     daysOut: 1,
     currentPrice: 170,
     occupancyPct: 70,
     roomsRemaining: 5,
-    pickup24h: 0,
+    pickup24h: 1,
     cancellations24h: 0,
     movedUpTodayEur: 0,
     movedDownTodayEur: 0,
@@ -120,17 +123,53 @@ Deno.test("tomorrow keeps smart sellout markdowns while inventory is soft", () =
     recentPeakPrice: 170,
     markdownsToday: 0,
   }), settings);
-  assertEquals(tomorrow.movement, -4);
-  assertEquals(tomorrow.targetPrice, 166);
+  assertEquals(tomorrow.direction, "decrease");
+  assertEquals(tomorrow.reason, "final_7_day_fill");
+  assertEquals(tomorrow.movement, -3);
+  assertEquals(tomorrow.targetPrice, 167);
 });
 
-Deno.test("last rooms switch back to ADR/yield protection even inside two days", () => {
+Deno.test("one room at 95 percent still sells down instead of switching back to ADR lift", () => {
   const scarce = decideDate(input({
-    stayDate: "2026-09-03",
-    daysOut: 2,
-    currentPrice: 165,
-    occupancyPct: 95,
+    stayDate: "2026-09-05",
+    daysOut: 4,
+    currentPrice: 243,
+    occupancyPct: 95.2,
     roomsRemaining: 1,
+    pickup1h: 1,
+    pickup6h: 1,
+    pickup24h: 1,
+    pickup48h: 1,
+    pickup7d: 1,
+    cancellations24h: 0,
+    hoursSinceLastPickup: 1,
+    movedUpTodayEur: 0,
+    movedDownTodayEur: 0,
+    lastDirection: null,
+    lastDecisionAt: null,
+    lastDecreaseAt: null,
+    hardAdrFloor: 300,
+    adrFloor: 300,
+    monthFloor: 300,
+    monthMarkdownsFrozen: true,
+    campaignStartPrice: 243,
+    recentPeakPrice: 243,
+    markdownsToday: 0,
+  }), settings);
+  assertEquals(isCloseInSelloutPriority({ ...input(), daysOut: 4, occupancyPct: 95.2, roomsRemaining: 1 }), true);
+  assertEquals(scarce.direction, "decrease");
+  assertEquals(scarce.reason, "final_7_day_fill");
+  assertEquals(scarce.movement, -3);
+  assertEquals(scarce.targetPrice, 240);
+});
+
+Deno.test("two rooms at 90 percent are not held for low inventory", () => {
+  const decision = decideDate(input({
+    stayDate: "2026-09-04",
+    daysOut: 3,
+    currentPrice: 149,
+    occupancyPct: 90.5,
+    roomsRemaining: 2,
     pickup1h: 0,
     pickup6h: 0,
     pickup24h: 0,
@@ -143,19 +182,19 @@ Deno.test("last rooms switch back to ADR/yield protection even inside two days",
     lastDirection: null,
     lastDecisionAt: null,
     lastDecreaseAt: null,
+    campaignStartPrice: 149,
     hardAdrFloor: 200,
     adrFloor: 200,
     monthFloor: 200,
     monthMarkdownsFrozen: true,
-    recentPeakPrice: 165,
     markdownsToday: 0,
   }), settings);
-  assertEquals(isCloseInSelloutPriority({ ...input(), daysOut: 2, occupancyPct: 95, roomsRemaining: 1 }), false);
-  assertEquals(scarce.direction, "increase");
-  assertEquals(scarce.reason, "net_adr_floor");
+  assertEquals(decision.direction, "decrease");
+  assertEquals(decision.reason, "final_7_day_fill");
+  assertEquals(decision.targetPrice, 146);
 });
 
-Deno.test("tomorrow/day+2 sellout still respects explicit manual protection", () => {
+Deno.test("final week still respects explicit manual protection", () => {
   const decision = decideDate(input({
     stayDate: "2026-09-02",
     daysOut: 1,
@@ -168,13 +207,52 @@ Deno.test("tomorrow/day+2 sellout still respects explicit manual protection", ()
   assertEquals(decision.reason, "manual_hold");
 });
 
-Deno.test("day+3 through day+7 soft inventory strips ADR-only lift and freeze", () => {
+Deno.test("final week waits briefly before reversing a recent automated increase", () => {
+  const decision = decideDate(input({
+    stayDate: "2026-09-02",
+    daysOut: 1,
+    currentPrice: 148,
+    occupancyPct: 95.2,
+    roomsRemaining: 1,
+    pickup24h: 1,
+    cancellations24h: 0,
+    movedUpTodayEur: 8,
+    movedDownTodayEur: 0,
+    lastDirection: "increase",
+    lastDecisionAt: "2026-09-01T10:30:00Z",
+    markdownsToday: 0,
+  }), settings);
+  assertEquals(decision.direction, "hold");
+  assertEquals(decision.reason, "direction_cooldown");
+});
+
+Deno.test("final week honors the daily markdown-count safety limit", () => {
+  const decision = decideDate(input({
+    stayDate: "2026-09-07",
+    daysOut: 6,
+    currentPrice: 166,
+    occupancyPct: 71.4,
+    roomsRemaining: 6,
+    pickup24h: 0,
+    cancellations24h: 0,
+    movedUpTodayEur: 0,
+    movedDownTodayEur: 9,
+    lastDirection: "decrease",
+    lastDecisionAt: "2026-09-01T08:00:00Z",
+    lastDecreaseAt: "2026-09-01T08:00:00Z",
+    markdownsToday: 3,
+  }), settings);
+  assertEquals(decision.direction, "hold");
+  assertEquals(decision.reason, "markdown_limit");
+});
+
+Deno.test("day+3 through day+7 strips ADR-only lift and freeze for all unsold inventory", () => {
   const closeIn = input({
     stayDate: "2026-09-04",
     daysOut: 3,
     currentPrice: 137,
-    occupancyPct: 47.6,
-    roomsRemaining: 11,
+    occupancyPct: 95,
+    roomsRemaining: 1,
     pickup1h: 0,
     pickup6h: 0,
     pickup24h: 0,
@@ -192,6 +270,7 @@ Deno.test("day+3 through day+7 soft inventory strips ADR-only lift and freeze", 
     adrFloor: 167,
     monthFloor: 167,
     monthMarkdownsFrozen: true,
+    campaignStartPrice: 137,
     recentPeakPrice: 137,
     markdownsToday: 0,
   });
@@ -206,14 +285,14 @@ Deno.test("day+3 through day+7 soft inventory strips ADR-only lift and freeze", 
   const decision = decideDate(closeIn, settings);
   assertNotEquals(decision.reason, "net_adr_floor");
   assertNotEquals(decision.reason, "adr_guard");
-  assertNotEquals(decision.direction, "increase");
+  assertEquals(decision.direction, "decrease");
 });
 
-Deno.test("day+7 is included in close-in sellout priority", () => {
+Deno.test("day+7 is included even with one last room at very high occupancy", () => {
   assertEquals(isCloseInSelloutPriority(input({
     daysOut: 7,
-    occupancyPct: 61.9,
-    roomsRemaining: 8,
+    occupancyPct: 99,
+    roomsRemaining: 1,
   })), true);
 });
 
@@ -248,7 +327,7 @@ Deno.test("day+8 keeps the ordinary ADR protection boundary", () => {
   assertEquals(decision.reason, "net_adr_floor");
 });
 
-Deno.test("day+3 keeps ordinary pickup pricing after the ADR-only floor is removed", () => {
+Deno.test("pickup on day+3 no longer raises while rooms remain unsold", () => {
   const decision = decideDate(input({
     stayDate: "2026-09-04",
     daysOut: 3,
@@ -266,11 +345,12 @@ Deno.test("day+3 keeps ordinary pickup pricing after the ADR-only floor is remov
     adrFloor: 190,
     monthFloor: 190,
     monthMarkdownsFrozen: true,
+    campaignStartPrice: 170,
     recentPeakPrice: 170,
     markdownsToday: 0,
   }), settings);
-  assertEquals(decision.direction, "increase");
-  assertEquals(decision.reason, "genuine_pickup");
+  assertEquals(decision.direction, "decrease");
+  assertEquals(decision.reason, "final_7_day_fill");
 });
 
 Deno.test("manager cut stays authoritative during the manual hold even when pickup arrives", () => {
