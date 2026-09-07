@@ -10,6 +10,18 @@ export interface AutomationChangeRow {
   new_price?: number | null;
   currency?: string | null;
   status?: string | null;
+  change_type?: 'minimum_stay' | string | null;
+  old_min_stay?: number | null;
+  new_min_stay?: number | null;
+  reason?: string | null;
+  reason_detail?: string | null;
+  days_out?: number | null;
+  occupancy_pct?: number | null;
+  rooms_left?: number | null;
+  pickup_24h?: number | null;
+  event_title?: string | null;
+  event_impact?: string | null;
+  min_stay_run_id?: string | null;
 }
 
 export interface AutomationNotification {
@@ -17,6 +29,7 @@ export interface AutomationNotification {
   hotel_id: string;
   hotel_name: string;
   organization_slug: string | null;
+  notification_type: string;
   run_source: 'manual' | 'automatic' | string;
   actor_name: string;
   created_at: string;
@@ -80,8 +93,9 @@ export function useCanSeeAutomationNotifications() {
 }
 
 /**
- * Loads the automation notification inbox for the signed-in user. RLS keeps the
- * list to properties the person may access, so no hotel filter is needed here.
+ * Loads the revenue-automation notification inbox for the signed-in user. RLS
+ * keeps the list to properties the person may access, so no hotel filter is
+ * needed here. Price and minimum-stay automation share the same inbox.
  */
 export function useRevenueAutomationNotifications(enabled: boolean) {
   const { user } = useAuth();
@@ -132,26 +146,33 @@ export function useRevenueAutomationNotifications(enabled: boolean) {
       }
 
       setItems(
-        list.map((r) => ({
-          id: r.id,
-          hotel_id: r.hotel_id,
-          hotel_name: hotelNames.current.get(r.hotel_id) ?? r.hotel_id,
-          organization_slug: r.organization_slug ?? null,
-          run_source: r.run_source,
-          actor_name: r.run_source === 'automatic' ? 'Automatic pricing' : r.actor_name,
-          created_at: r.created_at,
-          pickups_count: r.pickups_count ?? 0,
-          actions_count: r.actions_count ?? 0,
-          pushed_count: r.pushed_count ?? 0,
-          failed_count: r.failed_count ?? 0,
-          currency: r.currency ?? null,
-          severity: r.severity ?? 'info',
-          summary: r.summary ?? null,
-          automation_run_id: r.automation_run_id ?? null,
-          run: r.automation_run_id ? runsById.get(r.automation_run_id) ?? null : null,
-          changes: Array.isArray(r.changes) ? (r.changes as AutomationChangeRow[]) : [],
-          read: readIds.has(r.id),
-        })),
+        list.map((r) => {
+          const notificationType = String(r.notification_type ?? 'pickup_automation');
+          const automaticActor = notificationType === 'min_stay_automation'
+            ? 'Automatic minimum stay'
+            : 'Automatic pricing';
+          return {
+            id: r.id,
+            hotel_id: r.hotel_id,
+            hotel_name: hotelNames.current.get(r.hotel_id) ?? r.hotel_id,
+            organization_slug: r.organization_slug ?? null,
+            notification_type: notificationType,
+            run_source: r.run_source,
+            actor_name: r.run_source === 'automatic' ? automaticActor : r.actor_name,
+            created_at: r.created_at,
+            pickups_count: r.pickups_count ?? 0,
+            actions_count: r.actions_count ?? 0,
+            pushed_count: r.pushed_count ?? 0,
+            failed_count: r.failed_count ?? 0,
+            currency: r.currency ?? null,
+            severity: r.severity ?? 'info',
+            summary: r.summary ?? null,
+            automation_run_id: r.automation_run_id ?? null,
+            run: r.automation_run_id ? runsById.get(r.automation_run_id) ?? null : null,
+            changes: Array.isArray(r.changes) ? (r.changes as AutomationChangeRow[]) : [],
+            read: readIds.has(r.id),
+          };
+        }),
       );
     } finally {
       setLoading(false);
@@ -176,9 +197,10 @@ export function useRevenueAutomationNotifications(enabled: boolean) {
     return () => { supabase.removeChannel(channel); };
   }, [enabled, user?.id, load]);
 
-  // Publisher confirmation arrives after the notification insert. Refresh the
-  // same item when its linked run changes so “queued” becomes accepted or
-  // confirmed without requiring a page reload.
+  // Publisher confirmation arrives after a price notification insert. Refresh
+  // the same item when its linked run changes so “queued” becomes accepted or
+  // confirmed without requiring a page reload. MLOS notifications have no price
+  // run id and therefore skip this relation cleanly.
   useEffect(() => {
     if (!enabled || !user?.id) return;
     const channel = supabase
