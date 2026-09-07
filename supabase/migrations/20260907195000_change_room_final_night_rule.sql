@@ -36,8 +36,12 @@ begin
     );
   end if;
 
-  pms_refresh := tg_op = 'INSERT'
-    or new.pms_metadata is distinct from old.pms_metadata;
+  -- OLD is not available for INSERT triggers, so keep the branches explicit.
+  if tg_op = 'INSERT' then
+    pms_refresh := true;
+  else
+    pms_refresh := new.pms_metadata is distinct from old.pms_metadata;
+  end if;
 
   -- A scheduled Change Room on the guest's final occupied night becomes a
   -- towel-only service. Do not interfere with a checkout that is happening
