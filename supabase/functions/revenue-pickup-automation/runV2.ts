@@ -53,6 +53,7 @@ import {
 } from "../_shared/netRateFactor.ts";
 import { anchorFor, buildAnchorTable } from "../_shared/seasonalAnchor.ts";
 import { loadGuestStep, maxGuestGapFor, repairLadder } from "../_shared/rateSafety.ts";
+import { effectiveDateColumnBounds } from "../_shared/engineV2DateColumnLockstep.ts";
 
 
 
@@ -625,13 +626,31 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       }
     }
 
-    // Absolute floors and ceilings — never step limits.
+    // Absolute floors and ceilings — never step limits. Room-type bounds
+    // remain available for legacy mode and ladder repairs. In date-column
+    // lockstep mode only the hotel's global safety boundary can limit a move.
     const floorRows = unwrap(floorsRes) as any[];
     const safetyRow = floorRows.find((r) => r.is_global_safety_max) ?? null;
+    const rawGlobalSafetyMin = Number(safetyRow?.min_price);
+    const globalSafetyMin = Number.isFinite(rawGlobalSafetyMin) && rawGlobalSafetyMin > 0
+      ? whole(rawGlobalSafetyMin)
+      : 1;
+    const globalSafetyMax = Math.max(
+      globalSafetyMin,
+      whole(Number(safetyRow?.max_price ?? 500) || 500),
+    );
+    const dateColumnLockstepEnabled = rule.date_column_lockstep_enabled === true;
+    const hotelSafetyBounds = {
+      min: globalSafetyMin,
+      max: globalSafetyMax,
+      source: "hotel_safety_lockstep" as const,
+    };
     const boundsFor = makeBoundsResolver({
       floors: floorRows,
       roomTypes: roomTypes as any[],
-      globalSafetyMax: Number(safetyRow?.max_price ?? 500) || 500,
+      globalSafetyMax,
+      // Preserve the legacy resolver exactly: a missing global minimum stays
+      // missing there instead of silently becoming the lockstep fallback of €1.
       globalMin: Number(safetyRow?.min_price ?? 0) || null,
     });
 
@@ -708,7 +727,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
           const occ = occByDate.get(stayDate);
           const cells = byDate.get(stayDate) ?? [];
           const ref = cells.filter((c) => c.occupancy === 2).sort((a, b) => a.price - b.price)[0] ?? null;
-          const bounds = boundsFor(ref?.room_type_name ?? null, 2);
+          const bounds = dateColumnLockstepEnabled
+            ? hotelSafetyBounds
+            : boundsFor(ref?.room_type_name ?? null, 2);
           return {
             stayDate,
             daysOut: dayDiff(today, stayDate),
@@ -783,7 +804,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         : null;
 
       const occ = occByDate.get(stayDate) ?? { pct: null, sold: null, left: null, revenue: null };
-      const refBounds = boundsFor(reference?.room_type_name ?? null, 2);
+      const refBounds = dateColumnLockstepEnabled
+        ? hotelSafetyBounds
+        : boundsFor(reference?.room_type_name ?? null, 2);
       const pendingEvent = eventUplift.get(stayDate);
       const last = lastDecisionByDate.get(stayDate);
       const prevOcc = prevOccByDate.get(stayDate) ?? null;
@@ -844,9 +867,9 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
       // real payload would have been safe before anything is published.
       //
       // THE DATE IS THE UNIT OF CHANGE: every cell of the day moves by exactly
-      // the same whole-euro amount, or the day does not move at all. The step
-      // is throttled to the smallest headroom on the date (never clamped per
-      // cell), so a day can never end up half-moved or moved unevenly.
+      // the same whole-euro amount, or the day does not move at all. When the
+      // saved lockstep switch is on, room/occupancy-specific floors and ceilings
+      // never throttle the date; only the hotel's absolute safety boundary can.
       const cellPrices: CellPrice[] = [];
       let requestedMovement = decision.movement;
       let limitedBy: string | null = null;
@@ -856,15 +879,32 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
         let boundsProblem: string | null = null;
         const prepared: Array<{ cell: typeof cells[number]; bounds: { min: number; max: number }; old: number; allowed: number }> = [];
         for (const cell of cells) {
-          const cellBounds = boundsFor(cell.room_type_name, cell.occupancy);
-          if (isBoundsFailure(cellBounds)) {
-            boundsProblem = `${cell.room_type_name ?? "unknown room type"} / ${cell.occupancy} pax — ${cellBounds.detail}`;
-            break;
-          }
           const old = whole(cell.price);
-          const allowed = headroom(cellBounds, old, dir);
-          prepared.push({ cell, bounds: { min: cellBounds.min, max: cellBounds.max }, old, allowed });
+          let resolvedBounds: { min: number; max: number; source: string } = hotelSafetyBounds;
 
+          if (!dateColumnLockstepEnabled) {
+            const cellBounds = boundsFor(cell.room_type_name, cell.occupancy);
+            if (isBoundsFailure(cellBounds)) {
+              boundsProblem = `${cell.room_type_name ?? "unknown room type"} / ${cell.occupancy} pax — ${cellBounds.detail}`;
+              break;
+            }
+            resolvedBounds = cellBounds;
+          }
+
+          const effectiveBounds = effectiveDateColumnBounds({
+            lockstep: dateColumnLockstepEnabled,
+            cellMin: resolvedBounds.min,
+            cellMax: resolvedBounds.max,
+            globalMin: globalSafetyMin,
+            globalMax: globalSafetyMax,
+          });
+          const allowed = headroom(effectiveBounds, old, dir);
+          prepared.push({
+            cell,
+            bounds: { min: effectiveBounds.min, max: effectiveBounds.max },
+            old,
+            allowed,
+          });
         }
 
         if (boundsProblem) {
@@ -889,21 +929,30 @@ export async function runEngineV2(deps: V2Deps): Promise<Record<string, unknown>
             settings.minMovementEur,
           );
           const step = uniform.step;
-          limitedBy = uniform.limitedBy;
+          const limitingCell = uniform.limitedBy;
+          // In lockstep mode a child room type is never itself the limiting
+          // rule. A cell can merely be the first one that would cross the
+          // hotel's shared absolute boundary. Keep the audit field empty so it
+          // cannot be mistaken for a room-type floor/ceiling hold.
+          limitedBy = dateColumnLockstepEnabled ? null : limitingCell;
           if (uniform.held) {
             decision.blocked = true;
             decision.direction = "hold";
             decision.movement = 0;
             decision.targetPrice = decision.currentPrice;
-            decision.reason = "bounds_headroom";
-            decision.reasonDetail = limitedBy
-              ? `Held: ${limitedBy} is at its price limit, so the whole day stayed put.`
-              : "Held: no room left to move every price of this date together.";
+            decision.reason = dateColumnLockstepEnabled ? "hotel_safety_headroom" : "bounds_headroom";
+            decision.reasonDetail = dateColumnLockstepEnabled
+              ? "Held: the whole date is at or too close to the hotel's absolute safety boundary for the minimum publishable movement."
+              : limitedBy
+                ? `Held: ${limitedBy} is at its price limit, so the whole day stayed put.`
+                : "Held: no room left to move every price of this date together.";
           } else {
             if (step < wanted) {
               decision.movement = dir * step;
               decision.targetPrice = decision.currentPrice == null ? null : whole(decision.currentPrice + dir * step);
-              decision.reasonDetail = `${decision.reasonDetail} Step reduced to €${step} so every room type moves together${limitedBy ? ` (${limitedBy} is closest to its limit)` : ""}.`;
+              decision.reasonDetail = dateColumnLockstepEnabled
+                ? `${decision.reasonDetail} Step reduced to €${step} for every room type because the hotel's absolute safety boundary was reached.`
+                : `${decision.reasonDetail} Step reduced to €${step} so every room type moves together${limitedBy ? ` (${limitedBy} is closest to its limit)` : ""}.`;
             }
 
             for (const p of prepared) {
