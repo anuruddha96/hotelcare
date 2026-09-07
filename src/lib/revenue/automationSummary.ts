@@ -1,19 +1,26 @@
 /**
  * Turns an automation run record into plain language a hotel manager can read.
  * The engine speaks in "cells", "pickups" and "queued actions" — none of that
- * belongs in the notification UI, so every phrase used by the pricing activity
+ * belongs in the notification UI, so every phrase used by the revenue activity
  * bell is derived here in one place.
  */
 
 export interface AutomationRunLike {
   hotel_name?: string;
+  notification_type?: string;
   run_source?: string;
   actions_count?: number;
   pushed_count?: number;
   failed_count?: number;
   pickups_count?: number;
   summary?: string | null;
-  changes?: Array<{ old_price?: number | null; new_price?: number | null }>;
+  changes?: Array<{
+    old_price?: number | null;
+    new_price?: number | null;
+    old_min_stay?: number | null;
+    new_min_stay?: number | null;
+    change_type?: string | null;
+  }>;
   run?: {
     mode: string;
     status: string;
@@ -35,9 +42,19 @@ export interface RunReason {
 
 export type RunTone = "attention" | "done" | "working" | "quiet";
 
+const isMinStay = (run: AutomationRunLike) => run.notification_type === "min_stay_automation";
+
 const REASON_RULES: Array<{ match: RegExp; reason: RunReason }> = [
   {
-    match: /markdown/i,
+    match: /minimum stay|1 night|minlos/i,
+    reason: {
+      label: "Minimum stay updated",
+      explain:
+        "Stay-length restrictions were adjusted from lead time, occupancy, pickup and event demand so the hotel stays sellable without giving up justified compression.",
+    },
+  },
+  {
+    match: /markdown|sell[- ]out/i,
     reason: {
       label: "Selling-window markdown",
       explain:
@@ -79,7 +96,7 @@ const REASON_RULES: Array<{ match: RegExp; reason: RunReason }> = [
     reason: {
       label: "Some dates unchanged",
       explain:
-        "These dates were checked, but no price change was made because a pricing rule or safety limit applied. Automation is still running.",
+        "These dates were checked, but no change was made because a revenue rule or safety limit applied. Automation is still running.",
     },
   },
 ];
@@ -120,6 +137,13 @@ function direction(run: AutomationRunLike): "lowered" | "raised" | "repaired" | 
 const plural = (count: number, word: string) => `${count.toLocaleString()} ${word}${count === 1 ? "" : "s"}`;
 
 export function runHeadline(run: AutomationRunLike): string {
+  if (isMinStay(run)) {
+    const count = run.actions_count ?? 0;
+    if ((run.failed_count ?? 0) > 0 && count === 0) return "Minimum-stay automation needs attention";
+    if (count === 0) return "Minimum-stay automation reviewed the calendar";
+    return `Minimum-stay automation updated ${plural(count, "stay date")}`;
+  }
+
   const who = run.run_source === "automatic" ? "Automatic pricing" : "A manual run";
   if (run.run) {
     if (run.run.status === "failed") return `${who} stopped with an error`;
@@ -131,22 +155,31 @@ export function runHeadline(run: AutomationRunLike): string {
       : `${who} changed ${plural(changed, "stay date")}`;
   }
   const count = run.actions_count ?? 0;
-  if (count === 0) {
-    return `${who} reviewed your calendar and left prices as they are`;
-  }
+  if (count === 0) return `${who} reviewed your calendar and left prices as they are`;
   const verb = direction(run);
   if (verb === "repaired") return `${who} repaired ${plural(count, "price")}`;
   return `${who} ${verb} ${plural(count, "price")}`;
 }
 
 export function runStatus(run: AutomationRunLike): { text: string; tone: RunTone } {
+  if (isMinStay(run)) {
+    const failed = run.failed_count ?? 0;
+    const applied = run.pushed_count ?? run.actions_count ?? 0;
+    if (failed > 0) {
+      return {
+        text: `${applied.toLocaleString()} minimum-stay update${applied === 1 ? "" : "s"} live in Previo · ${failed.toLocaleString()} failed`,
+        tone: "attention",
+      };
+    }
+    if (applied > 0) return { text: `All ${applied.toLocaleString()} minimum-stay update${applied === 1 ? " is" : "s are"} live in Previo`, tone: "done" };
+    return { text: "No minimum-stay changes were needed", tone: "quiet" };
+  }
+
   if (run.run) {
     if (run.run.status === "failed" || run.run.status === "timed_out") {
       return { text: run.summary ?? "The run needs attention", tone: "attention" };
     }
-    if (run.run.mode === "shadow") {
-      return { text: "Review only — nothing was sent to Previo", tone: "quiet" };
-    }
+    if (run.run.mode === "shadow") return { text: "Review only — nothing was sent to Previo", tone: "quiet" };
     if (run.run.cells_queued > 0) {
       const failed = run.run.cells_failed ?? 0;
       const verified = run.run.cells_verified ?? 0;
@@ -161,26 +194,28 @@ export function runStatus(run: AutomationRunLike): { text: string; tone: RunTone
   const failed = run.failed_count ?? 0;
   const sent = run.pushed_count ?? 0;
   const total = run.actions_count ?? 0;
-  if (failed > 0) {
-    return { text: `${plural(failed, "price")} need your attention`, tone: "attention" };
-  }
+  if (failed > 0) return { text: `${plural(failed, "price")} need your attention`, tone: "attention" };
   if (total === 0) return { text: "Nothing needed changing", tone: "quiet" };
   if (sent >= total) return { text: "All prices are live in your channel manager", tone: "done" };
-  if (sent > 0) {
-    return { text: `${sent.toLocaleString()} of ${total.toLocaleString()} already live — the rest are on their way`, tone: "working" };
-  }
+  if (sent > 0) return { text: `${sent.toLocaleString()} of ${total.toLocaleString()} already live — the rest are on their way`, tone: "working" };
   return { text: "Queued and being sent to your channel manager now", tone: "working" };
 }
 
 /** One-line preview used in the bell list. */
 export function runPreview(run: AutomationRunLike): string {
+  if (isMinStay(run)) {
+    const failed = run.failed_count ?? 0;
+    const applied = run.pushed_count ?? run.actions_count ?? 0;
+    if (failed > 0) return `${applied.toLocaleString()} MLOS updates live · ${failed.toLocaleString()} need attention`;
+    if (applied > 0) return `${applied.toLocaleString()} minimum-stay update${applied === 1 ? "" : "s"} live in Previo`;
+    return "Reviewed — no minimum-stay change needed";
+  }
+
   if (run.run) {
     if (run.run.status === "failed") return `Failed · ${run.run.dates_evaluated.toLocaleString()} dates checked`;
     if (run.run.status === "timed_out") return `Timed out · ${run.run.dates_evaluated.toLocaleString()} dates checked`;
     const changed = run.run.dates_increased + run.run.dates_decreased;
-    if (run.run.mode === "shadow") {
-      return `Review only · ${changed.toLocaleString()} dates identified · ${run.run.dates_held.toLocaleString()} unchanged`;
-    }
+    if (run.run.mode === "shadow") return `Review only · ${changed.toLocaleString()} dates identified · ${run.run.dates_held.toLocaleString()} unchanged`;
     const verified = run.run.cells_verified ?? 0;
     const accepted = run.run.cells_published ?? 0;
     const failed = run.run.cells_failed ?? 0;
@@ -202,6 +237,12 @@ export function runPreview(run: AutomationRunLike): string {
 /** Only the numbers that mean something to a manager, zeros dropped. */
 export function runStats(run: AutomationRunLike): Array<{ label: string; value: number; danger?: boolean }> {
   const stats: Array<{ label: string; value: number; danger?: boolean }> = [];
+  if (isMinStay(run)) {
+    stats.push({ label: "Stay dates updated", value: run.actions_count ?? 0 });
+    if ((run.pushed_count ?? 0) > 0) stats.push({ label: "Live in Previo", value: run.pushed_count ?? 0 });
+    if ((run.failed_count ?? 0) > 0) stats.push({ label: "Need attention", value: run.failed_count ?? 0, danger: true });
+    return stats;
+  }
   if ((run.pickups_count ?? 0) > 0) stats.push({ label: "New bookings seen", value: run.pickups_count ?? 0 });
   stats.push({ label: "Prices changed", value: run.actions_count ?? 0 });
   if ((run.pushed_count ?? 0) > 0) stats.push({ label: "Live in channel manager", value: run.pushed_count ?? 0 });
