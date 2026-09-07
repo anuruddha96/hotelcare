@@ -23,6 +23,7 @@ import {
   DEFAULT_PICKUP_LADDER, bandLabel, normaliseLadder, type PickupLadderBand,
   DEFAULT_OCCUPANCY_LIFT_LADDER, normaliseOccupancyLadder, type OccupancyLiftBand,
 } from "@/lib/revenue/reasonSettings";
+import EngineV2Controls, { type EngineV2WindowRule } from "@/components/revenue/EngineV2Controls";
 
 import ActivateModuleDialog from "@/components/billing/ActivateModuleDialog";
 import { automationUnlocked, fetchBillingSummary, type BillingSummary } from "@/hooks/useBilling";
@@ -79,7 +80,16 @@ interface Rule {
   max_markdowns_per_day: number;
   markdown_depth_pct: number;
 
-
+  // Engine V2 values are persisted on the same hotel rule and are shown in
+  // the Ottofiori Automation panel. The engine reads these exact fields.
+  engine_version?: number;
+  mode?: string | null;
+  min_movement_eur: number;
+  direction_change_hours: number;
+  manual_hold_hours: number;
+  adr_guard_enabled: boolean;
+  adr_window_days: number;
+  window_rules: EngineV2WindowRule[];
 
   cancellation_markdown_enabled: boolean;
   cancellation_wait_minutes: number;
@@ -112,7 +122,6 @@ interface Rule {
   last_evaluation_error?: string | null;
   version: number;
 }
-
 
 /** "in 47 minutes" / "due now" — the schedule in words, not a timestamp alone. */
 function untilLabel(iso: string): string {
@@ -164,6 +173,12 @@ const DEFAULT_RULE: Rule = {
   booked_date_brake_hours: 72, rebook_window_hours: 24,
   max_markdowns_per_day: 1, markdown_depth_pct: 12,
 
+  min_movement_eur: 3,
+  direction_change_hours: 6,
+  manual_hold_hours: 24,
+  adr_guard_enabled: false,
+  adr_window_days: 7,
+  window_rules: [],
 
   cancellation_markdown_enabled: true, cancellation_wait_minutes: 60,
   immediate_sell_mode_enabled: true, immediate_window_days: 14, immediate_markdown_step: 2,
@@ -175,9 +190,7 @@ const DEFAULT_RULE: Rule = {
   far_out_surcharge: 35, far_out_notify: true,
   far_out_floor_topup_enabled: true, far_out_floor_topup_days: 90,
   far_out_floor_topup_threshold: 100, far_out_floor_topup_amount: 22,
-
 };
-
 
 /** Turns the saved numbers into sentences a non-technical owner can check. */
 function explain(rule: Rule, hotelName: string): string[] {
@@ -255,6 +268,11 @@ function explain(rule: Rule, hotelName: string): string[] {
   }
   if (rule.whole_number_prices) {
     lines.push(`Prices are always sent as whole ${rule.currency} — never with cents.`);
+  }
+
+  if ((rule.engine_version ?? 1) >= 2 && rule.window_rules?.length) {
+    lines.push(`Engine V2 uses ${rule.window_rules.length} explicit booking-window movement rows saved on this hotel; they are editable under Schedule & publishing.`);
+    if (rule.adr_guard_enabled) lines.push(`The rolling ADR guard targets ${rule.currency} ${money(rule.adr_target_eur)} across ${rule.adr_window_days} days.`);
   }
 
   lines.push(
@@ -386,15 +404,11 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmOn, setConfirmOn] = useState(false);
-  // Turning automation on requires an active Revenue subscription (or a
-  // running trial). Without one the user is taken to Payments instead.
   const [billing, setBilling] = useState<BillingSummary | null>(null);
   const [activateOpen, setActivateOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [stats, setStats] = useState({ pushed: 0, failed: 0, lastActionAt: null as string | null });
   const [runResult, setRunResult] = useState<RunResult | null>(null);
-  // Minimum price difference between one guest count and the next inside the
-  // same room type. Stored per property, used by every publishing path.
   const [guestStep, setGuestStep] = useState<number>(10);
 
   useEffect(() => {
@@ -419,25 +433,28 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       setHotelName(names.get(hotelId) ?? hotelId);
 
       if (ruleRes.data) {
-        {
-          const loaded = ruleRes.data as unknown as Rule;
-          setRule({
-            ...loaded,
-            pickup_increase_ladder: normaliseLadder((loaded as any).pickup_increase_ladder),
-            raise_on_any_pickup: (loaded as any).raise_on_any_pickup !== false,
-            occupancy_lift_ladder: normaliseOccupancyLadder((loaded as any).occupancy_lift_ladder),
-            occupancy_lift_enabled: (loaded as any).occupancy_lift_enabled !== false,
-            net_rate_factor_enabled: (loaded as any).net_rate_factor_enabled !== false,
-            net_rate_factor_override: (loaded as any).net_rate_factor_override ?? null,
-            month_pace_guard_enabled: (loaded as any).month_pace_guard_enabled !== false,
-            adr_target_eur: (loaded as any).adr_target_eur ?? 130,
-            booked_date_brake_hours: (loaded as any).booked_date_brake_hours ?? 72,
-            rebook_window_hours: (loaded as any).rebook_window_hours ?? 24,
-            max_markdowns_per_day: (loaded as any).max_markdowns_per_day ?? 1,
-            markdown_depth_pct: (loaded as any).markdown_depth_pct ?? 12,
-
-          });
-        }
+        const loaded = ruleRes.data as unknown as Rule;
+        setRule({
+          ...loaded,
+          pickup_increase_ladder: normaliseLadder((loaded as any).pickup_increase_ladder),
+          raise_on_any_pickup: (loaded as any).raise_on_any_pickup !== false,
+          occupancy_lift_ladder: normaliseOccupancyLadder((loaded as any).occupancy_lift_ladder),
+          occupancy_lift_enabled: (loaded as any).occupancy_lift_enabled !== false,
+          net_rate_factor_enabled: (loaded as any).net_rate_factor_enabled !== false,
+          net_rate_factor_override: (loaded as any).net_rate_factor_override ?? null,
+          month_pace_guard_enabled: (loaded as any).month_pace_guard_enabled !== false,
+          adr_target_eur: (loaded as any).adr_target_eur ?? 130,
+          booked_date_brake_hours: (loaded as any).booked_date_brake_hours ?? 72,
+          rebook_window_hours: (loaded as any).rebook_window_hours ?? 24,
+          max_markdowns_per_day: (loaded as any).max_markdowns_per_day ?? 1,
+          markdown_depth_pct: (loaded as any).markdown_depth_pct ?? 12,
+          min_movement_eur: (loaded as any).min_movement_eur ?? 3,
+          direction_change_hours: (loaded as any).direction_change_hours ?? 6,
+          manual_hold_hours: (loaded as any).manual_hold_hours ?? 24,
+          adr_guard_enabled: Boolean((loaded as any).adr_guard_enabled),
+          adr_window_days: (loaded as any).adr_window_days ?? 7,
+          window_rules: Array.isArray((loaded as any).window_rules) ? (loaded as any).window_rules : [],
+        });
         setHasSavedRule(true);
         setSavedEnabled(Boolean((ruleRes.data as any).is_enabled));
       } else {
@@ -468,8 +485,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
   function copyFrom(sourceHotelId: string) {
     const source = otherRules.find((o) => o.hotel_id === sourceHotelId);
     if (!source) return;
-    // Settings copy across, but the switch stays where it is — turning a hotel
-    // on is always a deliberate action.
     setRule((current) => ({
       ...current,
       booking_window_tiers: source.rule.booking_window_tiers,
@@ -484,7 +499,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       market_ceiling_multiple: source.rule.market_ceiling_multiple ?? 1.4,
       manual_override_ai_enabled: source.rule.manual_override_ai_enabled ?? true,
       manual_override_review_hours: source.rule.manual_override_review_hours ?? 24,
-
       application_scope: source.rule.application_scope ?? "booked_room_type",
       auto_publish: source.rule.auto_publish,
       positive_pickup_enabled: source.rule.positive_pickup_enabled ?? true,
@@ -530,8 +544,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       rebook_window_hours: source.rule.rebook_window_hours ?? 24,
       max_markdowns_per_day: source.rule.max_markdowns_per_day ?? 1,
       markdown_depth_pct: source.rule.markdown_depth_pct ?? 12,
-
-
       cancellation_markdown_enabled: source.rule.cancellation_markdown_enabled ?? true,
       cancellation_wait_minutes: source.rule.cancellation_wait_minutes ?? 60,
       immediate_sell_mode_enabled: source.rule.immediate_sell_mode_enabled ?? true,
@@ -555,7 +567,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       far_out_floor_topup_days: source.rule.far_out_floor_topup_days ?? 90,
       far_out_floor_topup_threshold: source.rule.far_out_floor_topup_threshold ?? 100,
       far_out_floor_topup_amount: source.rule.far_out_floor_topup_amount ?? 22,
-
     }));
 
     toast.success(`Copied settings from ${source.label} — still off until you turn it on`);
@@ -586,7 +597,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       market_ceiling_multiple: rule.market_ceiling_multiple,
       manual_override_ai_enabled: rule.manual_override_ai_enabled,
       manual_override_review_hours: rule.manual_override_review_hours,
-
       application_scope: rule.application_scope,
       positive_pickup_enabled: rule.positive_pickup_enabled,
       pickup_lookback_hours: rule.pickup_lookback_hours,
@@ -629,8 +639,12 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       rebook_window_hours: rule.rebook_window_hours,
       max_markdowns_per_day: rule.max_markdowns_per_day,
       markdown_depth_pct: rule.markdown_depth_pct,
-
-
+      min_movement_eur: rule.min_movement_eur,
+      direction_change_hours: rule.direction_change_hours,
+      manual_hold_hours: rule.manual_hold_hours,
+      adr_guard_enabled: rule.adr_guard_enabled,
+      adr_window_days: rule.adr_window_days,
+      window_rules: rule.window_rules,
       cancellation_markdown_enabled: rule.cancellation_markdown_enabled,
       cancellation_wait_minutes: rule.cancellation_wait_minutes,
       immediate_sell_mode_enabled: rule.immediate_sell_mode_enabled,
@@ -654,16 +668,9 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       far_out_floor_topup_days: rule.far_out_floor_topup_days,
       far_out_floor_topup_threshold: rule.far_out_floor_topup_threshold,
       far_out_floor_topup_amount: rule.far_out_floor_topup_amount,
-
-      // Saving never triggers an immediate evaluation: an enabled rule is
-      // simply scheduled one normal interval from now, so nobody gets a
-      // surprise markdown for pressing Save. "Run now" stays the explicit
-      // way to act immediately. A rule that is off is never made due.
       next_run_at: rule.is_enabled
         ? new Date(Date.now() + Math.max(10, rule.evaluation_interval_minutes) * 60_000).toISOString()
         : null,
-
-
       no_pickup_scope: rule.no_pickup_scope,
       currency: rule.currency,
       version: rule.version + (rule.id ? 1 : 0),
@@ -671,8 +678,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
     };
     const { data, error } = await supabase.from("revenue_pickup_automation_rules")
       .upsert(payload as any, { onConflict: "hotel_id,name" }).select("*").single();
-    // The occupancy step lives with the property, not with the rule version, so
-    // every publishing path (manual, bulk, automation) reads the same number.
     const { error: stepError } = await supabase.from("hotel_revenue_settings")
       .upsert({ hotel_id: hotelId, extra_guest_supplement_eur: Math.max(0, Math.round(guestStep)) } as any, { onConflict: "hotel_id" });
     if (stepError) toast.error(errorMessage(stepError, "Could not save the occupancy price step"));
@@ -684,14 +689,13 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
         ...saved,
         pickup_increase_ladder: normaliseLadder((saved as any).pickup_increase_ladder),
         raise_on_any_pickup: (saved as any).raise_on_any_pickup !== false,
+        occupancy_lift_ladder: normaliseOccupancyLadder((saved as any).occupancy_lift_ladder),
+        window_rules: Array.isArray((saved as any).window_rules) ? (saved as any).window_rules : [],
       });
     }
     setHasSavedRule(true);
     setSavedEnabled(Boolean((data as any).is_enabled));
 
-    // Switching the property OFF must actually stop it. Anything the engine
-    // decided but has not delivered yet is cancelled (kept as history) so a
-    // disabled property can never keep pushing prices minutes later.
     if (!rule.is_enabled && wasEnabled) {
       const { data: stop } = await supabase.functions.invoke("revenue-pickup-automation", {
         body: { hotelId, mode: "stop" },
@@ -718,8 +722,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
       const { data, error } = await supabase.functions.invoke("revenue-pickup-automation", { body: { hotelId } });
       const payload = (data ?? {}) as any;
       if (error && !payload?.code) {
-        // The function returns its reason in the body; only a transport-level
-        // failure reaches here without one.
         const detail = await (error as any)?.context?.text?.().catch(() => "");
         let parsed: any = {};
         try { parsed = detail ? JSON.parse(detail) : {}; } catch { /* not JSON */ }
@@ -791,8 +793,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
         changed: (summary.changed ?? []) as ChangedRow[],
       });
     } catch (e) {
-      // Anything unexpected still reaches the user as a sentence, never as
-      // "[object Object]".
       toast.error(errorMessage(e, "The pricing service could not be reached"));
     } finally {
       setRunning(false);
@@ -800,6 +800,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
   }
 
   const cur = rule.currency;
+  const showOttofioriV2Controls = hotelId === "ottofiori" && Number(rule.engine_version ?? 1) >= 2;
 
   return (
     <>
@@ -841,7 +842,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
 
         {loading ? <div className="flex flex-1 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin" /></div> : (
           <div className="flex-1 min-h-0 overflow-y-auto">
-            {/* Master switch and the three numbers that answer "is it working?" */}
             <div className="space-y-3 border-b bg-muted/30 p-4">
               <div className="flex items-start justify-between gap-3 rounded-xl border bg-card p-3 shadow-sm">
                 <div className="min-w-0">
@@ -897,7 +897,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
             </div>
 
             <Accordion type="multiple" defaultValue={["schedule"]} className="w-full space-y-2 p-3">
-              {/* 1 — Schedule & publishing */}
               <Section
                 value="schedule"
                 icon={Clock}
@@ -909,8 +908,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                     <Label className="text-xs">How often this property is checked</Label>
                     <Hint>
                       Each check first refreshes bookings from Previo, then raises dates that picked up and lowers dates
-                      that did not. <strong>Example:</strong> every hour means up to 24 small moves a day per date, always
-                      inside your daily caps.
+                      that did not. The selected cadence is saved on this hotel and is the cadence the scheduler uses.
                     </Hint>
                   </div>
                   <Select
@@ -919,6 +917,8 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                   >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="15">Every 15 minutes</SelectItem>
+                      <SelectItem value="30">Every 30 minutes</SelectItem>
                       <SelectItem value="60">Every hour</SelectItem>
                       <SelectItem value="120">Every 2 hours</SelectItem>
                       <SelectItem value="180">Every 3 hours</SelectItem>
@@ -958,7 +958,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                   <div className="space-y-1">
                     <div className="flex items-center gap-1">
                       <Label className="text-xs">Copy settings from another property</Label>
-                      <Hint>Copies every number and guard, but never the on/off switch — turning a property on is always deliberate.</Hint>
+                      <Hint>Copies every standard number and guard, but never the on/off switch — turning a property on is always deliberate.</Hint>
                     </div>
                     <Select onValueChange={copyFrom}>
                       <SelectTrigger><SelectValue placeholder="Choose a property…" /></SelectTrigger>
@@ -972,9 +972,25 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                     </Select>
                   </div>
                 )}
+
+                {showOttofioriV2Controls && (
+                  <EngineV2Controls
+                    currency={rule.currency}
+                    engineVersion={Number(rule.engine_version ?? 2)}
+                    mode={rule.mode ?? null}
+                    future_booking_window_days={rule.future_booking_window_days}
+                    min_movement_eur={rule.min_movement_eur}
+                    direction_change_hours={rule.direction_change_hours}
+                    manual_hold_hours={rule.manual_hold_hours}
+                    adr_guard_enabled={rule.adr_guard_enabled}
+                    adr_target_eur={rule.adr_target_eur}
+                    adr_window_days={rule.adr_window_days}
+                    window_rules={rule.window_rules}
+                    onChange={(patch) => setRule((current) => ({ ...current, ...patch }))}
+                  />
+                )}
               </Section>
 
-              {/* 2 — Raising prices */}
               <Section
                 value="raise"
                 icon={TrendingUp}
@@ -1125,10 +1141,8 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                   value={rule.manual_override_review_hours}
                   onChange={(e) => setRule({ ...rule, manual_override_review_hours: Number(e.target.value) })}
                 />
-
               </Section>
 
-              {/* 3 — Lowering prices */}
               <Section
                 value="lower"
                 icon={TrendingDown}
@@ -1159,14 +1173,14 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                     label="Most a date may fall in a day" suffix={cur}
                     step={0.01} min={0.01}
                     disabled={!rule.no_pickup_enabled}
-                    hint={<>The safety brake on markdowns: no date can lose more than this in 24 hours.</>}
+                    hint={<>The safety brake on markdowns: no date can lose more than this in 24 hours. Engine V2 also applies the visible booking-window daily limits in Schedule & publishing.</>}
                     value={rule.max_daily_decrease_per_date}
                     onChange={(e) => setRule({ ...rule, max_daily_decrease_per_date: Number(e.target.value) })}
                   />
                   <NumField
                     label="Manage dates up to" suffix="days"
                     min={1} max={730}
-                    hint={<>How far ahead automation is allowed to look. 365 covers a full year of the calendar.</>}
+                    hint={<>How far ahead automation is allowed to look. For Engine V2 this same value is also shown in the active pricing controls.</>}
                     value={rule.future_booking_window_days}
                     onChange={(e) => setRule({ ...rule, future_booking_window_days: Number(e.target.value) })}
                   />
@@ -1230,8 +1244,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                   onChange={(final_window_allow_event_increase) => setRule({ ...rule, final_window_allow_event_increase })}
                 />
 
-
-
                 <ToggleRow
                   title="Wait after a cancellation"
                   desc="Give the room a chance to sell again before lowering the price."
@@ -1247,7 +1259,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                 />
               </Section>
 
-              {/* 4 — Guardrails */}
               <Section
                 value="guards"
                 icon={ShieldCheck}
@@ -1290,8 +1301,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                   value={rule.market_ceiling_multiple}
                   onChange={(e) => setRule({ ...rule, market_ceiling_multiple: Number(e.target.value) })}
                 />
-
-
 
                 <ToggleRow
                   title="Last-minute guard"
@@ -1366,7 +1375,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                   />
                 </div>
 
-                {/* ---- Average rate protection (ADR-first rules) ---- */}
                 <div className="space-y-3 rounded-lg border p-3">
                   <div className="flex items-center gap-1">
                     <Label className="text-xs font-semibold">Average rate protection</Label>
@@ -1383,7 +1391,7 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                   <div className="grid grid-cols-2 gap-3">
                     <NumField
                       label="Minimum average rate" suffix={rule.currency} min={0} max={1000}
-                      value={rule.minimum_adr}
+                      value={rule.minimum_adr ?? 0}
                       onChange={(e) => setRule({ ...rule, minimum_adr: Number(e.target.value) })}
                     />
                     <NumField
@@ -1470,11 +1478,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                   </div>
                 </div>
 
-
-
-
-
-
                 <div className="space-y-2 rounded-lg border p-3">
                   <div className="flex items-center gap-1">
                     <Label className="text-xs font-semibold">Pickup surcharge ladder</Label>
@@ -1536,7 +1539,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                 </div>
               </Section>
 
-              {/* 5 — Lead time */}
               <Section
                 value="leadbands"
                 icon={CalendarRange}
@@ -1623,7 +1625,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                 </p>
               </Section>
 
-              {/* Occupancy spacing */}
               <Section
                 value="occupancy"
                 icon={Users}
@@ -1649,7 +1650,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                 />
               </Section>
 
-              {/* 6 — Smart pricing */}
               <Section
                 value="smart"
                 icon={Bot}
@@ -1712,7 +1712,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
                 />
               </Section>
 
-              {/* 7 — Plain words */}
               <Section
                 value="plain"
                 icon={FileText}
@@ -1746,7 +1745,6 @@ export default function PickupAutomationRules({ hotelId, organizationSlug }: Pro
             {running && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Run now
           </Button>
         </div>
-
 
         <Dialog open={!!runResult} onOpenChange={(open) => !open && setRunResult(null)}>
           <DialogContent className="max-w-lg">
