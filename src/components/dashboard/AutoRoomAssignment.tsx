@@ -56,7 +56,16 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
     return (
       <>
         {props.open && (
-          <div className="fixed left-1/2 top-2 z-[10000] flex -translate-x-1/2 items-center gap-1 rounded-xl border bg-background/95 p-1 shadow-lg backdrop-blur sm:top-3">
+          <div
+            data-auto-assign-mode-switch
+            className="pointer-events-auto fixed left-1/2 top-2 z-[10000] flex -translate-x-1/2 items-center gap-1 rounded-xl border bg-background/95 p-1 shadow-lg backdrop-blur sm:top-3"
+            // Radix Dialog disables pointer events outside DialogContent while a
+            // modal is open. This control intentionally sits above both Auto
+            // Assign dialogs, so it must opt back into pointer events and stop
+            // the active dialog from treating a mode switch as an outside click.
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+          >
             <Button
               type="button"
               size="sm"
