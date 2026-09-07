@@ -21,16 +21,71 @@ export interface AutoAssignedSectionTask extends HousekeepingSectionTaskTemplate
   staff_name: string;
 }
 
+export interface LiveSectionTaskSnapshotRow {
+  taskId: string;
+  assignedTo: string;
+}
+
+/**
+ * Null means Auto Assign is creating a new plan and should use the configured
+ * recurring-area rules. A Map (including an empty Map) means the selected date
+ * already has real room assignments, so the persisted public-area snapshot is
+ * the source of truth for which tasks exist and who owns them.
+ *
+ * This is deliberately module-local and short-lived. AutoRoomAssignment.tsx
+ * primes it before mounting the assignment board and clears it when the modal
+ * closes or a fresh, not-yet-assigned date is opened.
+ */
+let liveSectionTaskSnapshot: Map<string, string> | null = null;
+
+export function setLiveSectionTaskSnapshot(rows: LiveSectionTaskSnapshotRow[]): void {
+  liveSectionTaskSnapshot = new Map(
+    rows
+      .filter(row => !!row.taskId && !!row.assignedTo)
+      .map(row => [row.taskId, row.assignedTo]),
+  );
+}
+
+export function clearLiveSectionTaskSnapshot(): void {
+  liveSectionTaskSnapshot = null;
+}
+
 /**
  * Give each mapped area's recurring work to the cleaner who owns most of that
  * section's room workload. If a section has no dirty room that day, the least
  * loaded selected cleaner receives it so shared areas are never forgotten.
+ *
+ * When an existing-date snapshot is present, do not recalculate public areas.
+ * Replay the exact persisted task set and owners instead. Managers may still
+ * drag an assigned task afterwards; AutoRoomAssignmentImpl layers that manual
+ * move on top of this baseline and persists it only when they confirm changes.
  */
 export function assignSectionTasksToStaff(
   previews: AssignmentPreview[],
   templates: HousekeepingSectionTaskTemplate[],
 ): AutoAssignedSectionTask[] {
   if (previews.length === 0) return [];
+
+  if (liveSectionTaskSnapshot !== null) {
+    return templates
+      .filter(template => liveSectionTaskSnapshot!.has(template.id))
+      .sort((a, b) =>
+        a.floor_number - b.floor_number
+        || a.section_name.localeCompare(b.section_name)
+        || a.sort_order - b.sort_order
+        || a.task_name.localeCompare(b.task_name)
+      )
+      .flatMap(template => {
+        const ownerId = liveSectionTaskSnapshot!.get(template.id);
+        if (!ownerId) return [];
+        const owner = previews.find(preview => preview.staffId === ownerId);
+        return [{
+          ...template,
+          staff_id: ownerId,
+          staff_name: owner?.staffName || `Staff ${ownerId.slice(0, 6)}`,
+        }];
+      });
+  }
 
   const extraMinutes = new Map(previews.map(preview => [preview.staffId, 0]));
   const activeTemplates = templates
