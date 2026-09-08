@@ -210,13 +210,13 @@ function askAssignmentDropChoice(params: {
 
     const description = document.createElement('div');
     description.textContent = params.inProgress
-      ? `${params.currentName} has already started this room. ${params.incomingName} can join as the second cleaner, but the active assignment cannot be replaced.`
+      ? `${params.currentName} has already started this room. What should happen when ${params.incomingName} is dropped onto it?`
       : `${params.currentName} is currently assigned. What should happen when ${params.incomingName} is dropped onto this room?`;
     Object.assign(description.style, { fontSize: '14px', lineHeight: '1.5', opacity: '0.82', marginBottom: '14px' });
 
     const help = document.createElement('div');
     help.textContent = params.inProgress
-      ? 'Work together keeps one shared room status, minibar record and dirty-linen record.'
+      ? `Replace transfers the active room to ${params.incomingName} while keeping the existing cleaning timeline. Work together keeps ${params.currentName} and adds ${params.incomingName} to the same room, minibar and dirty-linen record.`
       : `Replace moves the room from ${params.currentName} to ${params.incomingName}. Work together keeps ${params.currentName} and adds ${params.incomingName} as the second cleaner.`;
     Object.assign(help.style, {
       fontSize: '12px',
@@ -228,15 +228,14 @@ function askAssignmentDropChoice(params: {
     });
 
     const actions = document.createElement('div');
-    Object.assign(actions.style, { display: 'grid', gridTemplateColumns: params.inProgress ? '1fr' : '1fr 1fr', gap: '10px' });
+    Object.assign(actions.style, { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' });
 
     const finish = (choice: AssignmentDropChoice) => {
       overlay.remove();
       resolve(choice);
     };
 
-    if (!params.inProgress) {
-      const replace = document.createElement('button');
+    const replace = document.createElement('button');
       replace.type = 'button';
       replace.textContent = `Replace ${params.currentName}`;
       Object.assign(replace.style, {
@@ -250,9 +249,8 @@ function askAssignmentDropChoice(params: {
         cursor: 'pointer',
         padding: '9px 12px',
       });
-      replace.addEventListener('click', () => finish('replace'));
-      actions.appendChild(replace);
-    }
+    replace.addEventListener('click', () => finish('replace'));
+    actions.appendChild(replace);
 
     const share = document.createElement('button');
     share.type = 'button';
@@ -274,7 +272,7 @@ function askAssignmentDropChoice(params: {
     panel.append(title, description, help, actions);
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
-    setTimeout(() => (params.inProgress ? share : actions.querySelector('button'))?.focus(), 0);
+    setTimeout(() => replace.focus(), 0);
   });
 }
 
@@ -311,14 +309,11 @@ async function replaceRoomAssignee(existing: ExistingAssignmentRow, params: {
   staffId: string;
   assignedBy: string;
 }): Promise<void> {
-  if (existing.status === 'in_progress') {
-    throw new AssignmentInProgressError(existing.assigned_to);
-  }
-
   // Replacement is intentionally explicit and race-safe. It only succeeds if
-  // the room still has one cleaner and has not started while the manager was
-  // choosing. If the room changed meanwhile, the manager gets a safe failure
-  // rather than silently overwriting a live/shared assignment.
+  // the room still has one cleaner. An in-progress replacement transfers the
+  // canonical room job to the new cleaner while keeping started_by/started_at,
+  // so the audit trail still shows who originally opened the room. If the room
+  // became shared while the manager was choosing, the write fails safely.
   const { data, error } = await (supabase as any)
     .from('room_assignments')
     .update({
@@ -329,7 +324,6 @@ async function replaceRoomAssignee(existing: ExistingAssignmentRow, params: {
       shared_assigned_by: null,
     })
     .eq('id', existing.id)
-    .neq('status', 'in_progress')
     .is('shared_with', null)
     .select('id');
 
@@ -341,7 +335,6 @@ async function replaceRoomAssignee(existing: ExistingAssignmentRow, params: {
     .select('assigned_to, shared_with, status')
     .eq('id', existing.id)
     .maybeSingle();
-  if (fresh?.status === 'in_progress') throw new AssignmentInProgressError(fresh.assigned_to ?? existing.assigned_to);
   if (fresh?.shared_with) throw new SharedAssignmentFullError(fresh.assigned_to ?? existing.assigned_to, fresh.shared_with);
   throw new Error('Room assignment changed before replacement could be applied');
 }
@@ -354,8 +347,8 @@ async function replaceRoomAssignee(existing: ExistingAssignmentRow, params: {
  * - Same cleaner: no-op.
  * - One existing cleaner + real drag/drop: ask Replace vs Work together.
  * - Already shared by two: reject a third cleaner.
- * - If cleaning has started, replacement is blocked; sharing remains a valid
- *   database operation for callers that do not pre-block active-room drops.
+ * - If cleaning has started, both choices still work: replacement transfers
+ *   the canonical active job; sharing adds the second cleaner to that same job.
  *
  * Non-drag callers preserve the historic replacement behavior so automated or
  * programmatic assignment flows never get stuck behind a browser dialog.

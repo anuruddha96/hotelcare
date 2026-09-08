@@ -813,9 +813,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   };
 
   /**
-   * Inverse drag: a housekeeper chip was dropped on a room chip. The write is
-   * immediate (not staged) and refuses to touch a room that is already being
-   * cleaned.
+   * Inverse drag: a housekeeper chip was dropped on a room chip. Empty rooms
+   * assign immediately; occupied rooms ask the manager whether to replace the
+   * current cleaner or make the room a shared two-housekeeper cleaning job.
    */
   const handleHousekeeperDropOnRoom = async (e: React.DragEvent, room: RoomData) => {
     const payload = readHousekeeperDragPayload(e);
