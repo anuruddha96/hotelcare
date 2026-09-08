@@ -51,17 +51,19 @@ export interface BillingSettings {
   standard_revenue_bi_price_cents: number;
   standard_revenue_automation_price_cents: number;
   standard_operations_price_cents: number;
-  /** Legacy fields retained as the Operations / Housekeeping promotion. */
+  /** Existing orgs are false unless explicitly opted in; new orgs default true after migration. */
+  module_scoped_promotions_enabled?: boolean;
+  /** Legacy global promotion; in module-scoped mode these fields mean Housekeeping only. */
   early_bird_enabled: boolean;
   early_bird_label: string;
   early_bird_note: string;
   early_bird_ends_at: string | null;
-  /** Revenue BI promotion; independent from Housekeeping and Automation. */
+  /** Revenue BI promotion; used only in module-scoped mode. */
   revenue_bi_promo_enabled?: boolean;
   revenue_bi_promo_label?: string | null;
   revenue_bi_promo_note?: string | null;
   revenue_bi_promo_ends_at?: string | null;
-  /** BI + Automation promotion; independent from Housekeeping and BI-only. */
+  /** BI + Automation promotion; used only in module-scoped mode. */
   revenue_automation_promo_enabled?: boolean;
   revenue_automation_promo_label?: string | null;
   revenue_automation_promo_note?: string | null;
@@ -206,13 +208,31 @@ export function listPriceFor(settings: BillingSettings | undefined | null, modul
   }
 }
 
-/** Promotion metadata for exactly one module. Maintenance is not promotional. */
+export function moduleScopedPromotionsEnabled(settings: BillingSettings | undefined | null) {
+  return Boolean(settings?.module_scoped_promotions_enabled);
+}
+
+/** Promotion metadata for exactly one module in scoped mode; legacy orgs keep their global promo. */
 export function promotionFor(
   settings: BillingSettings | undefined | null,
   module: BillingModule,
 ): ModulePromotion {
   if (!settings) return { enabled: false, label: null, note: null, endsAt: null };
-  switch (normaliseModule(module)) {
+  const key = normaliseModule(module);
+
+  // Existing organizations that have not opted in keep the exact historic
+  // behaviour: the early_bird promotion appears across all billable modules.
+  if (!moduleScopedPromotionsEnabled(settings)) {
+    if (key === 'maintenance') return { enabled: false, label: null, note: null, endsAt: null };
+    return {
+      enabled: Boolean(settings.early_bird_enabled),
+      label: settings.early_bird_label || null,
+      note: settings.early_bird_note || null,
+      endsAt: settings.early_bird_ends_at || null,
+    };
+  }
+
+  switch (key) {
     case 'operations':
       return {
         enabled: Boolean(settings.early_bird_enabled),
@@ -263,11 +283,14 @@ function configuredPriceFor(settings: BillingSettings | undefined | null, module
 }
 
 /**
- * Effective price charged now. If a configured promotion has reached its end
- * date, billing automatically returns to that module's standard price.
+ * Effective price charged now. Legacy organizations keep their previous
+ * configured-price behaviour. In scoped mode only the expired module returns
+ * to its standard list price.
  */
 export function effectivePriceFor(settings: BillingSettings | undefined | null, module: BillingModule) {
   const configured = configuredPriceFor(settings, module);
+  if (!settings || !moduleScopedPromotionsEnabled(settings)) return configured;
+
   const promo = promotionFor(settings, module);
   if (promo.enabled && promo.endsAt && !promotionActiveFor(settings, module)) {
     const standard = listPriceFor(settings, module);
@@ -276,7 +299,7 @@ export function effectivePriceFor(settings: BillingSettings | undefined | null, 
   return configured;
 }
 
-/** Backwards-compatible helper: early_bird_* now means Housekeeping only. */
+/** Backwards-compatible helper: scoped orgs use Housekeeping; legacy orgs keep the old global promo. */
 export function earlyBirdActive(settings: BillingSettings | undefined | null) {
   return promotionActiveFor(settings, 'operations');
 }
