@@ -10,9 +10,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { supabase } from '@/integrations/supabase/client';
 import type { RevenueUsage } from '@/hooks/useBilling';
 import { toast } from 'sonner';
-import { Save, CreditCard, KeyRound, RefreshCw } from 'lucide-react';
+import { Save, CreditCard, KeyRound, RefreshCw, Sparkles } from 'lucide-react';
 
 interface Org { id: string; name: string; slug: string }
+
+type PromoModule = 'operations' | 'revenue_bi' | 'revenue_automation';
 
 interface Settings {
   organization_slug: string;
@@ -47,10 +49,19 @@ interface Settings {
   standard_revenue_bi_price_cents: number;
   standard_revenue_automation_price_cents: number;
   standard_operations_price_cents: number;
+  /** Legacy promotion columns are now scoped to Housekeeping / Operations only. */
   early_bird_enabled: boolean;
   early_bird_label: string;
   early_bird_note: string;
   early_bird_ends_at: string | null;
+  revenue_bi_promo_enabled: boolean;
+  revenue_bi_promo_label: string | null;
+  revenue_bi_promo_note: string | null;
+  revenue_bi_promo_ends_at: string | null;
+  revenue_automation_promo_enabled: boolean;
+  revenue_automation_promo_label: string | null;
+  revenue_automation_promo_note: string | null;
+  revenue_automation_promo_ends_at: string | null;
   grace_days: number;
 }
 
@@ -87,12 +98,54 @@ const BLANK = (slug: string): Settings => ({
   standard_revenue_bi_price_cents: 1900,
   standard_revenue_automation_price_cents: 2900,
   standard_operations_price_cents: 800,
-  early_bird_enabled: true,
-  early_bird_label: 'Early bird',
-  early_bird_note: 'Founding-partner pricing, locked for 12 months from activation.',
+  early_bird_enabled: false,
+  early_bird_label: 'Promotion',
+  early_bird_note: 'Founding-partner pricing.',
   early_bird_ends_at: null,
+  revenue_bi_promo_enabled: false,
+  revenue_bi_promo_label: null,
+  revenue_bi_promo_note: null,
+  revenue_bi_promo_ends_at: null,
+  revenue_automation_promo_enabled: false,
+  revenue_automation_promo_label: null,
+  revenue_automation_promo_note: null,
+  revenue_automation_promo_ends_at: null,
   grace_days: 14,
 });
+
+const promoMeta = (module: PromoModule) => {
+  if (module === 'operations') {
+    return {
+      title: 'Housekeeping',
+      enabled: 'early_bird_enabled' as const,
+      label: 'early_bird_label' as const,
+      note: 'early_bird_note' as const,
+      ends: 'early_bird_ends_at' as const,
+      price: 'operations_price_cents' as const,
+      standard: 'standard_operations_price_cents' as const,
+    };
+  }
+  if (module === 'revenue_bi') {
+    return {
+      title: 'Business Intelligence',
+      enabled: 'revenue_bi_promo_enabled' as const,
+      label: 'revenue_bi_promo_label' as const,
+      note: 'revenue_bi_promo_note' as const,
+      ends: 'revenue_bi_promo_ends_at' as const,
+      price: 'revenue_bi_price_cents' as const,
+      standard: 'standard_revenue_bi_price_cents' as const,
+    };
+  }
+  return {
+    title: 'BI + Automation',
+    enabled: 'revenue_automation_promo_enabled' as const,
+    label: 'revenue_automation_promo_label' as const,
+    note: 'revenue_automation_promo_note' as const,
+    ends: 'revenue_automation_promo_ends_at' as const,
+    price: 'revenue_automation_price_cents' as const,
+    standard: 'standard_revenue_automation_price_cents' as const,
+  };
+};
 
 export default function BillingSettingsPanel() {
   const [orgs, setOrgs] = useState<Org[]>([]);
@@ -121,7 +174,7 @@ export default function BillingSettingsPanel() {
         .select('*')
         .eq('organization_slug', slug)
         .maybeSingle();
-      setSettings((data as Settings) ?? BLANK(slug));
+      setSettings(data ? ({ ...BLANK(slug), ...data, organization_slug: slug } as Settings) : BLANK(slug));
       setLoading(false);
     })();
   }, [slug]);
@@ -131,9 +184,13 @@ export default function BillingSettingsPanel() {
   const save = async () => {
     if (!settings) return;
     setSaving(true);
+    // The additive promotion migration lands with this UI. The generated
+    // Supabase client type may lag the migration for one build, so keep this
+    // payload intentionally structural rather than blocking the admin save.
+    const payload = { ...settings, organization_slug: slug } as any;
     const { error } = await supabase
       .from('billing_settings')
-      .upsert({ ...settings, organization_slug: slug }, { onConflict: 'organization_slug' });
+      .upsert(payload, { onConflict: 'organization_slug' });
     setSaving(false);
     if (error) toast.error(error.message);
     else toast.success('Billing settings saved');
@@ -161,8 +218,134 @@ export default function BillingSettingsPanel() {
     };
   }, [slug, settings?.revenue_pricing_mode]);
 
-  const euros = (cents: number) => (cents / 100).toString();
+  const euros = (cents: number) => ((Number(cents) || 0) / 100).toString();
   const toCents = (v: string) => Math.round((parseFloat(v) || 0) * 100);
+
+  const discountPct = (module: PromoModule) => {
+    if (!settings) return 0;
+    const meta = promoMeta(module);
+    const standard = Number(settings[meta.standard]) || 0;
+    const price = Number(settings[meta.price]) || 0;
+    if (standard <= 0 || price >= standard) return 0;
+    return Math.round((1 - price / standard) * 10000) / 100;
+  };
+
+  const setDiscountPct = (module: PromoModule, value: string) => {
+    if (!settings) return;
+    const meta = promoMeta(module);
+    const standard = Number(settings[meta.standard]) || 0;
+    if (standard <= 0) return;
+    const pct = Math.min(100, Math.max(0, parseFloat(value) || 0));
+    const cents = Math.round(standard * (1 - pct / 100));
+    if (module === 'revenue_automation') {
+      patch({ revenue_automation_price_cents: cents, revenue_price_cents: cents });
+    } else if (module === 'revenue_bi') {
+      patch({ revenue_bi_price_cents: cents });
+    } else {
+      patch({ operations_price_cents: cents });
+    }
+  };
+
+  const setSixMonths = (module: PromoModule) => {
+    const meta = promoMeta(module);
+    const end = new Date();
+    end.setMonth(end.getMonth() + 6);
+    patch({ [meta.ends]: end.toISOString().slice(0, 10) } as Partial<Settings>);
+  };
+
+  const promoExpired = (module: PromoModule) => {
+    if (!settings) return false;
+    const meta = promoMeta(module);
+    const end = settings[meta.ends] as string | null;
+    return Boolean(end && new Date(`${end}T23:59:59`).getTime() < Date.now());
+  };
+
+  const renderPromo = (module: PromoModule) => {
+    if (!settings) return null;
+    const meta = promoMeta(module);
+    const enabled = Boolean(settings[meta.enabled]);
+    const standard = Number(settings[meta.standard]) || 0;
+    const price = Number(settings[meta.price]) || 0;
+    const expired = promoExpired(module);
+    return (
+      <div className="rounded-lg border p-4 space-y-4" key={module}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="font-semibold">{meta.title}</p>
+            <p className="text-xs text-muted-foreground">This promotion applies only to {meta.title}.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {expired && enabled && <Badge variant="outline">Expired</Badge>}
+            <Switch
+              checked={enabled}
+              onCheckedChange={(v) => patch({ [meta.enabled]: v } as Partial<Settings>)}
+            />
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Discount (%)</Label>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step="0.5"
+              disabled={standard <= 0}
+              value={String(discountPct(module))}
+              onChange={(e) => setDiscountPct(module, e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Calculated from the standard price. Changing this updates only this module's promotional price.
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label>Promotion name</Label>
+            <Input
+              value={(settings[meta.label] as string | null) ?? ''}
+              onChange={(e) => patch({ [meta.label]: e.target.value } as Partial<Settings>)}
+              placeholder="e.g. First 6 months 50% OFF"
+            />
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <Label>Promotion note</Label>
+            <Input
+              value={(settings[meta.note] as string | null) ?? ''}
+              onChange={(e) => patch({ [meta.note]: e.target.value } as Partial<Settings>)}
+              placeholder="Optional customer-facing explanation"
+            />
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <div className="flex items-center justify-between gap-2">
+              <Label>Promotion ends (optional)</Label>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setSixMonths(module)}>
+                Set +6 months
+              </Button>
+            </div>
+            <Input
+              type="date"
+              value={(settings[meta.ends] as string | null) ?? ''}
+              onChange={(e) => patch({ [meta.ends]: e.target.value || null } as Partial<Settings>)}
+            />
+          </div>
+        </div>
+
+        <div className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          {standard > 0 ? (
+            <>
+              During promotion: <span className="font-medium text-foreground">{euros(price)} {settings.currency}</span>
+              {' · '}Standard: <span className="font-medium text-foreground">{euros(standard)} {settings.currency}</span>
+              {enabled && settings[meta.ends] && (
+                <> · After expiry the billed price automatically returns to the standard price.</>
+              )}
+            </>
+          ) : (
+            <>Set a standard price first to configure a percentage discount.</>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -171,7 +354,7 @@ export default function BillingSettingsPanel() {
           <CreditCard className="h-6 w-6" /> Payments &amp; pricing
         </h2>
         <p className="text-muted-foreground mt-1">
-          Per-room monthly prices for each organization. All amounts are VAT-exclusive.
+          Per-room monthly prices and module-specific promotions for each organization. All amounts are VAT-exclusive.
         </p>
       </div>
 
@@ -202,108 +385,40 @@ export default function BillingSettingsPanel() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">Module pricing</CardTitle>
-              <CardDescription>Price charged per room, per month, excluding VAT.</CardDescription>
+              <CardDescription>
+                Configure the price shown and charged while a promotion is active, plus the standard price used after expiry.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-6 sm:grid-cols-2">
-              <div className="space-y-3 rounded-lg border p-4">
-                <div className="flex items-center justify-between">
-                  <Label className="font-semibold">Operations module</Label>
-                  <Switch
-                    checked={settings.operations_module_enabled}
-                    onCheckedChange={(v) => patch({ operations_module_enabled: v })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Label shown to customers</Label>
-                  <Input
-                    value={settings.operations_module_label}
-                    onChange={(e) => patch({ operations_module_label: e.target.value })}
-                    placeholder="Housekeeping"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Price per room / month</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={euros(settings.operations_price_cents)}
-                    onChange={(e) => patch({ operations_price_cents: toCents(e.target.value) })}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-3 rounded-lg border p-4">
-                <div className="flex items-center justify-between">
-                  <Label className="font-semibold">Revenue Management</Label>
-                  <Switch
-                    checked={settings.revenue_module_enabled}
-                    onCheckedChange={(v) => patch({ revenue_module_enabled: v })}
-                  />
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Turn this on once the organization is allowed to buy the revenue module.
-                </p>
-                <div className="space-y-2">
-                  <Label>How it is charged</Label>
-                  <Select
-                    value={settings.revenue_pricing_mode}
-                    onValueChange={(v) => patch({ revenue_pricing_mode: v as Settings['revenue_pricing_mode'] })}
-                  >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="per_room">Fixed price per room / month</SelectItem>
-                      <SelectItem value="percent">Share of realised room revenue</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {settings.revenue_pricing_mode === 'per_room' ? (
+            <CardContent className="space-y-6">
+              <div className="grid gap-6 sm:grid-cols-2">
+                <div className="space-y-3 rounded-lg border p-4">
+                  <div className="flex items-center justify-between">
+                    <Label className="font-semibold">Operations module</Label>
+                    <Switch
+                      checked={settings.operations_module_enabled}
+                      onCheckedChange={(v) => patch({ operations_module_enabled: v })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Label shown to customers</Label>
+                    <Input
+                      value={settings.operations_module_label}
+                      onChange={(e) => patch({ operations_module_label: e.target.value })}
+                      placeholder="Housekeeping"
+                    />
+                  </div>
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <Label>Business Intelligence — per room / month</Label>
+                      <Label>Current / promo price</Label>
                       <Input
                         type="number"
                         step="0.01"
-                        value={euros(settings.revenue_bi_price_cents)}
-                        onChange={(e) => patch({ revenue_bi_price_cents: toCents(e.target.value) })}
-                      />
-                      <p className="text-xs text-muted-foreground">Analytics only, no automatic price changes.</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>BI + Automation — per room / month</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={euros(settings.revenue_automation_price_cents)}
-                        onChange={(e) =>
-                          patch({
-                            revenue_automation_price_cents: toCents(e.target.value),
-                            revenue_price_cents: toCents(e.target.value),
-                          })
-                        }
-                      />
-                      <p className="text-xs text-muted-foreground">Includes the automated pricing engine.</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Standard BI price (strike-through)</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={euros(settings.standard_revenue_bi_price_cents)}
-                        onChange={(e) => patch({ standard_revenue_bi_price_cents: toCents(e.target.value) })}
+                        value={euros(settings.operations_price_cents)}
+                        onChange={(e) => patch({ operations_price_cents: toCents(e.target.value) })}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>Standard BI + Automation price (strike-through)</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={euros(settings.standard_revenue_automation_price_cents)}
-                        onChange={(e) => patch({ standard_revenue_automation_price_cents: toCents(e.target.value) })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Standard Housekeeping price (strike-through)</Label>
+                      <Label>Standard price</Label>
                       <Input
                         type="number"
                         step="0.01"
@@ -311,111 +426,144 @@ export default function BillingSettingsPanel() {
                         onChange={(e) => patch({ standard_operations_price_cents: toCents(e.target.value) })}
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label>Promotion label</Label>
-                      <Input
-                        value={settings.early_bird_label ?? ''}
-                        onChange={(e) => patch({ early_bird_label: e.target.value })}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Shown as a badge next to the discounted prices.
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Promotion note</Label>
-                      <Input
-                        value={settings.early_bird_note ?? ''}
-                        onChange={(e) => patch({ early_bird_note: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Promotion ends (optional)</Label>
-                      <Input
-                        type="date"
-                        value={settings.early_bird_ends_at ?? ''}
-                        onChange={(e) => patch({ early_bird_ends_at: e.target.value || null })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Grace period after trial (days)</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={String(settings.grace_days ?? 14)}
-                        onChange={(e) => patch({ grace_days: parseInt(e.target.value, 10) || 0 })}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Access stays open for this many days after the trial, with a friendly reminder to pay.
-                      </p>
-                    </div>
                   </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      <Label>Percentage of realised room revenue</Label>
-                      <Input
-                        type="number"
-                        step="0.05"
-                        min={0}
-                        value={(settings.revenue_percent_bps / 100).toString()}
-                        onChange={(e) =>
-                          patch({ revenue_percent_bps: Math.round((parseFloat(e.target.value) || 0) * 100) })
-                        }
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Charged each month from the previous calendar month's realised room revenue, taken
-                        automatically from the synced property data. 1 = 1%.
-                      </p>
+                </div>
+
+                <div className="space-y-3 rounded-lg border p-4">
+                  <div className="flex items-center justify-between">
+                    <Label className="font-semibold">Revenue Management</Label>
+                    <Switch
+                      checked={settings.revenue_module_enabled}
+                      onCheckedChange={(v) => patch({ revenue_module_enabled: v })}
+                    />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Turn this on once the organization is allowed to buy the revenue module.
+                  </p>
+                  <div className="space-y-2">
+                    <Label>How it is charged</Label>
+                    <Select
+                      value={settings.revenue_pricing_mode}
+                      onValueChange={(v) => patch({ revenue_pricing_mode: v as Settings['revenue_pricing_mode'] })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="per_room">Fixed price per room / month</SelectItem>
+                        <SelectItem value="percent">Share of realised room revenue</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {settings.revenue_pricing_mode === 'per_room' ? (
+                    <div className="space-y-4">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label>Business Intelligence — current / promo</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={euros(settings.revenue_bi_price_cents)}
+                            onChange={(e) => patch({ revenue_bi_price_cents: toCents(e.target.value) })}
+                          />
+                          <p className="text-xs text-muted-foreground">Analytics only, no automatic price changes.</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>BI + Automation — current / promo</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={euros(settings.revenue_automation_price_cents)}
+                            onChange={(e) => {
+                              const cents = toCents(e.target.value);
+                              patch({ revenue_automation_price_cents: cents, revenue_price_cents: cents });
+                            }}
+                          />
+                          <p className="text-xs text-muted-foreground">Includes the automated pricing engine.</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Standard BI price</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={euros(settings.standard_revenue_bi_price_cents)}
+                            onChange={(e) => patch({ standard_revenue_bi_price_cents: toCents(e.target.value) })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Standard BI + Automation price</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={euros(settings.standard_revenue_automation_price_cents)}
+                            onChange={(e) => patch({ standard_revenue_automation_price_cents: toCents(e.target.value) })}
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
+                  ) : (
+                    <div className="space-y-3">
                       <div className="space-y-2">
-                        <Label>Minimum / month</Label>
+                        <Label>Percentage of realised room revenue</Label>
                         <Input
                           type="number"
-                          step="0.01"
-                          value={euros(settings.revenue_percent_min_cents)}
-                          onChange={(e) => patch({ revenue_percent_min_cents: toCents(e.target.value) })}
+                          step="0.05"
+                          min={0}
+                          value={(settings.revenue_percent_bps / 100).toString()}
+                          onChange={(e) =>
+                            patch({ revenue_percent_bps: Math.round((parseFloat(e.target.value) || 0) * 100) })
+                          }
                         />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Cap / month (0 = none)</Label>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          value={euros(settings.revenue_percent_cap_cents)}
-                          onChange={(e) => patch({ revenue_percent_cap_cents: toCents(e.target.value) })}
-                        />
-                      </div>
-                    </div>
-                    <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
-                      <p className="text-xs font-medium flex items-center gap-1.5">
-                        <RefreshCw className={`h-3.5 w-3.5 ${usageLoading ? 'animate-spin' : ''}`} />
-                        Last full month — settled automatically
-                      </p>
-                      {usageLoading && <p className="text-xs text-muted-foreground">Calculating…</p>}
-                      {!usageLoading && usage.length === 0 && (
-                        <p className="text-xs text-muted-foreground">No property revenue recorded yet.</p>
-                      )}
-                      {usage.map((u) => (
-                        <p key={u.hotel_id} className="text-xs text-muted-foreground">
-                          <span className="font-medium text-foreground">{u.hotel_name ?? u.hotel_id}</span>{' '}
-                          {u.period_start.slice(0, 7)}: {(u.revenue_cents / 100).toFixed(0)} {settings.currency} realised →{' '}
-                          {u.trial_waived
-                            ? `free during the trial (would have been ${(
-                                (u.waived_fee_cents ?? 0) / 100
-                              ).toFixed(2)} ${settings.currency})`
-                            : `${(u.fee_cents / 100).toFixed(2)} ${settings.currency}${
-                                u.invoiced ? ' — on the next invoice' : ' — saved, no paid subscription yet'
-                              }`}
+                        <p className="text-xs text-muted-foreground">
+                          Charged each month from the previous calendar month's realised room revenue, taken
+                          automatically from the synced property data. 1 = 1%.
                         </p>
-                      ))}
-                      <p className="text-[11px] text-muted-foreground">
-                        Recalculated every time this page or the Payments page opens, and once a month automatically. Trial
-                        months are never charged.
-                      </p>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label>Minimum / month</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={euros(settings.revenue_percent_min_cents)}
+                            onChange={(e) => patch({ revenue_percent_min_cents: toCents(e.target.value) })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Cap / month (0 = none)</Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={euros(settings.revenue_percent_cap_cents)}
+                            onChange={(e) => patch({ revenue_percent_cap_cents: toCents(e.target.value) })}
+                          />
+                        </div>
+                      </div>
+                      <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
+                        <p className="text-xs font-medium flex items-center gap-1.5">
+                          <RefreshCw className={`h-3.5 w-3.5 ${usageLoading ? 'animate-spin' : ''}`} />
+                          Last full month — settled automatically
+                        </p>
+                        {usageLoading && <p className="text-xs text-muted-foreground">Calculating…</p>}
+                        {!usageLoading && usage.length === 0 && (
+                          <p className="text-xs text-muted-foreground">No property revenue recorded yet.</p>
+                        )}
+                        {usage.map((u) => (
+                          <p key={u.hotel_id} className="text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground">{u.hotel_name ?? u.hotel_id}</span>{' '}
+                            {u.period_start.slice(0, 7)}: {(u.revenue_cents / 100).toFixed(0)} {settings.currency} realised →{' '}
+                            {u.trial_waived
+                              ? `free during the trial (would have been ${((u.waived_fee_cents ?? 0) / 100).toFixed(2)} ${settings.currency})`
+                              : `${(u.fee_cents / 100).toFixed(2)} ${settings.currency}${u.invoiced ? ' — on the next invoice' : ' — saved, no paid subscription yet'}`}
+                          </p>
+                        ))}
+                        <p className="text-[11px] text-muted-foreground">
+                          Recalculated every time this page or the Payments page opens, and once a month automatically. Trial
+                          months are never charged.
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -428,6 +576,27 @@ export default function BillingSettingsPanel() {
                 />
               </div>
             </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Sparkles className="h-5 w-5" /> Module promotions
+              </CardTitle>
+              <CardDescription>
+                Each module has its own promotion name, discount and end date. A Housekeeping offer never changes BI or Automation pricing.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 lg:grid-cols-3">
+              {renderPromo('operations')}
+              {renderPromo('revenue_bi')}
+              {renderPromo('revenue_automation')}
+            </CardContent>
+            {settings.revenue_pricing_mode === 'percent' && (
+              <div className="px-6 pb-5 text-xs text-muted-foreground">
+                Revenue promotions are saved, but percentage-based Revenue billing does not use per-room discounts.
+              </div>
+            )}
           </Card>
 
           <Card>
@@ -536,9 +705,9 @@ export default function BillingSettingsPanel() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">Free trial</CardTitle>
-              <CardDescription>Modules stay unlocked until the trial ends.</CardDescription>
+              <CardDescription>Modules stay unlocked until the trial ends, followed by the configured grace period.</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-3 items-end">
+            <CardContent className="grid gap-4 sm:grid-cols-4 items-end">
               <div className="flex items-center gap-3">
                 <Switch checked={settings.trial_enabled} onCheckedChange={(v) => patch({ trial_enabled: v })} />
                 <Label>Trial active</Label>
@@ -558,6 +727,15 @@ export default function BillingSettingsPanel() {
                   type="date"
                   value={settings.trial_start?.slice(0, 10) ?? ''}
                   onChange={(e) => patch({ trial_start: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Grace period after trial (days)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={String(settings.grace_days ?? 14)}
+                  onChange={(e) => patch({ grace_days: parseInt(e.target.value, 10) || 0 })}
                 />
               </div>
             </CardContent>
