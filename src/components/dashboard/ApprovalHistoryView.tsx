@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CheckCircle, Clock, User, MapPin, AlertTriangle, Calendar as CalendarIcon, Wrench, Home } from 'lucide-react';
+import { CheckCircle, Clock, User, MapPin, AlertTriangle, Calendar as CalendarIcon, Wrench, Home, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Calendar } from '@/components/ui/calendar';
@@ -68,6 +68,31 @@ interface ApprovedMaintenanceTicket {
     full_name: string;
   } | null;
 }
+
+const getNoteTags = (notes: string) => {
+  return Array.from(notes.matchAll(/\[([A-Z0-9_]+)\]/g), (match) => match[1]);
+};
+
+const getNoteMessage = (notes: string) => {
+  return notes
+    .replace(/\[[A-Z0-9_]+\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const formatNoteTag = (tag: string) => {
+  const friendlyLabels: Record<string, string> = {
+    NO_SERVICE: 'No service',
+    NO_BOARD_NO_CLEANING: 'No cleaning request',
+  };
+
+  if (friendlyLabels[tag]) return friendlyLabels[tag];
+
+  return tag
+    .toLowerCase()
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+};
 
 export function ApprovalHistoryView() {
   const { t } = useTranslation();
@@ -430,17 +455,35 @@ export function ApprovalHistoryView() {
                     )}
 
                     {assignment.notes && (
-                      <div className="relative p-5 bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 rounded-xl border-2 border-amber-300 shadow-lg mb-4">
-                        <div className="absolute -top-3 -left-3 bg-amber-400 text-white rounded-full p-2 shadow-md">
-                          <AlertTriangle className="h-5 w-5" />
-                        </div>
-                        <div className="ml-6">
-                          <h4 className="font-bold text-amber-900 mb-2 text-lg flex items-center gap-2">
-                            📝 {t('housekeeping.assignmentNotes')}
-                          </h4>
-                          <p className="text-base text-amber-800 leading-relaxed font-semibold bg-white/60 p-3 rounded-lg border border-amber-200">
-                            {assignment.notes}
-                          </p>
+                      <div className="rounded-2xl border border-amber-200/80 bg-amber-50/45 p-4 sm:p-5">
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                            <FileText className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <h4 className="text-sm font-semibold text-foreground">
+                              {t('housekeeping.assignmentNotes')}
+                            </h4>
+
+                            {getNoteTags(assignment.notes).length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {getNoteTags(assignment.notes).map((tag, index) => (
+                                  <span
+                                    key={`${tag}-${index}`}
+                                    className="inline-flex items-center rounded-full border border-amber-200 bg-background/80 px-2.5 py-1 text-xs font-medium text-amber-800"
+                                  >
+                                    {formatNoteTag(tag)}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            {getNoteMessage(assignment.notes) && (
+                              <p className="mt-2.5 break-words text-sm leading-6 text-foreground/80 sm:text-[15px]">
+                                {getNoteMessage(assignment.notes)}
+                              </p>
+                            )}
+                          </div>
                         </div>
                       </div>
                     )}
