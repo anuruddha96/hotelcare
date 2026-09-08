@@ -57,9 +57,11 @@ CREATE TABLE IF NOT EXISTS public.purchase_invoice_nav_records (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- A normal UNIQUE index is intentional here. PostgreSQL still permits multiple
+-- NULL source_id values, while PostgREST can infer this exact conflict target for
+-- deterministic upserts of NAV records that do have a stable source id.
 CREATE UNIQUE INDEX IF NOT EXISTS purchase_invoice_nav_source_unique_idx
-  ON public.purchase_invoice_nav_records (organization_slug, source, source_id)
-  WHERE source_id IS NOT NULL;
+  ON public.purchase_invoice_nav_records (organization_slug, source, source_id);
 CREATE INDEX IF NOT EXISTS purchase_invoice_nav_match_idx
   ON public.purchase_invoice_nav_records (organization_slug, match_status, invoice_date DESC);
 CREATE INDEX IF NOT EXISTS purchase_invoice_nav_key_idx
