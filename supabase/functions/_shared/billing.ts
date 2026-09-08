@@ -137,7 +137,7 @@ export type BillingSettings = {
   grace_days: number;
 };
 
-type Promotion = {
+export type Promotion = {
   enabled: boolean;
   endsAt: string | null;
 };
@@ -226,7 +226,7 @@ function configuredPriceFor(settings: BillingSettings, module: ModuleKey) {
   }
 }
 
-function listPriceFor(settings: BillingSettings, module: ModuleKey) {
+export function listPriceFor(settings: BillingSettings, module: ModuleKey) {
   switch (normaliseModule(module)) {
     case "revenue_bi":
       return settings.standard_revenue_bi_price_cents || 0;
@@ -239,7 +239,7 @@ function listPriceFor(settings: BillingSettings, module: ModuleKey) {
   }
 }
 
-function promotionFor(settings: BillingSettings, module: ModuleKey): Promotion {
+export function promotionFor(settings: BillingSettings, module: ModuleKey): Promotion {
   switch (normaliseModule(module)) {
     case "operations":
       return { enabled: Boolean(settings.early_bird_enabled), endsAt: settings.early_bird_ends_at || null };
@@ -258,7 +258,7 @@ function promotionFor(settings: BillingSettings, module: ModuleKey): Promotion {
   }
 }
 
-function promotionActiveFor(settings: BillingSettings, module: ModuleKey) {
+export function promotionActiveFor(settings: BillingSettings, module: ModuleKey) {
   const promo = promotionFor(settings, module);
   if (!promo.enabled) return false;
   if (!promo.endsAt) return true;
