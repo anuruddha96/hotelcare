@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, MapPin, Ban, BellOff } from 'lucide-react';
 import { AssignedRoomCard } from './AssignedRoomCard';
+import { SharedRoomContextBanner } from './SharedRoomContextBanner';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { MobileHousekeepingView } from './MobileHousekeepingView';
 import { PublicAreaTaskCard } from './PublicAreaTaskCard';
@@ -21,6 +22,10 @@ import { getLocalDateString } from '@/lib/utils';
 interface Assignment {
   id: string;
   room_id: string;
+  assigned_to?: string | null;
+  shared_with?: string | null;
+  started_by?: string | null;
+  completed_by?: string | null;
   assignment_type: 'daily_cleaning' | 'checkout_cleaning' | 'maintenance' | 'deep_cleaning';
   status: 'assigned' | 'in_progress' | 'completed' | 'cancelled' | 'dnd_pending_retry';
   priority: number;
@@ -30,7 +35,7 @@ interface Assignment {
   created_at: string;
   started_at?: string | null;
   completed_at?: string | null;
-  ready_to_clean?: boolean; // prioritize when true
+  ready_to_clean?: boolean;
   rooms: {
     room_number: string;
     hotel: string;
@@ -39,8 +44,8 @@ interface Assignment {
     floor_number: number | null;
     bed_type?: string | null;
     bed_configuration?: string | null;
-      notes?: string | null;
-      pms_metadata?: any;
+    notes?: string | null;
+    pms_metadata?: any;
   } | null;
 }
 
@@ -56,7 +61,6 @@ export function HousekeepingStaffView() {
   const isMobile = useIsMobile();
   const { t } = useTranslation();
   const { showNotification } = useNotifications();
-
 
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [allAssignments, setAllAssignments] = useState<Assignment[]>([]);
@@ -75,39 +79,33 @@ export function HousekeepingStaffView() {
     }
   }, [user?.id, selectedDate, statusFilter]);
 
-  // Real-time subscription for assignment updates
+  // Listen to both seats of a shared room. The same canonical assignment row
+  // is refreshed for the primary and secondary cleaner in real time.
   useEffect(() => {
     if (!user?.id) return;
 
+    const refresh = () => {
+      fetchAssignments();
+      fetchSummary();
+    };
+
     const channel = supabase
-      .channel('assignment-updates')
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'room_assignments',
-          filter: `assigned_to=eq.${user.id}`
-        },
-        () => {
-          fetchAssignments();
-          fetchSummary();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'room_assignments',
-          filter: `assigned_to=eq.${user.id}`
-        },
-        () => {
-          fetchAssignments();
-          fetchSummary();
-          showNotification(t('notifications.newAssignment'), 'info');
-        }
-      )
+      .channel(`assignment-updates-${user.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'room_assignments',
+        filter: `assigned_to=eq.${user.id}`,
+      }, refresh)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'room_assignments',
+        filter: `shared_with=eq.${user.id}`,
+      }, refresh)
+      .on('postgres_changes', {
+        event: 'INSERT', schema: 'public', table: 'room_assignments',
+        filter: `assigned_to=eq.${user.id}`,
+      }, () => {
+        refresh();
+        showNotification(t('notifications.newAssignment'), 'info');
+      })
       .subscribe();
 
     return () => {
@@ -115,14 +113,9 @@ export function HousekeepingStaffView() {
     };
   }, [user?.id, selectedDate, showNotification, t]);
 
-  // NOTE: the mobile early-return lives further down, after all function
-  // declarations, otherwise the effects above hit a TDZ error
-  // ("Cannot access 'fetchAssignments' before initialization").
-
-
   const fetchAssignments = async () => {
     if (!user?.id) return;
-    
+
     try {
       let query = supabase
         .from('room_assignments')
@@ -144,10 +137,9 @@ export function HousekeepingStaffView() {
             notes
           )
         `)
-        .eq('assigned_to', user.id)
+        .or(`assigned_to.eq.${user.id},shared_with.eq.${user.id}`)
         .eq('assignment_date', selectedDate);
 
-      // Apply status filter - skip for special filters (no_service, dnd) as they need full list
       if (statusFilter && statusFilter !== 'total' && statusFilter !== 'no_service' && statusFilter !== 'dnd') {
         if (statusFilter === 'assigned') {
           query = query.in('status', ['assigned', 'dnd_pending_retry']);
@@ -162,11 +154,10 @@ export function HousekeepingStaffView() {
         console.error('Database query error:', error);
         throw error;
       }
-      
-      console.log('Fetched assignments:', data);
-      let assignmentsData = data || [];
 
-      // Backfill room details if nested join didn't return them
+      console.log('Fetched assignments:', data);
+      let assignmentsData = (data || []) as any[];
+
       const missingRoomIds = assignmentsData.filter((a: any) => !a.rooms).map((a: any) => a.room_id);
       if (missingRoomIds.length > 0) {
         const { data: roomRows, error: roomsError } = await supabase
@@ -181,9 +172,6 @@ export function HousekeepingStaffView() {
           }));
         }
       }
-
-      // Show ALL assignments including checkout rooms not ready
-      // Checkout rooms will display a "waiting for checkout" indicator
 
       // Auto-unlock DND retries: at/after 14:30, or when no other rooms remain active
       try {
@@ -207,19 +195,13 @@ export function HousekeepingStaffView() {
         console.warn('DND retry unlock check failed:', unlockErr);
       }
 
-
-      // Sort with unified priority: in_progress > high priority > ready checkouts (by floor) > daily (by floor) > waiting checkouts > completed
       assignmentsData.sort((a, b) => {
-        // Helper to get sort bucket
         const getBucket = (x: any): number => {
           if (x.status === 'in_progress') return 0;
           if (x.status === 'completed') return 6;
           if (x.status === 'cancelled') return 7;
-          if (x.status === 'dnd_pending_retry') {
-            // Unlocked retries sit just above waiting checkouts; locked retries at the very bottom
-            return x.dnd_retry_unlocked_at ? 4 : 5;
-          }
-          if ((x.priority ?? 1) >= 3) return 1; // high priority
+          if (x.status === 'dnd_pending_retry') return x.dnd_retry_unlocked_at ? 4 : 5;
+          if ((x.priority ?? 1) >= 3) return 1;
           if (x.assignment_type === 'checkout_cleaning' && x.ready_to_clean) return 2;
           if (x.assignment_type === 'daily_cleaning') return 3;
           if (x.assignment_type === 'checkout_cleaning' && !x.ready_to_clean) return 4;
@@ -229,7 +211,6 @@ export function HousekeepingStaffView() {
         const bucketDiff = getBucket(a) - getBucket(b);
         if (bucketDiff !== 0) return bucketDiff;
 
-        // Within same bucket, group by floor then room number
         const aFloor = a.rooms?.floor_number ?? 999;
         const bFloor = b.rooms?.floor_number ?? 999;
         if (aFloor !== bFloor) return aFloor - bFloor;
@@ -239,17 +220,15 @@ export function HousekeepingStaffView() {
         return aRoomNum - bRoomNum;
       });
 
-      // Store all assignments for DND/NS counting
       setAllAssignments(assignmentsData);
 
-      // Apply special filters client-side
       if (statusFilter === 'no_service') {
         assignmentsData = assignmentsData.filter((a: any) => a.notes?.includes('[NO_SERVICE]'));
       } else if (statusFilter === 'dnd') {
         assignmentsData = assignmentsData.filter((a: any) => a.is_dnd === true);
       }
 
-      setAssignments(assignmentsData);
+      setAssignments(assignmentsData as Assignment[]);
     } catch (error) {
       console.error('Error fetching assignments:', error);
       toast.error('Failed to load assignments');
@@ -260,15 +239,13 @@ export function HousekeepingStaffView() {
 
   const fetchSummary = async () => {
     try {
-      const { data, error } = await supabase
-        .rpc('get_housekeeping_summary', {
+      const { data, error } = await (supabase as any)
+        .rpc('get_shared_housekeeping_summary', {
           user_id: user?.id,
-          target_date: selectedDate
+          target_date: selectedDate,
         });
 
       if (error) throw error;
-      
-      // Parse JSON response
       const summaryData = typeof data === 'string' ? JSON.parse(data) : data;
       setSummary(summaryData || { total_assigned: 0, completed: 0, in_progress: 0, pending: 0 });
     } catch (error) {
@@ -282,7 +259,7 @@ export function HousekeepingStaffView() {
         assignment.id === assignmentId ? { ...assignment, status: newStatus } : assignment
       )
     );
-    fetchSummary(); // Refresh summary
+    fetchSummary();
   };
 
   const getAssignmentTypeLabel = (type: string) => {
@@ -295,8 +272,6 @@ export function HousekeepingStaffView() {
     }
   };
 
-
-  // Today's own workload split, used by the filter chips and the sections below.
   const roomWorkload = allAssignments.filter((a: any) => a.status !== 'cancelled');
   const checkoutCount = roomWorkload.filter((a: any) => a.assignment_type === 'checkout_cleaning').length;
   const dailyCount = roomWorkload.length - checkoutCount;
@@ -317,8 +292,6 @@ export function HousekeepingStaffView() {
     />
   );
 
-
-  // Keep the public-area counts/cards live when a manager reassigns work.
   useEffect(() => {
     if (!user?.id) return;
     const channel = supabase
@@ -341,7 +314,6 @@ export function HousekeepingStaffView() {
   }
 
   if (loading) {
-
     return (
       <div className="flex justify-center items-center p-8">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -352,7 +324,6 @@ export function HousekeepingStaffView() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Date Selector - Mobile Optimized */}
       <Card className="bg-gradient-to-r from-primary/5 to-accent/10 border-primary/20">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-lg">
@@ -375,12 +346,11 @@ export function HousekeepingStaffView() {
         </CardContent>
       </Card>
 
-      {/* Summary Cards - Mobile Grid with Clickable Filters */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
-        <Card 
+        <Card
           className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
-            statusFilter === 'total' 
-              ? 'ring-2 ring-blue-500 bg-blue-100 shadow-lg border-blue-500' 
+            statusFilter === 'total'
+              ? 'ring-2 ring-blue-500 bg-blue-100 shadow-lg border-blue-500'
               : 'bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 border-blue-200 dark:border-blue-800 hover:shadow-md'
           }`}
           onClick={() => setStatusFilter(statusFilter === 'total' ? null : 'total')}
@@ -396,10 +366,10 @@ export function HousekeepingStaffView() {
           </CardContent>
         </Card>
 
-        <Card 
+        <Card
           className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
-            statusFilter === 'completed' 
-              ? 'ring-2 ring-green-500 bg-green-100 shadow-lg border-green-500' 
+            statusFilter === 'completed'
+              ? 'ring-2 ring-green-500 bg-green-100 shadow-lg border-green-500'
               : 'bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950 dark:to-green-900 border-green-200 dark:border-green-800 hover:shadow-md'
           }`}
           onClick={() => setStatusFilter(statusFilter === 'completed' ? null : 'completed')}
@@ -415,10 +385,10 @@ export function HousekeepingStaffView() {
           </CardContent>
         </Card>
 
-        <Card 
+        <Card
           className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
-            statusFilter === 'in_progress' 
-              ? 'ring-2 ring-amber-500 bg-amber-100 shadow-lg border-amber-500' 
+            statusFilter === 'in_progress'
+              ? 'ring-2 ring-amber-500 bg-amber-100 shadow-lg border-amber-500'
               : 'bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-950 dark:to-amber-900 border-amber-200 dark:border-amber-800 hover:shadow-md'
           }`}
           onClick={() => setStatusFilter(statusFilter === 'in_progress' ? null : 'in_progress')}
@@ -434,10 +404,10 @@ export function HousekeepingStaffView() {
           </CardContent>
         </Card>
 
-        <Card 
+        <Card
           className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
-            statusFilter === 'assigned' 
-              ? 'ring-2 ring-orange-500 bg-orange-100 shadow-lg border-orange-500' 
+            statusFilter === 'assigned'
+              ? 'ring-2 ring-orange-500 bg-orange-100 shadow-lg border-orange-500'
               : 'bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-950 dark:to-orange-900 border-orange-200 dark:border-orange-800 hover:shadow-md'
           } ${summary.pending > 0 ? 'animate-pulse ring-2 ring-orange-400' : ''}`}
           onClick={() => setStatusFilter(statusFilter === 'assigned' ? null : 'assigned')}
@@ -456,7 +426,6 @@ export function HousekeepingStaffView() {
         </Card>
       </div>
 
-      {/* DND & No Service Filter Cards - Only show when count > 0 */}
       {(() => {
         const noServiceCount = allAssignments.filter(a => a.notes?.includes('[NO_SERVICE]')).length;
         const dndCount = allAssignments.filter(a => (a as any).is_dnd === true).length;
@@ -464,10 +433,10 @@ export function HousekeepingStaffView() {
         return (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
             {noServiceCount > 0 && (
-              <Card 
+              <Card
                 className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
-                  statusFilter === 'no_service' 
-                    ? 'ring-2 ring-gray-500 bg-gray-100 shadow-lg border-gray-500' 
+                  statusFilter === 'no_service'
+                    ? 'ring-2 ring-gray-500 bg-gray-100 shadow-lg border-gray-500'
                     : 'bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 border-gray-200 dark:border-gray-700 hover:shadow-md'
                 }`}
                 onClick={() => setStatusFilter(statusFilter === 'no_service' ? null : 'no_service')}
@@ -484,10 +453,10 @@ export function HousekeepingStaffView() {
               </Card>
             )}
             {dndCount > 0 && (
-              <Card 
+              <Card
                 className={`cursor-pointer transition-all duration-200 transform hover:scale-105 ${
-                  statusFilter === 'dnd' 
-                    ? 'ring-2 ring-red-500 bg-red-100 shadow-lg border-red-500' 
+                  statusFilter === 'dnd'
+                    ? 'ring-2 ring-red-500 bg-red-100 shadow-lg border-red-500'
                     : 'bg-gradient-to-br from-red-50 to-red-100 dark:from-red-950 dark:to-red-900 border-red-200 dark:border-red-800 hover:shadow-md'
                 }`}
                 onClick={() => setStatusFilter(statusFilter === 'dnd' ? null : 'dnd')}
@@ -507,10 +476,8 @@ export function HousekeepingStaffView() {
         );
       })()}
 
-      {/* Performance Race Game */}
       <PerformanceRaceGame />
 
-      {/* Today's Tasks */}
       <div className="space-y-3">
         {workloadFilters}
         <div className="flex items-center justify-between">
@@ -521,7 +488,7 @@ export function HousekeepingStaffView() {
             </Badge>
           )}
         </div>
-        
+
         {visibleAssignments.length === 0 ? (
           <Card className="text-center py-8">
             <CardContent>
@@ -549,25 +516,26 @@ export function HousekeepingStaffView() {
           </Card>
         ) : (
           <div className="space-y-3">
-            {visibleAssignments
-              .map((assignment) => (
-                <ErrorBoundary
-                  key={assignment.id}
-                  context={`AssignedRoomCard:${assignment.id}`}
-                  fallbackTitle={`Room ${assignment.rooms?.room_number ?? ''}`.trim()}
-                  fallbackMessage="This room card failed to load. Tap Retry — other rooms are unaffected."
-                >
+            {visibleAssignments.map((assignment) => (
+              <ErrorBoundary
+                key={assignment.id}
+                context={`AssignedRoomCard:${assignment.id}`}
+                fallbackTitle={`Room ${assignment.rooms?.room_number ?? ''}`.trim()}
+                fallbackMessage="This room card failed to load. Tap Retry — other rooms are unaffected."
+              >
+                <>
+                  <SharedRoomContextBanner assignment={assignment} currentUserId={user?.id} />
                   <AssignedRoomCard
                     assignment={assignment}
                     onStatusUpdate={handleStatusUpdate}
                   />
-                </ErrorBoundary>
-              ))}
+                </>
+              </ErrorBoundary>
+            ))}
           </div>
         )}
       </div>
 
-      {/* Public Area Tasks */}
       {visiblePublicTasks.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center gap-2">
