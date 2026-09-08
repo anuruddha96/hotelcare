@@ -184,10 +184,9 @@ export default function BillingSettingsPanel() {
   const save = async () => {
     if (!settings) return;
     setSaving(true);
-    // The additive promotion migration lands with this UI. The generated
-    // Supabase client type may lag the migration for one build, so keep this
-    // payload intentionally structural rather than blocking the admin save.
-    const payload = { ...settings, organization_slug: slug } as any;
+    // Keep this as a variable so additive promotion columns remain structurally
+    // compatible while generated Supabase types catch up to the migration.
+    const payload = { ...settings, organization_slug: slug };
     const { error } = await supabase
       .from('billing_settings')
       .upsert(payload, { onConflict: 'organization_slug' });
