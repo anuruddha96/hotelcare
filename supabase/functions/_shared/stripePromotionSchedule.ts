@@ -54,6 +54,7 @@ type Target = {
   standardCents: number;
   boundary: number;
   currentPriceId: string;
+  productId?: string;
   standardPriceId?: string;
 };
 
@@ -63,10 +64,10 @@ type Target = {
  * Safety rules:
  * - does nothing unless this organization explicitly uses module-scoped promos;
  * - never takes over a Stripe schedule not created by HotelCare;
+ * - validates the complete replacement before releasing an old HotelCare schedule;
  * - uses proration_behavior=none so configuring the future standard price does
  *   not create a surprise invoice today;
- * - releases its own schedule and recreates it when an admin changes the promo
- *   configuration, keeping future customization deterministic.
+ * - releases only its own schedule when an admin changes the promo config.
  */
 export async function ensureModulePromotionSchedule(
   stripe: Stripe,
@@ -96,6 +97,16 @@ export async function ensureModulePromotionSchedule(
     const boundary = boundarySeconds(promo.endsAt);
     if (standardCents <= 0 || currentCents >= standardCents || boundary <= nowSec + 60) continue;
 
+    const product = productId(item.price);
+    if (!product || !item.price.recurring) {
+      console.warn("billing promotion schedule skipped: recurring product unavailable", {
+        organization: settings.organization_slug,
+        subscription: subscription.id,
+        module: selection.module,
+      });
+      return { status: "price_not_schedulable" };
+    }
+
     targets.push({
       itemIndex: i,
       hotelId: selection.hotel_id,
@@ -103,6 +114,7 @@ export async function ensureModulePromotionSchedule(
       standardCents,
       boundary,
       currentPriceId: item.price.id,
+      productId: product,
     });
   }
 
@@ -113,6 +125,8 @@ export async function ensureModulePromotionSchedule(
     .join("|")
     .slice(0, 480);
 
+  // Inspect any existing schedule before creating anything. HotelCare never
+  // modifies or releases a schedule it does not own.
   let existingSchedule: Stripe.SubscriptionSchedule | null = null;
   if (subscription.schedule) {
     existingSchedule =
@@ -132,33 +146,19 @@ export async function ensureModulePromotionSchedule(
     if (existingMeta.hotelcare_promo_config === token) {
       return { status: "already_scheduled", scheduleId: existingSchedule.id };
     }
-
-    // This is our own schedule and the admin changed the configuration. Release
-    // it without cancelling the underlying subscription, then rebuild below.
-    await stripe.subscriptionSchedules.release(existingSchedule.id);
   }
 
-  // Create reusable standard recurring Prices for only the items that actually
-  // transition. Other subscription items continue using their current Price.
+  // Build all standard recurring Prices first. If validation/creation fails,
+  // the current subscription and any existing HotelCare schedule are untouched.
   for (const target of targets) {
     const item = items[target.itemIndex];
-    const currentPrice = item.price;
-    const product = productId(currentPrice);
-    const recurring = currentPrice.recurring;
-    if (!product || !recurring) {
-      console.warn("billing promotion schedule skipped: recurring product unavailable", {
-        organization: settings.organization_slug,
-        subscription: subscription.id,
-        module: target.module,
-      });
-      return { status: "price_not_schedulable" };
-    }
-
+    const recurring = item.price.recurring!;
+    const taxBehavior = item.price.tax_behavior === "inclusive" ? "inclusive" : "exclusive";
     const standardPrice = await stripe.prices.create({
-      currency: currentPrice.currency,
+      currency: item.price.currency,
       unit_amount: target.standardCents,
-      product,
-      tax_behavior: (currentPrice.tax_behavior ?? "exclusive") as Stripe.PriceCreateParams.TaxBehavior,
+      product: target.productId!,
+      tax_behavior: taxBehavior,
       recurring: {
         interval: recurring.interval,
         interval_count: recurring.interval_count || 1,
@@ -172,6 +172,11 @@ export async function ensureModulePromotionSchedule(
       },
     });
     target.standardPriceId = standardPrice.id;
+  }
+
+  // Only now is it safe to replace an older HotelCare-owned schedule.
+  if (existingSchedule) {
+    await stripe.subscriptionSchedules.release(existingSchedule.id);
   }
 
   let created: Stripe.SubscriptionSchedule | null = null;
@@ -226,7 +231,7 @@ export async function ensureModulePromotionSchedule(
         hotelcare_promo_config: token,
         organization_slug: settings.organization_slug,
       },
-      phases: phases as Stripe.SubscriptionScheduleUpdateParams.Phase[],
+      phases: phases as any,
     });
 
     return { status: "scheduled", scheduleId: updated.id };
