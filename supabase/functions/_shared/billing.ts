@@ -114,16 +114,32 @@ export type BillingSettings = {
   revenue_percent_bps: number;
   revenue_percent_min_cents: number;
   revenue_percent_cap_cents: number;
-  /** Standard (list) prices, shown struck through while the promotion runs. */
+  /** Standard (list) prices, shown struck through while the module promotion runs. */
   standard_revenue_bi_price_cents: number;
   standard_revenue_automation_price_cents: number;
   standard_operations_price_cents: number;
+  /** Legacy fields retained as the Operations / Housekeeping promotion. */
   early_bird_enabled: boolean;
   early_bird_label: string;
   early_bird_note: string;
   early_bird_ends_at: string | null;
+  /** Revenue BI promotion; independent from Housekeeping and Automation. */
+  revenue_bi_promo_enabled?: boolean;
+  revenue_bi_promo_label?: string | null;
+  revenue_bi_promo_note?: string | null;
+  revenue_bi_promo_ends_at?: string | null;
+  /** BI + Automation promotion; independent from Housekeeping and BI-only. */
+  revenue_automation_promo_enabled?: boolean;
+  revenue_automation_promo_label?: string | null;
+  revenue_automation_promo_note?: string | null;
+  revenue_automation_promo_ends_at?: string | null;
   /** Days of continued access after the free trial ends. */
   grace_days: number;
+};
+
+type Promotion = {
+  enabled: boolean;
+  endsAt: string | null;
 };
 
 /** First day of the month that precedes `ref` (UTC), as YYYY-MM-DD. */
@@ -197,7 +213,7 @@ export async function loadHotels(slug: string) {
   return out;
 }
 
-export function priceFor(settings: BillingSettings, module: ModuleKey) {
+function configuredPriceFor(settings: BillingSettings, module: ModuleKey) {
   switch (normaliseModule(module)) {
     case "revenue_bi":
       return settings.revenue_bi_price_cents;
@@ -208,6 +224,60 @@ export function priceFor(settings: BillingSettings, module: ModuleKey) {
     default:
       return settings.operations_price_cents;
   }
+}
+
+function listPriceFor(settings: BillingSettings, module: ModuleKey) {
+  switch (normaliseModule(module)) {
+    case "revenue_bi":
+      return settings.standard_revenue_bi_price_cents || 0;
+    case "revenue_automation":
+      return settings.standard_revenue_automation_price_cents || 0;
+    case "operations":
+      return settings.standard_operations_price_cents || 0;
+    default:
+      return 0;
+  }
+}
+
+function promotionFor(settings: BillingSettings, module: ModuleKey): Promotion {
+  switch (normaliseModule(module)) {
+    case "operations":
+      return { enabled: Boolean(settings.early_bird_enabled), endsAt: settings.early_bird_ends_at || null };
+    case "revenue_bi":
+      return {
+        enabled: Boolean(settings.revenue_bi_promo_enabled),
+        endsAt: settings.revenue_bi_promo_ends_at || null,
+      };
+    case "revenue_automation":
+      return {
+        enabled: Boolean(settings.revenue_automation_promo_enabled),
+        endsAt: settings.revenue_automation_promo_ends_at || null,
+      };
+    default:
+      return { enabled: false, endsAt: null };
+  }
+}
+
+function promotionActiveFor(settings: BillingSettings, module: ModuleKey) {
+  const promo = promotionFor(settings, module);
+  if (!promo.enabled) return false;
+  if (!promo.endsAt) return true;
+  return new Date(`${promo.endsAt.slice(0, 10)}T23:59:59.999Z`).getTime() > Date.now();
+}
+
+/**
+ * Effective module price. A configured promotion uses the agreed discounted
+ * price while active, then automatically returns to the module's standard
+ * list price after its end date.
+ */
+export function priceFor(settings: BillingSettings, module: ModuleKey) {
+  const configured = configuredPriceFor(settings, module);
+  const promo = promotionFor(settings, module);
+  if (promo.enabled && promo.endsAt && !promotionActiveFor(settings, module)) {
+    const standard = listPriceFor(settings, module);
+    return standard > 0 ? standard : configured;
+  }
+  return configured;
 }
 
 export function moduleEnabled(settings: BillingSettings, module: ModuleKey) {
