@@ -20,7 +20,7 @@ import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
 import { usePropertyTerms } from '@/lib/propertyTerminology';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
-import { setRoomDragPayload, readRoomDragPayload, unassignRoom, assignRoomToStaff, setHousekeeperDragPayload, readHousekeeperDragPayload, isAssignmentInProgressError } from '@/lib/hkAssignmentDnd';
+import { setRoomDragPayload, readRoomDragPayload, unassignRoom, assignRoomToStaff, setHousekeeperDragPayload, readHousekeeperDragPayload, isAssignmentInProgressError, isSharedAssignmentFullError } from '@/lib/hkAssignmentDnd';
 import { useUnitSelection, toggleUnitSelection, toggleUnitGroupSelection, type SelectedUnit } from '@/lib/unitSelection';
 
 import { Textarea } from '@/components/ui/textarea';
@@ -69,6 +69,7 @@ interface AssignmentData {
   id: string;
   room_id: string;
   assigned_to: string;
+  shared_with?: string | null;
   status: string;
   assignment_type: string;
   started_at: string | null;
@@ -340,7 +341,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           .order('room_number'),
         supabase
           .from('room_assignments')
-          .select('id, room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes')
+          .select('id, room_id, assigned_to, shared_with, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes')
           .eq('assignment_date', selectedDate),
         supabase
           .from('general_tasks')
@@ -806,7 +807,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const getStaffName = (roomId: string): string | null => {
     const assignment = assignmentMap.get(roomId);
     if (!assignment) return null;
-    return assigneeLabel(staffMap, assignment.assigned_to);
+    const primary = assigneeLabel(staffMap, assignment.assigned_to);
+    const shared = assignment.shared_with ? assigneeLabel(staffMap, assignment.shared_with) : null;
+    return [primary, shared].filter(Boolean).join(' + ') || null;
   };
 
   /**
@@ -825,20 +828,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const assignment = assignmentMap.get(room.id);
     const currentName = assignment ? (staffMap[assignment.assigned_to] || null) : null;
 
-    if (assignment?.status === 'in_progress') {
-      toast.warning(
-        `Room ${room.room_number} is currently being cleaned by ${cleanName(currentName) || 'another housekeeper'}. ` +
-        `This assignment cannot be changed while cleaning is in progress. Please contact ${cleanName(currentName) || 'them'} directly.`,
-        { duration: 8000 },
-      );
-      return;
-    }
-    if (assignment?.assigned_to === payload.staffId) {
+    if (assignment?.assigned_to === payload.staffId || assignment?.shared_with === payload.staffId) {
       toast.info(`Room ${room.room_number} is already assigned to ${cleanName(payload.staffName)}`);
       return;
     }
 
     try {
+      // For an occupied room this call asks the manager to explicitly choose
+      // Replace or Work together before any assignment write is made.
       await assignRoomToStaff({
         roomId: room.id,
         staffId: payload.staffId,
@@ -849,21 +846,31 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       });
       setHkSuccessRoomId(room.id);
       setTimeout(() => setHkSuccessRoomId((id) => (id === room.id ? null : id)), 1200);
-      toast.success(`${room.room_number} → ${cleanName(payload.staffName)}`);
+      toast.success(`Room ${room.room_number} assignment updated for ${cleanName(payload.staffName)}`);
       await fetchData(true);
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
     } catch (err) {
+      if (isSharedAssignmentFullError(err)) {
+        const primary = cleanName(staffMap[err.primaryAssigneeId ?? ''] || '');
+        const shared = cleanName(staffMap[err.sharedAssigneeId ?? ''] || '');
+        const names = [primary, shared].filter(Boolean).join(' and ');
+        toast.warning(
+          `Room ${room.room_number} is already shared${names ? ` by ${names}` : ' by two housekeepers'}. Remove or replace one cleaner before adding another.`,
+          { duration: 8000 },
+        );
+        return;
+      }
       if (isAssignmentInProgressError(err)) {
         const name = cleanName(staffMap[err.currentAssigneeId ?? ''] || currentName || '');
         toast.warning(
           `Room ${room.room_number} is currently being cleaned by ${name || 'another housekeeper'}. ` +
-          `This assignment cannot be changed while cleaning is in progress. Please contact ${name || 'them'} directly.`,
+          `The active cleaner cannot be replaced. Add the new housekeeper as a shared cleaner instead.`,
           { duration: 8000 },
         );
         return;
       }
       console.error('Housekeeper drop assignment failed', err);
-      toast.error('Could not assign this room. Please try again.');
+      toast.error('Could not update this room assignment. Please try again.');
     }
   };
 
