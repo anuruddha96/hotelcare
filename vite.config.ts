@@ -15,9 +15,20 @@ export default defineConfig(({ mode }) => ({
     componentTagger(),
   ].filter(Boolean),
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
+    alias: [
+      // Keep the shared assignment algorithm untouched for other runtimes, but
+      // let the dashboard use the Hotel Memories operational-section adapter.
+      // The adapter delegates straight back to the base algorithm for every
+      // hotel that is not Hotel Memories Budapest.
+      {
+        find: "@/lib/roomAssignmentAlgorithm",
+        replacement: path.resolve(__dirname, "./src/lib/roomAssignmentAlgorithmMapped.ts"),
+      },
+      {
+        find: "@",
+        replacement: path.resolve(__dirname, "./src"),
+      },
+    ],
     dedupe: ["react", "react-dom"],
   },
   optimizeDeps: {
