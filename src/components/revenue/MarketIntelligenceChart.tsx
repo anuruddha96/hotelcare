@@ -285,7 +285,7 @@ export default function MarketIntelligenceChart({
   const isMobile = useIsMobile();
   const [days, setDays] = useState(() => typeof window !== "undefined" && window.innerWidth < 768 ? 14 : 60);
   const [primaryMetric, setPrimaryMetric] = useState<PrimaryMetric>("occ");
-  const [compare, setCompare] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches);
+  const [compare, setCompare] = useState(true);
   const [showEvents, setShowEvents] = useState(true);
   const [customDays, setCustomDays] = useState(7);
   const [baseline, setBaseline] = useState("__ours__");
@@ -562,38 +562,43 @@ export default function MarketIntelligenceChart({
                 {portfolio.data?.length ? "Comparison could not refresh. Showing the last loaded figures." : "Comparison figures could not load. Please retry."}
               </p>
             )}
-            <div className={isMobile ? "flex snap-x gap-2 overflow-x-auto pb-2" : "grid grid-cols-2 gap-2 xl:grid-cols-4"}>
+            <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
               {comparison.map((s, i) => {
                 const occDelta = s.occ != null && comparisonBenchmark.occ != null ? s.occ - comparisonBenchmark.occ : null;
                 const adrDelta = s.adr != null && comparisonBenchmark.adr != null ? s.adr - comparisonBenchmark.adr : null;
                 return (
-                  <div key={s.hotel_id} className={`rounded-xl border p-3 ${isMobile ? "min-w-[245px] snap-start" : ""} ${s.hotel_id === hotelId ? "border-primary bg-primary/[0.03]" : ""}`}>
-                    <div className="flex items-center gap-2">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: colorFor(s.hotel_id, i) }} />
-                      <p className="min-w-0 flex-1 truncate text-xs font-semibold">{s.hotel_name}</p>
-                      {s.hotel_id === hotelId && <Badge variant="secondary" className="h-5 px-1.5 text-[9px]">This hotel</Badge>}
+                  <div key={s.hotel_id} className={`min-w-0 rounded-xl border p-2 sm:p-3 ${s.hotel_id === hotelId ? "border-primary bg-primary/[0.03]" : ""}`}>
+                    <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+                      <span className="h-2 w-2 shrink-0 rounded-full sm:h-2.5 sm:w-2.5" style={{ background: colorFor(s.hotel_id, i) }} />
+                      <p className="min-w-0 flex-1 truncate text-[10px] font-semibold sm:text-xs">{s.hotel_name}</p>
+                      {s.hotel_id === hotelId && <Badge variant="secondary" className="h-4 shrink-0 px-1 text-[8px] sm:h-5 sm:px-1.5 sm:text-[9px]">This hotel</Badge>}
                     </div>
-                    <div className="mt-3 grid grid-cols-3 gap-2">
-                      <div>
-                        <p className="text-[9px] uppercase text-muted-foreground">Occ</p>
-                        <p className="text-lg font-semibold tabular-nums">{s.occ == null ? "—" : `${s.occ}%`}</p>
-                        {occDelta != null && <p className="text-[9px] text-muted-foreground">{occDelta >= 0 ? "+" : ""}{occDelta} pts vs portfolio</p>}
+                    <div className="mt-2 grid grid-cols-3 gap-1 sm:mt-3 sm:gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[8px] uppercase text-muted-foreground sm:text-[9px]">Occ</p>
+                        <p className="truncate text-sm font-semibold tabular-nums sm:text-lg">{s.occ == null ? "—" : `${s.occ}%`}</p>
+                        {occDelta != null && <p className="hidden text-[9px] text-muted-foreground sm:block">{occDelta >= 0 ? "+" : ""}{occDelta} pts vs portfolio</p>}
                       </div>
-                      <div>
-                        <p className="text-[9px] uppercase text-muted-foreground">ADR</p>
-                        <p className="text-lg font-semibold tabular-nums">{eurMoney(s.adr)}</p>
-                        {adrDelta != null && <p className="text-[9px] text-muted-foreground">{adrDelta >= 0 ? "+" : "−"}€{Math.abs(adrDelta)} vs portfolio</p>}
+                      <div className="min-w-0">
+                        <p className="text-[8px] uppercase text-muted-foreground sm:text-[9px]">ADR</p>
+                        <p className="truncate text-sm font-semibold tabular-nums sm:text-lg">{eurMoney(s.adr)}</p>
+                        {adrDelta != null && <p className="hidden text-[9px] text-muted-foreground sm:block">{adrDelta >= 0 ? "+" : "−"}€{Math.abs(adrDelta)} vs portfolio</p>}
                       </div>
-                      <div>
-                        <p className="text-[9px] uppercase text-muted-foreground">RevPAR</p>
-                        <p className="text-lg font-semibold tabular-nums">{eurMoney(s.revpar)}</p>
+                      <div className="min-w-0">
+                        <p className="text-[8px] uppercase text-muted-foreground sm:text-[9px]">RevPAR</p>
+                        <p className="truncate text-sm font-semibold tabular-nums sm:text-lg">{eurMoney(s.revpar)}</p>
                       </div>
                     </div>
+                    {(occDelta != null || adrDelta != null) && (
+                      <p className="mt-1.5 truncate text-[8px] text-muted-foreground sm:hidden">
+                        vs portfolio:{occDelta != null ? ` OCC ${occDelta >= 0 ? "+" : ""}${occDelta}pt` : ""}{adrDelta != null ? ` · ADR ${adrDelta >= 0 ? "+" : "−"}€${Math.abs(adrDelta)}` : ""}
+                      </p>
+                    )}
                     {s.nights === 0 ? (
-                      <p className="mt-2 text-[10px] text-muted-foreground">
+                      <p className="mt-2 text-[9px] text-muted-foreground sm:text-[10px]">
                         {portfolio.isFetching ? "Loading figures…" : portfolio.isError ? "Figures unavailable. Retry above." : "No figures available for these nights."}
                       </p>
-                    ) : <p className="mt-2 text-[10px] text-muted-foreground">{s.nights} nights with data</p>}
+                    ) : <p className="mt-2 text-[9px] text-muted-foreground sm:text-[10px]">{s.nights} nights with data</p>}
                   </div>
                 );
               })}
