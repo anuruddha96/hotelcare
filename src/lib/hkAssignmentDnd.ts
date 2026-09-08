@@ -82,7 +82,7 @@ export function readHousekeeperDragPayload(e: React.DragEvent): HousekeeperDragP
   return { staffId, staffName: e.dataTransfer.getData('housekeepername') || '' };
 }
 
-/** Thrown when a room cannot be reassigned because cleaning already started. */
+/** Kept for compatibility with older room-board error handling. */
 export class AssignmentInProgressError extends Error {
   readonly code = 'assignment_in_progress' as const;
   readonly currentAssigneeId: string | null;
@@ -98,12 +98,31 @@ export function isAssignmentInProgressError(err: unknown): err is AssignmentInPr
   return !!err && typeof err === 'object' && (err as { code?: string }).code === 'assignment_in_progress';
 }
 
+/** Thrown when a room already has both shared-cleaning seats occupied. */
+export class SharedAssignmentFullError extends Error {
+  readonly code = 'shared_assignment_full' as const;
+  readonly primaryAssigneeId: string | null;
+  readonly sharedAssigneeId: string | null;
+
+  constructor(primaryAssigneeId: string | null, sharedAssigneeId: string | null) {
+    super('This room is already shared by two housekeepers');
+    this.name = 'SharedAssignmentFullError';
+    this.primaryAssigneeId = primaryAssigneeId;
+    this.sharedAssigneeId = sharedAssigneeId;
+  }
+}
+
+export function isSharedAssignmentFullError(err: unknown): err is SharedAssignmentFullError {
+  return !!err && typeof err === 'object' && (err as { code?: string }).code === 'shared_assignment_full';
+}
+
 /**
- * Assign (or reassign) a unit to a housekeeper for a given date.
- * Existing assignment metadata (type, ready-to-clean, PMS hold, notes) is
- * preserved — only the owner changes. Optional insert-only values are used
- * when a room did not have an assignment yet; they never overwrite an
- * existing assignment during a reassign.
+ * Dragging a housekeeper onto an unassigned room creates the primary assignment.
+ * Dragging a different housekeeper onto an already-assigned room adds them as
+ * the second cleaner instead of replacing the first. The database RPC locks the
+ * canonical room assignment, so two simultaneous drops cannot create a third
+ * cleaner or fork the room state. Joining is deliberately allowed even after
+ * the first cleaner has started.
  */
 export async function assignRoomToStaff(params: {
   roomId: string;
@@ -115,61 +134,26 @@ export async function assignRoomToStaff(params: {
   readyToClean?: boolean;
   priority?: number;
 }): Promise<void> {
-  const {
-    roomId,
-    staffId,
-    assignmentDate,
-    assignedBy,
-    organizationSlug,
-    isCheckoutRoom,
-    readyToClean,
-    priority,
-  } = params;
+  const { data, error } = await (supabase as any).rpc('assign_or_share_housekeeping_room', {
+    p_room_id: params.roomId,
+    p_staff_id: params.staffId,
+    p_assignment_date: params.assignmentDate,
+    p_assigned_by: params.assignedBy,
+    p_organization_slug: params.organizationSlug ?? null,
+    p_is_checkout_room: params.isCheckoutRoom ?? false,
+    p_ready_to_clean: params.readyToClean ?? null,
+    p_priority: params.priority ?? null,
+  });
 
-  const { data: existing, error: findErr } = await supabase
-    .from('room_assignments')
-    .select('id, assigned_to, status')
-    .eq('room_id', roomId)
-    .eq('assignment_date', assignmentDate)
-    .maybeSingle();
-  if (findErr) throw findErr;
-
-  if (existing) {
-    if (existing.assigned_to === staffId) return;
-    // A room that is being cleaned right now must never change owner. The
-    // guard is race-safe: the update itself excludes in_progress rows, so an
-    // assignment that starts between the read and the write still cannot be
-    // moved.
-    if (existing.status === 'in_progress') {
-      throw new AssignmentInProgressError(existing.assigned_to ?? null);
-    }
-    const { data: updated, error } = await supabase
-      .from('room_assignments')
-      .update({ assigned_to: staffId, assigned_by: assignedBy })
-      .eq('id', existing.id)
-      .neq('status', 'in_progress')
-      .select('id');
-    if (error) throw error;
-    if (!updated || updated.length === 0) {
-      throw new AssignmentInProgressError(existing.assigned_to ?? null);
-    }
-    return;
-  }
-
-  const insert: Record<string, unknown> = {
-    room_id: roomId,
-    assigned_to: staffId,
-    assigned_by: assignedBy,
-    assignment_date: assignmentDate,
-    assignment_type: isCheckoutRoom ? 'checkout_cleaning' : 'daily_cleaning',
-    status: 'assigned',
-  };
-  if (organizationSlug) insert.organization_slug = organizationSlug;
-  if (readyToClean !== undefined) insert.ready_to_clean = readyToClean;
-  if (priority !== undefined) insert.priority = priority;
-
-  const { error } = await supabase.from('room_assignments').insert(insert as never);
   if (error) throw error;
+
+  const result = Array.isArray(data) ? data[0] : data;
+  if (result?.ok === false && result?.code === 'shared_assignment_full') {
+    throw new SharedAssignmentFullError(result.assigned_to ?? null, result.shared_with ?? null);
+  }
+  if (result?.ok === false) {
+    throw new Error(result?.code || 'Unable to assign housekeeper to room');
+  }
 }
 
 /** Remove today's assignment for a unit (the unit returns to the unassigned board). */
