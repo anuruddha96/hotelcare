@@ -118,17 +118,22 @@ export type BillingSettings = {
   standard_revenue_bi_price_cents: number;
   standard_revenue_automation_price_cents: number;
   standard_operations_price_cents: number;
-  /** Legacy fields retained as the Operations / Housekeeping promotion. */
+  /**
+   * Existing organizations remain false unless explicitly opted in. New
+   * organizations default true after the module-promotion migration.
+   */
+  module_scoped_promotions_enabled?: boolean;
+  /** Legacy global promotion; in scoped mode these fields mean Housekeeping only. */
   early_bird_enabled: boolean;
   early_bird_label: string;
   early_bird_note: string;
   early_bird_ends_at: string | null;
-  /** Revenue BI promotion; independent from Housekeeping and Automation. */
+  /** Revenue BI promotion; used only in module-scoped mode. */
   revenue_bi_promo_enabled?: boolean;
   revenue_bi_promo_label?: string | null;
   revenue_bi_promo_note?: string | null;
   revenue_bi_promo_ends_at?: string | null;
-  /** BI + Automation promotion; independent from Housekeeping and BI-only. */
+  /** BI + Automation promotion; used only in module-scoped mode. */
   revenue_automation_promo_enabled?: boolean;
   revenue_automation_promo_label?: string | null;
   revenue_automation_promo_note?: string | null;
@@ -239,8 +244,26 @@ export function listPriceFor(settings: BillingSettings, module: ModuleKey) {
   }
 }
 
+/** True only for organizations intentionally using independent module promos. */
+export function moduleScopedPromotionsEnabled(settings: BillingSettings | null | undefined) {
+  return Boolean(settings?.module_scoped_promotions_enabled);
+}
+
 export function promotionFor(settings: BillingSettings, module: ModuleKey): Promotion {
-  switch (normaliseModule(module)) {
+  const key = normaliseModule(module);
+
+  // Tenant-isolation / backwards-compatibility guard. Existing organizations
+  // keep the exact pre-migration launch-promotion semantics: early_bird_* is a
+  // single organization-wide promotion. The new module fields are ignored.
+  if (!moduleScopedPromotionsEnabled(settings)) {
+    if (key === "maintenance") return { enabled: false, endsAt: null };
+    return {
+      enabled: Boolean(settings.early_bird_enabled),
+      endsAt: settings.early_bird_ends_at || null,
+    };
+  }
+
+  switch (key) {
     case "operations":
       return { enabled: Boolean(settings.early_bird_enabled), endsAt: settings.early_bird_ends_at || null };
     case "revenue_bi":
@@ -266,12 +289,14 @@ export function promotionActiveFor(settings: BillingSettings, module: ModuleKey)
 }
 
 /**
- * Effective module price. A configured promotion uses the agreed discounted
- * price while active, then automatically returns to the module's standard
- * list price after its end date.
+ * Effective module price. Legacy organizations keep their existing configured
+ * price behaviour unchanged. In module-scoped mode, an ended promotion rolls
+ * only that module back to its standard list price.
  */
 export function priceFor(settings: BillingSettings, module: ModuleKey) {
   const configured = configuredPriceFor(settings, module);
+  if (!moduleScopedPromotionsEnabled(settings)) return configured;
+
   const promo = promotionFor(settings, module);
   if (promo.enabled && promo.endsAt && !promotionActiveFor(settings, module)) {
     const standard = listPriceFor(settings, module);
