@@ -69,7 +69,10 @@ export interface HousekeeperDragPayload {
   staffName: string;
 }
 
+let lastHousekeeperDrag: { payload: HousekeeperDragPayload; at: number } | null = null;
+
 export function setHousekeeperDragPayload(e: React.DragEvent, payload: HousekeeperDragPayload) {
+  lastHousekeeperDrag = { payload, at: Date.now() };
   e.dataTransfer.setData(HOUSEKEEPER_DRAG_TYPE, '1');
   e.dataTransfer.setData('housekeeperid', payload.staffId);
   e.dataTransfer.setData('housekeepername', payload.staffName);
@@ -116,15 +119,166 @@ export function isSharedAssignmentFullError(err: unknown): err is SharedAssignme
   return !!err && typeof err === 'object' && (err as { code?: string }).code === 'shared_assignment_full';
 }
 
+type AssignmentDropChoice = 'replace' | 'share';
+
+type ExistingAssignmentRow = {
+  id: string;
+  assigned_to: string | null;
+  shared_with: string | null;
+  status: string | null;
+};
+
+async function resolveStaffName(staffId: string | null, fallback: string): Promise<string> {
+  if (!staffId) return fallback;
+  try {
+    const { data } = await (supabase as any)
+      .from('profiles')
+      .select('full_name, nickname')
+      .eq('id', staffId)
+      .maybeSingle();
+    return String(data?.nickname || data?.full_name || fallback).trim() || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function resolveRoomNumber(roomId: string): Promise<string> {
+  try {
+    const { data } = await supabase
+      .from('rooms')
+      .select('room_number')
+      .eq('id', roomId)
+      .maybeSingle();
+    return String((data as any)?.room_number || '').trim() || 'this room';
+  } catch {
+    return 'this room';
+  }
+}
+
 /**
- * Dragging a housekeeper onto an unassigned room creates the primary assignment.
- * Dragging a different housekeeper onto an already-assigned room adds them as
- * the second cleaner instead of replacing the first. The database RPC locks the
- * canonical room assignment, so two simultaneous drops cannot create a third
- * cleaner or fork the room state. Joining is deliberately allowed even after
- * the first cleaner has started.
+ * Explicit intent chooser for an occupied-room housekeeper drop.
+ *
+ * This is deliberately kept in the drag/drop library because the existing room
+ * board already routes desktop and mobile pointer drops through
+ * assignRoomToStaff(). It prevents an occupied drop from silently changing
+ * meaning as shared cleaning is introduced.
  */
-export async function assignRoomToStaff(params: {
+function askAssignmentDropChoice(params: {
+  roomNumber: string;
+  currentName: string;
+  incomingName: string;
+  inProgress: boolean;
+}): Promise<AssignmentDropChoice> {
+  if (typeof document === 'undefined' || !document.body) {
+    // Non-interactive callers preserve the legacy takeover behavior. The choice
+    // UI is specifically for manager drag/drop interactions in the browser.
+    return Promise.resolve('replace');
+  }
+
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', `Assign room ${params.roomNumber}`);
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      inset: '0',
+      zIndex: '2147483647',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '20px',
+      background: 'rgba(15, 23, 42, 0.48)',
+      backdropFilter: 'blur(2px)',
+    });
+
+    const panel = document.createElement('div');
+    Object.assign(panel.style, {
+      width: 'min(460px, 100%)',
+      borderRadius: '14px',
+      background: 'var(--background, #fff)',
+      color: 'var(--foreground, #0f172a)',
+      border: '1px solid rgba(148, 163, 184, 0.35)',
+      boxShadow: '0 24px 70px rgba(15, 23, 42, 0.28)',
+      padding: '20px',
+      fontFamily: 'inherit',
+    });
+
+    const title = document.createElement('div');
+    title.textContent = `Room ${params.roomNumber} already has a housekeeper`;
+    Object.assign(title.style, { fontSize: '17px', fontWeight: '700', marginBottom: '8px' });
+
+    const description = document.createElement('div');
+    description.textContent = params.inProgress
+      ? `${params.currentName} has already started this room. ${params.incomingName} can join as the second cleaner, but the active assignment cannot be replaced.`
+      : `${params.currentName} is currently assigned. What should happen when ${params.incomingName} is dropped onto this room?`;
+    Object.assign(description.style, { fontSize: '14px', lineHeight: '1.5', opacity: '0.82', marginBottom: '14px' });
+
+    const help = document.createElement('div');
+    help.textContent = params.inProgress
+      ? 'Work together keeps one shared room status, minibar record and dirty-linen record.'
+      : `Replace moves the room from ${params.currentName} to ${params.incomingName}. Work together keeps ${params.currentName} and adds ${params.incomingName} as the second cleaner.`;
+    Object.assign(help.style, {
+      fontSize: '12px',
+      lineHeight: '1.45',
+      padding: '10px 12px',
+      borderRadius: '9px',
+      background: 'rgba(148, 163, 184, 0.12)',
+      marginBottom: '16px',
+    });
+
+    const actions = document.createElement('div');
+    Object.assign(actions.style, { display: 'grid', gridTemplateColumns: params.inProgress ? '1fr' : '1fr 1fr', gap: '10px' });
+
+    const finish = (choice: AssignmentDropChoice) => {
+      overlay.remove();
+      resolve(choice);
+    };
+
+    if (!params.inProgress) {
+      const replace = document.createElement('button');
+      replace.type = 'button';
+      replace.textContent = `Replace ${params.currentName}`;
+      Object.assign(replace.style, {
+        minHeight: '44px',
+        borderRadius: '9px',
+        border: '1px solid rgba(148, 163, 184, 0.55)',
+        background: 'transparent',
+        color: 'inherit',
+        font: 'inherit',
+        fontWeight: '650',
+        cursor: 'pointer',
+        padding: '9px 12px',
+      });
+      replace.addEventListener('click', () => finish('replace'));
+      actions.appendChild(replace);
+    }
+
+    const share = document.createElement('button');
+    share.type = 'button';
+    share.textContent = 'Work together';
+    Object.assign(share.style, {
+      minHeight: '44px',
+      borderRadius: '9px',
+      border: '1px solid transparent',
+      background: 'hsl(var(--primary, 221 83% 53%))',
+      color: 'hsl(var(--primary-foreground, 0 0% 100%))',
+      font: 'inherit',
+      fontWeight: '700',
+      cursor: 'pointer',
+      padding: '9px 12px',
+    });
+    share.addEventListener('click', () => finish('share'));
+    actions.appendChild(share);
+
+    panel.append(title, description, help, actions);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+    setTimeout(() => (params.inProgress ? share : actions.querySelector('button'))?.focus(), 0);
+  });
+}
+
+async function shareRoomWithStaff(params: {
   roomId: string;
   staffId: string;
   assignmentDate: string;
@@ -146,14 +300,128 @@ export async function assignRoomToStaff(params: {
   });
 
   if (error) throw error;
-
   const result = Array.isArray(data) ? data[0] : data;
   if (result?.ok === false && result?.code === 'shared_assignment_full') {
     throw new SharedAssignmentFullError(result.assigned_to ?? null, result.shared_with ?? null);
   }
-  if (result?.ok === false) {
-    throw new Error(result?.code || 'Unable to assign housekeeper to room');
+  if (result?.ok === false) throw new Error(result?.code || 'Unable to assign housekeeper to room');
+}
+
+async function replaceRoomAssignee(existing: ExistingAssignmentRow, params: {
+  staffId: string;
+  assignedBy: string;
+}): Promise<void> {
+  if (existing.status === 'in_progress') {
+    throw new AssignmentInProgressError(existing.assigned_to);
   }
+
+  // Replacement is intentionally explicit and race-safe. It only succeeds if
+  // the room still has one cleaner and has not started while the manager was
+  // choosing. If the room changed meanwhile, the manager gets a safe failure
+  // rather than silently overwriting a live/shared assignment.
+  const { data, error } = await (supabase as any)
+    .from('room_assignments')
+    .update({
+      assigned_to: params.staffId,
+      assigned_by: params.assignedBy,
+      shared_with: null,
+      shared_assigned_at: null,
+      shared_assigned_by: null,
+    })
+    .eq('id', existing.id)
+    .neq('status', 'in_progress')
+    .is('shared_with', null)
+    .select('id');
+
+  if (error) throw error;
+  if (Array.isArray(data) && data.length > 0) return;
+
+  const { data: fresh } = await (supabase as any)
+    .from('room_assignments')
+    .select('assigned_to, shared_with, status')
+    .eq('id', existing.id)
+    .maybeSingle();
+  if (fresh?.status === 'in_progress') throw new AssignmentInProgressError(fresh.assigned_to ?? existing.assigned_to);
+  if (fresh?.shared_with) throw new SharedAssignmentFullError(fresh.assigned_to ?? existing.assigned_to, fresh.shared_with);
+  throw new Error('Room assignment changed before replacement could be applied');
+}
+
+/**
+ * Assign a dropped housekeeper without making the occupied-room gesture
+ * ambiguous.
+ *
+ * - Empty room: assign immediately.
+ * - Same cleaner: no-op.
+ * - One existing cleaner + real drag/drop: ask Replace vs Work together.
+ * - Already shared by two: reject a third cleaner.
+ * - If cleaning has started, replacement is blocked; sharing remains a valid
+ *   database operation for callers that do not pre-block active-room drops.
+ *
+ * Non-drag callers preserve the historic replacement behavior so automated or
+ * programmatic assignment flows never get stuck behind a browser dialog.
+ */
+export async function assignRoomToStaff(params: {
+  roomId: string;
+  staffId: string;
+  assignmentDate: string;
+  assignedBy: string;
+  organizationSlug?: string | null;
+  isCheckoutRoom?: boolean;
+  readyToClean?: boolean;
+  priority?: number;
+}): Promise<void> {
+  const { data: existingData, error: existingError } = await (supabase as any)
+    .from('room_assignments')
+    .select('id, assigned_to, shared_with, status')
+    .eq('room_id', params.roomId)
+    .eq('assignment_date', params.assignmentDate)
+    .maybeSingle();
+  if (existingError) throw existingError;
+
+  const existing = (existingData || null) as ExistingAssignmentRow | null;
+  if (!existing) {
+    await shareRoomWithStaff(params);
+    return;
+  }
+
+  if (existing.assigned_to === params.staffId || existing.shared_with === params.staffId) return;
+  if (existing.shared_with) {
+    throw new SharedAssignmentFullError(existing.assigned_to, existing.shared_with);
+  }
+
+  const isInteractiveDrag = !!lastHousekeeperDrag
+    && lastHousekeeperDrag.payload.staffId === params.staffId
+    && Date.now() - lastHousekeeperDrag.at < 15_000;
+
+  if (!isInteractiveDrag) {
+    await replaceRoomAssignee(existing, params);
+    return;
+  }
+
+  const incomingFallback = lastHousekeeperDrag?.payload.staffName || 'the new housekeeper';
+  const [roomNumber, currentName, incomingName] = await Promise.all([
+    resolveRoomNumber(params.roomId),
+    resolveStaffName(existing.assigned_to, 'the current housekeeper'),
+    resolveStaffName(params.staffId, incomingFallback),
+  ]);
+
+  const choice = await askAssignmentDropChoice({
+    roomNumber,
+    currentName,
+    incomingName,
+    inProgress: existing.status === 'in_progress',
+  });
+
+  // Consume the drag marker so a later programmatic assignment cannot inherit
+  // an old UI decision context.
+  lastHousekeeperDrag = null;
+
+  if (choice === 'replace') {
+    await replaceRoomAssignee(existing, params);
+    return;
+  }
+
+  await shareRoomWithStaff(params);
 }
 
 /** Remove today's assignment for a unit (the unit returns to the unassigned board). */
