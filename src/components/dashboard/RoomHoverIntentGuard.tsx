@@ -19,19 +19,22 @@ function roomChipFromTarget(target: EventTarget | null, root: HTMLElement | null
   let node = target instanceof HTMLElement ? target : null;
 
   while (node && node !== root) {
-    const chipBox = node.firstElementChild instanceof HTMLElement ? node.firstElementChild : null;
-    const looksLikeRoomChip =
-      node.classList.contains('select-none') &&
-      node.classList.contains('items-center') &&
-      chipBox?.classList.contains('relative') &&
-      chipBox.classList.contains('text-center');
+    if (node.classList.contains('select-none') && node.classList.contains('items-center')) {
+      const chipBox = Array.from(node.children).find((child) =>
+        child instanceof HTMLElement &&
+        child.classList.contains('text-center') &&
+        child.classList.contains('rounded'),
+      ) as HTMLElement | undefined;
 
-    if (looksLikeRoomChip && chipBox) {
-      const roomTextNode = Array.from(chipBox.childNodes).find(
-        (child) => child.nodeType === Node.TEXT_NODE && !!child.textContent?.trim(),
-      );
-      const roomNumber = roomTextNode?.textContent?.trim();
-      if (roomNumber) return { roomNumber, element: node };
+      if (chipBox) {
+        const roomTextNode = Array.from(chipBox.childNodes).find(
+          (child) => child.nodeType === Node.TEXT_NODE && !!child.textContent?.trim(),
+        );
+        const roomNumber = roomTextNode?.textContent?.trim();
+        if (roomNumber && /^[0-9A-Za-z._-]+$/.test(roomNumber)) {
+          return { roomNumber, element: node };
+        }
+      }
     }
 
     node = node.parentElement;
@@ -41,16 +44,15 @@ function roomChipFromTarget(target: EventTarget | null, root: HTMLElement | null
 }
 
 /**
- * Desktop hover-intent guard for the room overview.
+ * Desktop hover-intent guard for the live Hotel Room Overview.
  *
- * The legacy room chips have an immediate interactive hover popover. That is
- * useful when deliberately inspecting a room, but it is disruptive while a
- * manager is simply moving the pointer across the room board. This guard
- * intercepts the native mouseover/mouseout events before React's delegated
- * handlers receive them, so the old popover cannot open accidentally.
+ * Room operations are click-driven. Merely travelling across room chips must
+ * never open an operational surface. We intercept the native hover event at
+ * WINDOW CAPTURE (before React's delegated mouse-enter handlers can see it),
+ * then show only a tiny informational hint after a deliberate 2.5 second hover.
  *
- * After a deliberate 2.5 second hover we show only a small, non-interactive
- * hint. The complete room operations interface remains click-driven.
+ * Any click/pointer-down, scroll, wheel, Escape, window blur, or leaving the
+ * chip cancels the pending hint immediately.
  */
 export function RoomHoverIntentGuard({ children }: RoomHoverIntentGuardProps) {
   const isMobile = useIsMobile();
@@ -75,16 +77,24 @@ export function RoomHoverIntentGuard({ children }: RoomHoverIntentGuardProps) {
       setHint(null);
     };
 
-    const onMouseOver = (event: MouseEvent) => {
+    const findRoomChip = (event: Event) => {
       const root = rootRef.current;
-      if (!root || !(event.target instanceof Node) || !root.contains(event.target)) return;
+      if (!root || !(event.target instanceof Node) || !root.contains(event.target)) return null;
+      return roomChipFromTarget(event.target, root);
+    };
 
-      const chip = roomChipFromTarget(event.target, root);
-      if (!chip) return;
-
-      // Stop the legacy React onMouseEnter / Popover path before it reaches
-      // the app root. This is intentionally native capture, not React capture.
+    const blockLegacyHover = (event: Event) => {
+      // This must happen before React receives the same native event. Using
+      // stopImmediatePropagation at WINDOW CAPTURE removes both the legacy
+      // large room popover and the wrapper's old instant hover hint path.
+      event.stopImmediatePropagation();
       event.stopPropagation();
+    };
+
+    const onMouseOver = (event: MouseEvent) => {
+      const chip = findRoomChip(event);
+      if (!chip) return;
+      blockLegacyHover(event);
 
       const related = event.relatedTarget instanceof Node ? event.relatedTarget : null;
       if (related && chip.element.contains(related)) return;
@@ -111,18 +121,25 @@ export function RoomHoverIntentGuard({ children }: RoomHoverIntentGuardProps) {
     };
 
     const onMouseOut = (event: MouseEvent) => {
-      const root = rootRef.current;
-      if (!root || !(event.target instanceof Node) || !root.contains(event.target)) return;
-
-      const chip = roomChipFromTarget(event.target, root);
+      const chip = findRoomChip(event);
       if (!chip) return;
-
-      event.stopPropagation();
+      blockLegacyHover(event);
 
       const related = event.relatedTarget instanceof Node ? event.relatedTarget : null;
       if (related && chip.element.contains(related)) return;
 
       if (activeChipRef.current === chip.element) dismiss();
+    };
+
+    // Some browsers/device stacks generate pointer events before mouse events.
+    // Block those too so no delegated hover path can slip through.
+    const onPointerOver = (event: PointerEvent) => {
+      const chip = findRoomChip(event);
+      if (chip) blockLegacyHover(event);
+    };
+    const onPointerOut = (event: PointerEvent) => {
+      const chip = findRoomChip(event);
+      if (chip) blockLegacyHover(event);
     };
 
     const onPointerDown = () => dismiss();
@@ -132,23 +149,26 @@ export function RoomHoverIntentGuard({ children }: RoomHoverIntentGuardProps) {
       if (event.key === 'Escape') dismiss();
     };
 
-    // Capture at document level so React never receives the legacy hover event.
-    document.addEventListener('mouseover', onMouseOver, true);
-    document.addEventListener('mouseout', onMouseOut, true);
-    document.addEventListener('pointerdown', onPointerDown, true);
-    document.addEventListener('wheel', onWheel, { capture: true, passive: true });
-    document.addEventListener('scroll', onScroll, true);
-    document.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('mouseover', onMouseOver, true);
+    window.addEventListener('mouseout', onMouseOut, true);
+    window.addEventListener('pointerover', onPointerOver, true);
+    window.addEventListener('pointerout', onPointerOut, true);
+    window.addEventListener('pointerdown', onPointerDown, true);
+    window.addEventListener('wheel', onWheel, { capture: true, passive: true });
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('blur', dismiss);
 
     return () => {
       dismiss();
-      document.removeEventListener('mouseover', onMouseOver, true);
-      document.removeEventListener('mouseout', onMouseOut, true);
-      document.removeEventListener('pointerdown', onPointerDown, true);
-      document.removeEventListener('wheel', onWheel, true);
-      document.removeEventListener('scroll', onScroll, true);
-      document.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('mouseover', onMouseOver, true);
+      window.removeEventListener('mouseout', onMouseOut, true);
+      window.removeEventListener('pointerover', onPointerOver, true);
+      window.removeEventListener('pointerout', onPointerOut, true);
+      window.removeEventListener('pointerdown', onPointerDown, true);
+      window.removeEventListener('wheel', onWheel, true);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('blur', dismiss);
     };
   }, [isMobile]);
