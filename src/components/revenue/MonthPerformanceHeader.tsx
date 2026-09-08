@@ -269,12 +269,12 @@ export default function MonthPerformanceHeader({
   const tilesLoading = loading || monthPending;
 
   /**
-   * The KPI strip is a plain, finger-friendly carousel: native momentum
-   * scrolling with snap points, plus a dot row so it is obvious there is more
-   * to the right. Nothing writes to scrollLeft automatically, so a vertical
-   * gesture beginning over this first-screen strip remains browser-native.
+   * The KPI strip remains finger-friendly, but on small screens it also
+   * advances one card every two seconds with smooth native scrolling. Manual
+   * interaction temporarily pauses autoplay so it never fights a swipe/tap.
    */
   const tileScrollRef = useRef<HTMLDivElement | null>(null);
+  const autoScrollPausedUntilRef = useRef(0);
   const [activeTile, setActiveTile] = useState(0);
 
   useEffect(() => {
@@ -284,7 +284,7 @@ export default function MonthPerformanceHeader({
     setActiveTile(0);
   }, [month]);
 
-  // Which card is in view — read on scroll end, never written back.
+  // Keep the dot indicator synchronized with both user and automatic movement.
   useEffect(() => {
     const el = tileScrollRef.current;
     if (!el) return;
@@ -304,9 +304,53 @@ export default function MonthPerformanceHeader({
     return () => { el.removeEventListener("scroll", onScroll); if (raf) window.cancelAnimationFrame(raf); };
   }, []);
 
+  useEffect(() => {
+    const node = tileScrollRef.current;
+    if (!node || typeof window === "undefined") return;
+
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (reducedMotion.matches) return;
+
+    const pauseForManualInteraction = () => {
+      autoScrollPausedUntilRef.current = Date.now() + 6000;
+    };
+
+    const advance = () => {
+      if (document.hidden || Date.now() < autoScrollPausedUntilRef.current) return;
+      if (node.scrollWidth <= node.clientWidth + 4) return;
+
+      const cards = Array.from(node.children) as HTMLElement[];
+      if (cards.length < 2) return;
+
+      const first = cards[0];
+      const step = first.offsetWidth + 8;
+      if (step <= 0) return;
+
+      const maxLeft = Math.max(0, node.scrollWidth - node.clientWidth);
+      const current = Math.max(0, Math.min(cards.length - 1, Math.round(node.scrollLeft / step)));
+      const atEnd = node.scrollLeft >= maxLeft - 4 || current >= cards.length - 1;
+      const next = atEnd ? 0 : current + 1;
+      const target = next === 0 ? 0 : Math.min(next * step, maxLeft);
+      node.scrollTo({ left: target, behavior: "smooth" });
+    };
+
+    const interval = window.setInterval(advance, 2000);
+    node.addEventListener("pointerdown", pauseForManualInteraction, { passive: true });
+    node.addEventListener("wheel", pauseForManualInteraction, { passive: true });
+    node.addEventListener("focusin", pauseForManualInteraction);
+
+    return () => {
+      window.clearInterval(interval);
+      node.removeEventListener("pointerdown", pauseForManualInteraction);
+      node.removeEventListener("wheel", pauseForManualInteraction);
+      node.removeEventListener("focusin", pauseForManualInteraction);
+    };
+  }, [month]);
+
   const scrollToTile = (i: number) => {
     const node = tileScrollRef.current;
     if (!node) return;
+    autoScrollPausedUntilRef.current = Date.now() + 6000;
     const card = node.firstElementChild as HTMLElement | null;
     const step = card ? card.offsetWidth + 8 : node.clientWidth;
     node.scrollTo({ left: i * step, behavior: "smooth" });
