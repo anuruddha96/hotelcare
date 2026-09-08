@@ -64,10 +64,10 @@ type Target = {
  * Safety rules:
  * - does nothing unless this organization explicitly uses module-scoped promos;
  * - never takes over a Stripe schedule not created by HotelCare;
- * - validates the complete replacement before releasing an old HotelCare schedule;
+ * - validates every target recurring item before changing a schedule;
+ * - updates an existing HotelCare-owned schedule in place instead of releasing it;
  * - uses proration_behavior=none so configuring the future standard price does
- *   not create a surprise invoice today;
- * - releases only its own schedule when an admin changes the promo config.
+ *   not create a surprise invoice today.
  */
 export async function ensureModulePromotionSchedule(
   stripe: Stripe,
@@ -174,24 +174,24 @@ export async function ensureModulePromotionSchedule(
     target.standardPriceId = standardPrice.id;
   }
 
-  // Only now is it safe to replace an older HotelCare-owned schedule.
-  if (existingSchedule) {
-    await stripe.subscriptionSchedules.release(existingSchedule.id);
-  }
-
-  let created: Stripe.SubscriptionSchedule | null = null;
+  let schedule: Stripe.SubscriptionSchedule | null = existingSchedule;
+  let createdHere = false;
   try {
-    // Stripe requires this as a separate first call; a schedule created with
-    // from_subscription inherits the current billing/trial state.
-    created = await stripe.subscriptionSchedules.create({ from_subscription: subscription.id });
+    // Stripe requires a separate create call when the subscription does not yet
+    // have a schedule. A schedule created from_subscription inherits the current
+    // billing/trial state. Existing HotelCare schedules are updated in place.
+    if (!schedule) {
+      schedule = await stripe.subscriptionSchedules.create({ from_subscription: subscription.id });
+      createdHere = true;
+    }
 
-    const currentStart = Number(created.current_phase?.start_date ?? created.phases?.[0]?.start_date ?? nowSec);
+    const currentStart = Number(schedule.current_phase?.start_date ?? schedule.phases?.[0]?.start_date ?? nowSec);
     const boundaries = Array.from(new Set(targets.map((target) => target.boundary)))
       .filter((boundary) => boundary > currentStart)
       .sort((a, b) => a - b);
     if (!boundaries.length) {
-      await stripe.subscriptionSchedules.release(created.id);
-      return { status: "no_future_boundary" };
+      if (createdHere) await stripe.subscriptionSchedules.release(schedule.id);
+      return { status: "no_future_boundary", scheduleId: existingSchedule?.id };
     }
 
     const phaseStarts = [currentStart, ...boundaries];
@@ -223,7 +223,7 @@ export async function ensureModulePromotionSchedule(
       return phase;
     });
 
-    const updated = await stripe.subscriptionSchedules.update(created.id, {
+    const updated = await stripe.subscriptionSchedules.update(schedule.id, {
       end_behavior: "release",
       proration_behavior: "none",
       metadata: {
@@ -236,11 +236,11 @@ export async function ensureModulePromotionSchedule(
 
     return { status: "scheduled", scheduleId: updated.id };
   } catch (error) {
-    // If the second Stripe call fails, release the just-created schedule so the
-    // customer's existing subscription remains unmanaged rather than half-set.
-    if (created) {
+    // If this call created a brand-new schedule and configuring it fails, release
+    // only that new schedule. Never release an older working HotelCare schedule.
+    if (schedule && createdHere) {
       try {
-        await stripe.subscriptionSchedules.release(created.id);
+        await stripe.subscriptionSchedules.release(schedule.id);
       } catch (releaseError) {
         console.error("could not release failed HotelCare promotion schedule", releaseError);
       }
