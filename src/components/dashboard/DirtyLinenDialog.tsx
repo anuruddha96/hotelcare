@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -44,7 +44,6 @@ interface LinenRecord {
   work_date: string;
 }
 
-// Helper: translate DB display name via linen-i18n map; falls back to raw name.
 const getLinenDisplayName = (
   name: string,
   displayName: string | undefined,
@@ -65,6 +64,7 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [autoSaveTimeout, setAutoSaveTimeout] = useState<NodeJS.Timeout | null>(null);
   const [showMyRecords, setShowMyRecords] = useState(false);
+  const [lastConfirmedWarningActor, setLastConfirmedWarningActor] = useState<string | null>(null);
 
   const fetchLinenItems = async () => {
     try {
@@ -84,32 +84,37 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
 
   const fetchExistingCounts = useCallback(async () => {
     if (!user?.id) return;
-    
-    try {
-      // Use local timezone date to avoid UTC conversion issues
-      const today = getLocalDateString(new Date());
-      const { data, error } = await supabase
-        .from('dirty_linen_counts')
-        .select('linen_item_id, count')
-        .eq('housekeeper_id', user.id)
-        .eq('room_id', roomId)
-        .eq('work_date', today);
 
+    try {
+      let query = supabase
+        .from('dirty_linen_counts')
+        .select('linen_item_id, count');
+
+      if (assignmentId) {
+        // Shared rooms have exactly one canonical linen set, keyed by the room
+        // assignment rather than the individual cleaner who entered it.
+        query = query.eq('assignment_id', assignmentId);
+      } else {
+        const today = getLocalDateString(new Date());
+        query = query
+          .eq('housekeeper_id', user.id)
+          .eq('room_id', roomId)
+          .eq('work_date', today);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       setLinenCounts(data || []);
     } catch (error) {
       console.error('Error fetching existing counts:', error);
     }
-  }, [user?.id, roomId]);
+  }, [user?.id, roomId, assignmentId]);
 
   const fetchMyRecords = useCallback(async () => {
     if (!user?.id) return;
-    
+
     try {
-      // Use local timezone date to avoid UTC conversion issues
       const today = getLocalDateString(new Date());
-      
-      // Fetch dirty linen counts
       const { data: countsData, error: countsError } = await supabase
         .from('dirty_linen_counts')
         .select('id, linen_item_id, count, work_date, room_id, created_at')
@@ -119,35 +124,28 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
         .order('created_at', { ascending: false });
 
       if (countsError) throw countsError;
-      
       if (!countsData || countsData.length === 0) {
         setMyRecords([]);
         return;
       }
 
-      // Fetch room details separately
       const roomIds = Array.from(new Set(countsData.map(c => c.room_id)));
       const { data: roomsData, error: roomsError } = await supabase
         .from('rooms')
         .select('id, room_number')
         .in('id', roomIds);
-
       if (roomsError) throw roomsError;
 
-      // Fetch linen item details separately
       const linenItemIds = Array.from(new Set(countsData.map(c => c.linen_item_id)));
       const { data: linenItemsData, error: linenItemsError } = await supabase
         .from('dirty_linen_items')
         .select('id, name, display_name')
         .in('id', linenItemIds);
-
       if (linenItemsError) throw linenItemsError;
 
-      // Create lookup maps
       const roomsMap = new Map(roomsData?.map(r => [r.id, r.room_number]) || []);
       const linenItemsMap = new Map(linenItemsData?.map(l => [l.id, { name: l.name, display_name: l.display_name }]) || []);
-      
-      // Combine the data
+
       const records = countsData.map(record => {
         const linenItem = linenItemsMap.get(record.linen_item_id);
         return {
@@ -157,88 +155,99 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
           count: record.count,
           work_date: record.work_date,
           room_number: roomsMap.get(record.room_id) || 'Unknown',
-          display_name: linenItem?.display_name || 'Unknown Item'
+          display_name: linenItem?.display_name || 'Unknown Item',
         };
       });
-      
+
       setMyRecords(records);
     } catch (error) {
       console.error('Error fetching my records:', error);
     }
   }, [user?.id]);
 
+  const notifyAlreadyConfirmed = useCallback(async (actorId: string | null | undefined) => {
+    if (!actorId || actorId === lastConfirmedWarningActor) return;
+    setLastConfirmedWarningActor(actorId);
+
+    let actorName = 'Your teammate';
+    const { data } = await (supabase as any).rpc('get_housekeeping_actor_labels', {
+      p_user_ids: [actorId],
+    });
+    if (Array.isArray(data) && data[0]?.display_name) actorName = data[0].display_name;
+
+    toast.warning(`${actorName} already confirmed the final room steps. Dirty linen is shared and was not submitted again.`);
+  }, [lastConfirmedWarningActor]);
+
   useEffect(() => {
     if (open) {
+      setLastConfirmedWarningActor(null);
       fetchLinenItems();
       fetchExistingCounts();
       fetchMyRecords();
-      
-      // Set up real-time subscription for all changes
+
       const channel = supabase
-        .channel('dirty-linen-changes')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'dirty_linen_counts'
-          },
-          (payload) => {
-            console.log('Real-time: dirty linen change detected, refetching');
-            // Refetch both current room counts and all user records
-            fetchExistingCounts();
-            fetchMyRecords();
-          }
-        )
+        .channel(`dirty-linen-changes-${assignmentId || roomId}`)
+        .on('postgres_changes', {
+          event: '*', schema: 'public', table: 'dirty_linen_counts',
+        }, () => {
+          fetchExistingCounts();
+          fetchMyRecords();
+        })
         .subscribe();
 
       return () => {
         supabase.removeChannel(channel);
       };
     }
-  }, [open, roomId, fetchExistingCounts, fetchMyRecords]);
+  }, [open, roomId, assignmentId, fetchExistingCounts, fetchMyRecords]);
 
-  // Cleanup timeout on unmount
   useEffect(() => {
     return () => {
-      if (autoSaveTimeout) {
-        clearTimeout(autoSaveTimeout);
-      }
+      if (autoSaveTimeout) clearTimeout(autoSaveTimeout);
     };
   }, [autoSaveTimeout]);
 
   const autoSave = useCallback(async (counts: LinenCount[]) => {
     if (!user?.id || autoSaving) return;
-    
+
     setAutoSaving(true);
-    // Use local timezone date to avoid UTC conversion issues
     const today = getLocalDateString(new Date());
-    
+
     try {
-      // Handle each count individually
       for (const count of counts) {
+        if (assignmentId) {
+          const { data, error } = await (supabase as any).rpc('upsert_shared_dirty_linen', {
+            p_assignment_id: assignmentId,
+            p_linen_item_id: count.linen_item_id,
+            p_count: count.count,
+          });
+          if (error) throw error;
+          const result = Array.isArray(data) ? data[0] : data;
+          if (result?.ok === false && result?.code === 'already_confirmed') {
+            await notifyAlreadyConfirmed(result.confirmed_by);
+            await fetchExistingCounts();
+            return;
+          }
+          if (result?.ok === false) throw new Error(result?.code || 'Shared linen update failed');
+          continue;
+        }
+
         if (count.count > 0) {
-          // Use upsert for positive counts
           const { error } = await supabase
             .from('dirty_linen_counts')
             .upsert({
               housekeeper_id: user.id,
               room_id: roomId,
-              assignment_id: assignmentId || null,
+              assignment_id: null,
               linen_item_id: count.linen_item_id,
               count: count.count,
               work_date: today,
             }, {
               onConflict: 'housekeeper_id,room_id,linen_item_id,work_date',
-              ignoreDuplicates: false
+              ignoreDuplicates: false,
             });
-            
-          if (error) {
-            console.error('Upsert error for linen item:', count.linen_item_id, error);
-            throw error;
-          }
+          if (error) throw error;
         } else {
-          // Delete zero counts
           await supabase
             .from('dirty_linen_counts')
             .delete()
@@ -248,105 +257,60 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
             .eq('work_date', today);
         }
       }
-      
+
       setLastSaved(new Date());
-      console.log('Auto-save completed successfully');
-      
-      // Refresh the cart immediately after save
       fetchMyRecords();
-      
     } catch (error) {
       console.error('Auto-save error:', error);
-      toast.error('Auto-save failed: ' + (error as any)?.message || 'Unknown error');
+      toast.error(`Auto-save failed: ${(error as any)?.message || 'Unknown error'}`);
     } finally {
       setAutoSaving(false);
     }
-  }, [user?.id, roomId, assignmentId, fetchMyRecords]);
+  }, [user?.id, roomId, assignmentId, autoSaving, fetchMyRecords, fetchExistingCounts, notifyAlreadyConfirmed]);
 
   const updateCount = (linenItemId: string, newCount: number) => {
-    // Allow zero but not negative values
     if (newCount < 0) newCount = 0;
-    
+
     const updatedCounts = (() => {
       const existing = linenCounts.find(c => c.linen_item_id === linenItemId);
       if (existing) {
-        // Update existing count
-        return linenCounts.map(c => 
-          c.linen_item_id === linenItemId ? { ...c, count: newCount } : c
-        );
+        return linenCounts.map(c => c.linen_item_id === linenItemId ? { ...c, count: newCount } : c);
       } else if (newCount > 0) {
-        // Add new count only if greater than 0
         return [...linenCounts, { linen_item_id: linenItemId, count: newCount }];
-      } else {
-        // If newCount is 0 and no existing record, don't add anything
-        return linenCounts;
       }
+      return linenCounts;
     })();
-    
-    setLinenCounts(updatedCounts);
 
-    // Clear existing timeout
-    if (autoSaveTimeout) {
-      clearTimeout(autoSaveTimeout);
-    }
-    
-    // Save all updated counts to prevent inconsistencies
-    const timeout = setTimeout(() => {
-      autoSave(updatedCounts);
-    }, 300); // Reduced delay for better UX
-    
+    setLinenCounts(updatedCounts);
+    if (autoSaveTimeout) clearTimeout(autoSaveTimeout);
+    const timeout = setTimeout(() => autoSave(updatedCounts), 300);
     setAutoSaveTimeout(timeout);
   };
 
   const deleteRecord = async (recordId: string) => {
     try {
-      console.log('Attempting to delete record:', recordId);
-      
       const { data, error } = await supabase
         .from('dirty_linen_counts')
         .delete()
         .eq('id', recordId)
-        .eq('housekeeper_id', user?.id) // Security check
+        .eq('housekeeper_id', user?.id)
         .select();
 
-      if (error) {
-        console.error('Delete error:', error);
-        throw error;
-      }
-      
-      console.log('Delete successful, removed:', data);
+      if (error) throw error;
       toast.success('Record deleted successfully');
-      
-      // Force refresh both lists
-      await Promise.all([
-        fetchMyRecords(),
-        fetchExistingCounts()
-      ]);
+      await Promise.all([fetchMyRecords(), fetchExistingCounts()]);
     } catch (error: any) {
       console.error('Error deleting record:', error);
       toast.error(error.message || 'Failed to delete record');
     }
   };
 
-  // Helper function to get count from updated array
-  const getCountFromUpdated = (linenItemId: string, counts: LinenCount[]): number => {
-    const item = counts.find(count => count.linen_item_id === linenItemId);
-    return item ? item.count : 0;
-  };
-
-  const getCount = (linenItemId: string): number => {
-    const item = linenCounts.find(count => count.linen_item_id === linenItemId);
-    return item ? item.count : 0;
-  };
-
-  const getTotalItems = () => {
-    return linenCounts.reduce((total, item) => total + item.count, 0);
-  };
+  const getCount = (linenItemId: string): number => linenCounts.find(count => count.linen_item_id === linenItemId)?.count || 0;
+  const getTotalItems = () => linenCounts.reduce((total, item) => total + item.count, 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl w-[96vw] max-h-[92vh] h-[92vh] flex flex-col p-3 sm:p-6 gap-2 overflow-hidden">
-
         <DialogHeader className="space-y-3">
           <div className="flex items-center gap-2 pr-8">
             <Shirt className="h-5 w-5 flex-shrink-0" />
@@ -356,10 +320,10 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
           </div>
           <div className="flex justify-end w-full">
             <Button
-              variant={showMyRecords ? "default" : "outline"}
+              variant={showMyRecords ? 'default' : 'outline'}
               size="sm"
               onClick={() => setShowMyRecords(!showMyRecords)}
-              className={`max-w-full whitespace-normal text-left h-auto py-1.5 text-xs leading-tight ${showMyRecords ? "bg-primary hover:bg-primary/90 text-primary-foreground" : "border-primary text-primary hover:bg-primary/10"}`}
+              className={`max-w-full whitespace-normal text-left h-auto py-1.5 text-xs leading-tight ${showMyRecords ? 'bg-primary hover:bg-primary/90 text-primary-foreground' : 'border-primary text-primary hover:bg-primary/10'}`}
             >
               🛒 {t('dirtyLinen.myCart')} ({myRecords.length})
             </Button>
@@ -367,187 +331,105 @@ export function DirtyLinenDialog({ open, onOpenChange, roomId, roomNumber, assig
         </DialogHeader>
 
         <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-        {showMyRecords ? (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">{t('dirtyLinen.myCart')}</h3>
-              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                {t('dirtyLinen.totalItemsLabel').replace('{count}', String(myRecords.reduce((total, record) => total + record.count, 0)))}
-              </Badge>
-            </div>
-            
-            <p className="text-sm text-muted-foreground">
-              {t('dirtyLinen.itemsCollectedFrom')}
-            </p>
-            
-            {myRecords.length === 0 ? (
-              <div className="text-center py-12 bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl border-2 border-dashed border-slate-200">
-                <div className="bg-white rounded-full w-20 h-20 mx-auto mb-4 flex items-center justify-center shadow-sm">
-                  <Shirt className="h-10 w-10 text-slate-400" />
-                </div>
-                <p className="text-slate-600 font-medium text-base">{t('dirtyLinen.noItemsCollected')}</p>
-                <p className="text-sm text-slate-500 mt-2">{t('dirtyLinen.startCollecting')}</p>
+          {showMyRecords ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">{t('dirtyLinen.myCart')}</h3>
+                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                  {t('dirtyLinen.totalItemsLabel').replace('{count}', String(myRecords.reduce((total, record) => total + record.count, 0)))}
+                </Badge>
               </div>
-            ) : (
-              <div className="space-y-3">
-                {myRecords.map((record, index) => (
-                  <Card key={record.id} className="overflow-hidden border-l-4 border-l-primary hover:shadow-lg transition-all duration-200">
-                    <div className="p-4">
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="flex-1 space-y-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Badge variant="default" className="font-mono text-xs bg-primary/90">
-                              {t('common.room')} {record.room_number}
-                            </Badge>
-                            <span className="text-xs text-muted-foreground">
-                              {new Date(record.work_date).toLocaleDateString(undefined, { 
-                                month: 'short', 
-                                day: 'numeric',
-                                year: 'numeric'
-                              })}
-                            </span>
-                            {index === 0 && (
-                              <Badge variant="secondary" className="text-xs bg-green-100 text-green-700 border-green-200">
-                                {t('dirtyLinen.latest')}
-                              </Badge>
-                            )}
-                          </div>
-                          
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-2">
-                              <Shirt className="h-5 w-5 text-primary" />
-                              <span className="font-semibold text-base">{getLinenDisplayName(record.linen_item_name, record.display_name, t)}</span>
+
+              <p className="text-sm text-muted-foreground">{t('dirtyLinen.itemsCollectedFrom')}</p>
+
+              {myRecords.length === 0 ? (
+                <div className="text-center py-12 bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl border-2 border-dashed border-slate-200">
+                  <div className="bg-white rounded-full w-20 h-20 mx-auto mb-4 flex items-center justify-center shadow-sm">
+                    <Shirt className="h-10 w-10 text-slate-400" />
+                  </div>
+                  <p className="text-slate-600 font-medium text-base">{t('dirtyLinen.noItemsCollected')}</p>
+                  <p className="text-sm text-slate-500 mt-2">{t('dirtyLinen.startCollecting')}</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {myRecords.map((record, index) => (
+                    <Card key={record.id} className="overflow-hidden border-l-4 border-l-primary hover:shadow-lg transition-all duration-200">
+                      <div className="p-4">
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="flex-1 space-y-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant="default" className="font-mono text-xs bg-primary/90">{t('common.room')} {record.room_number}</Badge>
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(record.work_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                              </span>
+                              {index === 0 && <Badge variant="secondary" className="text-xs bg-green-100 text-green-700 border-green-200">{t('dirtyLinen.latest')}</Badge>}
                             </div>
-                            <Badge variant="outline" className="text-base font-bold px-3 py-1 bg-blue-50">
-                              × {record.count}
-                            </Badge>
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2"><Shirt className="h-5 w-5 text-primary" /><span className="font-semibold text-base">{getLinenDisplayName(record.linen_item_name, record.display_name, t)}</span></div>
+                              <Badge variant="outline" className="text-base font-bold px-3 py-1 bg-blue-50">× {record.count}</Badge>
+                            </div>
                           </div>
+
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="icon" className="text-red-600 hover:text-red-700 hover:bg-red-50 shrink-0"><Trash2 className="h-5 w-5" /></Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>{t('dirtyLinen.removeConfirmTitle')}</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  {t('dirtyLinen.removeConfirmDescription').replace('{item}', getLinenDisplayName(record.linen_item_name, record.display_name, t)).replace('{count}', String(record.count)).replace('{room}', record.room_number)}
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => deleteRecord(record.id)} className="bg-red-600 hover:bg-red-700">{t('dirtyLinen.remove')}</AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </div>
-                        
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button 
-                              variant="ghost" 
-                              size="icon"
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50 shrink-0"
-                            >
-                              <Trash2 className="h-5 w-5" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>{t('dirtyLinen.removeConfirmTitle')}</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                {t('dirtyLinen.removeConfirmDescription')
-                                  .replace('{item}', getLinenDisplayName(record.linen_item_name, record.display_name, t))
-                                  .replace('{count}', String(record.count))
-                                  .replace('{room}', record.room_number)}
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-                              <AlertDialogAction 
-                                onClick={() => deleteRecord(record.id)}
-                                className="bg-red-600 hover:bg-red-700"
-                              >
-                                {t('dirtyLinen.remove')}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="mb-2 flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-1.5">
+                <span className="text-sm font-semibold">{t('dirtyLinen.todaysCount')}</span>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs">{getTotalItems()} {t('dirtyLinen.items')}</Badge>
+                  {autoSaving && <div className="flex items-center gap-1"><div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary"></div><span className="text-xs text-muted-foreground">{t('dirtyLinen.saving')}</span></div>}
+                  {lastSaved && !autoSaving && <div className="flex items-center gap-1"><CheckCircle className="h-3 w-3 text-green-500" /><span className="text-xs text-muted-foreground">{t('dirtyLinen.saved')}</span></div>}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2">
+                {linenItems.map((item) => (
+                  <Card key={item.id} className="p-2 hover:bg-muted/50 transition-colors">
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-start gap-1.5">
+                        <Shirt className="h-3.5 w-3.5 text-primary flex-shrink-0 mt-0.5" />
+                        <Label className="text-xs sm:text-sm font-medium leading-tight break-words hyphens-auto">{getLinenDisplayName(item.name, item.display_name, t)}</Label>
+                      </div>
+                      <div className="flex items-center gap-1 w-full">
+                        <Button type="button" variant="outline" size="sm" className="h-9 w-9 p-0 shrink-0" disabled={getCount(item.id) <= 0} onClick={() => updateCount(item.id, Math.max(0, getCount(item.id) - 1))}><Minus className="h-4 w-4" /></Button>
+                        <Input type="number" min="0" value={getCount(item.id)} onChange={(e) => updateCount(item.id, parseInt(e.target.value) || 0)} className="h-9 flex-1 min-w-0 px-1 text-center text-sm" />
+                        <Button type="button" variant="outline" size="sm" className="h-9 w-9 p-0 shrink-0" onClick={() => updateCount(item.id, getCount(item.id) + 1)}><Plus className="h-4 w-4" /></Button>
                       </div>
                     </div>
                   </Card>
                 ))}
               </div>
-            )}
-          </div>
-        ) : (
-          <>
-            <div className="mb-2 flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-1.5">
-              <span className="text-sm font-semibold">{t('dirtyLinen.todaysCount')}</span>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className="text-xs">
-                  {getTotalItems()} {t('dirtyLinen.items')}
-                </Badge>
-                {autoSaving && (
-                  <div className="flex items-center gap-1">
-                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-primary"></div>
-                    <span className="text-xs text-muted-foreground">{t('dirtyLinen.saving')}</span>
-                  </div>
-                )}
-                {lastSaved && !autoSaving && (
-                  <div className="flex items-center gap-1">
-                    <CheckCircle className="h-3 w-3 text-green-500" />
-                    <span className="text-xs text-muted-foreground">{t('dirtyLinen.saved')}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-
-            {/* Label sits on its own line above the counter so long Cyrillic
-                item names wrap in full instead of being clipped. */}
-            <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2">
-              {linenItems.map((item) => (
-                <Card key={item.id} className="p-2 hover:bg-muted/50 transition-colors">
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-start gap-1.5">
-                      <Shirt className="h-3.5 w-3.5 text-primary flex-shrink-0 mt-0.5" />
-                      <Label className="text-xs sm:text-sm font-medium leading-tight break-words hyphens-auto">
-                        {getLinenDisplayName(item.name, item.display_name, t)}
-                      </Label>
-                    </div>
-
-                    <div className="flex items-center gap-1 w-full">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-9 w-9 p-0 shrink-0"
-                        disabled={getCount(item.id) <= 0}
-                        onClick={() => updateCount(item.id, Math.max(0, getCount(item.id) - 1))}
-                      >
-                        <Minus className="h-4 w-4" />
-                      </Button>
-
-                      <Input
-                        type="number"
-                        min="0"
-                        value={getCount(item.id)}
-                        onChange={(e) => updateCount(item.id, parseInt(e.target.value) || 0)}
-                        className="h-9 flex-1 min-w-0 px-1 text-center text-sm"
-                      />
-
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-9 w-9 p-0 shrink-0"
-                        onClick={() => updateCount(item.id, getCount(item.id) + 1)}
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          </>
-        )}
+            </>
+          )}
         </div>
 
         <div className="flex gap-2 pt-2 shrink-0 border-t mt-1">
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="flex-1">
-            {t('common.close')}
-          </Button>
-          <div className="flex-1 text-center self-center">
-            <p className="text-xs text-muted-foreground">
-              {t('dirtyLinen.autoSave')}
-            </p>
-          </div>
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="flex-1">{t('common.close')}</Button>
+          <div className="flex-1 text-center self-center"><p className="text-xs text-muted-foreground">{t('dirtyLinen.autoSave')}</p></div>
         </div>
-
       </DialogContent>
     </Dialog>
   );
