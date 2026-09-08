@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { MotionConfig } from 'framer-motion';
-import { MapPin, Users } from 'lucide-react';
+import { Loader2, MapPin, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
@@ -194,7 +194,29 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   if (isMemories) {
     return (
       <>
-        {props.open && (
+        {props.open && !liveAssignmentStateReady && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/55 p-4 backdrop-blur-[1px]">
+            <div
+              role="status"
+              aria-live="polite"
+              className="w-full max-w-md rounded-2xl border bg-background p-5 shadow-2xl"
+            >
+              <div className="flex items-center gap-3">
+                <div className="rounded-full bg-sky-50 p-2.5 text-sky-600 dark:bg-sky-950/40">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                </div>
+                <div>
+                  <div className="font-semibold">Preparing Auto Room Assignment</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">
+                    Loading live room status, today's assignments and Hotel Memories zone mapping…
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {props.open && liveAssignmentStateReady && (
           <div
             data-auto-assign-mode-switch
             className="pointer-events-auto fixed left-1/2 top-2 z-[10000] flex -translate-x-1/2 items-center gap-1 rounded-xl border bg-background/95 p-1 shadow-lg backdrop-blur sm:top-3"
