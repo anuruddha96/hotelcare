@@ -33,6 +33,7 @@ import {
 import { useFirstRunTour, TourReplayButton, type TourStep } from '@/components/training/GuidedTour';
 import { VerifyInvoiceDialog } from '@/components/purchase-invoices/VerifyInvoiceDialog';
 import { InvoiceSettingsPanel } from '@/components/purchase-invoices/InvoiceSettingsPanel';
+import { InvoiceIntelligenceAnalytics } from '@/components/purchase-invoices/InvoiceIntelligenceAnalytics';
 import { useFinanceAccess } from '@/hooks/useFinanceAccess';
 import { workflowLabel } from '@/lib/purchaseInvoiceWorkflow';
 
@@ -781,6 +782,13 @@ export default function PurchaseInvoices() {
                 </Alert>
               )}
 
+              <InvoiceIntelligenceAnalytics
+                invoices={rangedInvoices}
+                allInvoices={invoices}
+                organizationSlug={profile?.organization_slug || ''}
+                onOpenInvoice={setVerifyId}
+              />
+
               <Card>
                 <CardHeader><CardTitle className="text-base">{t('pi.analytics.dailyTrend')}</CardTitle></CardHeader>
                 <CardContent style={{ height: 240 }}>
@@ -1403,5 +1411,4 @@ function UploadJobRow({ job, onPreview, onDismiss }: { job: UploadJob; onPreview
     </div>
   );
 }
-
 
