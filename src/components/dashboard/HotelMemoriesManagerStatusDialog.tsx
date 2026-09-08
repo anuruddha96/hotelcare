@@ -175,6 +175,29 @@ const toneClasses = (tone: WorkClass['tone']) => {
   }
 };
 
+const formatCleaningDuration = (
+  startedAt?: string | null,
+  completedAt?: string | null,
+  nowMs: number = Date.now(),
+) => {
+  if (!startedAt) return null;
+  const startMs = new Date(startedAt).getTime();
+  const endMs = completedAt ? new Date(completedAt).getTime() : nowMs;
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+
+  const totalMinutes = Math.floor((endMs - startMs) / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours}h ${minutes}m` : `${totalMinutes} min`;
+};
+
+const formatCleaningStartTime = (startedAt?: string | null) => {
+  if (!startedAt) return null;
+  const date = new Date(startedAt);
+  if (!Number.isFinite(date.getTime())) return null;
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
 function MemoriesManagerRoomCard({
   assignment,
   staffName,
@@ -190,6 +213,17 @@ function MemoriesManagerRoomCard({
   onPatch: (assignmentId: string, patch: Record<string, any>, message: string) => Promise<void>;
   onRemove: (assignmentId: string, roomNumber: string) => Promise<void>;
 }) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (assignment.status !== 'in_progress' || !assignment.started_at) return;
+
+    const updateClock = () => setNowMs(Date.now());
+    updateClock();
+    const interval = window.setInterval(updateClock, 30_000);
+    return () => window.clearInterval(interval);
+  }, [assignment.status, assignment.started_at]);
+
   const room = assignment.rooms;
   if (!room) return null;
 
@@ -212,6 +246,19 @@ function MemoriesManagerRoomCard({
     null;
   const nights = room.guest_nights_stayed || room.pms_metadata?.currentNight || null;
   const canChangePendingWork = canEdit && ['assigned', 'dnd_pending_retry'].includes(assignment.status);
+  const actualCleaningDuration = formatCleaningDuration(
+    assignment.started_at,
+    assignment.status === 'completed' ? assignment.completed_at : null,
+    nowMs,
+  );
+  const cleaningStartedAt = formatCleaningStartTime(assignment.started_at);
+  const durationLabel = assignment.status === 'in_progress'
+    ? (actualCleaningDuration ? `Cleaning for ${actualCleaningDuration}` : 'Cleaning timer unavailable')
+    : assignment.status === 'completed' && actualCleaningDuration
+      ? `Cleaning duration ${actualCleaningDuration}`
+      : assignment.estimated_duration
+        ? `Estimated ${assignment.estimated_duration} min`
+        : 'Duration not set';
 
   return (
     <Card className={optionalDaily ? 'overflow-hidden border-l-4 border-l-emerald-500 bg-emerald-50/30 dark:bg-emerald-950/10' : 'overflow-hidden'}>
@@ -296,7 +343,12 @@ function MemoriesManagerRoomCard({
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-xs text-muted-foreground">
-          <span>{assignment.estimated_duration ? `${assignment.estimated_duration} min` : 'Duration not set'} · Room status: {room.status || 'unknown'}</span>
+          <span className={assignment.status === 'in_progress' ? 'font-medium text-blue-700 dark:text-blue-300' : undefined}>
+            {durationLabel}
+            {cleaningStartedAt && ['in_progress', 'completed'].includes(assignment.status) ? ` · Started ${cleaningStartedAt}` : ''}
+            {assignment.status === 'in_progress' && assignment.estimated_duration ? ` · Est. ${assignment.estimated_duration} min` : ''}
+            {' · '}Room status: {room.status || 'unknown'}
+          </span>
           {assignment.status === 'completed' && (
             <span className="flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-300">
               {assignment.supervisor_approved ? <ShieldCheck className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
