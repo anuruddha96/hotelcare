@@ -1,0 +1,27 @@
+name: Validate shared room branch
+
+on:
+  push:
+    branches:
+      - feature/shared-housekeeping-rooms
+    paths:
+      - .github/workflows/validate-shared-room-branch.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/shared-housekeeping-rooms
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
