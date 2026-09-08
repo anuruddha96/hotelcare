@@ -6,7 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Sparkles, ShieldCheck, CreditCard } from 'lucide-react';
 import {
-  earlyBirdActive, formatMoney, listPriceFor, trialIsRunning, type BillingSummary,
+  effectivePriceFor,
+  formatMoney,
+  listPriceFor,
+  promotionActiveFor,
+  promotionFor,
+  trialIsRunning,
+  type BillingSummary,
 } from '@/hooks/useBilling';
 
 /**
@@ -32,9 +38,10 @@ export function ActivateModuleDialog({
   const settings = summary?.settings;
   const currency = settings?.currency ?? 'EUR';
   const rooms = summary?.hotels.find((h) => h.hotel_id === hotelId)?.rooms ?? 0;
-  const unit = settings?.revenue_automation_price_cents ?? 0;
+  const unit = effectivePriceFor(settings, 'revenue_automation');
   const list = listPriceFor(settings, 'revenue_automation');
-  const promo = earlyBirdActive(settings) && list > unit;
+  const promoConfig = promotionFor(settings, 'revenue_automation');
+  const promo = promotionActiveFor(settings, 'revenue_automation') && list > unit;
   const trial = trialIsRunning(summary);
 
   const goToPayments = () => {
@@ -72,7 +79,7 @@ export function ActivateModuleDialog({
                 <span className="font-semibold">{formatMoney(unit, currency)} / room</span>
                 {promo && (
                   <Badge variant="secondary" className="text-[10px]">
-                    {settings?.early_bird_label ?? 'Early bird'}
+                    {promoConfig.label ?? 'Promotion'}
                   </Badge>
                 )}
               </span>
@@ -84,8 +91,8 @@ export function ActivateModuleDialog({
                 VAT
               </p>
             )}
-            {promo && settings?.early_bird_note && (
-              <p className="mt-1 text-xs text-primary">{settings.early_bird_note}</p>
+            {promo && promoConfig.note && (
+              <p className="mt-1 text-xs text-primary">{promoConfig.note}</p>
             )}
           </div>
 
