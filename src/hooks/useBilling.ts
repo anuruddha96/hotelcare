@@ -47,18 +47,35 @@ export interface BillingSettings {
   revenue_percent_bps: number;
   revenue_percent_min_cents: number;
   revenue_percent_cap_cents: number;
-  /** Standard (list) prices — shown struck through while the promotion runs. */
+  /** Standard (list) prices — shown struck through while that module's promotion runs. */
   standard_revenue_bi_price_cents: number;
   standard_revenue_automation_price_cents: number;
   standard_operations_price_cents: number;
+  /** Legacy fields retained as the Operations / Housekeeping promotion. */
   early_bird_enabled: boolean;
   early_bird_label: string;
   early_bird_note: string;
   early_bird_ends_at: string | null;
+  /** Revenue BI promotion; independent from Housekeeping and Automation. */
+  revenue_bi_promo_enabled?: boolean;
+  revenue_bi_promo_label?: string | null;
+  revenue_bi_promo_note?: string | null;
+  revenue_bi_promo_ends_at?: string | null;
+  /** BI + Automation promotion; independent from Housekeeping and BI-only. */
+  revenue_automation_promo_enabled?: boolean;
+  revenue_automation_promo_label?: string | null;
+  revenue_automation_promo_note?: string | null;
+  revenue_automation_promo_ends_at?: string | null;
   /** Days of continued access after the free trial ends. */
   grace_days: number;
 }
 
+export interface ModulePromotion {
+  enabled: boolean;
+  label: string | null;
+  note: string | null;
+  endsAt: string | null;
+}
 
 /** Last full month's realised revenue and the resulting percentage fee. */
 export interface RevenueUsage {
@@ -189,11 +206,79 @@ export function listPriceFor(settings: BillingSettings | undefined | null, modul
   }
 }
 
-/** Whether the launch promotion is still running for this organization. */
+/** Promotion metadata for exactly one module. Maintenance is not promotional. */
+export function promotionFor(
+  settings: BillingSettings | undefined | null,
+  module: BillingModule,
+): ModulePromotion {
+  if (!settings) return { enabled: false, label: null, note: null, endsAt: null };
+  switch (normaliseModule(module)) {
+    case 'operations':
+      return {
+        enabled: Boolean(settings.early_bird_enabled),
+        label: settings.early_bird_label || null,
+        note: settings.early_bird_note || null,
+        endsAt: settings.early_bird_ends_at || null,
+      };
+    case 'revenue_bi':
+      return {
+        enabled: Boolean(settings.revenue_bi_promo_enabled),
+        label: settings.revenue_bi_promo_label || null,
+        note: settings.revenue_bi_promo_note || null,
+        endsAt: settings.revenue_bi_promo_ends_at || null,
+      };
+    case 'revenue_automation':
+      return {
+        enabled: Boolean(settings.revenue_automation_promo_enabled),
+        label: settings.revenue_automation_promo_label || null,
+        note: settings.revenue_automation_promo_note || null,
+        endsAt: settings.revenue_automation_promo_ends_at || null,
+      };
+    default:
+      return { enabled: false, label: null, note: null, endsAt: null };
+  }
+}
+
+/** Whether the promotion is running for this exact module. */
+export function promotionActiveFor(settings: BillingSettings | undefined | null, module: BillingModule) {
+  const promo = promotionFor(settings, module);
+  if (!promo.enabled) return false;
+  if (!promo.endsAt) return true;
+  return new Date(`${promo.endsAt.slice(0, 10)}T23:59:59.999Z`).getTime() > Date.now();
+}
+
+/** Raw configured per-room price before an expired promotion is rolled back. */
+function configuredPriceFor(settings: BillingSettings | undefined | null, module: BillingModule) {
+  if (!settings) return 0;
+  switch (normaliseModule(module)) {
+    case 'revenue_bi':
+      return settings.revenue_bi_price_cents ?? 0;
+    case 'revenue_automation':
+      return settings.revenue_automation_price_cents || settings.revenue_price_cents || 0;
+    case 'maintenance':
+      return settings.maintenance_pricing_mode === 'per_room' ? settings.maintenance_price_cents ?? 0 : 0;
+    default:
+      return settings.operations_price_cents ?? 0;
+  }
+}
+
+/**
+ * Effective price charged now. If a configured promotion has reached its end
+ * date, billing automatically returns to that module's standard price.
+ */
+export function effectivePriceFor(settings: BillingSettings | undefined | null, module: BillingModule) {
+  const configured = configuredPriceFor(settings, module);
+  const promo = promotionFor(settings, module);
+  if (promo.enabled && promo.endsAt && !promotionActiveFor(settings, module)) {
+    const standard = listPriceFor(settings, module);
+    return standard > 0 ? standard : configured;
+  }
+  return configured;
+}
+
+/** Backwards-compatible helper: early_bird_* now means Housekeeping only. */
 export function earlyBirdActive(settings: BillingSettings | undefined | null) {
-  if (!settings?.early_bird_enabled) return false;
-  if (!settings.early_bird_ends_at) return true;
-  return new Date(settings.early_bird_ends_at).getTime() > Date.now();
+  return promotionActiveFor(settings, 'operations');
 }
 
 /** One-off read of the billing summary (used by the activation gate). */
@@ -207,7 +292,6 @@ export async function fetchBillingSummary(organizationSlug?: string | null) {
   if (!payload || payload.error) return null;
   return payload;
 }
-
 
 /** VAT for a net amount, using the organization's rate. */
 export function vatCents(summary: BillingSummary | null, netCents: number) {
