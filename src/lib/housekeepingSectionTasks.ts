@@ -51,9 +51,11 @@ export function clearLiveSectionTaskSnapshot(): void {
 }
 
 /**
- * Give each mapped area's recurring work to the cleaner who owns most of that
- * section's room workload. If a section has no dirty room that day, the least
- * loaded selected cleaner receives it so shared areas are never forgotten.
+ * Give each mapped area's recurring work to the cleaner who owns the most rooms
+ * in that operational section. Room weight breaks ties, so the task stays with
+ * the visible section owner while still respecting heavier room workloads. If a
+ * section has no dirty room that day, the least loaded selected cleaner receives
+ * it so shared areas are never forgotten.
  *
  * When an existing-date snapshot is present, do not recalculate public areas.
  * Replay the exact persisted task set and owners instead. Managers may still
@@ -121,8 +123,8 @@ export function assignSectionTasksToStaff(
       })
       .filter(candidate => candidate.roomCount > 0)
       .sort((a, b) =>
-        b.roomWeight - a.roomWeight
-        || b.roomCount - a.roomCount
+        b.roomCount - a.roomCount
+        || b.roomWeight - a.roomWeight
         || a.preview.totalWithBreak - b.preview.totalWithBreak
         || a.preview.staffName.localeCompare(b.preview.staffName)
       );
