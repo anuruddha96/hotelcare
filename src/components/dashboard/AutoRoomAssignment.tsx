@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { MotionConfig } from 'framer-motion';
-import { Loader2, MapPin, Users } from 'lucide-react';
+import { ArrowLeftRight, GripVertical, Loader2, MapPin, Users, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
@@ -9,6 +10,10 @@ import {
   clearLiveSectionTaskSnapshot,
   setLiveSectionTaskSnapshot,
 } from '@/lib/housekeepingSectionTasks';
+import {
+  swapAssignmentOwnerId,
+  swapAssignmentPreviewOwners,
+} from '@/lib/autoAssignmentHousekeeperSwap';
 import { AutoRoomAssignment as AutoRoomAssignmentImpl } from './AutoRoomAssignmentImpl';
 import { MemoriesZoneAutoAssignment } from './MemoriesZoneAutoAssignment';
 
@@ -35,6 +40,22 @@ const toViewportPoint = ({ x, y }: { x: number; y: number }) => {
 type AutoRoomAssignmentProps = React.ComponentProps<typeof AutoRoomAssignmentImpl>;
 type MemoriesAutoAssignView = 'housekeeper' | 'zone';
 
+type SwapCandidate = {
+  staffId: string;
+  staffName: string;
+  roomCount: number;
+  checkoutCount: number;
+  dailyCount: number;
+};
+
+type SavedAutoAssignmentDraft = {
+  staffIds?: string[];
+  previews?: any[];
+  excludedRoomIds?: string[];
+  maintenanceHoldRoomIds?: string[];
+  savedAt?: number;
+};
+
 const MEMORIES_VIEW_KEY = 'hotel-memories-auto-assign-view';
 
 function isHotelMemoriesKey(value?: string | null) {
@@ -46,13 +67,18 @@ function getAutoAssignDraftKey(hotel: string | null | undefined, date: string) {
   return hotel ? `auto_assignment_v2_${hotel}_${date}` : null;
 }
 
-function hasSavedDraft(key: string | null) {
-  if (!key || typeof window === 'undefined') return false;
+function readSavedDraft(key: string | null): SavedAutoAssignmentDraft | null {
+  if (!key || typeof window === 'undefined') return null;
   try {
-    return window.localStorage.getItem(key) !== null;
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) as SavedAutoAssignmentDraft : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+function hasSavedDraft(key: string | null) {
+  return readSavedDraft(key) !== null;
 }
 
 function removeSavedDraft(key: string | null) {
@@ -64,11 +90,34 @@ function removeSavedDraft(key: string | null) {
   }
 }
 
+function getSwapCandidates(draft: SavedAutoAssignmentDraft | null): SwapCandidate[] {
+  if (!Array.isArray(draft?.previews)) return [];
+  const seen = new Set<string>();
+  return draft.previews.flatMap((preview: any) => {
+    if (!preview?.staffId || seen.has(preview.staffId)) return [];
+    seen.add(preview.staffId);
+    const rooms = Array.isArray(preview.rooms) ? preview.rooms : [];
+    return [{
+      staffId: preview.staffId,
+      staffName: preview.staffName || 'Housekeeper',
+      roomCount: rooms.length,
+      checkoutCount: Number(preview.checkoutCount || 0),
+      dailyCount: Number(preview.dailyCount || 0),
+    }];
+  });
+}
+
 export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   const { profile } = useAuth();
   const isMemories = isHotelMemoriesKey(profile?.assigned_hotel);
   const [memoriesView, setMemoriesView] = useState<MemoriesAutoAssignView>('housekeeper');
   const [preparedRealityKey, setPreparedRealityKey] = useState<string | null>(null);
+  const [assignmentRevision, setAssignmentRevision] = useState(0);
+  const [swapOpen, setSwapOpen] = useState(false);
+  const [swapCandidates, setSwapCandidates] = useState<SwapCandidate[]>([]);
+  const [swapSourceId, setSwapSourceId] = useState<string | null>(null);
+  const [draggedSwapStaffId, setDraggedSwapStaffId] = useState<string | null>(null);
+  const liveSectionTaskSnapshotRef = useRef<Array<{ taskId: string; assignedTo: string }>>([]);
 
   const draftKey = getAutoAssignDraftKey(profile?.assigned_hotel, props.selectedDate);
   const realityKey = profile?.assigned_hotel
@@ -77,7 +126,7 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   const liveAssignmentStateReady = !props.open
     || (!!realityKey && preparedRealityKey === realityKey);
   const assignmentInstanceKey = props.open && liveAssignmentStateReady
-    ? `open:${realityKey || 'unknown'}`
+    ? `open:${realityKey || 'unknown'}:revision:${assignmentRevision}`
     : 'closed';
 
   /**
@@ -93,6 +142,9 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   useEffect(() => {
     if (!props.open) {
       setPreparedRealityKey(null);
+      setSwapOpen(false);
+      setSwapSourceId(null);
+      liveSectionTaskSnapshotRef.current = [];
       clearLiveSectionTaskSnapshot();
       return;
     }
@@ -100,6 +152,7 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
 
     let cancelled = false;
     setPreparedRealityKey(null);
+    liveSectionTaskSnapshotRef.current = [];
     clearLiveSectionTaskSnapshot();
 
     const prepareLiveReality = async () => {
@@ -155,12 +208,15 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
           // An empty snapshot is intentional: it means rooms were assigned but
           // no mapped public areas were assigned for that date. Do not inject
           // newly configured areas into the historical/current-day reality.
-          setLiveSectionTaskSnapshot((liveAreaRows || []).map((row: any) => ({
+          const snapshot = (liveAreaRows || []).map((row: any) => ({
             taskId: row.housekeeping_section_task_id as string,
             assignedTo: row.assigned_to as string,
-          })));
+          }));
+          liveSectionTaskSnapshotRef.current = snapshot;
+          setLiveSectionTaskSnapshot(snapshot);
         } else {
           // No real room assignment yet: use the normal automatic area planner.
+          liveSectionTaskSnapshotRef.current = [];
           clearLiveSectionTaskSnapshot();
         }
       } catch (error) {
@@ -168,6 +224,7 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
         // draft. Fall back to a fresh database load rather than stale local data.
         console.warn('[AutoRoomAssignment] Could not prepare live assignment reality.', error);
         if (draftKey && hasSavedDraft(draftKey)) removeSavedDraft(draftKey);
+        liveSectionTaskSnapshotRef.current = [];
         clearLiveSectionTaskSnapshot();
       } finally {
         if (!cancelled) setPreparedRealityKey(realityKey);
@@ -188,7 +245,84 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
 
   const changeMemoriesView = (next: MemoriesAutoAssignView) => {
     setMemoriesView(next);
+    setSwapOpen(false);
+    setSwapSourceId(null);
     if (typeof window !== 'undefined') window.localStorage.setItem(MEMORIES_VIEW_KEY, next);
+  };
+
+  const openHousekeeperSwap = () => {
+    const draft = readSavedDraft(draftKey);
+    const candidates = getSwapCandidates(draft);
+    if (candidates.length < 2) {
+      toast.info('The housekeeper assignment is still loading. Open the preview first, then try Swap staff again.');
+      return;
+    }
+    setSwapCandidates(candidates);
+    setSwapSourceId(null);
+    setDraggedSwapStaffId(null);
+    setSwapOpen(true);
+  };
+
+  const applyHousekeeperSwap = (firstStaffId: string, secondStaffId: string) => {
+    if (!draftKey || firstStaffId === secondStaffId || typeof window === 'undefined') return;
+
+    const draft = readSavedDraft(draftKey);
+    if (!draft?.previews || draft.previews.length < 2) {
+      toast.error('The current Auto Assign preview could not be read. Please reopen Auto Assign and try again.');
+      setSwapOpen(false);
+      return;
+    }
+
+    const first = draft.previews.find((preview: any) => preview.staffId === firstStaffId);
+    const second = draft.previews.find((preview: any) => preview.staffId === secondStaffId);
+    if (!first || !second) {
+      toast.error('One of those housekeepers is no longer in the current assignment.');
+      setSwapOpen(false);
+      return;
+    }
+
+    const nextDraft: SavedAutoAssignmentDraft = {
+      ...draft,
+      previews: swapAssignmentPreviewOwners(draft.previews as any, firstStaffId, secondStaffId),
+      savedAt: Date.now(),
+    };
+
+    try {
+      window.localStorage.setItem(draftKey, JSON.stringify(nextDraft));
+    } catch {
+      toast.error('The swap could not be saved in this browser.');
+      return;
+    }
+
+    // Existing-date mapped public-area ownership is replayed from a live
+    // snapshot. Swap those owner ids too so the complete mapped workload follows
+    // the housekeeper bundle instead of leaving shared work behind.
+    if (liveSectionTaskSnapshotRef.current.length > 0) {
+      const nextSnapshot = liveSectionTaskSnapshotRef.current.map(task => ({
+        ...task,
+        assignedTo: swapAssignmentOwnerId(task.assignedTo, firstStaffId, secondStaffId),
+      }));
+      liveSectionTaskSnapshotRef.current = nextSnapshot;
+      setLiveSectionTaskSnapshot(nextSnapshot);
+    }
+
+    setSwapOpen(false);
+    setSwapSourceId(null);
+    setDraggedSwapStaffId(null);
+    setAssignmentRevision(revision => revision + 1);
+    toast.success(`${first.staffName} and ${second.staffName} swapped complete workloads. Rooms and mapped areas stayed together.`);
+  };
+
+  const selectHousekeeperForSwap = (staffId: string) => {
+    if (!swapSourceId) {
+      setSwapSourceId(staffId);
+      return;
+    }
+    if (swapSourceId === staffId) {
+      setSwapSourceId(null);
+      return;
+    }
+    applyHousekeeperSwap(swapSourceId, staffId);
   };
 
   if (isMemories) {
@@ -247,6 +381,102 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
               <MapPin className="h-3.5 w-3.5" />
               Zone View
             </Button>
+            {memoriesView === 'housekeeper' && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 px-3 text-xs"
+                onClick={openHousekeeperSwap}
+                title="Swap two housekeepers while keeping each room bundle together"
+              >
+                <ArrowLeftRight className="h-3.5 w-3.5" />
+                Swap staff
+              </Button>
+            )}
+          </div>
+        )}
+
+        {props.open && liveAssignmentStateReady && memoriesView === 'housekeeper' && swapOpen && (
+          <div
+            className="pointer-events-auto fixed inset-0 z-[10001] flex items-center justify-center bg-black/45 p-4 backdrop-blur-[1px]"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Swap housekeepers"
+              className="w-full max-w-2xl rounded-2xl border bg-background p-4 shadow-2xl sm:p-5"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 text-base font-semibold">
+                    <ArrowLeftRight className="h-4 w-4 text-sky-600" />
+                    Swap complete housekeeper workloads
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Drag one housekeeper onto another, or tap the first and then the second. The room bundle stays exactly together; only the housekeepers exchange workloads. Mapped shared-area work follows the same bundle.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 shrink-0"
+                  onClick={() => {
+                    setSwapOpen(false);
+                    setSwapSourceId(null);
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {swapCandidates.map(candidate => {
+                  const selected = swapSourceId === candidate.staffId;
+                  const dragging = draggedSwapStaffId === candidate.staffId;
+                  return (
+                    <button
+                      key={candidate.staffId}
+                      type="button"
+                      draggable
+                      onDragStart={() => {
+                        setDraggedSwapStaffId(candidate.staffId);
+                        setSwapSourceId(candidate.staffId);
+                      }}
+                      onDragEnd={() => setDraggedSwapStaffId(null)}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        const sourceId = draggedSwapStaffId || swapSourceId;
+                        if (sourceId && sourceId !== candidate.staffId) {
+                          applyHousekeeperSwap(sourceId, candidate.staffId);
+                        }
+                      }}
+                      onClick={() => selectHousekeeperForSwap(candidate.staffId)}
+                      className={`rounded-xl border p-3 text-left transition ${selected ? 'border-sky-500 bg-sky-50 ring-2 ring-sky-200 dark:bg-sky-950/30' : 'hover:border-sky-300 hover:bg-muted/50'} ${dragging ? 'opacity-60' : ''}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-semibold">{candidate.staffName}</span>
+                        <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        {candidate.roomCount} rooms · {candidate.checkoutCount} checkout · {candidate.dailyCount} daily
+                      </div>
+                      <div className="mt-2 text-[10px] font-medium text-sky-700 dark:text-sky-300">
+                        {selected ? 'Selected — choose the housekeeper to exchange with' : 'Tap or drag to swap this whole workload'}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4 rounded-lg bg-muted/50 px-3 py-2 text-[11px] text-muted-foreground">
+                This is a workload exchange, not a room shuffle. For example, if Antti owns the 100 Side and Liny owns the 200 Side, swapping them gives Liny the complete 100 Side workload and Antti the complete 200 Side workload in one action.
+              </div>
+            </div>
           </div>
         )}
 
