@@ -6,10 +6,12 @@ import { Button } from '@/components/ui/button';
 import { HoldButton } from '@/components/ui/hold-button';
 import { Clock, MapPin, User, Camera, PlayCircle, AlertTriangle, Shirt, BedDouble, Info, Globe, Loader2 } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useHousekeepingPresence } from '@/hooks/useHousekeepingPresence';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { GuestItemRecoveryNotice } from './GuestItemRecoveryNotice';
 
 interface MobileHousekeepingCardProps {
   assignment: any;
@@ -27,6 +29,7 @@ export function MobileHousekeepingCard({
   onOpenLinen 
 }: MobileHousekeepingCardProps) {
   const { t, language } = useTranslation();
+  useHousekeepingPresence('mobile_housekeeping_card');
 
   const getStatusBadge = () => {
     switch (assignment.status) {
@@ -122,6 +125,8 @@ export function MobileHousekeepingCard({
       </CardHeader>
 
       <CardContent className="space-y-4">
+        <GuestItemRecoveryNotice roomId={assignment.rooms?.id} />
+
         {/* === SPECIAL INSTRUCTIONS — TOP OF CARD === */}
         {hasSpecialInstructions && (
           <div className="space-y-2 -mt-1">

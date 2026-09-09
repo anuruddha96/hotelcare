@@ -1,6 +1,8 @@
 import React from 'react';
 import { LogOut, Sparkles, MapPin, LayoutGrid } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useHousekeepingPresence } from '@/hooks/useHousekeepingPresence';
+import { GuestItemRecoveryInbox } from './GuestItemRecoveryInbox';
 
 export type WorkloadFilter = 'all' | 'checkout' | 'daily' | 'public';
 
@@ -23,6 +25,7 @@ interface Props {
  */
 export function HousekeeperWorkloadFilters({ counts, value, onChange }: Props) {
   const { t } = useTranslation();
+  useHousekeepingPresence('housekeeper_workload');
 
   const chips: Array<{ key: WorkloadFilter; label: string; count: number; icon: React.ReactNode; tone: string }> = [
     {
@@ -56,21 +59,24 @@ export function HousekeeperWorkloadFilters({ counts, value, onChange }: Props) {
   ];
 
   return (
-    <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-      {chips.map(chip => (
-        <button
-          key={chip.key}
-          type="button"
-          data-active={value === chip.key}
-          data-training={`hk-filter-${chip.key}`}
-          onClick={() => onChange(chip.key)}
-          className={`flex min-h-[44px] shrink-0 items-center gap-2 rounded-full border bg-background px-3 text-xs font-medium transition-colors ${chip.tone}`}
-        >
-          {chip.icon}
-          <span className="whitespace-nowrap">{chip.label}</span>
-          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-bold">{chip.count}</span>
-        </button>
-      ))}
+    <div className="space-y-2">
+      <GuestItemRecoveryInbox />
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+        {chips.map(chip => (
+          <button
+            key={chip.key}
+            type="button"
+            data-active={value === chip.key}
+            data-training={`hk-filter-${chip.key}`}
+            onClick={() => onChange(chip.key)}
+            className={`flex min-h-[44px] shrink-0 items-center gap-2 rounded-full border bg-background px-3 text-xs font-medium transition-colors ${chip.tone}`}
+          >
+            {chip.icon}
+            <span className="whitespace-nowrap">{chip.label}</span>
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-bold">{chip.count}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
+import { HousekeepingAutomationSettings } from './HousekeepingAutomationSettings';
 
 type Staff = { id: string; full_name: string; nickname?: string | null };
 type Shift = {
@@ -149,6 +150,9 @@ export function StaffSchedulePlanner() {
           <Button onClick={publishRange}><Send className="h-4 w-4 mr-1" />Publish drafts</Button>
         </div>
       </div>
+
+      <HousekeepingAutomationSettings />
+
       <Card>
         <CardContent className="p-0 overflow-auto max-h-[68vh]">
           <table className="w-full min-w-[900px] border-collapse text-xs">

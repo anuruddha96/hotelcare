@@ -64,6 +64,12 @@ const REQUEST_TYPES = [
   { value: 'other', label: 'Other request', requiresReturn: false },
 ] as const;
 
+const HANDOVER_ROLES = new Set([
+  'reception', 'front_office', 'reception_manager',
+  'manager', 'admin', 'top_management', 'top_management_manager',
+  'housekeeping_manager', 'supervisor',
+]);
+
 function parsePayload(content: string): GuestRequestPayload | null {
   try {
     const parsed = JSON.parse(content) as Partial<GuestRequestPayload>;
@@ -107,7 +113,7 @@ function formatTime(value: string) {
 
 function roleLabel(role?: string | null) {
   const normalized = String(role || '').toLowerCase();
-  if (normalized === 'reception') return 'Reception';
+  if (normalized === 'reception' || normalized === 'front_office' || normalized === 'reception_manager') return 'Reception';
   if (normalized === 'housekeeping') return 'Housekeeper';
   if (normalized === 'supervisor' || normalized === 'housekeeping_manager') return 'Supervisor';
   if (['manager', 'admin', 'top_management', 'top_management_manager'].includes(normalized)) return 'Manager';
@@ -122,7 +128,7 @@ export function RoomGuestRequestsPanel({
   readOnly = false,
   compact = false,
 }: RoomGuestRequestsPanelProps) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [rows, setRows] = useState<GuestRequestRow[]>([]);
   const [profiles, setProfiles] = useState<Record<string, ProfileSummary>>({});
   const [loading, setLoading] = useState(true);
@@ -132,6 +138,8 @@ export function RoomGuestRequestsPanel({
   const [quantity, setQuantity] = useState('2');
   const [detail, setDetail] = useState('');
   const [showAdd, setShowAdd] = useState(false);
+
+  const canRecordImmediateHandover = !readOnly && HANDOVER_ROLES.has(String(profile?.role || ''));
 
   const fetchRequests = useCallback(async () => {
     setLoading(true);
@@ -167,7 +175,7 @@ export function RoomGuestRequestsPanel({
       if (profileError) throw profileError;
 
       const nextProfiles: Record<string, ProfileSummary> = {};
-      for (const profile of (profileRows || []) as ProfileSummary[]) nextProfiles[profile.id] = profile;
+      for (const profileRow of (profileRows || []) as ProfileSummary[]) nextProfiles[profileRow.id] = profileRow;
       setProfiles(nextProfiles);
     } catch (error) {
       console.error('Failed to load guest room requests:', error);
@@ -208,18 +216,34 @@ export function RoomGuestRequestsPanel({
 
   const authorName = (actorId: string) => {
     if (actorId === user?.id) return 'You';
-    const profile = profiles[actorId];
-    if (!profile) return 'Team member';
-    const name = String(profile.nickname || profile.full_name || '').trim();
-    const role = roleLabel(profile.role);
+    const actorProfile = profiles[actorId];
+    if (!actorProfile) return 'Team member';
+    const name = String(actorProfile.nickname || actorProfile.full_name || '').trim();
+    const role = roleLabel(actorProfile.role);
     return name ? `${role} · ${name}` : role;
   };
 
-  const createRequest = async () => {
+  const createRequest = async (mode: 'requested' | 'given_now' = 'requested') => {
     if (readOnly || creating || !user?.id) return;
+    if (mode === 'given_now' && !canRecordImmediateHandover) return;
+
     const config = REQUEST_TYPES.find((item) => item.value === requestType) || REQUEST_TYPES[0];
     const qty = Math.max(1, Math.min(20, Number.parseInt(quantity, 10) || 1));
     const now = new Date().toISOString();
+    const status: RequestStatus = mode === 'requested'
+      ? 'requested'
+      : config.requiresReturn
+        ? 'delivered'
+        : 'resolved';
+    const events: RequestEvent[] = mode === 'requested'
+      ? [{ status: 'requested', actorId: user.id, at: now }]
+      : config.requiresReturn
+        ? [{ status: 'delivered', actorId: user.id, at: now }]
+        : [
+            { status: 'delivered', actorId: user.id, at: now },
+            { status: 'resolved', actorId: user.id, at: now },
+          ];
+    const closed = status === 'resolved';
     const payload: GuestRequestPayload = {
       version: 1,
       workDate,
@@ -227,9 +251,9 @@ export function RoomGuestRequestsPanel({
       label: config.label,
       quantity: qty,
       requiresReturn: config.requiresReturn,
-      status: 'requested',
+      status,
       detail: detail.trim(),
-      events: [{ status: 'requested', actorId: user.id, at: now }],
+      events,
     };
 
     setCreating(true);
@@ -240,17 +264,21 @@ export function RoomGuestRequestsPanel({
         note_type: 'guest_request',
         content: JSON.stringify(payload),
         created_by: user.id,
-        is_resolved: false,
+        is_resolved: closed,
+        resolved_by: closed ? user.id : null,
+        resolved_at: closed ? now : null,
       } as any);
       if (error) throw error;
 
-      toast.success(`${config.label} recorded for Room ${roomNumber}`);
+      toast.success(mode === 'given_now'
+        ? `${config.label} ×${qty} recorded as given to Room ${roomNumber}`
+        : `${config.label} recorded for Room ${roomNumber}`);
       setDetail('');
       setShowAdd(false);
       await fetchRequests();
     } catch (error) {
       console.error('Failed to create guest room request:', error);
-      toast.error('Could not record the guest request.');
+      toast.error(mode === 'given_now' ? 'Could not record the guest handover.' : 'Could not record the guest request.');
     } finally {
       setCreating(false);
     }
@@ -344,10 +372,23 @@ export function RoomGuestRequestsPanel({
             rows={2}
             placeholder="Optional detail, e.g. guest requested 2 bath towels…"
           />
-          <Button type="button" className="w-full" disabled={creating} onClick={() => void createRequest()}>
-            {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Record request
-          </Button>
+          <div className={`grid gap-2 ${canRecordImmediateHandover ? 'sm:grid-cols-2' : 'grid-cols-1'}`}>
+            <Button type="button" variant={canRecordImmediateHandover ? 'outline' : 'default'} disabled={creating} onClick={() => void createRequest('requested')}>
+              {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Record request
+            </Button>
+            {canRecordImmediateHandover && (
+              <Button type="button" disabled={creating} onClick={() => void createRequest('given_now')}>
+                {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />}
+                Given to guest now
+              </Button>
+            )}
+          </div>
+          {canRecordImmediateHandover && (
+            <p className="text-[10px] text-muted-foreground">
+              “Given to guest now” records you, quantity and time immediately. Returnable items automatically appear on the next housekeeper's room card until collected.
+            </p>
+          )}
         </div>
       )}
 
