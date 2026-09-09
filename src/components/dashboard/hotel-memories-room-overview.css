@@ -1,0 +1,12 @@
+/*
+ * Hotel Memories Budapest only: the "C/O+1 / Departs tomorrow" hint is not
+ * operationally useful on this room board. Keep the underlying PMS departure
+ * metadata untouched and suppress only its room-chip and legend presentation.
+ */
+.hotel-memories-room-overview span[title="Guest departs tomorrow — plan checkout cleaning"] {
+  display: none !important;
+}
+
+.hotel-memories-room-overview .cursor-help:has(> span.bg-indigo-600) {
+  display: none !important;
+}
