@@ -113,6 +113,14 @@ const SYNC_PROGRESS: Record<SyncStage, number> = {
   arranging: 92,
 };
 
+const RECENT_TOMORROW_PMS_SNAPSHOT_MS = 15 * 60 * 1000;
+
+type ReusableTomorrowSnapshot = {
+  capturedAt: string;
+  rowCount: number;
+  roomCount: number;
+};
+
 function syncStageLabel(stage: SyncStage, language: HousekeepingAutomationLanguage) {
   if (stage === 'contacting') return housekeepingAutomationText('contactingPrevio', language);
   if (stage === 'checkouts') return housekeepingAutomationText('gettingCheckouts', language);
@@ -129,6 +137,60 @@ function addIsoDays(value: string, days: number) {
   const date = new Date(`${value}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+async function findReusableTomorrowSnapshot(args: {
+  organizationSlug: string;
+  hotelId: string;
+  selectedDate: string;
+}): Promise<ReusableTomorrowSnapshot | null> {
+  try {
+    const resolvedKeys = await resolveHotelKeys(args.hotelId);
+    const hotelKeys = Array.from(new Set([args.hotelId, ...resolvedKeys].filter(Boolean)));
+
+    const [snapshotResult, roomCountResult] = await Promise.all([
+      (supabase as any)
+        .from('daily_overview_snapshots')
+        .select('captured_at')
+        .eq('organization_slug', args.organizationSlug)
+        .eq('hotel_id', args.hotelId)
+        .eq('business_date', args.selectedDate)
+        .eq('source', 'previo'),
+      supabase
+        .from('rooms')
+        .select('id', { count: 'exact', head: true })
+        .in('hotel', hotelKeys),
+    ]);
+
+    if (snapshotResult.error || roomCountResult.error) return null;
+
+    const snapshotRows = (snapshotResult.data || []) as Array<{ captured_at: string | null }>;
+    const capturedTimes = snapshotRows
+      .map(row => row.captured_at ? Date.parse(row.captured_at) : Number.NaN)
+      .filter(value => Number.isFinite(value));
+    const roomCount = Number(roomCountResult.count || 0);
+
+    if (capturedTimes.length === 0 || roomCount <= 0 || snapshotRows.length < roomCount) return null;
+
+    const now = Date.now();
+    const oldestCapturedAt = Math.min(...capturedTimes);
+    const newestCapturedAt = Math.max(...capturedTimes);
+    const completeSnapshotIsRecent =
+      now - oldestCapturedAt >= 0
+      && now - oldestCapturedAt <= RECENT_TOMORROW_PMS_SNAPSHOT_MS
+      && newestCapturedAt <= now + 60_000;
+
+    if (!completeSnapshotIsRecent) return null;
+
+    return {
+      capturedAt: new Date(newestCapturedAt).toISOString(),
+      rowCount: snapshotRows.length,
+      roomCount,
+    };
+  } catch (error) {
+    console.warn('[NextDayAssignmentPlanner] recent snapshot check failed:', error);
+    return null;
+  }
 }
 
 function getTomorrowAssignmentType(room: RoomForAssignment): PlanItemRow['assignment_type'] {
@@ -508,7 +570,7 @@ export function NextDayAssignmentPlanner({
     }
   };
 
-  const prepareTomorrow = async () => {
+  const prepareTomorrow = async (forceFresh = false) => {
     if (!profile?.assigned_hotel || !profile.organization_slug) return;
 
     const generation = ++syncGeneration.current;
@@ -517,11 +579,39 @@ export function NextDayAssignmentPlanner({
     setPartialSync(false);
     setSyncStage('contacting');
 
-    const stageTimer = window.setTimeout(() => {
-      if (syncGeneration.current === generation) setSyncStage('checkouts');
-    }, 650);
+    let stageTimer: number | null = null;
 
     try {
+      if (!forceFresh) {
+        const reusableSnapshot = await findReusableTomorrowSnapshot({
+          organizationSlug: profile.organization_slug,
+          hotelId: profile.assigned_hotel,
+          selectedDate,
+        });
+        if (syncGeneration.current !== generation) return;
+
+        if (reusableSnapshot) {
+          setSyncStage('arranging');
+          setPmsSyncedAt(reusableSnapshot.capturedAt);
+          setPartialSync(false);
+          setPmsSnapshot({
+            status: 'success',
+            reusedRecentSnapshot: true,
+            freshnessWindowMinutes: RECENT_TOMORROW_PMS_SNAPSHOT_MS / 60_000,
+            selectedDate,
+            selectedDateOverviewRows: reusableSnapshot.rowCount,
+            expectedHotelRooms: reusableSnapshot.roomCount,
+            capturedAt: reusableSnapshot.capturedAt,
+          });
+          await loadPlanningData();
+          return;
+        }
+      }
+
+      stageTimer = window.setTimeout(() => {
+        if (syncGeneration.current === generation) setSyncStage('checkouts');
+      }, 650);
+
       const result = await runPmsRefresh(profile.assigned_hotel, { trigger: 'manual' });
       if (syncGeneration.current !== generation) return;
 
@@ -576,7 +666,7 @@ export function NextDayAssignmentPlanner({
       console.error('[NextDayAssignmentPlanner] preparation failed:', error);
       setSyncError(error instanceof Error ? error.message : String(error));
     } finally {
-      window.clearTimeout(stageTimer);
+      if (stageTimer !== null) window.clearTimeout(stageTimer);
       if (syncGeneration.current === generation) setSyncing(false);
     }
   };
@@ -925,7 +1015,7 @@ export function NextDayAssignmentPlanner({
               <AlertCircle className="mx-auto mb-3 h-10 w-10 text-destructive" />
               <h3 className="font-semibold">{text('syncFailed')}</h3>
               <p className="mt-2 text-sm text-muted-foreground">{syncError}</p>
-              <Button className="mt-5" onClick={() => void prepareTomorrow()}>
+              <Button className="mt-5" onClick={() => void prepareTomorrow(true)}>
                 <RefreshCw className="mr-2 h-4 w-4" />
                 {text('retrySync')}
               </Button>
