@@ -891,7 +891,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     else {
       const cleanedToday = !!room.last_cleaned_at &&
         new Date(room.last_cleaned_at).toISOString().slice(0, 10) === selectedDate;
-      if (room.status === 'clean' && cleanedToday) statusKey = 'clean';
+      const pmsConfirmedCleanForSelectedDate = room.status === 'clean' && (
+        room.pms_metadata?.pmsSyncDate === selectedDate
+        || room.pms_metadata?.lastPmsRefreshDate === selectedDate
+      );
+      if (room.status === 'clean' && (cleanedToday || pmsConfirmedCleanForSelectedDate)) statusKey = 'clean';
       else if (room.status && room.status !== 'clean') statusKey = room.status;
       else statusKey = 'dirty';
     }

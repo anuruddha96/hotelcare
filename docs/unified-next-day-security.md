@@ -1,0 +1,1 @@
+Tomorrow Auto Assign never creates live room assignments while the manager is planning. The final approved plan is stored in next-day plan tables. The protected 08:00 worker still revalidates PMS room state before room release, and planned public-area rows materialize only after the parent plan reaches released.

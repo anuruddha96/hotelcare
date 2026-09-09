@@ -13,7 +13,7 @@ import {
 } from '@/lib/housekeepingSectionTasks';
 import { AutoRoomAssignment as AutoRoomAssignmentImpl } from './AutoRoomAssignmentImpl';
 import { MemoriesZoneAutoAssignment } from './MemoriesZoneAutoAssignment';
-import { NextDayAssignmentPlanner } from './NextDayAssignmentPlanner';
+import { NextDayAutoRoomAssignmentGate } from './NextDayAutoRoomAssignmentGate';
 
 /**
  * Motion reports drag gesture points in page coordinates, while the Auto Assign
@@ -209,7 +209,11 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
 
   if (isTomorrowPlanner) {
     if (!tomorrowPlanningAvailable) return null;
-    return <NextDayAssignmentPlanner {...props} />;
+    return (
+      <MotionConfig transformPagePoint={toViewportPoint}>
+        <NextDayAutoRoomAssignmentGate {...props} />
+      </MotionConfig>
+    );
   }
 
   if (isMemories) {
