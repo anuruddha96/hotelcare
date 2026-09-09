@@ -3,7 +3,9 @@
 // is used by restaurant staff on shared devices without a login.
 //
 // Before reading, it pulls the latest bookings from the Sales Dashboard (the
-// source of truth for every RD property), throttled per hotel+date.
+// source of truth for every RD property), throttled per hotel+date. Website
+// webhooks remain the primary push path; the pull is the safety net when a
+// website webhook is delayed or temporarily unavailable.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
@@ -27,7 +29,6 @@ function shouldSync(key: string, force: boolean): boolean {
   lastSync.set(key, now);
   return true;
 }
-
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -87,21 +88,25 @@ Deno.serve(async (req) => {
       source = resolvedSource;
     }
 
-
-    // Optional: if an outbound-pull source is configured for this deployment,
-    // refresh before reading. Reservations normally arrive by signed webhook,
-    // so a missing pull configuration is not an error.
-    let syncError: string | null = null;
-    if (source && Deno.env.get("SALES_DASHBOARD_SERVICE_KEY") && shouldSync(`${reservationHotelId}:${serviceDate}`, body?.force === true)) {
+    // Always ask the shared sync layer to refresh when a source is mapped.
+    // Previously this call was silently skipped when the Sales Dashboard secret
+    // was absent, making a broken feed indistinguishable from a genuine zero-
+    // reservation day. syncHotelReservations already validates its own config
+    // and returns a safe error, so let that error reach the caller.
+    let syncAttempted = false;
+    let syncError: string | null = source ? null : "Restaurant reservation source is not configured";
+    let syncedCount = 0;
+    if (source && shouldSync(`${reservationHotelId}:${serviceDate}`, body?.force === true)) {
+      syncAttempted = true;
       try {
         const result = await syncHotelReservations(supabase, reservationHotelId, serviceDate);
         syncError = result.error ?? null;
+        syncedCount = result.synced ?? 0;
       } catch (e) {
         syncError = e instanceof Error ? e.message : String(e);
         console.error("reservation pull failed", syncError);
       }
     }
-
 
     const { data, error } = await supabase
       .from("restaurant_reservations")
@@ -112,15 +117,45 @@ Deno.serve(async (req) => {
 
     if (error) throw error;
 
+    // Track the last real website delivery separately from self-tests. This lets
+    // the public BB screen distinguish a healthy webhook-only property from a
+    // property where neither the website nor the pull fallback is supplying data.
+    const { data: webhookRows } = await supabase
+      .from("restaurant_webhook_log")
+      .select("created_at, source_reservation_id")
+      .eq("hotel_id", reservationHotelId)
+      .eq("outcome", "upserted")
+      .order("created_at", { ascending: false })
+      .limit(25);
+
+    const lastRealWebhook = (webhookRows ?? []).find((r) => {
+      const ref = String(r.source_reservation_id ?? "").toLowerCase();
+      return !ref.startsWith("selftest") && !ref.startsWith("self-test");
+    });
+    const lastWebhookAt = lastRealWebhook?.created_at ?? null;
+
     const rows = data ?? [];
     const active = rows.filter((r) => r.status !== "cancelled");
+    const feedStatus = !source
+      ? "unconfigured"
+      : !syncError
+        ? "dashboard"
+        : lastWebhookAt
+          ? "webhook"
+          : "unavailable";
+
     return new Response(JSON.stringify({
       reservations: rows,
       service_date: serviceDate,
       total_reservations: active.length,
       total_covers: active.reduce((a, r) => a + (r.party_size || 0), 0),
       configured: Boolean(source),
+      source_property: source?.property_slug ?? null,
+      feed_status: feedStatus,
+      sync_attempted: syncAttempted,
       sync_error: syncError,
+      synced_count: syncedCount,
+      last_webhook_at: lastWebhookAt,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   } catch (e: any) {
