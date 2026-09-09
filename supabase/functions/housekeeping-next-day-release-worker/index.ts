@@ -146,9 +146,6 @@ async function fetchAccountFreshRooms(account: any, planDate: string): Promise<F
     console.warn(`[HK release] XML revalidation failed for account ${account.id}:`, error);
   }
 
-  // REST fallback for mixed/legacy tenants. It is accepted only when at least
-  // one embedded reservation is present; an empty room roster is not treated as
-  // authoritative reservation data.
   const { response } = await fetchPrevioWithAuth({
     credentialsSecretName: account.credentials_secret_name,
     path: "/rest/rooms",
@@ -381,6 +378,56 @@ async function notifyReleaseRecovery(admin: any, plan: any, releaseResult: any) 
   }
 }
 
+async function notifyReleaseAdjustments(admin: any, plan: any, validation: any, releaseResult: any) {
+  const skipped = Array.isArray(validation?.skipped_items) ? validation.skipped_items : [];
+  const changes = Array.isArray(validation?.type_changes) ? validation.type_changes : [];
+  if ((!skipped.length && !changes.length) || plan.release_adjustment_notified_at) return;
+
+  const { recipients, hotelName } = await alertContext(admin, plan);
+  const reasonCounts = skipped.reduce((acc: Record<string, number>, item: any) => {
+    const key = String(item?.reason || "other");
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const reasonText = Object.entries(reasonCounts)
+    .map(([reason, count]) => `${reason.replace(/_/g, " ")}: ${count}`)
+    .join(", ");
+  const skippedRooms = [...new Set(skipped.map((item: any) => item?.room_number).filter(Boolean))].slice(0, 20);
+  const changedRooms = [...new Set(changes.map((item: any) => item?.room_number).filter(Boolean))].slice(0, 20);
+  const released = Number(releaseResult?.released_assignments || 0);
+
+  const result = await sendEmail({
+    admin,
+    organizationSlug: plan.organization_slug,
+    to: recipients,
+    subject: `Hotel Care: morning housekeeping plan adjusted — ${hotelName}`,
+    kind: "transactional",
+    text:
+      `${hotelName}: Hotel Care released ${released} assignments for ${plan.plan_date} after fresh validation. ` +
+      `${skipped.length} planned assignment(s) were skipped${reasonText ? ` (${reasonText})` : ""}; ` +
+      `${changes.length} cleaning type(s) changed. Review and redistribute any skipped rooms if needed.`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#172033">
+        <h2 style="margin:0 0 12px">Morning housekeeping plan adjusted</h2>
+        <p><strong>${escapeHtml(hotelName)}</strong> · ${escapeHtml(plan.plan_date)}</p>
+        <p>Hotel Care refreshed Previo immediately before release and safely published <strong>${released}</strong> assignments.</p>
+        ${skipped.length ? `<p><strong>${skipped.length}</strong> planned assignment(s) were skipped after fresh PMS/staff validation${reasonText ? ` (${escapeHtml(reasonText)})` : ""}.${skippedRooms.length ? `<br><strong>Rooms:</strong> ${escapeHtml(skippedRooms.join(", "))}` : ""}</p>` : ""}
+        ${changes.length ? `<p><strong>${changes.length}</strong> room(s) changed between daily and checkout cleaning overnight.${changedRooms.length ? `<br><strong>Rooms:</strong> ${escapeHtml(changedRooms.join(", "))}` : ""}</p>` : ""}
+        <p>Please redistribute any skipped work if necessary. Type changes were applied automatically while keeping the manager-selected housekeeper.</p>
+      </div>`,
+  });
+
+  await admin
+    .from("next_day_housekeeping_plans")
+    .update(result.ok ? {
+      release_adjustment_notified_at: new Date().toISOString(),
+      release_adjustment_notification_error: null,
+    } : {
+      release_adjustment_notification_error: result.error || "Release-adjustment email failed",
+    })
+    .eq("id", plan.id);
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
@@ -560,8 +607,9 @@ Deno.serve(async (req) => {
 
       try {
         await notifyReleaseRecovery(admin, plan, releaseResult);
+        await notifyReleaseAdjustments(admin, plan, validationResult, releaseResult);
       } catch (notificationError) {
-        console.warn(`[HK release] recovery e-mail failed for ${plan.id}:`, notificationError);
+        console.warn(`[HK release] post-release e-mail failed for ${plan.id}:`, notificationError);
       }
 
       results.push({
