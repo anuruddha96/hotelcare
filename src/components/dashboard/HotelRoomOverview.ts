@@ -1,9 +1,11 @@
 import React from 'react';
 import { todayBudapest } from '@/lib/budapestTime';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { HotelRoomOverview as LiveHotelRoomOverview } from './HotelRoomOverviewLive';
 import { HistoricalHotelRoomOverviewSaved } from './HistoricalHotelRoomOverviewSaved';
 import { RoomOperationsQuickHub } from './RoomOperationsQuickHub';
 import { RoomHoverIntentGuard } from './RoomHoverIntentGuard';
+import './hotel-memories-room-overview.css';
 
 export type { SignedInHousekeeper } from './HotelRoomOverviewLive';
 
@@ -21,6 +23,15 @@ export function HotelRoomOverview(props: HotelRoomOverviewProps) {
     return React.createElement(HistoricalHotelRoomOverviewSaved, props);
   }
 
+  const liveOverview = React.createElement(LiveHotelRoomOverview, props);
+  const scopedOverview = isHotelMemoriesBudapest(props.hotelName)
+    ? React.createElement(
+        'div',
+        { className: 'hotel-memories-room-overview' },
+        liveOverview,
+      )
+    : liveOverview;
+
   return React.createElement(
     RoomHoverIntentGuard,
     null,
@@ -28,7 +39,7 @@ export function HotelRoomOverview(props: HotelRoomOverviewProps) {
       selectedDate: props.selectedDate,
       hotelName: props.hotelName,
       staffMap: props.staffMap,
-      children: React.createElement(LiveHotelRoomOverview, props),
+      children: scopedOverview,
     }),
   );
 }
