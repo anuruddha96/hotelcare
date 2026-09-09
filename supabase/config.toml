@@ -235,3 +235,8 @@ verify_jwt = false
 # x-worker-secret before any alert query or e-mail can run.
 [functions.housekeeping-activity-watchdog]
 verify_jwt = false
+
+# The only automatic 08:00 next-day release path. This worker validates a
+# Vault-backed x-worker-secret and re-checks Previo before publishing work.
+[functions.housekeeping-next-day-release-worker]
+verify_jwt = false
