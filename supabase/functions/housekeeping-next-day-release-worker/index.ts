@@ -1,11 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
 import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
+import { sendEmail } from "../_shared/emailSender.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "content-type, x-worker-secret",
 };
+const DEFAULT_ALERT_EMAIL = "anuruddha.dharmasena@gmail.com";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -52,6 +54,15 @@ function statusIdFrom(raw: any): number {
     ?? (status && typeof status === "object" ? status.id : status);
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 type FreshKind = "checkout" | "daily";
@@ -289,6 +300,87 @@ async function validatePortfolioHotel(admin: any, hotelId: string, planDate: str
   return { freshByRoomId, freshByAlias, source: "previo_portfolio_accounts" };
 }
 
+async function alertContext(admin: any, plan: any) {
+  const [{ data: settings }, { data: hotel }] = await Promise.all([
+    admin
+      .from("housekeeping_automation_settings")
+      .select("alert_emails")
+      .eq("organization_slug", plan.organization_slug)
+      .eq("hotel_id", plan.hotel_id)
+      .maybeSingle(),
+    admin
+      .from("hotel_configurations")
+      .select("hotel_name")
+      .eq("hotel_id", plan.hotel_id)
+      .maybeSingle(),
+  ]);
+  const recipients = Array.isArray(settings?.alert_emails) && settings.alert_emails.length
+    ? settings.alert_emails
+    : [DEFAULT_ALERT_EMAIL];
+  return { recipients, hotelName: hotel?.hotel_name || plan.hotel_id };
+}
+
+async function notifyReleaseDelay(admin: any, plan: any, message: string) {
+  if (Number(plan.release_revalidation_attempt_count || 0) < 2 || plan.release_failure_notified_at) return;
+  const { recipients, hotelName } = await alertContext(admin, plan);
+  const result = await sendEmail({
+    admin,
+    organizationSlug: plan.organization_slug,
+    to: recipients,
+    subject: `Hotel Care: housekeeping release delayed — ${hotelName}`,
+    kind: "transactional",
+    text:
+      `${hotelName}: Hotel Care could not safely release the ${plan.plan_date} housekeeping plan after two attempts. ` +
+      `No stale automatic assignments were published. Hotel Care will keep retrying. Error: ${message}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#172033">
+        <h2 style="margin:0 0 12px">Housekeeping release delayed</h2>
+        <p><strong>${escapeHtml(hotelName)}</strong> · ${escapeHtml(plan.plan_date)}</p>
+        <p>Hotel Care could not safely refresh/revalidate Previo after two attempts, so it <strong>did not publish stale automatic assignments</strong>.</p>
+        <p>Hotel Care will continue retrying automatically. Managers should review Previo or prepare the morning assignments manually if the issue persists.</p>
+        <p style="padding:10px 12px;background:#fff4e5;border-radius:8px"><strong>Technical reason:</strong> ${escapeHtml(message)}</p>
+      </div>`,
+  });
+  await admin
+    .from("next_day_housekeeping_plans")
+    .update(result.ok ? {
+      release_failure_notified_at: new Date().toISOString(),
+      release_failure_notification_error: null,
+    } : {
+      release_failure_notification_error: result.error || "Release-delay email failed",
+    })
+    .eq("id", plan.id)
+    .eq("status", "approved");
+}
+
+async function notifyReleaseRecovery(admin: any, plan: any, releaseResult: any) {
+  if (!plan.release_failure_notified_at || plan.release_recovery_notified_at) return;
+  const { recipients, hotelName } = await alertContext(admin, plan);
+  const released = Number(releaseResult?.released_assignments || 0);
+  const skipped = Number(releaseResult?.pms_or_staff_skipped_assignments || 0);
+  const result = await sendEmail({
+    admin,
+    organizationSlug: plan.organization_slug,
+    to: recipients,
+    subject: `Hotel Care: housekeeping release recovered — ${hotelName}`,
+    kind: "transactional",
+    text: `${hotelName}: Previo revalidation recovered and Hotel Care released ${released} housekeeping assignments for ${plan.plan_date}. ${skipped} planned assignments were skipped after fresh validation.`,
+    html: `
+      <div style="font-family:Arial,sans-serif;line-height:1.5;color:#172033">
+        <h2 style="margin:0 0 12px">Housekeeping release recovered</h2>
+        <p><strong>${escapeHtml(hotelName)}</strong> · ${escapeHtml(plan.plan_date)}</p>
+        <p>Previo revalidation recovered and Hotel Care completed the automatic morning release.</p>
+        <p><strong>${released}</strong> assignments released${skipped ? ` · <strong>${skipped}</strong> planned assignments skipped after fresh PMS/staff validation` : ""}.</p>
+      </div>`,
+  });
+  if (result.ok) {
+    await admin
+      .from("next_day_housekeeping_plans")
+      .update({ release_recovery_notified_at: new Date().toISOString() })
+      .eq("id", plan.id);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
@@ -319,6 +411,21 @@ Deno.serve(async (req) => {
         .eq("plan_id", plan.id);
       if (itemError) throw itemError;
       const items = (itemRows || []) as PlanItem[];
+      const assigneeIds = [...new Set(items.map(item => item.assigned_to).filter(Boolean))];
+
+      const { data: schedules, error: scheduleError } = assigneeIds.length
+        ? await admin
+          .from("staff_schedules")
+          .select("user_id,status")
+          .eq("organization_slug", plan.organization_slug)
+          .eq("hotel_id", plan.hotel_id)
+          .eq("work_date", plan.plan_date)
+          .in("user_id", assigneeIds)
+        : { data: [], error: null };
+      if (scheduleError) throw scheduleError;
+      const offStaffIds = new Set(
+        (schedules || []).filter((row: any) => row.status === "off").map((row: any) => row.user_id),
+      );
 
       const { data: config, error: configError } = await admin
         .from("pms_configurations")
@@ -343,21 +450,34 @@ Deno.serve(async (req) => {
         validationSource = portfolio.source;
       }
 
-      const eligible = new Set<string>();
+      const eligibleItemIds = new Set<string>();
+      const eligibleRoomIds = new Set<string>();
       const assignmentTypeOverrides: Record<string, string> = {};
-      const skippedRooms: Array<Record<string, unknown>> = [];
+      const skippedItems: Array<Record<string, unknown>> = [];
       const typeChanges: Array<Record<string, unknown>> = [];
 
       for (const item of items) {
         const room = item.rooms;
         if (!room) {
-          skippedRooms.push({ room_id: item.room_id, reason: "room_not_found" });
+          skippedItems.push({ plan_item_id: item.id, room_id: item.room_id, reason: "room_not_found" });
+          continue;
+        }
+
+        if (offStaffIds.has(item.assigned_to)) {
+          skippedItems.push({
+            plan_item_id: item.id,
+            room_id: item.room_id,
+            room_number: room.room_number,
+            assigned_to: item.assigned_to,
+            reason: "staff_schedule_off",
+          });
           continue;
         }
 
         const metadata = room.pms_metadata || {};
         if (room.status === "out_of_order" || metadata.manualHousekeepingHold === true || metadata.isNoShow === true) {
-          skippedRooms.push({
+          skippedItems.push({
+            plan_item_id: item.id,
             room_id: item.room_id,
             room_number: room.room_number,
             reason: room.status === "out_of_order" ? "out_of_order" : metadata.isNoShow === true ? "no_show" : "manual_housekeeping_hold",
@@ -377,7 +497,8 @@ Deno.serve(async (req) => {
         }
 
         if (!fresh) {
-          skippedRooms.push({
+          skippedItems.push({
+            plan_item_id: item.id,
             room_id: item.room_id,
             room_number: room.room_number,
             reason: "no_active_housekeeping_reservation",
@@ -387,10 +508,12 @@ Deno.serve(async (req) => {
 
         const plannedKind: FreshKind = item.assignment_type === "checkout_cleaning" ? "checkout" : "daily";
         const currentAssignmentType = fresh.kind === "checkout" ? "checkout_cleaning" : "daily_cleaning";
-        eligible.add(item.room_id);
+        eligibleItemIds.add(item.id);
+        eligibleRoomIds.add(item.room_id);
         if (fresh.kind !== plannedKind) {
-          assignmentTypeOverrides[item.room_id] = currentAssignmentType;
+          assignmentTypeOverrides[item.id] = currentAssignmentType;
           typeChanges.push({
+            plan_item_id: item.id,
             room_id: item.room_id,
             room_number: room.room_number,
             from: item.assignment_type,
@@ -407,9 +530,12 @@ Deno.serve(async (req) => {
         plan_date: plan.plan_date,
         planned_assignment_count: items.length,
         planned_room_count: new Set(items.map(item => item.room_id)).size,
-        eligible_room_ids: [...eligible],
-        eligible_room_count: eligible.size,
-        skipped_rooms: skippedRooms,
+        eligible_plan_item_ids: [...eligibleItemIds],
+        eligible_assignment_count: eligibleItemIds.size,
+        eligible_room_ids: [...eligibleRoomIds],
+        eligible_room_count: eligibleRoomIds.size,
+        staff_marked_off: [...offStaffIds],
+        skipped_items: skippedItems,
         assignment_type_overrides: assignmentTypeOverrides,
         type_changes: typeChanges,
       };
@@ -431,6 +557,12 @@ Deno.serve(async (req) => {
         { p_plan_id: plan.id },
       );
       if (releaseError) throw releaseError;
+
+      try {
+        await notifyReleaseRecovery(admin, plan, releaseResult);
+      } catch (notificationError) {
+        console.warn(`[HK release] recovery e-mail failed for ${plan.id}:`, notificationError);
+      }
 
       results.push({
         plan_id: plan.id,
@@ -455,6 +587,12 @@ Deno.serve(async (req) => {
         })
         .eq("id", plan.id)
         .eq("status", "approved");
+
+      try {
+        await notifyReleaseDelay(admin, plan, message);
+      } catch (notificationError) {
+        console.warn(`[HK release] delay e-mail failed for ${plan.id}:`, notificationError);
+      }
       results.push({ plan_id: plan.id, hotel_id: plan.hotel_id, ok: false, error: message });
     }
   }
