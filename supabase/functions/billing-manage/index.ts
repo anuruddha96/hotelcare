@@ -23,10 +23,12 @@ import {
   trialEndsAt,
   normaliseModule,
   isRevenueModule,
+  moduleScopedPromotionsEnabled,
   vatCents,
   type BillingSettings,
   type ModuleKey,
 } from "../_shared/billing.ts";
+import { ensureModulePromotionSchedule } from "../_shared/stripePromotionSchedule.ts";
 
 const MODULES: ModuleKey[] = ["revenue_bi", "revenue_automation", "operations", "maintenance"];
 
@@ -93,13 +95,43 @@ Deno.serve(async (req) => {
       .eq("organization_slug", slug);
 
     if (action === "summary") {
+      const stripeForSummary = stripeClient();
+
+      // Backfill/refresh Stripe's future price transition for opted-in tenants.
+      // This is deliberately gated by module_scoped_promotions_enabled, so an
+      // ordinary Payments-page view cannot mutate any legacy organization.
+      if (moduleScopedPromotionsEnabled(settings) && stripeForSummary) {
+        const subscriptionIds = Array.from(
+          new Set(
+            (subs ?? [])
+              .filter((row) => ["active", "trialing", "past_due"].includes(String(row.status)))
+              .map((row) => String(row.stripe_subscription_id ?? ""))
+              .filter(Boolean),
+          ),
+        );
+        for (const subscriptionId of subscriptionIds) {
+          try {
+            const stripeSubscription = await stripeForSummary.subscriptions.retrieve(subscriptionId);
+            await ensureModulePromotionSchedule(stripeForSummary, stripeSubscription, settings);
+          } catch (scheduleError) {
+            // Billing summary must still load if Stripe scheduling is temporarily
+            // unavailable; the next summary/webhook retries safely.
+            console.error("module promotion schedule sync failed", {
+              organization: slug,
+              subscription: subscriptionId,
+              error: scheduleError,
+            });
+          }
+        }
+      }
+
       // Percentage-based Revenue Management settles last full month automatically:
       // the figures are recomputed, stored and (outside the trial) invoiced here,
       // so nobody has to press a button.
       let usage: UsageRow[] = [];
       if (settings.revenue_pricing_mode === "percent") {
         try {
-          const rollup = await rollupLastMonth(slug, settings, hotels, subs ?? [], stripeClient());
+          const rollup = await rollupLastMonth(slug, settings, hotels, subs ?? [], stripeForSummary);
           usage = rollup.rows;
         } catch (e) {
           console.error("automatic usage rollup failed", e);
@@ -301,7 +333,6 @@ Deno.serve(async (req) => {
           line_items: lineItems.map((li) => ({ ...li, tax_rates: rate ? [rate] : undefined })),
         });
       }
-
 
       return json({
         url: session.url,

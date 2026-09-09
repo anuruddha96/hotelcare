@@ -2,6 +2,8 @@
 // Signature-verified with STRIPE_WEBHOOK_SECRET; no JWT because Stripe calls it.
 import Stripe from "npm:stripe@18";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { loadSettings } from "../_shared/billing.ts";
+import { ensureModulePromotionSchedule, parseBillingSelections } from "../_shared/stripePromotionSchedule.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -17,24 +19,6 @@ function admin() {
   return createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
     auth: { persistSession: false },
   });
-}
-
-function parseSelections(meta: Record<string, string> | null | undefined) {
-  const raw = meta?.selections ?? "";
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((pair) => {
-      const [hotel_id, module] = pair.split(":");
-      return { hotel_id, module };
-    })
-    .filter(
-      (s) =>
-        s.hotel_id &&
-        ["revenue", "revenue_bi", "revenue_automation", "operations", "maintenance"].includes(String(s.module)),
-    )
-    .map((s) => ({ ...s, module: s.module === "revenue" ? "revenue_automation" : s.module }));
 }
 
 Deno.serve(async (req) => {
@@ -73,7 +57,7 @@ Deno.serve(async (req) => {
     const upsertFromSubscription = async (sub: Stripe.Subscription) => {
       const subMeta = (sub.metadata ?? {}) as Record<string, string>;
       const slug = subMeta.organization_slug;
-      const selections = parseSelections(subMeta);
+      const selections = parseBillingSelections(subMeta);
       if (!slug || !selections.length) return;
 
       const items = sub.items?.data ?? [];
@@ -157,6 +141,27 @@ Deno.serve(async (req) => {
             sub.metadata = meta;
           }
           await upsertFromSubscription(sub);
+
+          // Checkout creates a fixed recurring Stripe Price. For organizations
+          // explicitly using module-scoped promotions, attach a Stripe schedule
+          // so the affected item alone returns to its standard price at expiry.
+          // Legacy organizations never enter this path because the helper is
+          // gated by module_scoped_promotions_enabled.
+          const slug = String(sub.metadata?.organization_slug ?? orgSlug ?? "");
+          if (slug) {
+            try {
+              const settings = await loadSettings(slug);
+              await ensureModulePromotionSchedule(stripe, sub, settings);
+            } catch (scheduleError) {
+              // Do not fail an already-successful checkout. The billing summary
+              // path retries the idempotent schedule synchronization.
+              console.error("could not schedule module promotion expiry", {
+                organization: slug,
+                subscription: sub.id,
+                error: scheduleError,
+              });
+            }
+          }
         }
         break;
       }
