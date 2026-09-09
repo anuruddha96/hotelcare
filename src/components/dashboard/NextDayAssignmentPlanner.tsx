@@ -16,6 +16,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { runPmsRefresh } from '@/lib/pmsRefresh';
 import {
+  buildSelectedDateHousekeepingWorkload,
+  type DailyOverviewWorkRow,
+} from '@/lib/nextDayHousekeepingSnapshot';
+import {
   calculateRoomTime,
   calculateTimeEstimation,
   calculateRoomWeight,
@@ -121,14 +125,20 @@ function asFiniteNumber(value: unknown): number | null {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function addIsoDays(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function getTomorrowAssignmentType(room: RoomForAssignment): PlanItemRow['assignment_type'] {
   return room.is_checkout_room ? 'checkout_cleaning' : 'daily_cleaning';
 }
 
 /**
- * Convert today's authoritative Previo snapshot into tomorrow's housekeeping
- * workload. `is_checkout_room` belongs to today; `scheduledDepartureTomorrow`
- * is the authoritative checkout signal for the next-day plan.
+ * Fallback used only by portfolio/non-standard PMS configurations that do not
+ * expose the selected-date daily-overview feed. Standard Previo hotels use the
+ * fresh selected-date snapshot instead (see loadPlanningData).
  */
 function toTomorrowWorkRoom(room: any, selectedDate: string): RoomForAssignment | null {
   const metadata = (room.pms_metadata || {}) as Record<string, any>;
@@ -170,8 +180,6 @@ function toTomorrowWorkRoom(room: any, selectedDate: string): RoomForAssignment 
     linen_change_required: linenChange,
     pms_metadata: {
       ...metadata,
-      // The existing assignment algorithm reads scheduledDepartureToday. For a
-      // future preview, intentionally remap tomorrow into the algorithm's work day.
       scheduledDepartureToday: checkoutTomorrow,
       plannedHousekeepingDate: selectedDate,
       plannedFromScheduledDepartureTomorrow: checkoutTomorrow,
@@ -308,15 +316,13 @@ export function NextDayAssignmentPlanner({
     const resolvedHotelName = hotelConfig?.hotel_name || hotelId;
     setHotelName(resolvedHotelName);
     const resolvedKeys = await resolveHotelKeys(resolvedHotelName);
-    // Always keep the configured HotelCare hotel ID in scope. Some profiles use
-    // hotel_id while rooms use the display name/alias, so aliases alone can hide staff.
     const hotelKeys = Array.from(new Set(
       [hotelId, resolvedHotelName, ...resolvedKeys].filter(Boolean),
     ));
 
     setSyncStage('received');
 
-    const [staffResult, scheduleResult, roomResult, planResult] = await Promise.all([
+    const [staffResult, scheduleResult, roomResult, snapshotResult, pmsConfigResult, planResult] = await Promise.all([
       supabase
         .from('profiles')
         .select('id, full_name, nickname')
@@ -335,6 +341,19 @@ export function NextDayAssignmentPlanner({
         .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, pms_metadata, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration, notes, checkout_time')
         .in('hotel', hotelKeys),
       (supabase as any)
+        .from('daily_overview_snapshots')
+        .select('room_label,room_number,arrival_date,departure_date,status,housekeeping_dep,housekeeping_stay,captured_at')
+        .eq('organization_slug', profile.organization_slug)
+        .eq('hotel_id', hotelId)
+        .eq('business_date', selectedDate)
+        .eq('source', 'previo'),
+      (supabase as any)
+        .from('pms_configurations')
+        .select('id,pms_type,is_active')
+        .eq('hotel_id', hotelId)
+        .eq('pms_type', 'previo')
+        .maybeSingle(),
+      (supabase as any)
         .from('next_day_housekeeping_plans')
         .select('id,status,auto_release,release_timezone,created_by,pms_synced_at')
         .eq('organization_slug', profile.organization_slug)
@@ -346,13 +365,25 @@ export function NextDayAssignmentPlanner({
     if (staffResult.error) throw staffResult.error;
     if (scheduleResult.error) throw scheduleResult.error;
     if (roomResult.error) throw roomResult.error;
+    if (snapshotResult.error) throw snapshotResult.error;
+    if (pmsConfigResult.error) throw pmsConfigResult.error;
     if (planResult.error) throw planResult.error;
 
     const staffRows = (staffResult.data || []) as StaffForAssignment[];
     const scheduleRows = (scheduleResult.data || []) as ScheduleRow[];
-    const rawRooms = (roomResult.data || [])
-      .map(room => toTomorrowWorkRoom(room, selectedDate))
-      .filter(Boolean) as RoomForAssignment[];
+    const standardPrevio = pmsConfigResult.data?.is_active === true;
+    const selectedDateWorkload = standardPrevio
+      ? buildSelectedDateHousekeepingWorkload(
+        roomResult.data || [],
+        (snapshotResult.data || []) as DailyOverviewWorkRow[],
+        selectedDate,
+      )
+      : null;
+    const rawRooms = standardPrevio
+      ? selectedDateWorkload!.rooms
+      : (roomResult.data || [])
+        .map(room => toTomorrowWorkRoom(room, selectedDate))
+        .filter(Boolean) as RoomForAssignment[];
     const plan = (planResult.data || null) as PlanRow | null;
 
     const learning = await loadHousekeepingAssignmentSignals({
@@ -371,6 +402,19 @@ export function NextDayAssignmentPlanner({
     setExistingPlan(plan);
     setAutoRelease(plan?.auto_release ?? true);
     setSyncStage('arranging');
+
+    if (standardPrevio && selectedDateWorkload) {
+      setPmsSnapshot(previous => ({
+        ...previous,
+        workloadSource: 'previo_daily_overview_selected_date',
+        selectedDate,
+        selectedDateRows: selectedDateWorkload.sourceRows,
+        selectedDateMappedRooms: selectedDateWorkload.rooms.length,
+        selectedDateCheckouts: selectedDateWorkload.checkoutCount,
+        selectedDateDaily: selectedDateWorkload.dailyCount,
+        selectedDateCapturedAt: selectedDateWorkload.capturedAt,
+      }));
+    }
 
     const scheduledIds = new Set(
       scheduleRows
@@ -402,8 +446,6 @@ export function NextDayAssignmentPlanner({
           .filter((row: any) => row.selected)
           .map((row: any) => row.user_id),
       );
-      // Preserve helpers/legacy assignees in the selected set if they still
-      // belong to the currently available hotel staff roster.
       for (const item of items) {
         if (availableStaffIds.has(item.assigned_to)) savedStaffIds.add(item.assigned_to);
       }
@@ -491,6 +533,26 @@ export function NextDayAssignmentPlanner({
         );
       }
 
+      const { data: overviewData, error: overviewError } = await supabase.functions.invoke(
+        'previo-sync-daily-overview',
+        {
+          body: {
+            hotelId: profile.assigned_hotel,
+            fromDate: selectedDate,
+            toDate: addIsoDays(selectedDate, 1),
+            days: 1,
+          },
+        },
+      );
+      if (syncGeneration.current !== generation) return;
+      if (overviewError || (overviewData as any)?.ok === false || (overviewData as any)?.error) {
+        throw new Error(
+          (overviewData as any)?.error
+          || overviewError?.message
+          || 'Could not load the selected-date Previo reservation snapshot.',
+        );
+      }
+
       const syncedAt = new Date().toISOString();
       setPmsSyncedAt(syncedAt);
       setPartialSync(result.status === 'partial');
@@ -503,6 +565,9 @@ export function NextDayAssignmentPlanner({
         errors: result.errors,
         reservationDataAuthoritative: result.reservationDataAuthoritative !== false,
         managerMessage: result.managerMessage || null,
+        selectedDateOverviewSupported: (overviewData as any)?.supported !== false,
+        selectedDateOverviewRows: Number((overviewData as any)?.rowsInserted || 0),
+        selectedDateOverviewWindow: (overviewData as any)?.window || null,
         capturedAt: syncedAt,
       });
 
@@ -525,8 +590,6 @@ export function NextDayAssignmentPlanner({
     setLanguage(getHousekeepingAutomationLanguage());
     resetPlanner();
     void prepareTomorrow();
-    // A new hotel/date creates a new preparation session. Previo is always
-    // refreshed before any tomorrow workload is exposed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, selectedDate, profile?.assigned_hotel, profile?.organization_slug]);
 
@@ -566,8 +629,6 @@ export function NextDayAssignmentPlanner({
       preview.rooms.map(room => [room.id, preview.staffId] as [string, string]),
     )));
     setSharedByRoom(new Map());
-    // Regeneration acknowledges the new fresh workload and is the only way an
-    // old plan with changed PMS room/type data can become approvable again.
     setExistingPlanChanged(false);
     setSelectedMove(null);
     setShareRoomId(null);
@@ -578,8 +639,6 @@ export function NextDayAssignmentPlanner({
     if (!roomId || !fromStaffId || !toStaffId || fromStaffId === toStaffId) return;
     setPreviews(previous => moveRoom(previous, roomId, fromStaffId, toStaffId));
     setSharedByRoom(previous => {
-      // If the helper becomes the new primary cleaner, remove the duplicate
-      // helper row automatically. The former primary is not implicitly shared.
       if (previous.get(roomId) === toStaffId) {
         return setSharedRoomHelper(previous, roomId, null, toStaffId);
       }
@@ -646,9 +705,6 @@ export function NextDayAssignmentPlanner({
       ).length;
       const releaseTimezone = existingPlan?.release_timezone || 'Europe/Budapest';
 
-      // First force the parent back to draft. Children are replaced only while
-      // the plan is non-live; approval happens last so partial network writes
-      // can never leave an incomplete plan eligible for the 08:00 release.
       const planPayload = {
         organization_slug: profile.organization_slug,
         hotel_id: profile.assigned_hotel,
@@ -676,7 +732,7 @@ export function NextDayAssignmentPlanner({
           learning_confidence: assignmentSignals.learningConfidence,
           learning_correction_count: assignmentSignals.correctionCount,
           learning_sample_count: assignmentSignals.sampleCount,
-          workload_derivation: 'scheduledDepartureTomorrow+occupiedToday/currentNight',
+          workload_derivation: 'fresh_previo_daily_overview_selected_date',
           shared_cleaning_model: 'one_primary+one_helper;split_estimated_duration',
           generated_at: new Date().toISOString(),
         },
