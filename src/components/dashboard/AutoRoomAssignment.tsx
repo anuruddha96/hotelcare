@@ -4,6 +4,7 @@ import { MapPin, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
+import { isBudapestNoonOrLater } from '@/lib/budapestTime';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { getLocalDateString } from '@/lib/utils';
 import {
@@ -76,6 +77,7 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   const { profile } = useAuth();
   const isMemories = isHotelMemoriesKey(profile?.assigned_hotel);
   const isTomorrowPlanner = props.selectedDate === getTomorrowDateString();
+  const tomorrowPlanningAvailable = isBudapestNoonOrLater();
   const [memoriesView, setMemoriesView] = useState<MemoriesAutoAssignView>('housekeeper');
   const [preparedRealityKey, setPreparedRealityKey] = useState<string | null>(null);
 
@@ -190,6 +192,11 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   }, [draftKey, isTomorrowPlanner, profile?.assigned_hotel, props.open, props.selectedDate, realityKey]);
 
   useEffect(() => {
+    if (!props.open || !isTomorrowPlanner || tomorrowPlanningAvailable) return;
+    props.onOpenChange(false);
+  }, [isTomorrowPlanner, props.onOpenChange, props.open, tomorrowPlanningAvailable]);
+
+  useEffect(() => {
     if (isTomorrowPlanner || !isMemories || !props.open || typeof window === 'undefined') return;
     const saved = window.localStorage.getItem(MEMORIES_VIEW_KEY);
     if (saved === 'housekeeper' || saved === 'zone') setMemoriesView(saved);
@@ -201,6 +208,7 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   };
 
   if (isTomorrowPlanner) {
+    if (!tomorrowPlanningAvailable) return null;
     return <NextDayAssignmentPlanner {...props} />;
   }
 
