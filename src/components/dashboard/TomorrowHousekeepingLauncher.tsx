@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
-import { todayBudapest } from '@/lib/budapestTime';
+import { isBudapestNoonOrLater, todayBudapest } from '@/lib/budapestTime';
 import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { housekeepingAutomationText } from '@/lib/housekeepingAutomationTranslations';
@@ -174,9 +174,10 @@ function getStatusPresentation(
 /**
  * Discoverable Team View entry point for the next-day housekeeping planner.
  *
- * This card intentionally remains a read-only status surface. The actual
- * planning workflow stays owned by AutoRoomAssignment/NextDayAssignmentPlanner,
- * so managers always edit tomorrow in one canonical workflow.
+ * Tomorrow planning is intentionally available only from 12:00 Budapest time.
+ * Before noon the component renders nothing, keeping the morning workspace
+ * focused on today's operation. The actual planning workflow stays owned by
+ * AutoRoomAssignment/NextDayAssignmentPlanner.
  */
 export function TomorrowHousekeepingLauncher() {
   const { profile } = useAuth();
@@ -185,6 +186,7 @@ export function TomorrowHousekeepingLauncher() {
   const [statusLoading, setStatusLoading] = useState(true);
   const [statusUnavailable, setStatusUnavailable] = useState(false);
   const [budapestDate, setBudapestDate] = useState(todayBudapest());
+  const [planningWindowOpen, setPlanningWindowOpen] = useState(isBudapestNoonOrLater());
   const requestGeneration = useRef(0);
 
   const tomorrowDate = useMemo(
@@ -234,11 +236,22 @@ export function TomorrowHousekeepingLauncher() {
   useEffect(() => {
     if (!canManage) return;
 
-    void loadStatus(true);
+    if (planningWindowOpen) {
+      void loadStatus(true);
+    } else {
+      requestGeneration.current += 1;
+      setOpen(false);
+      setPlan(null);
+      setStatusUnavailable(false);
+      setStatusLoading(false);
+    }
+
     const refresh = () => {
       const currentBudapestDate = todayBudapest();
+      const availableNow = isBudapestNoonOrLater();
       setBudapestDate(current => current === currentBudapestDate ? current : currentBudapestDate);
-      void loadStatus(false);
+      setPlanningWindowOpen(current => current === availableNow ? current : availableNow);
+      if (availableNow && planningWindowOpen) void loadStatus(false);
     };
     const onVisibility = () => {
       if (document.visibilityState === 'visible') refresh();
@@ -255,9 +268,9 @@ export function TomorrowHousekeepingLauncher() {
       document.removeEventListener('visibilitychange', onVisibility);
       window.clearInterval(interval);
     };
-  }, [canManage, loadStatus]);
+  }, [canManage, loadStatus, planningWindowOpen]);
 
-  if (!canManage) return null;
+  if (!canManage || !planningWindowOpen) return null;
 
   const title = housekeepingAutomationText('title');
   const subtitle = housekeepingAutomationText('subtitle');
