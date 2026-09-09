@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Users, Clock, Phone, Gift, MessageSquare, Check, UserX, CloudOff, CloudUpload } from "lucide-react";
+import { AlertTriangle, RefreshCw, Users, Clock, Phone, Gift, MessageSquare, Check, UserX, CloudOff, CloudUpload } from "lucide-react";
 import { toast } from "sonner";
 import { bbT } from "@/lib/breakfast-translations";
 
@@ -26,6 +26,13 @@ interface Reservation {
   dashboard_sync_state?: string | null;
 }
 
+type FeedStatus = "dashboard" | "webhook" | "unavailable" | "unconfigured" | "unknown";
+
+interface LoadResult {
+  ok: boolean;
+  feedStatus: FeedStatus;
+}
+
 function timeLabel(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
@@ -37,17 +44,35 @@ export default function RestaurantReservations({ hotelId, date, language }: Prop
   const [covers, setCovers] = useState(0);
   const [count, setCount] = useState(0);
   const [saving, setSaving] = useState<string | null>(null);
+  const [feedStatus, setFeedStatus] = useState<FeedStatus>("unknown");
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false): Promise<LoadResult> => {
     setLoading(true);
     const { data, error } = await supabase.functions.invoke("restaurant-reservations-list", {
-      body: { hotel_id: hotelId, date },
+      body: { hotel_id: hotelId, date, force },
     });
     setLoading(false);
-    if (error || !data) { setRows([]); setCovers(0); setCount(0); return; }
+
+    if (error || !data || data?.error) {
+      setRows([]);
+      setCovers(0);
+      setCount(0);
+      setFeedStatus("unavailable");
+      return { ok: false, feedStatus: "unavailable" };
+    }
+
+    const nextFeedStatus = (["dashboard", "webhook", "unavailable", "unconfigured"] as const)
+      .includes(data.feed_status)
+      ? data.feed_status as FeedStatus
+      : data.sync_error
+        ? "unavailable"
+        : "unknown";
+
     setRows(data.reservations ?? []);
     setCovers(data.total_covers ?? 0);
     setCount(data.total_reservations ?? 0);
+    setFeedStatus(nextFeedStatus);
+    return { ok: true, feedStatus: nextFeedStatus };
   }, [hotelId, date]);
 
   useEffect(() => { void load(); }, [load]);
@@ -57,6 +82,15 @@ export default function RestaurantReservations({ hotelId, date, language }: Prop
     const id = setInterval(() => { void load(); }, 60_000);
     return () => clearInterval(id);
   }, [load]);
+
+  const refresh = async () => {
+    const result = await load(true);
+    if (!result.ok || result.feedStatus === "unavailable" || result.feedStatus === "unconfigured") {
+      toast.warning(tt("resSyncPending"));
+    } else {
+      toast.success(tt("resSynced"));
+    }
+  };
 
   const mark = async (reservation: Reservation, next: "seated" | "no_show") => {
     // Tapping the active status again clears it back to booked.
@@ -85,7 +119,7 @@ export default function RestaurantReservations({ hotelId, date, language }: Prop
   const cancelled = rows.filter((r) => r.status === "cancelled");
   const arrivedCount = active.filter((r) => r.status === "seated").length;
   const noShowCount = active.filter((r) => r.status === "no_show").length;
-
+  const feedUnavailable = feedStatus === "unavailable" || feedStatus === "unconfigured";
 
   return (
     <div className="space-y-3">
@@ -99,12 +133,24 @@ export default function RestaurantReservations({ hotelId, date, language }: Prop
             )}
           </div>
         </div>
-        <Button variant="ghost" size="sm" className="h-7" onClick={() => void load()} disabled={loading}>
+        <Button variant="ghost" size="sm" className="h-7" onClick={() => void refresh()} disabled={loading}>
           <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
         </Button>
       </div>
 
-      {active.length === 0 && !loading && (
+      {feedUnavailable && !loading && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-amber-950">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <div>
+              <div className="text-sm font-semibold">{tt("resSyncPending")}</div>
+              <div className="text-xs mt-0.5 text-amber-900/80">{tt("notFoundHint")}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {active.length === 0 && !loading && !feedUnavailable && (
         <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
           {tt("resEmpty")}
         </div>

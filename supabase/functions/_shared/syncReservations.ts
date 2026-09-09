@@ -29,6 +29,17 @@ export interface SyncResult {
   error?: string;
 }
 
+function dashboardHeaders(key: string, extra: Record<string, string> = {}): Record<string, string> {
+  // Supabase's modern sb_secret_* keys belong in the apikey header. They are
+  // not JWTs and must not be sent as `Authorization: Bearer ...`, otherwise
+  // the API gateway rejects the request with 401. Keep Authorization only for
+  // legacy JWT service_role keys so existing deployments remain compatible.
+  const headers: Record<string, string> = { apikey: key, ...extra };
+  const looksLikeJwt = key.split(".").length === 3;
+  if (looksLikeJwt) headers.Authorization = `Bearer ${key}`;
+  return headers;
+}
+
 export async function syncHotelReservations(
   // deno-lint-ignore no-explicit-any
   supabase: any,
@@ -63,7 +74,7 @@ export async function syncHotelReservations(
   params.append("starts_at", `lt.${end.toISOString()}`);
 
   const res = await fetch(`${cfg.url}/rest/v1/reservations?${params.toString()}`, {
-    headers: { apikey: cfg.key, Authorization: `Bearer ${cfg.key}`, Accept: "application/json" },
+    headers: dashboardHeaders(cfg.key, { Accept: "application/json" }),
   });
   if (!res.ok) {
     const body = await res.text();
@@ -134,12 +145,10 @@ export async function pushStatusToDashboard(
   if (!cfg) return { ok: false, error: "Sales Dashboard credentials are not configured" };
   const res = await fetch(`${cfg.url}/rest/v1/reservations?id=eq.${encodeURIComponent(dashboardId)}`, {
     method: "PATCH",
-    headers: {
-      apikey: cfg.key,
-      Authorization: `Bearer ${cfg.key}`,
+    headers: dashboardHeaders(cfg.key, {
       "Content-Type": "application/json",
       Prefer: "return=minimal",
-    },
+    }),
     body: JSON.stringify({ status, updated_at: new Date().toISOString() }),
   });
   if (!res.ok) {
