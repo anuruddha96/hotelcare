@@ -1,10 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, ArrowRight, CalendarClock, Check, Clock, Loader2, RefreshCw, Users } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowRight,
+  CalendarClock,
+  Check,
+  Clock,
+  Loader2,
+  RefreshCw,
+  Users,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
-import { runPmsRefresh, type PmsSyncResult } from '@/lib/pmsRefresh';
+import { runPmsRefresh } from '@/lib/pmsRefresh';
 import {
   autoAssignRooms,
   calculateRoomTime,
@@ -25,7 +34,13 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 
 interface NextDayAssignmentPlannerProps {
@@ -61,7 +76,6 @@ type PlanItemRow = {
 };
 
 type PlannerStep = 'staff' | 'review';
-
 type SyncStage = 'contacting' | 'checkouts' | 'received' | 'arranging';
 
 const SYNC_PROGRESS: Record<SyncStage, number> = {
@@ -83,14 +97,23 @@ function asFiniteNumber(value: unknown): number | null {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function getTomorrowAssignmentType(room: RoomForAssignment): PlanItemRow['assignment_type'] {
+  return room.is_checkout_room ? 'checkout_cleaning' : 'daily_cleaning';
+}
+
 /**
  * Convert today's authoritative Previo snapshot into tomorrow's housekeeping
- * workload. The live `is_checkout_room` flag is intentionally ignored because
- * it describes today, while `scheduledDepartureTomorrow` describes the plan day.
+ * workload. `is_checkout_room` belongs to today; `scheduledDepartureTomorrow`
+ * is the authoritative checkout signal for the next-day plan.
  */
 function toTomorrowWorkRoom(room: any, selectedDate: string): RoomForAssignment | null {
   const metadata = (room.pms_metadata || {}) as Record<string, any>;
-  if (room.status === 'out_of_order' || metadata.manualHousekeepingHold === true || metadata.isNoShow === true) {
+
+  if (
+    room.status === 'out_of_order'
+    || metadata.manualHousekeepingHold === true
+    || metadata.isNoShow === true
+  ) {
     return null;
   }
 
@@ -123,6 +146,8 @@ function toTomorrowWorkRoom(room: any, selectedDate: string): RoomForAssignment 
     linen_change_required: linenChange,
     pms_metadata: {
       ...metadata,
+      // The existing assignment algorithm reads scheduledDepartureToday. For a
+      // future preview, intentionally remap tomorrow into the algorithm's work day.
       scheduledDepartureToday: checkoutTomorrow,
       plannedHousekeepingDate: selectedDate,
       plannedFromScheduledDepartureTomorrow: checkoutTomorrow,
@@ -138,6 +163,7 @@ function buildPreview(staff: StaffForAssignment, rooms: RoomForAssignment[]): As
     if (floorA !== floorB) return floorA - floorB;
     return a.room_number.localeCompare(b.room_number, undefined, { numeric: true });
   });
+
   return {
     staffId: staff.id,
     staffName: staff.full_name,
@@ -156,6 +182,7 @@ function generateBestPreview(
 ): AssignmentPreview[] {
   let best: AssignmentPreview[] | null = null;
   let bestScore = Number.POSITIVE_INFINITY;
+
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const candidate = autoAssignRooms(rooms, staff, undefined, undefined, {
       hotelName,
@@ -167,6 +194,7 @@ function generateBestPreview(
       bestScore = score;
     }
   }
+
   return best || autoAssignRooms(rooms, staff, undefined, undefined, { hotelName });
 }
 
@@ -216,7 +244,10 @@ export function NextDayAssignmentPlanner({
     [tomorrowRooms],
   );
   const dailyCount = tomorrowRooms.length - checkoutCount;
-  const fairness = useMemo(() => previews.length ? computeFairnessMetrics(previews) : null, [previews]);
+  const fairness = useMemo(
+    () => previews.length ? computeFairnessMetrics(previews) : null,
+    [previews],
+  );
 
   const resetPlanner = () => {
     setStep('staff');
@@ -224,6 +255,7 @@ export function NextDayAssignmentPlanner({
     setPartialSync(false);
     setPmsSyncedAt(null);
     setPmsSnapshot({});
+    setHotelName('');
     setAllStaff([]);
     setSchedules([]);
     setSelectedStaffIds(new Set());
@@ -236,18 +268,27 @@ export function NextDayAssignmentPlanner({
     setExistingPlanChanged(false);
   };
 
-  const loadPlanningData = async (syncResult: PmsSyncResult, syncedAt: string) => {
-    if (!profile?.assigned_hotel || !profile.organization_slug) throw new Error('Hotel access is missing.');
+  const loadPlanningData = async () => {
+    if (!profile?.assigned_hotel || !profile.organization_slug) {
+      throw new Error('Hotel access is missing.');
+    }
 
-    const { data: hotelConfig } = await supabase
+    const hotelId = profile.assigned_hotel;
+    const { data: hotelConfig, error: hotelConfigError } = await supabase
       .from('hotel_configurations')
       .select('hotel_name')
-      .eq('hotel_id', profile.assigned_hotel)
+      .eq('hotel_id', hotelId)
       .maybeSingle();
-    const resolvedHotelName = hotelConfig?.hotel_name || profile.assigned_hotel;
+    if (hotelConfigError) throw hotelConfigError;
+
+    const resolvedHotelName = hotelConfig?.hotel_name || hotelId;
     setHotelName(resolvedHotelName);
     const resolvedKeys = await resolveHotelKeys(resolvedHotelName);
-    const hotelKeys = resolvedKeys.length ? resolvedKeys : [resolvedHotelName, profile.assigned_hotel];
+    // Always keep the configured HotelCare hotel ID in scope. Some profiles use
+    // hotel_id while rooms use the display name/alias, so aliases alone can hide staff.
+    const hotelKeys = Array.from(new Set(
+      [hotelId, resolvedHotelName, ...resolvedKeys].filter(Boolean),
+    ));
 
     setSyncStage('received');
 
@@ -263,7 +304,7 @@ export function NextDayAssignmentPlanner({
         .from('staff_schedules')
         .select('id,user_id,work_date,shift_start,shift_end,status,notes')
         .eq('organization_slug', profile.organization_slug)
-        .eq('hotel_id', profile.assigned_hotel)
+        .eq('hotel_id', hotelId)
         .eq('work_date', selectedDate),
       supabase
         .from('rooms')
@@ -273,7 +314,7 @@ export function NextDayAssignmentPlanner({
         .from('next_day_housekeeping_plans')
         .select('id,status,auto_release,release_timezone,created_by,pms_synced_at')
         .eq('organization_slug', profile.organization_slug)
-        .eq('hotel_id', profile.assigned_hotel)
+        .eq('hotel_id', hotelId)
         .eq('plan_date', selectedDate)
         .maybeSingle(),
     ]);
@@ -298,10 +339,14 @@ export function NextDayAssignmentPlanner({
     setSyncStage('arranging');
 
     const scheduledIds = new Set(
-      scheduleRows.filter(schedule => schedule.status !== 'off').map(schedule => schedule.user_id),
+      scheduleRows
+        .filter(schedule => schedule.status !== 'off')
+        .map(schedule => schedule.user_id),
     );
     const availableStaffIds = new Set(staffRows.map(staff => staff.id));
-    const defaultSelection = new Set(Array.from(scheduledIds).filter(id => availableStaffIds.has(id)));
+    const defaultSelection = new Set(
+      Array.from(scheduledIds).filter(id => availableStaffIds.has(id)),
+    );
 
     if (plan?.id) {
       const [planStaffResult, planItemsResult] = await Promise.all([
@@ -318,19 +363,25 @@ export function NextDayAssignmentPlanner({
       if (planItemsResult.error) throw planItemsResult.error;
 
       const savedStaffIds = new Set<string>(
-        (planStaffResult.data || []).filter((row: any) => row.selected).map((row: any) => row.user_id),
+        (planStaffResult.data || [])
+          .filter((row: any) => row.selected)
+          .map((row: any) => row.user_id),
       );
-      const effectiveSelection = savedStaffIds.size ? savedStaffIds : defaultSelection;
-      setSelectedStaffIds(effectiveSelection);
+      setSelectedStaffIds(savedStaffIds.size ? savedStaffIds : defaultSelection);
 
       const items = (planItemsResult.data || []) as PlanItemRow[];
       const roomMap = new Map(rooms.map(room => [room.id, room]));
       const itemRoomIds = new Set(items.map(item => item.room_id));
       const workloadRoomIds = new Set(rooms.map(room => room.id));
-      const changed =
-        itemRoomIds.size !== workloadRoomIds.size ||
-        Array.from(itemRoomIds).some(id => !workloadRoomIds.has(id));
-      setExistingPlanChanged(changed);
+      const roomSetChanged =
+        itemRoomIds.size !== workloadRoomIds.size
+        || Array.from(itemRoomIds).some(id => !workloadRoomIds.has(id));
+      const cleaningTypeChanged = items.some(item => {
+        const freshRoom = roomMap.get(item.room_id);
+        return !!freshRoom && item.assignment_type !== getTomorrowAssignmentType(freshRoom);
+      });
+      const planChanged = roomSetChanged || cleaningTypeChanged;
+      setExistingPlanChanged(planChanged);
 
       if (items.length > 0) {
         const staffMap = new Map(staffRows.map(staff => [staff.id, staff]));
@@ -356,8 +407,8 @@ export function NextDayAssignmentPlanner({
 
     setSelectedStaffIds(defaultSelection);
     if (defaultSelection.size > 0 && rooms.length > 0) {
-      const selected = staffRows.filter(staff => defaultSelection.has(staff.id));
-      const generated = generateBestPreview(rooms, selected, resolvedHotelName);
+      const staff = staffRows.filter(person => defaultSelection.has(person.id));
+      const generated = generateBestPreview(rooms, staff, resolvedHotelName);
       setPreviews(generated);
       setSuggestedByRoom(new Map(generated.flatMap(preview =>
         preview.rooms.map(room => [room.id, preview.staffId] as [string, string]),
@@ -367,6 +418,7 @@ export function NextDayAssignmentPlanner({
 
   const prepareTomorrow = async () => {
     if (!profile?.assigned_hotel || !profile.organization_slug) return;
+
     const generation = ++syncGeneration.current;
     setSyncing(true);
     setSyncError(null);
@@ -380,8 +432,13 @@ export function NextDayAssignmentPlanner({
     try {
       const result = await runPmsRefresh(profile.assigned_hotel, { trigger: 'manual' });
       if (syncGeneration.current !== generation) return;
+
       if (result.status === 'error' || result.reservationDataAuthoritative === false) {
-        throw new Error(result.managerMessage || result.errors?.join(' · ') || 'Previo reservation data was not authoritative.');
+        throw new Error(
+          result.managerMessage
+          || result.errors?.join(' · ')
+          || 'Previo reservation data was not authoritative.',
+        );
       }
 
       const syncedAt = new Date().toISOString();
@@ -398,11 +455,11 @@ export function NextDayAssignmentPlanner({
         managerMessage: result.managerMessage || null,
         capturedAt: syncedAt,
       });
-      await loadPlanningData(result, syncedAt);
+
+      await loadPlanningData();
     } catch (error) {
       console.error('[NextDayAssignmentPlanner] preparation failed:', error);
-      const message = error instanceof Error ? error.message : String(error);
-      setSyncError(message);
+      setSyncError(error instanceof Error ? error.message : String(error));
     } finally {
       window.clearTimeout(stageTimer);
       if (syncGeneration.current === generation) setSyncing(false);
@@ -414,10 +471,12 @@ export function NextDayAssignmentPlanner({
       syncGeneration.current += 1;
       return;
     }
+
     setLanguage(getHousekeepingAutomationLanguage());
     resetPlanner();
     void prepareTomorrow();
-    // The selected date/hotel define a unique planning session.
+    // A new hotel/date creates a new preparation session. Previo is always
+    // refreshed before any tomorrow workload is exposed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, selectedDate, profile?.assigned_hotel, profile?.organization_slug]);
 
@@ -440,11 +499,19 @@ export function NextDayAssignmentPlanner({
       return;
     }
     if (tomorrowRooms.length === 0) return;
-    const generated = generateBestPreview(tomorrowRooms, selectedStaff, hotelName || profile?.assigned_hotel || '');
+
+    const generated = generateBestPreview(
+      tomorrowRooms,
+      selectedStaff,
+      hotelName || profile?.assigned_hotel || '',
+    );
     setPreviews(generated);
     setSuggestedByRoom(new Map(generated.flatMap(preview =>
       preview.rooms.map(room => [room.id, preview.staffId] as [string, string]),
     )));
+    // Regeneration acknowledges the new fresh workload and is the only way an
+    // old plan with changed PMS room/type data can become approvable again.
+    setExistingPlanChanged(false);
     setSelectedMove(null);
     setStep('review');
   };
@@ -465,6 +532,12 @@ export function NextDayAssignmentPlanner({
   const saveApprovedPlan = async () => {
     if (!user || !profile?.organization_slug || !profile.assigned_hotel || !pmsSyncedAt) return;
     if (previews.length === 0 || previews.every(preview => preview.rooms.length === 0)) return;
+
+    if (existingPlanChanged) {
+      toast.warning(text('existingPlanChanged'));
+      return;
+    }
+
     if (existingPlan?.status === 'released' || existingPlan?.status === 'releasing') {
       toast.error('This plan is already being released or has been released.');
       return;
@@ -476,9 +549,14 @@ export function NextDayAssignmentPlanner({
         room,
         staffId: preview.staffId,
       })));
-      const changedCount = finalEntries.filter(entry => suggestedByRoom.get(entry.room.id) !== entry.staffId).length;
+      const changedCount = finalEntries.filter(
+        entry => suggestedByRoom.get(entry.room.id) !== entry.staffId,
+      ).length;
       const releaseTimezone = existingPlan?.release_timezone || 'Europe/Budapest';
 
+      // First force the parent back to draft. Children are replaced only while
+      // the plan is non-live; approval happens last so partial network writes
+      // can never leave an incomplete plan eligible for the 08:00 release.
       const planPayload = {
         organization_slug: profile.organization_slug,
         hotel_id: profile.assigned_hotel,
@@ -517,8 +595,14 @@ export function NextDayAssignmentPlanner({
       const planId = plan.id as string;
 
       const [deleteStaffResult, deleteItemsResult] = await Promise.all([
-        (supabase as any).from('next_day_housekeeping_plan_staff').delete().eq('plan_id', planId),
-        (supabase as any).from('next_day_housekeeping_plan_items').delete().eq('plan_id', planId),
+        (supabase as any)
+          .from('next_day_housekeeping_plan_staff')
+          .delete()
+          .eq('plan_id', planId),
+        (supabase as any)
+          .from('next_day_housekeeping_plan_items')
+          .delete()
+          .eq('plan_id', planId),
       ]);
       if (deleteStaffResult.error) throw deleteStaffResult.error;
       if (deleteItemsResult.error) throw deleteItemsResult.error;
@@ -540,8 +624,11 @@ export function NextDayAssignmentPlanner({
           created_by: user.id,
         };
       });
+
       if (staffPayload.length > 0) {
-        const { error } = await (supabase as any).from('next_day_housekeeping_plan_staff').insert(staffPayload);
+        const { error } = await (supabase as any)
+          .from('next_day_housekeeping_plan_staff')
+          .insert(staffPayload);
         if (error) throw error;
       }
 
@@ -551,7 +638,7 @@ export function NextDayAssignmentPlanner({
           plan_id: planId,
           room_id: room.id,
           assigned_to: staffId,
-          assignment_type: room.is_checkout_room ? 'checkout_cleaning' : 'daily_cleaning',
+          assignment_type: getTomorrowAssignmentType(room),
           priority: room.is_checkout_room ? 1 : 2,
           estimated_duration: calculateRoomTime(room),
           notes: null,
@@ -570,8 +657,11 @@ export function NextDayAssignmentPlanner({
           },
         };
       });
+
       if (itemPayload.length > 0) {
-        const { error } = await (supabase as any).from('next_day_housekeeping_plan_items').insert(itemPayload);
+        const { error } = await (supabase as any)
+          .from('next_day_housekeeping_plan_items')
+          .insert(itemPayload);
         if (error) throw error;
       }
 
@@ -592,7 +682,11 @@ export function NextDayAssignmentPlanner({
       setExistingPlan(approvedPlan as PlanRow);
       setExistingPlanChanged(false);
       window.dispatchEvent(new CustomEvent('hk-next-day-plan-changed', {
-        detail: { hotelId: profile.assigned_hotel, planDate: selectedDate, planId },
+        detail: {
+          hotelId: profile.assigned_hotel,
+          planDate: selectedDate,
+          planId,
+        },
       }));
       toast.success(text('saved'));
       onOpenChange(false);
@@ -619,7 +713,11 @@ export function NextDayAssignmentPlanner({
             <CalendarClock className="h-5 w-5 text-primary" />
             {text('title')}
             <Badge variant="outline">{selectedDate}</Badge>
-            {existingPlan && <Badge variant={existingPlan.status === 'approved' ? 'default' : 'secondary'}>{existingPlan.status}</Badge>}
+            {existingPlan && (
+              <Badge variant={existingPlan.status === 'approved' ? 'default' : 'secondary'}>
+                {existingPlan.status}
+              </Badge>
+            )}
           </DialogTitle>
           <p className="text-sm text-muted-foreground">{text('subtitle')}</p>
         </DialogHeader>
@@ -628,7 +726,9 @@ export function NextDayAssignmentPlanner({
           <div className="flex min-h-0 flex-1 items-center justify-center">
             <div className="w-full max-w-xl space-y-5 rounded-2xl border bg-card p-6 shadow-sm">
               <div className="flex items-center gap-3">
-                <div className="rounded-full bg-primary/10 p-3"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+                <div className="rounded-full bg-primary/10 p-3">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
                 <div>
                   <p className="font-semibold">{syncStageLabel(syncStage, language)}</p>
                   <p className="mt-1 text-sm text-muted-foreground">{selectedDate}</p>
@@ -637,7 +737,10 @@ export function NextDayAssignmentPlanner({
               <Progress value={SYNC_PROGRESS[syncStage]} className="h-2" />
               <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-4">
                 {(['contacting', 'checkouts', 'received', 'arranging'] as SyncStage[]).map((stage, index) => (
-                  <div key={stage} className={SYNC_PROGRESS[syncStage] >= SYNC_PROGRESS[stage] ? 'font-medium text-foreground' : ''}>
+                  <div
+                    key={stage}
+                    className={SYNC_PROGRESS[syncStage] >= SYNC_PROGRESS[stage] ? 'font-medium text-foreground' : ''}
+                  >
                     {index + 1}. {syncStageLabel(stage, language)}
                   </div>
                 ))}
@@ -651,50 +754,99 @@ export function NextDayAssignmentPlanner({
               <h3 className="font-semibold">{text('syncFailed')}</h3>
               <p className="mt-2 text-sm text-muted-foreground">{syncError}</p>
               <Button className="mt-5" onClick={() => void prepareTomorrow()}>
-                <RefreshCw className="mr-2 h-4 w-4" />{text('retrySync')}
+                <RefreshCw className="mr-2 h-4 w-4" />
+                {text('retrySync')}
               </Button>
             </div>
           </div>
         ) : (
           <>
             <div className="mt-1 flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-xs">
-              <Badge variant="outline" className="border-emerald-300 text-emerald-700"><Check className="mr-1 h-3 w-3" />{text('pmsFresh')}</Badge>
-              {pmsSyncedAt && <span className="text-muted-foreground">{new Date(pmsSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
-              <span className="ml-auto font-medium">{text('tomorrowWorkload')}: {tomorrowRooms.length} {text('rooms')} · {checkoutCount} {text('checkouts')} · {dailyCount} {text('daily')}</span>
+              <Badge variant="outline" className="border-emerald-300 text-emerald-700">
+                <Check className="mr-1 h-3 w-3" />
+                {text('pmsFresh')}
+              </Badge>
+              {pmsSyncedAt && (
+                <span className="text-muted-foreground">
+                  {new Date(pmsSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+              <span className="ml-auto font-medium">
+                {text('tomorrowWorkload')}: {tomorrowRooms.length} {text('rooms')} · {checkoutCount} {text('checkouts')} · {dailyCount} {text('daily')}
+              </span>
             </div>
 
-            {partialSync && <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">{text('warningPartial')}</div>}
-            {existingPlan && <div className={`mt-2 rounded-lg border px-3 py-2 text-sm ${existingPlanChanged ? 'border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200' : 'bg-muted/30'}`}><strong>{text('existingPlan')}.</strong> {existingPlanChanged ? text('existingPlanChanged') : ''}</div>}
+            {partialSync && (
+              <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                {text('warningPartial')}
+              </div>
+            )}
+
+            {existingPlan && (
+              <div className={`mt-2 rounded-lg border px-3 py-2 text-sm ${existingPlanChanged ? 'border-amber-300 bg-amber-50 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200' : 'bg-muted/30'}`}>
+                <strong>{text('existingPlan')}.</strong>{' '}
+                {existingPlanChanged ? text('existingPlanChanged') : ''}
+              </div>
+            )}
 
             <div className="min-h-0 flex-1 overflow-y-auto py-3">
               {tomorrowRooms.length === 0 ? (
-                <div className="py-16 text-center text-muted-foreground"><Check className="mx-auto mb-3 h-12 w-12 opacity-40" /><p>{text('noRooms')}</p></div>
+                <div className="py-16 text-center text-muted-foreground">
+                  <Check className="mx-auto mb-3 h-12 w-12 opacity-40" />
+                  <p>{text('noRooms')}</p>
+                </div>
               ) : step === 'staff' ? (
                 <div className="space-y-4">
                   <div className="grid grid-cols-3 gap-3 rounded-xl bg-muted p-3">
-                    <div className="text-center"><p className="text-2xl font-bold">{tomorrowRooms.length}</p><p className="text-xs text-muted-foreground">{text('rooms')}</p></div>
-                    <div className="text-center"><p className="text-2xl font-bold text-amber-600">{checkoutCount}</p><p className="text-xs text-muted-foreground">{text('checkouts')}</p></div>
-                    <div className="text-center"><p className="text-2xl font-bold text-blue-600">{dailyCount}</p><p className="text-xs text-muted-foreground">{text('daily')}</p></div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold">{tomorrowRooms.length}</p>
+                      <p className="text-xs text-muted-foreground">{text('rooms')}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-amber-600">{checkoutCount}</p>
+                      <p className="text-xs text-muted-foreground">{text('checkouts')}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-blue-600">{dailyCount}</p>
+                      <p className="text-xs text-muted-foreground">{text('daily')}</p>
+                    </div>
                   </div>
 
-                  <h3 className="flex items-center gap-2 font-medium"><Users className="h-4 w-4" />{text('selectStaff')} ({selectedStaffIds.size})</h3>
+                  <h3 className="flex items-center gap-2 font-medium">
+                    <Users className="h-4 w-4" />
+                    {text('selectStaff')} ({selectedStaffIds.size})
+                  </h3>
+
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {allStaff.map(staff => {
                       const schedule = scheduleByUser.get(staff.id);
                       const selected = selectedStaffIds.has(staff.id);
                       return (
-                        <button key={staff.id} type="button" onClick={() => toggleStaff(staff.id)} className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors ${selected ? 'border-primary bg-primary/5' : 'hover:bg-muted/60'}`}>
+                        <button
+                          key={staff.id}
+                          type="button"
+                          onClick={() => toggleStaff(staff.id)}
+                          className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-colors ${selected ? 'border-primary bg-primary/5' : 'hover:bg-muted/60'}`}
+                        >
                           <Checkbox checked={selected} />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate font-medium">{staff.full_name}</span>
-                            {staff.nickname && <span className="block truncate text-xs text-muted-foreground">{staff.nickname}</span>}
+                            {staff.nickname && (
+                              <span className="block truncate text-xs text-muted-foreground">{staff.nickname}</span>
+                            )}
                           </span>
                           {schedule ? (
                             <span className="text-right text-xs">
-                              <Badge variant={schedule.status === 'published' ? 'default' : 'outline'}>{schedule.status === 'published' ? text('published') : text('draft')}</Badge>
-                              <span className="mt-1 block text-muted-foreground">{schedule.shift_start?.slice(0, 5)}–{schedule.shift_end?.slice(0, 5)}</span>
+                              <Badge variant={schedule.status === 'published' ? 'default' : 'outline'}>
+                                {schedule.status === 'published' ? text('published') : text('draft')}
+                              </Badge>
+                              <span className="mt-1 block text-muted-foreground">
+                                {schedule.shift_start?.slice(0, 5)}–{schedule.shift_end?.slice(0, 5)}
+                              </span>
                             </span>
-                          ) : <Badge variant="secondary">{text('noSchedule')}</Badge>}
+                          ) : (
+                            <Badge variant="secondary">{text('noSchedule')}</Badge>
+                          )}
                         </button>
                       );
                     })}
@@ -703,8 +855,18 @@ export function NextDayAssignmentPlanner({
               ) : (
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-muted/40 px-3 py-2 text-sm">
-                    <div><strong>{previews.reduce((sum, preview) => sum + preview.rooms.length, 0)}</strong> {text('rooms')} → <strong>{previews.filter(preview => preview.rooms.length > 0).length}</strong> staff</div>
-                    {fairness && <div className="flex gap-3 text-xs text-muted-foreground"><span>CO ±{fairness.checkoutDiff}</span><span>Daily ±{fairness.dailyDiff}</span><span>Time ±{fairness.timeSpreadMinutes}m</span><span>Floors {fairness.splitFloorCount}</span></div>}
+                    <div>
+                      <strong>{previews.reduce((sum, preview) => sum + preview.rooms.length, 0)}</strong> {text('rooms')} →{' '}
+                      <strong>{previews.filter(preview => preview.rooms.length > 0).length}</strong> staff
+                    </div>
+                    {fairness && (
+                      <div className="flex gap-3 text-xs text-muted-foreground">
+                        <span>CO ±{fairness.checkoutDiff}</span>
+                        <span>Daily ±{fairness.dailyDiff}</span>
+                        <span>Time ±{fairness.timeSpreadMinutes}m</span>
+                        <span>Floors {fairness.splitFloorCount}</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
@@ -713,18 +875,34 @@ export function NextDayAssignmentPlanner({
                         key={preview.staffId}
                         onDragOver={event => event.preventDefault()}
                         onDrop={event => handleDrop(event, preview.staffId)}
-                        onClick={() => selectedMove && selectedMove.fromStaffId !== preview.staffId && applyMove(selectedMove.roomId, selectedMove.fromStaffId, preview.staffId)}
+                        onClick={() => {
+                          if (selectedMove && selectedMove.fromStaffId !== preview.staffId) {
+                            applyMove(selectedMove.roomId, selectedMove.fromStaffId, preview.staffId);
+                          }
+                        }}
                         className={`min-h-48 rounded-xl border bg-card ${selectedMove && selectedMove.fromStaffId !== preview.staffId ? 'cursor-pointer ring-2 ring-primary/50' : ''}`}
                       >
                         <div className="border-b bg-muted/40 px-3 py-2">
-                          <div className="flex items-center justify-between gap-2"><span className="truncate font-semibold">{preview.staffName}</span><span className="text-xs text-muted-foreground">{preview.estimatedMinutes}m</span></div>
-                          <div className="mt-1 text-xs text-muted-foreground">{preview.checkoutCount} {text('checkouts')} · {preview.dailyCount} {text('daily')}</div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate font-semibold">{preview.staffName}</span>
+                            <span className="text-xs text-muted-foreground">{preview.estimatedMinutes}m</span>
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {preview.checkoutCount} {text('checkouts')} · {preview.dailyCount} {text('daily')}
+                          </div>
                         </div>
+
                         <div className="space-y-2 p-2">
-                          {preview.rooms.length === 0 && <div className="rounded-lg border border-dashed p-5 text-center text-xs text-muted-foreground">Drop a room here</div>}
+                          {preview.rooms.length === 0 && (
+                            <div className="rounded-lg border border-dashed p-5 text-center text-xs text-muted-foreground">
+                              Drop a room here
+                            </div>
+                          )}
+
                           {preview.rooms.map(room => {
                             const selected = selectedMove?.roomId === room.id;
-                            const changed = suggestedByRoom.get(room.id) && suggestedByRoom.get(room.id) !== preview.staffId;
+                            const changed = suggestedByRoom.get(room.id)
+                              && suggestedByRoom.get(room.id) !== preview.staffId;
                             return (
                               <button
                                 key={room.id}
@@ -738,12 +916,29 @@ export function NextDayAssignmentPlanner({
                                 }}
                                 onClick={event => {
                                   event.stopPropagation();
-                                  setSelectedMove(selected ? null : { roomId: room.id, fromStaffId: preview.staffId });
+                                  setSelectedMove(selected ? null : {
+                                    roomId: room.id,
+                                    fromStaffId: preview.staffId,
+                                  });
                                 }}
                                 className={`flex w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left text-sm ${selected ? 'border-primary ring-2 ring-primary/30' : room.is_checkout_room ? 'border-amber-300 bg-amber-50/70 dark:bg-amber-950/20' : 'border-blue-200 bg-blue-50/60 dark:bg-blue-950/20'}`}
                               >
-                                <span className="flex items-center gap-2"><strong>{room.room_number}</strong><Badge variant="outline" className="text-[10px]">{room.is_checkout_room ? 'CO' : 'D'}</Badge>{room.linen_change_required && <Badge variant="outline" className="text-[10px]">C</Badge>}{room.towel_change_required && <Badge variant="outline" className="text-[10px]">T</Badge>}</span>
-                                <span className="flex items-center gap-1 text-xs text-muted-foreground">F{room.floor_number ?? getFloorFromRoomNumber(room.room_number)}{changed && <span className="text-primary">●</span>}</span>
+                                <span className="flex items-center gap-2">
+                                  <strong>{room.room_number}</strong>
+                                  <Badge variant="outline" className="text-[10px]">
+                                    {room.is_checkout_room ? 'CO' : 'D'}
+                                  </Badge>
+                                  {room.linen_change_required && (
+                                    <Badge variant="outline" className="text-[10px]">C</Badge>
+                                  )}
+                                  {room.towel_change_required && (
+                                    <Badge variant="outline" className="text-[10px]">T</Badge>
+                                  )}
+                                </span>
+                                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  F{room.floor_number ?? getFloorFromRoomNumber(room.room_number)}
+                                  {changed && <span className="text-primary">●</span>}
+                                </span>
                               </button>
                             );
                           })}
@@ -753,14 +948,41 @@ export function NextDayAssignmentPlanner({
                   </div>
 
                   <div className="rounded-lg border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                    {activeMoveRoom ? <><strong className="text-foreground">{text('selectedRoom')}: {activeMoveRoom.room_number}.</strong> {text('tapMove')} <Button variant="ghost" size="sm" className="ml-1 h-6 px-2 text-xs" onClick={() => setSelectedMove(null)}>{text('cancelMove')}</Button></> : text('tapMove')}
+                    {activeMoveRoom ? (
+                      <>
+                        <strong className="text-foreground">
+                          {text('selectedRoom')}: {activeMoveRoom.room_number}.
+                        </strong>{' '}
+                        {text('tapMove')}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="ml-1 h-6 px-2 text-xs"
+                          onClick={() => setSelectedMove(null)}
+                        >
+                          {text('cancelMove')}
+                        </Button>
+                      </>
+                    ) : text('tapMove')}
                   </div>
 
                   <label className="flex cursor-pointer items-start gap-3 rounded-xl border bg-card p-4">
-                    <Checkbox checked={autoRelease} onCheckedChange={checked => setAutoRelease(checked === true)} className="mt-0.5" />
+                    <Checkbox
+                      checked={autoRelease}
+                      onCheckedChange={checked => setAutoRelease(checked === true)}
+                      className="mt-0.5"
+                    />
                     <span>
-                      <span className="flex flex-wrap items-center gap-2 font-medium">{text('autoRelease')}<Badge variant="outline"><Clock className="mr-1 h-3 w-3" />{text('releaseAt')}</Badge></span>
-                      <span className="mt-1 block text-xs text-muted-foreground">{autoRelease ? text('autoReleaseHint') : text('heldHint')}</span>
+                      <span className="flex flex-wrap items-center gap-2 font-medium">
+                        {text('autoRelease')}
+                        <Badge variant="outline">
+                          <Clock className="mr-1 h-3 w-3" />
+                          {text('releaseAt')}
+                        </Badge>
+                      </span>
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        {autoRelease ? text('autoReleaseHint') : text('heldHint')}
+                      </span>
                     </span>
                   </label>
                 </div>
@@ -774,15 +996,33 @@ export function NextDayAssignmentPlanner({
                 <>
                   <Button variant="outline" onClick={() => onOpenChange(false)}>{text('close')}</Button>
                   <Button onClick={generatePreview} disabled={selectedStaffIds.size === 0}>
-                    {text('generate')}<ArrowRight className="ml-2 h-4 w-4" />
+                    {text('generate')}
+                    <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 </>
               ) : (
                 <>
                   <Button variant="outline" onClick={() => setStep('staff')}>{text('back')}</Button>
-                  <Button variant="outline" onClick={generatePreview}><RefreshCw className="mr-2 h-4 w-4" />{text('regenerate')}</Button>
-                  <Button onClick={saveApprovedPlan} disabled={saving || previews.length === 0}>
-                    {saving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{text('saving')}</> : <><Check className="mr-2 h-4 w-4" />{text('savePlan')}</>}
+                  <Button variant="outline" onClick={generatePreview}>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    {text('regenerate')}
+                  </Button>
+                  <Button
+                    onClick={saveApprovedPlan}
+                    disabled={saving || previews.length === 0 || existingPlanChanged}
+                    title={existingPlanChanged ? text('existingPlanChanged') : undefined}
+                  >
+                    {saving ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {text('saving')}
+                      </>
+                    ) : (
+                      <>
+                        <Check className="mr-2 h-4 w-4" />
+                        {text('savePlan')}
+                      </>
+                    )}
                   </Button>
                 </>
               )}
