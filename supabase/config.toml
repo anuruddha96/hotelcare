@@ -230,3 +230,8 @@ verify_jwt = true
 # short-lived one-time OAuth state before exchanging and encrypting tokens.
 [functions.google-business-oauth-callback]
 verify_jwt = false
+
+# Called by pg_cron/pg_net. The function validates a random Vault-backed
+# x-worker-secret before any alert query or e-mail can run.
+[functions.housekeeping-activity-watchdog]
+verify_jwt = false
