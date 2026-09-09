@@ -184,12 +184,13 @@ export function TomorrowHousekeepingLauncher() {
   const [plan, setPlan] = useState<TomorrowPlanRow | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [statusUnavailable, setStatusUnavailable] = useState(false);
+  const [budapestDate, setBudapestDate] = useState(todayBudapest());
   const requestGeneration = useRef(0);
 
-  const tomorrowDate = useMemo(() => {
-    const today = todayBudapest();
-    return format(addDays(new Date(`${today}T12:00:00`), 1), 'yyyy-MM-dd');
-  }, []);
+  const tomorrowDate = useMemo(
+    () => format(addDays(new Date(`${budapestDate}T12:00:00`), 1), 'yyyy-MM-dd'),
+    [budapestDate],
+  );
 
   const canManage = hasManagerPowers(profile?.role);
 
@@ -234,7 +235,11 @@ export function TomorrowHousekeepingLauncher() {
     if (!canManage) return;
 
     void loadStatus(true);
-    const refresh = () => void loadStatus(false);
+    const refresh = () => {
+      const currentBudapestDate = todayBudapest();
+      setBudapestDate(current => current === currentBudapestDate ? current : currentBudapestDate);
+      void loadStatus(false);
+    };
     const onVisibility = () => {
       if (document.visibilityState === 'visible') refresh();
     };
