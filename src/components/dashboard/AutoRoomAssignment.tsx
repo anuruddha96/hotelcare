@@ -5,12 +5,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { getLocalDateString } from '@/lib/utils';
 import {
   clearLiveSectionTaskSnapshot,
   setLiveSectionTaskSnapshot,
 } from '@/lib/housekeepingSectionTasks';
 import { AutoRoomAssignment as AutoRoomAssignmentImpl } from './AutoRoomAssignmentImpl';
 import { MemoriesZoneAutoAssignment } from './MemoriesZoneAutoAssignment';
+import { NextDayAssignmentPlanner } from './NextDayAssignmentPlanner';
 
 /**
  * Motion reports drag gesture points in page coordinates, while the Auto Assign
@@ -42,6 +44,12 @@ function isHotelMemoriesKey(value?: string | null) {
   return key === 'hotel memories budapest' || key === 'memories-budapest';
 }
 
+function getTomorrowDateString() {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return getLocalDateString(tomorrow);
+}
+
 function getAutoAssignDraftKey(hotel: string | null | undefined, date: string) {
   return hotel ? `auto_assignment_v2_${hotel}_${date}` : null;
 }
@@ -67,6 +75,7 @@ function removeSavedDraft(key: string | null) {
 export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   const { profile } = useAuth();
   const isMemories = isHotelMemoriesKey(profile?.assigned_hotel);
+  const isTomorrowPlanner = props.selectedDate === getTomorrowDateString();
   const [memoriesView, setMemoriesView] = useState<MemoriesAutoAssignView>('housekeeper');
   const [preparedRealityKey, setPreparedRealityKey] = useState<string | null>(null);
 
@@ -74,24 +83,24 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   const realityKey = profile?.assigned_hotel
     ? `${profile.assigned_hotel}|${props.selectedDate}`
     : null;
-  const liveAssignmentStateReady = !props.open
+  const liveAssignmentStateReady = isTomorrowPlanner
+    || !props.open
     || (!!realityKey && preparedRealityKey === realityKey);
   const assignmentInstanceKey = props.open && liveAssignmentStateReady
     ? `open:${realityKey || 'unknown'}`
     : 'closed';
 
   /**
-   * Auto Assign has two very different modes:
+   * Auto Assign has two very different live-day modes:
    *  - before assignment, it is allowed to calculate a new room/public-area plan;
    *  - after assignment, the persisted database rows are the source of truth.
    *
-   * Prepare that reality before mounting the assignment board. This prevents a
-   * browser draft from overriding today's room owners and, equally importantly,
-   * prevents the current public-area configuration from replacing the exact set
-   * and owners that the manager already assigned earlier in the day.
+   * Tomorrow is deliberately excluded from this live-reality preparation. The
+   * NextDayAssignmentPlanner owns tomorrow and stores a plan instead of creating
+   * room_assignments early.
    */
   useEffect(() => {
-    if (!props.open) {
+    if (!props.open || isTomorrowPlanner) {
       setPreparedRealityKey(null);
       clearLiveSectionTaskSnapshot();
       return;
@@ -178,18 +187,22 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
     return () => {
       cancelled = true;
     };
-  }, [draftKey, profile?.assigned_hotel, props.open, props.selectedDate, realityKey]);
+  }, [draftKey, isTomorrowPlanner, profile?.assigned_hotel, props.open, props.selectedDate, realityKey]);
 
   useEffect(() => {
-    if (!isMemories || !props.open || typeof window === 'undefined') return;
+    if (isTomorrowPlanner || !isMemories || !props.open || typeof window === 'undefined') return;
     const saved = window.localStorage.getItem(MEMORIES_VIEW_KEY);
     if (saved === 'housekeeper' || saved === 'zone') setMemoriesView(saved);
-  }, [isMemories, props.open]);
+  }, [isMemories, isTomorrowPlanner, props.open]);
 
   const changeMemoriesView = (next: MemoriesAutoAssignView) => {
     setMemoriesView(next);
     if (typeof window !== 'undefined') window.localStorage.setItem(MEMORIES_VIEW_KEY, next);
   };
+
+  if (isTomorrowPlanner) {
+    return <NextDayAssignmentPlanner {...props} />;
+  }
 
   if (isMemories) {
     return (
