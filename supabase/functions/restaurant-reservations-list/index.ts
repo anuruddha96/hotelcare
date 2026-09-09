@@ -117,18 +117,28 @@ Deno.serve(async (req) => {
 
     if (error) throw error;
 
-    // Track the last real website delivery separately from self-tests. This lets
-    // the public BB screen distinguish a healthy webhook-only property from a
-    // property where neither the website nor the pull fallback is supplying data.
-    const { data: webhookRows } = await supabase
-      .from("restaurant_webhook_log")
-      .select("created_at, source_reservation_id")
-      .eq("hotel_id", reservationHotelId)
-      .eq("outcome", "upserted")
-      .order("created_at", { ascending: false })
-      .limit(25);
+    // Track the last real website delivery separately from self-tests. Webhook
+    // logs are keyed by property_slug (not hotel_id), so use the already-resolved
+    // source mapping. This keeps feed-health detection accurate for Mika and all
+    // other mapped properties.
+    let webhookRows: Array<{ created_at: string; source_reservation_id: string | null }> = [];
+    if (source?.property_slug) {
+      const { data: recentWebhookRows, error: webhookLogError } = await supabase
+        .from("restaurant_webhook_log")
+        .select("created_at, source_reservation_id")
+        .eq("property_slug", source.property_slug)
+        .eq("outcome", "upserted")
+        .order("created_at", { ascending: false })
+        .limit(25);
 
-    const lastRealWebhook = (webhookRows ?? []).find((r) => {
+      if (webhookLogError) {
+        console.error("restaurant webhook health lookup failed", webhookLogError.message);
+      } else {
+        webhookRows = recentWebhookRows ?? [];
+      }
+    }
+
+    const lastRealWebhook = webhookRows.find((r) => {
       const ref = String(r.source_reservation_id ?? "").toLowerCase();
       return !ref.startsWith("selftest") && !ref.startsWith("self-test");
     });
