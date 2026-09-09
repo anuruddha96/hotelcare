@@ -33,6 +33,15 @@ import {
   type HousekeepingAssignmentSignals,
 } from '@/lib/housekeepingAssignmentLearning';
 import {
+  adjustedStaffMinutes,
+  getPrimaryOwnerByRoom,
+  getSharedRoomsForStaff,
+  partitionSharedPlanItems,
+  removeStaffFromSharedRooms,
+  setSharedRoomHelper,
+  splitSharedDuration,
+} from '@/lib/nextDayHousekeepingShared';
+import {
   getHousekeepingAutomationLanguage,
   housekeepingAutomationText,
   type HousekeepingAutomationLanguage,
@@ -79,10 +88,14 @@ type PlanItemRow = {
   room_id: string;
   assigned_to: string;
   assignment_type: 'checkout_cleaning' | 'daily_cleaning';
+  source?: 'auto' | 'manager' | 'manual' | 'learned' | 'shared';
   recommendation_context?: {
     suggested_staff_id?: string;
     final_staff_id?: string;
     manager_changed?: boolean;
+    assignment_role?: 'primary' | 'shared';
+    shared_primary_staff_id?: string;
+    shared_helper_staff_id?: string;
   } | null;
 };
 
@@ -190,6 +203,7 @@ export function NextDayAssignmentPlanner({
   open,
   onOpenChange,
   selectedDate,
+  onAssignmentCreated,
 }: NextDayAssignmentPlannerProps) {
   const { user, profile } = useAuth();
   const [language, setLanguage] = useState<HousekeepingAutomationLanguage>('en');
@@ -210,7 +224,9 @@ export function NextDayAssignmentPlanner({
   );
   const [previews, setPreviews] = useState<AssignmentPreview[]>([]);
   const [suggestedByRoom, setSuggestedByRoom] = useState<Map<string, string>>(new Map());
+  const [sharedByRoom, setSharedByRoom] = useState<Map<string, string>>(new Map());
   const [selectedMove, setSelectedMove] = useState<{ roomId: string; fromStaffId: string } | null>(null);
+  const [shareRoomId, setShareRoomId] = useState<string | null>(null);
   const [autoRelease, setAutoRelease] = useState(true);
   const [saving, setSaving] = useState(false);
   const [existingPlan, setExistingPlan] = useState<PlanRow | null>(null);
@@ -223,6 +239,11 @@ export function NextDayAssignmentPlanner({
   const scheduleByUser = useMemo(
     () => new Map(schedules.map(schedule => [schedule.user_id, schedule])),
     [schedules],
+  );
+
+  const staffNameById = useMemo(
+    () => new Map(allStaff.map(staff => [staff.id, staff.full_name])),
+    [allStaff],
   );
 
   const selectedStaff = useMemo(
@@ -239,6 +260,15 @@ export function NextDayAssignmentPlanner({
     () => previews.length ? computeFairnessMetrics(previews) : null,
     [previews],
   );
+  const primaryOwnerByRoom = useMemo(
+    () => getPrimaryOwnerByRoom(previews),
+    [previews],
+  );
+
+  const activeShareRoom = useMemo(
+    () => shareRoomId ? tomorrowRooms.find(room => room.id === shareRoomId) || null : null,
+    [shareRoomId, tomorrowRooms],
+  );
 
   const resetPlanner = () => {
     setStep('staff');
@@ -254,7 +284,9 @@ export function NextDayAssignmentPlanner({
     setAssignmentSignals(EMPTY_HOUSEKEEPING_ASSIGNMENT_SIGNALS);
     setPreviews([]);
     setSuggestedByRoom(new Map());
+    setSharedByRoom(new Map());
     setSelectedMove(null);
+    setShareRoomId(null);
     setAutoRelease(true);
     setExistingPlan(null);
     setExistingPlanChanged(false);
@@ -358,20 +390,25 @@ export function NextDayAssignmentPlanner({
           .eq('plan_id', plan.id),
         (supabase as any)
           .from('next_day_housekeeping_plan_items')
-          .select('room_id,assigned_to,assignment_type,recommendation_context')
+          .select('room_id,assigned_to,assignment_type,source,recommendation_context')
           .eq('plan_id', plan.id),
       ]);
       if (planStaffResult.error) throw planStaffResult.error;
       if (planItemsResult.error) throw planItemsResult.error;
 
+      const items = (planItemsResult.data || []) as PlanItemRow[];
       const savedStaffIds = new Set<string>(
         (planStaffResult.data || [])
           .filter((row: any) => row.selected)
           .map((row: any) => row.user_id),
       );
+      // Preserve helpers/legacy assignees in the selected set if they still
+      // belong to the currently available hotel staff roster.
+      for (const item of items) {
+        if (availableStaffIds.has(item.assigned_to)) savedStaffIds.add(item.assigned_to);
+      }
       setSelectedStaffIds(savedStaffIds.size ? savedStaffIds : defaultSelection);
 
-      const items = (planItemsResult.data || []) as PlanItemRow[];
       const roomMap = new Map(rooms.map(room => [room.id, room]));
       const itemRoomIds = new Set(items.map(item => item.room_id));
       const workloadRoomIds = new Set(rooms.map(room => room.id));
@@ -386,22 +423,24 @@ export function NextDayAssignmentPlanner({
       setExistingPlanChanged(planChanged);
 
       if (items.length > 0) {
+        const partitioned = partitionSharedPlanItems(items);
         const staffMap = new Map(staffRows.map(staff => [staff.id, staff]));
-        const ownerIds = Array.from(new Set(items.map(item => item.assigned_to)));
+        const ownerIds = Array.from(new Set(partitioned.primaryItems.map(item => item.assigned_to)));
         const restored = ownerIds.map(ownerId => {
           const staff = staffMap.get(ownerId) || {
             id: ownerId,
             full_name: `Staff ${ownerId.slice(0, 6)}`,
             nickname: null,
           };
-          const assignedRooms = items
+          const assignedRooms = partitioned.primaryItems
             .filter(item => item.assigned_to === ownerId)
             .map(item => roomMap.get(item.room_id))
             .filter(Boolean) as RoomForAssignment[];
           return buildPreview(staff, assignedRooms);
         });
         setPreviews(restored);
-        setSuggestedByRoom(new Map(items.map(item => [
+        setSharedByRoom(partitioned.sharedByRoom);
+        setSuggestedByRoom(new Map(partitioned.primaryItems.map(item => [
           item.room_id,
           item.recommendation_context?.suggested_staff_id || item.assigned_to,
         ])));
@@ -411,6 +450,7 @@ export function NextDayAssignmentPlanner({
     }
 
     setSelectedStaffIds(defaultSelection);
+    setSharedByRoom(new Map());
     if (defaultSelection.size > 0 && rooms.length > 0) {
       const staff = staffRows.filter(person => defaultSelection.has(person.id));
       const generated = generateLearnedHousekeepingPreview(
@@ -491,15 +531,20 @@ export function NextDayAssignmentPlanner({
   }, [open, selectedDate, profile?.assigned_hotel, profile?.organization_slug]);
 
   const toggleStaff = (staffId: string) => {
+    const removing = selectedStaffIds.has(staffId);
     setSelectedStaffIds(previous => {
       const next = new Set(previous);
       if (next.has(staffId)) next.delete(staffId);
       else next.add(staffId);
       return next;
     });
+    if (removing) {
+      setSharedByRoom(previous => removeStaffFromSharedRooms(previous, staffId));
+    }
     setPreviews([]);
     setSuggestedByRoom(new Map());
     setSelectedMove(null);
+    setShareRoomId(null);
     setStep('staff');
   };
 
@@ -520,17 +565,28 @@ export function NextDayAssignmentPlanner({
     setSuggestedByRoom(new Map(generated.flatMap(preview =>
       preview.rooms.map(room => [room.id, preview.staffId] as [string, string]),
     )));
+    setSharedByRoom(new Map());
     // Regeneration acknowledges the new fresh workload and is the only way an
     // old plan with changed PMS room/type data can become approvable again.
     setExistingPlanChanged(false);
     setSelectedMove(null);
+    setShareRoomId(null);
     setStep('review');
   };
 
   const applyMove = (roomId: string, fromStaffId: string, toStaffId: string) => {
     if (!roomId || !fromStaffId || !toStaffId || fromStaffId === toStaffId) return;
     setPreviews(previous => moveRoom(previous, roomId, fromStaffId, toStaffId));
+    setSharedByRoom(previous => {
+      // If the helper becomes the new primary cleaner, remove the duplicate
+      // helper row automatically. The former primary is not implicitly shared.
+      if (previous.get(roomId) === toStaffId) {
+        return setSharedRoomHelper(previous, roomId, null, toStaffId);
+      }
+      return previous;
+    });
     setSelectedMove(null);
+    setShareRoomId(null);
   };
 
   const handleDrop = (event: React.DragEvent<HTMLDivElement>, toStaffId: string) => {
@@ -538,6 +594,20 @@ export function NextDayAssignmentPlanner({
     const roomId = event.dataTransfer.getData('hotelcare-nextday-room-id');
     const fromStaffId = event.dataTransfer.getData('hotelcare-nextday-from-staff');
     applyMove(roomId, fromStaffId, toStaffId);
+  };
+
+  const chooseSharedHelper = (roomId: string, helperStaffId: string | null) => {
+    const primaryStaffId = primaryOwnerByRoom.get(roomId);
+    if (!primaryStaffId) return;
+    if (helperStaffId && !selectedStaffIds.has(helperStaffId)) return;
+    setSharedByRoom(previous => setSharedRoomHelper(
+      previous,
+      roomId,
+      helperStaffId,
+      primaryStaffId,
+    ));
+    setSelectedMove(null);
+    setShareRoomId(null);
   };
 
   const saveApprovedPlan = async () => {
@@ -556,11 +626,22 @@ export function NextDayAssignmentPlanner({
 
     setSaving(true);
     try {
-      const finalEntries = previews.flatMap(preview => preview.rooms.map(room => ({
+      const primaryEntries = previews.flatMap(preview => preview.rooms.map(room => ({
         room,
         staffId: preview.staffId,
+        assignmentRole: 'primary' as const,
       })));
-      const changedCount = finalEntries.filter(
+      const roomById = new Map(tomorrowRooms.map(room => [room.id, room]));
+      const sharedEntries = Array.from(sharedByRoom.entries()).flatMap(([roomId, helperStaffId]) => {
+        const room = roomById.get(roomId);
+        const primaryStaffId = primaryOwnerByRoom.get(roomId);
+        if (!room || !primaryStaffId || primaryStaffId === helperStaffId || !selectedStaffIds.has(helperStaffId)) {
+          return [];
+        }
+        return [{ room, staffId: helperStaffId, assignmentRole: 'shared' as const }];
+      });
+      const finalEntries = [...primaryEntries, ...sharedEntries];
+      const changedCount = primaryEntries.filter(
         entry => suggestedByRoom.get(entry.room.id) !== entry.staffId,
       ).length;
       const releaseTimezone = existingPlan?.release_timezone || 'Europe/Budapest';
@@ -578,14 +659,16 @@ export function NextDayAssignmentPlanner({
         release_timezone: releaseTimezone,
         pms_synced_at: pmsSyncedAt,
         pms_sync_snapshot: pmsSnapshot,
-        algorithm_version: 'room-assignment-v3-learned-next-day-2026-09',
+        algorithm_version: 'room-assignment-v4-learned-shared-next-day-2026-09',
         generation_context: {
           source: 'next_day_manager_planner',
           hotel_name: hotelName,
           plan_date: selectedDate,
-          room_count: finalEntries.length,
-          checkout_count: finalEntries.filter(entry => entry.room.is_checkout_room).length,
-          daily_count: finalEntries.filter(entry => !entry.room.is_checkout_room).length,
+          room_count: primaryEntries.length,
+          assignment_count: finalEntries.length,
+          shared_room_count: sharedEntries.length,
+          checkout_count: primaryEntries.filter(entry => entry.room.is_checkout_room).length,
+          daily_count: primaryEntries.filter(entry => !entry.room.is_checkout_room).length,
           selected_staff_ids: Array.from(selectedStaffIds),
           manager_changed_room_count: changedCount,
           historical_affinity_pair_count: assignmentSignals.affinityPairCount,
@@ -594,6 +677,7 @@ export function NextDayAssignmentPlanner({
           learning_correction_count: assignmentSignals.correctionCount,
           learning_sample_count: assignmentSignals.sampleCount,
           workload_derivation: 'scheduledDepartureTomorrow+occupiedToday/currentNight',
+          shared_cleaning_model: 'one_primary+one_helper;split_estimated_duration',
           generated_at: new Date().toISOString(),
         },
         created_by: existingPlan?.created_by || user.id,
@@ -648,21 +732,33 @@ export function NextDayAssignmentPlanner({
         if (error) throw error;
       }
 
-      const itemPayload = finalEntries.map(({ room, staffId }) => {
-        const suggestedStaffId = suggestedByRoom.get(room.id) || staffId;
+      const itemPayload = finalEntries.map(({ room, staffId, assignmentRole }) => {
+        const primaryStaffId = primaryOwnerByRoom.get(room.id) || staffId;
+        const sharedHelperStaffId = sharedByRoom.get(room.id) || null;
+        const suggestedStaffId = suggestedByRoom.get(room.id) || primaryStaffId;
+        const managerChanged = assignmentRole === 'primary' && suggestedStaffId !== staffId;
+        const normalDuration = calculateRoomTime(room);
+        const estimatedDuration = sharedHelperStaffId
+          ? splitSharedDuration(normalDuration)
+          : normalDuration;
         return {
           plan_id: planId,
           room_id: room.id,
           assigned_to: staffId,
           assignment_type: getTomorrowAssignmentType(room),
           priority: room.is_checkout_room ? 1 : 2,
-          estimated_duration: calculateRoomTime(room),
+          estimated_duration: estimatedDuration,
           notes: null,
-          source: suggestedStaffId === staffId ? 'auto' : 'manager',
+          source: assignmentRole === 'shared'
+            ? 'shared'
+            : managerChanged ? 'manager' : 'auto',
           recommendation_context: {
-            suggested_staff_id: suggestedStaffId,
+            assignment_role: assignmentRole,
+            suggested_staff_id: assignmentRole === 'primary' ? suggestedStaffId : null,
             final_staff_id: staffId,
-            manager_changed: suggestedStaffId !== staffId,
+            manager_changed: managerChanged,
+            shared_primary_staff_id: sharedHelperStaffId ? primaryStaffId : null,
+            shared_helper_staff_id: sharedHelperStaffId,
             room_number: room.room_number,
             room_kind: room.is_checkout_room ? 'checkout' : 'daily',
             floor_number: room.floor_number ?? getFloorFromRoomNumber(room.room_number),
@@ -707,6 +803,7 @@ export function NextDayAssignmentPlanner({
           planId,
         },
       }));
+      onAssignmentCreated(primaryEntries.length, selectedStaffIds.size);
       toast.success(text('saved'));
       onOpenChange(false);
     } catch (error) {
@@ -796,6 +893,12 @@ export function NextDayAssignmentPlanner({
                   {text('learningActive')} {Math.round(assignmentSignals.learningConfidence * 100)}% · {assignmentSignals.correctionCount}
                 </Badge>
               )}
+              {sharedByRoom.size > 0 && (
+                <Badge variant="outline" className="border-sky-300 text-sky-700 dark:text-sky-300">
+                  <Users className="mr-1 h-3 w-3" />
+                  {text('sharedCleaning')}: {sharedByRoom.size}
+                </Badge>
+              )}
               <span className="ml-auto font-medium">
                 {text('tomorrowWorkload')}: {tomorrowRooms.length} {text('rooms')} · {checkoutCount} {text('checkouts')} · {dailyCount} {text('daily')}
               </span>
@@ -881,8 +984,11 @@ export function NextDayAssignmentPlanner({
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-muted/40 px-3 py-2 text-sm">
                     <div>
-                      <strong>{previews.reduce((sum, preview) => sum + preview.rooms.length, 0)}</strong> {text('rooms')} →{' '}
-                      <strong>{previews.filter(preview => preview.rooms.length > 0).length}</strong> staff
+                      <strong>{tomorrowRooms.length}</strong> {text('rooms')} →{' '}
+                      <strong>{previews.filter(preview => preview.rooms.length > 0 || getSharedRoomsForStaff(tomorrowRooms, sharedByRoom, preview.staffId).length > 0).length}</strong> staff
+                      {sharedByRoom.size > 0 && (
+                        <span className="ml-2 text-xs text-sky-700 dark:text-sky-300">· {sharedByRoom.size} {text('sharedRooms')}</span>
+                      )}
                     </div>
                     {fairness && (
                       <div className="flex gap-3 text-xs text-muted-foreground">
@@ -895,82 +1001,198 @@ export function NextDayAssignmentPlanner({
                   </div>
 
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                    {previews.map(preview => (
-                      <div
-                        key={preview.staffId}
-                        onDragOver={event => event.preventDefault()}
-                        onDrop={event => handleDrop(event, preview.staffId)}
-                        onClick={() => {
-                          if (selectedMove && selectedMove.fromStaffId !== preview.staffId) {
-                            applyMove(selectedMove.roomId, selectedMove.fromStaffId, preview.staffId);
-                          }
-                        }}
-                        className={`min-h-48 rounded-xl border bg-card ${selectedMove && selectedMove.fromStaffId !== preview.staffId ? 'cursor-pointer ring-2 ring-primary/50' : ''}`}
-                      >
-                        <div className="border-b bg-muted/40 px-3 py-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate font-semibold">{preview.staffName}</span>
-                            <span className="text-xs text-muted-foreground">{preview.estimatedMinutes}m</span>
+                    {previews.map(preview => {
+                      const helperRooms = getSharedRoomsForStaff(tomorrowRooms, sharedByRoom, preview.staffId);
+                      const displayMinutes = adjustedStaffMinutes({
+                        preview,
+                        allRooms: tomorrowRooms,
+                        sharedByRoom,
+                        calculateRoomTime,
+                      });
+                      return (
+                        <div
+                          key={preview.staffId}
+                          onDragOver={event => event.preventDefault()}
+                          onDrop={event => handleDrop(event, preview.staffId)}
+                          onClick={() => {
+                            if (selectedMove && selectedMove.fromStaffId !== preview.staffId) {
+                              applyMove(selectedMove.roomId, selectedMove.fromStaffId, preview.staffId);
+                            }
+                          }}
+                          className={`min-h-48 rounded-xl border bg-card ${selectedMove && selectedMove.fromStaffId !== preview.staffId ? 'cursor-pointer ring-2 ring-primary/50' : ''}`}
+                        >
+                          <div className="border-b bg-muted/40 px-3 py-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate font-semibold">{preview.staffName}</span>
+                              <span className="text-xs text-muted-foreground">{displayMinutes}m</span>
+                            </div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {preview.checkoutCount} {text('checkouts')} · {preview.dailyCount} {text('daily')}
+                              {helperRooms.length > 0 && <span> · +{helperRooms.length} {text('sharedCleaning')}</span>}
+                            </div>
                           </div>
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            {preview.checkoutCount} {text('checkouts')} · {preview.dailyCount} {text('daily')}
+
+                          <div className="space-y-2 p-2">
+                            {preview.rooms.length === 0 && helperRooms.length === 0 && (
+                              <div className="rounded-lg border border-dashed p-5 text-center text-xs text-muted-foreground">
+                                Drop a room here
+                              </div>
+                            )}
+
+                            {preview.rooms.map(room => {
+                              const selected = selectedMove?.roomId === room.id;
+                              const changed = suggestedByRoom.get(room.id)
+                                && suggestedByRoom.get(room.id) !== preview.staffId;
+                              const helperId = sharedByRoom.get(room.id);
+                              return (
+                                <div key={room.id} className="space-y-1">
+                                  <button
+                                    type="button"
+                                    draggable
+                                    onDragStart={event => {
+                                      event.stopPropagation();
+                                      event.dataTransfer.setData('hotelcare-nextday-room-id', room.id);
+                                      event.dataTransfer.setData('hotelcare-nextday-from-staff', preview.staffId);
+                                      event.dataTransfer.effectAllowed = 'move';
+                                    }}
+                                    onClick={event => {
+                                      event.stopPropagation();
+                                      setShareRoomId(null);
+                                      setSelectedMove(selected ? null : {
+                                        roomId: room.id,
+                                        fromStaffId: preview.staffId,
+                                      });
+                                    }}
+                                    className={`flex w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left text-sm ${selected ? 'border-primary ring-2 ring-primary/30' : room.is_checkout_room ? 'border-amber-300 bg-amber-50/70 dark:bg-amber-950/20' : 'border-blue-200 bg-blue-50/60 dark:bg-blue-950/20'}`}
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      <strong>{room.room_number}</strong>
+                                      <Badge variant="outline" className="text-[10px]">
+                                        {room.is_checkout_room ? 'CO' : 'D'}
+                                      </Badge>
+                                      {room.linen_change_required && (
+                                        <Badge variant="outline" className="text-[10px]">C</Badge>
+                                      )}
+                                      {room.towel_change_required && (
+                                        <Badge variant="outline" className="text-[10px]">T</Badge>
+                                      )}
+                                      {helperId && (
+                                        <Badge variant="outline" className="border-sky-300 text-[10px] text-sky-700 dark:text-sky-300">
+                                          <Users className="mr-1 h-2.5 w-2.5" />2
+                                        </Badge>
+                                      )}
+                                    </span>
+                                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                      F{room.floor_number ?? getFloorFromRoomNumber(room.room_number)}
+                                      {changed && <span className="text-primary">●</span>}
+                                    </span>
+                                  </button>
+
+                                  {selectedStaffIds.size > 1 && (
+                                    <div className="flex items-center justify-between gap-2 px-1">
+                                      <button
+                                        type="button"
+                                        className="flex items-center gap-1 text-[10px] font-medium text-sky-700 hover:underline dark:text-sky-300"
+                                        onClick={event => {
+                                          event.stopPropagation();
+                                          setSelectedMove(null);
+                                          setShareRoomId(previous => previous === room.id ? null : room.id);
+                                        }}
+                                      >
+                                        <Users className="h-3 w-3" />
+                                        {text('shareRoom')}
+                                      </button>
+                                      {helperId && (
+                                        <span className="truncate text-[10px] text-muted-foreground">
+                                          {text('sharedWith')} {staffNameById.get(helperId) || helperId.slice(0, 6)}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+
+                            {helperRooms.length > 0 && (
+                              <div className="mt-3 space-y-1.5 border-t border-sky-200 pt-2 dark:border-sky-900">
+                                <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">
+                                  {text('sharedRooms')}
+                                </p>
+                                {helperRooms.map(room => {
+                                  const primaryId = primaryOwnerByRoom.get(room.id);
+                                  return (
+                                    <div key={`shared-${room.id}`} className="rounded-lg border border-sky-200 bg-sky-50/60 px-2.5 py-2 text-xs dark:border-sky-900 dark:bg-sky-950/20">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="font-semibold">{room.room_number}</span>
+                                        <Badge variant="outline" className="border-sky-300 text-[10px] text-sky-700 dark:text-sky-300">
+                                          <Users className="mr-1 h-2.5 w-2.5" />{text('sharedCleaning')}
+                                        </Badge>
+                                      </div>
+                                      <p className="mt-1 truncate text-[10px] text-muted-foreground">
+                                        {text('primaryCleaner')}: {primaryId ? (staffNameById.get(primaryId) || primaryId.slice(0, 6)) : '—'}
+                                      </p>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                         </div>
+                      );
+                    })}
+                  </div>
 
-                        <div className="space-y-2 p-2">
-                          {preview.rooms.length === 0 && (
-                            <div className="rounded-lg border border-dashed p-5 text-center text-xs text-muted-foreground">
-                              Drop a room here
-                            </div>
-                          )}
-
-                          {preview.rooms.map(room => {
-                            const selected = selectedMove?.roomId === room.id;
-                            const changed = suggestedByRoom.get(room.id)
-                              && suggestedByRoom.get(room.id) !== preview.staffId;
-                            return (
-                              <button
-                                key={room.id}
+                  {activeShareRoom && (() => {
+                    const primaryId = primaryOwnerByRoom.get(activeShareRoom.id);
+                    const helperId = sharedByRoom.get(activeShareRoom.id);
+                    return (
+                      <div className="rounded-xl border border-sky-300 bg-sky-50/60 p-3 dark:border-sky-900 dark:bg-sky-950/20">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="flex items-center gap-2 text-sm font-semibold">
+                              <Users className="h-4 w-4 text-sky-700 dark:text-sky-300" />
+                              {text('sharedCleaning')} · {activeShareRoom.room_number}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {text('primaryCleaner')}: {primaryId ? (staffNameById.get(primaryId) || primaryId.slice(0, 6)) : '—'}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">{text('shareHint')}</p>
+                          </div>
+                          <Button variant="ghost" size="sm" onClick={() => setShareRoomId(null)}>
+                            {text('close')}
+                          </Button>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {selectedStaff
+                            .filter(staff => staff.id !== primaryId)
+                            .map(staff => (
+                              <Button
+                                key={staff.id}
                                 type="button"
-                                draggable
-                                onDragStart={event => {
-                                  event.stopPropagation();
-                                  event.dataTransfer.setData('hotelcare-nextday-room-id', room.id);
-                                  event.dataTransfer.setData('hotelcare-nextday-from-staff', preview.staffId);
-                                  event.dataTransfer.effectAllowed = 'move';
-                                }}
-                                onClick={event => {
-                                  event.stopPropagation();
-                                  setSelectedMove(selected ? null : {
-                                    roomId: room.id,
-                                    fromStaffId: preview.staffId,
-                                  });
-                                }}
-                                className={`flex w-full items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left text-sm ${selected ? 'border-primary ring-2 ring-primary/30' : room.is_checkout_room ? 'border-amber-300 bg-amber-50/70 dark:bg-amber-950/20' : 'border-blue-200 bg-blue-50/60 dark:bg-blue-950/20'}`}
+                                size="sm"
+                                variant={helperId === staff.id ? 'default' : 'outline'}
+                                className="h-8"
+                                onClick={() => chooseSharedHelper(activeShareRoom.id, staff.id)}
                               >
-                                <span className="flex items-center gap-2">
-                                  <strong>{room.room_number}</strong>
-                                  <Badge variant="outline" className="text-[10px]">
-                                    {room.is_checkout_room ? 'CO' : 'D'}
-                                  </Badge>
-                                  {room.linen_change_required && (
-                                    <Badge variant="outline" className="text-[10px]">C</Badge>
-                                  )}
-                                  {room.towel_change_required && (
-                                    <Badge variant="outline" className="text-[10px]">T</Badge>
-                                  )}
-                                </span>
-                                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                  F{room.floor_number ?? getFloorFromRoomNumber(room.room_number)}
-                                  {changed && <span className="text-primary">●</span>}
-                                </span>
-                              </button>
-                            );
-                          })}
+                                <Users className="mr-1.5 h-3.5 w-3.5" />
+                                {staff.full_name}
+                              </Button>
+                            ))}
+                          {helperId && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 text-destructive hover:text-destructive"
+                              onClick={() => chooseSharedHelper(activeShareRoom.id, null)}
+                            >
+                              {text('removeShare')}
+                            </Button>
+                          )}
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })()}
 
                   <div className="rounded-lg border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
                     {activeMoveRoom ? (
