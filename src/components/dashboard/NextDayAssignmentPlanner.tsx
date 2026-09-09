@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowRight,
+  BrainCircuit,
   CalendarClock,
   Check,
   Clock,
@@ -15,7 +16,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { runPmsRefresh } from '@/lib/pmsRefresh';
 import {
-  autoAssignRooms,
   calculateRoomTime,
   calculateTimeEstimation,
   calculateRoomWeight,
@@ -26,6 +26,12 @@ import {
   type RoomForAssignment,
   type StaffForAssignment,
 } from '@/lib/roomAssignmentAlgorithm';
+import {
+  EMPTY_HOUSEKEEPING_ASSIGNMENT_SIGNALS,
+  generateLearnedHousekeepingPreview,
+  loadHousekeepingAssignmentSignals,
+  type HousekeepingAssignmentSignals,
+} from '@/lib/housekeepingAssignmentLearning';
 import {
   getHousekeepingAutomationLanguage,
   housekeepingAutomationText,
@@ -73,6 +79,11 @@ type PlanItemRow = {
   room_id: string;
   assigned_to: string;
   assignment_type: 'checkout_cleaning' | 'daily_cleaning';
+  recommendation_context?: {
+    suggested_staff_id?: string;
+    final_staff_id?: string;
+    manager_changed?: boolean;
+  } | null;
 };
 
 type PlannerStep = 'staff' | 'review';
@@ -175,29 +186,6 @@ function buildPreview(staff: StaffForAssignment, rooms: RoomForAssignment[]): As
   };
 }
 
-function generateBestPreview(
-  rooms: RoomForAssignment[],
-  staff: StaffForAssignment[],
-  hotelName: string,
-): AssignmentPreview[] {
-  let best: AssignmentPreview[] | null = null;
-  let bestScore = Number.POSITIVE_INFINITY;
-
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const candidate = autoAssignRooms(rooms, staff, undefined, undefined, {
-      hotelName,
-      randomSeed: 1109 + attempt * 7919,
-    });
-    const score = computeFairnessMetrics(candidate).score;
-    if (score < bestScore) {
-      best = candidate;
-      bestScore = score;
-    }
-  }
-
-  return best || autoAssignRooms(rooms, staff, undefined, undefined, { hotelName });
-}
-
 export function NextDayAssignmentPlanner({
   open,
   onOpenChange,
@@ -217,6 +205,9 @@ export function NextDayAssignmentPlanner({
   const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
   const [selectedStaffIds, setSelectedStaffIds] = useState<Set<string>>(new Set());
   const [tomorrowRooms, setTomorrowRooms] = useState<RoomForAssignment[]>([]);
+  const [assignmentSignals, setAssignmentSignals] = useState<HousekeepingAssignmentSignals>(
+    EMPTY_HOUSEKEEPING_ASSIGNMENT_SIGNALS,
+  );
   const [previews, setPreviews] = useState<AssignmentPreview[]>([]);
   const [suggestedByRoom, setSuggestedByRoom] = useState<Map<string, string>>(new Map());
   const [selectedMove, setSelectedMove] = useState<{ roomId: string; fromStaffId: string } | null>(null);
@@ -260,6 +251,7 @@ export function NextDayAssignmentPlanner({
     setSchedules([]);
     setSelectedStaffIds(new Set());
     setTomorrowRooms([]);
+    setAssignmentSignals(EMPTY_HOUSEKEEPING_ASSIGNMENT_SIGNALS);
     setPreviews([]);
     setSuggestedByRoom(new Map());
     setSelectedMove(null);
@@ -326,14 +318,24 @@ export function NextDayAssignmentPlanner({
 
     const staffRows = (staffResult.data || []) as StaffForAssignment[];
     const scheduleRows = (scheduleResult.data || []) as ScheduleRow[];
-    const rooms = (roomResult.data || [])
+    const rawRooms = (roomResult.data || [])
       .map(room => toTomorrowWorkRoom(room, selectedDate))
       .filter(Boolean) as RoomForAssignment[];
     const plan = (planResult.data || null) as PlanRow | null;
 
+    const learning = await loadHousekeepingAssignmentSignals({
+      supabase,
+      organizationSlug: profile.organization_slug,
+      hotelId,
+      hotelKeys,
+      rooms: rawRooms,
+    });
+    const rooms = learning.rooms;
+
     setAllStaff(staffRows);
     setSchedules(scheduleRows);
     setTomorrowRooms(rooms);
+    setAssignmentSignals(learning.signals);
     setExistingPlan(plan);
     setAutoRelease(plan?.auto_release ?? true);
     setSyncStage('arranging');
@@ -356,7 +358,7 @@ export function NextDayAssignmentPlanner({
           .eq('plan_id', plan.id),
         (supabase as any)
           .from('next_day_housekeeping_plan_items')
-          .select('room_id,assigned_to,assignment_type')
+          .select('room_id,assigned_to,assignment_type,recommendation_context')
           .eq('plan_id', plan.id),
       ]);
       if (planStaffResult.error) throw planStaffResult.error;
@@ -399,7 +401,10 @@ export function NextDayAssignmentPlanner({
           return buildPreview(staff, assignedRooms);
         });
         setPreviews(restored);
-        setSuggestedByRoom(new Map(items.map(item => [item.room_id, item.assigned_to])));
+        setSuggestedByRoom(new Map(items.map(item => [
+          item.room_id,
+          item.recommendation_context?.suggested_staff_id || item.assigned_to,
+        ])));
         setStep('review');
         return;
       }
@@ -408,7 +413,12 @@ export function NextDayAssignmentPlanner({
     setSelectedStaffIds(defaultSelection);
     if (defaultSelection.size > 0 && rooms.length > 0) {
       const staff = staffRows.filter(person => defaultSelection.has(person.id));
-      const generated = generateBestPreview(rooms, staff, resolvedHotelName);
+      const generated = generateLearnedHousekeepingPreview(
+        rooms,
+        staff,
+        resolvedHotelName,
+        learning.signals,
+      );
       setPreviews(generated);
       setSuggestedByRoom(new Map(generated.flatMap(preview =>
         preview.rooms.map(room => [room.id, preview.staffId] as [string, string]),
@@ -500,10 +510,11 @@ export function NextDayAssignmentPlanner({
     }
     if (tomorrowRooms.length === 0) return;
 
-    const generated = generateBestPreview(
+    const generated = generateLearnedHousekeepingPreview(
       tomorrowRooms,
       selectedStaff,
       hotelName || profile?.assigned_hotel || '',
+      assignmentSignals,
     );
     setPreviews(generated);
     setSuggestedByRoom(new Map(generated.flatMap(preview =>
@@ -567,7 +578,7 @@ export function NextDayAssignmentPlanner({
         release_timezone: releaseTimezone,
         pms_synced_at: pmsSyncedAt,
         pms_sync_snapshot: pmsSnapshot,
-        algorithm_version: 'room-assignment-v2-next-day-2026-09',
+        algorithm_version: 'room-assignment-v3-learned-next-day-2026-09',
         generation_context: {
           source: 'next_day_manager_planner',
           hotel_name: hotelName,
@@ -577,6 +588,11 @@ export function NextDayAssignmentPlanner({
           daily_count: finalEntries.filter(entry => !entry.room.is_checkout_room).length,
           selected_staff_ids: Array.from(selectedStaffIds),
           manager_changed_room_count: changedCount,
+          historical_affinity_pair_count: assignmentSignals.affinityPairCount,
+          learning_model_version: assignmentSignals.modelVersion,
+          learning_confidence: assignmentSignals.learningConfidence,
+          learning_correction_count: assignmentSignals.correctionCount,
+          learning_sample_count: assignmentSignals.sampleCount,
           workload_derivation: 'scheduledDepartureTomorrow+occupiedToday/currentNight',
           generated_at: new Date().toISOString(),
         },
@@ -654,6 +670,9 @@ export function NextDayAssignmentPlanner({
             housekeeping_section_name: room.housekeeping_section_name || null,
             towel_change_required: room.towel_change_required === true,
             linen_change_required: room.linen_change_required === true,
+            historical_affinity_pair_count: assignmentSignals.affinityPairCount,
+            learning_model_version: assignmentSignals.modelVersion,
+            learning_confidence: assignmentSignals.learningConfidence,
           },
         };
       });
@@ -770,6 +789,12 @@ export function NextDayAssignmentPlanner({
                 <span className="text-muted-foreground">
                   {new Date(pmsSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
+              )}
+              {assignmentSignals.correctionCount > 0 && (
+                <Badge variant="outline" className="border-violet-300 text-violet-700 dark:text-violet-300">
+                  <BrainCircuit className="mr-1 h-3 w-3" />
+                  {text('learningActive')} {Math.round(assignmentSignals.learningConfidence * 100)}% · {assignmentSignals.correctionCount}
+                </Badge>
               )}
               <span className="ml-auto font-medium">
                 {text('tomorrowWorkload')}: {tomorrowRooms.length} {text('rooms')} · {checkoutCount} {text('checkouts')} · {dailyCount} {text('daily')}
