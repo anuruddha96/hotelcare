@@ -16,7 +16,8 @@ declare
 begin
   -- Background/service operations must remain able to release and maintain plans
   -- in the morning. The restriction is for interactive authenticated planning.
-  if auth.role() = 'service_role' or auth.uid() is null then
+  if coalesce(current_setting('request.jwt.claim.role', true), '') = 'service_role'
+     or auth.uid() is null then
     if tg_op = 'DELETE' then
       return old;
     end if;
