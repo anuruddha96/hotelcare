@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,6 +38,8 @@ interface OrgBranding {
 const DEFAULT_ORG_SLUG = "rdhotels";
 const STORAGE_KEY = "bb_selection_v2";
 
+type RoomStatus = "pending" | "partial" | "served" | "arriving" | "no_breakfast";
+
 interface Selection {
   hotel_id: string;
   hotel_label: string;
@@ -58,6 +60,14 @@ function persistSelection(orgSlug: string, sel: Selection | null) {
   const k = `${STORAGE_KEY}_${orgSlug}`;
   if (sel) localStorage.setItem(k, JSON.stringify(sel));
   else localStorage.removeItem(k);
+}
+
+function roomDisplayParts(value: unknown, fallbackDetail?: string | null) {
+  const full = String(value ?? "").trim();
+  const match = full.match(/^(.+?)\s*\(([^()]*)\)\s*$/);
+  const number = (match?.[1] || full).trim();
+  const detail = (match?.[2] || fallbackDetail || "").trim();
+  return { full, number, detail };
 }
 
 export default function Breakfast() {
@@ -82,6 +92,7 @@ export default function Breakfast() {
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [tab, setTab] = useState<"rooms" | "reservations">("rooms");
+  const resultRef = useRef<HTMLDivElement | null>(null);
 
 
   // Load this org's hotels (skipped on hotel-code direct lookup)
@@ -134,6 +145,14 @@ export default function Breakfast() {
   }, [hotels, hotelsLoading, hotelCode, orgSlug, selection]);
 
   useEffect(() => { setResult(null); }, [selection, hotelCode]);
+
+  useEffect(() => {
+    if (!result) return;
+    const id = window.requestAnimationFrame(() => {
+      resultRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [result]);
 
   function restaurantLabel(r: RestaurantDef): string {
     if (r.labelKey) {
@@ -235,13 +254,16 @@ export default function Breakfast() {
   async function syncFromPms() {
     if (!selection) return;
     setSyncing(true);
-    const { error } = await supabase.functions.invoke("previo-sync-daily-overview-all", {
-      body: { hotelId: selection.hotel_id, days: 2 },
-    });
-    setSyncing(false);
-    if (error) { toast.error(error.message); return; }
-    await loadRooms();
-    toast.success(tt("syncDone"));
+    try {
+      const { error } = await supabase.functions.invoke("previo-sync-daily-overview-all", {
+        body: { hotelId: selection.hotel_id, days: 2 },
+      });
+      if (error) { toast.error(error.message); return; }
+      await loadRooms();
+      toast.success(tt("syncDone"));
+    } finally {
+      setSyncing(false);
+    }
   }
 
   // Initial load + on selection/date change
@@ -376,37 +398,53 @@ export default function Breakfast() {
     return { location: bbT(language, labelKey) || other.location, time };
   })();
 
+  const roomStatusCounts = rooms.reduce<Record<RoomStatus, number>>((acc, item) => {
+    const status: RoomStatus = ["partial", "served", "arriving", "no_breakfast"].includes(item.status)
+      ? item.status
+      : "pending";
+    acc[status] += 1;
+    return acc;
+  }, { pending: 0, partial: 0, served: 0, arriving: 0, no_breakfast: 0 });
+
+  const statusSummary: Array<{ status: RoomStatus; label: string; dot: string; card: string }> = [
+    { status: "pending", label: tt("legendPending"), dot: "bg-blue-400", card: "border-blue-200 bg-blue-50/70" },
+    { status: "partial", label: tt("legendPartial"), dot: "bg-amber-400", card: "border-amber-200 bg-amber-50/70" },
+    { status: "served", label: tt("legendServed"), dot: "bg-green-500", card: "border-green-200 bg-green-50/70" },
+    { status: "arriving", label: tt("legendArriving"), dot: "bg-slate-400", card: "border-slate-200 bg-slate-50/70" },
+    { status: "no_breakfast", label: tt("legendNoBreakfast"), dot: "bg-rose-300", card: "border-rose-200 bg-rose-50/70" },
+  ];
+
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="pb-2">
+    <div className="min-h-screen bg-background flex items-start justify-center p-2 sm:items-center sm:p-4">
+      <Card className="w-full max-w-xl overflow-hidden">
+        <CardHeader className="pb-2 px-4 sm:px-6">
           <CardTitle className="flex items-center gap-2 text-xl">
             <Coffee className="h-6 w-6" /> {tt("title")}
           </CardTitle>
           {selection && (
-            <div className="flex items-center justify-between text-sm pt-1">
-              <div className="flex flex-col">
-                <span className="font-semibold flex items-center gap-1"><Building2 className="h-3 w-3" />{selection.hotel_label}</span>
-                <span className="text-muted-foreground flex items-center gap-1 text-xs"><MapPin className="h-3 w-3" />{selection.location_label}</span>
+            <div className="flex items-center justify-between gap-3 text-sm pt-1">
+              <div className="flex min-w-0 flex-col">
+                <span className="font-semibold flex items-center gap-1 min-w-0"><Building2 className="h-3 w-3 shrink-0" /><span className="truncate">{selection.hotel_label}</span></span>
+                <span className="text-muted-foreground flex items-center gap-1 text-xs min-w-0"><MapPin className="h-3 w-3 shrink-0" /><span className="truncate">{selection.location_label}</span></span>
               </div>
-              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={changeSelection}>{tt("change")}</Button>
+              <Button variant="ghost" size="sm" className="h-9 shrink-0 text-xs" onClick={changeSelection}>{tt("change")}</Button>
             </div>
           )}
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 px-3 pb-4 sm:px-6 sm:pb-6">
           {!hotelCode && selection && (
             <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
               <button
                 type="button"
                 onClick={() => setTab("rooms")}
-                className={`rounded-md py-1.5 text-sm font-medium transition-colors ${tab === "rooms" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
+                className={`min-h-11 rounded-md px-2 py-2 text-sm font-medium transition-colors ${tab === "rooms" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
               >
                 {tt("tabRooms")}
               </button>
               <button
                 type="button"
                 onClick={() => setTab("reservations")}
-                className={`rounded-md py-1.5 text-sm font-medium transition-colors ${tab === "reservations" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
+                className={`min-h-11 rounded-md px-2 py-2 text-sm font-medium transition-colors ${tab === "reservations" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
               >
                 {tt("tabReservations")}
               </button>
@@ -417,7 +455,7 @@ export default function Breakfast() {
             <>
               <div>
                 <Label>{tt("date")}</Label>
-                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                <Input className="h-11 text-base" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
               </div>
               <RestaurantReservations hotelId={selection.hotel_id} date={date} language={language} />
             </>
@@ -425,27 +463,29 @@ export default function Breakfast() {
 
           {tab === "rooms" && (
           <div className="space-y-3">
-          <div>
-
-            <Label>{tt("roomNumber")}</Label>
-            <Input
-              value={room}
-              onChange={(e) => setRoom(e.target.value)}
-              placeholder="101"
-              autoFocus
-              onKeyDown={(e) => { if (e.key === "Enter" && room) lookup(); }}
-            />
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
+            <div>
+              <Label>{tt("roomNumber")}</Label>
+              <Input
+                className="h-11 text-base"
+                value={room}
+                onChange={(e) => setRoom(e.target.value)}
+                placeholder="101"
+                autoComplete="off"
+                onKeyDown={(e) => { if (e.key === "Enter" && room) lookup(); }}
+              />
+            </div>
+            <div>
+              <Label>{tt("date")}</Label>
+              <Input className="h-11 text-base" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            </div>
           </div>
-          <div>
-            <Label>{tt("date")}</Label>
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          </div>
-          <Button onClick={lookup} disabled={busy || !room} className="w-full">
-            <Search className="h-4 w-4 mr-2" /> {tt("check")}
+          <Button onClick={lookup} disabled={busy || !room} className="h-11 w-full text-base">
+            {busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Search className="h-4 w-4 mr-2" />} {tt("check")}
           </Button>
 
           {result && (
-            <div className="mt-2 rounded-lg border p-4 space-y-2">
+            <div ref={resultRef} className="scroll-mt-3 mt-2 rounded-xl border bg-background p-4 shadow-sm space-y-2">
               {showSnapshotWarning && (
                 <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
                   {tt("snapshotWarning", { date, snapshot: result.snapshot_date })}
@@ -463,7 +503,7 @@ export default function Breakfast() {
               {result.status === "eligible" && (
                 <>
                   <Badge className="bg-green-600">{tt("eligible")}</Badge>
-                  <div className="text-2xl font-bold flex items-center gap-2">
+                  <div className="text-2xl font-bold flex flex-wrap items-center gap-2">
                     Room {result.room}
                     {result.room_suffix === "SH" && <Badge variant="secondary">{tt("shabbat")}</Badge>}
                   </div>
@@ -494,12 +534,12 @@ export default function Breakfast() {
                   {!hotelCode && (
                     <div className="pt-2 border-t space-y-2">
                       <Label className="text-xs">{tt("markHowMany")}</Label>
-                      <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm" onClick={() => setServed(Math.max(0, served - 1))}>−</Button>
-                        <div className="text-2xl font-bold w-12 text-center">{served}</div>
-                        <Button variant="outline" size="sm" onClick={() => setServed(served + 1)}>+</Button>
-                        <Button onClick={markServed} disabled={savingMark || served <= 0} className="flex-1 ml-2">
-                          <CheckCircle2 className="h-4 w-4 mr-1" /> {tt("confirm")}
+                      <div className="grid grid-cols-[44px_48px_44px_minmax(0,1fr)] items-center gap-2">
+                        <Button className="h-11 w-11 p-0 text-lg" variant="outline" onClick={() => setServed(Math.max(0, served - 1))}>−</Button>
+                        <div className="text-2xl font-bold text-center">{served}</div>
+                        <Button className="h-11 w-11 p-0 text-lg" variant="outline" onClick={() => setServed(served + 1)}>+</Button>
+                        <Button onClick={markServed} disabled={savingMark || served <= 0} className="h-11 min-w-0 px-2 sm:px-4">
+                          {savingMark ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-1" />} <span className="truncate">{tt("confirm")}</span>
                         </Button>
                       </div>
                     </div>
@@ -549,63 +589,90 @@ export default function Breakfast() {
           )}
 
           {!hotelCode && selection && (
-            <OccupancyPickupChart hotelId={selection.hotel_id} days={14} />
-          )}
-
-          {!hotelCode && selection && (
             <div className="pt-3 border-t">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <div className="font-semibold text-sm">{tt("roomsTitle")} · {rooms.length}</div>
-                  <div className="text-[10px] text-muted-foreground">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="font-semibold text-base">{tt("roomsTitle")} · {rooms.length}</div>
+                  <div className="text-xs text-muted-foreground">
                     {dataSource === "previo"
                       ? tt("liveFrom", { time: lastSyncedAt ? new Date(lastSyncedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—" })
                       : dataSource === "manual" ? tt("uploadedData") : ""}
                   </div>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="sm" className="h-7" onClick={() => void loadRooms()} disabled={roomsLoading}>
-                    <RefreshCw className={`h-3 w-3 ${roomsLoading ? "animate-spin" : ""}`} />
+                <div className="grid grid-cols-[44px_minmax(0,1fr)] gap-2 sm:flex sm:shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-10 w-11 p-0"
+                    onClick={() => void loadRooms()}
+                    disabled={roomsLoading || syncing}
+                    aria-label={tt("syncNow")}
+                  >
+                    <RefreshCw className={`h-4 w-4 ${roomsLoading ? "animate-spin" : ""}`} />
                   </Button>
-                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => void syncFromPms()} disabled={syncing}>
-                    {syncing ? <Loader2 className="h-3 w-3 animate-spin" /> : tt("syncNow")}
+                  <Button variant="outline" size="sm" className="h-10 min-w-0 text-xs" onClick={() => void syncFromPms()} disabled={syncing}>
+                    {syncing ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                    <span className="truncate">{tt("syncNow")}</span>
                   </Button>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground mb-2">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400"/>{tt("legendPending")}</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"/>{tt("legendPartial")}</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"/>{tt("legendServed")}</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-slate-400"/>{tt("legendArriving")}</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-300"/>{tt("legendNoBreakfast")}</span>
+
+              <div className="mb-3 grid grid-cols-2 gap-1.5 sm:grid-cols-5">
+                {statusSummary.map((item) => (
+                  <div key={item.status} className={`min-w-0 rounded-lg border px-2 py-1.5 ${item.card}`} title={item.label}>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${item.dot}`} />
+                      <span className="min-w-0 flex-1 text-[11px] leading-tight text-muted-foreground">{item.label}</span>
+                      <span className="shrink-0 text-sm font-bold tabular-nums">{roomStatusCounts[item.status]}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div className="grid grid-cols-5 sm:grid-cols-6 gap-1.5">
+
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(88px,1fr))] gap-2">
                 {rooms.map((r) => {
                   const cls =
                     r.status === "served" ? "bg-green-100 text-green-900 border-green-400 hover:bg-green-200" :
                     r.status === "partial" ? "bg-amber-100 text-amber-900 border-amber-400 hover:bg-amber-200" :
-                    r.status === "arriving" ? "bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200" :
+                    r.status === "arriving" ? "bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200" :
                     r.status === "no_breakfast" ? "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100" :
                     "bg-blue-100 text-blue-900 border-blue-300 hover:bg-blue-200";
-                  const mark = r.status === "served" ? "✓" : r.status === "partial" ? `${r.served}/${r.breakfast}` : "";
+                  const label = roomDisplayParts(r.room, r.room_type_label);
+                  const partialMark = r.status === "partial" ? `${r.served}/${r.breakfast}` : null;
                   return (
                     <button
                       key={r.room}
                       type="button"
                       onClick={() => void openRoom(r.room)}
-                      className={`border rounded px-1.5 py-1.5 text-xs font-semibold transition-colors flex flex-col items-center leading-tight ${cls}`}
-                      title={`${r.room_type_label || ""} · pax ${r.pax || 0} · breakfast ${r.breakfast}`}
+                      className={`relative flex min-h-[70px] min-w-0 flex-col items-center justify-center overflow-hidden rounded-lg border px-2 py-2 text-center shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${cls}`}
+                      title={`${label.full}${r.room_type_label && !label.detail ? ` · ${r.room_type_label}` : ""} · pax ${r.pax || 0} · breakfast ${r.breakfast}`}
+                      aria-label={`${label.full}, ${tt("pax")} ${r.pax || 0}, ${tt("breakfasts")} ${r.breakfast || 0}`}
                     >
-                      <span>{r.room}</span>
-                      {mark && <span className="text-[10px] opacity-80">{mark}</span>}
+                      {r.status === "served" && (
+                        <span className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-green-600 text-[11px] font-bold text-white">✓</span>
+                      )}
+                      {partialMark && (
+                        <span className="absolute right-1 top-1 rounded-full bg-amber-600 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white">{partialMark}</span>
+                      )}
+                      <span className="max-w-full truncate px-1 text-sm font-bold leading-tight">{label.number}</span>
+                      {label.detail && (
+                        <span className="mt-1 max-h-7 max-w-full overflow-hidden break-words px-0.5 text-[10px] font-medium leading-[1.15] opacity-75">({label.detail})</span>
+                      )}
                     </button>
                   );
                 })}
+                {roomsLoading && rooms.length === 0 && Array.from({ length: 6 }).map((_, index) => (
+                  <div key={index} className="min-h-[70px] animate-pulse rounded-lg border bg-muted/60" />
+                ))}
                 {rooms.length === 0 && !roomsLoading && (
-                  <div className="col-span-full text-xs text-muted-foreground p-2">—</div>
+                  <div className="col-span-full rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">—</div>
                 )}
               </div>
             </div>
+          )}
+
+          {!hotelCode && selection && (
+            <OccupancyPickupChart hotelId={selection.hotel_id} days={14} />
           )}
           </div>
           )}
