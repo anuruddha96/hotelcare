@@ -85,12 +85,10 @@ export default function RestaurantReservations({ hotelId, date, language }: Prop
 
   const refresh = async () => {
     const result = await load(true);
-    if (!result.ok) {
-      toast.error(tt("resLoadFailed"));
-    } else if (result.feedStatus === "unavailable" || result.feedStatus === "unconfigured") {
-      toast.warning(tt("resFeedUnavailable"));
+    if (!result.ok || result.feedStatus === "unavailable" || result.feedStatus === "unconfigured") {
+      toast.warning(tt("resSyncPending"));
     } else {
-      toast.success(tt("resRefreshDone"));
+      toast.success(tt("resSynced"));
     }
   };
 
@@ -145,8 +143,8 @@ export default function RestaurantReservations({ hotelId, date, language }: Prop
           <div className="flex items-start gap-2">
             <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
             <div>
-              <div className="text-sm font-semibold">{tt("resFeedUnavailable")}</div>
-              <div className="text-xs mt-0.5 text-amber-900/80">{tt("resFeedUnavailableHelp")}</div>
+              <div className="text-sm font-semibold">{tt("resSyncPending")}</div>
+              <div className="text-xs mt-0.5 text-amber-900/80">{tt("notFoundHint")}</div>
             </div>
           </div>
         </div>
