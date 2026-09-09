@@ -114,8 +114,8 @@ with check (
 -- older broad housekeeping_notes policies from leaking guest-request rows across
 -- hotels while preserving those legacy policies for every other note type.
 create policy "Guest requests require hotel scope for reads"
-as restrictive
 on public.housekeeping_notes
+as restrictive
 for select to authenticated
 using (
   note_type <> 'guest_request'
@@ -123,8 +123,8 @@ using (
 );
 
 create policy "Guest requests require hotel scope for inserts"
-as restrictive
 on public.housekeeping_notes
+as restrictive
 for insert to authenticated
 with check (
   note_type <> 'guest_request'
@@ -135,8 +135,8 @@ with check (
 );
 
 create policy "Guest requests require hotel scope for updates"
-as restrictive
 on public.housekeeping_notes
+as restrictive
 for update to authenticated
 using (
   note_type <> 'guest_request'
@@ -148,8 +148,8 @@ with check (
 );
 
 create policy "Guest request audit rows cannot be deleted"
-as restrictive
 on public.housekeeping_notes
+as restrictive
 for delete to authenticated
 using (note_type <> 'guest_request');
 
