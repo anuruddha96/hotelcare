@@ -36,14 +36,28 @@ function normalize(value: unknown) {
     .trim();
 }
 
+/**
+ * Stable aliases for Previo ↔ HotelCare room matching.
+ *
+ * Do not use the old "last number" fallback. Mika apartment labels such as
+ * 1/2, 2/2 and 102 would all otherwise expose the alias "2" and could be
+ * revalidated against the wrong physical room at 08:00.
+ */
 function aliases(value: unknown) {
   const raw = String(value ?? "").trim();
+  if (!raw) return [];
+
   const result = new Set<string>();
+  const slash = raw.match(/(?:^|\D)(\d+)\s*\/\s*(\d+)(?:\D|$)/);
+  if (slash) {
+    result.add(`unit:${slash[1]}/${slash[2]}`);
+  } else {
+    const roomNumber = raw.match(/(?:^|\D)(\d{2,4})(?:\D|$)/);
+    if (roomNumber) result.add(`room:${roomNumber[1]}`);
+  }
+
   const full = normalize(raw);
-  if (full) result.add(full);
-  const numbers = raw.match(/\d+/g);
-  const lastNumber = numbers?.at(-1);
-  if (lastNumber) result.add(normalize(lastNumber));
+  if (full) result.add(`full:${full}`);
   return [...result];
 }
 
