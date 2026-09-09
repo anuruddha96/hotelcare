@@ -1,0 +1,1 @@
+The release worker must accept only POST (plus CORS OPTIONS) and must validate the Vault-backed x-worker-secret before claiming plans.
