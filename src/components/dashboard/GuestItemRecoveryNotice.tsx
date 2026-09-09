@@ -22,7 +22,7 @@ type GuestItemPayload = {
 type NoteRow = { id: string; content: string; created_by: string; is_resolved: boolean };
 type Actor = { id: string; role: string | null; full_name: string | null; nickname: string | null };
 
-type Language = 'en' | 'hu' | 'es' | 'vi' | 'mn';
+type Language = 'en' | 'hu' | 'es' | 'vi' | 'mn' | 'ru' | 'uk';
 
 const copy: Record<Language, {
   title: string;
@@ -61,6 +61,18 @@ const copy: Record<Language, {
     from: { reception: 'Ресепшн', manager: 'Менежер', housekeeping: 'Өрөө үйлчилгээ', team: 'Зочид буудлын баг' },
     item: { extra_towels: 'нэмэлт алчуур', extra_pillow: 'нэмэлт дэр', blanket: 'хөнжил', baby_cot: 'хүүхдийн ор', iron: 'индүү', amenities: 'нэмэлт хэрэгсэл', other: 'зочны зүйл' },
     sentence: (actor, qty, item, date) => `${actor} ${date}-нд зочинд ${qty} ${item} өгсөн. Олбол буцаан хурааж авна уу.`,
+  },
+  ru: {
+    title: 'Забрать выданный гостю предмет', collect: 'Забрано', collected: 'Возврат предмета отмечен',
+    from: { reception: 'Ресепшен', manager: 'Менеджер', housekeeping: 'Хаускипинг', team: 'Команда отеля' },
+    item: { extra_towels: 'дополнительных полотенца', extra_pillow: 'дополнительную подушку', blanket: 'одеяло', baby_cot: 'детскую кроватку', iron: 'утюг', amenities: 'дополнительные принадлежности', other: 'предмет' },
+    sentence: (actor, qty, item, date) => `${actor} выдал гостю ${qty} ${item} ${date}. Если найдёте, пожалуйста, заберите и отметьте возврат.`,
+  },
+  uk: {
+    title: 'Забрати видану гостю річ', collect: 'Забрано', collected: 'Повернення речі позначено',
+    from: { reception: 'Рецепція', manager: 'Менеджер', housekeeping: 'Хаускіпінг', team: 'Команда готелю' },
+    item: { extra_towels: 'додаткові рушники', extra_pillow: 'додаткову подушку', blanket: 'ковдру', baby_cot: 'дитяче ліжечко', iron: 'праску', amenities: 'додаткові приналежності', other: 'річ' },
+    sentence: (actor, qty, item, date) => `${actor} видав гостю ${qty} ${item} ${date}. Якщо знайдете, будь ласка, заберіть і позначте повернення.`,
   },
 };
 
