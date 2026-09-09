@@ -5,6 +5,7 @@ import { HotelRoomOverview as LiveHotelRoomOverview } from './HotelRoomOverviewL
 import { HistoricalHotelRoomOverviewSaved } from './HistoricalHotelRoomOverviewSaved';
 import { RoomOperationsQuickHub } from './RoomOperationsQuickHub';
 import { RoomHoverIntentGuard } from './RoomHoverIntentGuard';
+import { TomorrowHousekeepingLauncher } from './TomorrowHousekeepingLauncher';
 import './hotel-memories-room-overview.css';
 
 export type { SignedInHousekeeper } from './HotelRoomOverviewLive';
@@ -17,6 +18,10 @@ type HotelRoomOverviewProps = React.ComponentProps<typeof LiveHotelRoomOverview>
  * guard prevents the legacy interactive popover from opening accidentally as
  * the pointer moves across the room board. Past dates replay the immutable
  * per-business-date snapshot read-only.
+ *
+ * The live Team View also exposes the next-day planner as a visible manager-only
+ * card. Its launcher still routes through AutoRoomAssignment, so tomorrow uses
+ * exactly the same NextDayAssignmentPlanner as the existing date-based flow.
  */
 export function HotelRoomOverview(props: HotelRoomOverviewProps) {
   if (props.selectedDate < todayBudapest()) {
@@ -32,7 +37,7 @@ export function HotelRoomOverview(props: HotelRoomOverviewProps) {
       )
     : liveOverview;
 
-  return React.createElement(
+  const overview = React.createElement(
     RoomHoverIntentGuard,
     null,
     React.createElement(RoomOperationsQuickHub, {
@@ -41,5 +46,12 @@ export function HotelRoomOverview(props: HotelRoomOverviewProps) {
       staffMap: props.staffMap,
       children: scopedOverview,
     }),
+  );
+
+  return React.createElement(
+    React.Fragment,
+    null,
+    React.createElement(TomorrowHousekeepingLauncher),
+    overview,
   );
 }
