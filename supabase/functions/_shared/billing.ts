@@ -118,6 +118,17 @@ export type BillingSettings = {
   standard_revenue_bi_price_cents: number;
   standard_revenue_automation_price_cents: number;
   standard_operations_price_cents: number;
+  operations_promotion_enabled: boolean;
+  operations_promotion_label: string;
+  operations_promotion_note: string;
+  operations_promotion_starts_on: string | null;
+  operations_promotion_ends_on: string | null;
+  revenue_promotion_enabled: boolean;
+  revenue_promotion_label: string;
+  revenue_promotion_note: string;
+  revenue_promotion_starts_on: string | null;
+  revenue_promotion_ends_on: string | null;
+  /** Legacy single-promotion fields kept for older clients. */
   early_bird_enabled: boolean;
   early_bird_label: string;
   early_bird_note: string;
@@ -197,7 +208,20 @@ export async function loadHotels(slug: string) {
   return out;
 }
 
-export function priceFor(settings: BillingSettings, module: ModuleKey) {
+export function regularPriceFor(settings: BillingSettings, module: ModuleKey) {
+  switch (normaliseModule(module)) {
+    case "revenue_bi":
+      return settings.standard_revenue_bi_price_cents;
+    case "revenue_automation":
+      return settings.standard_revenue_automation_price_cents;
+    case "maintenance":
+      return settings.maintenance_pricing_mode === "per_room" ? settings.maintenance_price_cents : 0;
+    default:
+      return settings.standard_operations_price_cents;
+  }
+}
+
+export function promotionalPriceFor(settings: BillingSettings, module: ModuleKey) {
   switch (normaliseModule(module)) {
     case "revenue_bi":
       return settings.revenue_bi_price_cents;
@@ -208,6 +232,82 @@ export function priceFor(settings: BillingSettings, module: ModuleKey) {
     default:
       return settings.operations_price_cents;
   }
+}
+
+export type ModulePromotion = {
+  scope: "operations" | "revenue";
+  enabled: boolean;
+  active: boolean;
+  status: "disabled" | "scheduled" | "active" | "ended" | "invalid";
+  label: string;
+  note: string;
+  startsOn: string | null;
+  endsOn: string | null;
+  regularPriceCents: number;
+  promotionalPriceCents: number;
+};
+
+const dateKey = (value: Date | string) =>
+  typeof value === "string"
+    ? value.slice(0, 10)
+    : new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Budapest" }).format(value);
+
+/** Promotion dates are date-only and inclusive at both ends. */
+export function promotionForModule(
+  settings: BillingSettings,
+  module: ModuleKey,
+  asOf: Date | string = new Date(),
+): ModulePromotion | null {
+  const key = normaliseModule(module);
+  if (key === "maintenance") return null;
+
+  const scope = key === "operations" ? "operations" : "revenue";
+  const enabled = scope === "operations"
+    ? settings.operations_promotion_enabled
+    : settings.revenue_promotion_enabled;
+  const label = scope === "operations"
+    ? settings.operations_promotion_label
+    : settings.revenue_promotion_label;
+  const note = scope === "operations"
+    ? settings.operations_promotion_note
+    : settings.revenue_promotion_note;
+  const startsOn = scope === "operations"
+    ? settings.operations_promotion_starts_on
+    : settings.revenue_promotion_starts_on;
+  const endsOn = scope === "operations"
+    ? settings.operations_promotion_ends_on
+    : settings.revenue_promotion_ends_on;
+  const regularPriceCents = regularPriceFor(settings, key);
+  const promotionalPriceCents = promotionalPriceFor(settings, key);
+  const validPrice = regularPriceCents > 0 && promotionalPriceCents > 0 && promotionalPriceCents < regularPriceCents;
+  const validDates = !startsOn || !endsOn || startsOn <= endsOn;
+  const today = dateKey(asOf);
+
+  let status: ModulePromotion["status"] = "disabled";
+  if (enabled && (!validPrice || !validDates)) status = "invalid";
+  else if (enabled && startsOn && today < startsOn) status = "scheduled";
+  else if (enabled && endsOn && today > endsOn) status = "ended";
+  else if (enabled) status = "active";
+
+  return {
+    scope,
+    enabled,
+    active: status === "active",
+    status,
+    label: label || (scope === "operations" ? "Housekeeping offer" : "Revenue Management offer"),
+    note: note || "",
+    startsOn,
+    endsOn,
+    regularPriceCents,
+    promotionalPriceCents,
+  };
+}
+
+/** Price a new subscription receives today. Existing Stripe prices remain locked. */
+export function priceFor(settings: BillingSettings, module: ModuleKey, asOf: Date | string = new Date()) {
+  if (normaliseModule(module) === "maintenance") return promotionalPriceFor(settings, module);
+  const promotion = promotionForModule(settings, module, asOf);
+  return promotion?.active ? promotion.promotionalPriceCents : regularPriceFor(settings, module);
 }
 
 export function moduleEnabled(settings: BillingSettings, module: ModuleKey) {

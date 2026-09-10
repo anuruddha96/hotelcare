@@ -25,7 +25,8 @@ import {
   trialIsRunning,
   normaliseModule,
   vatCents,
-  earlyBirdActive,
+  effectivePriceFor,
+  promotionForModule,
   listPriceFor,
   inGracePeriod,
   graceEndsAt,
@@ -61,8 +62,11 @@ const MODULE_ICON: Record<BillingModule, typeof BarChart3> = {
   maintenance: Wrench,
 };
 
-const fmtDate = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : null;
+const fmtDate = (iso?: string | null) => {
+  if (!iso) return null;
+  const value = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T00:00:00`) : new Date(iso);
+  return value.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+};
 const fmtStamp = (unix: number) =>
   new Date(unix * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -106,24 +110,17 @@ export default function Billing() {
 
   const settings = summary?.settings;
   const currency = settings?.currency ?? 'EUR';
-  const promoOn = earlyBirdActive(settings);
   const listFor = (module: BillingModule) => listPriceFor(settings, module);
+  const promoFor = (module: BillingModule) => promotionForModule(settings, module);
+  const activePromotions = [
+    promotionForModule(settings, 'operations'),
+    promotionForModule(settings, 'revenue_automation'),
+  ].filter((promotion) => promotion?.active);
   const vatPercent = Number(settings?.vat_percent ?? 27);
   const percentMode = settings?.revenue_pricing_mode !== 'per_room' && Boolean(settings?.revenue_pricing_mode);
   const percentLabel = `${((settings?.revenue_percent_bps ?? 0) / 100).toFixed(2).replace(/\.00$/, '')}%`;
 
-  const priceFor = (module: BillingModule) => {
-    switch (module) {
-      case 'revenue_bi':
-        return settings?.revenue_bi_price_cents ?? 0;
-      case 'revenue_automation':
-        return settings?.revenue_automation_price_cents || settings?.revenue_price_cents || 0;
-      case 'maintenance':
-        return settings?.maintenance_pricing_mode === 'per_room' ? settings?.maintenance_price_cents ?? 0 : 0;
-      default:
-        return settings?.operations_price_cents ?? 0;
-    }
-  };
+  const priceFor = (module: BillingModule) => effectivePriceFor(settings, module);
   const labelFor = (module: BillingModule) => {
     switch (module) {
       case 'revenue_bi':
@@ -357,16 +354,18 @@ export default function Billing() {
           </Alert>
         )}
 
-        {promoOn && (
-          <Alert className="border-primary/40">
+        {activePromotions.map((promotion) => promotion && (
+          <Alert key={promotion.scope} className="border-primary/40">
             <Sparkles className="h-4 w-4" />
-            <AlertTitle>{settings?.early_bird_label ?? 'Early bird'} pricing for your group</AlertTitle>
+            <AlertTitle>
+              {promotion.label} — {promotion.scope === 'operations' ? 'Housekeeping' : 'Revenue Management'}
+            </AlertTitle>
             <AlertDescription>
-              {settings?.early_bird_note ??
-                'Limited-time founding-partner pricing, exclusive to your organization.'}
+              {promotion.note || 'Limited-time pricing exclusive to your organization.'}
+              {promotion.endsOn ? ` Available through ${fmtDate(promotion.endsOn)}.` : ''}
             </AlertDescription>
           </Alert>
-        )}
+        ))}
 
         {error && (
           <Alert variant="destructive">
@@ -434,7 +433,10 @@ export default function Billing() {
                             const unit = priceFor(module);
                             const isPercent = module.startsWith('revenue') && percentMode;
                             const list = listFor(module);
-                            const discounted = promoOn && !quoteOnly && !isPercent && unit > 0 && list > unit;
+                            const promotion = promoFor(module);
+                            const discounted = Boolean(
+                              promotion?.active && !quoteOnly && !isPercent && unit > 0 && list > unit,
+                            );
                             const priceText = quoteOnly
                               ? 'Custom price'
                               : isPercent
@@ -468,7 +470,7 @@ export default function Billing() {
                                 {discounted && (
                                   <Badge variant="secondary" className="mt-1 text-[10px] gap-1">
                                     <Sparkles className="h-3 w-3" />
-                                    {settings?.early_bird_label ?? 'Early bird'}
+                                    {promotion?.label ?? 'Promotion'}
                                   </Badge>
                                 )}
                                 <span className="block text-[11px] text-muted-foreground/80 mt-0.5 leading-snug">

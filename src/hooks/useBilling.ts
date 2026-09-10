@@ -51,6 +51,19 @@ export interface BillingSettings {
   standard_revenue_bi_price_cents: number;
   standard_revenue_automation_price_cents: number;
   standard_operations_price_cents: number;
+  /** Housekeeping promotion. Dates are inclusive; null means no boundary. */
+  operations_promotion_enabled: boolean;
+  operations_promotion_label: string;
+  operations_promotion_note: string;
+  operations_promotion_starts_on: string | null;
+  operations_promotion_ends_on: string | null;
+  /** Revenue promotion shared by BI and BI + Automation, with separate prices per tier. */
+  revenue_promotion_enabled: boolean;
+  revenue_promotion_label: string;
+  revenue_promotion_note: string;
+  revenue_promotion_starts_on: string | null;
+  revenue_promotion_ends_on: string | null;
+  /** Legacy single-promotion fields kept while older clients age out. */
   early_bird_enabled: boolean;
   early_bird_label: string;
   early_bird_note: string;
@@ -184,16 +197,122 @@ export function listPriceFor(settings: BillingSettings | undefined | null, modul
       return settings.standard_revenue_automation_price_cents ?? 0;
     case 'operations':
       return settings.standard_operations_price_cents ?? 0;
+    case 'maintenance':
+      return settings.maintenance_pricing_mode === 'per_room' ? settings.maintenance_price_cents ?? 0 : 0;
     default:
       return 0;
   }
 }
 
-/** Whether the launch promotion is still running for this organization. */
-export function earlyBirdActive(settings: BillingSettings | undefined | null) {
-  if (!settings?.early_bird_enabled) return false;
-  if (!settings.early_bird_ends_at) return true;
-  return new Date(settings.early_bird_ends_at).getTime() > Date.now();
+/** Price configured for the promotional window. */
+export function promotionalPriceFor(settings: BillingSettings | undefined | null, module: BillingModule) {
+  if (!settings) return 0;
+  switch (normaliseModule(module)) {
+    case 'revenue_bi':
+      return settings.revenue_bi_price_cents ?? 0;
+    case 'revenue_automation':
+      return settings.revenue_automation_price_cents || settings.revenue_price_cents || 0;
+    case 'operations':
+      return settings.operations_price_cents ?? 0;
+    case 'maintenance':
+      return settings.maintenance_pricing_mode === 'per_room' ? settings.maintenance_price_cents ?? 0 : 0;
+    default:
+      return 0;
+  }
+}
+
+export type PromotionStatus = 'disabled' | 'scheduled' | 'active' | 'ended' | 'invalid';
+
+export type ModulePromotion = {
+  scope: 'operations' | 'revenue';
+  enabled: boolean;
+  active: boolean;
+  status: PromotionStatus;
+  label: string;
+  note: string;
+  startsOn: string | null;
+  endsOn: string | null;
+  regularPriceCents: number;
+  promotionalPriceCents: number;
+  savingsPercent: number;
+};
+
+const dateKey = (value: Date | string) =>
+  typeof value === 'string'
+    ? value.slice(0, 10)
+    : new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Budapest' }).format(value);
+
+/** Module-specific promotion state. Start and end dates both include the selected day. */
+export function promotionForModule(
+  settings: BillingSettings | undefined | null,
+  module: BillingModule,
+  asOf: Date | string = new Date(),
+): ModulePromotion | null {
+  if (!settings || normaliseModule(module) === 'maintenance') return null;
+
+  const scope = normaliseModule(module) === 'operations' ? 'operations' : 'revenue';
+  const enabled = scope === 'operations'
+    ? settings.operations_promotion_enabled
+    : settings.revenue_promotion_enabled;
+  const label = scope === 'operations'
+    ? settings.operations_promotion_label
+    : settings.revenue_promotion_label;
+  const note = scope === 'operations'
+    ? settings.operations_promotion_note
+    : settings.revenue_promotion_note;
+  const startsOn = scope === 'operations'
+    ? settings.operations_promotion_starts_on
+    : settings.revenue_promotion_starts_on;
+  const endsOn = scope === 'operations'
+    ? settings.operations_promotion_ends_on
+    : settings.revenue_promotion_ends_on;
+  const regularPriceCents = listPriceFor(settings, module);
+  const promotionalPriceCents = promotionalPriceFor(settings, module);
+  const validPrice = regularPriceCents > 0 && promotionalPriceCents > 0 && promotionalPriceCents < regularPriceCents;
+  const validDates = !startsOn || !endsOn || startsOn <= endsOn;
+  const today = dateKey(asOf);
+
+  let status: PromotionStatus = 'disabled';
+  if (enabled && (!validPrice || !validDates)) status = 'invalid';
+  else if (enabled && startsOn && today < startsOn) status = 'scheduled';
+  else if (enabled && endsOn && today > endsOn) status = 'ended';
+  else if (enabled) status = 'active';
+
+  return {
+    scope,
+    enabled,
+    active: status === 'active',
+    status,
+    label: label || (scope === 'operations' ? 'Housekeeping offer' : 'Revenue Management offer'),
+    note: note || '',
+    startsOn,
+    endsOn,
+    regularPriceCents,
+    promotionalPriceCents,
+    savingsPercent: validPrice
+      ? Math.round((1 - promotionalPriceCents / regularPriceCents) * 10000) / 100
+      : 0,
+  };
+}
+
+/** Amount a new checkout must use today. */
+export function effectivePriceFor(
+  settings: BillingSettings | undefined | null,
+  module: BillingModule,
+  asOf: Date | string = new Date(),
+) {
+  if (!settings) return 0;
+  if (normaliseModule(module) === 'maintenance') return promotionalPriceFor(settings, module);
+  const promotion = promotionForModule(settings, module, asOf);
+  return promotion?.active ? promotion.promotionalPriceCents : listPriceFor(settings, module);
+}
+
+/** Backward-compatible aggregate used by any client still expecting a single promotion flag. */
+export function earlyBirdActive(settings: BillingSettings | undefined | null, asOf: Date | string = new Date()) {
+  return Boolean(
+    promotionForModule(settings, 'operations', asOf)?.active ||
+      promotionForModule(settings, 'revenue_automation', asOf)?.active,
+  );
 }
 
 /** One-off read of the billing summary (used by the activation gate). */
