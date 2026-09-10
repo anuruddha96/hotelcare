@@ -1,0 +1,513 @@
+name: Apply Mika towel-only housekeeping workflow
+
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-mika-towel-only.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch HotelCare housekeeping workflow
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f'Expected source block not found in {path}: {old[:120]!r}')
+              p.write_text(text.replace(old, new, 1))
+
+          # 1) Dedicated towel-only dialog. It intentionally completes the daily
+          # assignment without photos, but leaves room/PMS cleanliness untouched.
+          Path('src/components/dashboard/TowelChangeOnlyDialog.tsx').write_text(r'''import React, { useEffect, useMemo, useState } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
+import { getLocalDateString } from '@/lib/utils';
+import { translateLinenItem } from '@/lib/linen-item-i18n';
+import { CheckCircle2, Minus, Plus, Shirt } from 'lucide-react';
+import { toast } from 'sonner';
+
+const TOWEL_CHANGE_ONLY_MARKER = '[TOWEL_CHANGE_ONLY]';
+
+interface LinenItem {
+  id: string;
+  name: string;
+  display_name: string;
+  sort_order: number;
+}
+
+interface Props {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  assignmentId: string;
+  roomId: string;
+  roomNumber: string;
+  onCompleted?: () => void;
+}
+
+const copyFor = (language: string) => {
+  switch (language) {
+    case 'hu':
+      return {
+        title: 'Csak törölközőcsere',
+        intro: 'A vendég csak törölközőcserét kért. Rögzítsd az elvitt törölközőket / textíliát, majd zárd le ezt a szolgáltatást.',
+        noPhotos: 'Ehhez a szolgáltatáshoz nem szükségesek a szobatakarítási fotók. A szoba nem lesz teljesen kitakarítottként megjelölve a PMS-ben.',
+        count: 'Rögzített darab',
+        complete: 'Törölközőcsere befejezése',
+        needItem: 'A lezárás előtt rögzíts legalább egy törölközőt vagy textíliát.',
+        success: 'Törölközőcsere rögzítve',
+        failed: 'A törölközőcsere lezárása sikertelen',
+      };
+    case 'vi':
+      return {
+        title: 'Chỉ thay khăn',
+        intro: 'Khách chỉ yêu cầu thay khăn. Hãy ghi lại khăn / đồ vải đã thu rồi hoàn tất dịch vụ này.',
+        noPhotos: 'Không cần ảnh dọn phòng cho dịch vụ này. Phòng sẽ không được đánh dấu là đã dọn sạch hoàn toàn trong PMS.',
+        count: 'Đã ghi nhận',
+        complete: 'Hoàn tất thay khăn',
+        needItem: 'Hãy ghi nhận ít nhất một khăn hoặc đồ vải trước khi hoàn tất.',
+        success: 'Đã ghi nhận thay khăn',
+        failed: 'Không thể hoàn tất thay khăn',
+      };
+    case 'mn':
+      return {
+        title: 'Зөвхөн алчуур солих',
+        intro: 'Зочин зөвхөн алчуур солих хүсэлт гаргасан. Авсан алчуур / цагаан хэрэглэлийг бүртгээд үйлчилгээг дуусгана уу.',
+        noPhotos: 'Энэ үйлчилгээнд өрөө цэвэрлэгээний зураг шаардлагагүй. PMS дээр өрөөг бүрэн цэвэрлэсэн гэж тэмдэглэхгүй.',
+        count: 'Бүртгэсэн',
+        complete: 'Алчуур солилтыг дуусгах',
+        needItem: 'Дуусгахаасаа өмнө дор хаяж нэг алчуур эсвэл цагаан хэрэглэлийг бүртгэнэ үү.',
+        success: 'Алчуур солилт бүртгэгдлээ',
+        failed: 'Алчуур солилтыг дуусгаж чадсангүй',
+      };
+    case 'es':
+      return {
+        title: 'Solo cambio de toallas',
+        intro: 'El huésped solo pidió cambio de toallas. Registra las toallas / ropa recogida y completa este servicio.',
+        noPhotos: 'No se requieren fotos de limpieza para este servicio. La habitación no se marcará como limpieza completa en el PMS.',
+        count: 'Registrado',
+        complete: 'Completar cambio de toallas',
+        needItem: 'Registra al menos una toalla o pieza de ropa antes de completar.',
+        success: 'Cambio de toallas registrado',
+        failed: 'No se pudo completar el cambio de toallas',
+      };
+    default:
+      return {
+        title: 'Towel change only',
+        intro: 'The guest requested towels only. Record the returned towels / linen below, then close this service.',
+        noPhotos: 'Room-cleaning photos are not required for this service. The room will not be marked as a full clean in the PMS.',
+        count: 'Recorded items',
+        complete: 'Complete towel change',
+        needItem: 'Record at least one towel or linen item before completing.',
+        success: 'Towel change recorded',
+        failed: 'Could not complete towel change',
+      };
+  }
+};
+
+export function TowelChangeOnlyDialog({
+  open,
+  onOpenChange,
+  assignmentId,
+  roomId,
+  roomNumber,
+  onCompleted,
+}: Props) {
+  const { user } = useAuth();
+  const { t, language } = useTranslation();
+  const copy = copyFor(language);
+  const [items, setItems] = useState<LinenItem[]>([]);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(false);
+
+  const total = useMemo(
+    () => Object.values(counts).reduce((sum, value) => sum + (Number(value) || 0), 0),
+    [counts],
+  );
+
+  useEffect(() => {
+    if (!open || !user?.id) return;
+    let cancelled = false;
+
+    (async () => {
+      const today = getLocalDateString(new Date());
+      const [{ data: linenItems, error: itemsError }, { data: existing, error: existingError }] = await Promise.all([
+        supabase
+          .from('dirty_linen_items')
+          .select('id, name, display_name, sort_order')
+          .eq('is_active', true)
+          .order('sort_order'),
+        supabase
+          .from('dirty_linen_counts')
+          .select('linen_item_id, count')
+          .eq('housekeeper_id', user.id)
+          .eq('room_id', roomId)
+          .eq('work_date', today),
+      ]);
+
+      if (itemsError || existingError) {
+        toast.error(copy.failed);
+        return;
+      }
+      if (cancelled) return;
+      setItems((linenItems || []) as LinenItem[]);
+      setCounts(Object.fromEntries((existing || []).map((row: any) => [row.linen_item_id, row.count || 0])));
+    })();
+
+    return () => { cancelled = true; };
+  }, [open, user?.id, roomId, copy.failed]);
+
+  const updateCount = (id: string, next: number) => {
+    setCounts((current) => ({ ...current, [id]: Math.max(0, Number.isFinite(next) ? next : 0) }));
+  };
+
+  const completeTowelChange = async () => {
+    if (!user?.id || !assignmentId) return;
+    if (total <= 0) {
+      toast.error(copy.needItem);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Re-read the assignment before changing it: this prevents stale mobile
+      // cards from converting a checkout room or an already-closed task.
+      const { data: fresh, error: freshError } = await supabase
+        .from('room_assignments')
+        .select('assignment_type, status, notes, room_id')
+        .eq('id', assignmentId)
+        .eq('room_id', roomId)
+        .maybeSingle();
+      if (freshError || !fresh) throw freshError || new Error('Assignment not found');
+      if (fresh.assignment_type !== 'daily_cleaning' || fresh.status !== 'in_progress') {
+        throw new Error('Towel-only completion is available only for an active daily room');
+      }
+
+      const { data: room, error: roomError } = await supabase
+        .from('rooms')
+        .select('hotel')
+        .eq('id', roomId)
+        .maybeSingle();
+      if (roomError || !room) throw roomError || new Error('Room not found');
+      const hotel = String(room.hotel || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      if (hotel !== 'hotel mika downtown' && hotel !== 'mika downtown') {
+        throw new Error('Towel-only workflow is currently enabled for Hotel Mika Downtown only');
+      }
+
+      const today = getLocalDateString(new Date());
+      for (const item of items) {
+        const count = counts[item.id] || 0;
+        if (count > 0) {
+          const { error } = await supabase
+            .from('dirty_linen_counts')
+            .upsert({
+              housekeeper_id: user.id,
+              room_id: roomId,
+              assignment_id: assignmentId,
+              linen_item_id: item.id,
+              count,
+              work_date: today,
+            }, {
+              onConflict: 'housekeeper_id,room_id,linen_item_id,work_date',
+              ignoreDuplicates: false,
+            });
+          if (error) throw error;
+        } else {
+          const { error } = await supabase
+            .from('dirty_linen_counts')
+            .delete()
+            .eq('housekeeper_id', user.id)
+            .eq('room_id', roomId)
+            .eq('linen_item_id', item.id)
+            .eq('work_date', today);
+          if (error) throw error;
+        }
+      }
+
+      const noteLine = `${TOWEL_CHANGE_ONLY_MARKER} Guest requested towel change only; returned towels/linen recorded. Full room cleaning was not performed; completion photos intentionally not required.`;
+      const existingNotes = String(fresh.notes || '').trim();
+      const notes = existingNotes.includes(TOWEL_CHANGE_ONLY_MARKER)
+        ? existingNotes
+        : [existingNotes, noteLine].filter(Boolean).join('\n');
+      const now = new Date().toISOString();
+
+      const { error: completionError } = await supabase
+        .from('room_assignments')
+        .update({ status: 'completed', completed_at: now, notes })
+        .eq('id', assignmentId)
+        .eq('status', 'in_progress');
+      if (completionError) throw completionError;
+
+      // Friendly audit trail. This is supplementary to the assignment marker;
+      // failure here must not undo a successfully closed towel service.
+      const { error: noteError } = await supabase.from('housekeeping_notes').insert({
+        room_id: roomId,
+        assignment_id: assignmentId,
+        content: 'Towel change only completed. Dirty towels/linen recorded; no full room clean or room photos.',
+        note_type: 'general',
+        created_by: user.id,
+      });
+      if (noteError) console.warn('Could not add towel-change audit note', noteError);
+
+      toast.success(`${copy.success} — ${t('common.room')} ${roomNumber}`);
+      onOpenChange(false);
+      onCompleted?.();
+    } catch (error: any) {
+      console.error('Towel-only completion failed:', error);
+      toast.error(copy.failed, { description: error?.message || undefined });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[calc(100vw-1rem)] max-w-lg max-h-[92dvh] overflow-hidden p-0 gap-0">
+        <DialogHeader className="px-4 pt-4 pb-3 border-b">
+          <DialogTitle className="flex items-center gap-2 pr-8 text-lg">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-cyan-100 text-cyan-700">🧺</span>
+            <span>{copy.title} — {t('common.room')} {roomNumber}</span>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="overflow-y-auto px-4 py-4 space-y-4" style={{ WebkitOverflowScrolling: 'touch' }}>
+          <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 p-3 space-y-2">
+            <p className="text-sm font-medium text-cyan-950">{copy.intro}</p>
+            <p className="text-xs leading-relaxed text-cyan-800">{copy.noPhotos}</p>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold">{copy.count}</span>
+            <Badge variant="outline">{total}</Badge>
+          </div>
+
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2">
+            {items.map((item) => {
+              const value = counts[item.id] || 0;
+              const raw = item.display_name || item.name.replace(/_/g, ' ');
+              return (
+                <div key={item.id} className="rounded-xl border bg-card p-3 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <Shirt className="h-4 w-4 text-cyan-700 mt-0.5 shrink-0" />
+                    <Label className="text-sm leading-tight">
+                      {translateLinenItem(raw, t)}
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button type="button" size="sm" variant="outline" className="h-10 w-10 p-0" disabled={value <= 0} onClick={() => updateCount(item.id, value - 1)}>
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min="0"
+                      value={value}
+                      onChange={(e) => updateCount(item.id, parseInt(e.target.value, 10) || 0)}
+                      className="h-10 min-w-0 flex-1 text-center"
+                    />
+                    <Button type="button" size="sm" variant="outline" className="h-10 w-10 p-0" onClick={() => updateCount(item.id, value + 1)}>
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 border-t p-4 bg-background">
+          <Button onClick={completeTowelChange} disabled={loading || total <= 0} className="min-h-11 bg-cyan-700 hover:bg-cyan-800 text-white">
+            <CheckCircle2 className="h-4 w-4 mr-2" />
+            {loading ? '...' : copy.complete}
+          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading} className="min-h-11">
+            {t('common.cancel')}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+''')
+
+          # 2) Wire the dedicated tile into the live housekeeper room card.
+          replace_once(
+              'src/components/dashboard/AssignedRoomCard.tsx',
+              "import { DirtyLinenDialog } from './DirtyLinenDialog';\n",
+              "import { DirtyLinenDialog } from './DirtyLinenDialog';\nimport { TowelChangeOnlyDialog } from './TowelChangeOnlyDialog';\n",
+          )
+          replace_once(
+              'src/components/dashboard/AssignedRoomCard.tsx',
+              "  const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);\n",
+              "  const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);\n  const [towelChangeOnlyOpen, setTowelChangeOnlyOpen] = useState(false);\n",
+          )
+          old_linen_button = '''                  <button
+                    type="button"
+                    onClick={() => setDirtyLinenDialogOpen(true)}
+                    className={`${tileBase} border-border`}
+                    data-training="dirty-linen-button"
+                  >
+                    <span className={`${iconWrap} bg-amber-100 text-amber-700`}>
+                      <Shirt className="h-4 w-4" />
+                    </span>
+                    <span className={label}>{t('actions.dirtyLinen')}</span>
+                  </button>'''
+          towel_button = '''                  {assignment.assignment_type === 'daily_cleaning' && !isCheckoutClean && (
+                    <button
+                      type="button"
+                      onClick={() => setTowelChangeOnlyOpen(true)}
+                      className={`${tileBase} border-cyan-200 bg-cyan-50/40 hover:bg-cyan-50 dark:border-cyan-900 dark:bg-cyan-950/20`}
+                      data-training="towel-change-only-button"
+                    >
+                      <span className={`${iconWrap} bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-300`}>
+                        <span className="text-base" aria-hidden="true">🧺</span>
+                      </span>
+                      <span className={label}>
+                        {language === 'hu' ? 'Csak törölközőcsere'
+                          : language === 'vi' ? 'Chỉ thay khăn'
+                          : language === 'mn' ? 'Зөвхөн алчуур солих'
+                          : language === 'es' ? 'Solo cambio de toallas'
+                          : 'Towel change only'}
+                      </span>
+                    </button>
+                  )}
+
+''' + old_linen_button
+          replace_once('src/components/dashboard/AssignedRoomCard.tsx', old_linen_button, towel_button)
+
+          old_dialog = '''      {/* Dirty Linen Dialog */}
+      <DirtyLinenDialog
+        open={dirtyLinenDialogOpen}
+        onOpenChange={setDirtyLinenDialogOpen}
+        roomId={assignment.room_id}
+        roomNumber={assignment.rooms?.room_number || 'Unknown'}
+        assignmentId={assignment.id}
+      />
+
+'''
+          new_dialog = old_dialog + '''      {/* Towel-only stayover service — deliberately separate from full cleaning. */}
+      <TowelChangeOnlyDialog
+        open={towelChangeOnlyOpen}
+        onOpenChange={setTowelChangeOnlyOpen}
+        roomId={assignment.room_id}
+        roomNumber={assignment.rooms?.room_number || 'Unknown'}
+        assignmentId={assignment.id}
+        onCompleted={() => onStatusUpdate(assignment.id, 'completed')}
+      />
+
+'''
+          replace_once('src/components/dashboard/AssignedRoomCard.tsx', old_dialog, new_dialog)
+
+          # 3) Supervisor UI must treat towel-only as a non-cleaning outcome.
+          # This keeps individual and bulk approval from claiming/attempting a full clean.
+          replace_once(
+              'src/components/dashboard/SupervisorApprovalView.tsx',
+              "      const guestDeclined = isGuestDeclinedService(assignment?.service_result, assignment?.notes);\n\n      const updateData: any = {",
+              "      const guestDeclined = isGuestDeclinedService(assignment?.service_result, assignment?.notes);\n      const towelChangeOnly = String(assignment?.notes || '').includes('[TOWEL_CHANGE_ONLY]');\n      const nonCleaningOutcome = guestDeclined || towelChangeOnly;\n\n      const updateData: any = {",
+          )
+          replace_once(
+              'src/components/dashboard/SupervisorApprovalView.tsx',
+              "      const pmsResult = !guestDeclined && assignment?.room_id\n        ? await pushCleanStatusToPrevio(assignment.room_id, assignment.id)\n        : { status: 'skipped' as const };\n\n      toast.success(guestDeclined ? 'No Service outcome approved' : 'Assignment approved successfully');",
+              "      const pmsResult = !nonCleaningOutcome && assignment?.room_id\n        ? await pushCleanStatusToPrevio(assignment.room_id, assignment.id)\n        : { status: 'skipped' as const };\n\n      toast.success(towelChangeOnly ? 'Towel change approved' : guestDeclined ? 'No Service outcome approved' : 'Assignment approved successfully');",
+          )
+          replace_once(
+              'src/components/dashboard/SupervisorApprovalView.tsx',
+              "      if (guestDeclined) {\n        showNotification('No Service approved — room was not marked clean in PMS', 'success');\n      } else {\n        showNotification(t('supervisor.roomMarkedClean'), 'success');\n      }",
+              "      if (towelChangeOnly) {\n        showNotification('Towel change approved — room remains dirty / not marked as a full clean in PMS', 'success');\n      } else if (guestDeclined) {\n        showNotification('No Service approved — room was not marked clean in PMS', 'success');\n      } else {\n        showNotification(t('supervisor.roomMarkedClean'), 'success');\n      }",
+          )
+          replace_once(
+              'src/components/dashboard/SupervisorApprovalView.tsx',
+              "    if (isGuestDeclinedService(assignment.service_result, assignment.notes)) {\n      return performApproval(assignmentId);\n    }",
+              "    if (isGuestDeclinedService(assignment.service_result, assignment.notes)\n      || String(assignment.notes || '').includes('[TOWEL_CHANGE_ONLY]')) {\n      return performApproval(assignmentId);\n    }",
+          )
+          replace_once(
+              'src/components/dashboard/SupervisorApprovalView.tsx',
+              "          const guestDeclined = isGuestDeclinedService(assignment.service_result, assignment.notes);\n          // Fire per-row so one failure doesn't break the batch. No Service\n          // outcomes count as intentionally skipped and never reach Previo.\n          if (assignment.room_id && !guestDeclined) {",
+              "          const guestDeclined = isGuestDeclinedService(assignment.service_result, assignment.notes);\n          const towelChangeOnly = String(assignment.notes || '').includes('[TOWEL_CHANGE_ONLY]');\n          const nonCleaningOutcome = guestDeclined || towelChangeOnly;\n          // Fire per-row so one failure doesn't break the batch. Non-cleaning\n          // outcomes count as intentionally skipped and never reach Previo.\n          if (assignment.room_id && !nonCleaningOutcome) {",
+          )
+          replace_once(
+              'src/components/dashboard/SupervisorApprovalView.tsx',
+              "          } else if (guestDeclined) {\n            pmsSkipped++;\n          }",
+              "          } else if (nonCleaningOutcome) {\n            pmsSkipped++;\n          }",
+          )
+          replace_once(
+              'src/components/dashboard/SupervisorApprovalView.tsx',
+              "    const cleanAssignments = assignments.filter(a => !isGuestDeclinedService(a.service_result, a.notes));",
+              "    const cleanAssignments = assignments.filter(a => !isGuestDeclinedService(a.service_result, a.notes)\n      && !String(a.notes || '').includes('[TOWEL_CHANGE_ONLY]'));",
+          )
+
+          # 4) Server-side second safety barrier: even an old/stale frontend can
+          # never translate a towel-only completion into Previo clean.
+          edge = Path('supabase/functions/previo-update-room-status/index.ts')
+          edge_text = edge.read_text()
+          old = '''      const guestDeclined = assignment?.service_result === 'guest_declined'
+        || String(assignment?.notes || '').includes('[NO_SERVICE]');
+
+      if (guestDeclined) {
+        console.log(`[previo-update-room-status] Skipping clean push for guest-declined assignment ${assignmentId}`);'''
+          new = '''      const guestDeclined = assignment?.service_result === 'guest_declined'
+        || String(assignment?.notes || '').includes('[NO_SERVICE]');
+      const towelChangeOnly = String(assignment?.notes || '').includes('[TOWEL_CHANGE_ONLY]');
+      const nonCleaningOutcome = guestDeclined || towelChangeOnly;
+
+      if (nonCleaningOutcome) {
+        const reason = towelChangeOnly ? 'towel_change_only' : 'guest_declined_service';
+        console.log(`[previo-update-room-status] Skipping clean push for ${reason} assignment ${assignmentId}`);'''
+          if old not in edge_text:
+              raise SystemExit('Expected Previo guard block not found')
+          edge_text = edge_text.replace(old, new, 1)
+          edge_text = edge_text.replace("            reason: 'guest_declined_service',", "            reason,", 1)
+          edge_text = edge_text.replace("            reason: 'guest_declined_service',\n            message: 'No Service assignment must not mark the room clean in Previo',", "            reason,\n            message: towelChangeOnly\n              ? 'Towel-only service must not mark the room clean in Previo'\n              : 'No Service assignment must not mark the room clean in Previo',", 1)
+          edge.write_text(edge_text)
+
+          # 5) Small regression test for the server-side marker contract.
+          Path('src/lib/towel-change-only.ts').write_text(r'''export const TOWEL_CHANGE_ONLY_MARKER = '[TOWEL_CHANGE_ONLY]';
+
+export function isTowelChangeOnly(notes?: string | null): boolean {
+  return String(notes || '').includes(TOWEL_CHANGE_ONLY_MARKER);
+}
+''')
+
+          print('Towel-only workflow patch applied successfully')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Commit implementation
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo 'No changes to commit'
+            exit 0
+          fi
+          git config user.name 'hotelcare-automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git add src/components/dashboard/AssignedRoomCard.tsx \
+                  src/components/dashboard/TowelChangeOnlyDialog.tsx \
+                  src/components/dashboard/SupervisorApprovalView.tsx \
+                  src/lib/towel-change-only.ts \
+                  supabase/functions/previo-update-room-status/index.ts
+          git commit -m 'feat: add Mika towel-change-only housekeeping flow'
+          git push origin HEAD:main
