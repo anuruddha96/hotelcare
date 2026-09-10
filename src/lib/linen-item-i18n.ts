@@ -29,39 +29,157 @@ const MAP: Record<string, string> = {
   'mattress covers queen': 'linen.mattressCoverQueen',
 };
 
-// Small Pillow is a configurable DB item, so it cannot rely on a hard-coded
-// component label. Keep its localized names here so a newly-created catalog
-// row immediately renders in every language supported by the housekeeper UI.
-// We infer the active locale from already-translated stable keys supplied by t().
-const SMALL_PILLOW_BY_LANGUAGE_MARKER: Record<string, string> = {
-  'Language Changed': 'Small Pillow',
-  'Nyelv megváltoztatva': 'Kispárna',
-  'Dil dəyişdirildi': 'Kiçik Yastıq',
-  'Nabago ang wika': 'Maliit na Unan',
-  'Мову змінено': 'Мала подушка',
-  'Язык изменен': 'Маленькая подушка',
+type SupportedLanguage = 'en' | 'hu' | 'es' | 'vi' | 'mn' | 'az' | 'tl' | 'uk' | 'ru';
+
+// The Mika linen catalogue contains configurable DB rows which do not have
+// normal i18n keys. Keep their display translations here and never change the
+// underlying DB/internal names, so existing linen counts and history remain stable.
+const MIKA_LINEN_TRANSLATIONS: Record<string, Record<SupportedLanguage, string>> = {
+  'small pillow': {
+    en: 'Small Pillow',
+    hu: 'Kispárna',
+    es: 'Almohada pequeña',
+    vi: 'Gối nhỏ',
+    mn: 'Жижиг дэр',
+    az: 'Kiçik yastıq',
+    tl: 'Maliit na unan',
+    uk: 'Маленька подушка',
+    ru: 'Маленькая подушка',
+  },
+  'blankets - blue': {
+    en: 'Blankets – Blue',
+    hu: 'Takarók – Kék',
+    es: 'Mantas – Azules',
+    vi: 'Chăn – Xanh dương',
+    mn: 'Хөнжил – Цэнхэр',
+    az: 'Ədyallar – Mavi',
+    tl: 'Mga kumot – Asul',
+    uk: 'Ковдри — сині',
+    ru: 'Одеяла — синие',
+  },
+  'blankets - brown': {
+    en: 'Blankets – Brown',
+    hu: 'Takarók – Barna',
+    es: 'Mantas – Marrones',
+    vi: 'Chăn – Nâu',
+    mn: 'Хөнжил – Бор',
+    az: 'Ədyallar – Qəhvəyi',
+    tl: 'Mga kumot – Kayumanggi',
+    uk: 'Ковдри — коричневі',
+    ru: 'Одеяла — коричневые',
+  },
+  'mattress protector - water proof': {
+    en: 'Mattress Protector – Waterproof',
+    hu: 'Matracvédő – Vízálló',
+    es: 'Protector de colchón – Impermeable',
+    vi: 'Tấm bảo vệ nệm – Chống thấm nước',
+    mn: 'Гудасны хамгаалалт – Ус нэвтэрдэггүй',
+    az: 'Döşək qoruyucusu – Su keçirməz',
+    tl: 'Proteksiyon sa kutson – Hindi tinatablan ng tubig',
+    uk: 'Наматрацник — водонепроникний',
+    ru: 'Наматрасник — водонепроницаемый',
+  },
+  'mattress protector - waterproof': {
+    en: 'Mattress Protector – Waterproof',
+    hu: 'Matracvédő – Vízálló',
+    es: 'Protector de colchón – Impermeable',
+    vi: 'Tấm bảo vệ nệm – Chống thấm nước',
+    mn: 'Гудасны хамгаалалт – Ус нэвтэрдэггүй',
+    az: 'Döşək qoruyucusu – Su keçirməz',
+    tl: 'Proteksiyon sa kutson – Hindi tinatablan ng tubig',
+    uk: 'Наматрацник — водонепроникний',
+    ru: 'Наматрасник — водонепроницаемый',
+  },
+  'small pillow protector': {
+    en: 'Small Pillow Protector',
+    hu: 'Kispárnavédő',
+    es: 'Protector para almohada pequeña',
+    vi: 'Vỏ bảo vệ gối nhỏ',
+    mn: 'Жижиг дэрний хамгаалалт',
+    az: 'Kiçik yastıq qoruyucusu',
+    tl: 'Proteksiyon sa maliit na unan',
+    uk: 'Захисний чохол для маленької подушки',
+    ru: 'Защитный чехол для маленькой подушки',
+  },
+  'big pillow protector': {
+    en: 'Large Pillow Protector',
+    hu: 'Nagypárnavédő',
+    es: 'Protector para almohada grande',
+    vi: 'Vỏ bảo vệ gối lớn',
+    mn: 'Том дэрний хамгаалалт',
+    az: 'Böyük yastıq qoruyucusu',
+    tl: 'Proteksiyon sa malaking unan',
+    uk: 'Захисний чохол для великої подушки',
+    ru: 'Защитный чехол для большой подушки',
+  },
+  'small pillow cover': {
+    en: 'Small Pillowcase',
+    hu: 'Kispárnahuzat',
+    es: 'Funda de almohada pequeña',
+    vi: 'Vỏ gối nhỏ',
+    mn: 'Жижиг дэрний уут',
+    az: 'Kiçik yastıq üzü',
+    tl: 'Punda ng maliit na unan',
+    uk: 'Наволочка для маленької подушки',
+    ru: 'Наволочка для маленькой подушки',
+  },
+  'big pillow cover': {
+    en: 'Large Pillowcase',
+    hu: 'Nagypárnahuzat',
+    es: 'Funda de almohada grande',
+    vi: 'Vỏ gối lớn',
+    mn: 'Том дэрний уут',
+    az: 'Böyük yastıq üzü',
+    tl: 'Punda ng malaking unan',
+    uk: 'Наволочка для великої подушки',
+    ru: 'Наволочка для большой подушки',
+  },
+  'mattress protector - soft': {
+    en: 'Mattress Protector – Soft',
+    hu: 'Matracvédő – Puha',
+    es: 'Protector de colchón – Suave',
+    vi: 'Tấm bảo vệ nệm – Mềm',
+    mn: 'Гудасны хамгаалалт – Зөөлөн',
+    az: 'Döşək qoruyucusu – Yumşaq',
+    tl: 'Proteksiyon sa kutson – Malambot',
+    uk: 'Наматрацник — м’який',
+    ru: 'Наматрасник — мягкий',
+  },
 };
 
-const SMALL_PILLOW_BY_BIG_PILLOW: Record<string, string> = {
-  'Big Pillow': 'Small Pillow',
-  'Nagy Párna': 'Kispárna',
-  'Almohada Grande': 'Almohada Pequeña',
-  'Gối Lớn': 'Gối Nhỏ',
-  'Том Дэр': 'Жижиг Дэр',
-  'Велика подушка': 'Мала подушка',
-  'Большая подушка': 'Маленькая подушка',
+const LANGUAGE_BY_MARKER: Record<string, SupportedLanguage> = {
+  'Language Changed': 'en',
+  'Nyelv megváltoztatva': 'hu',
+  'Dil dəyişdirildi': 'az',
+  'Nabago ang wika': 'tl',
+  'Мову змінено': 'uk',
+  'Язык изменен': 'ru',
 };
 
-function translateSmallPillow(t: (key: string) => string): string {
-  const languageMarker = t('language.changed');
-  const byLanguageMarker = SMALL_PILLOW_BY_LANGUAGE_MARKER[languageMarker];
-  if (byLanguageMarker) return byLanguageMarker;
+const LANGUAGE_BY_BIG_PILLOW: Record<string, SupportedLanguage> = {
+  'Big Pillow': 'en',
+  'Nagy Párna': 'hu',
+  'Almohada Grande': 'es',
+  'Gối Lớn': 'vi',
+  'Том Дэр': 'mn',
+  'Велика подушка': 'uk',
+  'Большая подушка': 'ru',
+};
 
-  // Spanish, Vietnamese and Mongolian already have a localized Big Pillow
-  // key, which is a reliable locale marker even when language.changed is
-  // supplied by a secondary translation bundle.
-  const bigPillow = t('linen.bigPillow');
-  return SMALL_PILLOW_BY_BIG_PILLOW[bigPillow] || 'Small Pillow';
+function resolveLanguage(t: (key: string) => string): SupportedLanguage {
+  const markerLanguage = LANGUAGE_BY_MARKER[t('language.changed')];
+  if (markerLanguage) return markerLanguage;
+
+  const pillowLanguage = LANGUAGE_BY_BIG_PILLOW[t('linen.bigPillow')];
+  return pillowLanguage || 'en';
+}
+
+function normalizeLinenName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[–—]/g, '-')
+    .replace(/\s+/g, ' ');
 }
 
 export function translateLinenItem(
@@ -69,15 +187,18 @@ export function translateLinenItem(
   t: (key: string) => string,
 ): string {
   if (!displayName) return '';
-  const normalized = displayName.trim().toLowerCase();
+  const normalized = normalizeLinenName(displayName);
 
-  if (normalized === 'small pillow' || normalized === 'small pillows') {
-    return translateSmallPillow(t);
+  // Mika's configurable catalogue labels are translated as a display layer only.
+  // These raw labels are unique catalogue additions; no DB key or stored count is changed.
+  const mikaTranslation = MIKA_LINEN_TRANSLATIONS[normalized];
+  if (mikaTranslation) {
+    return mikaTranslation[resolveLanguage(t)];
   }
 
   const key = MAP[normalized];
   if (!key) return displayName;
   const translated = t(key);
-  // useTranslation returns the key itself when no translation found — fall back to raw name in that case
+  // useTranslation returns the key itself when no translation is found.
   return translated === key ? displayName : translated;
 }
