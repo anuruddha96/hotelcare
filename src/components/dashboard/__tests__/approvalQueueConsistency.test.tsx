@@ -33,4 +33,15 @@ describe('unified approval queue', () => {
     expect(source).toContain("table: 'break_requests'");
     expect(source).toContain("table: 'room_minibar_usage'");
   });
+
+  it('keeps the translated approval details trigger DOM stable on Android', () => {
+    const source = readDashboard('SupervisorApprovalView.tsx');
+    expect(source).toContain('aria-expanded={isExpanded}');
+    expect(source).toContain('aria-controls={detailsRegionId}');
+    expect(source).toContain("isExpanded ? 'rotate-90' : ''");
+    expect(source).toContain("<span>{t('approvals.details')}</span>");
+    expect(source).not.toContain(
+      'isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />',
+    );
+  });
 });

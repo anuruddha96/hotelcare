@@ -1122,6 +1122,7 @@ export function SupervisorApprovalView({
     const speedIndicator = !guestDeclined && assignment.started_at ? getSpeedIndicator(assignment.assignment_type, durationMins) : null;
     const SpeedIcon = speedIndicator?.icon || Timer;
     const isExpanded = expandedCards.has(assignment.id);
+    const detailsRegionId = `approval-details-${assignment.id}`;
     // Every real cleaning exposes its captured work details. No Service only
     // expands when optional door/evidence photos were captured.
     const hasDetails = !guestDeclined || Boolean(completionPhotoUrls[assignment.id]?.length);
@@ -1237,15 +1238,29 @@ export function SupervisorApprovalView({
           {hasDetails && (
             <div>
               <button
+                type="button"
                 onClick={() => toggleCardExpand(assignment.id)}
+                aria-expanded={isExpanded}
+                aria-controls={detailsRegionId}
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                {t('approvals.details')}
+                {/* Keep one icon node mounted. Browser translation can replace
+                    adjacent text nodes; swapping two different SVG components
+                    then makes React call insertBefore against a translated node
+                    that is no longer a direct child (notably on Android). */}
+                <ChevronRight
+                  aria-hidden="true"
+                  className={`h-3 w-3 shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                />
+                <span>{t('approvals.details')}</span>
               </button>
 
               {isExpanded && (
-                <div className="mt-2 space-y-2 pl-4 border-l-2 border-muted">
+                <div
+                  id={detailsRegionId}
+                  role="region"
+                  className="mt-2 space-y-2 pl-4 border-l-2 border-muted"
+                >
                   {/* Start/Complete times */}
                   <div className="text-xs text-muted-foreground">
                     {guestDeclined ? (
