@@ -56,9 +56,12 @@ serve(async (req) => {
 
       const guestDeclined = assignment?.service_result === 'guest_declined'
         || String(assignment?.notes || '').includes('[NO_SERVICE]');
+      const towelChangeOnly = String(assignment?.notes || '').includes('[TOWEL_CHANGE_ONLY]');
+      const nonCleaningOutcome = guestDeclined || towelChangeOnly;
 
-      if (guestDeclined) {
-        console.log(`[previo-update-room-status] Skipping clean push for guest-declined assignment ${assignmentId}`);
+      if (nonCleaningOutcome) {
+        const reason = towelChangeOnly ? 'towel_change_only' : 'guest_declined_service';
+        console.log(`[previo-update-room-status] Skipping clean push for ${reason} assignment ${assignmentId}`);
         await supabase.from('pms_sync_history').insert({
           hotel_id: room.hotel,
           sync_type: 'room_status_update',
@@ -69,7 +72,7 @@ serve(async (req) => {
             room_number: room.room_number,
             assignment_id: assignmentId,
             requested_status: status,
-            reason: 'guest_declined_service',
+            reason,
           },
         });
         return new Response(
@@ -77,7 +80,9 @@ serve(async (req) => {
             success: true,
             skipped: true,
             reason: 'guest_declined_service',
-            message: 'No Service assignment must not mark the room clean in Previo',
+            message: towelChangeOnly
+              ? 'Towel-only service must not mark the room clean in Previo'
+              : 'No Service assignment must not mark the room clean in Previo',
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         );

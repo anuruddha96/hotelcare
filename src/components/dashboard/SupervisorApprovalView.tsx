@@ -746,6 +746,8 @@ export function SupervisorApprovalView({
     try {
       const assignment = previousAssignments.find(a => a.id === assignmentId);
       const guestDeclined = isGuestDeclinedService(assignment?.service_result, assignment?.notes);
+      const towelChangeOnly = String(assignment?.notes || '').includes('[TOWEL_CHANGE_ONLY]');
+      const nonCleaningOutcome = guestDeclined || towelChangeOnly;
 
       const updateData: any = {
         supervisor_approved: true,
@@ -799,18 +801,20 @@ export function SupervisorApprovalView({
       // No Service means "handled, but not cleaned". Never mark that room clean
       // in Previo. The edge function also validates assignmentId as a second
       // safety barrier in case another caller accidentally tries the push.
-      const pmsResult = !guestDeclined && assignment?.room_id
+      const pmsResult = !nonCleaningOutcome && assignment?.room_id
         ? await pushCleanStatusToPrevio(assignment.room_id, assignment.id)
         : { status: 'skipped' as const };
 
-      toast.success(guestDeclined ? 'No Service outcome approved' : 'Assignment approved successfully');
+      toast.success(towelChangeOnly ? 'Towel change approved' : guestDeclined ? 'No Service outcome approved' : 'Assignment approved successfully');
       if (pmsResult.status === 'success') {
         showNotification('✓ Synced to PMS (Previo)', 'success');
       } else if (pmsResult.status === 'failed') {
         showNotification(`PMS sync failed: ${pmsResult.error ?? 'unknown error'}`, 'warning');
       }
 
-      if (guestDeclined) {
+      if (towelChangeOnly) {
+        showNotification('Towel change approved — room remains dirty / not marked as a full clean in PMS', 'success');
+      } else if (guestDeclined) {
         showNotification('No Service approved — room was not marked clean in PMS', 'success');
       } else {
         showNotification(t('supervisor.roomMarkedClean'), 'success');
@@ -831,7 +835,8 @@ export function SupervisorApprovalView({
 
     // Guest-declined/no-service rooms were not entered, so a cleaning approval
     // must not be blocked by a minibar refill confirmation.
-    if (isGuestDeclinedService(assignment.service_result, assignment.notes)) {
+    if (isGuestDeclinedService(assignment.service_result, assignment.notes)
+      || String(assignment.notes || '').includes('[TOWEL_CHANGE_ONLY]')) {
       return performApproval(assignmentId);
     }
 
@@ -940,14 +945,16 @@ export function SupervisorApprovalView({
         if (!error) {
           approved++;
           const guestDeclined = isGuestDeclinedService(assignment.service_result, assignment.notes);
-          // Fire per-row so one failure doesn't break the batch. No Service
+          const towelChangeOnly = String(assignment.notes || '').includes('[TOWEL_CHANGE_ONLY]');
+          const nonCleaningOutcome = guestDeclined || towelChangeOnly;
+          // Fire per-row so one failure doesn't break the batch. Non-cleaning
           // outcomes count as intentionally skipped and never reach Previo.
-          if (assignment.room_id && !guestDeclined) {
+          if (assignment.room_id && !nonCleaningOutcome) {
             const pms = await pushCleanStatusToPrevio(assignment.room_id, assignment.id);
             if (pms.status === 'success') pmsSynced++;
             else if (pms.status === 'failed') pmsFailed++;
             else pmsSkipped++;
-          } else if (guestDeclined) {
+          } else if (nonCleaningOutcome) {
             pmsSkipped++;
           }
         }
@@ -972,7 +979,8 @@ export function SupervisorApprovalView({
   const handleBulkApprove = async (hotelName: string) => {
     const assignments = hotelGroups[hotelName];
     if (!assignments || assignments.length === 0) return;
-    const cleanAssignments = assignments.filter(a => !isGuestDeclinedService(a.service_result, a.notes));
+    const cleanAssignments = assignments.filter(a => !isGuestDeclinedService(a.service_result, a.notes)
+      && !String(a.notes || '').includes('[TOWEL_CHANGE_ONLY]'));
     const roomIds = cleanAssignments.map(a => a.room_id).filter(Boolean) as string[];
     const roomNumberByRoomId: Record<string, string> = {};
     for (const a of cleanAssignments) {

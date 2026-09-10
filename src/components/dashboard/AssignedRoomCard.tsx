@@ -41,6 +41,7 @@ import { DNDPhotoDialog } from './DNDPhotoDialog';
 import { EnhancedDNDPhotoCapture } from './EnhancedDNDPhotoCapture';
 
 import { DirtyLinenDialog } from './DirtyLinenDialog';
+import { TowelChangeOnlyDialog } from './TowelChangeOnlyDialog';
 import { MaintenanceIssueDialog } from './MaintenanceIssueDialog';
 import { LostAndFoundDialog } from './LostAndFoundDialog';
 import { PreCompleteChecklistDialog } from './PreCompleteChecklistDialog';
@@ -104,6 +105,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const [enhancedDndPhotoDialogOpen, setEnhancedDndPhotoDialogOpen] = useState(false);
   const [dailyPhotoDialogOpen, setDailyPhotoDialogOpen] = useState(false);
   const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);
+  const [towelChangeOnlyOpen, setTowelChangeOnlyOpen] = useState(false);
   const [attendanceStatus, setAttendanceStatus] = useState<string | null>(null);
   const [isManualCheckIn, setIsManualCheckIn] = useState(false);
   const [changeTypeDialogOpen, setChangeTypeDialogOpen] = useState(false);
@@ -1364,6 +1366,26 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                     <span className={label}>{t('actions.dndPhoto')}</span>
                   </button>
 
+                  {assignment.assignment_type === 'daily_cleaning' && !isCheckoutClean && (
+                    <button
+                      type="button"
+                      onClick={() => setTowelChangeOnlyOpen(true)}
+                      className={`${tileBase} border-cyan-200 bg-cyan-50/40 hover:bg-cyan-50 dark:border-cyan-900 dark:bg-cyan-950/20`}
+                      data-training="towel-change-only-button"
+                    >
+                      <span className={`${iconWrap} bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-300`}>
+                        <span className="text-base" aria-hidden="true">🧺</span>
+                      </span>
+                      <span className={label}>
+                        {language === 'hu' ? 'Csak törölközőcsere'
+                          : language === 'vi' ? 'Chỉ thay khăn'
+                          : language === 'mn' ? 'Зөвхөн алчуур солих'
+                          : language === 'es' ? 'Solo cambio de toallas'
+                          : 'Towel change only'}
+                      </span>
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => setDirtyLinenDialogOpen(true)}
@@ -1701,6 +1723,16 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         roomId={assignment.room_id}
         roomNumber={assignment.rooms?.room_number || 'Unknown'}
         assignmentId={assignment.id}
+      />
+
+      {/* Towel-only stayover service — deliberately separate from full cleaning. */}
+      <TowelChangeOnlyDialog
+        open={towelChangeOnlyOpen}
+        onOpenChange={setTowelChangeOnlyOpen}
+        roomId={assignment.room_id}
+        roomNumber={assignment.rooms?.room_number || 'Unknown'}
+        assignmentId={assignment.id}
+        onCompleted={() => onStatusUpdate(assignment.id, 'completed')}
       />
 
 
