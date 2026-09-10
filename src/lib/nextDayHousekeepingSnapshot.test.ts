@@ -86,6 +86,23 @@ describe('next-day housekeeping selected-date snapshot', () => {
     expect(workload.dailyCount).toBe(14);
   });
 
+  it('keeps tomorrow independent from today even when the same 33 rooms are occupied', () => {
+    const rooms = Array.from({ length: 33 }, (_, index) => baseRoom(`r${index + 1}`, String(101 + index)));
+    const todayRows = rooms.map((room, index) => index < 19
+      ? snapshot(room.room_number, 'departing', '2026-09-08', '2026-09-10')
+      : snapshot(room.room_number, 'ongoing', '2026-09-08', '2026-09-12'));
+    const tomorrowRows = rooms.map((room, index) => index < 11
+      ? snapshot(room.room_number, 'departing', '2026-09-09', '2026-09-11')
+      : snapshot(room.room_number, 'ongoing', '2026-09-08', '2026-09-13'));
+
+    const today = buildSelectedDateHousekeepingWorkload(rooms, todayRows, '2026-09-10');
+    const tomorrow = buildSelectedDateHousekeepingWorkload(rooms, tomorrowRows, '2026-09-11');
+
+    expect([today.checkoutCount, today.dailyCount]).toEqual([19, 14]);
+    expect([tomorrow.checkoutCount, tomorrow.dailyCount]).toEqual([11, 22]);
+    expect(tomorrow.rooms.every(room => room.pms_metadata?.plannedHousekeepingDate === '2026-09-11')).toBe(true);
+  });
+
   it('fails closed when a selected-date Previo room cannot be mapped', () => {
     expect(() => buildSelectedDateHousekeepingWorkload(
       [baseRoom('r101', '101')],
