@@ -8,8 +8,12 @@ import { Coffee, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "@/hooks/useTranslation";
 import { bbT } from "@/lib/breakfast-translations";
+import { useLocation } from "react-router-dom";
+import { breakfastReturnPathFromSearch } from "@/lib/breakfastAuth";
 
 export default function BreakfastAuth() {
+  const location = useLocation();
+  const returnPath = breakfastReturnPathFromSearch(location.search);
   const { language } = useTranslation();
   const tt = (k: string) => bbT(language, k);
   const [email, setEmail] = useState("");
@@ -17,7 +21,7 @@ export default function BreakfastAuth() {
   const [showPwd, setShowPwd] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  // If already signed in as breakfast_staff, jump straight to /bb
+  // If already signed in as breakfast_staff, return to the requested BV view.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -30,11 +34,11 @@ export default function BreakfastAuth() {
         .maybeSingle();
       if (cancelled) return;
       if ((profile as any)?.role === "breakfast_staff") {
-        window.location.replace("/bb");
+        window.location.replace(returnPath);
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [returnPath]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -60,13 +64,13 @@ export default function BreakfastAuth() {
       .maybeSingle();
 
     if ((profile as any)?.role !== "breakfast_staff") {
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: "local" });
       setBusy(false);
       toast.error("This sign-in is only for breakfast staff. Please use the main app.");
       return;
     }
 
-    window.location.replace("/bb");
+    window.location.replace(returnPath);
   }
 
   return (
@@ -120,7 +124,7 @@ export default function BreakfastAuth() {
               type="button"
               variant="ghost"
               className="w-full"
-              onClick={() => window.location.replace("/bb")}
+              onClick={() => window.location.replace(returnPath)}
             >
               Continue without sign-in
             </Button>

@@ -12,6 +12,7 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { bbT } from "@/lib/breakfast-translations";
 import OccupancyPickupChart from "@/components/breakfast/OccupancyPickupChart";
 import RestaurantReservations from "@/components/breakfast/RestaurantReservations";
+import BreakfastAuthControl from "@/components/breakfast/BreakfastAuthControl";
 
 
 interface RestaurantDef {
@@ -316,9 +317,12 @@ export default function Breakfast() {
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-xl">
-              <Coffee className="h-6 w-6" /> {tt("title")}
-            </CardTitle>
+            <div className="flex items-start justify-between gap-3">
+              <CardTitle className="flex min-w-0 items-center gap-2 text-xl">
+                <Coffee className="h-6 w-6 shrink-0" /> <span>{tt("title")}</span>
+              </CardTitle>
+              <BreakfastAuthControl />
+            </div>
             {orgBranding && (
               <div className="text-xs text-muted-foreground pt-1 flex items-center gap-2">
                 {orgBranding.logo_url && (
@@ -345,11 +349,6 @@ export default function Breakfast() {
                 ))}
               </div>
             )}
-            <div className="pt-2 border-t">
-              <Button variant="ghost" size="sm" className="w-full text-xs" onClick={() => window.location.assign("/bb/auth")}>
-                Staff sign-in
-              </Button>
-            </div>
           </CardContent>
         </Card>
       </div>
@@ -362,9 +361,12 @@ export default function Breakfast() {
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-xl">
-              <Coffee className="h-6 w-6" /> {pickHotel.label}
-            </CardTitle>
+            <div className="flex items-start justify-between gap-3">
+              <CardTitle className="flex min-w-0 items-center gap-2 text-xl">
+                <Coffee className="h-6 w-6 shrink-0" /> <span>{pickHotel.label}</span>
+              </CardTitle>
+              <BreakfastAuthControl />
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">{tt("selectRestaurant")}</p>
@@ -418,9 +420,12 @@ export default function Breakfast() {
     <div className="min-h-screen bg-background flex items-start justify-center p-2 sm:items-center sm:p-4">
       <Card className="w-full max-w-xl overflow-hidden">
         <CardHeader className="pb-2 px-4 sm:px-6">
-          <CardTitle className="flex items-center gap-2 text-xl">
-            <Coffee className="h-6 w-6" /> {tt("title")}
-          </CardTitle>
+          <div className="flex items-start justify-between gap-3">
+            <CardTitle className="flex min-w-0 items-center gap-2 text-xl">
+              <Coffee className="h-6 w-6 shrink-0" /> <span>{tt("title")}</span>
+            </CardTitle>
+            <BreakfastAuthControl />
+          </div>
           {selection && (
             <div className="flex items-center justify-between gap-3 text-sm pt-1">
               <div className="flex min-w-0 flex-col">
