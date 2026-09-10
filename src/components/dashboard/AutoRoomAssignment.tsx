@@ -4,9 +4,8 @@ import { MapPin, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
-import { isBudapestNoonOrLater } from '@/lib/budapestTime';
+import { isBudapestNoonOrLater, tomorrowBudapest } from '@/lib/budapestTime';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
-import { getLocalDateString } from '@/lib/utils';
 import {
   clearLiveSectionTaskSnapshot,
   setLiveSectionTaskSnapshot,
@@ -45,12 +44,6 @@ function isHotelMemoriesKey(value?: string | null) {
   return key === 'hotel memories budapest' || key === 'memories-budapest';
 }
 
-function getTomorrowDateString() {
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  return getLocalDateString(tomorrow);
-}
-
 function getAutoAssignDraftKey(hotel: string | null | undefined, date: string) {
   return hotel ? `auto_assignment_v2_${hotel}_${date}` : null;
 }
@@ -76,7 +69,7 @@ function removeSavedDraft(key: string | null) {
 export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   const { profile } = useAuth();
   const isMemories = isHotelMemoriesKey(profile?.assigned_hotel);
-  const isTomorrowPlanner = props.selectedDate === getTomorrowDateString();
+  const isTomorrowPlanner = props.selectedDate === tomorrowBudapest();
   const tomorrowPlanningAvailable = isBudapestNoonOrLater();
   const [memoriesView, setMemoriesView] = useState<MemoriesAutoAssignView>('housekeeper');
   const [preparedRealityKey, setPreparedRealityKey] = useState<string | null>(null);
@@ -97,9 +90,8 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
    *  - before assignment, it is allowed to calculate a new room/public-area plan;
    *  - after assignment, the persisted database rows are the source of truth.
    *
-   * Tomorrow is deliberately excluded from this live-reality preparation. The
-   * NextDayAssignmentPlanner owns tomorrow and stores a plan instead of creating
-   * room_assignments early.
+   * Tomorrow is deliberately excluded from live-day preparation. It always
+   * travels through the protected next-day gate and selected-date PMS snapshot.
    */
   useEffect(() => {
     if (!props.open || isTomorrowPlanner) {
@@ -150,8 +142,6 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
         }
 
         if (hasLiveAssignments) {
-          // A saved preview is only a pre-assignment draft. Once real rows exist,
-          // the database wins and the browser copy must not be restored.
           if (draftKey && hasSavedDraft(draftKey)) removeSavedDraft(draftKey);
 
           const { data: liveAreaRows, error: liveAreaError } = await (supabase as any)
@@ -163,20 +153,14 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
             .not('assigned_to', 'is', null);
           if (liveAreaError) throw liveAreaError;
 
-          // An empty snapshot is intentional: it means rooms were assigned but
-          // no mapped public areas were assigned for that date. Do not inject
-          // newly configured areas into the historical/current-day reality.
           setLiveSectionTaskSnapshot((liveAreaRows || []).map((row: any) => ({
             taskId: row.housekeeping_section_task_id as string,
             assignedTo: row.assigned_to as string,
           })));
         } else {
-          // No real room assignment yet: use the normal automatic area planner.
           clearLiveSectionTaskSnapshot();
         }
       } catch (error) {
-        // Correct live data is more important than keeping an unverified browser
-        // draft. Fall back to a fresh database load rather than stale local data.
         console.warn('[AutoRoomAssignment] Could not prepare live assignment reality.', error);
         if (draftKey && hasSavedDraft(draftKey)) removeSavedDraft(draftKey);
         clearLiveSectionTaskSnapshot();
@@ -223,10 +207,6 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
           <div
             data-auto-assign-mode-switch
             className="pointer-events-auto fixed left-1/2 top-2 z-[10000] flex -translate-x-1/2 items-center gap-1 rounded-xl border bg-background/95 p-1 shadow-lg backdrop-blur sm:top-3"
-            // Radix Dialog disables pointer events outside DialogContent while a
-            // modal is open. This control intentionally sits above both Auto
-            // Assign dialogs, so it must opt back into pointer events and stop
-            // the active dialog from treating a mode switch as an outside click.
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
           >
