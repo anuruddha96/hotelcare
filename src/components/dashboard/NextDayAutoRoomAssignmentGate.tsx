@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { tomorrowBudapest } from '@/lib/budapestTime';
+import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
 import { ensureTomorrowPmsSnapshot, type TomorrowSnapshotState } from '@/lib/nextDayAutoAssignBridge';
 import { AutoRoomAssignment as AutoRoomAssignmentImpl } from './AutoRoomAssignmentImpl';
 
@@ -102,9 +103,17 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
         );
       }
 
+      // Profiles created before canonical hotel IDs were enforced may still
+      // contain display names such as "Hotel Mika Downtown". Integration
+      // requests and PMS snapshot queries must always use hotel_id instead.
+      const canonicalHotelId = await resolveCanonicalHotelId(profile.assigned_hotel);
+      if (!canonicalHotelId) {
+        throw new Error('The assigned hotel could not be resolved to a PMS property. Nothing was assigned.');
+      }
+
       const result = await ensureTomorrowPmsSnapshot({
         organizationSlug: profile.organization_slug,
-        hotelId: profile.assigned_hotel,
+        hotelId: canonicalHotelId,
         selectedDate: expectedTomorrow,
         forceFresh,
       });
@@ -112,7 +121,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
 
       const exactDay = await loadExactPmsDaySummary({
         organizationSlug: profile.organization_slug,
-        hotelId: profile.assigned_hotel,
+        hotelId: canonicalHotelId,
         selectedDate: expectedTomorrow,
       });
       if (current !== generation.current) return;
@@ -137,7 +146,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
       if (exactDay) {
         toast.success(
           `PMS ${exactDay.date}: ${exactDay.checkoutCount} check-outs · ${exactDay.dailyCount} daily · ${exactDay.totalRows} rooms`,
-          { id: `next-day-pms-${profile.assigned_hotel}-${exactDay.date}` },
+          { id: `next-day-pms-${canonicalHotelId}-${exactDay.date}` },
         );
       }
     } catch (cause) {
