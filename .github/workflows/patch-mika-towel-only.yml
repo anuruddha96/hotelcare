@@ -15,351 +15,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Apply targeted code patch
+        run: python3 -c "import base64; exec(base64.b64decode('ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCmltcG9ydCBiYXNlNjQKCmRlZiByZXBsYWNlX29uY2UocGF0aCwgb2xkLCBuZXcpOgogICAgcCA9IFBhdGgocGF0aCkKICAgIHRleHQgPSBwLnJlYWRfdGV4dCgpCiAgICBpZiBvbGQgbm90IGluIHRleHQ6CiAgICAgICAgcmFpc2UgU3lzdGVtRXhpdChmIkV4cGVjdGVkIGJsb2NrIG5vdCBmb3VuZCBpbiB7cGF0aH06IHtvbGRbOjEyMF0hcn0iKQogICAgcC53cml0ZV90ZXh0KHRleHQucmVwbGFjZShvbGQsIG5ldywgMSkpCgpQYXRoKCdzcmMvY29tcG9uZW50cy9kYXNoYm9hcmQvVG93ZWxDaGFuZ2VPbmx5RGlhbG9nLnRzeCcpLndyaXRlX3RleHQoYmFzZTY0LmI2NGRlY29kZSgnYVcxd2IzSjBJRkpsWVdOMExDQjdJSFZ6WlVWbVptVmpkQ3dnZFhObFRXVnRieXdnZFhObFUzUmhkR1VnZlNCbWNtOXRJQ2R5WldGamRDYzdDbWx0Y0c5eWRDQjdJRVJwWVd4dlp5d2dSR2xoYkc5blEyOXVkR1Z1ZEN3Z1JHbGhiRzluU0dWaFpHVnlMQ0JFYVdGc2IyZFVhWFJzWlNCOUlHWnliMjBnSnlWdlpHVkFMMk52YlhCdmJtVnVkSE12ZFdrdlpHbGhiRzluSnpzS2FXMXdiM0owSUhzZ1FuVjBkRzl1SUgwZ1puSnZiU0FuUUYvY29tcG9uZW50cy91aS9idXR0b24nO2ppbXBvcnQge0lucHV0fSBmcm9tICdAL2NvbXBvbmVudHMvdWkvaW5wdXQnO2ppbXBvcnQge0xhYmVsfSBmcm9tICdAL2NvbXBvbmVudHMvdWkvbGFiZWwnO2ppbXBvcnQge0JhZGdlfSBmcm9tICdAL2NvbXBvbmVudHMvdWkvYmFkZ2UnO2ppbXBvcnQge3N1cGFiYXNlfSBmcm9tICdAL2ludGVncmF0aW9ucy9zdXBhYmFzZS9jbGllbnQnO2ppbXBvcnQge3VzZUF1dGh9IGZyb20gJ0AvaG9va3MvdXNlQXV0aCc7CmltcG9ydCB7dXNlVHJhbnNsYXRpb259IGZyb20gJ0AvaG9va3MvdXNlVHJhbnNsYXRpb24nOwppbXBvcnQge2dldExvY2FsRGF0ZVN0cmluZ30gZnJvbSAnQC9saWIvdXRpbHMnOwppbXBvcnQge3RyYW5zbGF0ZUxpbmVuSXRlbX0gZnJvbSAnQC9saWIvbGluZW4taXRlbS1pMThuJzsKaW1wb3J0IHtDaGVja0NpcmNsZTIsIE1pbnVzLCBQbHVzLCBTaGlydH0gZnJvbSAnbHVjaWRlLXJlYWN0JzsKaW1wb3J0IHt0b2FzdH0gZnJvbSAnc29ubmVyJzsKCmNvbnN0IFRPV0VMX0NIQU5HRV9PTkxZX01BUktFUiA9ICdbVE9XRUxfQ0hBTkdFX09OTFldJzsKCmludGVyZmFjZSBMaW5lbkl0ZW0gewogIGlkOiBzdHJpbmc7CiAgbmFtZTogc3RyaW5nOwogIGRpc3BsYXlfbmFtZTogc3RyaW5nOwogIHNvcnRfb3JkZXI6IG51bWJlcjsKfQoKaW50ZXJmYWNlIFByb3BzIHsKICBvcGVuOiBib29sZWFuOwogIG9uT3BlbkNoYW5nZTogKG9wZW46IGJvb2xlYW4pID0+IHZvaWQ7CiAgYXNzaWdubWVudElkOiBzdHJpbmc7CiAgcm9vbUlkOiBzdHJpbmc7CiAgcm9vbU51bWJlcjogc3RyaW5nOwogIG9uQ29tcGxldGVkPzogKCkgPT4gdm9pZDsKfQoKY29uc3QgY29weUZvciA9IChsYW5ndWFnZTogc3RyaW5nKSA9PiB7CiAgc3dpdGNoIChsYW5ndWFnZSkgewogICAgY2FzZSAnaHUnOgogICAgICByZXR1cm4geyB0aXRsZTogJ0NzYWsgdMO2csO2bGvDtnrFk2NzZXJlJywgaW50cm86ICdBIHZlbmTDqWcgY3NhayB0w7Zyw7Zsa8O2esWRY3NlcsOpdCBrw6lydC4gUsO2Z3rDrXRzZCBheiBlbHZpdHQgdMO2csO2bGvDtnrFk2tldCAvIHRleHTDrWxpw6F0LCBtYWpkIHrDoXJkIGxlIGV6dCBhIHN6b2xnw6FsdGF0w6FzdC4nLCBub1Bob3RvczogJ0VoaGV6IGEgc3pvbGfDoWx0YXTDoXNob3ogbmVtIHN6w7xrc8OpZ2VzZWsgYSBzem9iYXRha2Fyw610w6FzaSBmb3TDs2suIEEgc3pvYmEgbmVtIGxlc3ogdGVsamVzZW4ga2l0YWthcsOtdG90dGvDqW50IG1lZ2plbMO2bHZlIGEgUE1TLWJlbi4nLCBjb3VudDogJ1LDtmfDrXp0w610ZXR0IGRhcmFiJywgY29tcGxldGU6ICdUw7Zyw7Zsa8O2esWRY3NlcmUgYmVmZWplesOpc2UnLCBuZWVkSXRlbTogJ0EgbGV6w6Fyw6FzIGVswZF0dCByw7Znw63RIRF9UEgwbGVnw6FsYWJiIGVneSB0w7Zyw7Zsa8O2esWR0IHZhZ3kgdGV4dMOtbGnDoXQuJywgc3VjY2VzczogJ1TDtnLDtmxrw7Z6xZFjc2VyZSByw7Znw616w610dmUnLCBmYWlsZWQ6ICdBIHTDtnLDtmxrw7Z6xZFjc2VyZSBsZXrDoXLDoXNhIHNpa2VydGVsZW4nIH07CiAgICBjYXNlICd2aSc6CiAgICAgIHJldHVybiB7IHRpdGxlOiAnQ2jhu4kgdGhheSBraMSDbicsIGludHJvOiAnS2jDoWNoIGNo4buJIHnDqnUgY-G6p3UgdGhheSBraMSDbi4gSMOjeSBnaGkgbOG6oWkga2jEg24gLyDEkeG7kyB24bqjaSDEkcOjIHRodSBy4buTaSBob8OgbiB04bqldCBk4buLY2ggduG7pSBuw6B5LicsIG5vUGhvdG9zOiAnS2jDtG5nIGPhuqduIOG6o25oIGThu41uIHBow7JuZyBjaG8gZOG7iWNoIHbhu6UgbsOgeS4gUGjDsm5nIHPhur0ga2jDtG5nIMSRxrDhu6NjIMSRw6FuaCBk4bqldSBsw6AgxJHDoyBk4buNbiBz4bqhY2ggaG/Dom4gdG/DoG4gdHJvbmcgUE1TLicsIGNvdW50OiAnxJDDo2dnaGkgbmjhuq1uJywgY29tcGxldGU6ICdIb8OgbiB04bqldCB0aGF5IGtoXHUwMTAzbiBHb2xsZWN0JywgbmVlZEl0ZW06ICdIw6N5IGdoaSBuaOG6rW4gw610IG5o4bqldCBt4buZdCBraMSDbiBob+G6t2MgxJHhu5MgduG6o2kgdHLGsOG7m2Mga2hpIGhvw6BuIHThuqV0LicsIHN1Y2Nlc3M6ICfEkMOjIGdoaSBuaOG6rW4gdGhheSBraMSDbiIsIGZhaWxlZDogJ0tow7RuZyB0aOG7gyBob8OgbiB04bqldCB0aGF5IGtoXHUwMTAzbicgfTsKICAgIGNhc2UgJ21uJzoKICAgICAgcmV0dXJuIHsgdGl0bGU6ICfQl9Op0LLRh9Op0L0g0LDQu9GH0YPRgCDRgdC+0LvQuNGFJywgYW50cm86ICfQl9C+0YfQuNC9INC30qnQstGF04nQvSDQsNC70YfRg9GD0YAg0YHQvtC70LjRhSDRh9Gb0YHQtdC70YIg0LPQsNGA0LPQsNGB0LDQvS4g0JDQstGB0LDQvSDQsNC70YfRg9GD0YAgLyDRhtCw0LPQsNCw0L0g0YXDRgNGN0LPQu9GN0Y3Qu9C40LnQsyDQtPOT0YDRgtCz0Y3RjNC0INGP0LLRh9C40LvQs9GN0Y3Qs9C70Y3RjdC90YrRg9GOLicsIG5vUGhvdG9zOiAn0K3QvdGNINGv0LLRh9C40LvQs9GN0Y3QvdC00LAg04nRgNOp04nQvdC40Lkg0YbRjdCy0Y3RgNC70Y3Qs9GN0Y3QvdC40Lkg0LfRg9GA0LDQsyDRiNCw0LDRgNC00LvQsNCz0LDQs9O80LkuIFBNUyDQtNCN0Y3RgCD04qnRgNOp0qnQsyDQsdO80YDQvdC40Lkg0YbRjdCy0Y3RgNC70Y3RgdGN0L0g0LPRjdC2INGC0Y3QvNC00Y3Qs9C70Y3RhdC50LPqxLnQu9C40LnQvS4nLCBjb3VudDogJ9CR04_RgNGC0LPOr9C70YHQsNC9JywgY29tcGxldGU6ICfQkNC70YfRg9GD0YAg0YHQvtC70LjQu9GC0Ysg0LTRg9GD0YHQs9Cw0YUnLCBuZWVkSXRlbTogJ9CU0YPRg9GB0LPQsNGF0LDRgdCw0LAg04nQvNC90Y0g0LTRg9GAINGF0LDRj9C2INC90Y3Qs9C10L0g0LDQu9GH0YPRgCDRjdGB0LLRjdC7INGG0LDQs9Cw0LDQvSDRhdGN0YDRjdCz0LvRjdC70LjQudCzINCx04_RgNGCz9GQ0Y3RgyDRg9GDLicsIHN1Y2Nlc3M6ICfQkNC70YfRg9GD0YAg0YHQvtC70LjQu9GCINCx04_RgNGCz9GN0LPQtNC70Y3RjScsIGZhaWxlZDogJ9CQ0LvRh9GD0YPRgCDRgdC+0LvQuNC70YLRiyDQtNGD0YPRgdCz0LDQtiDRh9Cw0LTGB0LDQvdCz04_FidCz04_G9KCz9O8INCz0Y3QttC40LnQ9C0JyB9OwogICAgY2FzZSAnZXMnOgogICAgICByZXR1cm4geyB0aXRsZTogJ1NvbG8gY2FtYmlvIGRlIHRvYWxsYXMnLCBpbnRybzogJ0VsIGh1w6lzcGVkIHNvbG8gcGlkacOzIGNhbWJpbyBkZSB0b2FsbGFzLiBSZWdpc3RyYSBsYXMgdG9hbGxhcyAvIHJvcGEgcmVjb2dpZGEgeSBjb21wbGV0YSBlc3RlIHNlcnZpY2lvLicsIG5vUGhvdG9zOiAnTm8gc2UgcmVxdWllcmVuIGZvdG9zIGRlIGxpbXBpZXphIHBhcmEgZXN0ZSBzZXJ2aWNpby4gTGEgaGFiaXRhY2nDs24gbm8gc2UgbWFyY2Fyw6EgY29tbyBsaW1waWV6YSBjb21wbGV0YSBlbiBlbCBQTVMuJywgY291bnQ6ICdSZWdpc3RyYWRvJywgY29tcGxldGU6ICdDb21wbGV0YXIgY2FtYmlvIGRlIHRvYWxsYXMnLCBuZWVkSXRlbTogJ1JlZ2lzdHJhIGFsIG1lbm9zIHVuYSB0b2FsbGEgbyBwaWV6YSBkZSByb3BhIGFudGVzIGRlIGNvbXBsZXRhci4nLCBzdWNjZXNzOiAnQ2FtYmlvIGRlIHRvYWxsYXMgcmVnaXN0cmFkbycsIGZhaWxlZDogJ05vIHNlIHB1ZG8gY29tcGxldGFyIGVsIGNhbWJpbyBkZSB0b2FsbGFzJyB9OwogICAgZGVmYXVsdDoKICAgICAgcmV0dXJuIHsgdGl0bGU6ICdUb3dlbCBjaGFuZ2Ugb25seScsIGludHJvOiAnVGhlIGd1ZXN0IHJlcXVlc3RlZCB0b3dlbHMgb25seS4gUmVjb3JkIHRoZSByZXR1cm5lZCB0b3dlbHMgLyBsaW5lbiBiZWxvdywgdGhlbiBjbG9zZSB0aGlzIHNlcnZpY2UuJywgbm9QaG90b3M6ICdSb29tLWNsZWFuaW5nIHBob3RvcyBhcmUgbm90IHJlcXVpcmVkIGZvciB0aGlzIHNlcnZpY2UuIFRoZSByb29tIHdpbGwgbm90IGJlIG1hcmtlZCBhcyBhIGZ1bGwgY2xlYW4gaW4gdGhlIFBNUy4nLCBjb3VudDogJ1JlY29yZGVkIGl0ZW1zJywgY29tcGxldGU6ICdDb21wbGV0ZSB0b3dlbCBjaGFuZ2UnLCBuZWVkSXRlbTogJ1JlY29yZCBhdCBsZWFzdCBvbmUgdG93ZWwgb3IgbGluZW4gaXRlbSBiZWZvcmUgY29tcGxldGluZy4nLCBzdWNjZXNzOiAnVG93ZWwgY2hhbmdlIHJlY29yZGVkJywgZmFpbGVkOiAnQ291bGQgbm90IGNvbXBsZXRlIHRvd2VsIGNoYW5nZScgfTsKICB9Cn07CgpleHBvcnQgZnVuY3Rpb24gVG93ZWxDaGFuZ2VPbmx5RGlhbG9nKHsgb3Blbiwgb25PcGVuQ2hhbmdlLCBhc3NpZ25tZW50SWQsIHJvb21JZCwgcm9vbU51bWJlciwgb25Db21wbGV0ZWQgfTogUHJvcHMpIHsKICBjb25zdCB7IHVzZXIgfSA9IHVzZUF1dGgoKTsKICBjb25zdCB7IHQsIGxhbmd1YWdlIH0gPSB1c2VUcmFuc2xhdGlvbigpOwogIGNvbnN0IGNvcHkgPSB1c2VNZW1vKCgpID0+IGNvcHlGb3IobGFuZ3VhZ2UpLCBbbGFuZ3VhZ2VdKTsKICBjb25zdCBbaXRlbXMsIHNldEl0ZW1zXSA9IHVzZVN0YXRlPExpbmVuSXRlbVtdPihbXSk7CiAgY29uc3QgW2NvdW50cywgc2V0Q291bnRzXSA9IHVzZVN0YXRlPFJlY29yZDxzdHJpbmcsIG51bWJlcj4+KHt9KTsKICBjb25zdCBbbG9hZGluZywgc2V0TG9hZGluZ10gPSB1c2VTdGF0ZShmYWxzZSk7CiAgY29uc3QgdG90YWwgPSB1c2VNZW1vKCgpID0+IE9iamVjdC52YWx1ZXMoY291bnRzKS5yZWR1Y2UoKHN1bSwgdmFsdWUpID0+IHN1bSArIChOdW1iZXIodmFsdWUpIHx8IDApLCAwKSwgW2NvdW50c10pOwoKICB1c2VFZmZlY3QoKCkgPT4gewogICAgaWYgKCFvcGVuIHx8ICF1c2VyPy5pZCkgcmV0dXJuOwogICAgbGV0IGNhbmNlbGxlZCA9IGZhbHNlOwogICAgKGFzeW5jICgpID0+IHsKICAgICAgY29uc3QgdG9kYXkgPSBnZXRMb2NhbERhdGVTdHJpbmcoY25ldyBEYXRlKCkpOwogICAgICBjb25zdCBbeyBkYXRhOiBsaW5lbkl0ZW1zLCBlcnJvcjogaXRlbXNFcnJvciB9LCB7IGRhdGE6IGV4aXN0aW5nLCBlcnJvcjogZXhpc3RpbmdFcnJvciB9XSA9IGF3YWl0IFByb21pc2UuYWxsKFsKICAgICAgICBzdXBhYmFzZS5mcm9tKCdkaXJ0eV9saW5lbl9pdGVtcycpLnNlbGVjdCgnaWQsIG5hbWUsIGRpc3BsYXlfbmFtZSwgc29ydF9vcmRlcicpLmVxKCJpc19hY3RpdmUnLCB0cnVlKS5vcmRlcignc29ydF9vcmRlcicpLAogICAgICAgIHN1cGFiYXNlLmZyb20oJ2RpcnR5X2xpbmVuX2NvdW50cycpLnNlbGVjdCgnbGluZW5faXRlbV9pZCwgY291bnQnKS5lcSgnaG91c2VrZWVwZXJfaWQnLCB1c2VyLmlkKS5lcSgncm9vbV9pZCcsIHJvb21JZCkuZXEoJ3dvcmtfZGF0ZScsIHRvZGF5KSwKICAgICAgXSk7CiAgICAgIGlmIChpdGVtc0Vycm9yIHx8IGV4aXN0aW5nRXJyb3IpIHsgdG9hc3QuZXJyb3IoY29weS5mYWlsZWQpOyByZXR1cm47IH0KICAgICAgaWYgKGNhbmNlbGxlZCkgcmV0dXJuOwogICAgICBzZXRJdGVtcygobGluZW5JdGVtcyB8fCBbXSkgYXMgTGluZW5JdGVtW10pOwogICAgICBzZXRDb3VudHMoT2JqZWN0LmZyb21FbnRyaWVzKChleGlzdGluZyB8fCBbXSkubWFwKChyb3c6IGFueSkgPT4gW3Jvdy5saW5lbl9pdGVtX2lkLCByb3cuY291bnQgfHwgMF0pKTsKICAgIH0pKCk7CiAgICByZXR1cm4gKCkgPT4geyBjYW5jZWxsZWQgPSB0cnVlOyB9OwogIH0sIFtvcGVuLCB1c2VyPy5pZCwgcm9vbUlkLCBjb3B5LmZhaWxlZF0pOwoKICBjb25zdCB1cGRhdGVDb3VudCA9IChpZDogc3RyaW5nLCBuZXh0OiBudW1iZXIpID0+IHNldENvdW50cyhjdXJyZW50ID0+ICh7IC4uLmN1cnJlbnQsIFtpZF06IE1hdGgubWF4KDAsIE51bWJlci5pc0Zpbml0ZShuZXh0KSA/IG5leHQgOiAwKSB9KSk7CgogIGNvbnN0IGNvbXBsZXRlVG93ZWxDaGFuZ2UgPSBhc3luYyAoKSA9PiB7CiAgICBpZiAoIXVzZXI/LmlkIHx8ICFhc3NpZ25tZW50SWQpIHJldHVybjsKICAgIGlmICh0b3RhbCA8PSAwKSB7IHRvYXN0LmVycm9yKGNvcHkubmVlZEl0ZW0pOyByZXR1cm47IH0KICAgIHNldExvYWRpbmcodHJ1ZSk7CiAgICB0cnkgewogICAgICBjb25zdCB7IGRhdGE6IGZyZXNoLCBlcnJvcjogZnJlc2hFcnJvciB9ID0gYXdhaXQgc3VwYWJhc2UuZnJvbSgncm9vbV9hc3NpZ25tZW50cycpLnNlbGVjdCgnYXNzaWdubWVudF90eXBlLCBzdGF0dXMsIG5vdGVzLCByb29tX2lkJykuZXEoJ2lkJywgYXNzaWdubWVudElkKS5lcSgncm9vbV9pZCcsIHJvb21JZCkubWF5YmVTaW5nbGUoKTsKICAgICAgaWYgKGZyZXNoRXJyb3IgfHwgIWZyZXNoKSB0aHJvdyBmcmVzaEVycm9yIHx8IG5ldyBFcnJvcignQXNzaWdubWVudCBub3QgZm91bmQnKTsKICAgICAgaWYgKGZyZXNoLmFzc2lnbm1lbnRfdHlwZSAhPT0gJ2RhaWx5X2NsZWFuaW5nJyB8fCBmcmVzaC5zdGF0dXMgIT09ICdpbl9wcm9ncmVzcycpIHRocm93IG5ldyBFcnJvcignVG93ZWwtb25seSBjb21wbGV0aW9uIGlzIGF2YWlsYWJsZSBvbmx5IGZvciBhbiBhY3RpdmUgZGFpbHkgcm9vbScpOwoKICAgICAgY29uc3QgeyBkYXRhOiByb29tLCBlcnJvcjogcm9vbUVycm9yIH0gPSBhd2FpdCBzdXBhYmFzZS5mcm9tKCdyb29tcycpLnNlbGVjdCgnaG90ZWwnKS5lcSgnaWQnLCByb29tSWQpLm1heWJlU2luZ2xlKCk7CiAgICAgIGlmIChyb29tRXJyb3IgfHwgIXJvb20pIHRocm93IHJvb21FcnJvciB8fCBuZXcgRXJyb3IoJ1Jvb20gbm90IGZvdW5kJyk7CiAgICAgIGNvbnN0IGhvdGVsID0gU3RyaW5nKHJvb20uaG90ZWwgfHwgJycpLnRvTG93ZXJDYXNlKCkucmVwbGFjZSgvW15hLXowLTldKy9nLCAnICcpLnRyaW0oKTsKICAgICAgaWYgKGhvdGVsICE9PSAnaG90ZWwgbWlrYSBkb3dudG93bicgJiYgaG90ZWwgIT09ICdtaWthIGRvd250b3duJykgdGhyb3cgbmV3IEVycm9yKCdUb3dlbC1vbmx5IHdvcmtmbG93IGlzIGN1cnJlbnRseSBlbmFibGVkIGZvciBIb3RlbCBNaWthIERvd250b3duIG9ubHknKTsKCiAgICAgIGNvbnN0IHRvZGF5ID0gZ2V0TG9jYWxEYXRlU3RyaW5nKG5ldyBEYXRlKCkpOwogICAgICBmb3IgKGNvbnN0IGl0ZW0gb2YgaXRlbXMpIHsKICAgICAgICBjb25zdCBjb3VudCA9IGNvdW50c1tpdGVtLmlkXSB8fCAwOwogICAgICAgIGlmIChjb3VudCA+IDApIHsKICAgICAgICAgIGNvbnN0IHsgZXJyb3IgfSA9IGF3YWl0IHN1cGFiYXNlLmZyb20oJ2RpcnR5X2xpbmVuX2NvdW50cycpLnVwc2VydCh7IGhvdXNla2VlcGVyX2lkOiB1c2VyLmlkLCByb29tX2lkOiByb29tSWQsIGFzc2lnbm1lbnRfaWQ6IGFzc2lnbm1lbnRJZCwgbGluZW5faXRlbV9pZDogaXRlbS5pZCwgY291bnQsIHdvcmtfZGF0ZTogdG9kYXkgfSwgeyBvbkNvbmZsaWN0OiAnaG91c2VrZWVwZXJfaWQscm9vbV9pZCxsaW5lbl9pdGVtX2lkLHdvcmtfZGF0ZScsIGlnbm9yZUR1cGxpY2F0ZXM6IGZhbHNlIH0pOwogICAgICAgICAgaWYgKGVycm9yKSB0aHJvdyBlcnJvcjsKICAgICAgICB9IGVsc2UgewogICAgICAgICAgY29uc3QgeyBlcnJvciB9ID0gYXdhaXQgc3VwYWJhc2UuZnJvbSgnZGlydHlfbGluZW5fY291bnRzJykuZGVsZXRlKCkuZXEoJ2hvdXNla2VlcGVyX2lkJywgdXNlci5pZCkuZXEoJ3Jvb21faWQnLCByb29tSWQpLmVxKCdsaW5lbl9pdGVtX2lkJywgaXRlbS5pZCkuZXEoJ3dvcmtfZGF0ZScsIHRvZGF5KTsKICAgICAgICAgIGlmIChlcnJvcikgdGhyb3cgZXJyb3I7CiAgICAgICAgfQogICAgICB9CgogICAgICBjb25zdCBub3RlTGluZSA9IGAke1RPV0VMX0NIQU5HRV9PTkxZX01BUktFUn0gR3Vlc3QgcmVxdWVzdGVkIHRvd2VsIGNoYW5nZSBvbmx5OyByZXR1cm5lZCB0b3dlbHMvbGluZW4gcmVjb3JkZWQuIEZ1bGwgcm9vbSBjbGVhbmluZyB3YXMgbm90IHBlcmZvcm1lZDsgY29tcGxldGlvbiBwaG90b3MgaW50ZW50aW9uYWxseSBub3QgcmVxdWlyZWQuYDsKICAgICAgY29uc3QgZXhpc3RpbmdOb3RlcyA9IFN0cmluZyhmcmVzaC5ub3RlcyB8fCAnJykudHJpbSgpOwogICAgICBjb25zdCBub3RlcyA9IGV4aXN0aW5nTm90ZXMuaW5jbHVkZXMoVE9XRUxfQ0hBTkdFX09OTFlfTUFSS0VSKSA/IGV4aXN0aW5nTm90ZXMgOiBbZXhpc3RpbmdOb3Rlcywgbm90ZUxpbmVdLmZpbHRlcihCb29sZWFuKS5qb2luKCdcbicpOwogICAgICBjb25zdCB7IGVycm9yOiBjb21wbGV0aW9uRXJyb3IgfSA9IGF3YWl0IHN1cGFiYXNlLmZyb20oJ3Jvb21fYXNzaWdubWVudHMnKS51cGRhdGUoeyBzdGF0dXM6ICdjb21wbGV0ZWQnLCBjb21wbGV0ZWRfYXQ6IG5ldyBEYXRlKCkudG9JU09TdHJpbmcoKSwgbm90ZXMgfSkuZXEoJ2lkJywgYXNzaWdubWVudElkKS5lcSgnc3RhdHVzJywgJ2luX3Byb2dyZXNzJyk7CiAgICAgIGlmIChjb21wbGV0aW9uRXJyb3IpIHRocm93IGNvbXBsZXRpb25FcnJvcjsKCiAgICAgIGNvbnN0IHsgZXJyb3I6IG5vdGVFcnJvciB9ID0gYXdhaXQgc3VwYWJhc2UuZnJvbSgnaG91c2VrZWVwaW5nX25vdGVzJykuaW5zZXJ0KHsgcm9vbV9pZDogcm9vbUlkLCBhc3NpZ25tZW50X2lkOiBhc3NpZ25tZW50SWQsIGNvbnRlbnQ6ICdUb3dlbCBjaGFuZ2Ugb25seSBjb21wbGV0ZWQuIERpcnR5IHRvd2Vscy9saW5lbiByZWNvcmRlZDsgbm8gZnVsbCByb29tIGNsZWFuIG9yIHJvb20gcGhvdG9zLicsIG5vdGVfdHlwZTogJ2dlbmVyYWwnLCBjcmVhdGVkX2J5OiB1c2VyLmlkIH0pOwogICAgICBpZiAobm90ZUVycm9yKSBjb25zb2xlLndhcm4oJ0NvdWxkIG5vdCBhZGQgdG93ZWwtY2hhbmdlIGF1ZGl0IG5vdGUnLCBub3RlRXJyb3IpOwoKICAgICAgdG9hc3Quc3VjY2VzcyhgJHtjb3B5LnN1Y2Nlc3N9IOKAlCAke3QoJ2NvbW1vbi5yb29tJyl9ICR7cm9vbU51bWJlcn1gKTsKICAgICAgb25PcGVuQ2hhbmdlKGZhbHNlKTsKICAgICAgb25Db21wbGV0ZWQ/LigpOwogICAgfSBjYXRjaCAoZXJyb3I6IGFueSkgewogICAgICBjb25zb2xlLmVycm9yKCdUb3dlbC1vbmx5IGNvbXBsZXRpb24gZmFpbGVkOicsIGVycm9yKTsKICAgICAgdG9hc3QuZXJyb3IoY29weS5mYWlsZWQsIHsgZGVzY3JpcHRpb246IGVycm9yPy5tZXNzYWdlIHx8IHVuZGVmaW5lZCB9KTsKICAgIH0gZmluYWxseSB7IHNldExvYWRpbmcoZmFsc2UpOyB9CiAgfTsKCiAgcmV0dXJuICgKICAgIDxEaWFsb2cgb3Blbj17b3Blbn0gb25PcGVuQ2hhbmdlPXtvbk9wZW5DaGFuZ2V9PgogICAgICA8RGlhbG9nQ29udGVudCBjbGFzc05hbWU9InctW2NhbGMoMTAwdnctMXJlbSldIG1heC13LWxnIG1heC1oLVs5MmR2aF0gb3ZlcmZsb3ctaGlkZGVuIHAtMCBnYXAtMCI+CiAgICAgICAgPERpYWxvZ0hlYWRlciBjbGFzc05hbWU9InB4LTQgcHQtNCBwYi0zIGJvcmRlci1iIj4KICAgICAgICAgIDxEaWFsb2dUaXRsZSBjbGFzc05hbWU9ImZsZXggaXRlbXMtY2VudGVyIGdhcC0yIHByLTggdGV4dC1sZyI+CiAgICAgICAgICAgIDxzcGFuIGNsYXNzTmFtZT0iZmxleCBoLTkgdy05IGl0ZW1zLWNlbnRlciBqdXN0aWZ5LWNlbnRlciByb3VuZGVkLWZ1bGwgYmctY3lhbi0xMDAgdGV4dC1jeWFuLTcwMCI+8J+ntTwvc3Bhbj4KICAgICAgICAgICAgPHNwYW4+e2NvcHkudGl0bGV9IOKAlCB7dCgnY29tbW9uLnJvb20nKX0ge3Jvb21OdW1iZXJ9PC9zcGFuPgogICAgICAgICAgPC9EaWFsb2dUaXRsZT4KICAgICAgICA8L0RpYWxvZ0hlYWRlcj4KICAgICAgICA8ZGl2IGNsYXNzTmFtZT0ib3ZlcmZsb3cteS1hdXRvIHB4LTQgcHktNCBzcGFjZS15LTQiIHN0eWxlPXt7IFdlYmtpdE92ZXJmbG93U2Nyb2xsaW5nOiAndG91Y2gnIH19PgogICAgICAgICAgPGRpdiBjbGFzc05hbWU9InJvdW5kZWQteGwgYm9yZGVyIGJvcmRlci1jeWFuLTIwMCBiZy1jeWFuLTUwLzcwIHAtMyBzcGFjZS15LTIiPgogICAgICAgICAgICA8cCBjbGFzc05hbWU9InRleHQtc20gZm9udC1tZWRpdW0gdGV4dC1jeWFuLTk1MCI+e2NvcHkuaW50cm99PC9wPgogICAgICAgICAgICA8cCBjbGFzc05hbWU9InRleHQteHMgbGVhZGluZy1yZWxheGVkIHRleHQtY3lhbi04MDAiPntjb3B5Lm5vUGhvdG9zfTwvcD4KICAgICAgICAgIDwvZGl2PgogICAgICAgICAgPGRpdiBjbGFzc05hbWU9ImZsZXggaXRlbXMtY2VudGVyIGp1c3RpZnktYmV0d2VlbiI+PHNwYW4gY2xhc3NOYW1lPSJ0ZXh0LXNtIGZvbnQtc2VtaWJvbGQiPntjb3B5LmNvdW50fTwvc3Bhbj48QmFkZ2UgdmFyaWFudD0ib3V0bGluZSI+e3RvdGFsfTwvQmFkZ2U+PC9kaXY+CiAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0iZ3JpZCBncmlkLWNvbHMtMSBtaW4tWzQyMHB4XTpncmlkLWNvbHMtMiBnYXAtMiI+CiAgICAgICAgICAgIHtpdGVtcy5tYXAoaXRlbSA9PiB7CiAgICAgICAgICAgICAgY29uc3QgdmFsdWUgPSBjb3VudHNbaXRlbS5pZF0gfHwgMDsKICAgICAgICAgICAgICBjb25zdCByYXcgPSBpdGVtLmRpc3BsYXlfbmFtZSB8fCBpdGVtLm5hbWUucmVwbGFjZSgvXy9nLCAnICcpOwogICAgICAgICAgICAgIHJldHVybiAoCiAgICAgICAgICAgICAgICA8ZGl2IGtleT17aXRlbS5pZH0gY2xhc3NOYW1lPSJyb3VuZGVkLXhsIGJvcmRlciBiZy1jYXJkIHAtMyBzcGFjZS15LTIiPgogICAgICAgICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0iZmxleCBpdGVtcy1zdGFydCBnYXAtMiI+PFNoaXJ0IGNsYXNzTmFtZT0iaC00IHctNCB0ZXh0LWN5YW4tNzAwIG10LTAuNSBzaHJpbmstMCIgLz48TGFiZWwgY2xhc3NOYW1lPSJ0ZXh0LXNtIGxlYWRpbmctdGlnaHQiPnt0cmFuc2xhdGVMaW5lbkl0ZW0ocmF3LCB0KX08L0xhYmVsPjwvZGl2PgogICAgICAgICAgICAgICAgICA8ZGl2IGNsYXNzTmFtZT0iZmxleCBpdGVtcy1jZW50ZXIgZ2FwLTEiPgogICAgICAgICAgICAgICAgICAgIDxCdXR0b24gdHlwZT0iYnV0dG9uIiBzaXplPSJzbSIgdmFyaWFudD0ib3V0bGluZSIgY2xhc3NOYW1lPSJoLTEwIHctMTAgcC0wIiBkaXNhYmxlZD17dmFsdWUgPD0gMH0gb25DbGljaz17KCkgPT4gdXBkYXRlQ291bnQoaXRlbS5pZCwgdmFsdWUgLSAxKX0+PE1pbnVzIGNsYXNzTmFtZT0iaC00IHctNCIgLz48L0J1dHRvbj4KICAgICAgICAgICAgICAgICAgICA8SW5wdXQgdHlwZT0ibnVtYmVyIiBpbnB1dE1vZGU9Im51bWVyaWMiIG1pbj0iMCIgdmFsdWU9e3ZhbHVlfSBvbkNoYW5nZT17ZSA9PiB1cGRhdGVDb3VudChpdGVtLmlkLCBwYXJzZUludChlLnRhcmdldC52YWx1ZSwgMTApIHx8IDApfSBjbGFzc05hbWU9ImgxMCBtaW4tdy0wIGZsZXgtMSB0ZXh0LWNlbnRlciIgLz4KICAgICAgICAgICAgICAgICAgICA8QnV0dG9uIHR5cGU9ImJ1dHRvbiIgc2l6ZT0ic20iIHZhcmlhbnQ9Im91dGxpbmUiIGNsYXNzTmFtZT0iaC0xMCB3LTEwIHAtMCIgb25DbGljaz17KCkgPT4gdXBkYXRlQ291bnQoaXRlbS5pZCwgdmFsdWUgKyAxKX0+PFBsdXMgY2xhc3NOYW1lPSJoLTQgdy00IiAvPjwvQnV0dG9uPgogICAgICAgICAgICAgICAgICA8L2Rpdj4KICAgICAgICAgICAgICAgIDwvZGl2PgogICAgICAgICAgICAgICk7CiAgICAgICAgICAgIH0pfQogICAgICAgICAgPC9kaXY+CiAgICAgICAgPC9kaXY+CiAgICAgICAgPGRpdiBjbGFzc05hbWU9ImdyaWQgZ3JpZC1jb2xzLTEgc206Z3JpZC1jb2xzLVsxZnJfYXV0b10gZ2FwLTIgYm9yZGVyLXQgcC00IGJnLWJhY2tncm91bmQiPgogICAgICAgICAgPEJ1dHRvbiBvbkNsaWNrPXtjb21wbGV0ZVRvd2VsQ2hhbmdlfSBkaXNhYmxlZD17bG9hZGluZyB8fCB0b3RhbCA8PSAwfSBjbGFzc05hbWU9Im1pbi1oLTExIGJnLWN5YW4tNzAwIGhvdmVyOmJnLWN5YW4tODAwIHRleHQtd2hpdGUiPjxDaGVja0NpcmNsZTIgY2xhc3NOYW1lPSJoLTQgdy00IG1yLTIiIC8+e2xvYWRpbmcgPyAnLi4uJyA6IGNvcHkuY29tcGxldGV9PC9CdXR0b24+CiAgICAgICAgICA8QnV0dG9uIHZhcmlhbnQ9Im91dGxpbmUiIG9uQ2xpY2s9eygpID0+IG9uT3BlbkNoYW5nZShmYWxzZSl9IGRpc2FibGVkPXtsb2FkaW5nfSBjbGFzc05hbWU9Im1pbi1oLTExIj57dCgnY29tbW9uLmNhbmNlbCcpfTwvQnV0dG9uPgogICAgICAgIDwvZGl2PgogICAgICA8L0RpYWxvZ0NvbnRlbnQ+CiAgICA8L0RpYWxvZz4KICApOwp9Cg==').decode())
 
-      - name: Patch HotelCare housekeeping workflow
-        shell: bash
-        run: |
-          python3 <<'PY'
-          from pathlib import Path
+replace_once('src/components/dashboard/AssignedRoomCard.tsx',
+"import { DirtyLinenDialog } from './DirtyLinenDialog';\n",
+"import { DirtyLinenDialog } from './DirtyLinenDialog';\nimport { TowelChangeOnlyDialog } from './TowelChangeOnlyDialog';\n")
 
-          def replace_once(path: str, old: str, new: str):
-              p = Path(path)
-              text = p.read_text()
-              if old not in text:
-                  raise SystemExit(f'Expected source block not found in {path}: {old[:120]!r}')
-              p.write_text(text.replace(old, new, 1))
+replace_once('src/components/dashboard/AssignedRoomCard.tsx',
+"  const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);\n",
+"  const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);\n  const [towelChangeOnlyOpen, setTowelChangeOnlyOpen] = useState(false);\n")
 
-          # 1) Dedicated towel-only dialog. It intentionally completes the daily
-          # assignment without photos, but leaves room/PMS cleanliness untouched.
-          Path('src/components/dashboard/TowelChangeOnlyDialog.tsx').write_text(r'''import React, { useEffect, useMemo, useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
-import { useTranslation } from '@/hooks/useTranslation';
-import { getLocalDateString } from '@/lib/utils';
-import { translateLinenItem } from '@/lib/linen-item-i18n';
-import { CheckCircle2, Minus, Plus, Shirt } from 'lucide-react';
-import { toast } from 'sonner';
-
-const TOWEL_CHANGE_ONLY_MARKER = '[TOWEL_CHANGE_ONLY]';
-
-interface LinenItem {
-  id: string;
-  name: string;
-  display_name: string;
-  sort_order: number;
-}
-
-interface Props {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  assignmentId: string;
-  roomId: string;
-  roomNumber: string;
-  onCompleted?: () => void;
-}
-
-const copyFor = (language: string) => {
-  switch (language) {
-    case 'hu':
-      return {
-        title: 'Csak törölközőcsere',
-        intro: 'A vendég csak törölközőcserét kért. Rögzítsd az elvitt törölközőket / textíliát, majd zárd le ezt a szolgáltatást.',
-        noPhotos: 'Ehhez a szolgáltatáshoz nem szükségesek a szobatakarítási fotók. A szoba nem lesz teljesen kitakarítottként megjelölve a PMS-ben.',
-        count: 'Rögzített darab',
-        complete: 'Törölközőcsere befejezése',
-        needItem: 'A lezárás előtt rögzíts legalább egy törölközőt vagy textíliát.',
-        success: 'Törölközőcsere rögzítve',
-        failed: 'A törölközőcsere lezárása sikertelen',
-      };
-    case 'vi':
-      return {
-        title: 'Chỉ thay khăn',
-        intro: 'Khách chỉ yêu cầu thay khăn. Hãy ghi lại khăn / đồ vải đã thu rồi hoàn tất dịch vụ này.',
-        noPhotos: 'Không cần ảnh dọn phòng cho dịch vụ này. Phòng sẽ không được đánh dấu là đã dọn sạch hoàn toàn trong PMS.',
-        count: 'Đã ghi nhận',
-        complete: 'Hoàn tất thay khăn',
-        needItem: 'Hãy ghi nhận ít nhất một khăn hoặc đồ vải trước khi hoàn tất.',
-        success: 'Đã ghi nhận thay khăn',
-        failed: 'Không thể hoàn tất thay khăn',
-      };
-    case 'mn':
-      return {
-        title: 'Зөвхөн алчуур солих',
-        intro: 'Зочин зөвхөн алчуур солих хүсэлт гаргасан. Авсан алчуур / цагаан хэрэглэлийг бүртгээд үйлчилгээг дуусгана уу.',
-        noPhotos: 'Энэ үйлчилгээнд өрөө цэвэрлэгээний зураг шаардлагагүй. PMS дээр өрөөг бүрэн цэвэрлэсэн гэж тэмдэглэхгүй.',
-        count: 'Бүртгэсэн',
-        complete: 'Алчуур солилтыг дуусгах',
-        needItem: 'Дуусгахаасаа өмнө дор хаяж нэг алчуур эсвэл цагаан хэрэглэлийг бүртгэнэ үү.',
-        success: 'Алчуур солилт бүртгэгдлээ',
-        failed: 'Алчуур солилтыг дуусгаж чадсангүй',
-      };
-    case 'es':
-      return {
-        title: 'Solo cambio de toallas',
-        intro: 'El huésped solo pidió cambio de toallas. Registra las toallas / ropa recogida y completa este servicio.',
-        noPhotos: 'No se requieren fotos de limpieza para este servicio. La habitación no se marcará como limpieza completa en el PMS.',
-        count: 'Registrado',
-        complete: 'Completar cambio de toallas',
-        needItem: 'Registra al menos una toalla o pieza de ropa antes de completar.',
-        success: 'Cambio de toallas registrado',
-        failed: 'No se pudo completar el cambio de toallas',
-      };
-    default:
-      return {
-        title: 'Towel change only',
-        intro: 'The guest requested towels only. Record the returned towels / linen below, then close this service.',
-        noPhotos: 'Room-cleaning photos are not required for this service. The room will not be marked as a full clean in the PMS.',
-        count: 'Recorded items',
-        complete: 'Complete towel change',
-        needItem: 'Record at least one towel or linen item before completing.',
-        success: 'Towel change recorded',
-        failed: 'Could not complete towel change',
-      };
-  }
-};
-
-export function TowelChangeOnlyDialog({
-  open,
-  onOpenChange,
-  assignmentId,
-  roomId,
-  roomNumber,
-  onCompleted,
-}: Props) {
-  const { user } = useAuth();
-  const { t, language } = useTranslation();
-  const copy = copyFor(language);
-  const [items, setItems] = useState<LinenItem[]>([]);
-  const [counts, setCounts] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(false);
-
-  const total = useMemo(
-    () => Object.values(counts).reduce((sum, value) => sum + (Number(value) || 0), 0),
-    [counts],
-  );
-
-  useEffect(() => {
-    if (!open || !user?.id) return;
-    let cancelled = false;
-
-    (async () => {
-      const today = getLocalDateString(new Date());
-      const [{ data: linenItems, error: itemsError }, { data: existing, error: existingError }] = await Promise.all([
-        supabase
-          .from('dirty_linen_items')
-          .select('id, name, display_name, sort_order')
-          .eq('is_active', true)
-          .order('sort_order'),
-        supabase
-          .from('dirty_linen_counts')
-          .select('linen_item_id, count')
-          .eq('housekeeper_id', user.id)
-          .eq('room_id', roomId)
-          .eq('work_date', today),
-      ]);
-
-      if (itemsError || existingError) {
-        toast.error(copy.failed);
-        return;
-      }
-      if (cancelled) return;
-      setItems((linenItems || []) as LinenItem[]);
-      setCounts(Object.fromEntries((existing || []).map((row: any) => [row.linen_item_id, row.count || 0])));
-    })();
-
-    return () => { cancelled = true; };
-  }, [open, user?.id, roomId, copy.failed]);
-
-  const updateCount = (id: string, next: number) => {
-    setCounts((current) => ({ ...current, [id]: Math.max(0, Number.isFinite(next) ? next : 0) }));
-  };
-
-  const completeTowelChange = async () => {
-    if (!user?.id || !assignmentId) return;
-    if (total <= 0) {
-      toast.error(copy.needItem);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // Re-read the assignment before changing it: this prevents stale mobile
-      // cards from converting a checkout room or an already-closed task.
-      const { data: fresh, error: freshError } = await supabase
-        .from('room_assignments')
-        .select('assignment_type, status, notes, room_id')
-        .eq('id', assignmentId)
-        .eq('room_id', roomId)
-        .maybeSingle();
-      if (freshError || !fresh) throw freshError || new Error('Assignment not found');
-      if (fresh.assignment_type !== 'daily_cleaning' || fresh.status !== 'in_progress') {
-        throw new Error('Towel-only completion is available only for an active daily room');
-      }
-
-      const { data: room, error: roomError } = await supabase
-        .from('rooms')
-        .select('hotel')
-        .eq('id', roomId)
-        .maybeSingle();
-      if (roomError || !room) throw roomError || new Error('Room not found');
-      const hotel = String(room.hotel || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-      if (hotel !== 'hotel mika downtown' && hotel !== 'mika downtown') {
-        throw new Error('Towel-only workflow is currently enabled for Hotel Mika Downtown only');
-      }
-
-      const today = getLocalDateString(new Date());
-      for (const item of items) {
-        const count = counts[item.id] || 0;
-        if (count > 0) {
-          const { error } = await supabase
-            .from('dirty_linen_counts')
-            .upsert({
-              housekeeper_id: user.id,
-              room_id: roomId,
-              assignment_id: assignmentId,
-              linen_item_id: item.id,
-              count,
-              work_date: today,
-            }, {
-              onConflict: 'housekeeper_id,room_id,linen_item_id,work_date',
-              ignoreDuplicates: false,
-            });
-          if (error) throw error;
-        } else {
-          const { error } = await supabase
-            .from('dirty_linen_counts')
-            .delete()
-            .eq('housekeeper_id', user.id)
-            .eq('room_id', roomId)
-            .eq('linen_item_id', item.id)
-            .eq('work_date', today);
-          if (error) throw error;
-        }
-      }
-
-      const noteLine = `${TOWEL_CHANGE_ONLY_MARKER} Guest requested towel change only; returned towels/linen recorded. Full room cleaning was not performed; completion photos intentionally not required.`;
-      const existingNotes = String(fresh.notes || '').trim();
-      const notes = existingNotes.includes(TOWEL_CHANGE_ONLY_MARKER)
-        ? existingNotes
-        : [existingNotes, noteLine].filter(Boolean).join('\n');
-      const now = new Date().toISOString();
-
-      const { error: completionError } = await supabase
-        .from('room_assignments')
-        .update({ status: 'completed', completed_at: now, notes })
-        .eq('id', assignmentId)
-        .eq('status', 'in_progress');
-      if (completionError) throw completionError;
-
-      // Friendly audit trail. This is supplementary to the assignment marker;
-      // failure here must not undo a successfully closed towel service.
-      const { error: noteError } = await supabase.from('housekeeping_notes').insert({
-        room_id: roomId,
-        assignment_id: assignmentId,
-        content: 'Towel change only completed. Dirty towels/linen recorded; no full room clean or room photos.',
-        note_type: 'general',
-        created_by: user.id,
-      });
-      if (noteError) console.warn('Could not add towel-change audit note', noteError);
-
-      toast.success(`${copy.success} — ${t('common.room')} ${roomNumber}`);
-      onOpenChange(false);
-      onCompleted?.();
-    } catch (error: any) {
-      console.error('Towel-only completion failed:', error);
-      toast.error(copy.failed, { description: error?.message || undefined });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[calc(100vw-1rem)] max-w-lg max-h-[92dvh] overflow-hidden p-0 gap-0">
-        <DialogHeader className="px-4 pt-4 pb-3 border-b">
-          <DialogTitle className="flex items-center gap-2 pr-8 text-lg">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-cyan-100 text-cyan-700">🧺</span>
-            <span>{copy.title} — {t('common.room')} {roomNumber}</span>
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="overflow-y-auto px-4 py-4 space-y-4" style={{ WebkitOverflowScrolling: 'touch' }}>
-          <div className="rounded-xl border border-cyan-200 bg-cyan-50/70 p-3 space-y-2">
-            <p className="text-sm font-medium text-cyan-950">{copy.intro}</p>
-            <p className="text-xs leading-relaxed text-cyan-800">{copy.noPhotos}</p>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold">{copy.count}</span>
-            <Badge variant="outline">{total}</Badge>
-          </div>
-
-          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2">
-            {items.map((item) => {
-              const value = counts[item.id] || 0;
-              const raw = item.display_name || item.name.replace(/_/g, ' ');
-              return (
-                <div key={item.id} className="rounded-xl border bg-card p-3 space-y-2">
-                  <div className="flex items-start gap-2">
-                    <Shirt className="h-4 w-4 text-cyan-700 mt-0.5 shrink-0" />
-                    <Label className="text-sm leading-tight">
-                      {translateLinenItem(raw, t)}
-                    </Label>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button type="button" size="sm" variant="outline" className="h-10 w-10 p-0" disabled={value <= 0} onClick={() => updateCount(item.id, value - 1)}>
-                      <Minus className="h-4 w-4" />
-                    </Button>
-                    <Input
-                      type="number"
-                      inputMode="numeric"
-                      min="0"
-                      value={value}
-                      onChange={(e) => updateCount(item.id, parseInt(e.target.value, 10) || 0)}
-                      className="h-10 min-w-0 flex-1 text-center"
-                    />
-                    <Button type="button" size="sm" variant="outline" className="h-10 w-10 p-0" onClick={() => updateCount(item.id, value + 1)}>
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 border-t p-4 bg-background">
-          <Button onClick={completeTowelChange} disabled={loading || total <= 0} className="min-h-11 bg-cyan-700 hover:bg-cyan-800 text-white">
-            <CheckCircle2 className="h-4 w-4 mr-2" />
-            {loading ? '...' : copy.complete}
-          </Button>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading} className="min-h-11">
-            {t('common.cancel')}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-''')
-
-          # 2) Wire the dedicated tile into the live housekeeper room card.
-          replace_once(
-              'src/components/dashboard/AssignedRoomCard.tsx',
-              "import { DirtyLinenDialog } from './DirtyLinenDialog';\n",
-              "import { DirtyLinenDialog } from './DirtyLinenDialog';\nimport { TowelChangeOnlyDialog } from './TowelChangeOnlyDialog';\n",
-          )
-          replace_once(
-              'src/components/dashboard/AssignedRoomCard.tsx',
-              "  const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);\n",
-              "  const [dirtyLinenDialogOpen, setDirtyLinenDialogOpen] = useState(false);\n  const [towelChangeOnlyOpen, setTowelChangeOnlyOpen] = useState(false);\n",
-          )
-          old_linen_button = '''                  <button
+old_linen = """                  <button
                     type="button"
                     onClick={() => setDirtyLinenDialogOpen(true)}
                     className={`${tileBase} border-border`}
@@ -369,8 +36,8 @@ export function TowelChangeOnlyDialog({
                       <Shirt className="h-4 w-4" />
                     </span>
                     <span className={label}>{t('actions.dirtyLinen')}</span>
-                  </button>'''
-          towel_button = '''                  {assignment.assignment_type === 'daily_cleaning' && !isCheckoutClean && (
+                  </button>"""
+towel = """                  {assignment.assignment_type === 'daily_cleaning' && !isCheckoutClean && (
                     <button
                       type="button"
                       onClick={() => setTowelChangeOnlyOpen(true)}
@@ -390,10 +57,10 @@ export function TowelChangeOnlyDialog({
                     </button>
                   )}
 
-''' + old_linen_button
-          replace_once('src/components/dashboard/AssignedRoomCard.tsx', old_linen_button, towel_button)
+""" + old_linen
+replace_once('src/components/dashboard/AssignedRoomCard.tsx', old_linen, towel)
 
-          old_dialog = '''      {/* Dirty Linen Dialog */}
+old_dialog = """      {/* Dirty Linen Dialog */}
       <DirtyLinenDialog
         open={dirtyLinenDialogOpen}
         onOpenChange={setDirtyLinenDialogOpen}
@@ -402,8 +69,8 @@ export function TowelChangeOnlyDialog({
         assignmentId={assignment.id}
       />
 
-'''
-          new_dialog = old_dialog + '''      {/* Towel-only stayover service — deliberately separate from full cleaning. */}
+"""
+new_dialog = old_dialog + """      {/* Towel-only stayover service — deliberately separate from full cleaning. */}
       <TowelChangeOnlyDialog
         open={towelChangeOnlyOpen}
         onOpenChange={setTowelChangeOnlyOpen}
@@ -413,101 +80,75 @@ export function TowelChangeOnlyDialog({
         onCompleted={() => onStatusUpdate(assignment.id, 'completed')}
       />
 
-'''
-          replace_once('src/components/dashboard/AssignedRoomCard.tsx', old_dialog, new_dialog)
+"""
+replace_once('src/components/dashboard/AssignedRoomCard.tsx', old_dialog, new_dialog)
 
-          # 3) Supervisor UI must treat towel-only as a non-cleaning outcome.
-          # This keeps individual and bulk approval from claiming/attempting a full clean.
-          replace_once(
-              'src/components/dashboard/SupervisorApprovalView.tsx',
-              "      const guestDeclined = isGuestDeclinedService(assignment?.service_result, assignment?.notes);\n\n      const updateData: any = {",
-              "      const guestDeclined = isGuestDeclinedService(assignment?.service_result, assignment?.notes);\n      const towelChangeOnly = String(assignment?.notes || '').includes('[TOWEL_CHANGE_ONLY]');\n      const nonCleaningOutcome = guestDeclined || towelChangeOnly;\n\n      const updateData: any = {",
-          )
-          replace_once(
-              'src/components/dashboard/SupervisorApprovalView.tsx',
-              "      const pmsResult = !guestDeclined && assignment?.room_id\n        ? await pushCleanStatusToPrevio(assignment.room_id, assignment.id)\n        : { status: 'skipped' as const };\n\n      toast.success(guestDeclined ? 'No Service outcome approved' : 'Assignment approved successfully');",
-              "      const pmsResult = !nonCleaningOutcome && assignment?.room_id\n        ? await pushCleanStatusToPrevio(assignment.room_id, assignment.id)\n        : { status: 'skipped' as const };\n\n      toast.success(towelChangeOnly ? 'Towel change approved' : guestDeclined ? 'No Service outcome approved' : 'Assignment approved successfully');",
-          )
-          replace_once(
-              'src/components/dashboard/SupervisorApprovalView.tsx',
-              "      if (guestDeclined) {\n        showNotification('No Service approved — room was not marked clean in PMS', 'success');\n      } else {\n        showNotification(t('supervisor.roomMarkedClean'), 'success');\n      }",
-              "      if (towelChangeOnly) {\n        showNotification('Towel change approved — room remains dirty / not marked as a full clean in PMS', 'success');\n      } else if (guestDeclined) {\n        showNotification('No Service approved — room was not marked clean in PMS', 'success');\n      } else {\n        showNotification(t('supervisor.roomMarkedClean'), 'success');\n      }",
-          )
-          replace_once(
-              'src/components/dashboard/SupervisorApprovalView.tsx',
-              "    if (isGuestDeclinedService(assignment.service_result, assignment.notes)) {\n      return performApproval(assignmentId);\n    }",
-              "    if (isGuestDeclinedService(assignment.service_result, assignment.notes)\n      || String(assignment.notes || '').includes('[TOWEL_CHANGE_ONLY]')) {\n      return performApproval(assignmentId);\n    }",
-          )
-          replace_once(
-              'src/components/dashboard/SupervisorApprovalView.tsx',
-              "          const guestDeclined = isGuestDeclinedService(assignment.service_result, assignment.notes);\n          // Fire per-row so one failure doesn't break the batch. No Service\n          // outcomes count as intentionally skipped and never reach Previo.\n          if (assignment.room_id && !guestDeclined) {",
-              "          const guestDeclined = isGuestDeclinedService(assignment.service_result, assignment.notes);\n          const towelChangeOnly = String(assignment.notes || '').includes('[TOWEL_CHANGE_ONLY]');\n          const nonCleaningOutcome = guestDeclined || towelChangeOnly;\n          // Fire per-row so one failure doesn't break the batch. Non-cleaning\n          // outcomes count as intentionally skipped and never reach Previo.\n          if (assignment.room_id && !nonCleaningOutcome) {",
-          )
-          replace_once(
-              'src/components/dashboard/SupervisorApprovalView.tsx',
-              "          } else if (guestDeclined) {\n            pmsSkipped++;\n          }",
-              "          } else if (nonCleaningOutcome) {\n            pmsSkipped++;\n          }",
-          )
-          replace_once(
-              'src/components/dashboard/SupervisorApprovalView.tsx',
-              "    const cleanAssignments = assignments.filter(a => !isGuestDeclinedService(a.service_result, a.notes));",
-              "    const cleanAssignments = assignments.filter(a => !isGuestDeclinedService(a.service_result, a.notes)\n      && !String(a.notes || '').includes('[TOWEL_CHANGE_ONLY]'));",
-          )
+replace_once('src/components/dashboard/SupervisorApprovalView.tsx',
+"      const guestDeclined = isGuestDeclinedService(assignment?.service_result, assignment?.notes);\n\n      const updateData: any = {",
+"      const guestDeclined = isGuestDeclinedService(assignment?.service_result, assignment?.notes);\n      const towelChangeOnly = String(assignment?.notes || '').includes('[TOWEL_CHANGE_ONLY]');\n      const nonCleaningOutcome = guestDeclined || towelChangeOnly;\n\n      const updateData: any = {")
 
-          # 4) Server-side second safety barrier: even an old/stale frontend can
-          # never translate a towel-only completion into Previo clean.
-          edge = Path('supabase/functions/previo-update-room-status/index.ts')
-          edge_text = edge.read_text()
-          old = '''      const guestDeclined = assignment?.service_result === 'guest_declined'
+replace_once('src/components/dashboard/SupervisorApprovalView.tsx',
+"      const pmsResult = !guestDeclined && assignment?.room_id\n        ? await pushCleanStatusToPrevio(assignment.room_id, assignment.id)\n        : { status: 'skipped' as const };\n\n      toast.success(guestDeclined ? 'No Service outcome approved' : 'Assignment approved successfully');",
+"      const pmsResult = !nonCleaningOutcome && assignment?.room_id\n        ? await pushCleanStatusToPrevio(assignment.room_id, assignment.id)\n        : { status: 'skipped' as const };\n\n      toast.success(towelChangeOnly ? 'Towel change approved' : guestDeclined ? 'No Service outcome approved' : 'Assignment approved successfully');")
+
+replace_once('src/components/dashboard/SupervisorApprovalView.tsx',
+"      if (guestDeclined) {\n        showNotification('No Service approved — room was not marked clean in PMS', 'success');\n      } else {\n        showNotification(t('supervisor.roomMarkedClean'), 'success');\n      }",
+"      if (towelChangeOnly) {\n        showNotification('Towel change approved — room remains dirty / not marked as a full clean in PMS', 'success');\n      } else if (guestDeclined) {\n        showNotification('No Service approved — room was not marked clean in PMS', 'success');\n      } else {\n        showNotification(t('supervisor.roomMarkedClean'), 'success');\n      }")
+
+replace_once('src/components/dashboard/SupervisorApprovalView.tsx',
+"    if (isGuestDeclinedService(assignment.service_result, assignment.notes)) {\n      return performApproval(assignmentId);\n    }",
+"    if (isGuestDeclinedService(assignment.service_result, assignment.notes)\n      || String(assignment.notes || '').includes('[TOWEL_CHANGE_ONLY]')) {\n      return performApproval(assignmentId);\n    }")
+
+replace_once('src/components/dashboard/SupervisorApprovalView.tsx',
+"          const guestDeclined = isGuestDeclinedService(assignment.service_result, assignment.notes);\n          // Fire per-row so one failure doesn't break the batch. No Service\n          // outcomes count as intentionally skipped and never reach Previo.\n          if (assignment.room_id && !guestDeclined) {",
+"          const guestDeclined = isGuestDeclinedService(assignment.service_result, assignment.notes);\n          const towelChangeOnly = String(assignment.notes || '').includes('[TOWEL_CHANGE_ONLY]');\n          const nonCleaningOutcome = guestDeclined || towelChangeOnly;\n          // Fire per-row so one failure doesn't break the batch. Non-cleaning\n          // outcomes count as intentionally skipped and never reach Previo.\n          if (assignment.room_id && !nonCleaningOutcome) {")
+
+replace_once('src/components/dashboard/SupervisorApprovalView.tsx',
+"          } else if (guestDeclined) {\n            pmsSkipped++;\n          }",
+"          } else if (nonCleaningOutcome) {\n            pmsSkipped++;\n          }")
+
+replace_once('src/components/dashboard/SupervisorApprovalView.tsx',
+"    const cleanAssignments = assignments.filter(a => !isGuestDeclinedService(a.service_result, a.notes));",
+"    const cleanAssignments = assignments.filter(a => !isGuestDeclinedService(a.service_result, a.notes)\n      && !String(a.notes || '').includes('[TOWEL_CHANGE_ONLY]'));")
+
+edge = Path('supabase/functions/previo-update-room-status/index.ts')
+text = edge.read_text()
+old = """      const guestDeclined = assignment?.service_result === 'guest_declined'
         || String(assignment?.notes || '').includes('[NO_SERVICE]');
 
       if (guestDeclined) {
-        console.log(`[previo-update-room-status] Skipping clean push for guest-declined assignment ${assignmentId}`);'''
-          new = '''      const guestDeclined = assignment?.service_result === 'guest_declined'
+        console.log(`[previo-update-room-status] Skipping clean push for guest-declined assignment ${assignmentId}`);"""
+new = """      const guestDeclined = assignment?.service_result === 'guest_declined'
         || String(assignment?.notes || '').includes('[NO_SERVICE]');
       const towelChangeOnly = String(assignment?.notes || '').includes('[TOWEL_CHANGE_ONLY]');
       const nonCleaningOutcome = guestDeclined || towelChangeOnly;
 
       if (nonCleaningOutcome) {
         const reason = towelChangeOnly ? 'towel_change_only' : 'guest_declined_service';
-        console.log(`[previo-update-room-status] Skipping clean push for ${reason} assignment ${assignmentId}`);'''
-          if old not in edge_text:
-              raise SystemExit('Expected Previo guard block not found')
-          edge_text = edge_text.replace(old, new, 1)
-          edge_text = edge_text.replace("            reason: 'guest_declined_service',", "            reason,", 1)
-          edge_text = edge_text.replace("            reason: 'guest_declined_service',\n            message: 'No Service assignment must not mark the room clean in Previo',", "            reason,\n            message: towelChangeOnly\n              ? 'Towel-only service must not mark the room clean in Previo'\n              : 'No Service assignment must not mark the room clean in Previo',", 1)
-          edge.write_text(edge_text)
-
-          # 5) Small regression test for the server-side marker contract.
-          Path('src/lib/towel-change-only.ts').write_text(r'''export const TOWEL_CHANGE_ONLY_MARKER = '[TOWEL_CHANGE_ONLY]';
-
-export function isTowelChangeOnly(notes?: string | null): boolean {
-  return String(notes || '').includes(TOWEL_CHANGE_ONLY_MARKER);
-}
-''')
-
-          print('Towel-only workflow patch applied successfully')
-          PY
-
+        console.log(`[previo-update-room-status] Skipping clean push for ${reason} assignment ${assignmentId}`);"""
+if old not in text:
+    raise SystemExit('Expected Previo guard block not found')
+text = text.replace(old, new, 1)
+text = text.replace("            reason: 'guest_declined_service',", "            reason,", 1)
+text = text.replace(
+"""            reason: 'guest_declined_service',
+            message: 'No Service assignment must not mark the room clean in Previo',""",
+"""            reason,
+            message: towelChangeOnly
+              ? 'Towel-only service must not mark the room clean in Previo'
+              : 'No Service assignment must not mark the room clean in Previo',""",
+1)
+edge.write_text(text)
+print('patch applied')'))"
       - name: Install dependencies
         run: npm ci
-
       - name: Build
         run: npm run build
-
       - name: Commit implementation
-        shell: bash
         run: |
-          if git diff --quiet; then
-            echo 'No changes to commit'
-            exit 0
-          fi
+          if git diff --quiet; then exit 0; fi
           git config user.name 'hotelcare-automation'
           git config user.email 'actions@users.noreply.github.com'
-          git add src/components/dashboard/AssignedRoomCard.tsx \
-                  src/components/dashboard/TowelChangeOnlyDialog.tsx \
-                  src/components/dashboard/SupervisorApprovalView.tsx \
-                  src/lib/towel-change-only.ts \
-                  supabase/functions/previo-update-room-status/index.ts
+          git add src/components/dashboard/AssignedRoomCard.tsx src/components/dashboard/TowelChangeOnlyDialog.tsx src/components/dashboard/SupervisorApprovalView.tsx supabase/functions/previo-update-room-status/index.ts
           git commit -m 'feat: add Mika towel-change-only housekeeping flow'
           git push origin HEAD:main
