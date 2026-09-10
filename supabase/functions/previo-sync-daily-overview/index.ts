@@ -28,12 +28,11 @@ function addDays(base: string, n: number): string {
 
 interface ParsedReservation {
   roomName: string;
-  arrivalDate: string;   // YYYY-MM-DD inclusive
-  departureDate: string; // YYYY-MM-DD exclusive
+  arrivalDate: string;
+  departureDate: string;
   statusId: number;
   guestNames: string;
   pax: number;
-  // meal headcounts per stay-night, derived from per-guest Previo meal ids
   breakfastGuests: number;
   lunchGuests: number;
   dinnerGuests: number;
@@ -60,9 +59,6 @@ serve(async (req) => {
     let userId: string | null = null;
     let profile: any = null;
     if (!isServiceCall) {
-      // Validate the caller's JWT with the service-role client: SUPABASE_ANON_KEY
-      // is not guaranteed to be present in the function environment (signing-keys
-      // projects), and an empty key made every user call fail with 401.
       const verifier = ANON ? createClient(SUPABASE_URL, ANON) : service;
       const { data: userRes, error: userErr } = await verifier.auth.getUser(token);
       if (userErr || !userRes?.user) {
@@ -93,7 +89,7 @@ serve(async (req) => {
 
     const { data: targetHotel } = await service
       .from("hotel_configurations")
-      .select("organization_id")
+      .select("organization_id, hotel_id, hotel_name")
       .eq("hotel_id", hotelId)
       .limit(1)
       .maybeSingle();
@@ -116,9 +112,18 @@ serve(async (req) => {
     if (!isServiceCall) {
       const privileged = profile?.role === "admin" || profile?.role === "top_management" || profile?.role === "top_management_manager";
       const sameOrganization = profile?.organization_slug === targetOrg;
-      const assignedProperty = profile?.assigned_hotel === hotelId;
+      const assigned = String(profile?.assigned_hotel ?? "").trim().toLowerCase();
+      const aliases = new Set(
+        [hotelId, targetHotel?.hotel_id, targetHotel?.hotel_name]
+          .filter(Boolean)
+          .map((value) => String(value).trim().toLowerCase()),
+      );
+      const assignedProperty = !!assigned && aliases.has(assigned);
       if (profile?.is_super_admin !== true && (!sameOrganization || (!privileged && !assignedProperty))) {
-        return new Response(JSON.stringify({ error: "Forbidden" }), {
+        return new Response(JSON.stringify({
+          error: "Forbidden",
+          detail: "Your account is not assigned to this hotel.",
+        }), {
           status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -126,7 +131,6 @@ serve(async (req) => {
     const orgSlug = targetOrg;
     void userId;
 
-    // Hard gate: must have an active Previo config
     const { data: cfg } = await service
       .from("pms_configurations")
       .select("id, hotel_id, pms_hotel_id, credentials_secret_name, is_active, pms_type")
@@ -140,14 +144,11 @@ serve(async (req) => {
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Pull reservations XML for window
     const creds = loadPrevioCredentials(cfg.credentials_secret_name);
     const xmlResult = await callPrevioXml({
       method: "searchReservations",
       creds,
       pmsHotelId: String(cfg.pms_hotel_id || ""),
-      // Start one day earlier: guests whose last night is fromDate-1 eat
-      // breakfast on fromDate, so their reservation must be in the result set.
       extraXml: `<term><from>${addDays(fromDate, -1)}</from><to>${toDate}</to></term>`,
     });
     const xmlText = xmlResult.text;
@@ -158,7 +159,6 @@ serve(async (req) => {
       });
     }
 
-    // Parse reservation blocks
     const grab = (s: string, tag: string) => {
       const m = s.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
       return m ? m[1].trim() : "";
@@ -170,7 +170,7 @@ serve(async (req) => {
       const toStr = grab(block, "to");
       if (!fromStr || !toStr) continue;
       const statusId = parseInt(grab(block, "statusId") || "0", 10);
-      if (statusId === 7 || statusId === 8) continue; // skip cancelled / no-show
+      if (statusId === 7 || statusId === 8) continue;
 
       const objMatch = block.match(
         /<object>[\s\S]*?<objId>(\d+)<\/objId>[\s\S]*?<name>([^<]*)<\/name>[\s\S]*?<\/object>/,
@@ -178,7 +178,6 @@ serve(async (req) => {
       const roomName = objMatch ? objMatch[2].trim() : "";
       if (!roomName) continue;
 
-      // Guest names: concatenate <guest><firstName/><surname/></guest>
       const guestBlocks = block.match(/<guest>[\s\S]*?<\/guest>/g) || [];
       const names: string[] = [];
       for (const g of guestBlocks) {
@@ -189,11 +188,6 @@ serve(async (req) => {
       }
       const pax = guestBlocks.length || 1;
 
-      // Meals: Previo carries the board plan per guest as <guestMealId>.
-      // Standard Previo meal ids: 1 = no meal, 2 = breakfast, 3 = half board,
-      // 4 = full board, 5 = all inclusive. Counting guests (not reservations)
-      // gives the exact per-room breakfast/lunch/dinner headcount the BB page
-      // needs. Text notes are only used as a fallback when the ids are absent.
       const mealIds = Array.from(block.matchAll(/<guestMealId>(\d+)<\/guestMealId>/g))
         .map((m) => Number(m[1]));
       let breakfastGuests = mealIds.filter((id) => id === 2 || id === 3 || id === 4).length;
@@ -226,12 +220,6 @@ serve(async (req) => {
       });
     }
 
-    // Expand per breakfast morning.
-    // A guest who sleeps the night of D-1 eats breakfast on the morning of D,
-    // so a reservation covering nights [arrival, departure) produces breakfast
-    // rows for the mornings [arrival+1 ... departure]. That means the guest who
-    // checks out on D is the one eating breakfast on D, and a guest arriving on
-    // D first appears on D+1.
     const capturedAt = new Date().toISOString();
     const rowByKey = new Map<string, any>();
     for (const r of reservations) {
@@ -270,9 +258,6 @@ serve(async (req) => {
           uploaded_by: null,
           captured_at: capturedAt,
         };
-        // The unique index is (hotel_id, business_date, room_label, source):
-        // never emit two rows for the same room+morning, otherwise the whole
-        // insert chunk fails. Prefer the reservation with meals to serve.
         const key = `${morning}|${room_label}`;
         const prev = rowByKey.get(key);
         if (!prev || (row.breakfast + row.all_inclusive) > (prev.breakfast + prev.all_inclusive)) {
@@ -282,7 +267,6 @@ serve(async (req) => {
     }
     const rows: any[] = Array.from(rowByKey.values());
 
-    // Clear previo rows in window then re-insert (cancellations vanish)
     await service.from("daily_overview_snapshots")
       .delete()
       .eq("hotel_id", hotelId)
@@ -308,7 +292,6 @@ serve(async (req) => {
       }
     }
 
-
     try {
       await service.from("pms_sync_history").insert({
         hotel_id: hotelId,
@@ -325,7 +308,6 @@ serve(async (req) => {
       } as any);
     } catch { /* non-fatal */ }
 
-    // Stamp pms_configurations so the UI's "Previo sync" label reflects this run.
     try {
       await service.from("pms_configurations")
         .update({
@@ -348,7 +330,6 @@ serve(async (req) => {
 
   } catch (e: any) {
     console.error("previo-sync-daily-overview fatal:", e);
-    // Best-effort failure log so admins can see why a sync went missing.
     try {
       const service2 = createClient(
         Deno.env.get("SUPABASE_URL")!,
