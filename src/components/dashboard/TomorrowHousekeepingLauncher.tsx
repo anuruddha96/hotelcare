@@ -6,11 +6,11 @@ import {
   CalendarClock,
   CheckCircle2,
   CircleDashed,
-  Clock3,
   Loader2,
   PauseCircle,
 } from 'lucide-react';
 import { AutoRoomAssignment } from './AutoRoomAssignment';
+import { TomorrowReleaseTimeControl } from './TomorrowReleaseTimeControl';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -20,6 +20,7 @@ import { isBudapestNoonOrLater, todayBudapest } from '@/lib/budapestTime';
 import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { housekeepingAutomationText } from '@/lib/housekeepingAutomationTranslations';
+import { normalizeNextDayReleaseTime } from '@/lib/nextDayReleaseTime';
 import {
   tomorrowHousekeepingStatusText,
   type TomorrowHousekeepingStatusTextKey,
@@ -29,6 +30,8 @@ type TomorrowPlanRow = {
   id: string;
   status: 'draft' | 'approved' | 'releasing' | 'released' | 'cancelled' | 'failed';
   auto_release: boolean;
+  release_time: string | null;
+  scheduled_release_at: string | null;
   release_revalidation_status: 'pending' | 'running' | 'passed' | 'failed' | null;
   release_revalidation_attempt_count: number | null;
   release_result: Record<string, unknown> | null;
@@ -213,7 +216,7 @@ export function TomorrowHousekeepingLauncher() {
 
       const { data, error } = await (supabase as any)
         .from('next_day_housekeeping_plans')
-        .select('id,status,auto_release,release_revalidation_status,release_revalidation_attempt_count,release_result,last_error,released_at')
+        .select('id,status,auto_release,release_time,scheduled_release_at,release_revalidation_status,release_revalidation_attempt_count,release_result,last_error,released_at')
         .eq('organization_slug', profile.organization_slug)
         .eq('hotel_id', hotelId)
         .eq('plan_date', tomorrowDate)
@@ -274,11 +277,11 @@ export function TomorrowHousekeepingLauncher() {
 
   const title = housekeepingAutomationText('title');
   const subtitle = housekeepingAutomationText('subtitle');
-  const releaseLabel = housekeepingAutomationText('releaseAt');
+  const releaseTime = normalizeNextDayReleaseTime(plan?.release_time);
   const presentation = getStatusPresentation(plan, statusLoading, statusUnavailable);
   const StatusIcon = presentation.Icon;
   const statusLabel = tomorrowHousekeepingStatusText(presentation.labelKey);
-  const statusHint = tomorrowHousekeepingStatusText(presentation.hintKey);
+  const statusHint = tomorrowHousekeepingStatusText(presentation.hintKey).replace('08:00', releaseTime);
   const actionLabel = tomorrowHousekeepingStatusText(presentation.actionKey);
 
   const releaseResult = plan?.release_result || {};
@@ -312,10 +315,7 @@ export function TomorrowHousekeepingLauncher() {
                     <StatusIcon className={`h-3.5 w-3.5 ${presentation.spin ? 'animate-spin' : ''}`} />
                     {statusLabel}
                   </Badge>
-                  <Badge variant="outline" className="gap-1 bg-background/70">
-                    <Clock3 className="h-3 w-3" />
-                    {releaseLabel}
-                  </Badge>
+                  <TomorrowReleaseTimeControl plan={plan} onSaved={() => void loadStatus(false)} />
                   <Badge variant="secondary">{tomorrowDate}</Badge>
                 </div>
 
