@@ -858,6 +858,11 @@ export type Database = {
           maintenance_module_enabled: boolean
           maintenance_price_cents: number
           maintenance_pricing_mode: string
+          operations_promotion_enabled: boolean
+          operations_promotion_ends_on: string | null
+          operations_promotion_label: string
+          operations_promotion_note: string
+          operations_promotion_starts_on: string | null
           operations_module_enabled: boolean
           operations_module_label: string
           operations_price_cents: number
@@ -866,6 +871,11 @@ export type Database = {
           revenue_automation_price_cents: number
           revenue_bi_price_cents: number
           revenue_module_enabled: boolean
+          revenue_promotion_enabled: boolean
+          revenue_promotion_ends_on: string | null
+          revenue_promotion_label: string
+          revenue_promotion_note: string
+          revenue_promotion_starts_on: string | null
           revenue_percent_bps: number
           revenue_percent_cap_cents: number
           revenue_percent_min_cents: number
@@ -900,6 +910,11 @@ export type Database = {
           maintenance_module_enabled?: boolean
           maintenance_price_cents?: number
           maintenance_pricing_mode?: string
+          operations_promotion_enabled?: boolean
+          operations_promotion_ends_on?: string | null
+          operations_promotion_label?: string
+          operations_promotion_note?: string
+          operations_promotion_starts_on?: string | null
           operations_module_enabled?: boolean
           operations_module_label?: string
           operations_price_cents?: number
@@ -908,6 +923,11 @@ export type Database = {
           revenue_automation_price_cents?: number
           revenue_bi_price_cents?: number
           revenue_module_enabled?: boolean
+          revenue_promotion_enabled?: boolean
+          revenue_promotion_ends_on?: string | null
+          revenue_promotion_label?: string
+          revenue_promotion_note?: string
+          revenue_promotion_starts_on?: string | null
           revenue_percent_bps?: number
           revenue_percent_cap_cents?: number
           revenue_percent_min_cents?: number
@@ -942,6 +962,11 @@ export type Database = {
           maintenance_module_enabled?: boolean
           maintenance_price_cents?: number
           maintenance_pricing_mode?: string
+          operations_promotion_enabled?: boolean
+          operations_promotion_ends_on?: string | null
+          operations_promotion_label?: string
+          operations_promotion_note?: string
+          operations_promotion_starts_on?: string | null
           operations_module_enabled?: boolean
           operations_module_label?: string
           operations_price_cents?: number
@@ -950,6 +975,11 @@ export type Database = {
           revenue_automation_price_cents?: number
           revenue_bi_price_cents?: number
           revenue_module_enabled?: boolean
+          revenue_promotion_enabled?: boolean
+          revenue_promotion_ends_on?: string | null
+          revenue_promotion_label?: string
+          revenue_promotion_note?: string
+          revenue_promotion_starts_on?: string | null
           revenue_percent_bps?: number
           revenue_percent_cap_cents?: number
           revenue_percent_min_cents?: number

@@ -9,8 +9,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import type { RevenueUsage } from '@/hooks/useBilling';
+import { todayBudapest } from '@/lib/budapestTime';
 import { toast } from 'sonner';
-import { Save, CreditCard, KeyRound, RefreshCw } from 'lucide-react';
+import { Save, CreditCard, KeyRound, RefreshCw, BadgePercent, CalendarRange } from 'lucide-react';
 
 interface Org { id: string; name: string; slug: string }
 
@@ -47,6 +48,17 @@ interface Settings {
   standard_revenue_bi_price_cents: number;
   standard_revenue_automation_price_cents: number;
   standard_operations_price_cents: number;
+  operations_promotion_enabled: boolean;
+  operations_promotion_label: string;
+  operations_promotion_note: string;
+  operations_promotion_starts_on: string | null;
+  operations_promotion_ends_on: string | null;
+  revenue_promotion_enabled: boolean;
+  revenue_promotion_label: string;
+  revenue_promotion_note: string;
+  revenue_promotion_starts_on: string | null;
+  revenue_promotion_ends_on: string | null;
+  /** Legacy single-promotion fields retained for backwards compatibility. */
   early_bird_enabled: boolean;
   early_bird_label: string;
   early_bird_note: string;
@@ -87,6 +99,16 @@ const BLANK = (slug: string): Settings => ({
   standard_revenue_bi_price_cents: 1900,
   standard_revenue_automation_price_cents: 2900,
   standard_operations_price_cents: 800,
+  operations_promotion_enabled: false,
+  operations_promotion_label: 'Housekeeping offer',
+  operations_promotion_note: '',
+  operations_promotion_starts_on: null,
+  operations_promotion_ends_on: null,
+  revenue_promotion_enabled: false,
+  revenue_promotion_label: 'Revenue Management offer',
+  revenue_promotion_note: '',
+  revenue_promotion_starts_on: null,
+  revenue_promotion_ends_on: null,
   early_bird_enabled: true,
   early_bird_label: 'Early bird',
   early_bird_note: 'Founding-partner pricing, locked for 12 months from activation.',
@@ -130,6 +152,39 @@ export default function BillingSettingsPanel() {
 
   const save = async () => {
     if (!settings) return;
+
+    const invalidRange = (startsOn: string | null, endsOn: string | null) =>
+      Boolean(startsOn && endsOn && startsOn > endsOn);
+    if (invalidRange(settings.operations_promotion_starts_on, settings.operations_promotion_ends_on)) {
+      toast.error('Housekeeping promotion end date must be on or after its start date.');
+      return;
+    }
+    if (invalidRange(settings.revenue_promotion_starts_on, settings.revenue_promotion_ends_on)) {
+      toast.error('Revenue promotion end date must be on or after its start date.');
+      return;
+    }
+    if (
+      settings.operations_promotion_enabled &&
+      (settings.operations_price_cents <= 0 || settings.operations_price_cents >= settings.standard_operations_price_cents)
+    ) {
+      toast.error('Housekeeping promotional price must be above zero and below the regular price.');
+      return;
+    }
+    if (settings.revenue_promotion_enabled && settings.revenue_pricing_mode !== 'per_room') {
+      toast.error('Revenue promotions require fixed per-room pricing.');
+      return;
+    }
+    if (
+      settings.revenue_promotion_enabled &&
+      (settings.revenue_bi_price_cents <= 0 ||
+        settings.revenue_bi_price_cents >= settings.standard_revenue_bi_price_cents ||
+        settings.revenue_automation_price_cents <= 0 ||
+        settings.revenue_automation_price_cents >= settings.standard_revenue_automation_price_cents)
+    ) {
+      toast.error('Each Revenue promotional price must be above zero and below its regular price.');
+      return;
+    }
+
     setSaving(true);
     const { error } = await supabase
       .from('billing_settings')
@@ -163,6 +218,17 @@ export default function BillingSettingsPanel() {
 
   const euros = (cents: number) => (cents / 100).toString();
   const toCents = (v: string) => Math.round((parseFloat(v) || 0) * 100);
+  const discount = (regular: number, promotional: number) =>
+    regular > 0 ? Math.max(0, Math.round((1 - promotional / regular) * 10000) / 100) : 0;
+  const priceAfterDiscount = (regular: number, percent: number) =>
+    Math.max(1, Math.round(regular * (1 - Math.min(99.99, Math.max(0, percent)) / 100)));
+  const promotionStatus = (enabled: boolean, startsOn: string | null, endsOn: string | null) => {
+    if (!enabled) return 'Off';
+    const today = todayBudapest();
+    if (startsOn && today < startsOn) return 'Scheduled';
+    if (endsOn && today > endsOn) return 'Ended';
+    return 'Active';
+  };
 
   return (
     <div className="space-y-6">
@@ -222,12 +288,12 @@ export default function BillingSettingsPanel() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Price per room / month</Label>
+                  <Label>Regular price per room / month</Label>
                   <Input
                     type="number"
                     step="0.01"
-                    value={euros(settings.operations_price_cents)}
-                    onChange={(e) => patch({ operations_price_cents: toCents(e.target.value) })}
+                    value={euros(settings.standard_operations_price_cents)}
+                    onChange={(e) => patch({ standard_operations_price_cents: toCents(e.target.value) })}
                   />
                 </div>
               </div>
@@ -247,7 +313,12 @@ export default function BillingSettingsPanel() {
                   <Label>How it is charged</Label>
                   <Select
                     value={settings.revenue_pricing_mode}
-                    onValueChange={(v) => patch({ revenue_pricing_mode: v as Settings['revenue_pricing_mode'] })}
+                    onValueChange={(v) =>
+                      patch({
+                        revenue_pricing_mode: v as Settings['revenue_pricing_mode'],
+                        ...(v === 'per_room' ? {} : { revenue_promotion_enabled: false }),
+                      })
+                    }
                   >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -260,93 +331,28 @@ export default function BillingSettingsPanel() {
                 {settings.revenue_pricing_mode === 'per_room' ? (
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <Label>Business Intelligence — per room / month</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={euros(settings.revenue_bi_price_cents)}
-                        onChange={(e) => patch({ revenue_bi_price_cents: toCents(e.target.value) })}
-                      />
-                      <p className="text-xs text-muted-foreground">Analytics only, no automatic price changes.</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>BI + Automation — per room / month</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={euros(settings.revenue_automation_price_cents)}
-                        onChange={(e) =>
-                          patch({
-                            revenue_automation_price_cents: toCents(e.target.value),
-                            revenue_price_cents: toCents(e.target.value),
-                          })
-                        }
-                      />
-                      <p className="text-xs text-muted-foreground">Includes the automated pricing engine.</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Standard BI price (strike-through)</Label>
+                      <Label>Business Intelligence — regular price</Label>
                       <Input
                         type="number"
                         step="0.01"
                         value={euros(settings.standard_revenue_bi_price_cents)}
                         onChange={(e) => patch({ standard_revenue_bi_price_cents: toCents(e.target.value) })}
                       />
+                      <p className="text-xs text-muted-foreground">Analytics only, no automatic price changes.</p>
                     </div>
                     <div className="space-y-2">
-                      <Label>Standard BI + Automation price (strike-through)</Label>
+                      <Label>BI + Automation — regular price</Label>
                       <Input
                         type="number"
                         step="0.01"
                         value={euros(settings.standard_revenue_automation_price_cents)}
-                        onChange={(e) => patch({ standard_revenue_automation_price_cents: toCents(e.target.value) })}
+                        onChange={(e) =>
+                          patch({
+                            standard_revenue_automation_price_cents: toCents(e.target.value),
+                          })
+                        }
                       />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Standard Housekeeping price (strike-through)</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={euros(settings.standard_operations_price_cents)}
-                        onChange={(e) => patch({ standard_operations_price_cents: toCents(e.target.value) })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Promotion label</Label>
-                      <Input
-                        value={settings.early_bird_label ?? ''}
-                        onChange={(e) => patch({ early_bird_label: e.target.value })}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Shown as a badge next to the discounted prices.
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Promotion note</Label>
-                      <Input
-                        value={settings.early_bird_note ?? ''}
-                        onChange={(e) => patch({ early_bird_note: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Promotion ends (optional)</Label>
-                      <Input
-                        type="date"
-                        value={settings.early_bird_ends_at ?? ''}
-                        onChange={(e) => patch({ early_bird_ends_at: e.target.value || null })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Grace period after trial (days)</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={String(settings.grace_days ?? 14)}
-                        onChange={(e) => patch({ grace_days: parseInt(e.target.value, 10) || 0 })}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Access stays open for this many days after the trial, with a friendly reminder to pay.
-                      </p>
+                      <p className="text-xs text-muted-foreground">Includes the automated pricing engine.</p>
                     </div>
                   </div>
                 ) : (
@@ -426,6 +432,273 @@ export default function BillingSettingsPanel() {
                   maxLength={3}
                   className="max-w-[120px]"
                 />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <BadgePercent className="h-5 w-5" /> Module promotions
+              </CardTitle>
+              <CardDescription>
+                Housekeeping and Revenue Management have independent names, prices and date windows. Start and end
+                dates are inclusive; leave either date empty for an open-ended promotion.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-5 xl:grid-cols-2">
+              <div className="space-y-4 rounded-xl border p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">Housekeeping promotion</p>
+                    <p className="text-xs text-muted-foreground">Applies only to the Operations / Housekeeping module.</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">
+                      {promotionStatus(
+                        settings.operations_promotion_enabled,
+                        settings.operations_promotion_starts_on,
+                        settings.operations_promotion_ends_on,
+                      )}
+                    </Badge>
+                    <Switch
+                      aria-label="Enable Housekeeping promotion"
+                      checked={settings.operations_promotion_enabled}
+                      onCheckedChange={(v) => patch({ operations_promotion_enabled: v })}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Promotion name</Label>
+                    <Input
+                      value={settings.operations_promotion_label}
+                      onChange={(e) => patch({ operations_promotion_label: e.target.value })}
+                      placeholder="First 6 months 50% OFF"
+                    />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Customer note</Label>
+                    <Input
+                      value={settings.operations_promotion_note}
+                      onChange={(e) => patch({ operations_promotion_note: e.target.value })}
+                      placeholder="Who qualifies and how long the price is kept"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5">
+                      <CalendarRange className="h-3.5 w-3.5" /> Starts on
+                    </Label>
+                    <Input
+                      type="date"
+                      value={settings.operations_promotion_starts_on ?? ''}
+                      onChange={(e) => patch({ operations_promotion_starts_on: e.target.value || null })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5">
+                      <CalendarRange className="h-3.5 w-3.5" /> Ends on
+                    </Label>
+                    <Input
+                      type="date"
+                      value={settings.operations_promotion_ends_on ?? ''}
+                      onChange={(e) => patch({ operations_promotion_ends_on: e.target.value || null })}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label>Regular price</Label>
+                    <Input value={euros(settings.standard_operations_price_cents)} readOnly disabled />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Discount (%)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={99.99}
+                      step="0.01"
+                      value={discount(settings.standard_operations_price_cents, settings.operations_price_cents)}
+                      onChange={(e) =>
+                        patch({
+                          operations_price_cents: priceAfterDiscount(
+                            settings.standard_operations_price_cents,
+                            parseFloat(e.target.value) || 0,
+                          ),
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Promotional price</Label>
+                    <Input
+                      type="number"
+                      min={0.01}
+                      step="0.01"
+                      value={euros(settings.operations_price_cents)}
+                      onChange={(e) => patch({ operations_price_cents: toCents(e.target.value) })}
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  New subscriptions started during this window receive the promotional price. Existing subscriptions
+                  are not repriced automatically when the window ends.
+                </p>
+              </div>
+
+              <div className="space-y-4 rounded-xl border p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">Revenue Management promotion</p>
+                    <p className="text-xs text-muted-foreground">One schedule, with an independent price for each Revenue tier.</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">
+                      {promotionStatus(
+                        settings.revenue_promotion_enabled,
+                        settings.revenue_promotion_starts_on,
+                        settings.revenue_promotion_ends_on,
+                      )}
+                    </Badge>
+                    <Switch
+                      aria-label="Enable Revenue Management promotion"
+                      checked={settings.revenue_promotion_enabled}
+                      disabled={settings.revenue_pricing_mode !== 'per_room'}
+                      onCheckedChange={(v) => patch({ revenue_promotion_enabled: v })}
+                    />
+                  </div>
+                </div>
+
+                {settings.revenue_pricing_mode !== 'per_room' && (
+                  <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                    Switch Revenue Management to fixed per-room pricing to configure a promotion. Revenue-share pricing
+                    continues to use its agreed percentage.
+                  </p>
+                )}
+
+                <fieldset disabled={settings.revenue_pricing_mode !== 'per_room'} className="space-y-4 disabled:opacity-60">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Promotion name</Label>
+                      <Input
+                        value={settings.revenue_promotion_label}
+                        onChange={(e) => patch({ revenue_promotion_label: e.target.value })}
+                        placeholder="Revenue launch offer"
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label>Customer note</Label>
+                      <Input
+                        value={settings.revenue_promotion_note}
+                        onChange={(e) => patch({ revenue_promotion_note: e.target.value })}
+                        placeholder="Who qualifies and how long the price is kept"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-1.5">
+                        <CalendarRange className="h-3.5 w-3.5" /> Starts on
+                      </Label>
+                      <Input
+                        type="date"
+                        value={settings.revenue_promotion_starts_on ?? ''}
+                        onChange={(e) => patch({ revenue_promotion_starts_on: e.target.value || null })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-1.5">
+                        <CalendarRange className="h-3.5 w-3.5" /> Ends on
+                      </Label>
+                      <Input
+                        type="date"
+                        value={settings.revenue_promotion_ends_on ?? ''}
+                        onChange={(e) => patch({ revenue_promotion_ends_on: e.target.value || null })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg bg-muted/30 p-3 space-y-3">
+                    <p className="text-sm font-medium">Business Intelligence</p>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="space-y-2">
+                        <Label>Regular price</Label>
+                        <Input value={euros(settings.standard_revenue_bi_price_cents)} readOnly disabled />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Discount (%)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={99.99}
+                          step="0.01"
+                          value={discount(settings.standard_revenue_bi_price_cents, settings.revenue_bi_price_cents)}
+                          onChange={(e) =>
+                            patch({
+                              revenue_bi_price_cents: priceAfterDiscount(
+                                settings.standard_revenue_bi_price_cents,
+                                parseFloat(e.target.value) || 0,
+                              ),
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Promotional price</Label>
+                        <Input
+                          type="number"
+                          min={0.01}
+                          step="0.01"
+                          value={euros(settings.revenue_bi_price_cents)}
+                          onChange={(e) => patch({ revenue_bi_price_cents: toCents(e.target.value) })}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg bg-muted/30 p-3 space-y-3">
+                    <p className="text-sm font-medium">BI + Automation</p>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="space-y-2">
+                        <Label>Regular price</Label>
+                        <Input value={euros(settings.standard_revenue_automation_price_cents)} readOnly disabled />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Discount (%)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={99.99}
+                          step="0.01"
+                          value={discount(
+                            settings.standard_revenue_automation_price_cents,
+                            settings.revenue_automation_price_cents,
+                          )}
+                          onChange={(e) => {
+                            const price = priceAfterDiscount(
+                              settings.standard_revenue_automation_price_cents,
+                              parseFloat(e.target.value) || 0,
+                            );
+                            patch({ revenue_automation_price_cents: price, revenue_price_cents: price });
+                          }}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Promotional price</Label>
+                        <Input
+                          type="number"
+                          min={0.01}
+                          step="0.01"
+                          value={euros(settings.revenue_automation_price_cents)}
+                          onChange={(e) => {
+                            const price = toCents(e.target.value);
+                            patch({ revenue_automation_price_cents: price, revenue_price_cents: price });
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </fieldset>
               </div>
             </CardContent>
           </Card>
@@ -538,7 +811,7 @@ export default function BillingSettingsPanel() {
               <CardTitle className="text-lg">Free trial</CardTitle>
               <CardDescription>Modules stay unlocked until the trial ends.</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-3 items-end">
+            <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 items-end">
               <div className="flex items-center gap-3">
                 <Switch checked={settings.trial_enabled} onCheckedChange={(v) => patch({ trial_enabled: v })} />
                 <Label>Trial active</Label>
@@ -559,6 +832,16 @@ export default function BillingSettingsPanel() {
                   value={settings.trial_start?.slice(0, 10) ?? ''}
                   onChange={(e) => patch({ trial_start: e.target.value })}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label>Courtesy access after trial (days)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={String(settings.grace_days ?? 14)}
+                  onChange={(e) => patch({ grace_days: parseInt(e.target.value, 10) || 0 })}
+                />
+                <p className="text-xs text-muted-foreground">Shows the friendly setup reminder while access stays open.</p>
               </div>
             </CardContent>
           </Card>

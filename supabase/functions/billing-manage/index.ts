@@ -18,6 +18,7 @@ import {
   loadSettings,
   loadHotels,
   priceFor,
+  promotionForModule,
   moduleEnabled,
   moduleLabel,
   trialEndsAt,
@@ -212,6 +213,7 @@ Deno.serve(async (req) => {
         }
 
         const unit = priceFor(settings, module);
+        const promotion = promotionForModule(settings, module);
         const qty = hotel.rooms;
         if (unit <= 0 || qty <= 0) continue;
 
@@ -224,7 +226,9 @@ Deno.serve(async (req) => {
             recurring: { interval: "month" },
             product_data: {
               name: `${moduleLabel(settings, module)} — ${hotel.hotel_name}`,
-              description: `${qty} rooms × ${(unit / 100).toFixed(2)} ${settings.currency} per room / month (excl. VAT)`,
+              description: `${qty} rooms × ${(unit / 100).toFixed(2)} ${settings.currency} per room / month (excl. VAT)${
+                promotion?.active ? ` · ${promotion.label}` : ""
+              }`,
             },
           },
         });
