@@ -9,7 +9,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { housekeepingAutomationText } from '@/lib/housekeepingAutomationTranslations';
+import { useTranslation } from '@/hooks/useTranslation';
+import {
+  housekeepingAutomationFormat,
+  housekeepingAutomationText,
+  type HousekeepingAutomationLanguage,
+} from '@/lib/housekeepingAutomationTranslations';
 import {
   NEXT_DAY_RELEASE_TIMES,
   normalizeNextDayReleaseTime,
@@ -31,9 +36,11 @@ export function TomorrowReleaseTimeControl({
   plan: Plan | null;
   onSaved: () => void;
 }) {
+  const { language: appLanguage } = useTranslation();
+  const language = appLanguage as HousekeepingAutomationLanguage;
   const [saving, setSaving] = useState(false);
   const releaseTime = normalizeNextDayReleaseTime(plan?.release_time);
-  const releaseLabel = housekeepingAutomationText('releaseAt').replace('08:00', releaseTime);
+  const releaseLabel = housekeepingAutomationText('releaseAt', language).replace('08:00', releaseTime);
 
   const editable = useMemo(() => {
     if (!plan || !['draft', 'approved'].includes(plan.status)) return false;
@@ -57,12 +64,16 @@ export function TomorrowReleaseTimeControl({
     setSaving(true);
     try {
       await updateNextDayReleaseTime(plan.id, next as NextDayReleaseTime);
-      toast.success(`Tomorrow's release time is now ${next}.`);
+      toast.success(housekeepingAutomationFormat('releaseTimeUpdated', { time: next }, language));
       window.dispatchEvent(new CustomEvent('hk-next-day-plan-changed'));
       onSaved();
     } catch (error) {
       console.error('[TomorrowReleaseTimeControl] release time update failed:', error);
-      toast.error(error instanceof Error ? error.message : 'Could not change the release time.');
+      toast.error(
+        error instanceof Error && error.message
+          ? error.message
+          : housekeepingAutomationText('releaseTimeUpdateFailed', language),
+      );
     } finally {
       setSaving(false);
     }
@@ -75,7 +86,7 @@ export function TomorrowReleaseTimeControl({
       <Select value={releaseTime} onValueChange={handleChange} disabled={saving}>
         <SelectTrigger
           className="h-7 w-[82px] border-0 bg-transparent px-2 py-0 text-xs font-semibold shadow-none focus:ring-0 focus:ring-offset-0"
-          aria-label="Tomorrow housekeeping release time"
+          aria-label={housekeepingAutomationText('releaseTimeAria', language)}
         >
           <SelectValue />
         </SelectTrigger>
