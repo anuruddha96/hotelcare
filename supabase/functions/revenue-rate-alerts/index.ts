@@ -49,6 +49,10 @@ function rateKey(roomTypeName: unknown, occupancy: unknown) {
   return `${String(roomTypeName ?? "")}|${String(occupancy ?? "")}`;
 }
 
+function hasResolvedRoomType(roomTypeName: unknown): boolean {
+  return typeof roomTypeName === "string" && roomTypeName.trim().length > 0;
+}
+
 function percentile(sorted: number[], q: number): number {
   if (sorted.length === 0) return NaN;
   if (sorted.length === 1) return sorted[0];
@@ -120,7 +124,7 @@ function buildSlntAdaptiveBounds(
 
   for (const r of rates) {
     const p = Number(r.price);
-    if (!Number.isFinite(p) || p <= 0) continue;
+    if (!Number.isFinite(p) || p <= 0 || !hasResolvedRoomType(r.room_type_name)) continue;
     const key = rateKey(r.room_type_name, r.occupancy);
     const prices = grouped.get(key) ?? [];
     prices.push(p);
@@ -239,7 +243,21 @@ Deno.serve(async (req) => {
         };
       });
 
+      // A missing SLNT room type is an incomplete sync/mapping row, not a
+      // sellable rate. Never reinterpret, repair or write a price here: keep
+      // those rows out of pricing alerts and leave the authoritative SLNT rate
+      // data and revenue settings completely untouched.
+      const unresolvedSlntRows = isSlnt
+        ? evaluated.filter((r: any) => !hasResolvedRoomType(r.room_type_name))
+        : [];
+      if (unresolvedSlntRows.length > 0) {
+        console.warn(
+          `SLNT rate safety: skipped ${unresolvedSlntRows.length} unresolved room-type row(s) from price alerts; no rates or settings were changed.`,
+        );
+      }
+
       const offenders = evaluated.filter((r: any) => {
+        if (isSlnt && !hasResolvedRoomType(r.room_type_name)) return false;
         const p = Number(r.price);
         if (!Number.isFinite(p)) return false;
         return p <= 0 || p < r._alertLow || p > r._alertHigh;
