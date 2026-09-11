@@ -13,6 +13,7 @@ import {
 import { AutoRoomAssignment as AutoRoomAssignmentImpl } from './AutoRoomAssignmentImpl';
 import { MemoriesZoneAutoAssignment } from './MemoriesZoneAutoAssignment';
 import { NextDayAutoRoomAssignmentGate } from './NextDayAutoRoomAssignmentGate';
+import { NextDayPublicAreaPlanner } from './NextDayPublicAreaPlanner';
 
 /**
  * Motion reports drag gesture points in page coordinates, while the Auto Assign
@@ -194,9 +195,12 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   if (isTomorrowPlanner) {
     if (!tomorrowPlanningAvailable) return null;
     return (
-      <MotionConfig transformPagePoint={toViewportPoint}>
-        <NextDayAutoRoomAssignmentGate {...props} />
-      </MotionConfig>
+      <>
+        <MotionConfig transformPagePoint={toViewportPoint}>
+          <NextDayAutoRoomAssignmentGate {...props} />
+        </MotionConfig>
+        <NextDayPublicAreaPlanner visible={props.open} selectedDate={props.selectedDate} />
+      </>
     );
   }
 
