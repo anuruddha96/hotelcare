@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DateRange } from 'react-day-picker';
-import { Download, DoorOpen, History, Minus, Plus, Save, Shirt, ShieldCheck, UserRound, Waves } from 'lucide-react';
+import { Download, DoorOpen, History, Minus, Plus, Shirt, ShieldCheck, UserRound, Waves } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
@@ -110,6 +110,8 @@ type HousekeeperSummary = {
   items: Record<string, number>;
 };
 
+type AutoSaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error';
+
 const PUBLIC_AREAS: Array<{ key: 'gym' | 'sauna' | 'jacuzzi'; label: string }> = [
   { key: 'gym', label: 'Gym' },
   { key: 'sauna', label: 'Sauna' },
@@ -138,10 +140,12 @@ export function DirtyLinenManagementV2() {
   const [publicCounts, setPublicCounts] = useState<PublicAreaCountRow[]>([]);
   const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [savingKey, setSavingKey] = useState<string | null>(null);
   const [selectedHousekeeperId, setSelectedHousekeeperId] = useState<string | null>(null);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [draftCounts, setDraftCounts] = useState<Record<string, number>>({});
+  const [autoSaveStatus, setAutoSaveStatus] = useState<Record<string, AutoSaveStatus>>({});
+  const draftCountsRef = useRef<Record<string, number>>({});
+  const autoSaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const canCorrect = !!profile?.role && [
     'admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager',
@@ -161,6 +165,10 @@ export function DirtyLinenManagementV2() {
       setLinenItems((data || []) as LinenItem[]);
     };
     void loadItems();
+  }, []);
+
+  useEffect(() => () => {
+    Object.values(autoSaveTimersRef.current).forEach(timer => clearTimeout(timer));
   }, []);
 
   const fetchData = useCallback(async () => {
@@ -418,6 +426,7 @@ export function DirtyLinenManagementV2() {
     targetSessions.forEach(session => {
       session.items.forEach(entry => { next[draftKey(session, entry.item.id)] = entry.count; });
     });
+    draftCountsRef.current = next;
     setDraftCounts(next);
   }, []);
 
@@ -428,10 +437,6 @@ export function DirtyLinenManagementV2() {
   useEffect(() => {
     if (selectedRoomId) seedDrafts(selectedRoomSessions);
   }, [selectedRoomId, selectedRoomSessions, seedDrafts]);
-
-  const setDraft = (session: RoomSession, itemId: string, value: number) => {
-    setDraftCounts(previous => ({ ...previous, [draftKey(session, itemId)]: Math.max(0, Math.floor(Number.isFinite(value) ? value : 0)) }));
-  };
 
   const persistItemCount = async (session: RoomSession, entry: SessionItem, requestedCount: number) => {
     const nextCount = Math.max(0, Math.floor(requestedCount));
@@ -478,20 +483,48 @@ export function DirtyLinenManagementV2() {
 
   const saveSession = async (session: RoomSession) => {
     if (!canCorrect) return;
-    setSavingKey(session.key);
+
+    const changedEntries = session.items.filter(entry =>
+      (draftCountsRef.current[draftKey(session, entry.item.id)] ?? entry.count) !== entry.count,
+    );
+
+    if (!changedEntries.length) {
+      setAutoSaveStatus(previous => ({ ...previous, [session.key]: 'saved' }));
+      return;
+    }
+
+    setAutoSaveStatus(previous => ({ ...previous, [session.key]: 'saving' }));
     try {
-      for (const entry of session.items) {
-        const value = draftCounts[draftKey(session, entry.item.id)] ?? entry.count;
+      for (const entry of changedEntries) {
+        const value = draftCountsRef.current[draftKey(session, entry.item.id)] ?? entry.count;
         await persistItemCount(session, entry, value);
       }
-      toast.success(`Dirty linen updated for room ${session.roomNumber}`);
       await fetchData();
+      setAutoSaveStatus(previous => ({ ...previous, [session.key]: 'saved' }));
     } catch (error) {
-      console.error('[DirtyLinen] correction failed', error);
-      toast.error('Could not save the dirty linen correction.');
-    } finally {
-      setSavingKey(null);
+      console.error('[DirtyLinen] autosave correction failed', error);
+      setAutoSaveStatus(previous => ({ ...previous, [session.key]: 'error' }));
+      toast.error('Could not save the dirty linen correction automatically.');
     }
+  };
+
+  const setDraft = (session: RoomSession, itemId: string, value: number) => {
+    const normalized = Math.max(0, Math.floor(Number.isFinite(value) ? value : 0));
+    const key = draftKey(session, itemId);
+    const nextDrafts = { ...draftCountsRef.current, [key]: normalized };
+    draftCountsRef.current = nextDrafts;
+    setDraftCounts(nextDrafts);
+
+    if (!canCorrect) return;
+
+    const existingTimer = autoSaveTimersRef.current[session.key];
+    if (existingTimer) clearTimeout(existingTimer);
+
+    setAutoSaveStatus(previous => ({ ...previous, [session.key]: 'pending' }));
+    autoSaveTimersRef.current[session.key] = setTimeout(() => {
+      delete autoSaveTimersRef.current[session.key];
+      void saveSession(session);
+    }, 650);
   };
 
   const exportCsv = () => {
@@ -518,10 +551,18 @@ export function DirtyLinenManagementV2() {
   };
 
   const renderSessionEditor = (session: RoomSession) => {
-    const changed = session.items.some(entry =>
-      (draftCounts[draftKey(session, entry.item.id)] ?? entry.count) !== entry.count,
-    );
     const approved = !!session.assignment?.supervisor_approved;
+    const status = autoSaveStatus[session.key] || 'idle';
+    const isSaving = status === 'saving';
+    const statusLabel = status === 'pending'
+      ? 'Autosave pending…'
+      : status === 'saving'
+        ? 'Saving automatically…'
+        : status === 'saved'
+          ? 'Saved automatically'
+          : status === 'error'
+            ? 'Autosave failed — change a value to retry'
+            : 'Autosave enabled';
 
     return (
       <Card key={session.key} className="p-4 space-y-4">
@@ -541,10 +582,10 @@ export function DirtyLinenManagementV2() {
               <div key={entry.item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border p-2.5">
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">{translateLinenItem(entry.item.display_name, t)}</p>
-                  {entry.rows.length > 1 && <p className="text-[10px] text-amber-600">Duplicate records will be consolidated on save.</p>}
+                  {entry.rows.length > 1 && <p className="text-[10px] text-amber-600">Duplicate records will be consolidated automatically.</p>}
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <Button type="button" variant="outline" size="icon" className="h-8 w-8" disabled={!canCorrect || savingKey === session.key || value <= 0} onClick={() => setDraft(session, entry.item.id, value - 1)}>
+                  <Button type="button" variant="outline" size="icon" className="h-8 w-8" disabled={!canCorrect || isSaving || value <= 0} onClick={() => setDraft(session, entry.item.id, value - 1)}>
                     <Minus className="h-3.5 w-3.5" />
                   </Button>
                   <Input
@@ -552,11 +593,11 @@ export function DirtyLinenManagementV2() {
                     min={0}
                     inputMode="numeric"
                     value={value}
-                    disabled={!canCorrect || savingKey === session.key}
+                    disabled={!canCorrect || isSaving}
                     onChange={event => setDraft(session, entry.item.id, Number(event.target.value))}
                     className="h-8 w-16 text-center px-1 tabular-nums"
                   />
-                  <Button type="button" variant="outline" size="icon" className="h-8 w-8" disabled={!canCorrect || savingKey === session.key} onClick={() => setDraft(session, entry.item.id, value + 1)}>
+                  <Button type="button" variant="outline" size="icon" className="h-8 w-8" disabled={!canCorrect || isSaving} onClick={() => setDraft(session, entry.item.id, value + 1)}>
                     <Plus className="h-3.5 w-3.5" />
                   </Button>
                 </div>
@@ -565,14 +606,14 @@ export function DirtyLinenManagementV2() {
           })}
         </div>
 
-        <div className="flex items-center justify-between gap-3 pt-1">
+        <div className="flex items-center justify-between gap-3 pt-1 flex-wrap">
           <div className="text-xs text-muted-foreground">
             {session.assignment?.completed_at ? `Cleaning finished ${formatDateTime(session.assignment.completed_at)}` : 'Cleaning not completed yet'}
           </div>
           {canCorrect && (
-            <Button size="sm" disabled={!changed || savingKey === session.key} onClick={() => void saveSession(session)}>
-              <Save className="h-4 w-4 mr-1.5" />{savingKey === session.key ? 'Saving…' : 'Save correction'}
-            </Button>
+            <div className={`text-xs font-medium ${status === 'error' ? 'text-destructive' : status === 'saved' ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+              {statusLabel}
+            </div>
           )}
         </div>
       </Card>
@@ -774,7 +815,7 @@ export function DirtyLinenManagementV2() {
           </DialogHeader>
           {canCorrect && (
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
-              Manager correction mode is active. Set the correct quantity for a room and save; zero removes the incorrect linen record. Changes synchronize back to the overall totals automatically.
+              Manager correction mode is active. Change any quantity and it saves automatically after a brief pause. Setting a quantity to zero removes the incorrect linen record, and totals synchronize automatically.
             </div>
           )}
           <div className="space-y-3">
