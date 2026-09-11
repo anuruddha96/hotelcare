@@ -11,6 +11,7 @@ import { mailClient } from "../_shared/emailSender.ts";
 const ALERT_ROLES = ["admin", "top_management", "top_management_manager"];
 const HORIZON_DAYS = 120;
 const SLNT_ADAPTIVE_MIN_SAMPLES = 30;
+const RATE_PAGE_SIZE = 1000;
 
 interface Thresholds {
   rate_warn_below_eur: number;
@@ -57,6 +58,45 @@ function percentile(sorted: number[], q: number): number {
   if (lower === upper) return sorted[lower];
   const weight = pos - lower;
   return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+}
+
+/**
+ * Supabase/PostgREST enforces a server-side maximum row count. Asking for a
+ * very large `.limit()` does not guarantee that many rows are returned. SLNT
+ * has thousands of rate rows in the 120-day horizon, so a single query could
+ * contain only the earliest ~1,000 rows. That starved each room/occupancy key
+ * below the 30-sample learning threshold and silently reverted to the static
+ * portfolio floor. Fetch in deterministic 1,000-row pages so the adaptive
+ * safety net always learns from the complete published curve.
+ */
+async function fetchPublishedRates(
+  admin: any,
+  hotelId: string,
+  today: string,
+  horizon: string,
+): Promise<any[]> {
+  const all: any[] = [];
+
+  for (let from = 0; ; from += RATE_PAGE_SIZE) {
+    const { data, error } = await admin
+      .from("revenue_room_type_rates")
+      .select("id, stay_date, room_type_name, occupancy, price")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", today)
+      .lte("stay_date", horizon)
+      .order("stay_date", { ascending: true })
+      .order("room_type_name", { ascending: true })
+      .order("occupancy", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + RATE_PAGE_SIZE - 1);
+
+    if (error) throw error;
+    const page = data ?? [];
+    all.push(...page);
+    if (page.length < RATE_PAGE_SIZE) break;
+  }
+
+  return all;
 }
 
 /**
@@ -174,22 +214,15 @@ Deno.serve(async (req) => {
       const maxSane = t.rate_max_sane_eur * thresholdScale;
       const currencyLabel = currency.base_currency === "HUF" ? "Ft" : currency.base_currency;
 
-      const { data: rates } = await admin
-        .from("revenue_room_type_rates")
-        .select("stay_date, room_type_name, occupancy, price")
-        .eq("hotel_id", h.hotel_id)
-        .gte("stay_date", today)
-        .lte("stay_date", horizon)
-        .order("stay_date")
-        .limit(20000);
+      const rates = await fetchPublishedRates(admin, h.hotel_id, today, horizon);
 
       const isSlnt = h.hotel_id === "slnt-group" ||
         String(h.organization_slug ?? "").toLowerCase() === "slnt";
       const adaptiveBounds = isSlnt
-        ? buildSlntAdaptiveBounds(rates ?? [], criticalBelow, maxSane)
+        ? buildSlntAdaptiveBounds(rates, criticalBelow, maxSane)
         : new Map<string, EffectiveBounds>();
 
-      const evaluated = (rates ?? []).map((r: any) => {
+      const evaluated = rates.map((r: any) => {
         const learned = adaptiveBounds.get(rateKey(r.room_type_name, r.occupancy));
         const bounds: EffectiveBounds = learned ?? {
           low: criticalBelow,
@@ -212,7 +245,10 @@ Deno.serve(async (req) => {
         return p <= 0 || p < r._alertLow || p > r._alertHigh;
       });
 
-      if (offenders.length === 0) { summary.push({ hotel_id: h.hotel_id, found: 0, emailed: 0 }); continue; }
+      if (offenders.length === 0) {
+        summary.push({ hotel_id: h.hotel_id, found: 0, emailed: 0 });
+        continue;
+      }
 
       // Skip anything already reported with the same price.
       const { data: existing } = await admin
@@ -227,7 +263,10 @@ Deno.serve(async (req) => {
       const fresh = offenders.filter(
         (r: any) => !seen.has(`${r.stay_date}|${r.room_type_name}|${r.occupancy}|${Number(r.price)}`),
       );
-      if (fresh.length === 0) { summary.push({ hotel_id: h.hotel_id, found: 0, emailed: 0 }); continue; }
+      if (fresh.length === 0) {
+        summary.push({ hotel_id: h.hotel_id, found: 0, emailed: 0 });
+        continue;
+      }
 
       const rows = fresh.map((r: any) => ({
         hotel_id: h.hotel_id,
@@ -274,7 +313,7 @@ Deno.serve(async (req) => {
           }).join("");
 
           const thresholdText = isSlnt
-            ? `SLNT uses an adaptive safety net calculated separately for each room type and occupancy from the current ${HORIZON_DAYS}-day published rate curve. The configured portfolio limits remain hard guardrails.`
+            ? `SLNT uses an adaptive safety net calculated separately for each room type and occupancy from the complete current ${HORIZON_DAYS}-day published rate curve. The configured portfolio limits remain hard guardrails.`
             : `The safety net is below ${Math.round(criticalBelow).toLocaleString("en-US")} ${currencyLabel} or above ${Math.round(maxSane).toLocaleString("en-US")} ${currencyLabel}.`;
 
           const html = `
@@ -330,6 +369,7 @@ Deno.serve(async (req) => {
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
-    status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
