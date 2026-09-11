@@ -52,6 +52,83 @@
   box-shadow: 1px 0 0 hsl(var(--border)), 5px 0 10px -10px hsl(var(--foreground) / 0.35);
 }
 
+/*
+ * Mobile navigation surface.
+ *
+ * On a phone the frozen room/metric rail is also the easiest place to begin a
+ * horizontal swipe because it does not contain price cells. Remove the desktop
+ * divider shade there and turn the edge into a quiet, icon-only gesture cue.
+ * The rail itself stays opaque so room names never become unreadable over the
+ * moving rate matrix. No extra copy or coach-mark is needed: the opposing
+ * chevrons briefly move apart when the calendar appears, and the full frozen
+ * rail continues to pass native horizontal pan gestures to the scroll area.
+ */
+@media (max-width: 767px) {
+  [data-training="revenue-grid"] .overscroll-x-contain .sticky.left-0 {
+    box-shadow: none;
+    border-right-color: hsl(var(--primary) / 0.3) !important;
+    touch-action: pan-x pan-y;
+  }
+
+  /* One cue in the date-header corner is enough; repeating it on every room
+     row would add noise to the price list. */
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(2) > .sticky.left-0 {
+    overflow: visible;
+  }
+
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(2) > .sticky.left-0::before,
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(2) > .sticky.left-0::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    z-index: 2;
+    width: 8px;
+    height: 8px;
+    pointer-events: none;
+    opacity: 0.9;
+  }
+
+  /* Left-facing chevron. */
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(2) > .sticky.left-0::before {
+    right: 13px;
+    border-left: 2px solid hsl(var(--primary));
+    border-bottom: 2px solid hsl(var(--primary));
+    transform: translateY(-50%) rotate(45deg);
+  }
+
+  /* Right-facing chevron. */
+  [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(2) > .sticky.left-0::after {
+    right: 4px;
+    border-top: 2px solid hsl(var(--primary));
+    border-right: 2px solid hsl(var(--primary));
+    transform: translateY(-50%) rotate(45deg);
+  }
+
+  [data-training="revenue-grid"] .overscroll-x-contain .sticky.left-0:active {
+    border-right-color: hsl(var(--primary) / 0.8) !important;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(2) > .sticky.left-0::before {
+      animation: revenue-grid-swipe-cue-left 1.15s ease-in-out 3;
+    }
+
+    [data-training="revenue-grid"] .sticky.top-0.z-30 > .flex:nth-child(2) > .sticky.left-0::after {
+      animation: revenue-grid-swipe-cue-right 1.15s ease-in-out 3;
+    }
+  }
+}
+
+@keyframes revenue-grid-swipe-cue-left {
+  0%, 100% { margin-right: 0; opacity: 0.65; }
+  50% { margin-right: 4px; opacity: 1; }
+}
+
+@keyframes revenue-grid-swipe-cue-right {
+  0%, 100% { margin-right: 0; opacity: 0.65; }
+  50% { margin-right: -4px; opacity: 1; }
+}
+
 /* Avoid browser scroll anchoring jumps when later price/history data arrives. */
 [data-training="revenue-grid"] {
   overflow-anchor: none;
