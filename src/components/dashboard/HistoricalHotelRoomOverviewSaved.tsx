@@ -7,6 +7,7 @@ import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { assigneeLabel, cleanName } from '@/lib/staffNames';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { summarizePmsNote } from '@/lib/pmsNoteParser';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { useTranslation } from '@/hooks/useTranslation';
 
 interface HistoricalHotelRoomOverviewProps {
@@ -47,6 +48,7 @@ interface RoomSnapshot {
   had_extra_towels_request: boolean | null;
   had_ready_to_clean: boolean | null;
   had_no_service: boolean | null;
+  had_no_show: boolean | null;
   assignment_id: string | null;
   assigned_to: string | null;
   assignment_type: string | null;
@@ -72,7 +74,6 @@ interface HistoricalTask {
 }
 
 type SectionType = 'checkout' | 'daily' | 'noshow' | 'arrival';
-
 type StatusKey = 'clean' | 'dirty' | 'in_progress' | 'out_of_order' | 'inspected' | 'pending_approval';
 
 const STATUS_COLORS: Record<StatusKey, string> = {
@@ -118,7 +119,30 @@ function isCheckout(row: RoomSnapshot): boolean {
 }
 
 function isNoShow(row: RoomSnapshot): boolean {
-  return row.pms_metadata?.isNoShow === true || (row.room_notes || '').toLowerCase().includes('no show');
+  if (row.had_no_show === true) return true;
+  const meta = row.pms_metadata || {};
+  const status = String(
+    meta.reservationStatus
+      ?? meta.reservation_status
+      ?? meta.pmsStatus
+      ?? meta.pms_status
+      ?? meta.bookingStatus
+      ?? meta.booking_status
+      ?? meta.guestStatus
+      ?? meta.guest_status
+      ?? meta.status
+      ?? meta.reservation?.status
+      ?? meta.reservation?.state
+      ?? '',
+  ).trim().toLowerCase();
+  return meta.isNoShow === true
+    || meta.noShow === true
+    || meta.no_show === true
+    || meta.guestNoShow === true
+    || meta.reservationNoShow === true
+    || ['no_show', 'no-show', 'noshow', 'no show'].includes(status)
+    || (row.room_notes || '').toLowerCase().includes('no show')
+    || (row.room_notes || '').toLowerCase().includes('no-show');
 }
 
 function isEarlyCheckout(row: RoomSnapshot): boolean {
@@ -162,6 +186,7 @@ export function HistoricalHotelRoomOverviewSaved({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showLegend, setShowLegend] = useState(true);
+  const hideMemoriesTransientBadges = isHotelMemoriesBudapest(hotelName);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,7 +200,7 @@ export function HistoricalHotelRoomOverviewSaved({
         const [historyRes, tasksRes] = await Promise.all([
           (supabase as any)
             .from('housekeeping_room_snapshots')
-            .select('business_date, room_id, hotel, room_number, floor_number, venue_id, room_size_sqm, bed_type, bed_configuration, room_status, is_checkout_room, is_dnd, towel_change_required, linen_change_required, room_notes, pms_metadata, guest_nights_stayed, had_dnd, had_towel_change, had_linen_change, had_room_cleaning_request, had_extra_towels_request, had_ready_to_clean, had_no_service, assignment_id, assigned_to, assignment_type, assignment_status, assignment_started_at, assignment_completed_at, supervisor_approved, ready_to_clean, pms_hold, assignment_notes, dnd_attempt_count, source, captured_at, updated_at')
+            .select('business_date, room_id, hotel, room_number, floor_number, venue_id, room_size_sqm, bed_type, bed_configuration, room_status, is_checkout_room, is_dnd, towel_change_required, linen_change_required, room_notes, pms_metadata, guest_nights_stayed, had_dnd, had_towel_change, had_linen_change, had_room_cleaning_request, had_extra_towels_request, had_ready_to_clean, had_no_service, had_no_show, assignment_id, assigned_to, assignment_type, assignment_status, assignment_started_at, assignment_completed_at, supervisor_approved, ready_to_clean, pms_hold, assignment_notes, dnd_attempt_count, source, captured_at, updated_at')
             .in('hotel', hotelKeys)
             .eq('business_date', selectedDate)
             .order('room_number'),
@@ -254,7 +279,8 @@ export function HistoricalHotelRoomOverviewSaved({
     const meta = room.pms_metadata || {};
     const currentNight = Number(meta.currentNight ?? meta.current_night ?? room.guest_nights_stayed);
     const totalNights = Number(meta.totalNights ?? meta.total_nights);
-    const showCheckoutTomorrow = meta.scheduledDepartureTomorrow === true
+    const showCheckoutTomorrow = !hideMemoriesTransientBadges
+      && meta.scheduledDepartureTomorrow === true
       && !checkout
       && meta.scheduledDepartureToday !== true
       && meta.checkedOutToday !== true
@@ -274,15 +300,16 @@ export function HistoricalHotelRoomOverviewSaved({
             dnd ? 'DND / DND attempt recorded' : null,
             cleanRequest ? 'Clean Room request recorded' : null,
             noService ? 'No Service recorded' : null,
+            noShow ? 'No-show recorded' : null,
             staffName ? `Assigned: ${staffName}` : null,
           ].filter(Boolean).join(' · ')}
         >
           {room.room_number}
-          {meta.isNoShow === true && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white">NS</span>}
-          {meta.notArrived === true && meta.isNoShow !== true && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-slate-500 text-white">NA</span>}
+          {noShow && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white">NS</span>}
+          {meta.notArrived === true && !noShow && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-slate-500 text-white">NA</span>}
           {meta.manual_checkout === true && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-amber-500 text-white">M</span>}
           {showCheckoutTomorrow && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-indigo-600 text-white">C/O+1</span>}
-          {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
+          {!hideMemoriesTransientBadges && room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
           {towel && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
           {linen && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
           {cleanRequest && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RC</span>}
@@ -405,6 +432,23 @@ export function HistoricalHotelRoomOverviewSaved({
     );
   }
 
+  const legendItems = [
+    ['Approved / Clean', 'bg-emerald-200 border-emerald-500', null],
+    ['Dirty / Assigned', 'bg-amber-200 border-amber-500', null],
+    ['In progress', 'bg-sky-200 border-sky-500', null],
+    ['Pending approval', 'bg-violet-200 border-violet-500', null],
+    ['DND', 'ring-2 ring-purple-500 bg-muted', null],
+    ['Towel change', 'bg-blue-600 text-white text-[8px] font-bold px-0.5', 'T'],
+    ['Linen change', 'bg-orange-500 text-white text-[8px] font-bold px-0.5', 'C'],
+    ['Clean Room', 'bg-green-600 text-white text-[8px] font-bold px-0.5', 'RC'],
+    ['Extra towels', 'bg-orange-500 text-white text-[8px] font-bold px-0.5', '🧺'],
+    ['Ready to Clean', 'bg-green-600 text-white text-[8px] font-bold px-0.5', 'RTC'],
+    ['No Service', 'bg-gray-500 text-white text-[8px] font-bold px-0.5', 'NS'],
+    ...(!hideMemoriesTransientBadges
+      ? [['Departs tomorrow', 'bg-indigo-600 text-white text-[8px] font-bold px-0.5', 'C/O+1']]
+      : []),
+  ] as Array<[string, string, string | null]>;
+
   return (
     <Card id="hotel-room-overview" className="border-primary/20">
       <CardHeader className="pb-2 pt-3 px-3 sm:px-4 space-y-3">
@@ -446,20 +490,7 @@ export function HistoricalHotelRoomOverviewSaved({
           </button>
           {showLegend && (
             <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-3 gap-y-1.5 mt-2 p-2 rounded-md bg-muted/30 border border-border/50">
-              {[
-                ['Approved / Clean', 'bg-emerald-200 border-emerald-500', null],
-                ['Dirty / Assigned', 'bg-amber-200 border-amber-500', null],
-                ['In progress', 'bg-sky-200 border-sky-500', null],
-                ['Pending approval', 'bg-violet-200 border-violet-500', null],
-                ['DND', 'ring-2 ring-purple-500 bg-muted', null],
-                ['Towel change', 'bg-blue-600 text-white text-[8px] font-bold px-0.5', 'T'],
-                ['Linen change', 'bg-orange-500 text-white text-[8px] font-bold px-0.5', 'C'],
-                ['Clean Room', 'bg-green-600 text-white text-[8px] font-bold px-0.5', 'RC'],
-                ['Extra towels', 'bg-orange-500 text-white text-[8px] font-bold px-0.5', '🧺'],
-                ['Ready to Clean', 'bg-green-600 text-white text-[8px] font-bold px-0.5', 'RTC'],
-                ['No Service', 'bg-gray-500 text-white text-[8px] font-bold px-0.5', 'NS'],
-                ['Departs tomorrow', 'bg-indigo-600 text-white text-[8px] font-bold px-0.5', 'C/O+1'],
-              ].map(([label, cls, text]) => (
+              {legendItems.map(([label, cls, text]) => (
                 <div key={label} className="flex items-center gap-1">
                   {text ? <span className={`rounded ${cls}`}>{text}</span> : <span className={`w-3 h-3 rounded border-2 ${cls}`} />}
                   <span className="text-[10px] text-muted-foreground">{label}</span>
