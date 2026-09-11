@@ -9,6 +9,7 @@ import {
   Eye,
   Loader2,
   PauseCircle,
+  X,
 } from 'lucide-react';
 import { AutoRoomAssignment } from './AutoRoomAssignment';
 import { TodayHousekeepingPlanReviewDialog } from './TodayHousekeepingPlanReviewDialog';
@@ -17,11 +18,15 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { isBudapestNineOrLater, todayBudapest } from '@/lib/budapestTime';
 import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
 import { hasManagerPowers } from '@/lib/roleAccess';
-import { housekeepingAutomationText } from '@/lib/housekeepingAutomationTranslations';
+import {
+  housekeepingAutomationText,
+  type HousekeepingAutomationLanguage,
+} from '@/lib/housekeepingAutomationTranslations';
 import {
   findCurrentDayHousekeepingReviewPlan,
   findTomorrowHousekeepingPlan,
@@ -181,7 +186,13 @@ function getStatusPresentation(
   };
 }
 
-function ReleaseSummary({ plan }: { plan: TomorrowPlanRow }) {
+function ReleaseSummary({
+  plan,
+  language,
+}: {
+  plan: TomorrowPlanRow;
+  language: HousekeepingAutomationLanguage;
+}) {
   const releaseResult = plan.release_result || {};
   const plannedAssignments = numberFrom(releaseResult.planned_assignments);
   const releasedAssignments = numberFrom(releaseResult.released_assignments);
@@ -191,21 +202,24 @@ function ReleaseSummary({ plan }: { plan: TomorrowPlanRow }) {
   if (plan.status !== 'released' || plannedAssignments <= 0) return null;
 
   return (
-    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground" aria-label="Housekeeping release summary">
+    <div
+      className="flex flex-wrap gap-2 text-xs text-muted-foreground"
+      aria-label={housekeepingAutomationText('releaseSummaryAria', language)}
+    >
       <span className="rounded-full border bg-background/70 px-2.5 py-1">
         <strong className="font-semibold text-foreground">{releasedAssignments}</strong>{' '}
-        {tomorrowHousekeepingStatusText('releasedAssignments')}
+        {tomorrowHousekeepingStatusText('releasedAssignments', language)}
       </span>
       {skippedAssignments > 0 ? (
         <span className="rounded-full border bg-background/70 px-2.5 py-1">
           <strong className="font-semibold text-foreground">{skippedAssignments}</strong>{' '}
-          {tomorrowHousekeepingStatusText('skippedAssignments')}
+          {tomorrowHousekeepingStatusText('skippedAssignments', language)}
         </span>
       ) : null}
       {overnightChanges > 0 ? (
         <span className="rounded-full border bg-background/70 px-2.5 py-1">
           <strong className="font-semibold text-foreground">{overnightChanges}</strong>{' '}
-          {tomorrowHousekeepingStatusText('overnightChanges')}
+          {tomorrowHousekeepingStatusText('overnightChanges', language)}
         </span>
       ) : null}
     </div>
@@ -216,11 +230,14 @@ function ReleaseSummary({ plan }: { plan: TomorrowPlanRow }) {
  * Team View entry point for next-day housekeeping.
  *
  * Today's operational plan (prepared yesterday) is a separate, read-only review
- * surface so it never disappears when the tomorrow planner is hidden or opened.
- * Tomorrow preparation becomes available from 09:00 Europe/Budapest.
+ * surface. Both status cards can be dismissed for their own business date; the
+ * next business date receives a fresh card again. Tomorrow preparation becomes
+ * available from 09:00 Europe/Budapest.
  */
 export function TomorrowHousekeepingLauncher() {
   const { profile } = useAuth();
+  const { language: appLanguage } = useTranslation();
+  const language = appLanguage as HousekeepingAutomationLanguage;
   const [open, setOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [todayPlan, setTodayPlan] = useState<TomorrowPlanRow | null>(null);
@@ -229,12 +246,41 @@ export function TomorrowHousekeepingLauncher() {
   const [statusUnavailable, setStatusUnavailable] = useState(false);
   const [budapestDate, setBudapestDate] = useState(todayBudapest());
   const [planningWindowOpen, setPlanningWindowOpen] = useState(isBudapestNineOrLater());
+  const [todayDismissed, setTodayDismissed] = useState(false);
+  const [tomorrowDismissed, setTomorrowDismissed] = useState(false);
   const requestGeneration = useRef(0);
 
   const tomorrowDate = useMemo(
     () => format(addDays(new Date(`${budapestDate}T12:00:00`), 1), 'yyyy-MM-dd'),
     [budapestDate],
   );
+
+  const todayDismissKey = useMemo(
+    () => `hotelcare:hk-team-card:today:${profile?.assigned_hotel || 'hotel'}:${budapestDate}`,
+    [budapestDate, profile?.assigned_hotel],
+  );
+  const tomorrowDismissKey = useMemo(
+    () => `hotelcare:hk-team-card:tomorrow:${profile?.assigned_hotel || 'hotel'}:${tomorrowDate}`,
+    [profile?.assigned_hotel, tomorrowDate],
+  );
+
+  useEffect(() => {
+    setTodayDismissed(window.localStorage.getItem(todayDismissKey) === '1');
+  }, [todayDismissKey]);
+
+  useEffect(() => {
+    setTomorrowDismissed(window.localStorage.getItem(tomorrowDismissKey) === '1');
+  }, [tomorrowDismissKey]);
+
+  const dismissToday = () => {
+    window.localStorage.setItem(todayDismissKey, '1');
+    setTodayDismissed(true);
+  };
+
+  const dismissTomorrow = () => {
+    window.localStorage.setItem(tomorrowDismissKey, '1');
+    setTomorrowDismissed(true);
+  };
 
   const canManage = hasManagerPowers(profile?.role);
 
@@ -327,23 +373,37 @@ export function TomorrowHousekeepingLauncher() {
   const todayPresentation = getStatusPresentation(todayPlan, false, false);
   const TodayStatusIcon = todayPresentation.Icon;
   const todayReleaseTime = normalizeNextDayReleaseTime(todayPlan?.release_time);
-  const todayStatusHint = tomorrowHousekeepingStatusText(todayPresentation.hintKey).replace('08:00', todayReleaseTime);
+  const todayStatusHint = tomorrowHousekeepingStatusText(todayPresentation.hintKey, language)
+    .replace('08:00', todayReleaseTime);
 
   const tomorrowPresentation = getStatusPresentation(tomorrowPlan, statusLoading, statusUnavailable);
   const TomorrowStatusIcon = tomorrowPresentation.Icon;
   const tomorrowReleaseTime = normalizeNextDayReleaseTime(tomorrowPlan?.release_time);
-  const tomorrowStatusHint = tomorrowHousekeepingStatusText(tomorrowPresentation.hintKey).replace('08:00', tomorrowReleaseTime);
-  const tomorrowActionLabel = tomorrowHousekeepingStatusText(tomorrowPresentation.actionKey);
+  const tomorrowStatusHint = tomorrowHousekeepingStatusText(tomorrowPresentation.hintKey, language)
+    .replace('08:00', tomorrowReleaseTime);
+  const tomorrowActionLabel = tomorrowHousekeepingStatusText(tomorrowPresentation.actionKey, language);
+  const dismissLabel = housekeepingAutomationText('dismissCard', language);
 
   return (
     <>
       <div className="space-y-3">
-        {todayPlan ? (
+        {todayPlan && !todayDismissed ? (
           <Card
-            className="overflow-hidden border-slate-300/70 bg-gradient-to-r from-slate-50 via-background to-background shadow-sm dark:border-slate-700 dark:from-slate-950/40"
+            className="relative overflow-hidden border-slate-300/70 bg-gradient-to-r from-slate-50 via-background to-background shadow-sm dark:border-slate-700 dark:from-slate-950/40"
             data-training="today-housekeeping-plan-review"
           >
-            <CardContent className="p-4 sm:p-5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute right-2 top-2 z-10 h-8 w-8 text-muted-foreground hover:text-foreground"
+              onClick={dismissToday}
+              aria-label={dismissLabel}
+              title={dismissLabel}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+            <CardContent className="p-4 pr-12 sm:p-5 sm:pr-14">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-start gap-3">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground">
@@ -351,16 +411,18 @@ export function TomorrowHousekeepingLauncher() {
                   </div>
                   <div className="min-w-0 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-semibold leading-tight">Today’s assignments · prepared yesterday</h3>
+                      <h3 className="font-semibold leading-tight">
+                        {housekeepingAutomationText('todayPreparedTitle', language)}
+                      </h3>
                       <Badge variant="outline" className={`gap-1.5 ${todayPresentation.badgeClassName}`}>
                         <TodayStatusIcon className={`h-3.5 w-3.5 ${todayPresentation.spin ? 'animate-spin' : ''}`} />
-                        {tomorrowHousekeepingStatusText(todayPresentation.labelKey)}
+                        {tomorrowHousekeepingStatusText(todayPresentation.labelKey, language)}
                       </Badge>
                       <TomorrowReleaseTimeControl plan={todayPlan} onSaved={() => void loadStatus(false)} />
                       <Badge variant="secondary">{todayPlan.plan_date}</Badge>
                     </div>
                     <p className="max-w-3xl text-sm text-muted-foreground">{todayStatusHint}</p>
-                    <ReleaseSummary plan={todayPlan} />
+                    <ReleaseSummary plan={todayPlan} language={language} />
                   </div>
                 </div>
 
@@ -371,19 +433,30 @@ export function TomorrowHousekeepingLauncher() {
                   className="w-full shrink-0 gap-2 sm:w-auto"
                 >
                   <Eye className="h-4 w-4" />
-                  View assignments
+                  {housekeepingAutomationText('viewAssignments', language)}
                 </Button>
               </div>
             </CardContent>
           </Card>
         ) : null}
 
-        {planningWindowOpen ? (
+        {planningWindowOpen && !tomorrowDismissed ? (
           <Card
-            className="overflow-hidden border-primary/30 bg-gradient-to-r from-primary/10 via-primary/5 to-background shadow-sm"
+            className="relative overflow-hidden border-primary/30 bg-gradient-to-r from-primary/10 via-primary/5 to-background shadow-sm"
             data-training="tomorrow-housekeeping-plan"
           >
-            <CardContent className="p-4 sm:p-5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute right-2 top-2 z-10 h-8 w-8 text-muted-foreground hover:text-foreground"
+              onClick={dismissTomorrow}
+              aria-label={dismissLabel}
+              title={dismissLabel}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+            <CardContent className="p-4 pr-12 sm:p-5 sm:pr-14">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-start gap-3">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -391,10 +464,12 @@ export function TomorrowHousekeepingLauncher() {
                   </div>
                   <div className="min-w-0 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-semibold leading-tight">{housekeepingAutomationText('title')}</h3>
+                      <h3 className="font-semibold leading-tight">
+                        {housekeepingAutomationText('title', language)}
+                      </h3>
                       <Badge variant="outline" className={`gap-1.5 ${tomorrowPresentation.badgeClassName}`}>
                         <TomorrowStatusIcon className={`h-3.5 w-3.5 ${tomorrowPresentation.spin ? 'animate-spin' : ''}`} />
-                        {tomorrowHousekeepingStatusText(tomorrowPresentation.labelKey)}
+                        {tomorrowHousekeepingStatusText(tomorrowPresentation.labelKey, language)}
                       </Badge>
                       <TomorrowReleaseTimeControl plan={tomorrowPlan} onSaved={() => void loadStatus(false)} />
                       <Badge variant="secondary">{tomorrowDate}</Badge>
@@ -402,10 +477,10 @@ export function TomorrowHousekeepingLauncher() {
 
                     <p className="max-w-3xl text-sm text-muted-foreground">{tomorrowStatusHint}</p>
                     {tomorrowPlan ? (
-                      <ReleaseSummary plan={tomorrowPlan} />
+                      <ReleaseSummary plan={tomorrowPlan} language={language} />
                     ) : (
                       <p className="max-w-3xl text-xs text-muted-foreground/80">
-                        {housekeepingAutomationText('subtitle')}
+                        {housekeepingAutomationText('subtitle', language)}
                       </p>
                     )}
                   </div>
