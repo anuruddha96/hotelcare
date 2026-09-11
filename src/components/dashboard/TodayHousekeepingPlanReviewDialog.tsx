@@ -3,12 +3,19 @@ import { BedDouble, Loader2, MapPin, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
+import {
+  housekeepingAutomationText,
+  type HousekeepingAutomationLanguage,
+} from '@/lib/housekeepingAutomationTranslations';
+import { tomorrowHousekeepingStatusText } from '@/lib/tomorrowHousekeepingStatusTranslations';
 
 type Plan = {
   id: string;
   plan_date: string;
   status: 'draft' | 'approved' | 'releasing' | 'released' | 'cancelled' | 'failed';
+  auto_release: boolean;
 };
 
 type PlanItem = {
@@ -44,13 +51,35 @@ type LoadedPlan = {
   rooms: Room[];
 };
 
-function staffLabel(staff: Staff | undefined, id: string) {
-  if (!staff) return `Staff ${id.slice(0, 6)}`;
-  return staff.nickname?.trim() || staff.full_name?.trim() || `Staff ${id.slice(0, 6)}`;
+function staffLabel(
+  staff: Staff | undefined,
+  id: string,
+  language: HousekeepingAutomationLanguage,
+) {
+  if (!staff) return `${housekeepingAutomationText('staff', language)} ${id.slice(0, 6)}`;
+  return staff.nickname?.trim()
+    || staff.full_name?.trim()
+    || `${housekeepingAutomationText('staff', language)} ${id.slice(0, 6)}`;
 }
 
-function assignmentTypeLabel(type: PlanItem['assignment_type']) {
-  return type === 'checkout_cleaning' ? 'Check-out' : 'Daily';
+function assignmentTypeLabel(
+  type: PlanItem['assignment_type'],
+  language: HousekeepingAutomationLanguage,
+) {
+  return type === 'checkout_cleaning'
+    ? housekeepingAutomationText('checkouts', language)
+    : housekeepingAutomationText('daily', language);
+}
+
+function planStatusLabel(plan: Plan, language: HousekeepingAutomationLanguage) {
+  if (plan.status === 'draft') return tomorrowHousekeepingStatusText('draftPlan', language);
+  if (plan.status === 'approved') {
+    return tomorrowHousekeepingStatusText(plan.auto_release ? 'approvedAuto' : 'approvedHeld', language);
+  }
+  if (plan.status === 'releasing') return tomorrowHousekeepingStatusText('releasing', language);
+  if (plan.status === 'released') return tomorrowHousekeepingStatusText('released', language);
+  if (plan.status === 'cancelled') return tomorrowHousekeepingStatusText('cancelled', language);
+  return tomorrowHousekeepingStatusText('failed', language);
 }
 
 export function TodayHousekeepingPlanReviewDialog({
@@ -63,9 +92,13 @@ export function TodayHousekeepingPlanReviewDialog({
   plan: Plan | null;
 }) {
   const { profile } = useAuth();
+  const { language: appLanguage } = useTranslation();
+  const language = appLanguage as HousekeepingAutomationLanguage;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<LoadedPlan | null>(null);
+  const text = (key: Parameters<typeof housekeepingAutomationText>[0]) =>
+    housekeepingAutomationText(key, language);
 
   useEffect(() => {
     if (!open || !plan) {
@@ -125,7 +158,7 @@ export function TodayHousekeepingPlanReviewDialog({
       } catch (cause) {
         if (cancelled) return;
         console.error('[TodayHousekeepingPlanReviewDialog] could not load saved plan:', cause);
-        setError(cause instanceof Error ? cause.message : 'Could not load the saved assignments.');
+        setError(text('couldNotLoadSaved'));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -135,7 +168,7 @@ export function TodayHousekeepingPlanReviewDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, plan, profile?.organization_slug]);
+  }, [open, plan, profile?.organization_slug, language]);
 
   const staffById = useMemo(
     () => new Map((data?.staff || []).map(staff => [staff.id, staff])),
@@ -155,7 +188,7 @@ export function TodayHousekeepingPlanReviewDialog({
     return ownerIds
       .map(ownerId => ({
         ownerId,
-        label: staffLabel(staffById.get(ownerId), ownerId),
+        label: staffLabel(staffById.get(ownerId), ownerId, language),
         items: data.items
           .filter(item => item.assigned_to === ownerId)
           .sort((a, b) => {
@@ -166,7 +199,7 @@ export function TodayHousekeepingPlanReviewDialog({
         areas: data.areas.filter(area => area.assigned_to === ownerId),
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
-  }, [data, roomById, staffById]);
+  }, [data, language, roomById, staffById]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -174,12 +207,12 @@ export function TodayHousekeepingPlanReviewDialog({
         <DialogHeader className="border-b px-5 py-4 sm:px-6">
           <DialogTitle className="flex flex-wrap items-center gap-2">
             <Users className="h-5 w-5 text-primary" />
-            Today’s assignments · prepared yesterday
+            {text('todayPreparedTitle')}
             {plan ? <Badge variant="secondary">{plan.plan_date}</Badge> : null}
-            {plan ? <Badge variant="outline">{plan.status}</Badge> : null}
+            {plan ? <Badge variant="outline">{planStatusLabel(plan, language)}</Badge> : null}
           </DialogTitle>
           <p className="text-sm text-muted-foreground">
-            Read-only view of the saved room and public-area allocation prepared for today.
+            {text('todayReadOnlyDescription')}
           </p>
         </DialogHeader>
 
@@ -187,7 +220,7 @@ export function TodayHousekeepingPlanReviewDialog({
           {loading ? (
             <div className="flex min-h-52 items-center justify-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
-              Loading saved assignments…
+              {text('loadingSavedAssignments')}
             </div>
           ) : error ? (
             <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
@@ -195,7 +228,7 @@ export function TodayHousekeepingPlanReviewDialog({
             </div>
           ) : groups.length === 0 ? (
             <div className="rounded-xl border bg-muted/30 p-5 text-sm text-muted-foreground">
-              No saved room or public-area assignments were found for this plan.
+              {text('noSavedAssignments')}
             </div>
           ) : (
             <div className="grid gap-4 lg:grid-cols-2">
@@ -205,18 +238,18 @@ export function TodayHousekeepingPlanReviewDialog({
                     <div className="min-w-0">
                       <h3 className="truncate font-semibold">{group.label}</h3>
                       <p className="text-xs text-muted-foreground">
-                        {group.items.length} room assignment{group.items.length === 1 ? '' : 's'}
-                        {group.areas.length ? ` · ${group.areas.length} public-area task${group.areas.length === 1 ? '' : 's'}` : ''}
+                        {group.items.length} {text('roomAssignments')}
+                        {group.areas.length ? ` · ${group.areas.length} ${text('publicAreaTasks')}` : ''}
                       </p>
                     </div>
-                    <Badge variant="outline">{group.items.length + group.areas.length} tasks</Badge>
+                    <Badge variant="outline">{group.items.length + group.areas.length} {text('tasks')}</Badge>
                   </div>
 
                   <div className="space-y-3 p-4">
                     {group.items.length ? (
                       <div className="space-y-2">
                         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          <BedDouble className="h-3.5 w-3.5" /> Rooms
+                          <BedDouble className="h-3.5 w-3.5" /> {text('roomsSection')}
                         </div>
                         <div className="flex flex-wrap gap-2">
                           {group.items.map(item => {
@@ -224,16 +257,20 @@ export function TodayHousekeepingPlanReviewDialog({
                             return (
                               <div key={item.id} className="rounded-xl border bg-background px-3 py-2 text-sm">
                                 <div className="flex items-center gap-2">
-                                  <span className="font-semibold">Room {room?.room_number || item.room_id.slice(0, 6)}</span>
+                                  <span className="font-semibold">
+                                    {text('room')} {room?.room_number || item.room_id.slice(0, 6)}
+                                  </span>
                                   <Badge variant="secondary" className="text-[10px]">
-                                    {assignmentTypeLabel(item.assignment_type)}
+                                    {assignmentTypeLabel(item.assignment_type, language)}
                                   </Badge>
                                   {item.source === 'shared' ? (
-                                    <Badge variant="outline" className="text-[10px]">Shared</Badge>
+                                    <Badge variant="outline" className="text-[10px]">{text('shared')}</Badge>
                                   ) : null}
                                 </div>
                                 {room?.floor_number != null ? (
-                                  <p className="mt-1 text-xs text-muted-foreground">Floor {room.floor_number}</p>
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    {text('floor')} {room.floor_number}
+                                  </p>
                                 ) : null}
                               </div>
                             );
@@ -245,7 +282,7 @@ export function TodayHousekeepingPlanReviewDialog({
                     {group.areas.length ? (
                       <div className="space-y-2">
                         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          <MapPin className="h-3.5 w-3.5" /> Public areas
+                          <MapPin className="h-3.5 w-3.5" /> {text('publicAreas')}
                         </div>
                         <div className="space-y-2">
                           {group.areas.map(area => (
