@@ -16,18 +16,24 @@ function touch(type: string, x: number, y: number) {
   return event;
 }
 
+function mediaResult(query: string, matches: boolean) {
+  return {
+    matches,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  } as MediaQueryList;
+}
+
 describe("RevenueCalendarExperience", () => {
   beforeEach(() => {
-    vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
-      matches: query.includes("767"),
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    }));
+    vi.spyOn(window, "matchMedia").mockImplementation((query: string) =>
+      mediaResult(query, query.includes("767")),
+    );
   });
 
   afterEach(() => {
@@ -73,5 +79,39 @@ describe("RevenueCalendarExperience", () => {
     pane.dispatchEvent(touch("touchmove", 100, 150));
 
     expect(scrollBy).toHaveBeenCalled();
+  });
+
+  it("keeps repeated vertical swipes inside a rotated phone grid until a boundary", async () => {
+    Object.defineProperty(window, "innerWidth", { value: 844, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 390, configurable: true });
+    vi.mocked(window.matchMedia).mockImplementation((query: string) =>
+      mediaResult(query, query.includes("pointer: coarse")),
+    );
+
+    const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation(() => undefined);
+    render(<RevenueCalendarExperience />);
+    const card = document.createElement("div");
+    card.setAttribute("data-training", "revenue-grid");
+    const pane = document.createElement("div");
+    pane.className = "relative overflow-auto overscroll-x-contain";
+    Object.defineProperty(pane, "clientHeight", { value: 200, configurable: true });
+    Object.defineProperty(pane, "scrollHeight", { value: 800, configurable: true });
+    pane.scrollTop = 200;
+    card.appendChild(pane);
+    document.body.appendChild(card);
+
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+
+    expect(card.dataset.rateCalendarDevice).toBe("mobile-landscape");
+
+    pane.dispatchEvent(touch("touchstart", 120, 240));
+    pane.dispatchEvent(touch("touchmove", 120, 180));
+    pane.dispatchEvent(touch("touchend", 120, 180));
+    pane.dispatchEvent(touch("touchstart", 120, 240));
+    pane.dispatchEvent(touch("touchmove", 120, 180));
+
+    expect(scrollBy).not.toHaveBeenCalled();
   });
 });
