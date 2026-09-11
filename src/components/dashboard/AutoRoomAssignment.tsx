@@ -4,7 +4,7 @@ import { MapPin, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
-import { isBudapestNoonOrLater, tomorrowBudapest } from '@/lib/budapestTime';
+import { isBudapestNineOrLater, tomorrowBudapest } from '@/lib/budapestTime';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import {
   clearLiveSectionTaskSnapshot,
@@ -70,7 +70,7 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   const { profile } = useAuth();
   const isMemories = isHotelMemoriesKey(profile?.assigned_hotel);
   const isTomorrowPlanner = props.selectedDate === tomorrowBudapest();
-  const tomorrowPlanningAvailable = isBudapestNoonOrLater();
+  const tomorrowPlanningAvailable = isBudapestNineOrLater();
   const [memoriesView, setMemoriesView] = useState<MemoriesAutoAssignView>('housekeeper');
   const [preparedRealityKey, setPreparedRealityKey] = useState<string | null>(null);
 
