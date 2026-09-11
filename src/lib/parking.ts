@@ -27,6 +27,12 @@ export interface ParkingSettings {
   provider_name: string;
   notification_emails: string[];
   default_validity_days: number;
+  vendor_auto_email: boolean;
+  guest_email_enabled: boolean;
+  sender_email: string;
+  reply_to: string | null;
+  brand_name: string;
+  parking_instructions: string;
   created_at: string;
   updated_at: string;
   updated_by: string | null;
@@ -62,6 +68,7 @@ export interface ParkingTicket {
   reservation_ref: string | null;
   reservation_search: string;
   guest_name: string | null;
+  guest_email: string | null;
   room_number: string | null;
   notes: string | null;
   voided_at: string | null;

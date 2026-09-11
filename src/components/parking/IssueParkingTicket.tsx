@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, CircleAlert, Loader2, Search, TicketCheck } from 'lucide-react';
+import { CheckCircle2, CircleAlert, Loader2, Mail, Search, TicketCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -41,6 +41,7 @@ export function IssueParkingTicket({ organizationSlug, hotelId, settings, onIssu
   const [validTo, setValidTo] = useState(addDaysISO(today, validityDays - 1));
   const [reservationRef, setReservationRef] = useState('');
   const [guestName, setGuestName] = useState('');
+  const [guestEmail, setGuestEmail] = useState('');
   const [roomNumber, setRoomNumber] = useState('');
   const [notes, setNotes] = useState('');
   const [lookup, setLookup] = useState<LookupState>({ kind: 'idle' });
@@ -49,7 +50,11 @@ export function IssueParkingTicket({ organizationSlug, hotelId, settings, onIssu
 
   useEffect(() => {
     if (validFrom === today) setValidTo(addDaysISO(validFrom, validityDays - 1));
-  }, [validityDays, validFrom, today]); // Preserve a manually selected end date until the start/default changes.
+  }, [validityDays, validFrom, today]);
+
+  useEffect(() => {
+    if (!settings?.guest_email_enabled) setGuestEmail('');
+  }, [settings?.guest_email_enabled]);
 
   useEffect(() => {
     const normalized = normalizeParkingReference(reference);
@@ -106,6 +111,7 @@ export function IssueParkingTicket({ organizationSlug, hotelId, settings, onIssu
         validTo,
         reservationRef: reservationRef.trim() || null,
         guestName: guestName.trim() || null,
+        guestEmail: settings?.guest_email_enabled ? guestEmail.trim() || null : null,
         roomNumber: roomNumber.trim() || null,
         notes: notes.trim() || null,
       });
@@ -113,6 +119,7 @@ export function IssueParkingTicket({ organizationSlug, hotelId, settings, onIssu
       setReference('');
       setReservationRef('');
       setGuestName('');
+      setGuestEmail('');
       setRoomNumber('');
       setNotes('');
       setLookup({ kind: 'idle' });
@@ -200,6 +207,26 @@ export function IssueParkingTicket({ organizationSlug, hotelId, settings, onIssu
             </div>
             <p className="-mt-2 text-xs text-muted-foreground">At least one guest identifier is required.</p>
 
+            {settings?.guest_email_enabled && (
+              <div className="space-y-1.5 rounded-lg border bg-muted/20 p-3">
+                <Label htmlFor="parking-guest-email" className="flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-primary" /> Guest email
+                </Label>
+                <Input
+                  id="parking-guest-email"
+                  type="email"
+                  value={guestEmail}
+                  onChange={(event) => setGuestEmail(event.target.value)}
+                  placeholder="guest@example.com"
+                  autoComplete="email"
+                  maxLength={254}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Optional. HotelCare will queue a branded parking voucher email after the ticket is issued. The physical ticket still controls parking access unless your parking operator accepts digital vouchers.
+                </p>
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <Label htmlFor="parking-notes">Notes</Label>
               <Textarea id="parking-notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Optional handover note" maxLength={1000} />
@@ -223,6 +250,8 @@ export function IssueParkingTicket({ organizationSlug, hotelId, settings, onIssu
               <div className="text-xs text-muted-foreground">
                 <p>{lastIssued.valid_from} → {lastIssued.valid_to}</p>
                 <p>{lastIssued.reservation_ref || lastIssued.guest_name || `Room ${lastIssued.room_number}`}</p>
+                {lastIssued.guest_email && <p>Guest voucher queued for {lastIssued.guest_email}.</p>}
+                {settings?.vendor_auto_email && <p>Parking vendor notification queued automatically.</p>}
               </div>
             </AlertDescription>
           </Alert>

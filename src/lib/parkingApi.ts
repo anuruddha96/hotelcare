@@ -53,13 +53,25 @@ export async function saveParkingSettings(input: {
   providerName: string;
   notificationEmails: string[];
   defaultValidityDays: number;
+  vendorAutoEmail: boolean;
+  guestEmailEnabled: boolean;
+  senderEmail: string;
+  replyTo: string | null;
+  brandName: string;
+  parkingInstructions: string;
 }): Promise<ParkingSettings> {
-  const { data, error } = await db.rpc('parking_save_settings', {
+  const { data, error } = await db.rpc('parking_save_email_settings', {
     _organization_slug: input.organizationSlug,
     _hotel_id: input.hotelId,
     _provider_name: input.providerName,
     _notification_emails: input.notificationEmails,
     _default_validity_days: input.defaultValidityDays,
+    _vendor_auto_email: input.vendorAutoEmail,
+    _guest_email_enabled: input.guestEmailEnabled,
+    _sender_email: input.senderEmail,
+    _reply_to: input.replyTo,
+    _brand_name: input.brandName,
+    _parking_instructions: input.parkingInstructions,
   });
   throwIfError(error);
   const result = singleResult<ParkingSettings>(data);
@@ -140,10 +152,11 @@ export async function issueParkingTicket(input: {
   validTo: string;
   reservationRef: string | null;
   guestName: string | null;
+  guestEmail: string | null;
   roomNumber: string | null;
   notes: string | null;
 }): Promise<ParkingTicket> {
-  const { data, error } = await db.rpc('parking_issue_ticket', {
+  const { data, error } = await db.rpc('parking_issue_ticket_with_email', {
     _organization_slug: input.organizationSlug,
     _hotel_id: input.hotelId,
     _reference: input.reference,
@@ -153,6 +166,7 @@ export async function issueParkingTicket(input: {
     _guest_name: input.guestName,
     _room_number: input.roomNumber,
     _notes: input.notes,
+    _guest_email: input.guestEmail,
   });
   throwIfError(error);
   const result = singleResult<ParkingTicket>(data);
@@ -253,7 +267,7 @@ export async function setParkingUserAccess(input: {
   organizationSlug: string;
   hotelId: string;
   userId: string;
-  accessLevel: ParkingAccess;
+  accessLevel: Exclude<ParkingAccess, 'manage'>;
 }): Promise<void> {
   const { error } = await db.rpc('parking_set_user_access', {
     _organization_slug: input.organizationSlug,
