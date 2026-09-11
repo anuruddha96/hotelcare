@@ -30,7 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Search, Users, Filter, Home, Ticket, Settings, Shield, Clock, Building2, Package as PackageIcon, TrendingUp, Receipt } from 'lucide-react';
+import { Plus, Search, Users, Filter, Home, Ticket, Settings, Shield, Clock, Building2, Package as PackageIcon, TrendingUp, Receipt, CarFront } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { HelpTooltip } from '@/components/ui/help-tooltip';
 import { UI_HINTS } from '@/lib/ui-hints';
@@ -500,7 +500,7 @@ export function Dashboard() {
                   <Ticket className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                   <span>Maintenance</span>
                 </TabsTrigger>
-                                <button
+                <button
                   type="button"
                   onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/reception`)}
                   className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
@@ -508,6 +508,14 @@ export function Dashboard() {
                 >
                   <Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
                   <span>Reception</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/${organizationSlug || 'rdhotels'}/parking-tickets`)}
+                  className="shrink-0 whitespace-nowrap inline-flex items-center justify-center gap-1 sm:gap-2 rounded-md px-2 sm:px-3 py-1.5 text-[11px] sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
+                >
+                  <CarFront className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+                  <span>Parking Tickets</span>
                 </button>
                 <TabsTrigger value="housekeeping" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="housekeeping-tab">
                   <Users className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />

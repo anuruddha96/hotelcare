@@ -9,8 +9,10 @@ import {
   Radio,
   TrendingUp,
   Receipt,
+  CarFront,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { PARKING_ISSUER_ROLES } from '@/lib/parking';
 import { Button } from '@/components/ui/button';
 
 type NavigationItem = {
@@ -29,6 +31,8 @@ const MANAGEMENT_ROLES = [
   'top_management_manager',
 ];
 
+const PARKING_ROLES: readonly string[] = PARKING_ISSUER_ROLES;
+
 const PMS_NAV_ITEMS: NavigationItem[] = [
   {
     key: 'maintenance',
@@ -43,6 +47,13 @@ const PMS_NAV_ITEMS: NavigationItem[] = [
     label: 'Reception',
     href: (basePath) => `${basePath}/reception`,
     roles: [...MANAGEMENT_ROLES, 'reception', 'front_office'],
+  },
+  {
+    key: 'parking',
+    icon: CarFront,
+    label: 'Parking Tickets',
+    href: (basePath) => `${basePath}/parking-tickets`,
+    roles: PARKING_ROLES,
   },
   {
     key: 'housekeeping',
@@ -102,6 +113,7 @@ export function PMSNavigation() {
 
   const activeKey = (() => {
     if (isReceptionPath) return 'reception';
+    if (location.pathname.startsWith(`${basePath}/parking-tickets`)) return 'parking';
     if (location.pathname.startsWith(`${basePath}/revenue`)) return 'revenue';
     if (location.pathname.startsWith(`${basePath}/channel-manager`)) return 'channel-manager';
     if (location.pathname.startsWith(`${basePath}/purchase-invoices`)) return 'purchase-invoices';

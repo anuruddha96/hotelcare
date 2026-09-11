@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router-dom';
-import { Ticket, Home, Users, Clock, TrendingUp, Receipt, MessageSquareText } from 'lucide-react';
+import { Ticket, Home, Users, Clock, TrendingUp, Receipt, MessageSquareText, CarFront } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { cn } from '@/lib/utils';
@@ -13,7 +13,8 @@ type Current =
   | 'attendance'
   | 'revenue'
   | 'reputation'
-  | 'purchase-invoices';
+  | 'purchase-invoices'
+  | 'parking';
 
 interface MainTabsBarProps {
   current?: Current;
@@ -75,6 +76,10 @@ export function MainTabsBar({ current, className }: MainTabsBarProps) {
         <button type="button" className={btn('rooms')} onClick={() => goDashboard('rooms')}>
           <Home className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
           <span>Reception</span>
+        </button>
+        <button type="button" className={btn('parking')} onClick={() => navigate(`${orgPath}/parking-tickets`)}>
+          <CarFront className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
+          <span>Parking Tickets</span>
         </button>
         <button type="button" className={btn('housekeeping')} onClick={() => goDashboard('housekeeping')}>
           <Users className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />

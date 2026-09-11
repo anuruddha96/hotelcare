@@ -142,6 +142,17 @@ export const ASSISTANT_DESTINATIONS: AssistantDestination[] = [
     path: (org) => `/${org}/guests`,
   },
   {
+    id: "reception.parking_tickets",
+    label: "Parking Tickets",
+    description: "Parking voucher inventory, guest issuing, ticket search and audit history.",
+    module: "reception",
+    roles: [
+      "admin", "top_management", "top_management_manager", "manager",
+      "reception_manager", "back_office_manager", "reception", "front_office",
+    ],
+    path: (org) => `/${org}/parking-tickets`,
+  },
+  {
     id: "revenue.overview",
     label: "Revenue Management",
     description: "Revenue overview across properties: occupancy, ADR, pickup and pace.",
