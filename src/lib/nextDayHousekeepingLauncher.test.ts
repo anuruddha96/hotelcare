@@ -33,10 +33,11 @@ describe('next-day housekeeping launcher plan selection', () => {
     expect(pickHousekeepingLauncherPlan([next, current], today, tomorrow, true)).toBe(current);
   });
 
-  it('keeps an unfinished draft visible after midnight instead of hiding it', () => {
+  it('does not revive an unapproved draft after midnight', () => {
     const current = plan('today', today, 'draft');
 
-    expect(pickHousekeepingLauncherPlan([current], today, tomorrow, false)).toBe(current);
+    expect(pickHousekeepingLauncherPlan([current], today, tomorrow, false)).toBeNull();
+    expect(isCurrentDayHousekeepingCarryover(current, today)).toBe(false);
   });
 
   it('does not keep a released or cancelled current-day plan in the morning launcher', () => {
