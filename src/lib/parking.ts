@@ -3,7 +3,7 @@ export const PARKING_MAX_BATCH_SIZE = 2000;
 export type ParkingAccess = 'none' | 'issue' | 'manage';
 export type ParkingStoredStatus = 'available' | 'issued' | 'void';
 export type ParkingDisplayStatus = ParkingStoredStatus | 'expired';
-export type ParkingSearchStatus = 'all' | ParkingDisplayStatus;
+export type ParkingSearchStatus = 'all' | ParkingDisplayStatus | 'unreported';
 
 export const PARKING_MANAGER_ROLES = [
   'admin',
@@ -89,6 +89,33 @@ export interface ParkingTicketEvent {
   actor_name: string;
   details: Record<string, unknown>;
   created_at: string;
+}
+
+export interface ParkingReservationOption {
+  reservation_id: string;
+  reservation_number: string;
+  guest_name: string | null;
+  guest_email: string | null;
+  room_number: string | null;
+  check_in_date: string | null;
+  check_out_date: string | null;
+  reservation_status: string | null;
+  source: string | null;
+}
+
+export type ParkingEmailJobStatus = 'queued' | 'processing' | 'sent' | 'failed' | 'cancelled';
+
+export interface ParkingEmailJob {
+  id: string;
+  ticket_id: string;
+  audience: 'vendor' | 'guest';
+  recipient: string;
+  status: ParkingEmailJobStatus;
+  attempts: number;
+  provider_id: string | null;
+  last_error: string | null;
+  created_at: string;
+  sent_at: string | null;
 }
 
 export interface ParkingStockSummary {
