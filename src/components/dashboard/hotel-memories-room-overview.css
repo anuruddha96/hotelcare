@@ -10,3 +10,35 @@
 .hotel-memories-room-overview .cursor-help:has(> span.bg-indigo-600) {
   display: none !important;
 }
+
+/*
+ * Housekeeping history needs exception states to remain visually dominant even
+ * when the saved final room status is clean. A room that had DND or No Service
+ * during the business day should not look like an ordinary green completed room.
+ *
+ * These rules intentionally key off the room-board state markers already
+ * rendered by both the live and saved-history boards. That keeps the visual
+ * language consistent without changing the underlying saved status.
+ */
+#hotel-room-overview .ring-purple-500 {
+  --tw-ring-color: rgb(220 38 38) !important;
+}
+
+#hotel-room-overview .relative.ring-purple-500 {
+  background-color: rgb(254 202 202) !important;
+  border-color: rgb(220 38 38) !important;
+  color: rgb(127 29 29) !important;
+}
+
+/* No Service gets a darker rose treatment so it is distinguishable from DND. */
+#hotel-room-overview .relative:has(> span.bg-gray-500) {
+  background-color: rgb(253 164 175) !important;
+  border-color: rgb(190 18 60) !important;
+  color: rgb(76 5 25) !important;
+  box-shadow: 0 0 0 2px rgb(190 18 60 / 0.22) !important;
+}
+
+#hotel-room-overview span.bg-gray-500 {
+  background-color: rgb(159 18 57) !important;
+  color: white !important;
+}
