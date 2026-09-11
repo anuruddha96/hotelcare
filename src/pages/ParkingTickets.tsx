@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { CarFront, History, Loader2, PackagePlus, Settings, ShieldAlert } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
@@ -38,6 +38,7 @@ export default function ParkingTickets() {
   const operational = useOperationalHotel();
   const organizationSlug = profile?.organization_slug || routeOrganization || '';
   const hotelId = operational.hotelId || '';
+  const loadRequestRef = useRef(0);
   const [access, setAccess] = useState<ParkingAccess | null>(null);
   const [settings, setSettings] = useState<ParkingSettings | null>(null);
   const [stock, setStock] = useState<ParkingStockSummary>(EMPTY_STOCK);
@@ -48,6 +49,8 @@ export default function ParkingTickets() {
 
   const reload = useCallback(async () => {
     if (!organizationSlug || !hotelId) return;
+
+    const requestId = ++loadRequestRef.current;
 
     // The header HotelSwitcher is the single source of truth for property
     // context. Clear the previous property's view before loading the next one
@@ -61,6 +64,8 @@ export default function ParkingTickets() {
 
     try {
       const nextAccess = await getParkingAccess(organizationSlug, hotelId);
+      if (loadRequestRef.current !== requestId) return;
+
       setAccess(nextAccess);
       if (nextAccess === 'none') {
         setSettings(null);
@@ -68,24 +73,31 @@ export default function ParkingTickets() {
         setLoadedHotelId(hotelId);
         return;
       }
+
       const [nextSettings, nextStock] = await Promise.all([
         getParkingSettings(organizationSlug, hotelId),
         getParkingStock(organizationSlug, hotelId),
       ]);
+      if (loadRequestRef.current !== requestId) return;
+
       setSettings(nextSettings);
       setStock(nextStock);
       setLoadedHotelId(hotelId);
     } catch (nextError) {
+      if (loadRequestRef.current !== requestId) return;
       setError(parkingErrorMessage(nextError, 'Parking Tickets could not be loaded.'));
       setLoadedHotelId(hotelId);
     } finally {
-      setLoading(false);
+      if (loadRequestRef.current === requestId) setLoading(false);
     }
   }, [organizationSlug, hotelId]);
 
   useEffect(() => {
     if (!operational.ready || tenantLoading) return;
     if (!hotelId) {
+      // Invalidate any response still returning for the previously selected
+      // property before showing the no-hotel state.
+      loadRequestRef.current += 1;
       setAccess(null);
       setSettings(null);
       setStock(EMPTY_STOCK);
