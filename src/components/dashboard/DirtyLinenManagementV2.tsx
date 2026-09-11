@@ -382,6 +382,17 @@ export function DirtyLinenManagementV2() {
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [sessions]);
 
+  const vendorItemTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    linenItems.forEach(item => { totals[item.name] = 0; });
+    housekeepers.forEach(housekeeper => {
+      linenItems.forEach(item => {
+        totals[item.name] += housekeeper.items[item.name] || 0;
+      });
+    });
+    return totals;
+  }, [housekeepers, linenItems]);
+
   const totalCollected = useMemo(() => counts.reduce((sum, row) => sum + row.count, 0), [counts]);
   const roomTotals = useMemo(() => {
     const map = new Map<string, number>();
@@ -586,6 +597,83 @@ export function DirtyLinenManagementV2() {
       </div>
 
       <DateRangeFilter dateRange={dateRange} onDateRangeChange={setDateRange} />
+
+      <Card className="p-4 sm:p-6 overflow-hidden">
+        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+          <div>
+            <h3 className="font-bold text-lg">Vendor collection summary</h3>
+            <p className="text-sm text-muted-foreground">Same housekeeper and linen-item order used for the vendor summary.</p>
+          </div>
+          <Badge variant="secondary">{totalCollected} total</Badge>
+        </div>
+        <div className="w-full overflow-x-auto rounded-md border">
+          <table className="w-full min-w-[760px] table-fixed border-collapse">
+            <colgroup>
+              <col className="w-[12%]" />
+              {linenItems.map(item => <col key={item.id} />)}
+              <col className="w-[7%]" />
+            </colgroup>
+            <thead>
+              <tr className="bg-muted/80">
+                <th className="border-r border-b px-2 py-2 text-left text-[10px] xl:text-xs font-bold leading-tight break-words [hyphens:auto]">
+                  {t('linen.housekeepers')}
+                </th>
+                {linenItems.map(item => {
+                  const label = translateLinenItem(item.display_name, t);
+                  return (
+                    <th key={item.id} title={label} className="border-r border-b px-1 py-2 text-center font-bold text-[9px] lg:text-[10px] xl:text-xs leading-[1.15] whitespace-normal break-words [hyphens:auto] align-middle">
+                      {label}
+                    </th>
+                  );
+                })}
+                <th className="border-b px-1 py-2 text-center font-bold text-[10px] xl:text-xs leading-tight bg-primary/10 break-words">
+                  {t('linen.total').toUpperCase()}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {!housekeepers.length ? (
+                <tr>
+                  <td colSpan={linenItems.length + 2} className="p-8 text-center text-muted-foreground">
+                    {loading ? 'Loading…' : t('linen.noData')}
+                  </td>
+                </tr>
+              ) : (
+                <>
+                  {housekeepers.map(housekeeper => (
+                    <tr key={housekeeper.id} className="even:bg-muted/20 hover:bg-accent/30 transition-colors">
+                      <td title={housekeeper.name} className="border-r border-b px-2 py-2 text-xs lg:text-sm font-medium leading-tight break-words [hyphens:auto]">
+                        {housekeeper.name}
+                      </td>
+                      {linenItems.map(item => (
+                        <td key={item.id} className="border-r border-b px-1 py-2 text-center text-xs lg:text-sm tabular-nums">
+                          {housekeeper.items[item.name] || 0}
+                        </td>
+                      ))}
+                      <td className="border-b px-1 py-2 text-center text-xs lg:text-sm font-bold tabular-nums bg-primary/5">
+                        {housekeeper.total}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="bg-accent/80 font-bold">
+                    <td className="border-r px-2 py-2 text-xs lg:text-sm leading-tight break-words">
+                      {t('linen.total').toUpperCase()}
+                    </td>
+                    {linenItems.map(item => (
+                      <td key={item.id} className="border-r px-1 py-2 text-center text-xs lg:text-sm tabular-nums">
+                        {vendorItemTotals[item.name] || 0}
+                      </td>
+                    ))}
+                    <td className="px-1 py-2 text-center bg-primary/10 text-sm lg:text-base tabular-nums">
+                      {totalCollected}
+                    </td>
+                  </tr>
+                </>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Card className="p-4"><p className="text-xs text-muted-foreground">Room linen</p><p className="text-2xl font-bold mt-1">{totalCollected}</p></Card>
