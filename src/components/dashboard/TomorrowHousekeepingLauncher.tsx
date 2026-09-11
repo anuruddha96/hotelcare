@@ -9,6 +9,7 @@ import {
   Eye,
   Loader2,
   PauseCircle,
+  X,
 } from 'lucide-react';
 import { AutoRoomAssignment } from './AutoRoomAssignment';
 import { TodayHousekeepingPlanReviewDialog } from './TodayHousekeepingPlanReviewDialog';
@@ -22,6 +23,7 @@ import { isBudapestNineOrLater, todayBudapest } from '@/lib/budapestTime';
 import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { housekeepingAutomationText } from '@/lib/housekeepingAutomationTranslations';
+import { housekeepingTeamViewText } from '@/lib/housekeepingTeamViewTranslations';
 import {
   findCurrentDayHousekeepingReviewPlan,
   findTomorrowHousekeepingPlan,
@@ -191,7 +193,10 @@ function ReleaseSummary({ plan }: { plan: TomorrowPlanRow }) {
   if (plan.status !== 'released' || plannedAssignments <= 0) return null;
 
   return (
-    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground" aria-label="Housekeeping release summary">
+    <div
+      className="flex flex-wrap gap-2 text-xs text-muted-foreground"
+      aria-label={housekeepingTeamViewText('releaseSummary')}
+    >
       <span className="rounded-full border bg-background/70 px-2.5 py-1">
         <strong className="font-semibold text-foreground">{releasedAssignments}</strong>{' '}
         {tomorrowHousekeepingStatusText('releasedAssignments')}
@@ -212,6 +217,15 @@ function ReleaseSummary({ plan }: { plan: TomorrowPlanRow }) {
   );
 }
 
+function dismissalStorageKey(kind: 'today' | 'tomorrow', date: string) {
+  return `hotelcare:housekeeping-team-view:${kind}:${date}`;
+}
+
+function readDismissed(kind: 'today' | 'tomorrow', date: string) {
+  if (typeof window === 'undefined') return false;
+  return window.sessionStorage.getItem(dismissalStorageKey(kind, date)) === '1';
+}
+
 /**
  * Team View entry point for next-day housekeeping.
  *
@@ -229,6 +243,8 @@ export function TomorrowHousekeepingLauncher() {
   const [statusUnavailable, setStatusUnavailable] = useState(false);
   const [budapestDate, setBudapestDate] = useState(todayBudapest());
   const [planningWindowOpen, setPlanningWindowOpen] = useState(isBudapestNineOrLater());
+  const [todayDismissed, setTodayDismissed] = useState(false);
+  const [tomorrowDismissed, setTomorrowDismissed] = useState(false);
   const requestGeneration = useRef(0);
 
   const tomorrowDate = useMemo(
@@ -237,6 +253,19 @@ export function TomorrowHousekeepingLauncher() {
   );
 
   const canManage = hasManagerPowers(profile?.role);
+
+  useEffect(() => {
+    setTodayDismissed(readDismissed('today', budapestDate));
+    setTomorrowDismissed(readDismissed('tomorrow', tomorrowDate));
+  }, [budapestDate, tomorrowDate]);
+
+  const dismissCard = useCallback((kind: 'today' | 'tomorrow', date: string) => {
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(dismissalStorageKey(kind, date), '1');
+    }
+    if (kind === 'today') setTodayDismissed(true);
+    else setTomorrowDismissed(true);
+  }, []);
 
   const loadStatus = useCallback(async (showLoading = false) => {
     if (!canManage || !profile?.assigned_hotel || !profile.organization_slug) {
@@ -338,12 +367,23 @@ export function TomorrowHousekeepingLauncher() {
   return (
     <>
       <div className="space-y-3">
-        {todayPlan ? (
+        {todayPlan && !todayDismissed ? (
           <Card
-            className="overflow-hidden border-slate-300/70 bg-gradient-to-r from-slate-50 via-background to-background shadow-sm dark:border-slate-700 dark:from-slate-950/40"
+            className="relative overflow-hidden border-slate-300/70 bg-gradient-to-r from-slate-50 via-background to-background shadow-sm dark:border-slate-700 dark:from-slate-950/40"
             data-training="today-housekeeping-plan-review"
           >
-            <CardContent className="p-4 sm:p-5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute right-2 top-2 z-10 h-8 w-8 rounded-full text-muted-foreground hover:text-foreground"
+              aria-label={housekeepingTeamViewText('dismissToday')}
+              title={housekeepingTeamViewText('dismissToday')}
+              onClick={() => dismissCard('today', budapestDate)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+            <CardContent className="p-4 pr-12 sm:p-5 sm:pr-14">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-start gap-3">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground">
@@ -351,7 +391,7 @@ export function TomorrowHousekeepingLauncher() {
                   </div>
                   <div className="min-w-0 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-semibold leading-tight">Today’s assignments · prepared yesterday</h3>
+                      <h3 className="font-semibold leading-tight">{housekeepingTeamViewText('todayTitle')}</h3>
                       <Badge variant="outline" className={`gap-1.5 ${todayPresentation.badgeClassName}`}>
                         <TodayStatusIcon className={`h-3.5 w-3.5 ${todayPresentation.spin ? 'animate-spin' : ''}`} />
                         {tomorrowHousekeepingStatusText(todayPresentation.labelKey)}
@@ -371,19 +411,30 @@ export function TomorrowHousekeepingLauncher() {
                   className="w-full shrink-0 gap-2 sm:w-auto"
                 >
                   <Eye className="h-4 w-4" />
-                  View assignments
+                  {housekeepingTeamViewText('viewAssignments')}
                 </Button>
               </div>
             </CardContent>
           </Card>
         ) : null}
 
-        {planningWindowOpen ? (
+        {planningWindowOpen && !tomorrowDismissed ? (
           <Card
-            className="overflow-hidden border-primary/30 bg-gradient-to-r from-primary/10 via-primary/5 to-background shadow-sm"
+            className="relative overflow-hidden border-primary/30 bg-gradient-to-r from-primary/10 via-primary/5 to-background shadow-sm"
             data-training="tomorrow-housekeeping-plan"
           >
-            <CardContent className="p-4 sm:p-5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute right-2 top-2 z-10 h-8 w-8 rounded-full text-muted-foreground hover:text-foreground"
+              aria-label={housekeepingTeamViewText('dismissTomorrow')}
+              title={housekeepingTeamViewText('dismissTomorrow')}
+              onClick={() => dismissCard('tomorrow', tomorrowDate)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+            <CardContent className="p-4 pr-12 sm:p-5 sm:pr-14">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex min-w-0 items-start gap-3">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
