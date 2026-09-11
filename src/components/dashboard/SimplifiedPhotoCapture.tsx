@@ -1,15 +1,11 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Camera, X, CheckCircle, AlertCircle, ChevronRight, ChevronLeft, Trash2, Bath, Bed, Wine, Coffee, Plus } from 'lucide-react';
-import { useAuth } from '@/hooks/useAuth';
-import { useTranslation } from '@/hooks/useTranslation';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,7 +15,26 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+} from '@/components/ui/alert-dialog';
+import {
+  AlertCircle,
+  Bath,
+  Bed,
+  Camera,
+  CheckCircle,
+  Coffee,
+  RotateCcw,
+  SkipForward,
+  Trash2,
+  Upload,
+  Wine,
+  X,
+} from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 interface SimplifiedPhotoCaptureProps {
   open: boolean;
@@ -30,931 +45,976 @@ interface SimplifiedPhotoCaptureProps {
 }
 
 type PhotoCategory = 'trash_bin' | 'bathroom' | 'bed' | 'minibar' | 'tea_coffee_table';
-
-interface CategorizedPhoto {
-  category: PhotoCategory;
-  categoryName: string;
-  dataUrl: string;
-  blob: Blob;
-}
+type SkipReason =
+  | 'guest_limited_service'
+  | 'guest_present_privacy'
+  | 'area_not_serviced'
+  | 'not_applicable'
+  | 'no_access'
+  | 'other';
 
 const PHOTO_CATEGORIES = [
-  { key: 'trash_bin' as PhotoCategory, translationKey: 'photoCategory.trashBin', icon: Trash2, color: 'bg-blue-500' },
-  { key: 'bathroom' as PhotoCategory, translationKey: 'photoCategory.bathroom', icon: Bath, color: 'bg-cyan-500' },
-  { key: 'bed' as PhotoCategory, translationKey: 'photoCategory.bed', icon: Bed, color: 'bg-purple-500' },
-  { key: 'minibar' as PhotoCategory, translationKey: 'photoCategory.minibar', icon: Wine, color: 'bg-orange-500' },
-  { key: 'tea_coffee_table' as PhotoCategory, translationKey: 'photoCategory.teaCoffeeTable', icon: Coffee, color: 'bg-green-500' },
-];
+  { key: 'trash_bin' as PhotoCategory, translationKey: 'photoCategory.trashBin', icon: Trash2 },
+  { key: 'bathroom' as PhotoCategory, translationKey: 'photoCategory.bathroom', icon: Bath },
+  { key: 'bed' as PhotoCategory, translationKey: 'photoCategory.bed', icon: Bed },
+  { key: 'minibar' as PhotoCategory, translationKey: 'photoCategory.minibar', icon: Wine },
+  { key: 'tea_coffee_table' as PhotoCategory, translationKey: 'photoCategory.teaCoffeeTable', icon: Coffee },
+] as const;
+
+const LIMITED_SERVICE_MARKER = '[LIMITED_SERVICE]';
+const LIMITED_SERVICE_DETAIL_MARKER = '[LIMITED_SERVICE_DETAIL]';
+
+// SupervisorApprovalView already treats this legacy marker as a non-full-clean
+// outcome and therefore does not publish a false "clean" state to the PMS.
+// Keep it as a compatibility marker until service_scope becomes first-class.
+const LEGACY_NON_FULL_CLEAN_MARKER = '[TOWEL_CHANGE_ONLY]';
+
+const COPY = {
+  en: {
+    title: 'Daily room photos',
+    intro: 'Take the photos you can. If the guest only allows limited service, a photo section can be skipped with a reason.',
+    strict: 'For a normal full clean, all five photo sections are still required.',
+    resolved: 'sections recorded',
+    photo: 'Photo',
+    skipped: 'Skipped',
+    required: 'Required',
+    capture: 'Take photo',
+    choose: 'Choose photo',
+    skip: 'Skip this section',
+    undoSkip: 'Undo skip',
+    skipTitle: 'Why can this photo not be taken?',
+    skipDescription: 'Skipping is only for guest-requested limited service, privacy/access restrictions, or a genuinely non-applicable section. The reason will be visible to the supervisor.',
+    reason: 'Reason',
+    detail: 'Optional detail',
+    confirmSkip: 'Record skip',
+    limitedTitle: 'Limited service record',
+    limitedInfo: 'At least one section was skipped. Briefly record what service was actually completed for the guest.',
+    limitedPlaceholder: 'e.g. Replaced towels, collected rubbish and refilled water only',
+    done: 'Save evidence',
+    incomplete: 'Every section must have either a photo or an approved skip reason before saving.',
+    noteRequired: 'Please record what limited service was completed.',
+    exitTitle: 'Leave photo capture?',
+    exitDescription: 'Some photo sections are still unresolved. Photos and skip evidence already saved will remain on this room.',
+    leave: 'Leave',
+    cameraError: 'Camera could not be opened. You can choose a photo from the phone instead.',
+    saved: 'Daily-room evidence saved',
+    skipSaved: 'Skip reason recorded',
+    skipRemoved: 'Skip removed',
+    fullClean: 'Full clean evidence',
+    limited: 'Limited service evidence',
+    loading: 'Loading room evidence…',
+  },
+  hu: {
+    title: 'Napi szobafotók',
+    intro: 'Készítsd el azokat a fotókat, amelyeket lehet. Ha a vendég csak korlátozott szolgáltatást enged, egy fotórész indoklással kihagyható.',
+    strict: 'Normál teljes takarításnál továbbra is mind az öt fotórész kötelező.',
+    resolved: 'rész rögzítve',
+    photo: 'Fotó',
+    skipped: 'Kihagyva',
+    required: 'Kötelező',
+    capture: 'Fotó készítése',
+    choose: 'Fotó kiválasztása',
+    skip: 'Rész kihagyása',
+    undoSkip: 'Kihagyás visszavonása',
+    skipTitle: 'Miért nem készíthető fotó?',
+    skipDescription: 'Kihagyás csak vendég által kért korlátozott szolgáltatás, adatvédelem/hozzáférési korlátozás vagy valóban nem alkalmazható rész esetén használható. Az indokot a felügyelő látni fogja.',
+    reason: 'Indok',
+    detail: 'Opcionális megjegyzés',
+    confirmSkip: 'Kihagyás rögzítése',
+    limitedTitle: 'Korlátozott szolgáltatás',
+    limitedInfo: 'Legalább egy rész ki lett hagyva. Röviden írd le, milyen szolgáltatás történt ténylegesen.',
+    limitedPlaceholder: 'pl. Csak törölközőcsere, szemét összegyűjtése és vízfeltöltés',
+    done: 'Bizonyíték mentése',
+    incomplete: 'Mentés előtt minden részhez fotó vagy jóváhagyott kihagyási indok szükséges.',
+    noteRequired: 'Írd le röviden, milyen korlátozott szolgáltatás történt.',
+    exitTitle: 'Kilépsz a fotózásból?',
+    exitDescription: 'Néhány fotórész még nincs rendezve. A már mentett fotók és kihagyások megmaradnak.',
+    leave: 'Kilépés',
+    cameraError: 'A kamera nem nyitható meg. Helyette választhatsz fotót a telefonról.',
+    saved: 'Napi szoba bizonyíték mentve',
+    skipSaved: 'Kihagyási indok rögzítve',
+    skipRemoved: 'Kihagyás visszavonva',
+    fullClean: 'Teljes takarítás bizonyítéka',
+    limited: 'Korlátozott szolgáltatás bizonyítéka',
+    loading: 'Szobabizonyíték betöltése…',
+  },
+  vi: {
+    title: 'Ảnh phòng hằng ngày',
+    intro: 'Chụp những ảnh có thể chụp. Nếu khách chỉ cho phép dịch vụ giới hạn, có thể bỏ qua một mục ảnh kèm lý do.',
+    strict: 'Với dọn phòng đầy đủ bình thường, cả năm mục ảnh vẫn bắt buộc.',
+    resolved: 'mục đã ghi nhận',
+    photo: 'Ảnh',
+    skipped: 'Đã bỏ qua',
+    required: 'Bắt buộc',
+    capture: 'Chụp ảnh',
+    choose: 'Chọn ảnh',
+    skip: 'Bỏ qua mục này',
+    undoSkip: 'Hủy bỏ qua',
+    skipTitle: 'Tại sao không thể chụp ảnh này?',
+    skipDescription: 'Chỉ bỏ qua khi khách yêu cầu dịch vụ giới hạn, có hạn chế riêng tư/tiếp cận, hoặc mục này thực sự không áp dụng. Giám sát sẽ thấy lý do.',
+    reason: 'Lý do',
+    detail: 'Ghi chú thêm (không bắt buộc)',
+    confirmSkip: 'Ghi nhận bỏ qua',
+    limitedTitle: 'Ghi nhận dịch vụ giới hạn',
+    limitedInfo: 'Có ít nhất một mục bị bỏ qua. Hãy ghi ngắn gọn dịch vụ thực tế đã làm cho khách.',
+    limitedPlaceholder: 'vd. Chỉ thay khăn, gom rác và bổ sung nước',
+    done: 'Lưu bằng chứng',
+    incomplete: 'Mỗi mục phải có ảnh hoặc lý do bỏ qua được ghi nhận trước khi lưu.',
+    noteRequired: 'Vui lòng ghi dịch vụ giới hạn đã thực hiện.',
+    exitTitle: 'Rời phần chụp ảnh?',
+    exitDescription: 'Một số mục ảnh chưa hoàn tất. Ảnh và lý do bỏ qua đã lưu vẫn được giữ lại.',
+    leave: 'Rời',
+    cameraError: 'Không thể mở camera. Bạn có thể chọn ảnh từ điện thoại.',
+    saved: 'Đã lưu bằng chứng phòng hằng ngày',
+    skipSaved: 'Đã ghi nhận lý do bỏ qua',
+    skipRemoved: 'Đã hủy bỏ qua',
+    fullClean: 'Bằng chứng dọn đầy đủ',
+    limited: 'Bằng chứng dịch vụ giới hạn',
+    loading: 'Đang tải bằng chứng phòng…',
+  },
+  mn: {
+    title: 'Өдөр тутмын өрөөний зураг',
+    intro: 'Боломжтой зургуудыг авна уу. Зочин зөвхөн хязгаарлагдмал үйлчилгээ зөвшөөрсөн бол зурагны хэсгийг шалтгаантайгаар алгасаж болно.',
+    strict: 'Энгийн бүрэн цэвэрлэгээнд таван зурагны хэсэг бүгд шаардлагатай хэвээр.',
+    resolved: 'хэсэг бүртгэгдсэн',
+    photo: 'Зураг',
+    skipped: 'Алгассан',
+    required: 'Шаардлагатай',
+    capture: 'Зураг авах',
+    choose: 'Зураг сонгох',
+    skip: 'Энэ хэсгийг алгасах',
+    undoSkip: 'Алгасалтыг цуцлах',
+    skipTitle: 'Яагаад энэ зургийг авч болохгүй байна вэ?',
+    skipDescription: 'Зөвхөн зочны хүссэн хязгаарлагдмал үйлчилгээ, нууцлал/нэвтрэх хязгаарлалт эсвэл тухайн хэсэг үнэхээр хамаарахгүй үед алгасана. Шалтгааныг хянагч харна.',
+    reason: 'Шалтгаан',
+    detail: 'Нэмэлт тайлбар (заавал биш)',
+    confirmSkip: 'Алгасалтыг бүртгэх',
+    limitedTitle: 'Хязгаарлагдмал үйлчилгээ',
+    limitedInfo: 'Дор хаяж нэг хэсэг алгассан. Зочинд яг ямар үйлчилгээ хийснийг товч бичнэ үү.',
+    limitedPlaceholder: 'ж.нь. Зөвхөн алчуур сольж, хог авч, ус нөхсөн',
+    done: 'Баримт хадгалах',
+    incomplete: 'Хадгалахаас өмнө хэсэг бүр зураг эсвэл зөвшөөрөгдсөн алгасалтын шалтгаантай байх ёстой.',
+    noteRequired: 'Ямар хязгаарлагдмал үйлчилгээ хийснийг бичнэ үү.',
+    exitTitle: 'Зураг хэсгээс гарах уу?',
+    exitDescription: 'Зарим хэсэг дуусаагүй байна. Хадгалсан зураг болон алгасалтын баримт өрөөнд үлдэнэ.',
+    leave: 'Гарах',
+    cameraError: 'Камер нээгдсэнгүй. Утаснаасаа зураг сонгож болно.',
+    saved: 'Өдөр тутмын өрөөний баримт хадгалагдлаа',
+    skipSaved: 'Алгасалтын шалтгаан бүртгэгдлээ',
+    skipRemoved: 'Алгасалт цуцлагдлаа',
+    fullClean: 'Бүрэн цэвэрлэгээний баримт',
+    limited: 'Хязгаарлагдмал үйлчилгээний баримт',
+    loading: 'Өрөөний баримт ачаалж байна…',
+  },
+  es: {
+    title: 'Fotos de habitación diaria',
+    intro: 'Toma las fotos que puedas. Si el huésped solo permite un servicio limitado, una sección de foto puede omitirse indicando el motivo.',
+    strict: 'Para una limpieza completa normal, las cinco secciones de fotos siguen siendo obligatorias.',
+    resolved: 'secciones registradas',
+    photo: 'Foto',
+    skipped: 'Omitida',
+    required: 'Obligatoria',
+    capture: 'Tomar foto',
+    choose: 'Elegir foto',
+    skip: 'Omitir esta sección',
+    undoSkip: 'Deshacer omisión',
+    skipTitle: '¿Por qué no se puede tomar esta foto?',
+    skipDescription: 'La omisión solo se permite por servicio limitado solicitado por el huésped, restricciones de privacidad/acceso o una sección realmente no aplicable. El supervisor verá el motivo.',
+    reason: 'Motivo',
+    detail: 'Detalle opcional',
+    confirmSkip: 'Registrar omisión',
+    limitedTitle: 'Registro de servicio limitado',
+    limitedInfo: 'Se omitió al menos una sección. Registra brevemente qué servicio se realizó realmente.',
+    limitedPlaceholder: 'p. ej. Solo cambio de toallas, recogida de basura y reposición de agua',
+    done: 'Guardar evidencia',
+    incomplete: 'Cada sección debe tener una foto o un motivo de omisión registrado antes de guardar.',
+    noteRequired: 'Registra qué servicio limitado se realizó.',
+    exitTitle: '¿Salir de la captura?',
+    exitDescription: 'Algunas secciones siguen sin resolver. Las fotos y omisiones ya guardadas permanecerán en la habitación.',
+    leave: 'Salir',
+    cameraError: 'No se pudo abrir la cámara. Puedes elegir una foto del teléfono.',
+    saved: 'Evidencia de habitación diaria guardada',
+    skipSaved: 'Motivo de omisión registrado',
+    skipRemoved: 'Omisión eliminada',
+    fullClean: 'Evidencia de limpieza completa',
+    limited: 'Evidencia de servicio limitado',
+    loading: 'Cargando evidencia de la habitación…',
+  },
+} as const;
+
+const SKIP_REASON_LABELS: Record<string, Record<SkipReason, string>> = {
+  en: {
+    guest_limited_service: 'Guest requested limited service only',
+    guest_present_privacy: 'Guest present / privacy — photo not appropriate',
+    area_not_serviced: 'This area was not part of the requested service',
+    not_applicable: 'Not applicable in this room',
+    no_access: 'No access to this area',
+    other: 'Other',
+  },
+  hu: {
+    guest_limited_service: 'A vendég csak korlátozott szolgáltatást kért',
+    guest_present_privacy: 'Vendég jelen van / adatvédelem miatt nem fotózható',
+    area_not_serviced: 'Ez a terület nem volt része a kért szolgáltatásnak',
+    not_applicable: 'Ebben a szobában nem alkalmazható',
+    no_access: 'Nincs hozzáférés ehhez a területhez',
+    other: 'Egyéb',
+  },
+  vi: {
+    guest_limited_service: 'Khách chỉ yêu cầu dịch vụ giới hạn',
+    guest_present_privacy: 'Khách đang ở trong phòng / không phù hợp để chụp ảnh',
+    area_not_serviced: 'Khu vực này không thuộc dịch vụ được yêu cầu',
+    not_applicable: 'Không áp dụng cho phòng này',
+    no_access: 'Không thể tiếp cận khu vực này',
+    other: 'Khác',
+  },
+  mn: {
+    guest_limited_service: 'Зочин зөвхөн хязгаарлагдмал үйлчилгээ хүссэн',
+    guest_present_privacy: 'Зочин өрөөнд байгаа / нууцлалын улмаас зураг авах боломжгүй',
+    area_not_serviced: 'Энэ хэсэг хүссэн үйлчилгээнд ороогүй',
+    not_applicable: 'Энэ өрөөнд хамаарахгүй',
+    no_access: 'Энэ хэсэгт нэвтрэх боломжгүй',
+    other: 'Бусад',
+  },
+  es: {
+    guest_limited_service: 'El huésped solo solicitó servicio limitado',
+    guest_present_privacy: 'Huésped presente / privacidad — no corresponde tomar foto',
+    area_not_serviced: 'Esta zona no formó parte del servicio solicitado',
+    not_applicable: 'No aplica en esta habitación',
+    no_access: 'Sin acceso a esta zona',
+    other: 'Otro',
+  },
+};
+
+function filenameFromUrl(url: string): string {
+  try {
+    const withoutHash = url.split('#')[0];
+    const withoutQuery = withoutHash.split('?')[0];
+    return decodeURIComponent(withoutQuery.split('/').pop() || '');
+  } catch {
+    return url.split('/').pop() || '';
+  }
+}
+
+function categoryFromUrl(url: string): PhotoCategory | null {
+  const filename = filenameFromUrl(url);
+  return PHOTO_CATEGORIES.find((category) => filename.startsWith(`${category.key}_`))?.key ?? null;
+}
+
+function isSkipEvidence(url: string): boolean {
+  return filenameFromUrl(url).includes('_skipped_');
+}
+
+function skipReasonFromUrl(url: string): SkipReason | null {
+  const filename = filenameFromUrl(url);
+  const match = (Object.keys(SKIP_REASON_LABELS.en) as SkipReason[]).find((reason) =>
+    filename.includes(`_skipped_${reason}_`),
+  );
+  return match ?? null;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function sanitizePathPart(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+function limitedMarkerLine(): string {
+  return `${LEGACY_NON_FULL_CLEAN_MARKER} ${LIMITED_SERVICE_MARKER} Limited stayover service — not a full room clean. Skipped photo sections are recorded as evidence cards.`;
+}
+
+function stripLimitedLines(notes: string): string {
+  return notes
+    .split('\n')
+    .filter((line) => !line.includes(LIMITED_SERVICE_MARKER) && !line.includes(LIMITED_SERVICE_DETAIL_MARKER))
+    .join('\n')
+    .trim();
+}
 
 export function SimplifiedPhotoCapture({
   open,
   onOpenChange,
   roomNumber,
   assignmentId,
-  onPhotoCaptured
+  onPhotoCaptured,
 }: SimplifiedPhotoCaptureProps) {
   const { user } = useAuth();
-  const { t } = useTranslation();
-  const [categorizedPhotos, setCategorizedPhotos] = useState<CategorizedPhoto[]>([]);
+  const { t, language } = useTranslation();
+  const locale = (language in COPY ? language : 'en') as keyof typeof COPY;
+  const copy = COPY[locale];
+  const reasonLabels = SKIP_REASON_LABELS[locale] || SKIP_REASON_LABELS.en;
+
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [assignmentType, setAssignmentType] = useState<string | null>(null);
   const [currentCategoryIndex, setCurrentCategoryIndex] = useState(0);
-  const [isUploading, setIsUploading] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
-  const [isCameraLoading, setIsCameraLoading] = useState(false);
-  const [uploadingPhotos, setUploadingPhotos] = useState<Set<string>>(new Set());
-  const [uploadedPhotos, setUploadedPhotos] = useState<Set<string>>(new Set());
+  const [cameraLoading, setCameraLoading] = useState(false);
+  const [skipCategory, setSkipCategory] = useState<PhotoCategory | null>(null);
+  const [skipReason, setSkipReason] = useState<SkipReason>('guest_limited_service');
+  const [skipDetail, setSkipDetail] = useState('');
+  const [limitedServiceNote, setLimitedServiceNote] = useState('');
   const [showExitWarning, setShowExitWarning] = useState(false);
-  const [existingPhotos, setExistingPhotos] = useState<string[]>([]);
-  const [selectedPhotoPreview, setSelectedPhotoPreview] = useState<CategorizedPhoto | null>(null);
-  const [showSaveConfirmation, setShowSaveConfirmation] = useState(false);
-  const [cameraPermissionGranted, setCameraPermissionGranted] = useState<boolean | null>(null);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentCategory = PHOTO_CATEGORIES[currentCategoryIndex];
-  const photosForCurrentCategory = categorizedPhotos.filter(p => p.category === currentCategory.key);
-  const hasPhotoForCurrentCategory = photosForCurrentCategory.length > 0;
-  const allPhotosComplete = PHOTO_CATEGORIES.every(cat => 
-    categorizedPhotos.some(p => p.category === cat.key)
+  const skipAllowed = assignmentType === 'daily_cleaning';
+
+  const evidenceByCategory = useMemo(() => {
+    return Object.fromEntries(
+      PHOTO_CATEGORIES.map((category) => {
+        const urls = photos.filter((url) => categoryFromUrl(url) === category.key);
+        return [category.key, {
+          real: urls.filter((url) => !isSkipEvidence(url)),
+          skipped: urls.filter(isSkipEvidence),
+        }];
+      }),
+    ) as Record<PhotoCategory, { real: string[]; skipped: string[] }>;
+  }, [photos]);
+
+  const resolvedCount = useMemo(
+    () => PHOTO_CATEGORIES.filter((category) => {
+      const evidence = evidenceByCategory[category.key];
+      return evidence.real.length > 0 || evidence.skipped.length > 0;
+    }).length,
+    [evidenceByCategory],
   );
-  const categoriesWithPhotos = PHOTO_CATEGORIES.filter(cat => 
-    categorizedPhotos.some(p => p.category === cat.key)
-  ).length;
-  const progress = (categoriesWithPhotos / PHOTO_CATEGORIES.length) * 100;
 
-  // Load existing photos and check camera permission when dialog opens
-  useEffect(() => {
-    if (open && assignmentId) {
-      loadExistingPhotos();
-      checkCameraPermission();
-    }
-  }, [open, assignmentId]);
+  const anySkipped = useMemo(
+    () => PHOTO_CATEGORIES.some((category) => evidenceByCategory[category.key].skipped.length > 0),
+    [evidenceByCategory],
+  );
 
-  // Revoke any blob: object URLs when dialog closes / unmounts (memory safety on Android)
-  useEffect(() => {
-    return () => {
-      categorizedPhotos.forEach((p) => {
-        if (p.dataUrl.startsWith('blob:')) {
-          try {
-            URL.revokeObjectURL(p.dataUrl);
-          } catch {}
-        }
-      });
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  const checkCameraPermission = async () => {
-    try {
-      const permissionStatus = await navigator.permissions.query({ name: 'camera' as PermissionName });
-      setCameraPermissionGranted(permissionStatus.state === 'granted');
-      
-      permissionStatus.addEventListener('change', () => {
-        setCameraPermissionGranted(permissionStatus.state === 'granted');
-      });
-    } catch (error) {
-      console.log('Permission API not supported');
-      setCameraPermissionGranted(null);
-    }
-  };
-
-  const loadExistingPhotos = async () => {
-    if (!assignmentId) return;
-    
-    try {
-      const { data: assignmentData } = await supabase
-        .from('room_assignments')
-        .select('completion_photos')
-        .eq('id', assignmentId)
-        .single();
-      
-      if (assignmentData?.completion_photos && assignmentData.completion_photos.length > 0) {
-        setExistingPhotos(assignmentData.completion_photos);
-        
-        // Parse existing photos and reconstruct categorizedPhotos
-        const reconstructedPhotos: CategorizedPhoto[] = [];
-        
-        for (const photoUrl of assignmentData.completion_photos) {
-          // Extract category from filename (format: userId/roomNumber/category_timestamp_random.jpg)
-          const urlParts = photoUrl.split('/');
-          const filename = urlParts[urlParts.length - 1];
-          
-          // Try to match against known category keys (some have underscores)
-          let matchedCategory: PhotoCategory | null = null;
-          
-          for (const cat of PHOTO_CATEGORIES) {
-            // Check if filename starts with category key followed by underscore and timestamp
-            if (filename.startsWith(cat.key + '_')) {
-              matchedCategory = cat.key;
-              break;
-            }
-          }
-          
-          if (matchedCategory) {
-            const categoryInfo = PHOTO_CATEGORIES.find(c => c.key === matchedCategory);
-            
-            if (categoryInfo) {
-              // Fetch the image to create a blob
-              try {
-                const response = await fetch(photoUrl);
-                const blob = await response.blob();
-                
-                reconstructedPhotos.push({
-                  category: matchedCategory,
-                  categoryName: categoryInfo.translationKey,
-                  dataUrl: photoUrl, // Use the URL directly for display
-                  blob: blob
-                });
-              } catch (fetchError) {
-                console.error('Error fetching photo:', fetchError);
-                // If fetch fails, still add it with URL only
-                reconstructedPhotos.push({
-                  category: matchedCategory,
-                  categoryName: categoryInfo.translationKey,
-                  dataUrl: photoUrl,
-                  blob: new Blob() // Empty blob as fallback
-                });
-              }
-            }
-          }
-        }
-        
-        if (reconstructedPhotos.length > 0) {
-          setCategorizedPhotos(reconstructedPhotos);
-          toast.success(t('photoCapture.loadedExisting') + `: ${reconstructedPhotos.length}`);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading existing photos:', error);
-    }
-  };
-
-  const startCamera = useCallback(async () => {
-    try {
-      setShowCamera(true);
-      setIsCameraLoading(true);
-      
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        toast.error(t('photoCapture.cameraNotSupported'));
-        setShowCamera(false);
-        setIsCameraLoading(false);
-        return;
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
-        } 
-      });
-      
-      setCameraPermissionGranted(true);
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        streamRef.current = stream;
-        
-        videoRef.current.onloadedmetadata = () => {
-          if (videoRef.current) {
-            videoRef.current.play().catch(err => {
-              console.error('Error playing video:', err);
-              toast.error(t('photoCapture.cameraStartError'));
-              setIsCameraLoading(false);
-            });
-            setIsCameraLoading(false);
-          }
-        };
-      }
-    } catch (error: any) {
-      console.error('Error accessing camera:', error);
-      let errorMessage = t('photoCapture.cameraAccessError');
-      
-      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-        setCameraPermissionGranted(false);
-        errorMessage = t('photoCapture.cameraPermissionError');
-        toast.error(errorMessage, {
-          action: {
-            label: 'Settings',
-            onClick: () => {
-              toast.info('Please enable camera permission in your browser settings');
-            }
-          }
-        });
-      } else if (error.name === 'NotFoundError') {
-        errorMessage = t('photoCapture.cameraNotFound');
-        toast.error(errorMessage);
-      } else {
-        toast.error(errorMessage);
-      }
-      
-      setShowCamera(false);
-      setIsCameraLoading(false);
-    }
-  }, [t]);
+  const allResolved = resolvedCount === PHOTO_CATEGORIES.length;
+  const progress = (resolvedCount / PHOTO_CATEGORIES.length) * 100;
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
+    if (videoRef.current) videoRef.current.srcObject = null;
     setShowCamera(false);
-    setIsCameraLoading(false);
+    setCameraLoading(false);
   }, []);
 
-  const capturePhoto = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || !user) return;
+  const loadExisting = useCallback(async () => {
+    if (!assignmentId) return;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('room_assignments')
+        .select('completion_photos, notes, assignment_type')
+        .eq('id', assignmentId)
+        .single();
+      if (error) throw error;
+      setPhotos((data?.completion_photos || []) as string[]);
+      setAssignmentType(data?.assignment_type || null);
 
+      const notes = String(data?.notes || '');
+      const detailLine = notes
+        .split('\n')
+        .find((line) => line.includes(LIMITED_SERVICE_DETAIL_MARKER));
+      if (detailLine) {
+        setLimitedServiceNote(detailLine.replace(LIMITED_SERVICE_DETAIL_MARKER, '').trim());
+      } else {
+        setLimitedServiceNote('');
+      }
+    } catch (error) {
+      console.error('Failed to load room photo evidence:', error);
+      toast.error('Could not load room photos');
+    } finally {
+      setLoading(false);
+    }
+  }, [assignmentId]);
+
+  useEffect(() => {
+    if (!open) return;
+    setCurrentCategoryIndex(0);
+    setSkipCategory(null);
+    setSkipReason('guest_limited_service');
+    setSkipDetail('');
+    void loadExisting();
+  }, [open, loadExisting]);
+
+  useEffect(() => {
+    return () => stopCamera();
+  }, [stopCamera]);
+
+  const persistPhotos = useCallback(async (
+    updater: (current: string[]) => string[],
+  ): Promise<string[]> => {
+    if (!assignmentId) return photos;
+    const { data: fresh, error: fetchError } = await supabase
+      .from('room_assignments')
+      .select('completion_photos')
+      .eq('id', assignmentId)
+      .single();
+    if (fetchError) throw fetchError;
+    const current = (fresh?.completion_photos || []) as string[];
+    const next = updater(current);
+    const { error: updateError } = await supabase
+      .from('room_assignments')
+      .update({ completion_photos: next })
+      .eq('id', assignmentId);
+    if (updateError) throw updateError;
+    setPhotos(next);
+    return next;
+  }, [assignmentId, photos]);
+
+  const updateLimitedNotes = useCallback(async (
+    mode: 'ensure' | 'remove' | 'detail',
+    detail?: string,
+  ) => {
+    if (!assignmentId) return;
+    const { data, error } = await supabase
+      .from('room_assignments')
+      .select('notes')
+      .eq('id', assignmentId)
+      .single();
+    if (error) throw error;
+
+    const current = String(data?.notes || '');
+    const base = stripLimitedLines(current);
+    let next = base;
+
+    if (mode === 'ensure') {
+      next = [base, limitedMarkerLine()].filter(Boolean).join('\n');
+    } else if (mode === 'detail') {
+      next = [base, limitedMarkerLine(), `${LIMITED_SERVICE_DETAIL_MARKER} ${String(detail || '').trim()}`]
+        .filter(Boolean)
+        .join('\n');
+    }
+
+    const { error: updateError } = await supabase
+      .from('room_assignments')
+      .update({ notes: next })
+      .eq('id', assignmentId);
+    if (updateError) throw updateError;
+  }, [assignmentId]);
+
+  const uploadBlob = useCallback(async (
+    category: PhotoCategory,
+    blob: Blob,
+    extension: string,
+    suffix: string,
+    contentType: string,
+  ): Promise<string> => {
+    if (!user?.id) throw new Error('No signed-in housekeeper');
+    const safeRoom = sanitizePathPart(roomNumber || 'room');
+    const random = Math.random().toString(36).slice(2, 8);
+    const path = `${user.id}/${safeRoom}/${category}_${suffix}_${Date.now()}_${random}.${extension}`;
+    const { data, error } = await supabase.storage.from('room-photos').upload(path, blob, {
+      contentType,
+      cacheControl: '3600',
+      upsert: false,
+    });
+    if (error) throw error;
+    return supabase.storage.from('room-photos').getPublicUrl(data.path).data.publicUrl;
+  }, [roomNumber, user?.id]);
+
+  const saveRealPhoto = useCallback(async (category: PhotoCategory, blob: Blob) => {
+    setBusy(true);
+    try {
+      const url = await uploadBlob(category, blob, 'jpg', 'photo', 'image/jpeg');
+      const next = await persistPhotos((current) => [
+        ...current.filter((item) => !(categoryFromUrl(item) === category && isSkipEvidence(item))),
+        url,
+      ]);
+
+      const stillHasSkips = next.some(isSkipEvidence);
+      if (!stillHasSkips) await updateLimitedNotes('remove');
+
+      toast.success(`${t(PHOTO_CATEGORIES.find((item) => item.key === category)?.translationKey || '')} ✓`);
+    } catch (error) {
+      console.error('Photo upload failed:', error);
+      toast.error('Could not save photo');
+    } finally {
+      setBusy(false);
+    }
+  }, [persistPhotos, t, updateLimitedNotes, uploadBlob]);
+
+  const startCamera = useCallback(async () => {
+    try {
+      setCameraLoading(true);
+      setShowCamera(true);
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera API unavailable');
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch (error) {
+      console.error('Camera access failed:', error);
+      stopCamera();
+      toast.error(copy.cameraError);
+    } finally {
+      setCameraLoading(false);
+    }
+  }, [copy.cameraError, stopCamera]);
+
+  const capturePhoto = useCallback(async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
+    if (!video || !canvas) return;
     const context = canvas.getContext('2d');
-
     if (!context) return;
 
-    console.log('[PhotoCapture] Capturing photo for category:', currentCategory.key);
-
-    try {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      context.drawImage(video, 0, 0);
-
-      const blob: Blob | null = await new Promise((resolve) =>
-        canvas.toBlob(resolve, 'image/jpeg', 0.85)
-      );
-
-      // Free canvas memory immediately (critical on Android)
-      canvas.width = 0;
-      canvas.height = 0;
-
-      if (!blob) {
-        toast.error(t('photoCapture.cameraStartError') || 'Capture failed');
-        return;
-      }
-
-      const photoUrl = URL.createObjectURL(blob);
-      const photoId = `${currentCategory.key}_${Date.now()}_${Math.random()}`;
-      const capturedCategory = currentCategory; // snapshot to avoid stale closure
-      const capturedIndex = currentCategoryIndex;
-
-      const newPhoto: CategorizedPhoto = {
-        category: capturedCategory.key,
-        categoryName: capturedCategory.translationKey,
-        dataUrl: photoUrl,
-        blob,
-      };
-
-      setCategorizedPhotos((prev) => [...prev, newPhoto]);
-      toast.success(`${t(capturedCategory.translationKey)} ${t('photoCapture.photoCaptured')}`);
-      stopCamera();
-
-      setUploadingPhotos((prev) => new Set(prev).add(photoId));
-
-      // Run upload in background; do NOT block UI transitions
-      (async () => {
-        try {
-          const fileName = `${user.id}/${roomNumber}/${capturedCategory.key}_${Date.now()}_${Math.random()
-            .toString(36)
-            .substring(7)}.jpg`;
-
-          const { data, error } = await supabase.storage
-            .from('room-photos')
-            .upload(fileName, blob, {
-              contentType: 'image/jpeg',
-              cacheControl: '3600',
-              upsert: false,
-            });
-
-          if (error) throw error;
-
-          const {
-            data: { publicUrl },
-          } = supabase.storage.from('room-photos').getPublicUrl(data.path);
-
-          if (assignmentId) {
-            const { data: existingAssignment } = await supabase
-              .from('room_assignments')
-              .select('completion_photos')
-              .eq('id', assignmentId)
-              .single();
-
-            const currentPhotos = existingAssignment?.completion_photos || [];
-
-            await supabase
-              .from('room_assignments')
-              .update({
-                completion_photos: [...currentPhotos, publicUrl],
-              })
-              .eq('id', assignmentId);
-          }
-
-          setUploadingPhotos((prev) => {
-            const next = new Set(prev);
-            next.delete(photoId);
-            return next;
-          });
-          setUploadedPhotos((prev) => new Set(prev).add(photoId));
-          console.log('[PhotoCapture] Saved photo:', capturedCategory.key);
-        } catch (uploadErr: any) {
-          console.error('[PhotoCapture] Upload error:', uploadErr);
-          setUploadingPhotos((prev) => {
-            const next = new Set(prev);
-            next.delete(photoId);
-            return next;
-          });
-          toast.error(`Failed to save ${t(capturedCategory.translationKey)} photo`);
-        }
-      })();
-
-      // Advance UI synchronously after capture (no setTimeout race)
-      const allCategoriesHavePhotos = PHOTO_CATEGORIES.every((cat) =>
-        cat.key === capturedCategory.key ||
-        categorizedPhotos.some((p) => p.category === cat.key)
-      );
-
-      if (allCategoriesHavePhotos && capturedIndex === PHOTO_CATEGORIES.length - 1) {
-        setTimeout(() => setShowSaveConfirmation(true), 600);
-      } else if (capturedIndex < PHOTO_CATEGORIES.length - 1) {
-        setTimeout(() => setCurrentCategoryIndex((prev) => prev + 1), 400);
-      }
-    } catch (err: any) {
-      console.error('[PhotoCapture] capturePhoto fatal error:', err);
-      toast.error('Photo capture failed. Please try again.');
-      stopCamera();
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    canvas.width = 0;
+    canvas.height = 0;
+    stopCamera();
+    if (!blob) {
+      toast.error('Could not capture photo');
+      return;
     }
-  }, [currentCategory, currentCategoryIndex, categorizedPhotos, stopCamera, t, user, roomNumber, assignmentId]);
+    await saveRealPhoto(currentCategory.key, blob);
+    if (currentCategoryIndex < PHOTO_CATEGORIES.length - 1) {
+      setCurrentCategoryIndex((index) => index + 1);
+    }
+  }, [currentCategory.key, currentCategoryIndex, saveRealPhoto, stopCamera]);
 
+  const handleFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please choose an image');
+      return;
+    }
+    await saveRealPhoto(currentCategory.key, file);
+    if (currentCategoryIndex < PHOTO_CATEGORIES.length - 1) {
+      setCurrentCategoryIndex((index) => index + 1);
+    }
+  };
 
-  const uploadPhotos = async () => {
-    if (!user || categorizedPhotos.length === 0) return;
+  const makeSkipEvidenceSvg = useCallback((
+    category: PhotoCategory,
+    reason: SkipReason,
+    detail: string,
+  ): Blob => {
+    const categoryInfo = PHOTO_CATEGORIES.find((item) => item.key === category);
+    const categoryLabel = categoryInfo ? t(categoryInfo.translationKey) : category;
+    const reasonLabel = reasonLabels[reason] || reasonLabels.other;
+    const detailText = detail.trim() || '—';
+    const now = new Date().toLocaleString();
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
+  <rect width="1200" height="800" fill="#f8fafc"/>
+  <rect x="70" y="70" width="1060" height="660" rx="36" fill="#ffffff" stroke="#cbd5e1" stroke-width="4"/>
+  <circle cx="170" cy="175" r="55" fill="#fef3c7"/>
+  <text x="170" y="195" text-anchor="middle" font-size="54" font-family="Arial, sans-serif">↷</text>
+  <text x="255" y="155" font-size="34" font-weight="700" font-family="Arial, sans-serif" fill="#0f172a">Photo intentionally skipped</text>
+  <text x="255" y="205" font-size="25" font-family="Arial, sans-serif" fill="#475569">Limited daily-room service evidence</text>
+  <text x="120" y="315" font-size="24" font-weight="700" font-family="Arial, sans-serif" fill="#334155">Room</text>
+  <text x="350" y="315" font-size="24" font-family="Arial, sans-serif" fill="#0f172a">${escapeXml(roomNumber)}</text>
+  <text x="120" y="380" font-size="24" font-weight="700" font-family="Arial, sans-serif" fill="#334155">Section</text>
+  <text x="350" y="380" font-size="24" font-family="Arial, sans-serif" fill="#0f172a">${escapeXml(categoryLabel)}</text>
+  <text x="120" y="445" font-size="24" font-weight="700" font-family="Arial, sans-serif" fill="#334155">Reason</text>
+  <text x="350" y="445" font-size="24" font-family="Arial, sans-serif" fill="#0f172a">${escapeXml(reasonLabel)}</text>
+  <text x="120" y="510" font-size="24" font-weight="700" font-family="Arial, sans-serif" fill="#334155">Detail</text>
+  <text x="350" y="510" font-size="22" font-family="Arial, sans-serif" fill="#475569">${escapeXml(detailText).slice(0, 80)}</text>
+  <text x="120" y="575" font-size="24" font-weight="700" font-family="Arial, sans-serif" fill="#334155">Recorded</text>
+  <text x="350" y="575" font-size="22" font-family="Arial, sans-serif" fill="#475569">${escapeXml(now)}</text>
+  <rect x="120" y="635" width="960" height="52" rx="16" fill="#fff7ed"/>
+  <text x="600" y="668" text-anchor="middle" font-size="19" font-family="Arial, sans-serif" fill="#9a3412">This evidence does not represent a full room clean.</text>
+</svg>`;
+    return new Blob([svg], { type: 'image/svg+xml' });
+  }, [reasonLabels, roomNumber, t]);
 
-    setIsUploading(true);
-    const uploadedUrls: string[] = [];
-    const newPhotosOnly = categorizedPhotos.filter(photo => !photo.dataUrl.startsWith('http'));
+  const confirmSkip = async () => {
+    if (!skipCategory || !skipAllowed) return;
+    if (skipReason === 'other' && skipDetail.trim().length < 3) {
+      toast.error('Please add a short reason');
+      return;
+    }
 
+    setBusy(true);
     try {
-      // Only upload photos that haven't been uploaded yet (new captures)
-      for (const photo of newPhotosOnly) {
-        const fileName = `${user.id}/${roomNumber}/${photo.category}_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
-        
-        const { data, error } = await supabase.storage
-          .from('room-photos')
-          .upload(fileName, photo.blob, {
-            contentType: 'image/jpeg',
-            cacheControl: '3600',
-            upsert: false
-          });
+      const svg = makeSkipEvidenceSvg(skipCategory, skipReason, skipDetail);
+      const url = await uploadBlob(
+        skipCategory,
+        svg,
+        'svg',
+        `skipped_${skipReason}`,
+        'image/svg+xml',
+      );
 
-        if (error) throw error;
+      await persistPhotos((current) => [
+        ...current.filter((item) => categoryFromUrl(item) !== skipCategory),
+        url,
+      ]);
+      await updateLimitedNotes('ensure');
 
-        const { data: { publicUrl } } = supabase.storage
-          .from('room-photos')
-          .getPublicUrl(data.path);
-
-        uploadedUrls.push(publicUrl);
+      toast.success(copy.skipSaved);
+      setSkipCategory(null);
+      setSkipReason('guest_limited_service');
+      setSkipDetail('');
+      if (currentCategoryIndex < PHOTO_CATEGORIES.length - 1) {
+        setCurrentCategoryIndex((index) => index + 1);
       }
-
-      // Get URLs of already uploaded photos (those that start with http)
-      const existingUploadedUrls = categorizedPhotos
-        .filter(photo => photo.dataUrl.startsWith('http'))
-        .map(photo => photo.dataUrl);
-
-      // Combine all photos: existing uploaded + newly uploaded
-      const allPhotos = [...existingUploadedUrls, ...uploadedUrls];
-
-      if (assignmentId) {
-        const { error: updateError } = await supabase
-          .from('room_assignments')
-          .update({
-            completion_photos: allPhotos
-          })
-          .eq('id', assignmentId);
-
-        if (updateError) throw updateError;
-      }
-
-      if (uploadedUrls.length > 0) {
-        toast.success(`${t('photoCapture.uploadSuccess')}: ${uploadedUrls.length}`);
-      } else {
-        toast.success(t('photoCapture.photosUpdated'));
-      }
-      
-      if (onPhotoCaptured) {
-        await onPhotoCaptured();
-      }
-      
-      handleClose(true);
-    } catch (error: any) {
-      console.error('Upload error:', error);
-      toast.error(t('photoCapture.uploadError') + ': ' + error.message);
+    } catch (error) {
+      console.error('Could not record photo skip:', error);
+      toast.error('Could not record skip reason');
     } finally {
-      setIsUploading(false);
+      setBusy(false);
     }
   };
 
-  const removePhoto = (photoIndex: number) => {
-    setCategorizedPhotos(prev => prev.filter((_, index) => index !== photoIndex));
+  const undoSkip = async (category: PhotoCategory) => {
+    setBusy(true);
+    try {
+      const next = await persistPhotos((current) =>
+        current.filter((item) => !(categoryFromUrl(item) === category && isSkipEvidence(item))),
+      );
+      if (!next.some(isSkipEvidence)) {
+        await updateLimitedNotes('remove');
+        setLimitedServiceNote('');
+      }
+      toast.success(copy.skipRemoved);
+    } catch (error) {
+      console.error('Could not remove skip:', error);
+      toast.error('Could not remove skip');
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const handleClose = (force: boolean = false) => {
-    // Check if there are unsaved new photos (those without http URLs)
-    const hasUnsavedPhotos = categorizedPhotos.some(photo => !photo.dataUrl.startsWith('http'));
-    
-    if (!force && hasUnsavedPhotos && !allPhotosComplete) {
+  const finishEvidence = async () => {
+    if (!allResolved) {
+      toast.error(copy.incomplete);
+      return;
+    }
+    if (anySkipped && limitedServiceNote.trim().length < 3) {
+      toast.error(copy.noteRequired);
+      return;
+    }
+
+    setBusy(true);
+    try {
+      if (anySkipped) {
+        await updateLimitedNotes('detail', limitedServiceNote);
+      } else {
+        await updateLimitedNotes('remove');
+      }
+      await onPhotoCaptured?.();
+      toast.success(copy.saved);
+      stopCamera();
+      onOpenChange(false);
+    } catch (error) {
+      console.error('Could not finalize room evidence:', error);
+      toast.error('Could not save room evidence');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const requestClose = () => {
+    stopCamera();
+    if (resolvedCount > 0 && !allResolved) {
       setShowExitWarning(true);
       return;
     }
-    
-    stopCamera();
-    setCategorizedPhotos([]);
-    setCurrentCategoryIndex(0);
-    setExistingPhotos([]);
-    setShowSaveConfirmation(false);
     onOpenChange(false);
-  };
-
-  const goToNextCategory = () => {
-    if (currentCategoryIndex < PHOTO_CATEGORIES.length - 1) {
-      setCurrentCategoryIndex(prev => prev + 1);
-    }
-  };
-
-  const goToPreviousCategory = () => {
-    if (currentCategoryIndex > 0) {
-      setCurrentCategoryIndex(prev => prev - 1);
-    }
   };
 
   return (
     <>
-      <Dialog open={open} onOpenChange={() => handleClose(false)}>
-        <DialogContent className="w-[100vw] h-[100dvh] max-w-full sm:max-w-2xl sm:h-auto sm:max-h-[95vh] p-0 gap-0">
-          <div className="flex flex-col h-full max-h-[100dvh]">
-            <DialogHeader className="px-4 py-3 sm:p-6 border-b flex-shrink-0">
-              <DialogTitle className="flex items-center gap-2 text-base sm:text-lg pr-8">
-                <Camera className="h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0" />
-                <span className="truncate">{t('photoCapture.title')} - {t('common.room')} {roomNumber}</span>
-              </DialogTitle>
-            </DialogHeader>
+      <Dialog open={open} onOpenChange={(next) => {
+        if (next) onOpenChange(true);
+        else requestClose();
+      }}>
+        <DialogContent className="w-[calc(100vw-0.75rem)] max-w-2xl max-h-[94dvh] overflow-hidden p-0 gap-0">
+          <DialogHeader className="px-4 pt-4 pb-3 border-b">
+            <DialogTitle className="flex items-center gap-2 pr-8 text-lg">
+              <Camera className="h-5 w-5 text-primary" />
+              {copy.title} — {roomNumber}
+            </DialogTitle>
+          </DialogHeader>
 
-            <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-6" style={{ WebkitOverflowScrolling: 'touch' }}>
-              <ErrorBoundary
-                fallbackTitle="Photo capture issue"
-                fallbackMessage="Something went wrong with the photo step. Tap Retry to continue capturing."
-                onReset={() => stopCamera()}
-              >
-              <div className="space-y-4 sm:space-y-6 max-w-2xl mx-auto">
-                {/* Progress Bar */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs sm:text-sm gap-2">
-                    <span className="font-medium flex-shrink-0">
-                      {t('photoCapture.progress')}: {categoriesWithPhotos} / {PHOTO_CATEGORIES.length}
-                    </span>
-                    {allPhotosComplete && (
-                      <Badge variant="default" className="bg-green-600 text-xs flex-shrink-0">
-                        <CheckCircle className="h-3 w-3 mr-1" />
-                        <span className="hidden sm:inline">{t('photoCapture.allComplete')}</span>
-                        <span className="sm:hidden">✓</span>
-                      </Badge>
-                    )}
-                  </div>
-                  <Progress value={progress} className="h-2" />
-                </div>
+          <div className="overflow-y-auto px-4 py-4 space-y-4" style={{ WebkitOverflowScrolling: 'touch' }}>
+            <div className="rounded-xl border bg-muted/30 p-3 space-y-1.5">
+              <p className="text-sm font-medium text-foreground">{copy.intro}</p>
+              <p className="text-xs text-muted-foreground">{copy.strict}</p>
+            </div>
 
-                {/* Category Stepper - Mobile Optimized */}
-                <div className="relative -mx-4 sm:mx-0">
-                  <div className="flex gap-2 overflow-x-auto px-4 py-2 snap-x snap-mandatory scrollbar-hide">
-                    {PHOTO_CATEGORIES.map((cat, index) => {
-                      const hasPhoto = categorizedPhotos.some(p => p.category === cat.key);
-                      const isCurrent = index === currentCategoryIndex;
-                      const Icon = cat.icon;
-                      
-                      return (
-                        <button
-                          key={cat.key}
-                          onClick={() => setCurrentCategoryIndex(index)}
-                          className={cn(
-                            "flex-shrink-0 flex flex-col items-center gap-2 p-2 sm:p-3 rounded-xl transition-all w-16 sm:w-20 snap-center",
-                            isCurrent && "bg-primary/10 ring-2 ring-primary scale-105",
-                            !isCurrent && "hover:bg-muted active:scale-95"
-                          )}
-                        >
-                          <div className={cn(
-                            "w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center transition-all shadow-sm",
-                            hasPhoto ? "bg-green-600 text-white" : isCurrent ? cat.color + " text-white" : "bg-muted"
-                          )}>
-                            {hasPhoto ? <CheckCircle className="h-5 w-5 sm:h-6 sm:w-6" /> : <Icon className="h-5 w-5 sm:h-6 sm:w-6" />}
-                          </div>
-                          <span className={cn(
-                            "text-[9px] sm:text-[10px] font-medium text-center leading-tight line-clamp-2 w-full",
-                            isCurrent && "text-primary font-semibold"
-                          )}>
-                            {t(cat.translationKey)}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {/* Scroll indicators */}
-                  <div className="absolute right-0 top-0 bottom-0 w-6 sm:w-8 bg-gradient-to-l from-background to-transparent pointer-events-none sm:hidden" />
-                  <div className="absolute left-0 top-0 bottom-0 w-6 sm:w-8 bg-gradient-to-r from-background to-transparent pointer-events-none sm:hidden" />
-                </div>
-
-            {/* Current Category Card - Mobile Optimized */}
-            <div className={cn(
-              "p-4 sm:p-6 rounded-lg border-2 transition-all",
-              currentCategory.color.replace('bg-', 'border-'),
-              "bg-gradient-to-br from-background to-muted/20"
-            )}>
-              <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className={cn(
-                    "w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center flex-shrink-0",
-                    currentCategory.color,
-                    "text-white shadow-lg"
-                  )}>
-                    <currentCategory.icon className="h-5 w-5 sm:h-6 sm:w-6" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="text-base sm:text-lg font-semibold truncate">{t(currentCategory.translationKey)}</h3>
-                    <p className="text-xs sm:text-sm text-muted-foreground">
-                      {hasPhotoForCurrentCategory ? 
-                        `${photosForCurrentCategory.length} ${photosForCurrentCategory.length > 1 ? t('photoCapture.photosTaken') : t('photoCapture.photoTaken')}` 
-                        : t('photoCapture.takePhotoFor')}
-                    </p>
-                  </div>
-                </div>
-                
-                {hasPhotoForCurrentCategory && (
-                  <Badge variant="default" className="bg-green-600 flex-shrink-0 ml-2">
-                    <CheckCircle className="h-3 w-3 sm:h-4 sm:w-4 mr-1" />
-                    <span>{photosForCurrentCategory.length}</span>
-                  </Badge>
-                )}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="font-semibold">{resolvedCount} / {PHOTO_CATEGORIES.length} {copy.resolved}</span>
+                <Badge variant={anySkipped ? 'outline' : allResolved ? 'default' : 'secondary'}>
+                  {anySkipped ? copy.limited : copy.fullClean}
+                </Badge>
               </div>
+              <Progress value={progress} className="h-2" />
+            </div>
 
-              {/* Current Category Photos Preview */}
-              {hasPhotoForCurrentCategory && (
-                <div className="mb-4 space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    {photosForCurrentCategory.map((photo, index) => {
-                      const photoGlobalIndex = categorizedPhotos.findIndex(p => p === photo);
-                      return (
-                        <div key={photoGlobalIndex} className="relative rounded-lg overflow-hidden group">
-                          <img
-                            src={photo.dataUrl}
-                            alt={`${t(currentCategory.translationKey)} ${index + 1}`}
-                            className="w-full h-32 sm:h-40 object-cover"
-                          />
+            {loading ? (
+              <div className="py-12 text-center text-sm text-muted-foreground">{copy.loading}</div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {PHOTO_CATEGORIES.map((category, index) => {
+                  const Icon = category.icon;
+                  const evidence = evidenceByCategory[category.key];
+                  const hasReal = evidence.real.length > 0;
+                  const hasSkip = evidence.skipped.length > 0;
+                  const skippedReason = hasSkip ? skipReasonFromUrl(evidence.skipped[0]) : null;
+                  const preview = hasReal ? evidence.real[0] : hasSkip ? evidence.skipped[0] : null;
+
+                  return (
+                    <div
+                      key={category.key}
+                      className={cn(
+                        'rounded-2xl border p-3 space-y-3 transition-colors',
+                        currentCategoryIndex === index && 'ring-2 ring-primary/30',
+                        hasReal && 'border-emerald-300 bg-emerald-50/30 dark:bg-emerald-950/10',
+                        hasSkip && 'border-amber-300 bg-amber-50/40 dark:bg-amber-950/10',
+                      )}
+                      onClick={() => setCurrentCategoryIndex(index)}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 shrink-0">
+                            <Icon className="h-4 w-4 text-primary" />
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold leading-tight">{t(category.translationKey)}</p>
+                            {hasSkip && skippedReason && (
+                              <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5 leading-tight">
+                                {reasonLabels[skippedReason]}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <Badge variant={hasReal ? 'default' : hasSkip ? 'outline' : 'secondary'} className="text-[10px] shrink-0">
+                          {hasReal ? copy.photo : hasSkip ? copy.skipped : copy.required}
+                        </Badge>
+                      </div>
+
+                      {preview && (
+                        <div className="overflow-hidden rounded-xl border bg-background aspect-video">
+                          <img src={preview} alt={t(category.translationKey)} className="h-full w-full object-cover" loading="lazy" />
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={busy}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setCurrentCategoryIndex(index);
+                            void startCamera();
+                          }}
+                          className="min-h-10 whitespace-normal"
+                        >
+                          <Camera className="h-4 w-4 mr-1.5 shrink-0" />
+                          {copy.capture}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={busy}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setCurrentCategoryIndex(index);
+                            setTimeout(() => fileInputRef.current?.click(), 0);
+                          }}
+                          className="min-h-10 whitespace-normal"
+                        >
+                          <Upload className="h-4 w-4 mr-1.5 shrink-0" />
+                          {copy.choose}
+                        </Button>
+
+                        {skipAllowed && !hasReal && !hasSkip && (
                           <Button
                             type="button"
+                            variant="ghost"
                             size="sm"
-                            variant="destructive"
-                            className="absolute top-2 right-2 h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={() => removePhoto(photoGlobalIndex)}
+                            disabled={busy}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setCurrentCategoryIndex(index);
+                              setSkipCategory(category.key);
+                              setSkipReason('guest_limited_service');
+                              setSkipDetail('');
+                            }}
+                            className="min-h-10 text-amber-700 hover:text-amber-800 hover:bg-amber-50 whitespace-normal"
                           >
-                            <X className="h-3 w-3" />
+                            <SkipForward className="h-4 w-4 mr-1.5 shrink-0" />
+                            {copy.skip}
                           </Button>
-                          <div className="absolute bottom-2 left-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded">
-                            {index + 1}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+                        )}
 
-              {/* Camera View or Action Buttons - Mobile Optimized */}
-              {!showCamera ? (
-                <div className="space-y-2 sm:space-y-3">
-                  <Button
-                    type="button"
-                    onClick={startCamera}
-                    className="w-full h-14 sm:h-16 text-base sm:text-lg touch-manipulation relative"
-                    variant={hasPhotoForCurrentCategory ? "outline" : "default"}
-                  >
-                    <Camera className="h-5 w-5 sm:h-6 sm:w-6 mr-2" />
-                    {hasPhotoForCurrentCategory ? (
-                      <>
-                        <Plus className="h-4 w-4 mr-1" />
-                        {t('photoCapture.addAnother')}
-                      </>
-                    ) : (
-                      t('common.takePhoto')
-                    )}
-                  </Button>
-                  
-                  {cameraPermissionGranted === false && (
-                    <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                      <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                      <div className="text-xs">
-                        <p className="font-medium text-amber-900 dark:text-amber-100">
-                          {t('photoCapture.cameraPermissionRequired')}
-                        </p>
-                        <p className="text-amber-700 dark:text-amber-200 mt-1">
-                          {t('photoCapture.enableCameraAccess')}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="relative rounded-lg overflow-hidden bg-black aspect-video">
-                    {isCameraLoading && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
-                        <div className="text-white text-center">
-                          <Camera className="h-8 w-8 mx-auto mb-2 animate-pulse" />
-                          <p className="text-sm sm:text-base">{t('photoCapture.startingCamera')}</p>
-                        </div>
-                      </div>
-                    )}
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      onClick={capturePhoto}
-                      className="flex-1 h-12 sm:h-14 text-base sm:text-lg touch-manipulation"
-                      disabled={isCameraLoading}
-                    >
-                      <Camera className="h-5 w-5 mr-2" />
-                      {t('common.capture')}
-                    </Button>
-                    <Button
-                      type="button"
-                      onClick={stopCamera}
-                      variant="outline"
-                      className="h-12 sm:h-14 px-4 touch-manipulation"
-                    >
-                      <X className="h-5 w-5" />
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <canvas ref={canvasRef} className="hidden" />
-
-                {/* Navigation and Action Buttons - Mobile Optimized */}
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    onClick={goToPreviousCategory}
-                    variant="outline"
-                    disabled={currentCategoryIndex === 0}
-                    className="h-12 w-12 p-0 flex-shrink-0 touch-manipulation"
-                  >
-                    <ChevronLeft className="h-5 w-5" />
-                  </Button>
-                  
-                  <Button
-                    type="button"
-                    onClick={() => handleClose(false)}
-                    variant="outline"
-                    className="flex-1 h-12 text-sm sm:text-base touch-manipulation"
-                    disabled={isUploading}
-                  >
-                    {t('common.close')}
-                  </Button>
-                  
-                  {categorizedPhotos.length > 0 && (
-                    <Button
-                      type="button"
-                      onClick={uploadPhotos}
-                      disabled={isUploading || uploadingPhotos.size > 0 || !allPhotosComplete}
-                      title={!allPhotosComplete ? t('photoCapture.incompleteWarning') : (uploadingPhotos.size > 0 ? t('common.uploading') : '')}
-                      className="flex-1 h-12 text-sm sm:text-base touch-manipulation"
-                      variant={allPhotosComplete && uploadingPhotos.size === 0 ? "default" : "secondary"}
-                    >
-                      {isUploading || uploadingPhotos.size > 0 ? (
-                        <>{t('common.uploading')}</>
-                      ) : (
-                        <>
-                          <CheckCircle className="h-4 w-4 mr-1 sm:mr-2 flex-shrink-0" />
-                          <span className="hidden sm:inline">{t('photoCapture.savePhotos')}</span>
-                          <span className="sm:hidden">Save</span>
-                          <span className="ml-1">({categorizedPhotos.length}/{PHOTO_CATEGORIES.length})</span>
-                        </>
-                      )}
-                    </Button>
-                  )}
-                  
-                  <Button
-                    type="button"
-                    onClick={goToNextCategory}
-                    variant="outline"
-                    disabled={currentCategoryIndex === PHOTO_CATEGORIES.length - 1}
-                    className="h-12 w-12 p-0 flex-shrink-0 touch-manipulation"
-                  >
-                    <ChevronRight className="h-5 w-5" />
-                  </Button>
-                </div>
-
-                {/* Captured Photos Gallery - with count per category */}
-                {categorizedPhotos.length > 0 && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-sm font-semibold">{t('photoCapture.capturedPhotos')}</h3>
-                      <Badge variant="secondary" className="text-xs">
-                        {categorizedPhotos.length} {t('common.photos')}
-                      </Badge>
-                    </div>
-                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                      {categorizedPhotos.map((photo, photoIndex) => {
-                        const Icon = PHOTO_CATEGORIES.find(c => c.key === photo.category)?.icon || Camera;
-                        const categoryInfo = PHOTO_CATEGORIES.find(c => c.key === photo.category);
-                        const categoryPhotos = categorizedPhotos.filter(p => p.category === photo.category);
-                        const photoIndexInCategory = categoryPhotos.findIndex(p => p === photo) + 1;
-                        
-                        return (
-                          <button
-                            key={photoIndex}
-                            onClick={() => setSelectedPhotoPreview(photo)}
-                            className="relative aspect-square rounded-lg overflow-hidden bg-muted hover:ring-2 hover:ring-primary transition-all active:scale-95 touch-manipulation"
+                        {hasSkip && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={busy}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void undoSkip(category.key);
+                            }}
+                            className="min-h-10 text-muted-foreground whitespace-normal"
                           >
-                            <img
-                              src={photo.dataUrl}
-                              alt={photo.categoryName}
-                              className="w-full h-full object-cover"
-                            />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-                            <div className="absolute bottom-0 left-0 right-0 p-1.5">
-                              <div className={cn(
-                                "flex items-center gap-1 px-1.5 py-0.5 rounded text-white text-[9px] font-medium w-full",
-                                categoryInfo?.color || "bg-primary"
-                              )}>
-                                <Icon className="h-3 w-3 flex-shrink-0" />
-                                <span className="truncate">{photo.categoryName}</span>
-                                {categoryPhotos.length > 1 && (
-                                  <span className="ml-auto">#{photoIndexInCategory}</span>
-                                )}
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })}
+                            <RotateCcw className="h-4 w-4 mr-1.5 shrink-0" />
+                            {copy.undoSkip}
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
-
-                {/* Warning for incomplete photos - Mobile Optimized */}
-                {categorizedPhotos.length > 0 && !allPhotosComplete && (
-                  <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                    <AlertCircle className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600 mt-0.5 flex-shrink-0" />
-                    <div className="text-xs sm:text-sm min-w-0">
-                      <p className="font-medium text-amber-900 dark:text-amber-100">
-                        {t('photoCapture.incompleteWarning')}
-                      </p>
-                      <p className="text-amber-700 dark:text-amber-200 mt-1 break-words">
-                        {t('photoCapture.missingCategories')}: {PHOTO_CATEGORIES
-                          .filter(cat => !categorizedPhotos.some(p => p.category === cat.key))
-                          .map(cat => t(cat.translationKey))
-                          .join(', ')}
-                      </p>
-                    </div>
-                  </div>
-                )}
+                  );
+                })}
               </div>
-              </ErrorBoundary>
-            </div>
+            )}
+
+            {anySkipped && (
+              <div className="rounded-2xl border-2 border-amber-300 bg-amber-50/60 dark:bg-amber-950/20 p-4 space-y-3">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="h-5 w-5 text-amber-700 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-semibold text-amber-950 dark:text-amber-100">{copy.limitedTitle}</p>
+                    <p className="text-xs text-amber-800 dark:text-amber-200 mt-1">{copy.limitedInfo}</p>
+                  </div>
+                </div>
+                <Textarea
+                  value={limitedServiceNote}
+                  onChange={(event) => setLimitedServiceNote(event.target.value)}
+                  placeholder={copy.limitedPlaceholder}
+                  rows={3}
+                  className="bg-background"
+                />
+              </div>
+            )}
+
+            {!allResolved && resolvedCount > 0 && (
+              <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/50 dark:bg-amber-950/20 p-3">
+                <AlertCircle className="h-4 w-4 text-amber-700 mt-0.5 shrink-0" />
+                <p className="text-xs text-amber-800 dark:text-amber-200">{copy.incomplete}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 border-t bg-background p-4">
+            <Button
+              onClick={finishEvidence}
+              disabled={busy || loading || !allResolved || (anySkipped && limitedServiceNote.trim().length < 3)}
+              className="min-h-11"
+            >
+              <CheckCircle className="h-4 w-4 mr-2" />
+              {busy ? '…' : copy.done}
+            </Button>
+            <Button variant="outline" onClick={requestClose} disabled={busy} className="min-h-11">
+              <X className="h-4 w-4 mr-1" />
+              {t('common.cancel')}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Exit Warning Dialog */}
-      <AlertDialog open={showExitWarning} onOpenChange={setShowExitWarning}>
-        <AlertDialogContent>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleFileSelected}
+      />
+
+      <AlertDialog open={showCamera} onOpenChange={(next) => { if (!next) stopCamera(); }}>
+        <AlertDialogContent className="w-[calc(100vw-1rem)] max-w-xl p-3 sm:p-5">
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-amber-600" />
-              {t('photoCapture.exitWarningTitle')}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('photoCapture.exitWarningMessage')}
-              <div className="mt-3 p-3 bg-muted rounded-lg">
-                <p className="font-medium text-sm mb-2">{t('photoCapture.missingCategories')}:</p>
-                <ul className="text-sm space-y-1">
-                  {PHOTO_CATEGORIES
-                    .filter(cat => !categorizedPhotos.some(p => p.category === cat.key))
-                    .map(cat => (
-                      <li key={cat.key} className="flex items-center gap-2">
-                        <cat.icon className="h-4 w-4" />
-                        {t(cat.translationKey)}
-                      </li>
-                    ))}
-                </ul>
-              </div>
-            </AlertDialogDescription>
+            <AlertDialogTitle>{t(currentCategory.translationKey)} — {roomNumber}</AlertDialogTitle>
+            <AlertDialogDescription>{copy.capture}</AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('photoCapture.continueCapturing')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => {
-              setShowExitWarning(false);
-              handleClose(true);
-            }}>
-              {t('photoCapture.exitAnyway')}
+          <div className="overflow-hidden rounded-xl bg-black aspect-[3/4] sm:aspect-video flex items-center justify-center">
+            <video ref={videoRef} playsInline muted autoPlay className="h-full w-full object-cover" />
+          </div>
+          <canvas ref={canvasRef} className="hidden" />
+          <AlertDialogFooter className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <AlertDialogCancel onClick={stopCamera}>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void capturePhoto()} disabled={cameraLoading || busy}>
+              <Camera className="h-4 w-4 mr-2" />
+              {cameraLoading ? '…' : copy.capture}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Photo Preview Dialog */}
-      <Dialog open={!!selectedPhotoPreview} onOpenChange={(open) => !open && setSelectedPhotoPreview(null)}>
-        <DialogContent className="max-w-4xl w-full p-0">
-          <div className="relative">
-            <button
-              onClick={() => setSelectedPhotoPreview(null)}
-              className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center text-white transition-all touch-manipulation"
-            >
-              <X className="h-5 w-5" />
-            </button>
-            {selectedPhotoPreview && (
-              <div className="space-y-4 p-4 sm:p-6">
-                <div className="flex items-center gap-3">
-                  {(() => {
-                    const Icon = PHOTO_CATEGORIES.find(c => c.key === selectedPhotoPreview.category)?.icon || Camera;
-                    const categoryInfo = PHOTO_CATEGORIES.find(c => c.key === selectedPhotoPreview.category);
-                    return (
-                      <>
-                        <div className={cn(
-                          "w-12 h-12 rounded-full flex items-center justify-center",
-                          categoryInfo?.color || "bg-primary",
-                          "text-white"
-                        )}>
-                          <Icon className="h-6 w-6" />
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-semibold">{selectedPhotoPreview.categoryName}</h3>
-                          <p className="text-sm text-muted-foreground">{t('photoCapture.photoPreview')}</p>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-                <img
-                  src={selectedPhotoPreview.dataUrl}
-                  alt={selectedPhotoPreview.categoryName}
-                  className="w-full rounded-lg"
-                />
-                <div className="flex gap-2">
-                  <Button
-                    onClick={() => {
-                      const photoIndex = categorizedPhotos.findIndex(p => p === selectedPhotoPreview);
-                      if (photoIndex !== -1) {
-                        removePhoto(photoIndex);
-                      }
-                      setSelectedPhotoPreview(null);
-                    }}
-                    variant="destructive"
-                    className="flex-1"
-                  >
-                    <X className="h-4 w-4 mr-2" />
-                    {t('photoCapture.deletePhoto')}
-                  </Button>
-                  <Button
-                    onClick={() => setSelectedPhotoPreview(null)}
-                    variant="outline"
-                    className="flex-1"
-                  >
-                    {t('common.close')}
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Save Confirmation Dialog */}
-      <AlertDialog open={showSaveConfirmation} onOpenChange={setShowSaveConfirmation}>
-        <AlertDialogContent>
+      <AlertDialog open={!!skipCategory} onOpenChange={(next) => { if (!next) setSkipCategory(null); }}>
+        <AlertDialogContent className="w-[calc(100vw-1rem)] max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-green-600" />
-              All Photos Captured!
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              You've taken photos for all categories ({categorizedPhotos.length} total photos). Would you like to save them now?
-            </AlertDialogDescription>
+            <AlertDialogTitle>{copy.skipTitle}</AlertDialogTitle>
+            <AlertDialogDescription>{copy.skipDescription}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>{copy.reason}</Label>
+              <Select value={skipReason} onValueChange={(value) => setSkipReason(value as SkipReason)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(reasonLabels) as SkipReason[]).map((reason) => (
+                    <SelectItem key={reason} value={reason}>{reasonLabels[reason]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{copy.detail}</Label>
+              <Textarea
+                value={skipDetail}
+                onChange={(event) => setSkipDetail(event.target.value)}
+                rows={2}
+                placeholder={skipReason === 'other' ? 'Required for Other' : ''}
+              />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void confirmSkip()} disabled={busy}>
+              <SkipForward className="h-4 w-4 mr-2" />
+              {copy.confirmSkip}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showExitWarning} onOpenChange={setShowExitWarning}>
+        <AlertDialogContent className="w-[calc(100vw-1rem)] max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{copy.exitTitle}</AlertDialogTitle>
+            <AlertDialogDescription>{copy.exitDescription}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Add More Photos</AlertDialogCancel>
-            <AlertDialogAction onClick={() => {
-              setShowSaveConfirmation(false);
-              uploadPhotos();
-            }}>
-              <CheckCircle className="h-4 w-4 mr-2" />
-              Save & Continue
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setShowExitWarning(false); onOpenChange(false); }}>
+              {copy.leave}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
