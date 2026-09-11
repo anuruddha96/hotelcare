@@ -23,6 +23,7 @@ import { useEffect } from "react";
 const GRID_CARD = '[data-training="revenue-grid"]';
 const GRID_SCROLL = ".relative.overflow-auto.overscroll-x-contain";
 const MOBILE_QUERY = "(max-width: 767px)";
+const COARSE_POINTER_QUERY = "(pointer: coarse)";
 const QUICK_SWIPE_MS = 700;
 const AXIS_LOCK_PX = 8;
 const SWIPE_MIN_PX = 28;
@@ -66,7 +67,12 @@ const calendarCss = String.raw`
     min-height: 40px !important;
   }
 
-  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(n+3) {
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(3),
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(4),
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(5),
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(6),
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(7) {
+    height: 27px !important;
     min-height: 27px !important;
   }
 
@@ -78,6 +84,29 @@ const calendarCss = String.raw`
 
     [data-rate-calendar-v2="true"] details {
       line-height: 1.15;
+    }
+  }
+
+  /* On ordinary laptop widths the toolbar is often taller than the pricing
+     grid header because its many controls wrap to multiple lines. Keep it as
+     one stable horizontal control strip instead. */
+  @media (min-width: 768px) and (max-width: 1600px) {
+    [data-rate-calendar-v2="true"] > div:first-child > div:first-child {
+      align-items: stretch !important;
+      flex-direction: column !important;
+    }
+
+    [data-rate-calendar-v2="true"] > div:first-child > div:first-child > div:last-child {
+      width: 100%;
+      flex-wrap: nowrap !important;
+      overflow-x: auto;
+      overscroll-behavior-x: contain;
+      padding-bottom: 2px;
+      scrollbar-width: thin;
+    }
+
+    [data-rate-calendar-v2="true"] > div:first-child > div:first-child > div:last-child > * {
+      flex: 0 0 auto;
     }
   }
 
@@ -110,9 +139,43 @@ const calendarCss = String.raw`
       min-height: 36px !important;
     }
 
-    [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(n+3) {
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(3),
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(4),
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(5),
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(6),
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(7) {
+      height: 25px !important;
       min-height: 25px !important;
     }
+  }
+
+  /* Phones, including wide rotated phones that exceed the usual 767px CSS
+     breakpoint, use one horizontally scrollable toolbar row instead of several
+     wrapped rows. */
+  [data-rate-calendar-device="mobile-portrait"] > div:first-child > div:first-child,
+  [data-rate-calendar-device="mobile-landscape"] > div:first-child > div:first-child {
+    align-items: stretch !important;
+    flex-direction: column !important;
+  }
+
+  [data-rate-calendar-device="mobile-portrait"] > div:first-child > div:first-child > div:last-child,
+  [data-rate-calendar-device="mobile-landscape"] > div:first-child > div:first-child > div:last-child {
+    width: 100%;
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  [data-rate-calendar-device="mobile-portrait"] > div:first-child > div:first-child > div:last-child::-webkit-scrollbar,
+  [data-rate-calendar-device="mobile-landscape"] > div:first-child > div:first-child > div:last-child::-webkit-scrollbar {
+    display: none;
+  }
+
+  [data-rate-calendar-device="mobile-portrait"] > div:first-child > div:first-child > div:last-child > *,
+  [data-rate-calendar-device="mobile-landscape"] > div:first-child > div:first-child > div:last-child > * {
+    flex: 0 0 auto;
   }
 
   /* Rotated phones have very little vertical room. Keep the calendar controls
@@ -137,6 +200,15 @@ const calendarCss = String.raw`
     height: 32px !important;
     min-height: 32px !important;
   }
+
+  [data-rate-calendar-device="mobile-landscape"] [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(3),
+  [data-rate-calendar-device="mobile-landscape"] [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(4),
+  [data-rate-calendar-device="mobile-landscape"] [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(5),
+  [data-rate-calendar-device="mobile-landscape"] [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(6),
+  [data-rate-calendar-device="mobile-landscape"] [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(7) {
+    height: 23px !important;
+    min-height: 23px !important;
+  }
 `;
 
 type GestureState = {
@@ -158,9 +230,16 @@ function findScrollPane(card: HTMLElement): HTMLElement | null {
   }) ?? null;
 }
 
+function isPhoneViewport(): boolean {
+  if (window.matchMedia(MOBILE_QUERY).matches) return true;
+  // A rotated phone can be 800–950px wide and miss the normal mobile CSS
+  // breakpoint. A coarse pointer plus a short side identifies that form factor
+  // without turning normal desktop windows into the mobile layout.
+  return window.matchMedia(COARSE_POINTER_QUERY).matches && Math.min(window.innerWidth, window.innerHeight) <= 600;
+}
+
 function deviceMode(): "desktop" | "mobile-portrait" | "mobile-landscape" {
-  const mobile = window.matchMedia(MOBILE_QUERY).matches;
-  if (!mobile) return "desktop";
+  if (!isPhoneViewport()) return "desktop";
   return window.innerWidth > window.innerHeight ? "mobile-landscape" : "mobile-portrait";
 }
 
@@ -176,7 +255,7 @@ export function RevenueCalendarExperience() {
       let lastVerticalGestureAt = 0;
 
       const onTouchStart = (event: TouchEvent) => {
-        if (!window.matchMedia(MOBILE_QUERY).matches || event.touches.length !== 1) return;
+        if (!isPhoneViewport() || event.touches.length !== 1) return;
         const touch = event.touches[0];
         state = {
           startX: touch.clientX,
