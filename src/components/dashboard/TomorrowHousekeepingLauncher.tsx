@@ -20,6 +20,10 @@ import { isBudapestNoonOrLater, todayBudapest } from '@/lib/budapestTime';
 import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { housekeepingAutomationText } from '@/lib/housekeepingAutomationTranslations';
+import {
+  isCurrentDayHousekeepingCarryover,
+  pickHousekeepingLauncherPlan,
+} from '@/lib/nextDayHousekeepingLauncher';
 import { normalizeNextDayReleaseTime } from '@/lib/nextDayReleaseTime';
 import {
   tomorrowHousekeepingStatusText,
@@ -28,6 +32,7 @@ import {
 
 type TomorrowPlanRow = {
   id: string;
+  plan_date: string;
   status: 'draft' | 'approved' | 'releasing' | 'released' | 'cancelled' | 'failed';
   auto_release: boolean;
   release_time: string | null;
@@ -177,10 +182,10 @@ function getStatusPresentation(
 /**
  * Discoverable Team View entry point for the next-day housekeeping planner.
  *
- * Tomorrow planning is intentionally available only from 12:00 Budapest time.
- * Before noon the component renders nothing, keeping the morning workspace
- * focused on today's operation. The actual planning workflow stays owned by
- * AutoRoomAssignment/NextDayAssignmentPlanner.
+ * New tomorrow planning is intentionally available only from 12:00 Budapest
+ * time. A plan approved yesterday remains visible after midnight while it is
+ * still approved/releasing/failed, so managers do not lose the status and
+ * release-time controls before the morning worker finishes.
  */
 export function TomorrowHousekeepingLauncher() {
   const { profile } = useAuth();
@@ -216,45 +221,53 @@ export function TomorrowHousekeepingLauncher() {
 
       const { data, error } = await (supabase as any)
         .from('next_day_housekeeping_plans')
-        .select('id,status,auto_release,release_time,scheduled_release_at,release_revalidation_status,release_revalidation_attempt_count,release_result,last_error,released_at')
+        .select('id,plan_date,status,auto_release,release_time,scheduled_release_at,release_revalidation_status,release_revalidation_attempt_count,release_result,last_error,released_at')
         .eq('organization_slug', profile.organization_slug)
         .eq('hotel_id', hotelId)
-        .eq('plan_date', tomorrowDate)
-        .maybeSingle();
+        .in('plan_date', [budapestDate, tomorrowDate]);
 
       if (error) throw error;
       if (requestGeneration.current !== generation) return;
 
-      setPlan((data || null) as TomorrowPlanRow | null);
+      const selected = pickHousekeepingLauncherPlan(
+        (data || []) as TomorrowPlanRow[],
+        budapestDate,
+        tomorrowDate,
+        planningWindowOpen,
+      );
+      setPlan(selected);
       setStatusUnavailable(false);
     } catch (error) {
       if (requestGeneration.current !== generation) return;
       console.warn('[TomorrowHousekeepingLauncher] plan status unavailable:', error);
+      setPlan(null);
       setStatusUnavailable(true);
     } finally {
       if (requestGeneration.current === generation) setStatusLoading(false);
     }
-  }, [canManage, profile?.assigned_hotel, profile?.organization_slug, tomorrowDate]);
+  }, [
+    budapestDate,
+    canManage,
+    planningWindowOpen,
+    profile?.assigned_hotel,
+    profile?.organization_slug,
+    tomorrowDate,
+  ]);
 
   useEffect(() => {
     if (!canManage) return;
 
-    if (planningWindowOpen) {
-      void loadStatus(true);
-    } else {
-      requestGeneration.current += 1;
-      setOpen(false);
-      setPlan(null);
-      setStatusUnavailable(false);
-      setStatusLoading(false);
-    }
+    void loadStatus(true);
 
     const refresh = () => {
       const currentBudapestDate = todayBudapest();
       const availableNow = isBudapestNoonOrLater();
-      setBudapestDate(current => current === currentBudapestDate ? current : currentBudapestDate);
-      setPlanningWindowOpen(current => current === availableNow ? current : availableNow);
-      if (availableNow && planningWindowOpen) void loadStatus(false);
+      const dateChanged = currentBudapestDate !== budapestDate;
+      const windowChanged = availableNow !== planningWindowOpen;
+
+      if (dateChanged) setBudapestDate(currentBudapestDate);
+      if (windowChanged) setPlanningWindowOpen(availableNow);
+      if (!dateChanged && !windowChanged) void loadStatus(false);
     };
     const onVisibility = () => {
       if (document.visibilityState === 'visible') refresh();
@@ -271,11 +284,19 @@ export function TomorrowHousekeepingLauncher() {
       document.removeEventListener('visibilitychange', onVisibility);
       window.clearInterval(interval);
     };
-  }, [canManage, loadStatus, planningWindowOpen]);
+  }, [canManage, budapestDate, loadStatus, planningWindowOpen]);
 
-  if (!canManage || !planningWindowOpen) return null;
+  const currentDayCarryover = isCurrentDayHousekeepingCarryover(plan, budapestDate);
 
-  const title = housekeepingAutomationText('title');
+  useEffect(() => {
+    if (currentDayCarryover && open) setOpen(false);
+  }, [currentDayCarryover, open]);
+
+  if (!canManage || (!planningWindowOpen && !currentDayCarryover)) return null;
+
+  const title = currentDayCarryover
+    ? tomorrowHousekeepingStatusText('reviewPlan')
+    : housekeepingAutomationText('title');
   const subtitle = housekeepingAutomationText('subtitle');
   const releaseTime = normalizeNextDayReleaseTime(plan?.release_time);
   const presentation = getStatusPresentation(plan, statusLoading, statusUnavailable);
@@ -283,6 +304,7 @@ export function TomorrowHousekeepingLauncher() {
   const statusLabel = tomorrowHousekeepingStatusText(presentation.labelKey);
   const statusHint = tomorrowHousekeepingStatusText(presentation.hintKey).replace('08:00', releaseTime);
   const actionLabel = tomorrowHousekeepingStatusText(presentation.actionKey);
+  const displayDate = plan?.plan_date || tomorrowDate;
 
   const releaseResult = plan?.release_result || {};
   const plannedAssignments = numberFrom(releaseResult.planned_assignments);
@@ -316,7 +338,7 @@ export function TomorrowHousekeepingLauncher() {
                     {statusLabel}
                   </Badge>
                   <TomorrowReleaseTimeControl plan={plan} onSaved={() => void loadStatus(false)} />
-                  <Badge variant="secondary">{tomorrowDate}</Badge>
+                  <Badge variant="secondary">{displayDate}</Badge>
                 </div>
 
                 <p className="max-w-3xl text-sm text-muted-foreground">{statusHint}</p>
@@ -340,28 +362,30 @@ export function TomorrowHousekeepingLauncher() {
                       </span>
                     ) : null}
                   </div>
-                ) : (
+                ) : currentDayCarryover ? null : (
                   <p className="max-w-3xl text-xs text-muted-foreground/80">{subtitle}</p>
                 )}
               </div>
             </div>
 
-            <Button
-              type="button"
-              onClick={() => setOpen(true)}
-              className="w-full shrink-0 gap-2 sm:w-auto"
-              data-tour="prepare-tomorrow-housekeeping"
-              disabled={statusLoading}
-            >
-              <CalendarClock className="h-4 w-4" />
-              <span className="max-w-[240px] truncate">{actionLabel}</span>
-              <ArrowRight className="h-4 w-4" />
-            </Button>
+            {!currentDayCarryover ? (
+              <Button
+                type="button"
+                onClick={() => setOpen(true)}
+                className="w-full shrink-0 gap-2 sm:w-auto"
+                data-tour="prepare-tomorrow-housekeeping"
+                disabled={statusLoading}
+              >
+                <CalendarClock className="h-4 w-4" />
+                <span className="max-w-[240px] truncate">{actionLabel}</span>
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            ) : null}
           </div>
         </CardContent>
       </Card>
 
-      {open && (
+      {open && !currentDayCarryover ? (
         <AutoRoomAssignment
           open={open}
           onOpenChange={closePlanner}
@@ -371,7 +395,7 @@ export function TomorrowHousekeepingLauncher() {
             void loadStatus(false);
           }}
         />
-      )}
+      ) : null}
     </>
   );
 }
