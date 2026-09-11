@@ -111,7 +111,7 @@ export function WelcomeBackOverlay({
   onSignOut,
   context = "revenue",
 }: {
-  /** First name of the person returning, when we know it. */
+  /** Human name supplied by a caller, used only if the profile name is unavailable. */
   name?: string | null;
   /** What the refresh is doing right now. */
   step?: string;
@@ -146,8 +146,10 @@ export function WelcomeBackOverlay({
     return () => window.clearInterval(id);
   }, []);
 
-  const displayName = name ?? profile?.nickname ?? profile?.full_name ?? "";
-  const first = displayName.trim().split(" ")[0];
+  // Always prefer the person's proper profile name. `nickname` is also used as
+  // a login/username in some accounts, so it must never be shown as the welcome name.
+  const displayName = profile?.full_name?.trim() || name?.trim() || "";
+  const first = displayName.split(/\s+/)[0] ?? "";
 
   return (
     <div
