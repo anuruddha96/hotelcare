@@ -18,31 +18,23 @@ import {
 const GREETINGS = [
   "Welcome back",
   "Good to see you",
-  "There you are",
+  "Good to have you back",
   "Back in the chair",
+  "Ready when you are",
+  "Picking up where you left off",
 ];
 
-/** Today in Budapest, as a stable seed. */
-function budapestDay(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Budapest", year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(new Date());
-}
-
-function daySeed(): number {
-  return Array.from(budapestDay()).reduce((sum, char) => sum + char.charCodeAt(0), 0);
-}
-
 /* ------------------------------------------------------------------ */
-/* Role-aware rotation                                                 */
+/* User + role-aware rotation                                          */
 /* ------------------------------------------------------------------ */
 
-const ROTATION_KEY = "hc.quoteRotation.v2";
+const ROTATION_KEY = "hc.quoteRotation.v3";
+const GREETING_KEY = "hc.greetingRotation.v2";
 type Rotation = { seen: string[] };
 
-function readRotation(audience: QuoteAudience): Rotation {
+function readRotation(viewerKey: string): Rotation {
   try {
-    const raw = localStorage.getItem(`${ROTATION_KEY}.${audience}`);
+    const raw = localStorage.getItem(`${ROTATION_KEY}.${viewerKey}`);
     const parsed = raw ? (JSON.parse(raw) as Rotation) : null;
     if (parsed && Array.isArray(parsed.seen)) return { seen: parsed.seen };
   } catch { /* corrupt or unavailable storage — start a fresh cycle */ }
@@ -50,19 +42,19 @@ function readRotation(audience: QuoteAudience): Rotation {
 }
 
 /**
- * Picks the next quote this role has not seen in the current cycle. Each role
- * audience owns its own history, so a housekeeping session can never inherit a
- * revenue/management quote simply because another user used this device first.
+ * Picks the next quote this user has not seen in the current role cycle.
+ * The history is user + role scoped so shared devices do not make one person's
+ * quote rotation feel repetitive because another colleague used the same role.
  */
-function nextQuote(pool: MotivationalQuote[], audience: QuoteAudience): MotivationalQuote {
+function nextQuote(pool: MotivationalQuote[], viewerKey: string): MotivationalQuote {
   const safePool = pool.length ? pool : quotePoolForAudience("hospitality");
-  const { seen } = readRotation(audience);
+  const { seen } = readRotation(viewerKey);
   let unseen = safePool.filter((line) => !seen.includes(line.id));
   let history = seen;
 
   if (unseen.length === 0) {
-    // Cycle complete: reset, but keep the last line out of the running so the
-    // fresh cycle never opens with the quote that just closed the old one.
+    // Cycle complete: reset, but keep the final quote out of the first draw so
+    // a new cycle can never immediately repeat the line that just finished it.
     const last = seen[seen.length - 1];
     unseen = safePool.filter((line) => line.id !== last);
     history = [];
@@ -72,25 +64,41 @@ function nextQuote(pool: MotivationalQuote[], audience: QuoteAudience): Motivati
   const chosen = unseen[Math.floor(Math.random() * unseen.length)];
   try {
     localStorage.setItem(
-      `${ROTATION_KEY}.${audience}`,
+      `${ROTATION_KEY}.${viewerKey}`,
       JSON.stringify({ seen: [...history, chosen.id].slice(-500) } satisfies Rotation),
     );
   } catch { /* private mode — rotation degrades to random, still no crash */ }
   return chosen;
 }
 
-/** Keep simultaneous overlays for the same role on the same line. The cache is
- * separated by audience so switching accounts/roles cannot leak a quote from a
- * different job family. */
-const activeLines = new Map<QuoteAudience, { line: MotivationalQuote; shownAt: number }>();
+function nextGreeting(viewerKey: string): string {
+  const key = `${GREETING_KEY}.${viewerKey}`;
+  let previous = "";
+  try {
+    previous = localStorage.getItem(key) ?? "";
+  } catch { /* storage unavailable */ }
+
+  const available = GREETINGS.filter((greeting) => greeting !== previous);
+  const pool = available.length ? available : GREETINGS;
+  const chosen = pool[Math.floor(Math.random() * pool.length)];
+
+  try {
+    localStorage.setItem(key, chosen);
+  } catch { /* storage unavailable */ }
+  return chosen;
+}
+
+/** Keep simultaneous overlays for the same user/role on the same line so the
+ * quote does not flicker if the app briefly remounts during bootstrap. */
+const activeLines = new Map<string, { line: MotivationalQuote; shownAt: number }>();
 const QUOTE_HOLD_MS = 10_000;
 
-function activeQuoteForAudience(audience: QuoteAudience): MotivationalQuote {
-  const current = activeLines.get(audience);
+function activeQuoteForAudience(audience: QuoteAudience, viewerKey: string): MotivationalQuote {
+  const current = activeLines.get(viewerKey);
   if (current && Date.now() - current.shownAt < QUOTE_HOLD_MS) return current.line;
 
-  const picked = nextQuote(quotePoolForAudience(audience), audience);
-  activeLines.set(audience, { line: picked, shownAt: Date.now() });
+  const picked = nextQuote(quotePoolForAudience(audience), viewerKey);
+  activeLines.set(viewerKey, { line: picked, shownAt: Date.now() });
   return picked;
 }
 
@@ -116,28 +124,30 @@ export function WelcomeBackOverlay({
 }) {
   const { profile } = useAuth();
   const audience = useMemo(() => quoteAudienceForRole(profile?.role), [profile?.role]);
+  const viewerKey = useMemo(
+    () => `${audience}.${profile?.id ?? "pending"}`,
+    [audience, profile?.id],
+  );
 
-  // Pick from the authenticated user's role pool. During the very first part of
-  // session restoration the profile can still be unknown, so we use a neutral
-  // hospitality line. As soon as the trusted profile arrives it is replaced by
-  // a quote from the correct role pool.
-  const [line, setLine] = useState<MotivationalQuote>(() => activeQuoteForAudience(audience));
+  // During the first part of session restoration the profile can still be
+  // unknown, so a neutral hospitality line is shown. Once the trusted profile
+  // arrives, the overlay immediately switches to that user's role-specific pool.
+  const [line, setLine] = useState<MotivationalQuote>(() => activeQuoteForAudience(audience, viewerKey));
   useEffect(() => {
-    setLine((current) => {
-      const rolePool = quotePoolForAudience(audience);
-      if (rolePool.some((candidate) => candidate.id === current.id)) return current;
-      return activeQuoteForAudience(audience);
-    });
-  }, [audience]);
+    setLine(activeQuoteForAudience(audience, viewerKey));
+  }, [audience, viewerKey]);
 
-  const greeting = useMemo(() => GREETINGS[daySeed() % GREETINGS.length], []);
+  // Unlike the old day-seeded greeting, this avoids showing "Back in the chair"
+  // every time the same person opens the workspace during one day.
+  const greeting = useMemo(() => nextGreeting(viewerKey), [viewerKey]);
   const [dots, setDots] = useState(1);
   useEffect(() => {
     const id = window.setInterval(() => setDots((d) => (d % 3) + 1), 600);
     return () => window.clearInterval(id);
   }, []);
 
-  const first = (name ?? "").trim().split(" ")[0];
+  const displayName = name ?? profile?.nickname ?? profile?.full_name ?? "";
+  const first = displayName.trim().split(" ")[0];
 
   return (
     <div
