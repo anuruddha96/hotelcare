@@ -10,6 +10,7 @@ import { mailClient } from "../_shared/emailSender.ts";
 
 const ALERT_ROLES = ["admin", "top_management", "top_management_manager"];
 const HORIZON_DAYS = 120;
+const SLNT_ADAPTIVE_MIN_SAMPLES = 30;
 
 interface Thresholds {
   rate_warn_below_eur: number;
@@ -23,6 +24,13 @@ interface CurrencySettings {
   eur_conversion_rate: number | null;
 }
 
+interface EffectiveBounds {
+  low: number;
+  high: number;
+  adaptive: boolean;
+  sampleSize: number;
+}
+
 const DEFAULTS: Thresholds = {
   rate_warn_below_eur: 60,
   rate_critical_below_eur: 40,
@@ -34,6 +42,87 @@ function addDays(iso: string, n: number) {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
+}
+
+function rateKey(roomTypeName: unknown, occupancy: unknown) {
+  return `${String(roomTypeName ?? "")}|${String(occupancy ?? "")}`;
+}
+
+function percentile(sorted: number[], q: number): number {
+  if (sorted.length === 0) return NaN;
+  if (sorted.length === 1) return sorted[0];
+  const pos = (sorted.length - 1) * q;
+  const lower = Math.floor(pos);
+  const upper = Math.ceil(pos);
+  if (lower === upper) return sorted[lower];
+  const weight = pos - lower;
+  return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+}
+
+/**
+ * SLNT is a portfolio made up of very different apartments, rooms and
+ * pensions. A single portfolio-wide minimum therefore creates false alarms
+ * for naturally lower-priced units such as WR Pension.
+ *
+ * Learn a conservative range separately for each room type + occupancy from
+ * the current 120-day published curve. The configured hotel thresholds remain
+ * hard guardrails: the adaptive floor can only move down (never below 45% of
+ * the configured floor), and the adaptive ceiling can only move down from the
+ * configured maximum. Robust percentiles keep one typo from teaching the
+ * detector that the typo is normal.
+ */
+function buildSlntAdaptiveBounds(
+  rates: any[],
+  configuredLow: number,
+  configuredHigh: number,
+): Map<string, EffectiveBounds> {
+  const grouped = new Map<string, number[]>();
+
+  for (const r of rates) {
+    const p = Number(r.price);
+    if (!Number.isFinite(p) || p <= 0) continue;
+    const key = rateKey(r.room_type_name, r.occupancy);
+    const prices = grouped.get(key) ?? [];
+    prices.push(p);
+    grouped.set(key, prices);
+  }
+
+  const bounds = new Map<string, EffectiveBounds>();
+  for (const [key, prices] of grouped.entries()) {
+    if (prices.length < SLNT_ADAPTIVE_MIN_SAMPLES) continue;
+
+    const sorted = [...prices].sort((a, b) => a - b);
+    const p05 = percentile(sorted, 0.05);
+    const median = percentile(sorted, 0.50);
+    const p95 = percentile(sorted, 0.95);
+
+    // A legitimate low season rate is usually represented repeatedly in the
+    // lower tail. 70% of P05 / 55% of median gives it breathing room while a
+    // misplaced zero or 10x-too-low amount still trips the safety net.
+    const learnedLow = Math.max(p05 * 0.70, median * 0.55);
+    const low = Math.max(
+      configuredLow * 0.45,
+      Math.min(configuredLow, learnedLow),
+    );
+
+    // Keep enough headroom for Budapest event / peak-date spikes. P95 and the
+    // median are robust against a single huge typo, unlike the raw maximum.
+    const learnedHigh = Math.max(
+      configuredHigh * 0.45,
+      median * 8,
+      p95 * 5,
+    );
+    const high = Math.max(low, Math.min(configuredHigh, learnedHigh));
+
+    bounds.set(key, {
+      low,
+      high,
+      adaptive: true,
+      sampleSize: prices.length,
+    });
+  }
+
+  return bounds;
 }
 
 Deno.serve(async (req) => {
@@ -94,10 +183,33 @@ Deno.serve(async (req) => {
         .order("stay_date")
         .limit(20000);
 
-      const offenders = (rates ?? []).filter((r: any) => {
+      const isSlnt = h.hotel_id === "slnt-group" ||
+        String(h.organization_slug ?? "").toLowerCase() === "slnt";
+      const adaptiveBounds = isSlnt
+        ? buildSlntAdaptiveBounds(rates ?? [], criticalBelow, maxSane)
+        : new Map<string, EffectiveBounds>();
+
+      const evaluated = (rates ?? []).map((r: any) => {
+        const learned = adaptiveBounds.get(rateKey(r.room_type_name, r.occupancy));
+        const bounds: EffectiveBounds = learned ?? {
+          low: criticalBelow,
+          high: maxSane,
+          adaptive: false,
+          sampleSize: 0,
+        };
+        return {
+          ...r,
+          _alertLow: bounds.low,
+          _alertHigh: bounds.high,
+          _adaptive: bounds.adaptive,
+          _sampleSize: bounds.sampleSize,
+        };
+      });
+
+      const offenders = evaluated.filter((r: any) => {
         const p = Number(r.price);
         if (!Number.isFinite(p)) return false;
-        return p <= 0 || p < criticalBelow || p > maxSane;
+        return p <= 0 || p < r._alertLow || p > r._alertHigh;
       });
 
       if (offenders.length === 0) { summary.push({ hotel_id: h.hotel_id, found: 0, emailed: 0 }); continue; }
@@ -147,19 +259,29 @@ Deno.serve(async (req) => {
 
         const unique = Array.from(new Set(recipients));
         if (unique.length > 0) {
-          const list = fresh.slice(0, 30).map((r: any) =>
-            `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee">${r.stay_date}</td>` +
-            `<td style="padding:6px 10px;border-bottom:1px solid #eee">${r.room_type_name}</td>` +
-            `<td style="padding:6px 10px;border-bottom:1px solid #eee">${r.occupancy} guest(s)</td>` +
-            `<td style="padding:6px 10px;border-bottom:1px solid #eee;font-weight:600">${Number(r.price).toLocaleString("en-US", { maximumFractionDigits: 0 })} ${currencyLabel}</td></tr>`,
-          ).join("");
+          const rangeHeader = isSlnt
+            ? `<th align="left" style="padding:6px 10px;border-bottom:2px solid #ddd">Safety range</th>`
+            : "";
+          const list = fresh.slice(0, 30).map((r: any) => {
+            const rangeCell = isSlnt
+              ? `<td style="padding:6px 10px;border-bottom:1px solid #eee;white-space:nowrap">${Math.round(r._alertLow).toLocaleString("en-US")}–${Math.round(r._alertHigh).toLocaleString("en-US")} ${currencyLabel}</td>`
+              : "";
+            return `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee">${r.stay_date}</td>` +
+              `<td style="padding:6px 10px;border-bottom:1px solid #eee">${r.room_type_name}</td>` +
+              `<td style="padding:6px 10px;border-bottom:1px solid #eee">${r.occupancy} guest(s)</td>` +
+              `<td style="padding:6px 10px;border-bottom:1px solid #eee;font-weight:600">${Number(r.price).toLocaleString("en-US", { maximumFractionDigits: 0 })} ${currencyLabel}</td>` +
+              `${rangeCell}</tr>`;
+          }).join("");
+
+          const thresholdText = isSlnt
+            ? `SLNT uses an adaptive safety net calculated separately for each room type and occupancy from the current ${HORIZON_DAYS}-day published rate curve. The configured portfolio limits remain hard guardrails.`
+            : `The safety net is below ${Math.round(criticalBelow).toLocaleString("en-US")} ${currencyLabel} or above ${Math.round(maxSane).toLocaleString("en-US")} ${currencyLabel}.`;
 
           const html = `
             <div style="font-family:Arial,Helvetica,sans-serif;color:#111">
               <h2 style="margin:0 0 8px">Unusual rates detected — ${h.hotel_id}</h2>
               <p style="margin:0 0 16px;color:#555">
-                ${fresh.length} published price${fresh.length === 1 ? "" : "s"} fall outside the safety net
-                (below ${Math.round(criticalBelow).toLocaleString("en-US")} ${currencyLabel} or above ${Math.round(maxSane).toLocaleString("en-US")} ${currencyLabel}).
+                ${fresh.length} published price${fresh.length === 1 ? "" : "s"} fall outside the safety net. ${thresholdText}
                 Please review them in Revenue Management before they sell.
               </p>
               <table style="border-collapse:collapse;font-size:14px">
@@ -168,6 +290,7 @@ Deno.serve(async (req) => {
                   <th align="left" style="padding:6px 10px;border-bottom:2px solid #ddd">Room type</th>
                   <th align="left" style="padding:6px 10px;border-bottom:2px solid #ddd">Occupancy</th>
                   <th align="left" style="padding:6px 10px;border-bottom:2px solid #ddd">Price</th>
+                  ${rangeHeader}
                 </tr></thead>
                 <tbody>${list}</tbody>
               </table>
