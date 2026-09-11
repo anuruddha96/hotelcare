@@ -1,5 +1,5 @@
 import { Navigate, Link, useParams } from 'react-router-dom';
-import { CalendarDays, Users } from 'lucide-react';
+import { CalendarDays, CarFront, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Header } from '@/components/layout/Header';
 import { PMSNavigation } from '@/components/layout/PMSNavigation';
@@ -35,6 +35,12 @@ export default function ReceptionHome() {
             <Button type="button" variant="ghost" size="sm" className="h-8 shrink-0 gap-1.5 text-muted-foreground hover:text-foreground">
               <Users className="h-4 w-4" />
               Guest directory
+            </Button>
+          </Link>
+          <Link to={`${basePath}/parking-tickets`}>
+            <Button type="button" variant="ghost" size="sm" className="h-8 shrink-0 gap-1.5 text-muted-foreground hover:text-foreground">
+              <CarFront className="h-4 w-4" />
+              Parking tickets
             </Button>
           </Link>
         </div>
