@@ -11,8 +11,42 @@ type HighlightedRoomMessage = {
   element: HTMLElement;
   roomNumber: string;
   content: string;
-  kind: 'message' | 'instruction';
+  kind: 'message' | 'instruction' | 'guest_request';
 };
+
+type GuestRequestAlert = {
+  label: string;
+  quantity: number;
+  detail: string;
+  status: 'requested' | 'delivered' | 'returned' | 'resolved';
+  requiresReturn: boolean;
+};
+
+function parseGuestRequestAlert(content: string): GuestRequestAlert | null {
+  try {
+    const parsed = JSON.parse(content) as any;
+    if (parsed?.version !== 1 || !parsed?.label || !parsed?.status) return null;
+    return {
+      label: String(parsed.label),
+      quantity: Math.max(1, Number(parsed.quantity) || 1),
+      detail: String(parsed.detail || '').trim(),
+      status: parsed.status,
+      requiresReturn: !!parsed.requiresReturn,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function guestRequestAlertText(request: GuestRequestAlert) {
+  const item = `${request.label} ×${request.quantity}`;
+  const detail = request.detail ? ` — ${request.detail}` : '';
+  if (request.status === 'requested') return `Guest request: ${item}${detail}`;
+  if (request.status === 'delivered' && request.requiresReturn) {
+    return `Room item given: ${item}${detail}. Keep this visible until the item is collected/returned.`;
+  }
+  return `${item}${detail}`;
+}
 
 /**
  * Global notifications that are NOT owned by the housekeeping notification hook.
@@ -76,16 +110,26 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
     let ringTimer: ReturnType<typeof setTimeout> | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const loadContent = async (): Promise<{ content: string; kind: 'message' | 'instruction' }> => {
+    const loadContent = async (): Promise<{ content: string; kind: HighlightedRoomMessage['kind'] }> => {
       if (messageId) {
         const { data } = await supabase
           .from('housekeeping_notes')
-          .select('content')
+          .select('content, note_type')
           .eq('id', messageId)
           .eq('assignment_id', assignmentId)
           .maybeSingle();
+
+        const rawContent = String(data?.content || 'Open this room to see the new message.');
+        if (data?.note_type === 'guest_request') {
+          const request = parseGuestRequestAlert(rawContent);
+          return {
+            content: request ? guestRequestAlertText(request) : 'Open this room to see the new guest request.',
+            kind: 'guest_request',
+          };
+        }
+
         return {
-          content: String(data?.content || 'Open the room messages section to see the new message.'),
+          content: rawContent,
           kind: 'message',
         };
       }
@@ -174,6 +218,7 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
       content,
       messageId,
       instruction,
+      alertKind = 'message',
     }: {
       assignmentId: string;
       roomId: string;
@@ -181,11 +226,19 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
       content: string;
       messageId?: string | null;
       instruction?: boolean;
+      alertKind?: 'message' | 'guest_request';
     }) => {
       const cleanContent = content.trim();
       if (!cleanContent) return;
 
       const roomLabel = roomNumber ? `Room ${roomNumber}` : 'Room';
+      const resolvedKind = instruction ? 'manager_instruction' : alertKind;
+      const notificationLabel = resolvedKind === 'manager_instruction'
+        ? 'Manager instruction'
+        : resolvedKind === 'guest_request'
+          ? 'Guest request'
+          : 'New message';
+
       await showNotification(`${roomLabel}: ${cleanContent}`, 'info');
 
       if (!('Notification' in window)) return;
@@ -207,7 +260,7 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
       else targetUrl.searchParams.delete('hkInstruction');
 
       await serviceWorkerManager.sendNotification(
-        `Hotel Care · ${roomLabel} · ${instruction ? 'Manager instruction' : 'New message'}`,
+        `Hotel Care · ${roomLabel} · ${notificationLabel}`,
         cleanContent,
         {
           url: targetUrl.toString(),
@@ -215,7 +268,7 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
           roomId,
           roomNumber,
           messageId: messageId || null,
-          kind: instruction ? 'manager_instruction' : 'housekeeping_message',
+          kind: resolvedKind,
           tag: `housekeeping-room-${assignmentId}`,
           timestamp: Date.now(),
         },
@@ -299,6 +352,16 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
       if (assignmentError || !assignment || assignment.assigned_to !== user.id) return;
       if (assignment.status === 'cancelled') return;
 
+      let content = String(note.content);
+      let alertKind: 'message' | 'guest_request' = 'message';
+
+      if (note.note_type === 'guest_request') {
+        const request = parseGuestRequestAlert(content);
+        if (!request || request.status === 'resolved' || request.status === 'returned') return;
+        content = guestRequestAlertText(request);
+        alertKind = 'guest_request';
+      }
+
       const { data: room } = await supabase
         .from('rooms')
         .select('room_number')
@@ -309,9 +372,23 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
         assignmentId: assignment.id,
         roomId: assignment.room_id,
         roomNumber: room?.room_number,
-        content: String(note.content),
+        content,
         messageId: note.id,
+        alertKind,
       });
+    };
+
+    const handleHousekeepingNoteChange = (payload: any) => {
+      const note = (payload?.new || payload?.old) as any;
+      if (note?.note_type === 'guest_request' && note?.room_id) {
+        window.dispatchEvent(new CustomEvent('hc:guest-request-changed', {
+          detail: { roomId: String(note.room_id), assignmentId: note.assignment_id || null },
+        }));
+      }
+
+      if (payload?.eventType === 'INSERT') {
+        void notifyHousekeepingMessage(payload);
+      }
     };
 
     // Maintenance approvals remain visible to senior management because they
@@ -410,11 +487,11 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
         .on(
           'postgres_changes',
           {
-            event: 'INSERT',
+            event: '*',
             schema: 'public',
             table: 'housekeeping_notes'
           },
-          notifyHousekeepingMessage
+          handleHousekeepingNoteChange
         )
         .subscribe()
     ];
@@ -445,15 +522,21 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
     }
   };
 
+  const highlightedLabel = highlightedRoomMessage?.kind === 'guest_request'
+    ? '✨ Guest request'
+    : highlightedRoomMessage?.kind === 'message'
+      ? '💬 New message'
+      : '💬 New manager instruction';
+
   return (
     <>
       {children}
       {highlightedRoomMessage && createPortal(
-        <div className="m-3 rounded-xl border-2 border-blue-500 bg-blue-50 dark:bg-blue-950/90 p-3 shadow-lg">
+        <div className={`m-3 rounded-xl border-2 p-3 shadow-lg ${highlightedRoomMessage.kind === 'guest_request' ? 'border-fuchsia-500 bg-fuchsia-50 dark:bg-fuchsia-950/90' : 'border-blue-500 bg-blue-50 dark:bg-blue-950/90'}`}>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-xs font-bold uppercase tracking-wide text-blue-700 dark:text-blue-300">
-                {highlightedRoomMessage.kind === 'message' ? '💬 New message' : '💬 New manager instruction'} · Room {highlightedRoomMessage.roomNumber}
+              <p className={`text-xs font-bold uppercase tracking-wide ${highlightedRoomMessage.kind === 'guest_request' ? 'text-fuchsia-700 dark:text-fuchsia-300' : 'text-blue-700 dark:text-blue-300'}`}>
+                {highlightedLabel} · Room {highlightedRoomMessage.roomNumber}
               </p>
               <p className="mt-1 text-sm font-semibold leading-snug whitespace-pre-wrap break-words">
                 {highlightedRoomMessage.content}
@@ -462,8 +545,8 @@ export function RealtimeNotificationProvider({ children }: { children: React.Rea
             <button
               type="button"
               onClick={dismissHighlightedMessage}
-              className="shrink-0 rounded-md px-2 py-1 text-sm font-semibold text-blue-700 hover:bg-blue-100 dark:text-blue-200 dark:hover:bg-blue-900"
-              aria-label="Dismiss new room message"
+              className={`shrink-0 rounded-md px-2 py-1 text-sm font-semibold ${highlightedRoomMessage.kind === 'guest_request' ? 'text-fuchsia-700 hover:bg-fuchsia-100 dark:text-fuchsia-200 dark:hover:bg-fuchsia-900' : 'text-blue-700 hover:bg-blue-100 dark:text-blue-200 dark:hover:bg-blue-900'}`}
+              aria-label="Dismiss room alert"
             >
               ×
             </button>
