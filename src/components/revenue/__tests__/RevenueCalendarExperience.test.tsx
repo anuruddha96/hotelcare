@@ -4,12 +4,16 @@ import RevenueCalendarExperience from "@/components/revenue/RevenueCalendarExper
 
 function touch(type: string, x: number, y: number) {
   const point = { clientX: x, clientY: y } as Touch;
-  return new TouchEvent(type, {
-    bubbles: true,
-    cancelable: true,
-    touches: type === "touchend" ? [] : [point],
-    changedTouches: [point],
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "touches", {
+    value: type === "touchend" ? [] : [point],
+    configurable: true,
   });
+  Object.defineProperty(event, "changedTouches", {
+    value: [point],
+    configurable: true,
+  });
+  return event;
 }
 
 describe("RevenueCalendarExperience", () => {
