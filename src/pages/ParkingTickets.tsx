@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { CarFront, History, Loader2, PackagePlus, Settings, ShieldAlert } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
@@ -9,7 +9,6 @@ import { ParkingInventory } from '@/components/parking/ParkingInventory';
 import { ParkingSettingsPanel } from '@/components/parking/ParkingSettingsPanel';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
 import { useOperationalHotel } from '@/hooks/useOperationalHotel';
@@ -32,63 +31,82 @@ const EMPTY_STOCK: ParkingStockSummary = {
   unreported_expired: 0,
 };
 
-const PORTFOLIO_ROLES = ['admin', 'top_management', 'top_management_manager'];
-
 export default function ParkingTickets() {
   const { user, profile, loading: authLoading } = useAuth();
   const { organizationSlug: routeOrganization } = useParams<{ organizationSlug: string }>();
   const { hotels, loading: tenantLoading } = useTenant();
   const operational = useOperationalHotel();
   const organizationSlug = profile?.organization_slug || routeOrganization || '';
-  const [hotelId, setHotelId] = useState('');
+  const hotelId = operational.hotelId || '';
+  const loadRequestRef = useRef(0);
   const [access, setAccess] = useState<ParkingAccess | null>(null);
   const [settings, setSettings] = useState<ParkingSettings | null>(null);
   const [stock, setStock] = useState<ParkingStockSummary>(EMPTY_STOCK);
   const [loading, setLoading] = useState(true);
+  const [loadedHotelId, setLoadedHotelId] = useState('');
   const [error, setError] = useState('');
   const [refreshVersion, setRefreshVersion] = useState(0);
 
-  const canSelectHotel = Boolean(
-    profile?.is_super_admin || (profile?.role && PORTFOLIO_ROLES.includes(profile.role)),
-  );
-
-  useEffect(() => {
-    if (!operational.ready || tenantLoading) return;
-    const preferred = operational.hotelId || hotels[0]?.hotel_id || '';
-    setHotelId((current) => {
-      if (current && hotels.some((hotel) => hotel.hotel_id === current)) return current;
-      return preferred;
-    });
-  }, [operational.ready, operational.hotelId, tenantLoading, hotels]);
-
   const reload = useCallback(async () => {
     if (!organizationSlug || !hotelId) return;
+
+    const requestId = ++loadRequestRef.current;
+
+    // The header HotelSwitcher is the single source of truth for property
+    // context. Clear the previous property's view before loading the next one
+    // so inventory can never appear under the wrong hotel name during a switch.
     setLoading(true);
+    setLoadedHotelId('');
+    setAccess(null);
+    setSettings(null);
+    setStock(EMPTY_STOCK);
     setError('');
+
     try {
       const nextAccess = await getParkingAccess(organizationSlug, hotelId);
+      if (loadRequestRef.current !== requestId) return;
+
       setAccess(nextAccess);
       if (nextAccess === 'none') {
         setSettings(null);
         setStock(EMPTY_STOCK);
+        setLoadedHotelId(hotelId);
         return;
       }
+
       const [nextSettings, nextStock] = await Promise.all([
         getParkingSettings(organizationSlug, hotelId),
         getParkingStock(organizationSlug, hotelId),
       ]);
+      if (loadRequestRef.current !== requestId) return;
+
       setSettings(nextSettings);
       setStock(nextStock);
+      setLoadedHotelId(hotelId);
     } catch (nextError) {
+      if (loadRequestRef.current !== requestId) return;
       setError(parkingErrorMessage(nextError, 'Parking Tickets could not be loaded.'));
+      setLoadedHotelId(hotelId);
     } finally {
-      setLoading(false);
+      if (loadRequestRef.current === requestId) setLoading(false);
     }
   }, [organizationSlug, hotelId]);
 
   useEffect(() => {
+    if (!operational.ready || tenantLoading) return;
+    if (!hotelId) {
+      // Invalidate any response still returning for the previously selected
+      // property before showing the no-hotel state.
+      loadRequestRef.current += 1;
+      setAccess(null);
+      setSettings(null);
+      setStock(EMPTY_STOCK);
+      setLoadedHotelId('');
+      setLoading(false);
+      return;
+    }
     void reload();
-  }, [reload, refreshVersion]);
+  }, [operational.ready, tenantLoading, hotelId, reload, refreshVersion]);
 
   const selectedHotelName = useMemo(
     () => hotels.find((hotel) => hotel.hotel_id === hotelId)?.hotel_name || hotelId,
@@ -99,46 +117,27 @@ export default function ParkingTickets() {
     setRefreshVersion((version) => version + 1);
   }, []);
 
-  const handleHotelChange = (nextHotelId: string) => {
-    setAccess(null);
-    setSettings(null);
-    setStock(EMPTY_STOCK);
-    setLoading(true);
-    setHotelId(nextHotelId);
-  };
-
   if (authLoading) {
     return <div className="min-h-screen grid place-items-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   }
   if (!user) return <Navigate to={`/${routeOrganization || 'rdhotels'}/auth`} replace />;
 
   const resolvingHotel = !operational.ready || tenantLoading;
+  const parkingDataLoading = loading || (Boolean(hotelId) && loadedHotelId !== hotelId);
 
   return (
     <div className="min-h-screen bg-background">
       <Header />
       <PMSNavigation />
       <main className="container mx-auto max-w-7xl space-y-4 px-3 py-4 sm:px-6 sm:py-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="rounded-lg bg-primary/10 p-2 text-primary"><CarFront className="h-5 w-5" /></div>
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Parking Tickets</h1>
-                <p className="text-sm text-muted-foreground">Controlled ticket stock, guest issuing, search and audit history.</p>
-              </div>
+        <div>
+          <div className="flex items-center gap-2">
+            <div className="rounded-lg bg-primary/10 p-2 text-primary"><CarFront className="h-5 w-5" /></div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Parking Tickets</h1>
+              <p className="text-sm text-muted-foreground">Controlled ticket stock, guest issuing, search and audit history.</p>
             </div>
           </div>
-          {canSelectHotel && hotels.length > 1 && (
-            <Select value={hotelId} onValueChange={handleHotelChange}>
-              <SelectTrigger className="w-full sm:w-[260px]" aria-label="Hotel">
-                <SelectValue placeholder="Select hotel" />
-              </SelectTrigger>
-              <SelectContent>
-                {hotels.map((hotel) => <SelectItem key={hotel.hotel_id} value={hotel.hotel_id}>{hotel.hotel_name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          )}
         </div>
 
         {!resolvingHotel && hotelId && (
@@ -148,8 +147,8 @@ export default function ParkingTickets() {
         {resolvingHotel ? (
           <Card><CardContent className="flex min-h-40 items-center justify-center gap-2 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> Loading parking inventory…</CardContent></Card>
         ) : !hotelId ? (
-          <Alert><ShieldAlert className="h-4 w-4" /><AlertTitle>No hotel selected</AlertTitle><AlertDescription>Your account is not assigned to a hotel and no active hotel is available in this organization.</AlertDescription></Alert>
-        ) : loading ? (
+          <Alert><ShieldAlert className="h-4 w-4" /><AlertTitle>No hotel selected</AlertTitle><AlertDescription>Select a hotel from the Hotel switcher in the header to manage that property's parking tickets.</AlertDescription></Alert>
+        ) : parkingDataLoading ? (
           <Card><CardContent className="flex min-h-40 items-center justify-center gap-2 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /> Loading parking inventory…</CardContent></Card>
         ) : error ? (
           <Alert variant="destructive"><ShieldAlert className="h-4 w-4" /><AlertTitle>Parking Tickets unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>
