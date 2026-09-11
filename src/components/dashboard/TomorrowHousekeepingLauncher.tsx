@@ -6,23 +6,25 @@ import {
   CalendarClock,
   CheckCircle2,
   CircleDashed,
+  Eye,
   Loader2,
   PauseCircle,
 } from 'lucide-react';
 import { AutoRoomAssignment } from './AutoRoomAssignment';
+import { TodayHousekeepingPlanReviewDialog } from './TodayHousekeepingPlanReviewDialog';
 import { TomorrowReleaseTimeControl } from './TomorrowReleaseTimeControl';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
-import { isBudapestNoonOrLater, todayBudapest } from '@/lib/budapestTime';
+import { isBudapestNineOrLater, todayBudapest } from '@/lib/budapestTime';
 import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { housekeepingAutomationText } from '@/lib/housekeepingAutomationTranslations';
 import {
-  isCurrentDayHousekeepingCarryover,
-  pickHousekeepingLauncherPlan,
+  findCurrentDayHousekeepingReviewPlan,
+  findTomorrowHousekeepingPlan,
 } from '@/lib/nextDayHousekeepingLauncher';
 import { normalizeNextDayReleaseTime } from '@/lib/nextDayReleaseTime';
 import {
@@ -179,22 +181,54 @@ function getStatusPresentation(
   };
 }
 
+function ReleaseSummary({ plan }: { plan: TomorrowPlanRow }) {
+  const releaseResult = plan.release_result || {};
+  const plannedAssignments = numberFrom(releaseResult.planned_assignments);
+  const releasedAssignments = numberFrom(releaseResult.released_assignments);
+  const skippedAssignments = Math.max(0, plannedAssignments - releasedAssignments);
+  const overnightChanges = numberFrom(releaseResult.overnight_type_changes);
+
+  if (plan.status !== 'released' || plannedAssignments <= 0) return null;
+
+  return (
+    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground" aria-label="Housekeeping release summary">
+      <span className="rounded-full border bg-background/70 px-2.5 py-1">
+        <strong className="font-semibold text-foreground">{releasedAssignments}</strong>{' '}
+        {tomorrowHousekeepingStatusText('releasedAssignments')}
+      </span>
+      {skippedAssignments > 0 ? (
+        <span className="rounded-full border bg-background/70 px-2.5 py-1">
+          <strong className="font-semibold text-foreground">{skippedAssignments}</strong>{' '}
+          {tomorrowHousekeepingStatusText('skippedAssignments')}
+        </span>
+      ) : null}
+      {overnightChanges > 0 ? (
+        <span className="rounded-full border bg-background/70 px-2.5 py-1">
+          <strong className="font-semibold text-foreground">{overnightChanges}</strong>{' '}
+          {tomorrowHousekeepingStatusText('overnightChanges')}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 /**
- * Discoverable Team View entry point for the next-day housekeeping planner.
+ * Team View entry point for next-day housekeeping.
  *
- * New tomorrow planning is intentionally available only from 12:00 Budapest
- * time. A plan approved yesterday remains visible after midnight while it is
- * still approved/releasing/failed, so managers do not lose the status and
- * release-time controls before the morning worker finishes.
+ * Today's operational plan (prepared yesterday) is a separate, read-only review
+ * surface so it never disappears when the tomorrow planner is hidden or opened.
+ * Tomorrow preparation becomes available from 09:00 Europe/Budapest.
  */
 export function TomorrowHousekeepingLauncher() {
   const { profile } = useAuth();
   const [open, setOpen] = useState(false);
-  const [plan, setPlan] = useState<TomorrowPlanRow | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [todayPlan, setTodayPlan] = useState<TomorrowPlanRow | null>(null);
+  const [tomorrowPlan, setTomorrowPlan] = useState<TomorrowPlanRow | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [statusUnavailable, setStatusUnavailable] = useState(false);
   const [budapestDate, setBudapestDate] = useState(todayBudapest());
-  const [planningWindowOpen, setPlanningWindowOpen] = useState(isBudapestNoonOrLater());
+  const [planningWindowOpen, setPlanningWindowOpen] = useState(isBudapestNineOrLater());
   const requestGeneration = useRef(0);
 
   const tomorrowDate = useMemo(
@@ -206,7 +240,8 @@ export function TomorrowHousekeepingLauncher() {
 
   const loadStatus = useCallback(async (showLoading = false) => {
     if (!canManage || !profile?.assigned_hotel || !profile.organization_slug) {
-      setPlan(null);
+      setTodayPlan(null);
+      setTomorrowPlan(null);
       setStatusUnavailable(false);
       setStatusLoading(false);
       return;
@@ -229,18 +264,15 @@ export function TomorrowHousekeepingLauncher() {
       if (error) throw error;
       if (requestGeneration.current !== generation) return;
 
-      const selected = pickHousekeepingLauncherPlan(
-        (data || []) as TomorrowPlanRow[],
-        budapestDate,
-        tomorrowDate,
-        planningWindowOpen,
-      );
-      setPlan(selected);
+      const rows = (data || []) as TomorrowPlanRow[];
+      setTodayPlan(findCurrentDayHousekeepingReviewPlan(rows, budapestDate));
+      setTomorrowPlan(findTomorrowHousekeepingPlan(rows, tomorrowDate));
       setStatusUnavailable(false);
     } catch (error) {
       if (requestGeneration.current !== generation) return;
       console.warn('[TomorrowHousekeepingLauncher] plan status unavailable:', error);
-      setPlan(null);
+      setTodayPlan(null);
+      setTomorrowPlan(null);
       setStatusUnavailable(true);
     } finally {
       if (requestGeneration.current === generation) setStatusLoading(false);
@@ -248,7 +280,6 @@ export function TomorrowHousekeepingLauncher() {
   }, [
     budapestDate,
     canManage,
-    planningWindowOpen,
     profile?.assigned_hotel,
     profile?.organization_slug,
     tomorrowDate,
@@ -261,7 +292,7 @@ export function TomorrowHousekeepingLauncher() {
 
     const refresh = () => {
       const currentBudapestDate = todayBudapest();
-      const availableNow = isBudapestNoonOrLater();
+      const availableNow = isBudapestNineOrLater();
       const dateChanged = currentBudapestDate !== budapestDate;
       const windowChanged = availableNow !== planningWindowOpen;
 
@@ -286,106 +317,124 @@ export function TomorrowHousekeepingLauncher() {
     };
   }, [canManage, budapestDate, loadStatus, planningWindowOpen]);
 
-  const currentDayCarryover = isCurrentDayHousekeepingCarryover(plan, budapestDate);
-
-  useEffect(() => {
-    if (currentDayCarryover && open) setOpen(false);
-  }, [currentDayCarryover, open]);
-
-  if (!canManage || (!planningWindowOpen && !currentDayCarryover)) return null;
-
-  const title = currentDayCarryover
-    ? tomorrowHousekeepingStatusText('reviewPlan')
-    : housekeepingAutomationText('title');
-  const subtitle = housekeepingAutomationText('subtitle');
-  const releaseTime = normalizeNextDayReleaseTime(plan?.release_time);
-  const presentation = getStatusPresentation(plan, statusLoading, statusUnavailable);
-  const StatusIcon = presentation.Icon;
-  const statusLabel = tomorrowHousekeepingStatusText(presentation.labelKey);
-  const statusHint = tomorrowHousekeepingStatusText(presentation.hintKey).replace('08:00', releaseTime);
-  const actionLabel = tomorrowHousekeepingStatusText(presentation.actionKey);
-  const displayDate = plan?.plan_date || tomorrowDate;
-
-  const releaseResult = plan?.release_result || {};
-  const plannedAssignments = numberFrom(releaseResult.planned_assignments);
-  const releasedAssignments = numberFrom(releaseResult.released_assignments);
-  const skippedAssignments = Math.max(0, plannedAssignments - releasedAssignments);
-  const overnightChanges = numberFrom(releaseResult.overnight_type_changes);
-  const showReleaseSummary = plan?.status === 'released' && plannedAssignments > 0;
+  if (!canManage || (!planningWindowOpen && !todayPlan)) return null;
 
   const closePlanner = (nextOpen: boolean) => {
     setOpen(nextOpen);
     if (!nextOpen) void loadStatus(false);
   };
 
+  const todayPresentation = getStatusPresentation(todayPlan, false, false);
+  const TodayStatusIcon = todayPresentation.Icon;
+  const todayReleaseTime = normalizeNextDayReleaseTime(todayPlan?.release_time);
+  const todayStatusHint = tomorrowHousekeepingStatusText(todayPresentation.hintKey).replace('08:00', todayReleaseTime);
+
+  const tomorrowPresentation = getStatusPresentation(tomorrowPlan, statusLoading, statusUnavailable);
+  const TomorrowStatusIcon = tomorrowPresentation.Icon;
+  const tomorrowReleaseTime = normalizeNextDayReleaseTime(tomorrowPlan?.release_time);
+  const tomorrowStatusHint = tomorrowHousekeepingStatusText(tomorrowPresentation.hintKey).replace('08:00', tomorrowReleaseTime);
+  const tomorrowActionLabel = tomorrowHousekeepingStatusText(tomorrowPresentation.actionKey);
+
   return (
     <>
-      <Card
-        className="overflow-hidden border-primary/30 bg-gradient-to-r from-primary/10 via-primary/5 to-background shadow-sm"
-        data-training="tomorrow-housekeeping-plan"
-      >
-        <CardContent className="p-4 sm:p-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-start gap-3">
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <CalendarClock className="h-5 w-5" />
-              </div>
-              <div className="min-w-0 space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-semibold leading-tight">{title}</h3>
-                  <Badge variant="outline" className={`gap-1.5 ${presentation.badgeClassName}`}>
-                    <StatusIcon className={`h-3.5 w-3.5 ${presentation.spin ? 'animate-spin' : ''}`} />
-                    {statusLabel}
-                  </Badge>
-                  <TomorrowReleaseTimeControl plan={plan} onSaved={() => void loadStatus(false)} />
-                  <Badge variant="secondary">{displayDate}</Badge>
+      <div className="space-y-3">
+        {todayPlan ? (
+          <Card
+            className="overflow-hidden border-slate-300/70 bg-gradient-to-r from-slate-50 via-background to-background shadow-sm dark:border-slate-700 dark:from-slate-950/40"
+            data-training="today-housekeeping-plan-review"
+          >
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground">
+                    <Eye className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold leading-tight">Today’s assignments · prepared yesterday</h3>
+                      <Badge variant="outline" className={`gap-1.5 ${todayPresentation.badgeClassName}`}>
+                        <TodayStatusIcon className={`h-3.5 w-3.5 ${todayPresentation.spin ? 'animate-spin' : ''}`} />
+                        {tomorrowHousekeepingStatusText(todayPresentation.labelKey)}
+                      </Badge>
+                      <TomorrowReleaseTimeControl plan={todayPlan} onSaved={() => void loadStatus(false)} />
+                      <Badge variant="secondary">{todayPlan.plan_date}</Badge>
+                    </div>
+                    <p className="max-w-3xl text-sm text-muted-foreground">{todayStatusHint}</p>
+                    <ReleaseSummary plan={todayPlan} />
+                  </div>
                 </div>
 
-                <p className="max-w-3xl text-sm text-muted-foreground">{statusHint}</p>
-
-                {showReleaseSummary ? (
-                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground" aria-label="Tomorrow housekeeping release summary">
-                    <span className="rounded-full border bg-background/70 px-2.5 py-1">
-                      <strong className="font-semibold text-foreground">{releasedAssignments}</strong>{' '}
-                      {tomorrowHousekeepingStatusText('releasedAssignments')}
-                    </span>
-                    {skippedAssignments > 0 ? (
-                      <span className="rounded-full border bg-background/70 px-2.5 py-1">
-                        <strong className="font-semibold text-foreground">{skippedAssignments}</strong>{' '}
-                        {tomorrowHousekeepingStatusText('skippedAssignments')}
-                      </span>
-                    ) : null}
-                    {overnightChanges > 0 ? (
-                      <span className="rounded-full border bg-background/70 px-2.5 py-1">
-                        <strong className="font-semibold text-foreground">{overnightChanges}</strong>{' '}
-                        {tomorrowHousekeepingStatusText('overnightChanges')}
-                      </span>
-                    ) : null}
-                  </div>
-                ) : currentDayCarryover ? null : (
-                  <p className="max-w-3xl text-xs text-muted-foreground/80">{subtitle}</p>
-                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setReviewOpen(true)}
+                  className="w-full shrink-0 gap-2 sm:w-auto"
+                >
+                  <Eye className="h-4 w-4" />
+                  View assignments
+                </Button>
               </div>
-            </div>
+            </CardContent>
+          </Card>
+        ) : null}
 
-            {!currentDayCarryover ? (
-              <Button
-                type="button"
-                onClick={() => setOpen(true)}
-                className="w-full shrink-0 gap-2 sm:w-auto"
-                data-tour="prepare-tomorrow-housekeeping"
-                disabled={statusLoading}
-              >
-                <CalendarClock className="h-4 w-4" />
-                <span className="max-w-[240px] truncate">{actionLabel}</span>
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            ) : null}
-          </div>
-        </CardContent>
-      </Card>
+        {planningWindowOpen ? (
+          <Card
+            className="overflow-hidden border-primary/30 bg-gradient-to-r from-primary/10 via-primary/5 to-background shadow-sm"
+            data-training="tomorrow-housekeeping-plan"
+          >
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <CalendarClock className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold leading-tight">{housekeepingAutomationText('title')}</h3>
+                      <Badge variant="outline" className={`gap-1.5 ${tomorrowPresentation.badgeClassName}`}>
+                        <TomorrowStatusIcon className={`h-3.5 w-3.5 ${tomorrowPresentation.spin ? 'animate-spin' : ''}`} />
+                        {tomorrowHousekeepingStatusText(tomorrowPresentation.labelKey)}
+                      </Badge>
+                      <TomorrowReleaseTimeControl plan={tomorrowPlan} onSaved={() => void loadStatus(false)} />
+                      <Badge variant="secondary">{tomorrowDate}</Badge>
+                    </div>
 
-      {open && !currentDayCarryover ? (
+                    <p className="max-w-3xl text-sm text-muted-foreground">{tomorrowStatusHint}</p>
+                    {tomorrowPlan ? (
+                      <ReleaseSummary plan={tomorrowPlan} />
+                    ) : (
+                      <p className="max-w-3xl text-xs text-muted-foreground/80">
+                        {housekeepingAutomationText('subtitle')}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <Button
+                  type="button"
+                  onClick={() => setOpen(true)}
+                  className="w-full shrink-0 gap-2 sm:w-auto"
+                  data-tour="prepare-tomorrow-housekeeping"
+                  disabled={statusLoading}
+                >
+                  <CalendarClock className="h-4 w-4" />
+                  <span className="max-w-[240px] truncate">{tomorrowActionLabel}</span>
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+      </div>
+
+      <TodayHousekeepingPlanReviewDialog
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+        plan={todayPlan}
+      />
+
+      {open ? (
         <AutoRoomAssignment
           open={open}
           onOpenChange={closePlanner}
