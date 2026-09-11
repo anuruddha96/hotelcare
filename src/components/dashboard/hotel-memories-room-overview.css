@@ -30,6 +30,27 @@
   color: rgb(127 29 29) !important;
 }
 
+/*
+ * The saved historical board already keeps the DND event as a sticky flag, but
+ * previously only showed the red emphasis + stop icon. Add the explicit DND
+ * text badge so a past day reads the same way as the current-day board.
+ * `transition-all` is present on the live interactive room chip and absent on
+ * the saved-history chip, preventing a duplicate DND badge on today's board.
+ */
+#hotel-room-overview .relative.ring-purple-500:not(.transition-all)::after {
+  content: 'DND';
+  display: inline-block;
+  margin-left: 0.125rem;
+  padding: 0 0.125rem;
+  border-radius: 0.125rem;
+  background-color: rgb(220 38 38);
+  color: white;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.1;
+  vertical-align: baseline;
+}
+
 /* No Service gets a darker rose treatment so it is distinguishable from DND. */
 #hotel-room-overview .relative:has(> span.bg-gray-500) {
   background-color: rgb(253 164 175) !important;
