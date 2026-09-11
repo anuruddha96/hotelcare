@@ -11,6 +11,7 @@ import {
   publicAreaTaskCopy,
   isExceptionalPublicAreaTask,
   formatElapsed,
+  resolvePublicAreaKey,
 } from '@/lib/publicAreaTasks';
 
 interface PublicAreaTask {
@@ -26,11 +27,13 @@ interface PublicAreaTask {
   hotel: string;
 }
 
-const AREA_ICONS: Record<string, string> = {
+const TASK_TYPE_ICONS: Record<string, string> = {
+  public_area_cleaning: '🧹',
   lobby_cleaning: '🏨',
   reception_cleaning: '🛎️',
   back_office_cleaning: '🏢',
   kitchen_cleaning: '🍳',
+  guest_toilets: '🚻',
   guest_toilets_men: '🚹',
   guest_toilets_women: '🚺',
   common_areas_cleaning: '🏠',
@@ -42,10 +45,44 @@ const AREA_ICONS: Record<string, string> = {
   jacuzzi_cleaning: '🫧',
 };
 
+// Custom venue areas use a generic task_type. Resolve their presentation from
+// the manager-defined name so "Rooftop Terrace", "Laundry", "Storage 2", etc.
+// still get a useful visual cue without adding another hard-coded assignment
+// list. Specific task types always win when available.
+const AREA_KEY_ICONS: Record<string, string> = {
+  staircase: '🚶',
+  elevator: '🛗',
+  corridor: '🚶',
+  toilet: '🚻',
+  decorations: '✨',
+  breakfast: '🍽️',
+  dining: '🍴',
+  kitchen: '🍳',
+  gym: '🏋️',
+  sauna: '♨️',
+  jacuzzi: '🫧',
+  laundry: '🧺',
+  reception: '🛎️',
+  lobby: '🏨',
+  office: '🏢',
+  entrance: '🚪',
+  terrace: '🌿',
+  storage: '📦',
+  trolley: '🛒',
+  windows: '🪟',
+  commonAreas: '🏠',
+};
+
 const LINEN_AREA_BY_TASK: Partial<Record<string, PublicLinenArea>> = {
   gym_cleaning: 'gym',
   sauna_cleaning: 'sauna',
   jacuzzi_cleaning: 'jacuzzi',
+};
+
+const LINEN_AREA_BY_KEY: Partial<Record<string, PublicLinenArea>> = {
+  gym: 'gym',
+  sauna: 'sauna',
+  jacuzzi: 'jacuzzi',
 };
 
 interface PublicAreaTaskCardProps {
@@ -67,8 +104,9 @@ export function PublicAreaTaskCard({ task, onStatusUpdate, readOnly = false }: P
   const [now, setNow] = useState(() => Date.now());
   const inFlight = useRef(false);
 
-  const icon = AREA_ICONS[task.task_type] || '🧹';
-  const linenArea = LINEN_AREA_BY_TASK[task.task_type];
+  const areaKey = resolvePublicAreaKey(task);
+  const icon = TASK_TYPE_ICONS[task.task_type] || (areaKey ? AREA_KEY_ICONS[areaKey] : undefined) || '🧹';
+  const linenArea = LINEN_AREA_BY_TASK[task.task_type] || (areaKey ? LINEN_AREA_BY_KEY[areaKey] : undefined);
   const { title, instruction, location } = publicAreaTaskCopy(task, t);
   const isDone = task.status === 'completed';
   const isRunning = task.status === 'in_progress';
