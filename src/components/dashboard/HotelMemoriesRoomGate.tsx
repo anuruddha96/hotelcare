@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 import { AssignedRoomCard } from './AssignedRoomCard';
 import { EnhancedDNDPhotoCapture } from './EnhancedDNDPhotoCapture';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
-import { RoomCommunicationPanel } from './RoomCommunicationPanel';
+import { RoomGuestRequestsPanel } from './RoomGuestRequestsPanel';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
 import { todayBudapest } from '@/lib/budapestTime';
 import {
@@ -107,6 +107,17 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
     !hasTowelRequest &&
     !hasCleanRequest;
 
+  const guestRequestPanel = assignment.rooms?.room_number ? (
+    <RoomGuestRequestsPanel
+      roomId={assignment.room_id}
+      roomNumber={assignment.rooms.room_number}
+      assignmentId={assignment.id}
+      workDate={assignment.assignment_date || todayBudapest()}
+      compact
+      hideWhenEmpty
+    />
+  ) : null;
+
   const secondAttemptNumber = Math.max(2, (assignment.dnd_attempt_count ?? 1) + 1);
 
   const finalizeSecondDnd = async () => {
@@ -160,6 +171,8 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
   if (isMemories && assignment.status === 'dnd_pending_retry') {
     return (
       <div className="space-y-3">
+        {guestRequestPanel}
+
         <Card className="border-2 border-orange-500 bg-orange-50 dark:bg-orange-950/30 shadow-md">
           <CardHeader className="pb-2">
             <div className="flex items-start justify-between gap-3">
@@ -229,7 +242,12 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
         }
       : assignment;
 
-    return <AssignedRoomCard assignment={releasedAssignment} onStatusUpdate={onStatusUpdate} />;
+    return (
+      <div className="space-y-3">
+        {guestRequestPanel}
+        <AssignedRoomCard assignment={releasedAssignment} onStatusUpdate={onStatusUpdate} />
+      </div>
+    );
   }
 
   const markGreenBoardSeen = async () => {
@@ -322,7 +340,9 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
   const managerInstruction = String(assignment.manager_instruction_text || '').trim();
 
   return (
-    <>
+    <div className="space-y-3">
+      {guestRequestPanel}
+
       <Card className="border-l-4 border-l-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/10 shadow-sm">
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-3">
@@ -349,13 +369,6 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
               </div>
             </div>
           )}
-
-          <RoomCommunicationPanel
-            assignmentId={assignment.id}
-            roomId={assignment.room_id}
-            roomNumber={assignment.rooms?.room_number || 'N/A'}
-            hideWhenEmpty
-          />
 
           <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-background/80 p-4">
             <div className="flex items-start gap-3">
@@ -463,6 +476,6 @@ export function HotelMemoriesRoomGate({ assignment, onStatusUpdate }: HotelMemor
         roomNumber={assignment.rooms?.room_number || 'N/A'}
         assignmentId={assignment.id}
       />
-    </>
+    </div>
   );
 }
