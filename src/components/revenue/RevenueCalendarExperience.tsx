@@ -178,12 +178,14 @@ const calendarCss = String.raw`
     flex: 0 0 auto;
   }
 
-  /* Rotated phones have very little vertical room. Keep the calendar controls
-     compact and let the grid use the remaining viewport instead of spending it
-     on explanatory chrome. */
+  /* Rotated phones have extremely little vertical room. In this mode the date
+     row remains sticky, while the larger signal block scrolls away with the
+     room rows. This avoids a 150-200px sticky header permanently hiding the
+     actual prices. */
   [data-rate-calendar-device="mobile-landscape"] > div:first-child {
-    padding-top: .3rem !important;
-    padding-bottom: .25rem !important;
+    padding-top: .2rem !important;
+    padding-bottom: .2rem !important;
+    gap: .25rem !important;
   }
 
   [data-rate-calendar-device="mobile-landscape"] > div:first-child details,
@@ -191,23 +193,77 @@ const calendarCss = String.raw`
     display: none !important;
   }
 
-  [data-rate-calendar-device="mobile-landscape"] [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:first-child {
-    height: 16px !important;
-    min-height: 16px !important;
+  [data-rate-calendar-device="mobile-landscape"] [data-rate-grid-scroll="true"] {
+    touch-action: pan-x pan-y;
+    scrollbar-gutter: auto;
   }
 
-  [data-rate-calendar-device="mobile-landscape"] [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(2) {
-    height: 32px !important;
-    min-height: 32px !important;
+  /* A phone rotated sideways is wider than the app's normal mobile breakpoint,
+     so RateStrategyGrid otherwise keeps the 200px desktop room-name column.
+     Cap it here without changing the user's saved desktop width. */
+  [data-rate-calendar-device="mobile-landscape"][data-rate-calendar-rail="false"]
+    [data-rate-grid-scroll="true"] .sticky.left-0 {
+    width: 132px !important;
+    min-width: 132px !important;
+    max-width: 132px !important;
+    padding-left: .4rem !important;
+    padding-right: .35rem !important;
+    font-size: 10px !important;
   }
 
-  [data-rate-calendar-device="mobile-landscape"] [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(3),
-  [data-rate-calendar-device="mobile-landscape"] [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(4),
-  [data-rate-calendar-device="mobile-landscape"] [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(5),
-  [data-rate-calendar-device="mobile-landscape"] [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(6),
-  [data-rate-calendar-device="mobile-landscape"] [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(7) {
-    height: 23px !important;
-    min-height: 23px !important;
+  [data-rate-calendar-device="mobile-landscape"]
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0 {
+    position: relative !important;
+    top: auto !important;
+  }
+
+  [data-rate-calendar-device="mobile-landscape"]
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:first-child {
+    height: 14px !important;
+    min-height: 14px !important;
+    font-size: 9px !important;
+  }
+
+  [data-rate-calendar-device="mobile-landscape"]
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(2) {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 55 !important;
+    height: 30px !important;
+    min-height: 30px !important;
+  }
+
+  [data-rate-calendar-device="mobile-landscape"]
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(3),
+  [data-rate-calendar-device="mobile-landscape"]
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(4),
+  [data-rate-calendar-device="mobile-landscape"]
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(5),
+  [data-rate-calendar-device="mobile-landscape"]
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(6),
+  [data-rate-calendar-device="mobile-landscape"]
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(7) {
+    height: 20px !important;
+    min-height: 20px !important;
+    font-size: 10px !important;
+  }
+
+  /* The full multi-lane event band is useful on a desktop, but on a 390-430px
+     tall phone it can consume the space of two or three room rows. Event
+     details remain available from the Demand row, so hide only the dedicated
+     band in landscape. */
+  [data-rate-calendar-device="mobile-landscape"]
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(8) {
+    display: none !important;
+  }
+
+  /* Keep numbers readable after the browser applies iPhone landscape scaling. */
+  [data-rate-calendar-device="mobile-landscape"]
+    [data-rate-grid-scroll="true"] button,
+  [data-rate-calendar-device="mobile-landscape"]
+    [data-rate-grid-scroll="true"] span {
+    text-size-adjust: 100%;
+    -webkit-text-size-adjust: 100%;
   }
 `;
 
@@ -243,6 +299,13 @@ function deviceMode(): "desktop" | "mobile-portrait" | "mobile-landscape" {
   return window.innerWidth > window.innerHeight ? "mobile-landscape" : "mobile-portrait";
 }
 
+function markFrozenColumnMode(card: HTMLElement, pane: HTMLElement) {
+  const firstSticky = pane.querySelector<HTMLElement>(".sticky.left-0");
+  if (!firstSticky) return;
+  const inlineWidth = Number.parseFloat(firstSticky.style.width || "");
+  card.dataset.rateCalendarRail = Number.isFinite(inlineWidth) && inlineWidth <= 64 ? "true" : "false";
+}
+
 export function RevenueCalendarExperience() {
   useEffect(() => {
     const cleanups = new Map<HTMLElement, () => void>();
@@ -257,12 +320,17 @@ export function RevenueCalendarExperience() {
       const onTouchStart = (event: TouchEvent) => {
         if (!isPhoneViewport() || event.touches.length !== 1) return;
         const touch = event.touches[0];
+        const landscape = deviceMode() === "mobile-landscape";
         state = {
           startX: touch.clientX,
           startY: touch.clientY,
           lastY: touch.clientY,
           axis: null,
-          escapeToPage: Date.now() - lastVerticalGestureAt < QUICK_SWIPE_MS,
+          // In portrait, a second fast swipe means "leave the calendar". In
+          // landscape the grid is shallow and users need repeated vertical
+          // swipes to reach room prices, so only a real top/bottom boundary
+          // hands the gesture back to the page.
+          escapeToPage: !landscape && Date.now() - lastVerticalGestureAt < QUICK_SWIPE_MS,
         };
       };
 
@@ -287,9 +355,9 @@ export function RevenueCalendarExperience() {
         const wantsPageUp = fingerDelta < 0;
         const boundaryEscape = (atBottom && wantsPageDown) || (atTop && wantsPageUp);
 
-        // The first vertical gesture can still browse room rows inside the
-        // calendar. At a boundary, or on a second quick vertical swipe, hand
-        // the movement to the page so the user never gets trapped in the grid.
+        // The calendar owns vertical movement while it still has room rows to
+        // reveal. At a real boundary (or a second quick portrait swipe), hand
+        // the movement to the page so the user never gets trapped.
         if (state.escapeToPage || boundaryEscape) {
           event.preventDefault();
           if (fingerDelta) window.scrollBy({ top: fingerDelta, left: 0, behavior: "auto" });
@@ -331,6 +399,7 @@ export function RevenueCalendarExperience() {
         const pane = findScrollPane(card);
         if (!pane) return;
         pane.dataset.rateGridScroll = "true";
+        markFrozenColumnMode(card, pane);
         attachGestureBridge(pane);
       });
     };
