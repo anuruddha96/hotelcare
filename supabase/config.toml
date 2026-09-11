@@ -240,3 +240,8 @@ verify_jwt = false
 # Vault-backed x-worker-secret and re-checks Previo before publishing work.
 [functions.housekeeping-next-day-release-worker]
 verify_jwt = false
+
+# Called only by pg_cron. The function checks a separate Vault-backed
+# x-worker-secret before claiming or sending any parking email jobs.
+[functions.parking-email-worker]
+verify_jwt = false
