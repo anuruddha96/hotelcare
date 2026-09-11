@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Clock3, FilePenLine, Loader2, RotateCcw, ShieldCheck, Trash2 } from 'lucide-react';
+import { Clock3, FilePenLine, Loader2, Mail, RefreshCw, RotateCcw, ShieldCheck, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -22,11 +22,14 @@ import {
   parkingDisplayStatus,
   parkingErrorMessage,
   type ParkingAccess,
+  type ParkingEmailJob,
   type ParkingTicket,
   type ParkingTicketEvent,
 } from '@/lib/parking';
 import {
+  listParkingEmailJobs,
   listParkingEvents,
+  retryParkingEmailJob,
   setCancellationReported,
   updateParkingTicket,
   voidParkingTicket,
@@ -54,10 +57,20 @@ function formatTimestamp(value: string | null): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 }
 
+function emailStatusVariant(status: ParkingEmailJob['status']): 'default' | 'secondary' | 'destructive' | 'outline' {
+  if (status === 'sent') return 'default';
+  if (status === 'failed' || status === 'cancelled') return 'destructive';
+  if (status === 'processing') return 'secondary';
+  return 'outline';
+}
+
 export function ParkingTicketDialog({ open, ticket, access, onOpenChange, onChanged }: Props) {
   const [current, setCurrent] = useState<ParkingTicket | null>(ticket);
   const [events, setEvents] = useState<ParkingTicketEvent[]>([]);
+  const [emailJobs, setEmailJobs] = useState<ParkingEmailJob[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [retryingJobId, setRetryingJobId] = useState('');
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [voidOpen, setVoidOpen] = useState(false);
@@ -74,6 +87,7 @@ export function ParkingTicketDialog({ open, ticket, access, onOpenChange, onChan
     setEditing(false);
     setVoidOpen(false);
     setVoidReason('');
+    setEmailJobs([]);
     if (ticket) {
       setValidFrom(ticket.valid_from || '');
       setValidTo(ticket.valid_to || '');
@@ -94,6 +108,17 @@ export function ParkingTicketDialog({ open, ticket, access, onOpenChange, onChan
       .finally(() => { if (alive) setEventsLoading(false); });
     return () => { alive = false; };
   }, [open, current?.id, current?.updated_at]);
+
+  useEffect(() => {
+    if (!open || !current?.id || access !== 'manage') return;
+    let alive = true;
+    setEmailLoading(true);
+    listParkingEmailJobs(current.id)
+      .then((rows) => { if (alive) setEmailJobs(rows); })
+      .catch(() => { if (alive) setEmailJobs([]); })
+      .finally(() => { if (alive) setEmailLoading(false); });
+    return () => { alive = false; };
+  }, [open, current?.id, current?.updated_at, access]);
 
   const displayStatus = useMemo(
     () => current ? parkingDisplayStatus(current) : 'available',
@@ -163,6 +188,19 @@ export function ParkingTicketDialog({ open, ticket, access, onOpenChange, onChan
     }
   }
 
+  async function retryEmail(job: ParkingEmailJob) {
+    setRetryingJobId(job.id);
+    try {
+      const queued = await retryParkingEmailJob(job.id);
+      setEmailJobs((rows) => [queued, ...rows]);
+      toast.success(`${job.audience === 'guest' ? 'Guest' : 'Vendor'} email retry queued.`);
+    } catch (error) {
+      toast.error(parkingErrorMessage(error, 'Could not retry this email.'));
+    } finally {
+      setRetryingJobId('');
+    }
+  }
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -175,7 +213,7 @@ export function ParkingTicketDialog({ open, ticket, access, onOpenChange, onChan
                   <ParkingStatusBadge status={displayStatus} />
                   {current.cancellation_reported_at && <Badge variant="secondary">Reported</Badge>}
                 </div>
-                <DialogDescription>Complete issue record and audit timeline.</DialogDescription>
+                <DialogDescription>Complete issue record, communication status and audit timeline.</DialogDescription>
               </DialogHeader>
 
               {editing ? (
@@ -202,12 +240,13 @@ export function ParkingTicketDialog({ open, ticket, access, onOpenChange, onChan
                     <div><p className="text-xs text-muted-foreground">Issued</p><p className="font-medium">{formatTimestamp(current.issued_at)}</p></div>
                     <div><p className="text-xs text-muted-foreground">Reservation</p><p className="font-medium">{current.reservation_ref || '—'}</p></div>
                     <div><p className="text-xs text-muted-foreground">Guest / room</p><p className="font-medium">{[current.guest_name, current.room_number && `Room ${current.room_number}`].filter(Boolean).join(' · ') || '—'}</p></div>
+                    {current.guest_email && <div className="sm:col-span-2"><p className="text-xs text-muted-foreground">Guest email</p><p className="font-medium">{current.guest_email}</p></div>}
                     {current.notes && <div className="sm:col-span-2"><p className="text-xs text-muted-foreground">Notes</p><p className="whitespace-pre-wrap">{current.notes}</p></div>}
                     {current.void_reason && <div className="sm:col-span-2"><p className="text-xs text-muted-foreground">Void reason</p><p className="text-destructive">{current.void_reason}</p></div>}
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    {current.status === 'issued' && !current.cancellation_reported_at && (
+                    {access === 'manage' && current.status === 'issued' && !current.cancellation_reported_at && (
                       <Button variant="outline" size="sm" onClick={() => setEditing(true)}><FilePenLine className="mr-1.5 h-4 w-4" />Edit</Button>
                     )}
                     {access === 'manage' && current.status === 'issued' && (
@@ -220,6 +259,38 @@ export function ParkingTicketDialog({ open, ticket, access, onOpenChange, onChan
                       </Button>
                     )}
                   </div>
+                </>
+              )}
+
+              {access === 'manage' && current.status !== 'available' && (
+                <>
+                  <Separator />
+                  <section>
+                    <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold"><Mail className="h-4 w-4" />Email delivery</h3>
+                    {emailLoading ? (
+                      <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading delivery status…</p>
+                    ) : emailJobs.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No guest or vendor email jobs were created for this ticket.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {emailJobs.map((job) => (
+                          <div key={job.id} className="rounded-lg border p-3 text-sm">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2"><span className="font-medium capitalize">{job.audience}</span><Badge variant={emailStatusVariant(job.status)}>{job.status}</Badge></div>
+                              {(job.status === 'failed' || job.status === 'cancelled') && (
+                                <Button variant="outline" size="sm" disabled={Boolean(retryingJobId)} onClick={() => void retryEmail(job)}>
+                                  {retryingJobId === job.id ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}Retry
+                                </Button>
+                              )}
+                            </div>
+                            <p className="mt-1 break-all text-xs text-muted-foreground">{job.recipient}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">Attempts: {job.attempts} · Created {formatTimestamp(job.created_at)}{job.sent_at ? ` · Sent ${formatTimestamp(job.sent_at)}` : ''}</p>
+                            {job.last_error && <p className="mt-2 rounded bg-destructive/10 p-2 text-xs text-destructive">{job.last_error}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </section>
                 </>
               )}
 

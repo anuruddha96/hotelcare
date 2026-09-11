@@ -3,6 +3,8 @@ import type {
   ParkingAccess,
   ParkingAccessUser,
   ParkingBatch,
+  ParkingEmailJob,
+  ParkingReservationOption,
   ParkingSettings,
   ParkingStockSummary,
   ParkingTicket,
@@ -144,6 +146,44 @@ export async function deleteParkingBatch(batchId: string): Promise<void> {
   throwIfError(error);
 }
 
+export async function searchParkingReservations(input: {
+  organizationSlug: string;
+  hotelId: string;
+  query: string;
+  limit?: number;
+}): Promise<ParkingReservationOption[]> {
+  const { data, error } = await db.rpc('parking_search_reservations', {
+    _organization_slug: input.organizationSlug,
+    _hotel_id: input.hotelId,
+    _query: input.query,
+    _limit: input.limit || 12,
+  });
+  throwIfError(error);
+  return (data || []) as ParkingReservationOption[];
+}
+
+export async function findParkingDuplicate(input: {
+  organizationSlug: string;
+  hotelId: string;
+  validFrom: string;
+  validTo: string;
+  reservationRef: string | null;
+  guestName: string | null;
+  roomNumber: string | null;
+}): Promise<ParkingTicket | null> {
+  const { data, error } = await db.rpc('parking_find_duplicate_ticket', {
+    _organization_slug: input.organizationSlug,
+    _hotel_id: input.hotelId,
+    _valid_from: input.validFrom,
+    _valid_to: input.validTo,
+    _reservation_ref: input.reservationRef,
+    _guest_name: input.guestName,
+    _room_number: input.roomNumber,
+  });
+  throwIfError(error);
+  return singleResult<ParkingTicket>(data);
+}
+
 export async function issueParkingTicket(input: {
   organizationSlug: string;
   hotelId: string;
@@ -155,8 +195,9 @@ export async function issueParkingTicket(input: {
   guestEmail: string | null;
   roomNumber: string | null;
   notes: string | null;
+  allowDuplicate?: boolean;
 }): Promise<ParkingTicket> {
-  const { data, error } = await db.rpc('parking_issue_ticket_with_email', {
+  const { data, error } = await db.rpc('parking_issue_ticket_with_email_override', {
     _organization_slug: input.organizationSlug,
     _hotel_id: input.hotelId,
     _reference: input.reference,
@@ -167,6 +208,7 @@ export async function issueParkingTicket(input: {
     _room_number: input.roomNumber,
     _notes: input.notes,
     _guest_email: input.guestEmail,
+    _allow_duplicate: Boolean(input.allowDuplicate),
   });
   throwIfError(error);
   const result = singleResult<ParkingTicket>(data);
@@ -249,6 +291,24 @@ export async function listParkingEvents(ticketId: string): Promise<ParkingTicket
     .order('created_at', { ascending: false });
   throwIfError(error);
   return (data || []) as ParkingTicketEvent[];
+}
+
+export async function listParkingEmailJobs(ticketId: string): Promise<ParkingEmailJob[]> {
+  const { data, error } = await db
+    .from('parking_email_jobs')
+    .select('id,ticket_id,audience,recipient,status,attempts,provider_id,last_error,created_at,sent_at')
+    .eq('ticket_id', ticketId)
+    .order('created_at', { ascending: false });
+  throwIfError(error);
+  return (data || []) as ParkingEmailJob[];
+}
+
+export async function retryParkingEmailJob(jobId: string): Promise<ParkingEmailJob> {
+  const { data, error } = await db.rpc('parking_retry_email_job', { _job_id: jobId });
+  throwIfError(error);
+  const result = singleResult<ParkingEmailJob>(data);
+  if (!result) throw new Error('The email retry was not queued.');
+  return result;
 }
 
 export async function listParkingUsers(

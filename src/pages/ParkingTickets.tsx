@@ -177,8 +177,8 @@ export default function ParkingTickets() {
                 {access === 'manage' && <TabsTrigger value="settings" className="gap-1.5 py-2"><Settings className="h-4 w-4" /><span className="hidden xs:inline">Settings</span></TabsTrigger>}
               </TabsList>
 
-              <TabsContent value="issue"><IssueParkingTicket organizationSlug={organizationSlug} hotelId={hotelId} settings={settings} onIssued={handleChanged} /></TabsContent>
-              <TabsContent value="history"><ParkingHistory organizationSlug={organizationSlug} hotelId={hotelId} access={access!} refreshVersion={refreshVersion} onChanged={handleChanged} /></TabsContent>
+              <TabsContent value="issue"><IssueParkingTicket organizationSlug={organizationSlug} hotelId={hotelId} access={access!} settings={settings} onIssued={handleChanged} /></TabsContent>
+              <TabsContent value="history"><ParkingHistory organizationSlug={organizationSlug} hotelId={hotelId} access={access!} unreportedCount={stock.unreported_expired} refreshVersion={refreshVersion} onChanged={handleChanged} /></TabsContent>
               {access === 'manage' && <TabsContent value="inventory"><ParkingInventory organizationSlug={organizationSlug} hotelId={hotelId} refreshVersion={refreshVersion} onChanged={handleChanged} /></TabsContent>}
               {access === 'manage' && <TabsContent value="settings"><ParkingSettingsPanel organizationSlug={organizationSlug} hotelId={hotelId} settings={settings} onSaved={(next) => { setSettings(next); setRefreshVersion((version) => version + 1); }} /></TabsContent>}
             </Tabs>
