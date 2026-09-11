@@ -3,6 +3,7 @@ import { todayBudapest } from '@/lib/budapestTime';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { HotelRoomOverview as LiveHotelRoomOverview } from './HotelRoomOverviewLive';
 import { HistoricalHotelRoomOverviewSaved } from './HistoricalHotelRoomOverviewSaved';
+import { NextDayHousekeepingPlanCard } from './NextDayHousekeepingPlanCard';
 import { RoomOperationsQuickHub } from './RoomOperationsQuickHub';
 import { RoomHoverIntentGuard } from './RoomHoverIntentGuard';
 import './hotel-memories-room-overview.css';
@@ -17,6 +18,10 @@ type HotelRoomOverviewProps = React.ComponentProps<typeof LiveHotelRoomOverview>
  * guard prevents the legacy interactive popover from opening accidentally as
  * the pointer moves across the room board. Past dates replay the immutable
  * per-business-date snapshot read-only.
+ *
+ * On today's manager view, the prepared next-day housekeeping plan sits directly
+ * above the room board. Its release-time control also covers an approved plan
+ * carried into the early morning before execution starts.
  */
 export function HotelRoomOverview(props: HotelRoomOverviewProps) {
   if (props.selectedDate < todayBudapest()) {
@@ -32,7 +37,7 @@ export function HotelRoomOverview(props: HotelRoomOverviewProps) {
       )
     : liveOverview;
 
-  return React.createElement(
+  const guardedOverview = React.createElement(
     RoomHoverIntentGuard,
     null,
     React.createElement(RoomOperationsQuickHub, {
@@ -41,5 +46,17 @@ export function HotelRoomOverview(props: HotelRoomOverviewProps) {
       staffMap: props.staffMap,
       children: scopedOverview,
     }),
+  );
+
+  if (props.selectedDate !== todayBudapest()) return guardedOverview;
+
+  return React.createElement(
+    React.Fragment,
+    null,
+    React.createElement(NextDayHousekeepingPlanCard, {
+      hotelName: props.hotelName,
+      selectedDate: props.selectedDate,
+    }),
+    guardedOverview,
   );
 }
