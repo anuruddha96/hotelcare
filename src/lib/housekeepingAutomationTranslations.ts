@@ -365,6 +365,8 @@ export type HousekeepingAutomationTextKey = keyof typeof translations.en;
 export function getHousekeepingAutomationLanguage(): HousekeepingAutomationLanguage {
   if (typeof window === 'undefined') return 'en';
   const stored = [
+    window.localStorage.getItem('preferred_language'),
+    window.localStorage.getItem('preferred-language'),
     window.localStorage.getItem('language'),
     window.localStorage.getItem('hotelcare_language'),
     window.localStorage.getItem('selectedLanguage'),
