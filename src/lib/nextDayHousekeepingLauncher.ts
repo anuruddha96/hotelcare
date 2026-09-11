@@ -12,7 +12,6 @@ export type DatedNextDayHousekeepingPlan = {
 };
 
 const CURRENT_DAY_CARRYOVER_STATUSES = new Set<NextDayHousekeepingPlanStatus>([
-  'draft',
   'approved',
   'releasing',
   'failed',
@@ -20,10 +19,10 @@ const CURRENT_DAY_CARRYOVER_STATUSES = new Set<NextDayHousekeepingPlanStatus>([
 
 /**
  * The afternoon launcher normally represents tomorrow's plan. After midnight,
- * however, an unfinished plan prepared yesterday now belongs to today and must
- * stay visible until it either releases or is cancelled. This keeps managers
- * from losing access to the release-time/status controls during the critical
- * pre-release morning window.
+ * however, a plan that is still in the release lifecycle now belongs to today
+ * and must stay visible until it either releases or is cancelled. This keeps
+ * managers from losing access to the release-time/status controls during the
+ * critical pre-release morning window without reviving stale draft plans.
  */
 export function pickHousekeepingLauncherPlan<T extends DatedNextDayHousekeepingPlan>(
   rows: T[],
