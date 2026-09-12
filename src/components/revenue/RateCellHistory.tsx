@@ -147,10 +147,13 @@ export default function RateCellHistory({ history, names, draftPrice, sendingPri
     const pct = e.old && e.next != null && e.old !== 0 ? Math.round(((e.next - e.old) / e.old) * 1000) / 10 : null;
     const up = (delta ?? 0) >= 0;
     const failed = e.phase === "failed";
+    const rawAudit = priceHistory.find((row) => row.id === e.id) ?? null;
+    const auditReason = (rawAudit?.payload as any)?.reason_detail;
+    const detail = e.detail ?? (typeof auditReason === "string" && auditReason.trim() ? auditReason.trim() : null);
     return <div key={e.id} className="space-y-0.5 border-l-2 pl-2 border-border">
       <div className="flex flex-wrap items-baseline gap-x-1.5 text-xs tabular-nums"><span>{moneyBase(e.old)} → <strong>{moneyBase(e.next)}</strong></span>{delta != null && delta !== 0 && <span className={up ? "text-emerald-600 dark:text-emerald-400" : "text-sky-600 dark:text-sky-400"}>{up ? "+" : "−"}{moneyBase(Math.abs(delta))}{pct != null ? ` (${pct > 0 ? "+" : ""}${pct}%)` : ""}</span>}</div>
       <p className="text-[11px] text-muted-foreground"><span className={e.automation ? "text-purple-600 dark:text-purple-400 font-medium" : "text-sky-600 dark:text-sky-400 font-medium"}>{e.who}</span>{" · "}{formatWhen(e.at)} · <span className={failed ? "text-destructive" : ""}>{e.statusLabel}</span></p>
-      {e.detail && <p className="text-[11px] text-muted-foreground">{e.detail}</p>}
+      {detail && <p className="text-[11px] text-muted-foreground">{detail}</p>}
       {e.extra && <p className="text-[11px] text-muted-foreground">Requested {moneyBase(e.extra.requested)} · Previo live {moneyBase(e.extra.actual)}{e.extra.requested !== e.extra.actual ? " · adopted as authoritative PMS price" : ""}</p>}
     </div>;
   };
