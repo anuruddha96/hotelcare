@@ -30,6 +30,20 @@ export async function ensurePushSubscription(): Promise<PushSubscription | null>
   if (!isWebPushSupported()) return null;
   if (Notification.permission !== 'granted') return null;
 
+  // Browser permission alone is not enough to opt a user back in after they
+  // explicitly disabled HotelCare notifications in Settings.
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData.user?.id) return null;
+
+  const { data: preference, error: preferenceError } = await supabase
+    .from('notification_preferences')
+    .select('browser_notifications_enabled')
+    .eq('user_id', authData.user.id)
+    .maybeSingle();
+
+  if (preferenceError) throw preferenceError;
+  if (preference?.browser_notifications_enabled !== true) return null;
+
   await serviceWorkerManager.register();
   const registration = await navigator.serviceWorker.ready;
   let subscription = await registration.pushManager.getSubscription();
@@ -57,10 +71,7 @@ export async function ensurePushSubscription(): Promise<PushSubscription | null>
     _user_agent: navigator.userAgent,
   });
 
-  if (error) {
-    throw error;
-  }
-
+  if (error) throw error;
   return subscription;
 }
 
