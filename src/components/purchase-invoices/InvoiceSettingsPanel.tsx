@@ -9,8 +9,9 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Plus, Building2, Tags, Layers, Users } from 'lucide-react';
+import { Loader2, Plus, Building2, Tags, Layers, Users, BrainCircuit } from 'lucide-react';
 import { toast } from 'sonner';
+import { InvoiceAutomationPanel } from './InvoiceAutomationPanel';
 
 const FIN_PROFILES: FinanceProfile[] = ['none','uploader','reviewer','controller','chief_controller','management_read'];
 const PROFILE_HINT: Record<string, string> = {
@@ -118,13 +119,20 @@ export function InvoiceSettingsPanel() {
   }
 
   return (
-    <Tabs defaultValue="entities" className="space-y-4">
+    <Tabs defaultValue={canManageFinance ? 'automation' : 'entities'} className="space-y-4">
       <TabsList className="flex flex-wrap">
+        {canManageFinance && <TabsTrigger value="automation"><BrainCircuit className="h-4 w-4 mr-1.5" />AI & NAV</TabsTrigger>}
         <TabsTrigger value="entities"><Building2 className="h-4 w-4 mr-1.5" />Legal entities</TabsTrigger>
         <TabsTrigger value="categories"><Tags className="h-4 w-4 mr-1.5" />Expense categories</TabsTrigger>
         <TabsTrigger value="costcentres"><Layers className="h-4 w-4 mr-1.5" />Cost centres</TabsTrigger>
         {canManageFinance && <TabsTrigger value="access"><Users className="h-4 w-4 mr-1.5" />Finance access</TabsTrigger>}
       </TabsList>
+
+      {canManageFinance && (
+        <TabsContent value="automation">
+          <InvoiceAutomationPanel />
+        </TabsContent>
+      )}
 
       <TabsContent value="entities">
         <Card>
