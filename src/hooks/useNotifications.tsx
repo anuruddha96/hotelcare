@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useAuth } from './useAuth';
 import { useTranslation } from './useTranslation';
 import { serviceWorkerManager } from '@/lib/serviceWorkerManager';
+import { ensurePushSubscription } from '@/lib/pushSubscriptionManager';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import {
   canReceiveHousekeepingOperationalNotifications,
@@ -49,12 +50,30 @@ export function useNotifications() {
     }
   }, []);
 
+  // Existing users may already have granted browser notification permission from
+  // the old foreground-only implementation. Attach the missing PushManager
+  // subscription automatically the next time they open HotelCare.
+  useEffect(() => {
+    if (!user?.id || !('Notification' in window) || Notification.permission !== 'granted') return;
+
+    void ensurePushSubscription().catch((error) => {
+      console.warn('Could not register HotelCare background notifications:', error);
+    });
+  }, [user?.id]);
+
   const requestNotificationPermission = useCallback(async () => {
     if (!('Notification' in window)) {
       console.log('Browser does not support notifications');
       return false;
     }
-    if (Notification.permission === 'granted') return true;
+    if (Notification.permission === 'granted') {
+      try {
+        await ensurePushSubscription();
+      } catch (error) {
+        console.warn('Notification permission is granted but Web Push registration failed:', error);
+      }
+      return true;
+    }
     if (Notification.permission === 'denied') {
       console.log('Notifications are blocked by user');
       return false;
@@ -82,6 +101,14 @@ export function useNotifications() {
       }
 
       if (permission === 'granted') {
+        try {
+          await ensurePushSubscription();
+        } catch (error) {
+          console.error('Could not enable HotelCare background notifications:', error);
+          toast.error('Notification permission was granted, but this device could not be registered for background notifications.');
+          return false;
+        }
+
         await serviceWorkerManager.sendNotification(
           'Hotel Care',
           'You will now receive Hotel Care notifications relevant to your role.',

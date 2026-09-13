@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { ensurePushSubscription, removePushSubscription } from '@/lib/pushSubscriptionManager';
 import { useAuth } from './useAuth';
 
 interface NotificationPreferences {
@@ -71,7 +72,9 @@ export function useNotificationPreferences() {
     loadPreferences();
   }, [user?.id]);
 
-  // Update preferences in database
+  // Update preferences in database and keep the real background Push endpoint in
+  // sync. Turning notifications off removes this browser/device subscription;
+  // turning them on attaches one when permission has already been granted.
   const updatePreferences = useCallback(async (updates: Partial<NotificationPreferences>) => {
     if (!user?.id) return false;
 
@@ -90,6 +93,25 @@ export function useNotificationPreferences() {
       if (error) {
         console.error('Error updating notification preferences:', error);
         return false;
+      }
+
+      if (updates.browser_notifications_enabled === false) {
+        try {
+          await removePushSubscription();
+        } catch (pushError) {
+          console.warn('Could not remove background notification subscription:', pushError);
+        }
+      } else if (
+        updates.browser_notifications_enabled === true
+        && typeof Notification !== 'undefined'
+        && Notification.permission === 'granted'
+      ) {
+        try {
+          await ensurePushSubscription();
+        } catch (pushError) {
+          console.error('Could not register background notification subscription:', pushError);
+          return false;
+        }
       }
 
       setPreferences(prev => ({ ...prev, ...updates }));
