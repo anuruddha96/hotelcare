@@ -18,6 +18,12 @@ function safeEqual(a: string, b: string) {
   return diff === 0;
 }
 
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  try { return JSON.stringify(error); } catch { return String(error); }
+}
+
 function budapestClock(at = new Date()) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Budapest",
@@ -80,13 +86,9 @@ async function callRoomsSync(
 }
 
 /**
- * Refresh the physical Previo room mapping, fetch the current room roster, and
- * update HotelCare's room state by canonical room id. Updating by id rather than
- * by hotel slug is important because Memories/Ottofiori store their room.hotel
- * value as the display name, while Mika/Gozsdu use the slug.
- *
- * The mapping step is mapOnly, so it never creates or overwrites room records.
- * Existing pms_metadata is merged to preserve reservation/housekeeping metadata.
+ * Refresh physical mappings, fetch the current Previo room roster, and update
+ * HotelCare by canonical room id. This is alias-safe for both slug-based hotels
+ * (Mika/Gozsdu) and display-name hotels (Memories/Ottofiori).
  */
 async function syncHotelRoomState(
   admin: any,
@@ -120,7 +122,7 @@ async function syncHotelRoomState(
     .eq("pms_type", "previo")
     .eq("is_active", true)
     .maybeSingle();
-  if (configError) throw configError;
+  if (configError) throw new Error(`PMS config lookup failed: ${errorText(configError)}`);
   if (!pmsConfig?.id) throw new Error(`No active Previo configuration for ${hotelId}.`);
 
   const { data: mappings, error: mappingsError } = await admin
@@ -128,7 +130,7 @@ async function syncHotelRoomState(
     .select("pms_room_id,hotelcare_room_id")
     .eq("pms_config_id", pmsConfig.id)
     .eq("is_active", true);
-  if (mappingsError) throw mappingsError;
+  if (mappingsError) throw new Error(`Room mapping lookup failed: ${errorText(mappingsError)}`);
 
   const roomIdByPmsId = new Map<string, string>();
   for (const row of mappings || []) {
@@ -141,10 +143,10 @@ async function syncHotelRoomState(
   const { data: existingRooms, error: roomsError } = mappedRoomIds.length
     ? await admin
       .from("rooms")
-      .select("id,pms_metadata")
+      .select("id,hotel,room_number,pms_metadata")
       .in("id", mappedRoomIds)
     : { data: [], error: null };
-  if (roomsError) throw roomsError;
+  if (roomsError) throw new Error(`HotelCare room lookup failed: ${errorText(roomsError)}`);
   const existingById = new Map((existingRooms || []).map((room: any) => [String(room.id), room]));
 
   const errors: string[] = [];
@@ -162,6 +164,8 @@ async function syncHotelRoomState(
     }
     updates.push({
       id: roomId,
+      hotel: existing.hotel,
+      room_number: existing.room_number,
       status: mapPrevioStatus(Number(room.roomCleanStatusId || 0)),
       room_type: room.roomKindName || "",
       pms_metadata: {
@@ -177,7 +181,6 @@ async function syncHotelRoomState(
   }
 
   // Fail before any room update if Previo contains an unmapped physical room.
-  // Planned assignments should never be released from a partial PMS picture.
   if (errors.length > 0 || updates.length !== freshRooms.length) {
     throw new Error(errors.slice(0, 8).join("; ") || "Incomplete Previo room mapping.");
   }
@@ -185,7 +188,7 @@ async function syncHotelRoomState(
   const { error: updateError } = await admin
     .from("rooms")
     .upsert(updates, { onConflict: "id" });
-  if (updateError) throw updateError;
+  if (updateError) throw new Error(`HotelCare room-state update failed: ${errorText(updateError)}`);
 
   const syncedAt = new Date().toISOString();
   const historyData = {
@@ -208,16 +211,13 @@ async function syncHotelRoomState(
     sync_status: "success",
     error_message: null,
   });
-  if (historyError) throw historyError;
+  if (historyError) throw new Error(`PMS sync history write failed: ${errorText(historyError)}`);
 
   return historyData;
 }
 
 async function runMorningWarmup(admin: any, supabaseUrl: string, serviceRole: string) {
   const { hour, minute } = budapestClock();
-  // One property every five minutes from 06:00 Budapest. The three-hour
-  // window leaves room to scale to 36 standard Previo properties without
-  // creating a burst of simultaneous PMS calls.
   if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour < 6 || hour > 8) {
     return { skipped: true, reason: "outside_budapest_06_09_window" };
   }
@@ -230,7 +230,7 @@ async function runMorningWarmup(admin: any, supabaseUrl: string, serviceRole: st
     .eq("is_active", true)
     .eq("sync_enabled", true)
     .order("hotel_id", { ascending: true });
-  if (error) throw error;
+  if (error) throw new Error(`Warm-up hotel lookup failed: ${errorText(error)}`);
 
   const config = (configs || [])[slot];
   if (!config?.hotel_id) return { skipped: true, reason: "no_property_for_slot", slot };
@@ -239,7 +239,7 @@ async function runMorningWarmup(admin: any, supabaseUrl: string, serviceRole: st
     const result = await syncHotelRoomState(admin, supabaseUrl, serviceRole, config.hotel_id);
     return { ok: true, hotel_id: config.hotel_id, slot, ...result };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorText(error);
     console.error(`[HK PMS warmup] ${config.hotel_id}:`, message);
     return { ok: false, hotel_id: config.hotel_id, slot, error: message };
   }
@@ -250,7 +250,7 @@ async function runReleasePreflight(admin: any, supabaseUrl: string, serviceRole:
     "claim_due_next_day_housekeeping_pms_preflight_plans",
     { p_limit: 10 },
   );
-  if (claimError) throw claimError;
+  if (claimError) throw new Error(`Preflight claim failed: ${errorText(claimError)}`);
 
   const results: Array<Record<string, unknown>> = [];
   for (const plan of plans || []) {
@@ -276,11 +276,11 @@ async function runReleasePreflight(admin: any, supabaseUrl: string, serviceRole:
         })
         .eq("id", plan.id)
         .eq("status", "approved");
-      if (updateError) throw updateError;
+      if (updateError) throw new Error(`Plan preflight update failed: ${errorText(updateError)}`);
 
       results.push({ plan_id: plan.id, hotel_id: plan.hotel_id, ok: true, sync: result });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorText(error);
       console.error(`[HK PMS preflight] ${plan.hotel_id}/${plan.id}:`, message);
       await admin
         .from("next_day_housekeeping_plans")
@@ -334,7 +334,7 @@ Deno.serve(async req => {
     const results = await runReleasePreflight(admin, supabaseUrl, serviceRole);
     return json({ ok: true, mode, processed: results.length, results });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorText(error);
     console.error("[HK PMS preflight] worker failed:", message);
     return json({ ok: false, error: message }, 500);
   }
