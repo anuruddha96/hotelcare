@@ -256,3 +256,8 @@ verify_jwt = false
 # x-worker-secret before claiming or sending any parking email jobs.
 [functions.parking-email-worker]
 verify_jwt = false
+
+# Reception coordination worker. It accepts either a signed-in manager JWT or
+# a Vault-backed worker secret for database-triggered room type notifications.
+[functions.housekeeping-room-change-email]
+verify_jwt = false
