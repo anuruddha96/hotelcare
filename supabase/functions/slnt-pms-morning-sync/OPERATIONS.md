@@ -1,1 +1,0 @@
-Operational cadence: SLNT PMS accounts are ordered by label and processed sequentially beginning 07:00 Europe/Budapest, one account per five-minute slot. Failure is isolated to the affected account and recorded in PMS sync health/history.
