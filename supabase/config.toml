@@ -236,9 +236,14 @@ verify_jwt = false
 [functions.housekeeping-activity-watchdog]
 verify_jwt = false
 
-# The only automatic 08:00 next-day release path. This worker validates a
-# Vault-backed x-worker-secret and re-checks Previo before publishing work.
+# The automatic next-day release path. This worker validates a Vault-backed
+# x-worker-secret and re-checks Previo before publishing work.
 [functions.housekeeping-next-day-release-worker]
+verify_jwt = false
+
+# Runs a server-side full room-state sync before a planned housekeeping release
+# and staggers morning Previo syncs. It uses the same Vault-backed worker secret.
+[functions.housekeeping-pms-preflight-worker]
 verify_jwt = false
 
 # Called only by pg_cron. The function checks a separate Vault-backed
