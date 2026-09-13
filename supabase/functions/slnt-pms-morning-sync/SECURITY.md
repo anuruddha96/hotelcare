@@ -1,1 +1,0 @@
-Authentication: pg_cron sends the existing Vault-backed housekeeping release worker secret in `x-worker-secret`. The worker rejects requests unless it matches `get_housekeeping_release_worker_secret()`.
