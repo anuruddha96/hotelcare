@@ -246,6 +246,12 @@ verify_jwt = false
 [functions.housekeeping-pms-preflight-worker]
 verify_jwt = false
 
+# SLNT portfolio morning PMS refresh. The function is isolated to organization
+# slug `slnt`, validates the Vault-backed worker secret, and staggers its Previo
+# accounts from 07:00 Europe/Budapest so it does not overlap RD hotel warm-up.
+[functions.slnt-pms-morning-sync]
+verify_jwt = false
+
 # Called only by pg_cron. The function checks a separate Vault-backed
 # x-worker-secret before claiming or sending any parking email jobs.
 [functions.parking-email-worker]
