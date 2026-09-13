@@ -320,6 +320,12 @@ Deno.serve(async req => {
   const mode = String(body?.mode || "preflight");
 
   try {
+    if (mode === "sync_hotel") {
+      const hotelId = String(body?.hotel_id || body?.hotelId || "").trim();
+      if (!hotelId) return json({ error: "hotel_id required" }, 400);
+      const result = await syncHotelRoomState(admin, supabaseUrl, serviceRole, hotelId);
+      return json({ ok: true, mode, hotel_id: hotelId, result });
+    }
     if (mode === "warmup") {
       return json({ ok: true, mode, result: await runMorningWarmup(admin, supabaseUrl, serviceRole) });
     }
