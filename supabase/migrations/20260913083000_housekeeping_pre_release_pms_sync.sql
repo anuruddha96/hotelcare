@@ -176,7 +176,8 @@ select cron.schedule(
         'Content-Type', 'application/json',
         'x-worker-secret', public.get_housekeeping_release_worker_secret()
       ),
-      body := jsonb_build_object('mode', 'preflight', 'scheduled_at', now())
+      body := jsonb_build_object('mode', 'preflight', 'scheduled_at', now()),
+      timeout_milliseconds := 30000
     ) as request_id;
   $cron$
 );
@@ -194,7 +195,8 @@ select cron.schedule(
         'Content-Type', 'application/json',
         'x-worker-secret', public.get_housekeeping_release_worker_secret()
       ),
-      body := jsonb_build_object('mode', 'warmup', 'scheduled_at', now())
+      body := jsonb_build_object('mode', 'warmup', 'scheduled_at', now()),
+      timeout_milliseconds := 30000
     ) as request_id;
   $cron$
 );
