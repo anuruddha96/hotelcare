@@ -52,6 +52,8 @@ type RoomSelection = {
   assignmentId: string | null;
   assignedTo: string | null;
   assignmentStatus: string | null;
+  assignmentNotes: string | null;
+  assignmentServiceResult: string | null;
   priority: number;
   supervisorApproved: boolean;
   lastCleanedAt: string | null;
@@ -106,6 +108,22 @@ function statusTone(status: string | null) {
   return 'border-amber-200 bg-amber-50 text-amber-900';
 }
 
+/**
+ * Keep the original operational history while making it unambiguous that a
+ * supervisor later overrode a non-cleaning outcome. The Previo status function
+ * intentionally blocks exact [NO_SERVICE] / [TOWEL_CHANGE_ONLY] markers, so
+ * those markers must no longer remain active when a supervisor confirms that
+ * the room was in fact cleaned.
+ */
+function markNonCleaningOutcomeOverridden(notes: string | null | undefined) {
+  const next = String(notes || '')
+    .replaceAll('[NO_SERVICE]', '[OVERRIDDEN_NO_SERVICE]')
+    .replaceAll('[NO_BOARD_NO_CLEANING]', '[OVERRIDDEN_NO_BOARD_NO_CLEANING]')
+    .replaceAll('[TOWEL_CHANGE_ONLY]', '[OVERRIDDEN_TOWEL_CHANGE_ONLY]')
+    .trim();
+  return next || null;
+}
+
 export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, children }: RoomOperationsQuickHubProps) {
   const { profile } = useAuth();
   const { venuesEnabled } = useTenantFeatures();
@@ -145,6 +163,8 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       assignmentId: null,
       assignedTo: null,
       assignmentStatus: null,
+      assignmentNotes: null,
+      assignmentServiceResult: null,
       priority: 1,
       supervisorApproved: false,
       lastCleanedAt: null,
@@ -171,7 +191,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       const [{ data: assignmentRows, error: assignmentError }, { data: minibarRows }] = await Promise.all([
         supabase
           .from('room_assignments')
-          .select('id, assigned_to, status, priority, assignment_type, supervisor_approved')
+          .select('id, assigned_to, status, priority, assignment_type, supervisor_approved, notes, service_result')
           .eq('room_id', room.id)
           .eq('assignment_date', selectedDate)
           .order('created_at', { ascending: false })
@@ -210,6 +230,8 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         assignmentId: assignment?.id || null,
         assignedTo: assignment?.assigned_to || null,
         assignmentStatus: assignment?.status || null,
+        assignmentNotes: assignment?.notes || null,
+        assignmentServiceResult: assignment?.service_result || null,
         priority: Number(assignment?.priority) >= 3 ? 3 : Number(assignment?.priority) === 2 ? 2 : 1,
         supervisorApproved: !!assignment?.supervisor_approved,
         lastCleanedAt: room.last_cleaned_at || null,
@@ -253,6 +275,104 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     } catch (error) {
       console.error(success, error);
       toast.error('Could not update this room.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const markRoomClean = async () => {
+    if (!canManage || readOnlyForPast || !selection?.roomId) return;
+    const roomId = selection.roomId;
+    const assignmentId = selection.assignmentId;
+    const roomNumber = selection.roomNumber;
+    const now = new Date().toISOString();
+    setActionLoading('mark-clean');
+
+    try {
+      let nextAssignmentNotes = selection.assignmentNotes;
+
+      if (assignmentId) {
+        // Read the newest notes first so a manager override never clobbers a
+        // housekeeper note that arrived after the dialog was opened.
+        const { data: freshAssignment, error: assignmentReadError } = await supabase
+          .from('room_assignments')
+          .select('notes')
+          .eq('id', assignmentId)
+          .maybeSingle();
+        if (assignmentReadError) throw assignmentReadError;
+
+        nextAssignmentNotes = markNonCleaningOutcomeOverridden(
+          freshAssignment?.notes ?? selection.assignmentNotes,
+        );
+
+        const { error: assignmentError } = await supabase
+          .from('room_assignments')
+          .update({
+            status: 'completed',
+            completed_at: now,
+            supervisor_approved: true,
+            supervisor_approved_by: profile?.id || null,
+            supervisor_approved_at: now,
+            service_result: 'cleaned',
+            is_dnd: false,
+            dnd_marked_at: null,
+            dnd_marked_by: null,
+            notes: nextAssignmentNotes,
+          } as any)
+          .eq('id', assignmentId);
+        if (assignmentError) throw assignmentError;
+      }
+
+      const { error: roomError } = await supabase
+        .from('rooms')
+        .update({
+          status: 'clean',
+          last_cleaned_at: now,
+          last_cleaned_by: profile?.id || null,
+          is_dnd: false,
+          dnd_marked_at: null,
+          dnd_marked_by: null,
+        } as any)
+        .eq('id', roomId);
+      if (roomError) throw roomError;
+
+      setSelection((current) => current ? {
+        ...current,
+        roomStatus: 'clean',
+        lastCleanedAt: now,
+        assignmentStatus: assignmentId ? 'completed' : current.assignmentStatus,
+        assignmentNotes: assignmentId ? nextAssignmentNotes : current.assignmentNotes,
+        assignmentServiceResult: assignmentId ? 'cleaned' : current.assignmentServiceResult,
+        supervisorApproved: assignmentId ? true : current.supervisorApproved,
+      } : current);
+
+      // Push only after the local assignment has been converted from a
+      // No-Service/DND outcome to a real clean outcome. The edge function has
+      // a safety gate that correctly refuses clean pushes while [NO_SERVICE]
+      // or service_result='guest_declined' is still active.
+      try {
+        const { data: pmsData, error: pmsError } = await supabase.functions.invoke('previo-update-room-status', {
+          body: { roomId, status: 'clean', assignmentId: assignmentId || undefined },
+        });
+        if (pmsError) throw pmsError;
+        if (pmsData?.success === false) throw new Error(pmsData?.error || 'PMS returned an unsuccessful response');
+
+        if (pmsData?.skipped) {
+          toast.warning(`Room ${roomNumber} marked clean in HotelCare. PMS sync skipped: ${pmsData?.message || 'not configured for this room'}`, { duration: 9000 });
+        } else {
+          toast.success(`Room ${roomNumber} marked clean and synced to PMS`);
+        }
+      } catch (pmsError) {
+        console.error('Room clean saved but PMS sync failed', pmsError);
+        toast.warning(`Room ${roomNumber} is clean in HotelCare, but PMS sync failed. Tap “Mark Clean & Sync PMS” again to retry.`, { duration: 10000 });
+      }
+
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+      await loadRoom(roomNumber);
+    } catch (error) {
+      console.error('Failed to manually mark room clean', error);
+      toast.error('Could not mark this room clean.');
+      await loadRoom(roomNumber);
     } finally {
       setActionLoading(null);
     }
@@ -359,12 +479,24 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     return { label: 'Low', className: 'border-sky-300 bg-sky-100 text-sky-800' };
   }, [selection?.priority]);
 
+  const hasNonCleaningOutcome = !!selection && (
+    selection.assignmentServiceResult === 'guest_declined'
+    || !!selection.assignmentNotes?.includes('[NO_SERVICE]')
+    || !!selection.assignmentNotes?.includes('[TOWEL_CHANGE_ONLY]')
+  );
+  const visibleStatusLabel = hasNonCleaningOutcome
+    ? 'No Service / DND outcome'
+    : statusLabel(selection?.assignmentStatus || selection?.roomStatus || null);
+  const visibleStatusTone = hasNonCleaningOutcome
+    ? 'border-rose-200 bg-rose-50 text-rose-900'
+    : statusTone(selection?.assignmentStatus || selection?.roomStatus || null);
+
   const mainView = !selection ? null : (
     <div className="space-y-4">
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className={`rounded-xl border p-3 ${statusTone(selection.assignmentStatus || selection.roomStatus)}`}>
+        <div className={`rounded-xl border p-3 ${visibleStatusTone}`}>
           <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Status</p>
-          <p className="mt-1 text-sm font-bold">{statusLabel(selection.assignmentStatus || selection.roomStatus)}</p>
+          <p className="mt-1 text-sm font-bold">{visibleStatusLabel}</p>
         </div>
         <div className={`rounded-xl border p-3 ${selection.isCheckout ? 'border-orange-200 bg-orange-50 text-orange-900' : 'border-blue-200 bg-blue-50 text-blue-900'}`}>
           <p className="text-[9px] font-bold uppercase tracking-wider opacity-70">Service</p>
@@ -416,6 +548,25 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
           <span className="flex items-center gap-2"><ArrowLeftRight className="h-4 w-4" /> Switch to {selection.isCheckout ? 'Daily' : 'Checkout'}</span>
           <span className="text-xs opacity-90">Current: {selection.isCheckout ? 'Checkout' : 'Daily'}</span>
         </Button>
+
+        {canManage && (
+          <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-2.5">
+            <Button
+              type="button"
+              className="w-full bg-emerald-600 font-bold hover:bg-emerald-700"
+              disabled={readOnlyForPast || !!actionLoading}
+              onClick={() => void markRoomClean()}
+            >
+              {actionLoading === 'mark-clean'
+                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                : <CheckCircle2 className="mr-2 h-4 w-4" />}
+              {hasNonCleaningOutcome ? 'Override No Service → Mark Clean & Sync PMS' : 'Mark Clean & Sync PMS'}
+            </Button>
+            <p className="mt-1.5 text-[10px] leading-snug text-emerald-900/75">
+              Supervisor override: confirms the room as cleaned, clears active DND / No Service state, approves the assignment and pushes Clean to the PMS.
+            </p>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <button
@@ -512,10 +663,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
               <div className="rounded-lg bg-white p-2"><p className="text-[9px] uppercase text-muted-foreground">Last cleaned</p><p className="font-semibold">{selection.lastCleanedAt ? new Date(selection.lastCleanedAt).toLocaleString() : 'Not recorded'}</p></div>
             </div>
             {canManage && (
-              <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" className="border-amber-300 text-amber-800" disabled={!!actionLoading} onClick={() => void patchRoom({ status: 'dirty' }, { roomStatus: 'dirty' }, `Room ${selection.roomNumber} marked dirty`)}>Mark Dirty</Button>
-                <Button variant="outline" className="border-emerald-300 text-emerald-800" disabled={!!actionLoading} onClick={() => void patchRoom({ status: 'clean', last_cleaned_at: new Date().toISOString(), last_cleaned_by: profile?.id || null }, { roomStatus: 'clean', lastCleanedAt: new Date().toISOString() }, `Room ${selection.roomNumber} marked clean`)}>Mark Clean</Button>
-              </div>
+              <Button variant="outline" className="w-full border-amber-300 text-amber-800" disabled={!!actionLoading} onClick={() => void patchRoom({ status: 'dirty' }, { roomStatus: 'dirty' }, `Room ${selection.roomNumber} marked dirty`)}>Mark Dirty</Button>
             )}
           </div>
         )}
@@ -540,7 +688,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
                 <div className="min-w-0 flex-1">
                   <DialogTitle className="flex flex-wrap items-center gap-2 text-lg">
                     <BedDouble className="h-5 w-5" /> Room {selection?.roomNumber || ''}
-                    {selection && <Badge className={statusTone(selection.assignmentStatus || selection.roomStatus)}>{statusLabel(selection.assignmentStatus || selection.roomStatus)}</Badge>}
+                    {selection && <Badge className={visibleStatusTone}>{visibleStatusLabel}</Badge>}
                   </DialogTitle>
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                     <span className="flex items-center gap-1"><Hotel className="h-3.5 w-3.5" />{hotelName}</span>
