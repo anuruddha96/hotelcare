@@ -58,6 +58,27 @@ describe("RevenueCalendarExperience", () => {
     expect(pane.dataset.rateGridScroll).toBe("true");
   });
 
+  it("marks the calendar as actively scrolling so expensive effects can pause", async () => {
+    render(<RevenueCalendarExperience />);
+    const card = document.createElement("div");
+    card.setAttribute("data-training", "revenue-grid");
+    const pane = document.createElement("div");
+    pane.className = "relative overflow-auto overscroll-x-contain";
+    card.appendChild(pane);
+    document.body.appendChild(card);
+
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+
+    pane.dispatchEvent(new Event("scroll"));
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+
+    expect(card.dataset.rateCalendarScrolling).toBe("true");
+  });
+
   it("hands a vertical boundary swipe to the page", async () => {
     const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation(() => undefined);
     render(<RevenueCalendarExperience />);

@@ -3,21 +3,14 @@ import { useEffect } from "react";
 /**
  * Progressive enhancement for the revenue rate calendar.
  *
- * RateStrategyGrid is deliberately feature rich: it owns horizontal dates,
- * vertical room rows, long-press range selection and sticky pricing signals.
- * On touch devices that can create a nested-scroll trap because the calendar
- * may consume repeated vertical swipes that the user intended for the page.
+ * RateStrategyGrid deliberately owns the pricing / selection / publishing
+ * behaviour. This helper is only responsible for the viewport experience:
+ * keeping the dense calendar readable, making native scrolling feel light,
+ * and preventing touch users from getting trapped inside the nested scroller.
  *
- * This helper leaves all pricing / publishing logic untouched and only improves
- * viewport behaviour:
- *  - compact the non-essential calendar chrome so more room rows are visible;
- *  - keep horizontal date panning native and fluid;
- *  - let a vertical swipe escape to the page at a grid boundary immediately;
- *  - let a second quick vertical swipe escape to the page even mid-grid;
- *  - adapt the density for portrait phones and rotated / landscape phones.
- *
- * It is mounted globally by PointerEventsGuard, but activates only when the
- * Rate & pickup calendar is present.
+ * Important: nothing in this file writes prices, inventory, restrictions or
+ * PMS data. It is safe to mount for every organisation/property because it is
+ * activated only for [data-training="revenue-grid"].
  */
 
 const GRID_CARD = '[data-training="revenue-grid"]';
@@ -27,6 +20,7 @@ const COARSE_POINTER_QUERY = "(pointer: coarse)";
 const QUICK_SWIPE_MS = 700;
 const AXIS_LOCK_PX = 8;
 const SWIPE_MIN_PX = 28;
+const SCROLL_IDLE_MS = 120;
 
 const calendarCss = String.raw`
   [data-rate-calendar-v2="true"] {
@@ -34,16 +28,19 @@ const calendarCss = String.raw`
     min-width: 0;
   }
 
+  /* Reclaim vertical space for the decision grid. The calendar header used to
+     consume enough height that only a few room/rate rows were visible on a
+     laptop even though the screen had plenty of useful width. */
   [data-rate-calendar-v2="true"] > div:first-child {
-    gap: .375rem !important;
-    padding-top: .65rem !important;
-    padding-bottom: .45rem !important;
+    gap: .3rem !important;
+    padding-top: .55rem !important;
+    padding-bottom: .35rem !important;
   }
 
   [data-rate-calendar-v2="true"] > div:first-child p.text-\[11px\] {
     margin-top: 0 !important;
     margin-bottom: 0 !important;
-    line-height: 1.15 !important;
+    line-height: 1.1 !important;
   }
 
   [data-rate-grid-scroll="true"] {
@@ -52,19 +49,51 @@ const calendarCss = String.raw`
     scrollbar-gutter: stable;
     -webkit-overflow-scrolling: touch;
     scroll-behavior: auto;
+    isolation: isolate;
   }
 
-  /* The information rows are valuable, but do not need the same height as a
-     room price row. Reclaiming these pixels gives the decision grid more of
-     the viewport without removing Pickup / Occupancy / Left / Min stay / Demand. */
+  /* Backdrop blur is expensive while a large table is moving in Chrome and
+     makes the sticky header repaint on virtually every scroll frame. Opaque
+     card backgrounds keep the hierarchy just as clear without that cost. */
+  [data-rate-grid-scroll="true"] .backdrop-blur,
+  [data-rate-grid-scroll="true"] .backdrop-blur-sm,
+  [data-rate-grid-scroll="true"] .backdrop-blur-md {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  /* During an active scroll, visual transitions are decoration rather than
+     information. Suspending them removes avoidable paint/compositing work; the
+     normal hover/change animations come back as soon as scrolling settles. */
+  [data-rate-calendar-scrolling="true"] [data-rate-grid-scroll="true"] button,
+  [data-rate-calendar-scrolling="true"] [data-rate-grid-scroll="true"] [class*="transition-"] {
+    transition-duration: 0s !important;
+  }
+
+  [data-rate-calendar-scrolling="true"] [data-rate-grid-scroll="true"] [class*="animate-"] {
+    animation-play-state: paused !important;
+  }
+
+  /* Keep the sticky decision header deterministic. Pickup/event text is not
+     allowed to grow over the date row: detailed values remain available from
+     the existing tooltips / demand detail UI. */
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 {
+    background: hsl(var(--card));
+  }
+
   [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:first-child {
-    height: 20px !important;
-    min-height: 20px !important;
+    height: 18px !important;
+    min-height: 18px !important;
+    overflow: hidden !important;
   }
 
   [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(2) {
-    height: 40px !important;
-    min-height: 40px !important;
+    position: relative;
+    z-index: 3;
+    height: 38px !important;
+    min-height: 38px !important;
+    overflow: hidden !important;
+    background: hsl(var(--card));
   }
 
   [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(3),
@@ -72,8 +101,27 @@ const calendarCss = String.raw`
   [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(5),
   [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(6),
   [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(7) {
-    height: 27px !important;
-    min-height: 27px !important;
+    height: 24px !important;
+    min-height: 24px !important;
+    overflow: hidden !important;
+  }
+
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(3) > div,
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(4) > div,
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(5) > div,
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(6) > div,
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(7) > div {
+    min-height: 0 !important;
+    overflow: hidden !important;
+    line-height: 1 !important;
+  }
+
+  /* Events can have many simultaneous chips. Keep one compact lane in the
+     always-sticky block so an event-heavy period can never push dates/prices
+     off screen. Demand details are still available by opening the date. */
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(8) {
+    max-height: 30px !important;
+    overflow: hidden !important;
   }
 
   @media (min-width: 768px) {
@@ -83,13 +131,20 @@ const calendarCss = String.raw`
     }
 
     [data-rate-calendar-v2="true"] details {
-      line-height: 1.15;
+      line-height: 1.1;
+    }
+
+    /* The explanatory sentence is useful on small screens where controls are
+       less obvious, but on desktop it duplicates the tooltips and costs a full
+       row of pricing visibility. */
+    [data-rate-calendar-v2="true"] > div:first-child > p.text-\[11px\] {
+      display: none !important;
     }
   }
 
-  /* On ordinary laptop widths the toolbar is often taller than the pricing
-     grid header because its many controls wrap to multiple lines. Keep it as
-     one stable horizontal control strip instead. */
+  /* Laptop widths are where the original toolbar wrapped into several rows and
+     noticeably reduced rate visibility. Keep every action available but make
+     the actions a single native horizontal strip. */
   @media (min-width: 768px) and (max-width: 1600px) {
     [data-rate-calendar-v2="true"] > div:first-child > div:first-child {
       align-items: stretch !important;
@@ -101,7 +156,7 @@ const calendarCss = String.raw`
       flex-wrap: nowrap !important;
       overflow-x: auto;
       overscroll-behavior-x: contain;
-      padding-bottom: 2px;
+      padding-bottom: 1px;
       scrollbar-width: thin;
     }
 
@@ -112,11 +167,12 @@ const calendarCss = String.raw`
 
   @media (max-width: 767px) {
     [data-rate-calendar-v2="true"] > div:first-child {
-      padding: .5rem .5rem .35rem !important;
+      padding: .4rem .45rem .25rem !important;
+      gap: .25rem !important;
     }
 
     [data-rate-calendar-v2="true"] > div:first-child > div:first-child {
-      gap: .35rem !important;
+      gap: .3rem !important;
     }
 
     [data-rate-calendar-v2="true"] > div:first-child button.h-8,
@@ -127,16 +183,17 @@ const calendarCss = String.raw`
 
     [data-rate-grid-scroll="true"] {
       touch-action: pan-x pan-y;
+      scrollbar-gutter: auto;
     }
 
     [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:first-child {
-      height: 18px !important;
-      min-height: 18px !important;
+      height: 16px !important;
+      min-height: 16px !important;
     }
 
     [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(2) {
-      height: 36px !important;
-      min-height: 36px !important;
+      height: 34px !important;
+      min-height: 34px !important;
     }
 
     [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(3),
@@ -144,12 +201,12 @@ const calendarCss = String.raw`
     [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(5),
     [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(6),
     [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(7) {
-      height: 25px !important;
-      min-height: 25px !important;
+      height: 22px !important;
+      min-height: 22px !important;
     }
   }
 
-  /* Phones, including wide rotated phones that exceed the usual 767px CSS
+  /* Phones, including wide rotated phones that exceed the usual CSS mobile
      breakpoint, use one horizontally scrollable toolbar row instead of several
      wrapped rows. */
   [data-rate-calendar-device="mobile-portrait"] > div:first-child > div:first-child,
@@ -164,7 +221,7 @@ const calendarCss = String.raw`
     flex-wrap: nowrap !important;
     overflow-x: auto;
     overscroll-behavior-x: contain;
-    padding-bottom: 2px;
+    padding-bottom: 1px;
     scrollbar-width: none;
   }
 
@@ -178,14 +235,14 @@ const calendarCss = String.raw`
     flex: 0 0 auto;
   }
 
-  /* Rotated phones have extremely little vertical room. In this mode the date
-     row remains sticky, while the larger signal block scrolls away with the
-     room rows. This avoids a 150-200px sticky header permanently hiding the
-     actual prices. */
+  /* Rotated phones have very little vertical room. Keep the proven compact
+     landscape behaviour: the date row remains prominent, the signal rows are
+     tiny, and the dedicated event lane is removed because the Demand/date UI
+     already exposes the underlying event detail. */
   [data-rate-calendar-device="mobile-landscape"] > div:first-child {
     padding-top: .2rem !important;
     padding-bottom: .2rem !important;
-    gap: .25rem !important;
+    gap: .2rem !important;
   }
 
   [data-rate-calendar-device="mobile-landscape"] > div:first-child details,
@@ -198,9 +255,6 @@ const calendarCss = String.raw`
     scrollbar-gutter: auto;
   }
 
-  /* A phone rotated sideways is wider than the app's normal mobile breakpoint,
-     so RateStrategyGrid otherwise keeps the 200px desktop room-name column.
-     Cap it here without changing the user's saved desktop width. */
   [data-rate-calendar-device="mobile-landscape"][data-rate-calendar-rail="false"]
     [data-rate-grid-scroll="true"] .sticky.left-0 {
     width: 132px !important;
@@ -248,16 +302,11 @@ const calendarCss = String.raw`
     font-size: 10px !important;
   }
 
-  /* The full multi-lane event band is useful on a desktop, but on a 390-430px
-     tall phone it can consume the space of two or three room rows. Event
-     details remain available from the Demand row, so hide only the dedicated
-     band in landscape. */
   [data-rate-calendar-device="mobile-landscape"]
     [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(8) {
     display: none !important;
   }
 
-  /* Keep numbers readable after the browser applies iPhone landscape scaling. */
   [data-rate-calendar-device="mobile-landscape"]
     [data-rate-grid-scroll="true"] button,
   [data-rate-calendar-device="mobile-landscape"]
@@ -288,9 +337,9 @@ function findScrollPane(card: HTMLElement): HTMLElement | null {
 
 function isPhoneViewport(): boolean {
   if (window.matchMedia(MOBILE_QUERY).matches) return true;
-  // A rotated phone can be 800–950px wide and miss the normal mobile CSS
-  // breakpoint. A coarse pointer plus a short side identifies that form factor
-  // without turning normal desktop windows into the mobile layout.
+  // Rotated phones can be 800–950px wide and miss the ordinary mobile CSS
+  // breakpoint. Coarse pointer + short side identifies that form factor while
+  // leaving narrow desktop browser windows in desktop mode.
   return window.matchMedia(COARSE_POINTER_QUERY).matches && Math.min(window.innerWidth, window.innerHeight) <= 600;
 }
 
@@ -311,9 +360,8 @@ function mutationNeedsEnhancement(records: MutationRecord[]): boolean {
     const target = record.target instanceof Element ? record.target : null;
     const targetCard = target?.closest<HTMLElement>(GRID_CARD) ?? null;
 
-    // While the calendar is mounting we need one more pass until its scroll
-    // pane exists. Once a card is enhanced, normal React cell/hover/toast DOM
-    // churn must not wake a document-wide query on every render.
+    // Once a calendar is enhanced, ordinary React cell / hover / toast churn
+    // must never trigger another document-wide scan.
     if (targetCard && targetCard.dataset.rateCalendarV2 !== "true") return true;
 
     for (const node of record.addedNodes) {
@@ -328,12 +376,13 @@ function mutationNeedsEnhancement(records: MutationRecord[]): boolean {
 
 export function RevenueCalendarExperience() {
   useEffect(() => {
-    const cleanups = new Map<HTMLElement, () => void>();
+    const gestureCleanups = new Map<HTMLElement, () => void>();
+    const scrollCleanups = new Map<HTMLElement, () => void>();
     const railObservers = new Map<HTMLElement, ResizeObserver>();
     let raf: number | null = null;
 
     const attachGestureBridge = (pane: HTMLElement) => {
-      if (cleanups.has(pane)) return;
+      if (gestureCleanups.has(pane)) return;
 
       let state: GestureState | null = null;
       let lastVerticalGestureAt = 0;
@@ -347,10 +396,8 @@ export function RevenueCalendarExperience() {
           startY: touch.clientY,
           lastY: touch.clientY,
           axis: null,
-          // In portrait, a second fast swipe means "leave the calendar". In
-          // landscape the grid is shallow and users need repeated vertical
-          // swipes to reach room prices, so only a real top/bottom boundary
-          // hands the gesture back to the page.
+          // In portrait, a second fast vertical swipe means "leave the grid".
+          // Landscape is intentionally different because its grid is shallow.
           escapeToPage: !landscape && Date.now() - lastVerticalGestureAt < QUICK_SWIPE_MS,
         };
       };
@@ -376,9 +423,6 @@ export function RevenueCalendarExperience() {
         const wantsPageUp = fingerDelta < 0;
         const boundaryEscape = (atBottom && wantsPageDown) || (atTop && wantsPageUp);
 
-        // The calendar owns vertical movement while it still has room rows to
-        // reveal. At a real boundary (or a second quick portrait swipe), hand
-        // the movement to the page so the user never gets trapped.
         if (state.escapeToPage || boundaryEscape) {
           event.preventDefault();
           if (fingerDelta) window.scrollBy({ top: fingerDelta, left: 0, behavior: "auto" });
@@ -403,11 +447,41 @@ export function RevenueCalendarExperience() {
       pane.addEventListener("touchend", finishGesture, { passive: true });
       pane.addEventListener("touchcancel", finishGesture, { passive: true });
 
-      cleanups.set(pane, () => {
+      gestureCleanups.set(pane, () => {
         pane.removeEventListener("touchstart", onTouchStart);
         pane.removeEventListener("touchmove", onTouchMove);
         pane.removeEventListener("touchend", finishGesture);
         pane.removeEventListener("touchcancel", finishGesture);
+      });
+    };
+
+    const attachScrollState = (card: HTMLElement, pane: HTMLElement) => {
+      if (scrollCleanups.has(pane)) return;
+      let idleTimer: number | null = null;
+      let frame: number | null = null;
+
+      const settle = () => {
+        idleTimer = null;
+        card.dataset.rateCalendarScrolling = "false";
+      };
+
+      const onScroll = () => {
+        if (frame === null) {
+          frame = window.requestAnimationFrame(() => {
+            frame = null;
+            card.dataset.rateCalendarScrolling = "true";
+          });
+        }
+        if (idleTimer !== null) window.clearTimeout(idleTimer);
+        idleTimer = window.setTimeout(settle, SCROLL_IDLE_MS);
+      };
+
+      pane.addEventListener("scroll", onScroll, { passive: true });
+      scrollCleanups.set(pane, () => {
+        pane.removeEventListener("scroll", onScroll);
+        if (frame !== null) window.cancelAnimationFrame(frame);
+        if (idleTimer !== null) window.clearTimeout(idleTimer);
+        delete card.dataset.rateCalendarScrolling;
       });
     };
 
@@ -430,6 +504,7 @@ export function RevenueCalendarExperience() {
         pane.dataset.rateGridScroll = "true";
         markFrozenColumnMode(card, pane);
         attachGestureBridge(pane);
+        attachScrollState(card, pane);
         attachRailObserver(card, pane);
       });
     };
@@ -454,8 +529,10 @@ export function RevenueCalendarExperience() {
       window.removeEventListener("resize", scheduleEnhance);
       window.removeEventListener("orientationchange", scheduleEnhance);
       window.visualViewport?.removeEventListener("resize", scheduleEnhance);
-      cleanups.forEach((cleanup) => cleanup());
-      cleanups.clear();
+      gestureCleanups.forEach((cleanup) => cleanup());
+      gestureCleanups.clear();
+      scrollCleanups.forEach((cleanup) => cleanup());
+      scrollCleanups.clear();
       railObservers.forEach((resizeObserver) => resizeObserver.disconnect());
       railObservers.clear();
     };
