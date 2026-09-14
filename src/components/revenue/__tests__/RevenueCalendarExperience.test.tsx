@@ -79,6 +79,16 @@ describe("RevenueCalendarExperience", () => {
     expect(card.dataset.rateCalendarScrolling).toBe("true");
   });
 
+  it("clips scrolling header cells without clipping the frozen left-column ancestor", () => {
+    const { container } = render(<RevenueCalendarExperience />);
+    const css = container.querySelector("style[data-revenue-calendar-v2]")?.textContent ?? "";
+
+    expect(css).toContain(":not(.sticky.left-0)");
+
+    const dateRowRule = css.match(/\.sticky\.top-0 > div:nth-child\(2\) \{([^}]*)\}/)?.[1] ?? "";
+    expect(dateRowRule).not.toContain("overflow: hidden");
+  });
+
   it("hands a vertical boundary swipe to the page", async () => {
     const scrollBy = vi.spyOn(window, "scrollBy").mockImplementation(() => undefined);
     render(<RevenueCalendarExperience />);
