@@ -306,9 +306,30 @@ function markFrozenColumnMode(card: HTMLElement, pane: HTMLElement) {
   card.dataset.rateCalendarRail = Number.isFinite(inlineWidth) && inlineWidth <= 64 ? "true" : "false";
 }
 
+function mutationNeedsEnhancement(records: MutationRecord[]): boolean {
+  for (const record of records) {
+    const target = record.target instanceof Element ? record.target : null;
+    const targetCard = target?.closest<HTMLElement>(GRID_CARD) ?? null;
+
+    // While the calendar is mounting we need one more pass until its scroll
+    // pane exists. Once a card is enhanced, normal React cell/hover/toast DOM
+    // churn must not wake a document-wide query on every render.
+    if (targetCard && targetCard.dataset.rateCalendarV2 !== "true") return true;
+
+    for (const node of record.addedNodes) {
+      if (!(node instanceof Element)) continue;
+      if (node.matches(GRID_CARD) || node.querySelector(GRID_CARD)) return true;
+      const addedCard = node.closest<HTMLElement>(GRID_CARD);
+      if (addedCard && addedCard.dataset.rateCalendarV2 !== "true") return true;
+    }
+  }
+  return false;
+}
+
 export function RevenueCalendarExperience() {
   useEffect(() => {
     const cleanups = new Map<HTMLElement, () => void>();
+    const railObservers = new Map<HTMLElement, ResizeObserver>();
     let raf: number | null = null;
 
     const attachGestureBridge = (pane: HTMLElement) => {
@@ -390,17 +411,26 @@ export function RevenueCalendarExperience() {
       });
     };
 
+    const attachRailObserver = (card: HTMLElement, pane: HTMLElement) => {
+      const firstSticky = pane.querySelector<HTMLElement>(".sticky.left-0");
+      if (!firstSticky || railObservers.has(firstSticky)) return;
+      const observer = new ResizeObserver(() => markFrozenColumnMode(card, pane));
+      observer.observe(firstSticky);
+      railObservers.set(firstSticky, observer);
+    };
+
     const enhance = () => {
       raf = null;
       const mode = deviceMode();
       document.querySelectorAll<HTMLElement>(GRID_CARD).forEach((card) => {
-        card.dataset.rateCalendarV2 = "true";
-        card.dataset.rateCalendarDevice = mode;
         const pane = findScrollPane(card);
         if (!pane) return;
+        card.dataset.rateCalendarV2 = "true";
+        card.dataset.rateCalendarDevice = mode;
         pane.dataset.rateGridScroll = "true";
         markFrozenColumnMode(card, pane);
         attachGestureBridge(pane);
+        attachRailObserver(card, pane);
       });
     };
 
@@ -409,7 +439,9 @@ export function RevenueCalendarExperience() {
       raf = window.requestAnimationFrame(enhance);
     };
 
-    const observer = new MutationObserver(scheduleEnhance);
+    const observer = new MutationObserver((records) => {
+      if (mutationNeedsEnhancement(records)) scheduleEnhance();
+    });
     observer.observe(document.body, { childList: true, subtree: true });
     window.addEventListener("resize", scheduleEnhance, { passive: true });
     window.addEventListener("orientationchange", scheduleEnhance, { passive: true });
@@ -424,6 +456,8 @@ export function RevenueCalendarExperience() {
       window.visualViewport?.removeEventListener("resize", scheduleEnhance);
       cleanups.forEach((cleanup) => cleanup());
       cleanups.clear();
+      railObservers.forEach((resizeObserver) => resizeObserver.disconnect());
+      railObservers.clear();
     };
   }, []);
 
