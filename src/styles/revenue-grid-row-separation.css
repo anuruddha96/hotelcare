@@ -1,0 +1,64 @@
+/*
+ * Rate & Pickup calendar row-separation invariant.
+ *
+ * RevenueCalendarExperience intentionally compacts the sticky summary header,
+ * while RateStrategyGrid keeps the date buttons on zoom-aware inline heights.
+ * When the wrapper was forced shorter than those buttons, the bottom of the
+ * date cells painted into the Pickup row (most visible on mobile, but possible
+ * on desktop zoom levels too). Keep the wrapper content-sized so the date lane
+ * always ends before Pickup begins.
+ *
+ * These selectors are deliberately more specific than the progressive
+ * enhancement style injected at runtime, so the invariant holds regardless of
+ * stylesheet insertion order. This is presentation-only: no rates, pickup
+ * calculations, inventory, restrictions, or PMS writes are affected.
+ */
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(2) {
+  height: auto !important;
+  min-height: 38px !important;
+}
+
+/* The date button owns the zoom-aware height. Clip only inside its own lane as
+   a final paint guard; it must never render over the Pickup row. */
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(2) > button[data-date] {
+  overflow: hidden !important;
+}
+
+/* Pickup may contain a second line (last movement / rooms lost). Let content
+   determine the real row height instead of forcing it into the compact signal
+   height used for one-line metrics. */
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(3) {
+  height: auto !important;
+  min-height: 30px !important;
+}
+
+@media (max-width: 767px) {
+  [data-training="revenue-grid"][data-rate-calendar-v2="true"]
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(2) {
+    height: auto !important;
+    min-height: 34px !important;
+  }
+
+  [data-training="revenue-grid"][data-rate-calendar-v2="true"]
+    [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(3) {
+    height: auto !important;
+    min-height: 30px !important;
+  }
+}
+
+/* Landscape phones deliberately stay denser, but the two lanes must still be
+   independent. The date buttons continue to decide their zoom-aware height. */
+[data-rate-calendar-device="mobile-landscape"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(2) {
+  height: auto !important;
+  min-height: 30px !important;
+}
+
+[data-rate-calendar-device="mobile-landscape"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(3) {
+  height: auto !important;
+  min-height: 24px !important;
+}
