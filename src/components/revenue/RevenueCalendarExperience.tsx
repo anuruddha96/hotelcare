@@ -74,9 +74,10 @@ const calendarCss = String.raw`
     animation-play-state: paused !important;
   }
 
-  /* Keep the sticky decision header deterministic. Pickup/event text is not
-     allowed to grow over the date row: detailed values remain available from
-     the existing tooltips / demand detail UI. */
+  /* Keep the sticky decision header deterministic. The row wrappers must stay
+     overflow-visible: making a wrapper overflow:hidden creates a new sticky
+     containing block in Chrome and causes the frozen left labels to travel with
+     the dates. We clip only the scrolling date/event cells below. */
   [data-rate-grid-scroll="true"] > div > .sticky.top-0 {
     background: hsl(var(--card));
   }
@@ -84,7 +85,6 @@ const calendarCss = String.raw`
   [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:first-child {
     height: 18px !important;
     min-height: 18px !important;
-    overflow: hidden !important;
   }
 
   [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(2) {
@@ -92,7 +92,6 @@ const calendarCss = String.raw`
     z-index: 3;
     height: 38px !important;
     min-height: 38px !important;
-    overflow: hidden !important;
     background: hsl(var(--card));
   }
 
@@ -103,16 +102,28 @@ const calendarCss = String.raw`
   [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(7) {
     height: 24px !important;
     min-height: 24px !important;
+  }
+
+  /* Never clip the frozen left column's ancestor. Clip only the horizontal
+     content cells, otherwise CSS sticky left:0 stops working in Chrome. */
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:first-child > :not(.sticky.left-0),
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(2) > :not(.sticky.left-0),
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(3) > :not(.sticky.left-0),
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(4) > :not(.sticky.left-0),
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(5) > :not(.sticky.left-0),
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(6) > :not(.sticky.left-0),
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(7) > :not(.sticky.left-0),
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(8) > :not(.sticky.left-0) {
+    min-width: 0 !important;
     overflow: hidden !important;
   }
 
-  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(3) > div,
-  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(4) > div,
-  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(5) > div,
-  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(6) > div,
-  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(7) > div {
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(3) > div:not(.sticky.left-0),
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(4) > div:not(.sticky.left-0),
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(5) > div:not(.sticky.left-0),
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(6) > div:not(.sticky.left-0),
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(7) > div:not(.sticky.left-0) {
     min-height: 0 !important;
-    overflow: hidden !important;
     line-height: 1 !important;
   }
 
@@ -121,7 +132,6 @@ const calendarCss = String.raw`
      off screen. Demand details are still available by opening the date. */
   [data-rate-grid-scroll="true"] > div > .sticky.top-0 > div:nth-child(8) {
     max-height: 30px !important;
-    overflow: hidden !important;
   }
 
   @media (min-width: 768px) {
