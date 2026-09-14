@@ -1,11 +1,13 @@
 // Honest, always-visible status for automatic pricing.
 //
-// Shadow mode looks identical to "broken" from the outside: runs happen, no
-// price moves, nothing is sent. This line says so in plain language, shows
-// when the last run happened and which safety checks are still outstanding.
+// Shadow mode is a valid monitoring state and must not be presented as a
+// production failure. Only an explicit evaluation error / failed status should
+// trigger the red attention state. This is especially important when a newer
+// revenue supervisor is publishing prices while this pickup rule remains in
+// shadow mode.
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Zap, PauseCircle, AlertTriangle } from "lucide-react";
+import { Eye, Zap, PauseCircle, AlertTriangle } from "lucide-react";
 
 interface RuleRow {
   is_enabled: boolean | null;
@@ -23,6 +25,13 @@ function when(v: string | null | undefined) {
   if (!v) return null;
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : d.toLocaleString();
+}
+
+function evaluationNeedsAttention(rule: RuleRow) {
+  if (rule.last_evaluation_error?.trim()) return true;
+
+  const status = (rule.last_evaluation_status ?? "").trim().toLowerCase();
+  return status.includes("error") || status.includes("fail") || status.includes("blocked");
 }
 
 export function AutomationStatusLine({ hotelId }: { hotelId: string | null }) {
@@ -48,19 +57,24 @@ export function AutomationStatusLine({ hotelId }: { hotelId: string | null }) {
 
   const live = rule.mode === "live" && rule.auto_publish === true;
   const disabled = rule.is_enabled === false;
-  const needsAttention = !disabled && !live;
-  const Icon = disabled ? PauseCircle : live ? Zap : AlertTriangle;
+  const needsAttention = !disabled && evaluationNeedsAttention(rule);
+  const shadow = !disabled && !live && !needsAttention;
+  const Icon = disabled ? PauseCircle : needsAttention ? AlertTriangle : live ? Zap : Eye;
   const tone = disabled
     ? "text-muted-foreground"
-    : live
-      ? "text-emerald-600 dark:text-emerald-400"
-      : "text-destructive";
+    : needsAttention
+      ? "text-destructive"
+      : live
+        ? "text-emerald-600 dark:text-emerald-400"
+        : "text-muted-foreground";
 
   const headline = disabled
-    ? "Automatic pricing is switched off for this property."
-    : live
-      ? "Automatic pricing is live — price changes are sent to Previo."
-       : "Automatic pricing needs attention — open Pricing activity for details.";
+    ? "Pickup automation rule is switched off for this property."
+    : needsAttention
+      ? "Automatic pricing needs attention — open Pricing activity for details."
+      : live
+        ? "Automatic pricing is live — price changes are sent to Previo."
+        : "Pickup automation is monitoring in shadow mode — no pricing error detected.";
 
   const lastRun = when(rule.last_run_at ?? rule.last_evaluated_at);
   const nextRun = when(rule.next_run_at);
@@ -75,11 +89,13 @@ export function AutomationStatusLine({ hotelId }: { hotelId: string | null }) {
           {nextRun ? ` · next run ${nextRun}` : ""}
           {rule.last_evaluation_status ? ` · ${rule.last_evaluation_status.replace(/_/g, " ")}` : ""}
         </div>
-        {live && rule.last_evaluation_error && (
-          <div className="text-destructive">Last run reported: {rule.last_evaluation_error}</div>
-        )}
         {needsAttention && rule.last_evaluation_error && (
           <div className="text-destructive">{rule.last_evaluation_error}</div>
+        )}
+        {shadow && (
+          <div className="text-muted-foreground">
+            This pickup rule is observing only; it is not reporting a failure.
+          </div>
         )}
       </div>
     </div>
