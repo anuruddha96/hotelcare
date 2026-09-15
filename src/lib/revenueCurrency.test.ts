@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { convert, setRevenueCurrency, toBaseCurrency } from "./revenueCurrency";
+import { convert, getRevenueCurrency, setRevenueCurrency, toBaseCurrency } from "./revenueCurrency";
 
 afterEach(() => {
   setRevenueCurrency({ code: "EUR", eurRate: 1, displayCode: "EUR" });
@@ -26,5 +26,14 @@ describe("editable revenue currency conversion", () => {
     // setRevenueCurrency falls back to HUF when EUR cannot be trusted.
     expect(convert(40_000)).toBe(40_000);
     expect(toBaseCurrency(40_000)).toBe(40_000);
+  });
+
+  it("keeps the selected display currency when only the exchange rate changes", () => {
+    setRevenueCurrency({ code: "HUF", eurRate: 400, displayCode: "EUR" });
+
+    setRevenueCurrency({ code: "HUF", eurRate: 395, eurRateSource: "manual" });
+
+    expect(getRevenueCurrency().displayCode).toBe("EUR");
+    expect(convert(39_500)).toBe(100);
   });
 });
