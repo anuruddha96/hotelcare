@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -71,6 +71,14 @@ interface Ticket {
   created_at: string;
 }
 
+interface RoomNoteHistoryEntry {
+  id: string;
+  content: string;
+  created_at: string;
+  created_by: string;
+  created_by_name: string;
+}
+
 interface RoomDetailDialogProps {
   room: Room | null;
   open: boolean;
@@ -94,7 +102,10 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   const { t } = useTranslation();
   const { profile } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [notesSaving, setNotesSaving] = useState(false);
+  const [notesSaveState, setNotesSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [noteHistory, setNoteHistory] = useState<RoomNoteHistoryEntry[]>([]);
+  const notesSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedNotesRef = useRef('');
   const [minibarItems, setMinibarItems] = useState<MinibarItem[]>([]);
   const [minibarUsage, setMinibarUsage] = useState<MinibarUsage[]>([]);
   const [minibarCategory, setMinibarCategory] = useState<string | null>(null);
@@ -107,18 +118,45 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   const [guestReportedItems, setGuestReportedItems] = useState<Set<string>>(new Set());
   const [perishableAlerts, setPerishableAlerts] = useState<any[]>([]);
 
+  const fetchRoomNoteHistory = useCallback(async (roomId: string) => {
+    try {
+      const { data, error } = await (supabase as any).rpc('get_room_note_history', {
+        p_room_id: roomId,
+        p_limit: 5,
+      });
+      if (error) throw error;
+      setNoteHistory((data || []) as RoomNoteHistoryEntry[]);
+    } catch (error) {
+      console.error('Error fetching room note history:', error);
+      setNoteHistory([]);
+    }
+  }, []);
+
   useEffect(() => {
     if (open && room) {
-      setRoomNotes(room.notes || '');
+      const initialNotes = room.notes || '';
+      setRoomNotes(initialNotes);
+      lastSavedNotesRef.current = initialNotes;
+      setNotesSaveState('idle');
       setRoomSize(room.room_size_sqm?.toString() || '');
       setRoomCapacity(room.room_capacity?.toString() || '');
+      fetchRoomNoteHistory(room.id);
       fetchMinibarItems();
       fetchMinibarUsage();
       fetchRecentTickets();
       fetchGuestReportedItems();
       fetchPerishableAlerts();
     }
-  }, [open, room]);
+  }, [open, room, fetchRoomNoteHistory]);
+
+  useEffect(() => {
+    return () => {
+      if (notesSaveTimerRef.current) {
+        clearTimeout(notesSaveTimerRef.current);
+        notesSaveTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const fetchGuestReportedItems = async () => {
     if (!room) return;
@@ -134,7 +172,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
         .eq('is_cleared', false)
         .gte('usage_date', startDate)
         .lte('usage_date', endDate);
-      setGuestReportedItems(new Set((data || []).map(d => d.minibar_item_id)));
+      setGuestReportedItems(new Set((data || []).map(d => d.minibar_item_id));
     } catch (error) {
       console.error('Error fetching guest reported items:', error);
     }
@@ -286,38 +324,69 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
     }
   };
 
-  const handleSaveNotes = async () => {
-    if (!room) return;
+  const handleSaveNotes = useCallback(async (nextNotes: string, showErrorToast = false) => {
+    if (!room) return false;
 
-    setNotesSaving(true);
+    setNotesSaveState('saving');
     try {
-      const normalizedNotes = roomNotes.trim();
-      const { data: updatedRoom, error } = await supabase
-        .from('rooms')
-        .update({ notes: normalizedNotes || null })
-        .eq('id', room.id)
-        .select('id, notes')
-        .maybeSingle();
-
+      const { data, error } = await (supabase as any).rpc('save_room_note', {
+        p_room_id: room.id,
+        p_notes: nextNotes,
+      });
       if (error) throw error;
-      if (!updatedRoom) {
-        throw new Error('Room notes were not saved. Please refresh and verify your hotel access.');
+
+      const savedRow = Array.isArray(data) ? data[0] : data;
+      if (!savedRow?.room_id) {
+        throw new Error('Room note update was not applied');
       }
 
-      setRoomNotes(updatedRoom.notes || '');
-      toast({
-        title: 'Notes saved',
-        description: `Room ${room.room_number} notes were saved successfully.`,
-      });
+      const persistedNotes = savedRow.notes || '';
+      lastSavedNotesRef.current = persistedNotes;
+      setRoomNotes(persistedNotes);
+      setNotesSaveState('saved');
+      await fetchRoomNoteHistory(room.id);
       onRoomUpdated?.();
+      return true;
     } catch (error: any) {
-      toast({
-        title: 'Could not save notes',
-        description: error.message,
-        variant: 'destructive',
-      });
-    } finally {
-      setNotesSaving(false);
+      console.error('Could not autosave room notes:', error);
+      setNotesSaveState('error');
+      if (showErrorToast) {
+        toast({
+          title: 'Could not save notes',
+          description: error.message,
+          variant: 'destructive',
+        });
+      }
+      return false;
+    }
+  }, [room, fetchRoomNoteHistory, onRoomUpdated]);
+
+  const scheduleNotesAutosave = (nextNotes: string) => {
+    setRoomNotes(nextNotes);
+    if (notesSaveTimerRef.current) {
+      clearTimeout(notesSaveTimerRef.current);
+      notesSaveTimerRef.current = null;
+    }
+
+    if (nextNotes === lastSavedNotesRef.current) {
+      setNotesSaveState('saved');
+      return;
+    }
+
+    setNotesSaveState('idle');
+    notesSaveTimerRef.current = setTimeout(() => {
+      notesSaveTimerRef.current = null;
+      void handleSaveNotes(nextNotes);
+    }, 700);
+  };
+
+  const flushNotesAutosave = () => {
+    if (notesSaveTimerRef.current) {
+      clearTimeout(notesSaveTimerRef.current);
+      notesSaveTimerRef.current = null;
+    }
+    if (roomNotes !== lastSavedNotesRef.current) {
+      void handleSaveNotes(roomNotes, true);
     }
   };
 
@@ -593,23 +662,51 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                 )}
 
                 <div>
-                  <label className="text-sm font-medium">Notes</label>
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="text-sm font-medium">Notes</label>
+                    <span className={`text-xs ${
+                      notesSaveState === 'error'
+                        ? 'text-destructive'
+                        : notesSaveState === 'saved'
+                          ? 'text-emerald-600'
+                          : 'text-muted-foreground'
+                    }`}>
+                      {notesSaveState === 'saving'
+                        ? 'Saving automatically…'
+                        : notesSaveState === 'saved'
+                          ? 'Saved automatically'
+                          : notesSaveState === 'error'
+                            ? 'Autosave failed — tap outside to retry'
+                            : 'Autosaves while you type'}
+                    </span>
+                  </div>
                   <Textarea
                     value={roomNotes}
-                    onChange={(e) => setRoomNotes(e.target.value)}
+                    onChange={(e) => scheduleNotesAutosave(e.target.value)}
+                    onBlur={flushNotesAutosave}
                     placeholder="Add room notes..."
                     className="mt-1"
                     rows={2}
                   />
-                  <div className="mt-2 flex justify-end">
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={handleSaveNotes}
-                      disabled={notesSaving || loading}
-                    >
-                      {notesSaving ? 'Saving…' : 'Save Notes'}
-                    </Button>
+
+                  <div className="mt-3 rounded-lg border bg-muted/20 p-3">
+                    <div className="text-xs font-semibold text-muted-foreground mb-2">Last 5 note changes</div>
+                    {noteHistory.length > 0 ? (
+                      <div className="space-y-2">
+                        {noteHistory.map((entry) => (
+                          <div key={entry.id} className="rounded-md bg-background border px-3 py-2">
+                            <div className="text-sm whitespace-pre-wrap break-words">{entry.content}</div>
+                            <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
+                              <span>{entry.created_by_name || 'Unknown user'}</span>
+                              <span>•</span>
+                              <span>{new Date(entry.created_at).toLocaleString()}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-muted-foreground">No previous room notes yet.</div>
+                    )}
                   </div>
                 </div>
 
