@@ -6,16 +6,15 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { useTranslation } from '@/hooks/useTranslation';
-import { 
-  CheckCircle2, 
-  AlertTriangle, 
-  Wrench, 
-  XCircle, 
-  Hotel, 
+import {
+  CheckCircle2,
+  AlertTriangle,
+  Wrench,
+  XCircle,
+  Hotel,
   Wine,
   Plus,
   Minus,
@@ -84,17 +83,7 @@ interface RoomDetailDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onRoomUpdated?: () => void;
-  /**
-   * When true, minibar items added/updated through this dialog are flagged as
-   * "late additions" — added by housekeepers AFTER the cleaning was completed.
-   * Supervisors will be required to review and approve these.
-   */
   lateAddition?: boolean;
-  /**
-   * When true, the room cleaning has already been supervisor-approved. Late items
-   * added in this state are flagged as `pending_supervisor_review` so the
-   * supervisor can approve only the new minibar item without re-opening the room.
-   */
   alreadyApproved?: boolean;
 }
 
@@ -106,17 +95,16 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   const [noteHistory, setNoteHistory] = useState<RoomNoteHistoryEntry[]>([]);
   const notesSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedNotesRef = useRef('');
+  const latestNotesRef = useRef('');
   const [minibarItems, setMinibarItems] = useState<MinibarItem[]>([]);
   const [minibarUsage, setMinibarUsage] = useState<MinibarUsage[]>([]);
   const [minibarCategory, setMinibarCategory] = useState<string | null>(null);
   const [recentTickets, setRecentTickets] = useState<Ticket[]>([]);
-  const [tempUsage, setTempUsage] = useState<{ [key: string]: number }>({});
   const [roomNotes, setRoomNotes] = useState('');
   const [roomSize, setRoomSize] = useState<string>('');
   const [roomCapacity, setRoomCapacity] = useState<string>('');
   const [dndPhotosOpen, setDndPhotosOpen] = useState(false);
   const [guestReportedItems, setGuestReportedItems] = useState<Set<string>>(new Set());
-  const [perishableAlerts, setPerishableAlerts] = useState<any[]>([]);
 
   const fetchRoomNoteHistory = useCallback(async (roomId: string) => {
     try {
@@ -136,6 +124,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
     if (open && room) {
       const initialNotes = room.notes || '';
       setRoomNotes(initialNotes);
+      latestNotesRef.current = initialNotes;
       lastSavedNotesRef.current = initialNotes;
       setNotesSaveState('idle');
       setRoomSize(room.room_size_sqm?.toString() || '');
@@ -145,7 +134,6 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
       fetchMinibarUsage();
       fetchRecentTickets();
       fetchGuestReportedItems();
-      fetchPerishableAlerts();
     }
   }, [open, room, fetchRoomNoteHistory]);
 
@@ -175,49 +163,6 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
       setGuestReportedItems(new Set((data || []).map(d => d.minibar_item_id)));
     } catch (error) {
       console.error('Error fetching guest reported items:', error);
-    }
-  };
-
-  const fetchPerishableAlerts = async () => {
-    if (!room) return;
-    try {
-      const { data } = await (supabase
-        .from('minibar_placements' as any)
-        .select('*, minibar_items:minibar_item_id(name)')
-        .eq('room_id', room.id)
-        .eq('status', 'active')
-        .order('expires_at', { ascending: true }) as any);
-
-      if (data) {
-        const today = new Date();
-        const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-        const alerts = (data as any[]).filter(p => {
-          const expires = new Date(p.expires_at);
-          return expires <= new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
-        });
-        setPerishableAlerts(alerts);
-      }
-    } catch (error) {
-      console.error('Error fetching perishable alerts:', error);
-    }
-  };
-
-  const handleCollectPerishable = async (placementId: string) => {
-    try {
-      const { error } = await (supabase
-        .from('minibar_placements' as any)
-        .update({
-          status: 'collected',
-          collected_by: profile?.id,
-          collected_at: new Date().toISOString(),
-        } as any)
-        .eq('id', placementId) as any);
-
-      if (error) throw error;
-      toast({ title: 'Collected', description: 'Perishable item marked as collected' });
-      fetchPerishableAlerts();
-    } catch (error: any) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
     }
   };
 
@@ -307,17 +252,17 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
       }
 
       toast({
-        title: "Success",
-        description: "Room status updated successfully",
+        title: 'Success',
+        description: 'Room status updated successfully',
       });
 
       onRoomUpdated?.();
-      onOpenChange(false); // Close dialog automatically after successful update
+      onOpenChange(false);
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: 'Error',
         description: error.message,
-        variant: "destructive",
+        variant: 'destructive',
       });
     } finally {
       setLoading(false);
@@ -341,13 +286,17 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
       }
 
       lastSavedNotesRef.current = nextNotes;
-      setNotesSaveState('saved');
+      if (latestNotesRef.current === nextNotes) {
+        setNotesSaveState('saved');
+      }
       await fetchRoomNoteHistory(room.id);
       onRoomUpdated?.();
       return true;
     } catch (error: any) {
       console.error('Could not autosave room notes:', error);
-      setNotesSaveState('error');
+      if (latestNotesRef.current === nextNotes) {
+        setNotesSaveState('error');
+      }
       if (showErrorToast) {
         toast({
           title: 'Could not save notes',
@@ -360,6 +309,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   }, [room, fetchRoomNoteHistory, onRoomUpdated]);
 
   const scheduleNotesAutosave = (nextNotes: string) => {
+    latestNotesRef.current = nextNotes;
     setRoomNotes(nextNotes);
     if (notesSaveTimerRef.current) {
       clearTimeout(notesSaveTimerRef.current);
@@ -398,7 +348,6 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
 
     try {
       if (newQuantity === 0) {
-        // Remove usage record
         const existingUsage = minibarUsage.find(u => u.minibar_item_id === itemId);
         if (existingUsage) {
           const { error } = await supabase
@@ -409,7 +358,6 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
           if (error) throw error;
         }
       } else {
-        // Update or create usage record
         const existingUsage = minibarUsage.find(u => u.minibar_item_id === itemId);
 
         if (existingUsage) {
@@ -468,7 +416,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
       toast({
         title: t('common.error'),
         description: error.message,
-        variant: "destructive",
+        variant: 'destructive',
       });
     }
   };
@@ -479,7 +427,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
     try {
       const { error } = await supabase
         .from('room_minibar_usage')
-        .update({ 
+        .update({
           is_cleared: true,
           guest_checkout_date: new Date().toISOString()
         })
@@ -490,14 +438,14 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
 
       await fetchMinibarUsage();
       toast({
-        title: "Success",
-        description: "Minibar usage cleared for checkout",
+        title: 'Success',
+        description: 'Minibar usage cleared for checkout',
       });
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: 'Error',
         description: error.message,
-        variant: "destructive",
+        variant: 'destructive',
       });
     }
   };
@@ -528,9 +476,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   };
 
   const getTotalMinibarValue = (): number => {
-    return minibarUsage.reduce((total, usage) => {
-      return total + (usage.quantity_used * usage.minibar_items.price);
-    }, 0);
+    return minibarUsage.reduce((total, usage) => total + (usage.quantity_used * usage.minibar_items.price), 0);
   };
 
   const handleDeleteRoom = async () => {
@@ -552,17 +498,17 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
       if (error) throw error;
 
       toast({
-        title: "Success",
-        description: "Room deleted successfully",
+        title: 'Success',
+        description: 'Room deleted successfully',
       });
 
       onRoomUpdated?.();
       onOpenChange(false);
     } catch (error: any) {
       toast({
-        title: "Error",
+        title: 'Error',
         description: error.message,
-        variant: "destructive",
+        variant: 'destructive',
       });
     } finally {
       setLoading(false);
@@ -602,7 +548,6 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto space-y-4 sm:space-y-6 pr-2">
-          {/* Room Status Section - Hidden for housekeepers */}
           {profile?.role !== 'housekeeping' && (
             <Card>
               <CardHeader className="pb-3 sm:pb-4">
@@ -616,7 +561,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                   <Badge className={`${getStatusColor(room.status)} w-fit`}>
                     {t(`room.status.${room.status}` as any)}
                   </Badge>
-                  
+
                   <Select value={room.status} onValueChange={handleStatusChange}>
                     <SelectTrigger className="w-full sm:w-48">
                       <SelectValue />
@@ -630,7 +575,6 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                   </Select>
                 </div>
 
-                {/* Room Size & Capacity - Admin/Manager only */}
                 {hasManagerPowers(profile?.role) && (
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -715,7 +659,6 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                   </div>
                 )}
 
-                {/* DND Photos Button for Managers/Admins */}
                 {hasManagerPowers(profile?.role) && (
                   <div className="pt-2">
                     <Button
@@ -732,9 +675,6 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
             </Card>
           )}
 
-          {/* Perishable item alerts removed per product decision — collection now handled elsewhere. */}
-
-          {/* Minibar Section */}
           <Card>
             <CardHeader className="pb-3 sm:pb-4">
               <div className="flex items-center justify-between gap-2 w-full">
@@ -799,7 +739,6 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                 </div>
               )}
 
-              {/* Category filter chips */}
               {minibarItems.length > 0 && (() => {
                 const cats = Array.from(new Set(minibarItems.map(i => (i.category || 'other').toLowerCase())));
                 if (cats.length <= 1) return null;
@@ -838,68 +777,68 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
               })()}
 
               <div className="space-y-2 sm:space-y-3">
-              {minibarItems
-                .filter(item => !minibarCategory || (item.category || 'other').toLowerCase() === minibarCategory)
-                .map((item) => {
-                  const currentUsage = getCurrentUsage(item.id);
-                  const isGuestReported = guestReportedItems.has(item.id);
-                  return (
-                    <div key={item.id} className={`flex flex-col gap-3 p-3 border rounded-xl transition-colors sm:flex-row sm:items-center sm:justify-between ${isGuestReported ? 'bg-amber-50 border-amber-200' : currentUsage > 0 ? 'bg-primary/5 border-primary/30' : 'bg-card hover:bg-muted/20'}`}>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm sm:text-base">{item.name}</span>
-                          {isGuestReported && (
-                            <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] gap-1">
-                              <User className="h-3 w-3" /> {t('minibar.guestReported')}
-                            </Badge>
-                          )}
+                {minibarItems
+                  .filter(item => !minibarCategory || (item.category || 'other').toLowerCase() === minibarCategory)
+                  .map((item) => {
+                    const currentUsage = getCurrentUsage(item.id);
+                    const isGuestReported = guestReportedItems.has(item.id);
+                    return (
+                      <div key={item.id} className={`flex flex-col gap-3 p-3 border rounded-xl transition-colors sm:flex-row sm:items-center sm:justify-between ${isGuestReported ? 'bg-amber-50 border-amber-200' : currentUsage > 0 ? 'bg-primary/5 border-primary/30' : 'bg-card hover:bg-muted/20'}`}>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm sm:text-base">{item.name}</span>
+                            {isGuestReported && (
+                              <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] gap-1">
+                                <User className="h-3 w-3" /> {t('minibar.guestReported')}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="text-xs sm:text-sm text-muted-foreground flex flex-wrap items-center gap-2">
+                            <span className="capitalize">{item.category}</span>
+                            <span className="hidden sm:inline">•</span>
+                            <span className="flex items-center gap-1 font-medium text-primary">
+                              <Euro className="h-3 w-3" />
+                              {item.price.toFixed(2)}
+                            </span>
+                          </div>
                         </div>
-                        <div className="text-xs sm:text-sm text-muted-foreground flex flex-wrap items-center gap-2">
-                          <span className="capitalize">{item.category}</span>
-                          <span className="hidden sm:inline">•</span>
-                          <span className="flex items-center gap-1 font-medium text-primary">
-                            <Euro className="h-3 w-3" />
-                            {item.price.toFixed(2)}
-                          </span>
-                        </div>
+
+                        {isGuestReported ? (
+                          <div className="flex items-center gap-2 justify-center text-amber-700 text-xs font-medium">
+                            <CheckCircle2 className="h-4 w-4" />
+                            {t('minibar.alreadyRecordedByGuest')}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 justify-center">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => updateMinibarUsage(item.id, -1)}
+                              disabled={currentUsage === 0}
+                              className="h-11 w-11 p-0 rounded-full"
+                              aria-label="Decrease"
+                            >
+                              <Minus className="h-5 w-5" />
+                            </Button>
+
+                            <span className="w-10 text-center font-semibold text-lg tabular-nums">
+                              {currentUsage}
+                            </span>
+
+                            <Button
+                              variant={currentUsage > 0 ? 'default' : 'outline'}
+                              size="sm"
+                              onClick={() => updateMinibarUsage(item.id, 1)}
+                              className="h-11 w-11 p-0 rounded-full"
+                              aria-label="Increase"
+                            >
+                              <Plus className="h-5 w-5" />
+                            </Button>
+                          </div>
+                        )}
                       </div>
-
-                      {isGuestReported ? (
-                        <div className="flex items-center gap-2 justify-center text-amber-700 text-xs font-medium">
-                          <CheckCircle2 className="h-4 w-4" />
-                          {t('minibar.alreadyRecordedByGuest')}
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2 justify-center">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => updateMinibarUsage(item.id, -1)}
-                            disabled={currentUsage === 0}
-                            className="h-11 w-11 p-0 rounded-full"
-                            aria-label="Decrease"
-                          >
-                            <Minus className="h-5 w-5" />
-                          </Button>
-
-                          <span className="w-10 text-center font-semibold text-lg tabular-nums">
-                            {currentUsage}
-                          </span>
-
-                          <Button
-                            variant={currentUsage > 0 ? 'default' : 'outline'}
-                            size="sm"
-                            onClick={() => updateMinibarUsage(item.id, 1)}
-                            className="h-11 w-11 p-0 rounded-full"
-                            aria-label="Increase"
-                          >
-                            <Plus className="h-5 w-5" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                    );
+                  })}
 
                 {minibarItems.length === 0 && (
                   <div className="text-center py-8">
@@ -911,8 +850,6 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
             </CardContent>
           </Card>
 
-
-          {/* Recent Tickets Section */}
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Recent Tickets</CardTitle>
@@ -931,7 +868,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                     </div>
                   </div>
                 ))}
-                
+
                 {recentTickets.length === 0 && (
                   <div className="text-center py-8">
                     <div className="mx-auto w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
@@ -946,7 +883,6 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
         </div>
       </DialogContent>
 
-      {/* DND Photos Viewer */}
       <DNDPhotosViewer
         open={dndPhotosOpen}
         onOpenChange={setDndPhotosOpen}
