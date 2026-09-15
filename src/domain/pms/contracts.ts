@@ -1,6 +1,7 @@
 import type { ReservationStatus } from "./reservations";
 
 export interface ReservationExternalRef {
+  organizationSlug: string;
   hotelId: string;
   sourceSystem: string;
   externalReservationId: string;
@@ -96,12 +97,18 @@ export interface ExternalReservationEvent {
   payload: unknown;
 }
 
+export type ExternalEventIdentity = Pick<
+  ExternalReservationEvent,
+  "organizationSlug" | "hotelId" | "provider" | "externalEventId"
+>;
+
 /**
  * Durable inbox boundary. A provider event must be recorded before it can be
- * applied to the canonical reservation ledger.
+ * applied to the canonical reservation ledger. Status updates require the full
+ * tenant/provider identity so one provider's event ID cannot affect another.
  */
 export interface ExternalEventInbox {
   receive(event: ExternalReservationEvent): Promise<"received" | "duplicate">;
-  markApplied(externalEventId: string): Promise<void>;
-  markFailed(externalEventId: string, error: string): Promise<void>;
+  markApplied(identity: ExternalEventIdentity): Promise<void>;
+  markFailed(identity: ExternalEventIdentity, error: string): Promise<void>;
 }
