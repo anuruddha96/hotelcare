@@ -106,7 +106,11 @@ async function writeMinStay(input: {
   }
 }
 
-type EventSignal = { impact: "high" | "medium" | "low" | null; title: string | null };
+type EventSignal = {
+  impact: "high" | "medium" | "low" | null;
+  title: string | null;
+  confidence: number | null;
+};
 type DecisionFacts = {
   stayDate: string;
   daysOut: number;
@@ -129,53 +133,117 @@ type PlannedChange = {
   pickup24h: number;
   eventTitle: string | null;
   eventImpact: string | null;
+  eventConfidence: number | null;
 };
 
+/**
+ * Event-aware minimum-stay policy.
+ *
+ * Normal dates keep the configured 1-2 night ceiling. Approved demand events
+ * are treated as demand protection, not just a label: medium/high events can
+ * stop a soft-month rule from blindly releasing a valuable future date to one
+ * night. A high-confidence high-impact event can reach three nights, but only
+ * when occupancy/pickup confirms real compression. Weak demand is still
+ * allowed to relax as arrival approaches so an event never becomes a permanent
+ * restriction merely because it exists on the calendar.
+ */
 function decideMinStay(f: DecisionFacts, maxNights: number): { target: number; reason: string } {
   const occ = f.occupancy ?? 0;
   const left = f.roomsLeft;
   const pickup = f.pickup24h;
   const dow = isoDow(f.stayDate);
   const weekend = dow === 5 || dow === 6;
-  const highEvent = f.event.impact === "high";
+  const confidence = f.event.confidence ?? 0;
+  const highEvent = f.event.impact === "high" && confidence >= 0.6;
+  const mediumEvent = f.event.impact === "medium" && confidence >= 0.6;
   const monthOcc = f.monthOcc ?? 0;
-  const two = Math.min(2, Math.max(1, maxNights));
+  const normalMax = Math.min(2, Math.max(1, maxNights));
+  const two = normalMax >= 2 ? 2 : 1;
+  // A deliberate one-night admin ceiling still wins. Otherwise exceptional,
+  // proven event compression may use three nights even though ordinary dates
+  // remain capped at two.
+  const eventMax = normalMax >= 2 ? 3 : 1;
 
   if (left !== null && left <= 0) return { target: f.current, reason: "sold_out_hold" };
 
-  // The final seven days are conversion-first without exceptions. A high event,
-  // strong pickup, 95% occupancy or one last room is not a reason to hide that
-  // room from one-night shoppers. If inventory remains, minLOS must be 1.
+  // Keep the final seven days conversion-first. If demand failed to materialize
+  // by this point, remaining inventory must be visible to one-night shoppers.
   if (f.daysOut <= 7) {
     return { target: 1, reason: "final_week_open_to_one_night" };
   }
 
-  // Soft future months must remain discoverable to one-night shoppers. This is
-  // intentionally stronger than a generic weekend restriction.
+  // Three nights is reserved for a genuinely special event *and* corroborating
+  // hotel demand. This avoids turning a broad city event (for example a long
+  // Christmas-market period) into a blanket three-night restriction.
+  const provenHighEventCompression = highEvent && confidence >= 0.8 && f.daysOut > 14 && (
+    (occ >= 80 && (left === null || left <= 6)) ||
+    (occ >= 70 && pickup >= 2 && (left === null || left <= 7))
+  );
+  if (provenHighEventCompression && eventMax >= 3) {
+    return { target: 3, reason: "high_event_proven_compression_3_nights" };
+  }
+
+  // The previous policy released *every* soft month to one night before event
+  // logic ran. Protect credible event dates first, then relax them later if the
+  // expected demand does not materialize.
   if (monthOcc > 0 && monthOcc < 45) {
+    if (highEvent && f.daysOut > 14 && two >= 2) {
+      return { target: 2, reason: "high_event_soft_month_protection" };
+    }
+    if (mediumEvent && f.daysOut > 45 && two >= 2) {
+      return { target: 2, reason: "medium_event_far_out_protection" };
+    }
+    if (mediumEvent && f.daysOut > 30 && two >= 2 && (occ >= 50 || pickup >= 1)) {
+      return { target: 2, reason: "medium_event_demand_protection" };
+    }
     return { target: 1, reason: `soft_month_${Math.round(monthOcc)}pct_release` };
   }
 
   if (f.daysOut <= 14) {
-    if (highEvent && occ >= 78 && left !== null && left <= 4) return { target: two, reason: "event_compression_8_14" };
-    if (weekend && occ >= 82 && left !== null && left <= 3 && pickup >= 1) return { target: two, reason: "weekend_compression_8_14" };
+    if (highEvent && occ >= 60 && left !== null && left <= 6 && two >= 2) {
+      return { target: 2, reason: "high_event_support_8_14" };
+    }
+    if (mediumEvent && occ >= 72 && pickup >= 1 && left !== null && left <= 5 && two >= 2) {
+      return { target: 2, reason: "medium_event_support_8_14" };
+    }
+    if (weekend && occ >= 82 && left !== null && left <= 3 && pickup >= 1 && two >= 2) {
+      return { target: 2, reason: "weekend_compression_8_14" };
+    }
     return { target: 1, reason: "open_demand_8_14" };
   }
 
   if (f.daysOut <= 30) {
-    if (highEvent && occ >= 70 && left !== null && left <= 6) return { target: two, reason: "event_compression_15_30" };
-    if (weekend && occ >= 75 && left !== null && left <= 5 && pickup >= 1) return { target: two, reason: "weekend_compression_15_30" };
+    if (highEvent && (occ >= 55 || pickup >= 2) && left !== null && left <= 8 && two >= 2) {
+      return { target: 2, reason: "high_event_support_15_30" };
+    }
+    if (mediumEvent && occ >= 68 && pickup >= 1 && left !== null && left <= 6 && two >= 2) {
+      return { target: 2, reason: "medium_event_support_15_30" };
+    }
+    if (weekend && occ >= 75 && left !== null && left <= 5 && pickup >= 1 && two >= 2) {
+      return { target: 2, reason: "weekend_compression_15_30" };
+    }
     return { target: 1, reason: "open_demand_15_30" };
   }
 
   if (f.daysOut <= 60) {
-    if (highEvent && occ >= 65 && left !== null && left <= 7) return { target: two, reason: "event_compression_31_60" };
-    if (weekend && occ >= 70 && left !== null && left <= 6 && monthOcc >= 50) return { target: two, reason: "weekend_compression_31_60" };
+    if (highEvent && (occ >= 45 || pickup >= 1) && two >= 2) {
+      return { target: 2, reason: "high_event_support_31_60" };
+    }
+    if (mediumEvent && (occ >= 60 || pickup >= 2) && two >= 2) {
+      return { target: 2, reason: "medium_event_support_31_60" };
+    }
+    if (weekend && occ >= 70 && left !== null && left <= 6 && monthOcc >= 50 && two >= 2) {
+      return { target: 2, reason: "weekend_compression_31_60" };
+    }
     return { target: 1, reason: "open_demand_31_60" };
   }
 
-  if (highEvent && occ >= 60 && left !== null && left <= 8) return { target: two, reason: "event_compression_61_90" };
-  if (weekend && occ >= 70 && monthOcc >= 55) return { target: two, reason: "weekend_compression_61_90" };
+  // Far out, credible events deserve a two-night demand floor. This is the
+  // branch that prevents the screenshot scenario: a December event date should
+  // not be cut from 2 nights to 1 merely because the whole month is still soft.
+  if (highEvent && two >= 2) return { target: 2, reason: "high_event_far_out_protection" };
+  if (mediumEvent && two >= 2) return { target: 2, reason: "medium_event_far_out_protection" };
+  if (weekend && occ >= 70 && monthOcc >= 55 && two >= 2) return { target: 2, reason: "weekend_compression_61_90" };
   return { target: 1, reason: "open_demand_61_90" };
 }
 
@@ -189,14 +257,18 @@ function reasonDetail(change: PlannedChange): string {
     const left = change.roomsLeft == null ? "inventory remains" : `${change.roomsLeft} room${change.roomsLeft === 1 ? "" : "s"} left`;
     return `${change.daysOut} day${change.daysOut === 1 ? "" : "s"} to arrival, ${left}. Opened to 1-night stays so the remaining inventory is visible to last-minute shoppers.`;
   }
-  if (change.reason.startsWith("event_compression")) {
-    return `${change.eventTitle ?? "High-impact event"} supports a ${change.target}-night minimum at current demand.`;
+  if (change.reason === "high_event_proven_compression_3_nights") {
+    return `${change.eventTitle ?? "High-impact event"} is high-confidence and current hotel demand confirms compression, so the minimum stay was increased to 3 nights.`;
+  }
+  if (change.reason.includes("event_")) {
+    const confidence = change.eventConfidence == null ? "" : ` (${Math.round(change.eventConfidence * 100)}% confidence)`;
+    return `${change.eventTitle ?? "Demand event"}${confidence} supports protecting this date at a ${change.target}-night minimum instead of releasing it only because the wider month is soft.`;
   }
   if (change.reason.startsWith("weekend_compression")) {
     return `Weekend demand supports a ${change.target}-night minimum at current occupancy and pickup.`;
   }
   if (change.reason.startsWith("soft_month_")) {
-    return "The stay month is still soft, so the date was opened to one-night shoppers.";
+    return "The stay month is soft and no credible event-demand protection applies, so the date was opened to one-night shoppers.";
   }
   return change.target === 1
     ? "Demand does not justify a stay-length restriction, so the date is open for one night."
@@ -306,15 +378,24 @@ Deno.serve(async (req: Request) => {
 
     const eventByDate = new Map<string, EventSignal>();
     for (const ev of (eventRes.data ?? []) as any[]) {
-      if (ev.approved === false || Number(ev.confidence ?? 1) < 0.6) continue;
+      const confidence = Number(ev.confidence ?? 1);
+      if (ev.approved === false || confidence < 0.6) continue;
       const from = String(ev.event_date ?? "");
       if (!from || from > horizonDate) continue;
       const to = String(ev.end_date ?? ev.event_date ?? from);
       for (let d = from; d <= to && d <= horizonDate; d = addDays(d, 1)) {
         if (d < today) continue;
-        const candidate: EventSignal = { impact: String(ev.expected_impact ?? "").toLowerCase() as EventSignal["impact"], title: ev.title ?? null };
+        const candidate: EventSignal = {
+          impact: String(ev.expected_impact ?? "").toLowerCase() as EventSignal["impact"],
+          title: ev.title ?? null,
+          confidence,
+        };
         const existing = eventByDate.get(d);
-        if (!existing || eventStrength(candidate.impact) > eventStrength(existing.impact)) eventByDate.set(d, candidate);
+        const stronger = !existing || eventStrength(candidate.impact) > eventStrength(existing.impact);
+        const sameImpactHigherConfidence = existing &&
+          eventStrength(candidate.impact) === eventStrength(existing.impact) &&
+          (candidate.confidence ?? 0) > (existing.confidence ?? 0);
+        if (stronger || sameImpactHigherConfidence) eventByDate.set(d, candidate);
       }
     }
 
@@ -351,7 +432,7 @@ Deno.serve(async (req: Request) => {
         stayDate: d, daysOut, current, occupancy, roomsLeft: left,
         pickup24h: pickupByDate.get(d)?.size ?? 0,
         monthOcc: monthOcc.get(monthKey(d)) ?? null,
-        event: eventByDate.get(d) ?? { impact: null, title: null },
+        event: eventByDate.get(d) ?? { impact: null, title: null, confidence: null },
       };
       const decision = decideMinStay(facts, maxNights);
       const changed = decision.target !== current;
@@ -372,7 +453,7 @@ Deno.serve(async (req: Request) => {
         changes.push({
           stayDate: d, current, target: decision.target, reason: decision.reason,
           daysOut, occupancyPct: occupancy, roomsLeft: left, pickup24h: facts.pickup24h,
-          eventTitle: facts.event.title, eventImpact: facts.event.impact,
+          eventTitle: facts.event.title, eventImpact: facts.event.impact, eventConfidence: facts.event.confidence,
         });
       }
     }
@@ -437,6 +518,7 @@ Deno.serve(async (req: Request) => {
       groups: groupResults,
       one_night_target_dates: decisions.filter((d) => d.target_min_stay === 1).length,
       two_night_target_dates: decisions.filter((d) => d.target_min_stay === 2).length,
+      three_night_target_dates: decisions.filter((d) => d.target_min_stay === 3).length,
     };
     await admin.from("revenue_min_stay_automation_runs").update({
       status: failed > 0 ? "completed_with_errors" : "completed",
@@ -464,6 +546,7 @@ Deno.serve(async (req: Request) => {
           pickup_24h: c.pickup24h,
           event_title: c.eventTitle,
           event_impact: c.eventImpact,
+          event_confidence: c.eventConfidence,
           min_stay_run_id: runId,
         }));
       const opened = notificationChanges.filter((c) => c.status === "applied" && c.new_min_stay === 1).length;
@@ -471,7 +554,7 @@ Deno.serve(async (req: Request) => {
       const parts = [
         applied > 0 ? `${applied} date${applied === 1 ? "" : "s"} updated in Previo` : null,
         opened > 0 ? `${opened} opened to 1 night` : null,
-        compressed > 0 ? `${compressed} set to 2 nights` : null,
+        compressed > 0 ? `${compressed} protected/tightened for demand` : null,
         failed > 0 ? `${failed} failed` : null,
       ].filter(Boolean);
       const { error: notificationError } = await admin.from("revenue_automation_notifications").insert({
