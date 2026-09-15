@@ -10,17 +10,47 @@ type AssignedRoom = {
   rooms: { room_number?: string | null } | null;
 };
 
+type GuestRequestNote = {
+  room_id: string;
+  content: string;
+};
+
+function hasRecoverableGuestItem(content: string): boolean {
+  try {
+    const payload = JSON.parse(content) as {
+      version?: number;
+      requestType?: string;
+      workDate?: string;
+      status?: string;
+      requiresReturn?: boolean;
+      events?: unknown[];
+    };
+
+    return payload.version === 1
+      && !!payload.requestType
+      && !!payload.workDate
+      && payload.status === 'delivered'
+      && payload.requiresReturn === true
+      && Array.isArray(payload.events);
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Desktop companion to the per-room mobile recovery notice. It appears beside
- * the workload filters and lists only rooms assigned to the signed-in cleaner
- * today, so returnable guest items cannot be missed on wider screens.
+ * Recovery inbox for the signed-in cleaner. Only assigned rooms that actually
+ * contain an unresolved, delivered guest item requiring return are displayed.
  */
 export function GuestItemRecoveryInbox() {
   const { user } = useAuth();
   const [rooms, setRooms] = useState<AssignedRoom[]>([]);
 
   const load = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      setRooms([]);
+      return;
+    }
+
     const today = getLocalDateString();
     const { data, error } = await supabase
       .from('room_assignments')
@@ -28,22 +58,57 @@ export function GuestItemRecoveryInbox() {
       .eq('assigned_to', user.id)
       .eq('assignment_date', today)
       .in('status', ['assigned', 'in_progress', 'dnd_pending_retry']);
+
     if (error) {
       console.warn('[GuestItemRecoveryInbox] assignments load failed', error);
+      setRooms([]);
       return;
     }
-    setRooms((data || []) as unknown as AssignedRoom[]);
+
+    const assignedRooms = (data || []) as unknown as AssignedRoom[];
+    const roomIds = [...new Set(assignedRooms.map((room) => room.room_id).filter(Boolean))];
+
+    if (!roomIds.length) {
+      setRooms([]);
+      return;
+    }
+
+    const { data: noteData, error: noteError } = await supabase
+      .from('housekeeping_notes')
+      .select('room_id,content')
+      .in('room_id', roomIds)
+      .eq('note_type', 'guest_request')
+      .eq('is_resolved', false);
+
+    if (noteError) {
+      console.warn('[GuestItemRecoveryInbox] guest item load failed', noteError);
+      setRooms([]);
+      return;
+    }
+
+    const recoverableRoomIds = new Set(
+      ((noteData || []) as GuestRequestNote[])
+        .filter((note) => hasRecoverableGuestItem(note.content))
+        .map((note) => note.room_id),
+    );
+
+    setRooms(assignedRooms.filter((room) => recoverableRoomIds.has(room.room_id)));
   }, [user?.id]);
 
   useEffect(() => {
     void load();
     if (!user?.id) return;
+
     const channel = supabase
       .channel(`guest-item-recovery-inbox-${user.id}`)
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'room_assignments', filter: `assigned_to=eq.${user.id}`,
       }, () => void load())
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'housekeeping_notes', filter: 'note_type=eq.guest_request',
+      }, () => void load())
       .subscribe();
+
     return () => { supabase.removeChannel(channel); };
   }, [load, user?.id]);
 
