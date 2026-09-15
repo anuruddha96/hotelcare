@@ -110,13 +110,15 @@ describe("canonical inventory", () => {
 });
 
 describe("external reservation identity", () => {
-  it("is deterministic and normalizes the provider name", () => {
+  it("is deterministic and normalizes organization/provider names", () => {
     const first = buildReservationIdempotencyKey({
+      organizationSlug: " RDHOTELS ",
       hotelId: "hotel-1",
       sourceSystem: " Previo ",
       externalReservationId: "ABC-123",
     });
     const second = buildReservationIdempotencyKey({
+      organizationSlug: "rdhotels",
       hotelId: "hotel-1",
       sourceSystem: "previo",
       externalReservationId: "ABC-123",
@@ -125,13 +127,32 @@ describe("external reservation identity", () => {
     expect(first).toBe(second);
   });
 
+  it("keeps otherwise-identical reservations separate across organizations", () => {
+    const first = buildReservationIdempotencyKey({
+      organizationSlug: "rdhotels",
+      hotelId: "hotel-1",
+      sourceSystem: "previo",
+      externalReservationId: "ABC-123",
+    });
+    const second = buildReservationIdempotencyKey({
+      organizationSlug: "other-org",
+      hotelId: "hotel-1",
+      sourceSystem: "previo",
+      externalReservationId: "ABC-123",
+    });
+
+    expect(first).not.toBe(second);
+  });
+
   it("escapes delimiters so different identities cannot collapse into the same key", () => {
     const first = buildReservationIdempotencyKey({
+      organizationSlug: "rdhotels",
       hotelId: "hotel:1",
       sourceSystem: "booking.com",
       externalReservationId: "A:B",
     });
     const second = buildReservationIdempotencyKey({
+      organizationSlug: "rdhotels",
       hotelId: "hotel",
       sourceSystem: "1:booking.com",
       externalReservationId: "A:B",
@@ -143,10 +164,13 @@ describe("external reservation identity", () => {
   it("requires all external identity fields", () => {
     expect(() =>
       buildReservationIdempotencyKey({
+        organizationSlug: "rdhotels",
         hotelId: "hotel-1",
         sourceSystem: "previo",
         externalReservationId: " ",
       }),
-    ).toThrow("hotelId, sourceSystem and externalReservationId are required");
+    ).toThrow(
+      "organizationSlug, hotelId, sourceSystem and externalReservationId are required",
+    );
   });
 });
