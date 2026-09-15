@@ -122,10 +122,26 @@ export default function Billing() {
 
   const toggle = (hotelId: string, module: BillingModule) => {
     const key = `${hotelId}|${module}`;
+    const pricing = summary ? resolvedPricingFor(summary, hotelId, module) : null;
+    const isOrganizationFixed = pricing?.source === 'organization' && pricing.pricing_mode === 'fixed_monthly';
+
     setSelected((current) => {
-      const next = { ...current, [key]: !current[key] };
-      if (next[key] && module === 'revenue_bi') next[`${hotelId}|revenue_automation`] = false;
-      if (next[key] && module === 'revenue_automation') next[`${hotelId}|revenue_bi`] = false;
+      const next = { ...current };
+      const turningOn = !current[key];
+      const targetHotels = isOrganizationFixed && summary
+        ? summary.hotels.filter((hotel) => {
+            const candidate = resolvedPricingFor(summary, hotel.hotel_id, module);
+            return candidate.source === 'organization'
+              && candidate.pricing_mode === 'fixed_monthly'
+              && candidate.price_cents === pricing?.price_cents;
+          })
+        : summary?.hotels.filter((hotel) => hotel.hotel_id === hotelId) ?? [];
+
+      for (const hotel of targetHotels) {
+        next[`${hotel.hotel_id}|${module}`] = turningOn;
+        if (turningOn && module === 'revenue_bi') next[`${hotel.hotel_id}|revenue_automation`] = false;
+        if (turningOn && module === 'revenue_automation') next[`${hotel.hotel_id}|revenue_bi`] = false;
+      }
       return next;
     });
   };
@@ -144,13 +160,20 @@ export default function Billing() {
           : pricing.pricing_mode === 'fixed_monthly'
             ? pricing.price_cents
             : rooms * pricing.price_cents;
-        return { key, hotelId, module, hotel, pricing, rooms, total };
+        const organizationFixed = pricing.source === 'organization' && pricing.pricing_mode === 'fixed_monthly';
+        const billingKey = organizationFixed ? `organization|${module}` : key;
+        return { key, billingKey, organizationFixed, hotelId, module, hotel, pricing, rooms, total };
       })
       .filter((line) => line.pricing.pricing_mode !== 'custom');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, summary]);
 
-  const netTotal = lines.reduce((sum, line) => sum + line.total, 0);
+  const billingTotals = new Map<string, number>();
+  for (const line of lines) {
+    if (!billingTotals.has(line.billingKey)) billingTotals.set(line.billingKey, line.total);
+  }
+  const netTotal = Array.from(billingTotals.values()).reduce((sum, total) => sum + total, 0);
+  const chargeCount = billingTotals.size;
   const vatTotal = vatCents(summary, netTotal);
   const grossTotal = netTotal + vatTotal;
   const trialActive = trialIsRunning(summary);
@@ -224,7 +247,7 @@ export default function Billing() {
           <Button variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="mr-1 h-4 w-4" /> Back</Button>
           <div>
             <h1 className="flex items-center gap-2 text-2xl font-bold"><CreditCard className="h-6 w-6" /> Payments</h1>
-            <p className="text-sm text-muted-foreground">Choose modules per property. Your negotiated fixed, per-room or revenue-share pricing is applied automatically; {vatPercent}% VAT is added on top.</p>
+            <p className="text-sm text-muted-foreground">Choose modules per property. Organization fixed agreements are charged once across all covered properties; {vatPercent}% VAT is added on top.</p>
           </div>
         </div>
 
@@ -265,7 +288,9 @@ export default function Billing() {
               <div className="grid gap-4 md:grid-cols-2">
                 {summary?.hotels.map((hotel) => {
                   const hotelLines = lines.filter((line) => line.hotelId === hotel.hotel_id);
-                  const hotelNet = hotelLines.reduce((sum, line) => sum + line.total, 0);
+                  const propertyLines = hotelLines.filter((line) => !line.organizationFixed);
+                  const organizationLines = hotelLines.filter((line) => line.organizationFixed);
+                  const hotelNet = propertyLines.reduce((sum, line) => sum + line.total, 0);
                   return (
                     <Card key={hotel.hotel_id}>
                       <CardHeader className="pb-3">
@@ -293,7 +318,9 @@ export default function Billing() {
                             const priceText = pricing.pricing_mode === 'percent'
                               ? `${percentLabel} of realised revenue`
                               : pricing.pricing_mode === 'fixed_monthly'
-                                ? `${formatMoney(pricing.price_cents, currency)} fixed / month`
+                                ? pricing.source === 'organization'
+                                  ? `${formatMoney(pricing.price_cents, currency)} organization fixed / month`
+                                  : `${formatMoney(pricing.price_cents, currency)} fixed / month`
                                 : custom
                                   ? 'Custom quote'
                                   : pricing.price_cents > 0
@@ -316,7 +343,12 @@ export default function Billing() {
                             );
                           })}
                         </div>
-                        {hotelLines.length > 0 && <p className="text-xs text-muted-foreground">Selected net: <span className="font-semibold text-foreground">{formatMoney(hotelNet, currency)}</span> / month excl. VAT</p>}
+                        {propertyLines.length > 0 && <p className="text-xs text-muted-foreground">Selected net for this property: <span className="font-semibold text-foreground">{formatMoney(hotelNet, currency)}</span> / month excl. VAT</p>}
+                        {organizationLines.map((line) => (
+                          <p key={`org-${line.module}`} className="text-xs text-muted-foreground">
+                            {labelFor(line.module)} is covered by the <span className="font-semibold text-foreground">{formatMoney(line.total, currency)}</span> organization agreement, charged once across all covered properties.
+                          </p>
+                        ))}
                       </CardContent>
                     </Card>
                   );
@@ -342,7 +374,7 @@ export default function Billing() {
       {lines.length > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 p-3 sm:p-4">
-            <div className="text-sm"><p className="text-xs text-muted-foreground">{lines.length} module{lines.length > 1 ? 's' : ''} selected</p><p><span className="text-muted-foreground">Net </span><span className="font-medium">{formatMoney(netTotal, currency)}</span><span className="text-muted-foreground"> + VAT {vatPercent}% </span><span className="font-medium">{formatMoney(vatTotal, currency)}</span></p></div>
+            <div className="text-sm"><p className="text-xs text-muted-foreground">{lines.length} property module{lines.length > 1 ? 's' : ''} selected · {chargeCount} billing line{chargeCount > 1 ? 's' : ''}</p><p><span className="text-muted-foreground">Net </span><span className="font-medium">{formatMoney(netTotal, currency)}</span><span className="text-muted-foreground"> + VAT {vatPercent}% </span><span className="font-medium">{formatMoney(vatTotal, currency)}</span></p></div>
             <Separator orientation="vertical" className="hidden h-8 sm:block" />
             <div><p className="text-xs text-muted-foreground">Total per month</p><p className="text-lg font-bold">{formatMoney(grossTotal, currency)}</p></div>
             <Button className="ml-auto" onClick={startCheckout} disabled={busy}>{busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{trialActive ? 'Start free trial — add card' : 'Continue to checkout'}</Button>

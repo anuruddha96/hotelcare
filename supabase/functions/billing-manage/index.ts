@@ -186,6 +186,8 @@ Deno.serve(async (req) => {
       const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
       const meta: Record<string, string> = { organization_slug: slug };
       const picked: string[] = [];
+      const pickedItemIndexes: number[] = [];
+      const sharedItemIndexes = new Map<string, number>();
       let netCents = 0;
 
       for (const sel of selections) {
@@ -200,6 +202,7 @@ Deno.serve(async (req) => {
 
         if (pricing.pricing_mode === "percent") {
           const pct = (settings.revenue_percent_bps / 100).toFixed(2).replace(/\.00$/, "");
+          const itemIndex = lineItems.length;
           lineItems.push({
             quantity: 1,
             price_data: {
@@ -214,16 +217,33 @@ Deno.serve(async (req) => {
             },
           });
           picked.push(`${hotel.hotel_id}:${module}`);
+          pickedItemIndexes.push(itemIndex);
           continue;
         }
 
         const unit = pricing.price_cents;
         const qty = pricing.pricing_mode === "fixed_monthly" ? 1 : hotel.rooms;
         if (unit <= 0 || qty <= 0) continue;
+
+        // An organization-level fixed monthly agreement is one commercial charge
+        // covering every selected property for that module, not one charge per hotel.
+        const sharedKey = pricing.pricing_mode === "fixed_monthly" && pricing.source === "organization"
+          ? `organization:${module}`
+          : null;
+        const existingSharedIndex = sharedKey ? sharedItemIndexes.get(sharedKey) : undefined;
+        if (existingSharedIndex !== undefined) {
+          picked.push(`${hotel.hotel_id}:${module}`);
+          pickedItemIndexes.push(existingSharedIndex);
+          continue;
+        }
+
         const promotion = pricing.source === "standard" ? promotionForModule(settings, module) : null;
-        const basis = pricing.pricing_mode === "fixed_monthly"
-          ? `Fixed monthly fee ${(unit / 100).toFixed(2)} ${settings.currency} (excl. VAT)`
-          : `${qty} rooms × ${(unit / 100).toFixed(2)} ${settings.currency} per room / month (excl. VAT)`;
+        const basis = sharedKey
+          ? `Organization agreement · Fixed monthly fee ${(unit / 100).toFixed(2)} ${settings.currency} covering selected properties (excl. VAT)`
+          : pricing.pricing_mode === "fixed_monthly"
+            ? `Fixed monthly fee ${(unit / 100).toFixed(2)} ${settings.currency} (excl. VAT)`
+            : `${qty} rooms × ${(unit / 100).toFixed(2)} ${settings.currency} per room / month (excl. VAT)`;
+        const itemIndex = lineItems.length;
 
         lineItems.push({
           quantity: qty,
@@ -233,17 +253,24 @@ Deno.serve(async (req) => {
             tax_behavior: "exclusive",
             recurring: { interval: "month" },
             product_data: {
-              name: `${moduleLabel(settings, module)} — ${hotel.hotel_name}`,
+              name: sharedKey
+                ? `${moduleLabel(settings, module)} — organization agreement`
+                : `${moduleLabel(settings, module)} — ${hotel.hotel_name}`,
               description: `${basis}${promotion?.active ? ` · ${promotion.label}` : ""}`,
             },
           },
         });
+        if (sharedKey) sharedItemIndexes.set(sharedKey, itemIndex);
         netCents += unit * qty;
         picked.push(`${hotel.hotel_id}:${module}`);
+        pickedItemIndexes.push(itemIndex);
       }
 
       if (!lineItems.length) return json({ error: "Nothing billable in the selection" }, 400);
       meta.selections = picked.join(",");
+      // Keeps module_subscriptions aligned when several hotel selections share one
+      // organization-level Stripe subscription item.
+      meta.selection_item_indexes = pickedItemIndexes.join(",");
 
       const existingCustomer = (subs ?? []).find((s) => s.stripe_customer_id)?.stripe_customer_id;
       const origin = String(body.returnUrl ?? req.headers.get("origin") ?? "");
