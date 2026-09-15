@@ -22,6 +22,9 @@ const PICKUP_WINDOWS = [
   { value: 90, label: "Last 90 days" },
 ];
 
+const INITIAL_KPI_HOLD_MS = 10_000;
+const KPI_AUTOSCROLL_INTERVAL_MS = 4_500;
+
 function windowLabel(days: number) {
   return PICKUP_WINDOWS.find((p) => p.value === days)?.label ?? pickupWindowLabel(days);
 }
@@ -269,9 +272,10 @@ export default function MonthPerformanceHeader({
   const tilesLoading = loading || monthPending;
 
   /**
-   * The KPI strip remains finger-friendly, but on small screens it also
-   * advances one card every two seconds with smooth native scrolling. Manual
-   * interaction temporarily pauses autoplay so it never fights a swipe/tap.
+   * Keep the first, highest-priority KPI readable on arrival. On small screens
+   * the strip waits ten seconds before its first automatic move, then advances
+   * at a calm cadence. Manual interaction pauses autoplay so it never fights a
+   * swipe or tap. Reduced-motion users never auto-scroll.
    */
   const tileScrollRef = useRef<HTMLDivElement | null>(null);
   const autoScrollPausedUntilRef = useRef(0);
@@ -334,13 +338,19 @@ export default function MonthPerformanceHeader({
       node.scrollTo({ left: target, behavior: "smooth" });
     };
 
-    const interval = window.setInterval(advance, 2000);
+    let interval: number | undefined;
+    const initialHold = window.setTimeout(() => {
+      advance();
+      interval = window.setInterval(advance, KPI_AUTOSCROLL_INTERVAL_MS);
+    }, INITIAL_KPI_HOLD_MS);
+
     node.addEventListener("pointerdown", pauseForManualInteraction, { passive: true });
     node.addEventListener("wheel", pauseForManualInteraction, { passive: true });
     node.addEventListener("focusin", pauseForManualInteraction);
 
     return () => {
-      window.clearInterval(interval);
+      window.clearTimeout(initialHold);
+      if (interval !== undefined) window.clearInterval(interval);
       node.removeEventListener("pointerdown", pauseForManualInteraction);
       node.removeEventListener("wheel", pauseForManualInteraction);
       node.removeEventListener("focusin", pauseForManualInteraction);
@@ -443,10 +453,12 @@ export default function MonthPerformanceHeader({
 
         <div className="flex items-baseline justify-between gap-2">
           <h2 className="text-sm font-semibold">
-            How {monthLabel} is performing
+            <span className="sm:hidden">{monthLabel} performance</span>
+            <span className="hidden sm:inline">How {monthLabel} is performing</span>
           </h2>
           <span className="text-[11px] text-muted-foreground">
-            {roomsAvailable ? `inventory: ${roomsAvailable} rooms · ` : ""}on the books today · scroll for more
+            {roomsAvailable ? `${roomsAvailable} rooms` : ""}
+            <span className="hidden sm:inline">{roomsAvailable ? " · " : ""}on the books today</span>
           </span>
         </div>
 
@@ -484,7 +496,7 @@ export default function MonthPerformanceHeader({
           />
           <Tile
             loading={tilesLoading}
-            label="ADR — average price per sold night"
+            label="ADR"
             value={money(agg.adr)}
             sub={eurEquivalent(agg.adr) || `${monthLabel} · revenue ÷ nights sold`}
             icon={<Coins className="h-3.5 w-3.5" />}
@@ -493,7 +505,7 @@ export default function MonthPerformanceHeader({
           />
           <Tile
             loading={tilesLoading}
-            label="RevPAR — earned per available unit"
+            label="RevPAR"
             value={money(agg.revpar)}
             sub={eurEquivalent(agg.revpar) || `${monthLabel} · ADR × occupancy`}
             icon={<Gauge className="h-3.5 w-3.5" />}
@@ -502,7 +514,7 @@ export default function MonthPerformanceHeader({
           />
           <Tile
             loading={tilesLoading}
-            label="Revenue on the books"
+            label="Revenue"
             value={money(agg.revenue)}
             sub={eurEquivalent(agg.revenue) || `${monthLabel} · ${agg.days} day${agg.days === 1 ? "" : "s"}`}
             icon={<Coins className="h-3.5 w-3.5" />}
@@ -514,7 +526,7 @@ export default function MonthPerformanceHeader({
           />
           <Tile
             loading={tilesLoading}
-            label="Rooms left to sell"
+            label="Rooms left"
             value={agg.capacity ? String(agg.left) : "—"}
             sub={`${monthLabel} · whole month`}
             icon={<DoorOpen className="h-3.5 w-3.5" />}
@@ -523,9 +535,9 @@ export default function MonthPerformanceHeader({
           />
           <Tile
             loading={tilesLoading}
-            label="Pickup in window"
+            label="Net pickup"
             value={`${agg.pickup > 0 ? "+" : ""}${agg.pickup}`}
-            sub={`${agg.gained} in · ${agg.lost} out · booked in: ${windowLabel(pickupWindowDays).toLowerCase()}`}
+            sub={`${agg.gained} in · ${agg.lost} out · ${windowLabel(pickupWindowDays).toLowerCase()}`}
             icon={agg.pickup >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
             surface={agg.pickup < 0 ? "border-l-destructive bg-destructive/5" : "border-l-emerald-500 bg-emerald-500/5"}
             tone={agg.pickup < 0 ? "text-destructive" : agg.pickup > 0 ? "text-emerald-600 dark:text-emerald-400" : ""}
@@ -562,7 +574,8 @@ export default function MonthPerformanceHeader({
             </SelectContent>
           </Select>
           <span className="text-[11px] text-muted-foreground">
-            drives the pickup tile, the calendar PU row and the demand horizon — the “bookings created today” tile always stays on today
+            <span className="sm:hidden">Pickup & demand</span>
+            <span className="hidden sm:inline">Controls pickup, calendar PU and demand. “Bookings created today” always stays on today.</span>
           </span>
         </div>
 
@@ -579,7 +592,7 @@ export default function MonthPerformanceHeader({
                   key={o.key}
                   type="button"
                   onClick={() => setMonth(o.key)}
-                  className={`shrink-0 w-[124px] rounded-lg border p-2 text-left transition-colors ${
+                  className={`shrink-0 w-[118px] rounded-lg border p-2 text-left transition-colors ${
                     active ? "border-primary bg-primary/5" : "hover:bg-muted/50"
                   }`}
                 >
@@ -613,7 +626,7 @@ export default function MonthPerformanceHeader({
         </div>
         {pendingMonths > 0 && (
           <p className="px-1 text-[11px] text-muted-foreground animate-pulse">
-            Loading the later months — occupancy, ADR and RevPAR will fill in shortly.
+            Loading later months…
           </p>
         )}
       </CardContent>
