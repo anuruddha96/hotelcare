@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { addDays, budapestDayOf, eur } from "@/lib/revenueAnalytics";
-import { currencySymbol } from "@/lib/revenueCurrency";
+import { convert, currencySymbol, toBaseCurrency, useRevenueCurrency } from "@/lib/revenueCurrency";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 /* ------------------------------------------------------------------ types */
@@ -64,10 +64,12 @@ export interface SalesGoals {
   promoBudget: number;
 }
 
+// A property with no shared settings has no implied target. Management must
+// configure and save the targets explicitly; booking data never seeds them.
 const DEFAULT_GOALS: SalesGoals = {
-  targetAdr: 120,
-  targetRoomNights: 10,
-  targetValue: 1200,
+  targetAdr: 0,
+  targetRoomNights: 0,
+  targetValue: 0,
   promoBudget: 0,
 };
 
@@ -109,6 +111,13 @@ function fmtDay(d: string) {
 
 function pct(n: number) {
   return `${Math.round(n * 10) / 10}%`;
+}
+
+/** Keep controlled currency inputs readable while preserving base values. */
+function goalDisplayValue(value: number): number {
+  const displayed = convert(value);
+  if (displayed === null) return 0;
+  return Math.round(displayed * 100) / 100;
 }
 
 interface AiSignal {
@@ -168,6 +177,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   const [stayTo, setStayTo] = useState(addDays(today, 365));
   const [showCancelled, setShowCancelled] = useState(false);
   const isMobile = useIsMobile();
+  const revenueCurrency = useRevenueCurrency();
   const [compare, setCompare] = useState<CompareKey>("goal");
   const [filter, setFilter] = useState<BookingFilter>("all");
   const [sort, setSort] = useState<SortKey>("created");
@@ -184,59 +194,91 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   }, [preset, today, customFrom, customTo]);
 
   /* --------------------------------------------------------------- goals */
-  // Goals live in the database per property, in that property's own currency
-  // (SLNT publishes forints), so every manager sees the same target instead of
-  // a euro default saved on one laptop.
-  const storageKey = `hc.revenue.salesGoals.${hotelId ?? "default"}`;
+  // The database is the single source of truth for property goals. Monetary
+  // values are stored in the property's PMS/base currency, while the controls
+  // are shown and edited in the user's active display currency.
   const [goals, setGoals] = useState<SalesGoals>(DEFAULT_GOALS);
+  const [goalDraft, setGoalDraft] = useState<SalesGoals>(DEFAULT_GOALS);
   const [goalsOpen, setGoalsOpen] = useState(false);
-  const [, setGoalsSeeded] = useState(false);
+  const [goalsLoading, setGoalsLoading] = useState(false);
+  const [goalsSaving, setGoalsSaving] = useState(false);
+  const [goalsDirty, setGoalsDirty] = useState(false);
+  const [goalsError, setGoalsError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!hotelId) return;
     let cancelled = false;
-    setGoalsSeeded(false);
+    setGoals(DEFAULT_GOALS);
+    setGoalDraft(DEFAULT_GOALS);
+    setGoalsDirty(false);
+    setGoalsError(null);
+
+    if (!hotelId) {
+      setGoalsLoading(false);
+      return () => { cancelled = true; };
+    }
+
+    setGoalsLoading(true);
     void (async () => {
-      const { data } = await (supabase.from("hotel_revenue_settings") as any)
+      const { data, error } = await (supabase.from("hotel_revenue_settings") as any)
         .select("target_adr, target_room_nights, target_booking_value, promo_budget")
         .eq("hotel_id", hotelId)
         .maybeSingle();
       if (cancelled) return;
-      const row = (data ?? {}) as Record<string, number | null>;
-      if (row.target_adr != null) {
-        setGoals({
-          targetAdr: Number(row.target_adr) || 0,
-          targetRoomNights: Number(row.target_room_nights ?? DEFAULT_GOALS.targetRoomNights),
-          targetValue: Number(row.target_booking_value ?? 0),
-          promoBudget: Number(row.promo_budget ?? 0),
-        });
-        setGoalsSeeded(true);
+
+      if (error) {
+        setGoalsError("Could not load the shared targets for this property. Existing targets were not changed.");
+        setGoalsLoading(false);
         return;
       }
-      // No shared goal yet — fall back to this device's old saved goals, if any.
-      try {
-        const raw = localStorage.getItem(storageKey);
-        if (raw) { setGoals({ ...DEFAULT_GOALS, ...JSON.parse(raw) }); setGoalsSeeded(true); return; }
-      } catch { /* ignore unreadable storage */ }
-      setGoals(DEFAULT_GOALS);
-    })();
-    return () => { cancelled = true; };
-  }, [hotelId, storageKey]);
 
-  const saveGoals = useCallback((next: SalesGoals) => {
-    setGoals(next);
-    setGoalsSeeded(true);
-    try { localStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* ignore */ }
-    if (!hotelId) return;
-    void (supabase.from("hotel_revenue_settings") as any).upsert({
+      const row = data as Record<string, number | null> | null;
+      const next: SalesGoals = row ? {
+        targetAdr: Number(row.target_adr ?? 0),
+        targetRoomNights: Number(row.target_room_nights ?? 0),
+        targetValue: Number(row.target_booking_value ?? 0),
+        promoBudget: Number(row.promo_budget ?? 0),
+      } : DEFAULT_GOALS;
+
+      setGoals(next);
+      setGoalDraft(next);
+      setGoalsDirty(false);
+      setGoalsLoading(false);
+    })();
+
+    return () => { cancelled = true; };
+  }, [hotelId]);
+
+  const updateGoalDraft = useCallback((patch: Partial<SalesGoals>) => {
+    setGoalDraft((previous) => ({ ...previous, ...patch }));
+    setGoalsDirty(true);
+    setGoalsError(null);
+  }, []);
+
+  const saveGoals = useCallback(async () => {
+    if (!hotelId || !goalsDirty || goalsSaving) return;
+    const next = { ...goalDraft };
+    setGoalsSaving(true);
+    setGoalsError(null);
+
+    const { error } = await (supabase.from("hotel_revenue_settings") as any).upsert({
       hotel_id: hotelId,
       target_adr: next.targetAdr,
       target_room_nights: next.targetRoomNights,
       target_booking_value: next.targetValue,
       promo_budget: next.promoBudget,
     } as any, { onConflict: "hotel_id" });
-  }, [storageKey, hotelId]);
 
+    if (error) {
+      setGoalsError("Could not save the targets. Your previous shared targets are still active.");
+      setGoalsSaving(false);
+      return;
+    }
+
+    setGoals(next);
+    setGoalDraft(next);
+    setGoalsDirty(false);
+    setGoalsSaving(false);
+  }, [goalDraft, goalsDirty, goalsSaving, hotelId]);
 
   /* ---------------------------------------------------------------- data */
   const [rows, setRows] = useState<NightRow[]>([]);
@@ -334,10 +376,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   const liveBookings = useMemo(() => periodBookings.filter((b) => !b.cancelled), [periodBookings]);
 
   // Revenue goals are management inputs. Booking data must never infer, overwrite,
-  // or persist ADR/room-night/value targets automatically. If a shared target has
-  // not been configured yet, the UI keeps the existing/default value until a
-  // manager explicitly changes it in the Goals controls.
-
+  // or persist ADR/room-night/value targets automatically.
 
   const kpi = useMemo(() => {
     const roomNights = liveBookings.reduce((s, b) => s + b.roomNights, 0);
@@ -352,7 +391,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     const cancelledNights = cancelledInPeriod.reduce((s, b) => s + b.roomNights, 0);
     const cancelledRevenue = cancelledInPeriod.reduce((s, b) => s + b.revenue, 0);
     const adr = roomNights ? revenue / roomNights : null;
-    const variance = adr === null ? null : adr - goals.targetAdr;
+    const variance = adr === null || !goals.targetAdr ? null : adr - goals.targetAdr;
     return {
       bookings: reservationIds.size,
       roomGroups: liveBookings.length,
@@ -374,7 +413,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
 
   /** green / amber / red against the ADR target. */
   const adrTone = useMemo(() => {
-    if (kpi.adr === null) return "neutral" as const;
+    if (kpi.adr === null || !goals.targetAdr) return "neutral" as const;
     if (kpi.adr >= goals.targetAdr) return "good" as const;
     if (kpi.adr >= goals.targetAdr * 0.9) return "warn" as const;
     return "bad" as const;
@@ -460,7 +499,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
 
   /* -------------------------------------------------------- ADR recovery */
   const recovery = useMemo(() => {
-    if (kpi.adr === null || kpi.adr >= goals.targetAdr) return null;
+    if (!goals.targetAdr || kpi.adr === null || kpi.adr >= goals.targetAdr) return null;
     const gap = goals.targetAdr * kpi.roomNights - kpi.revenue;
     const options = [1, 2, 3, 5, 10].map((n) => ({
       n,
@@ -567,7 +606,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
         why: `Direct produced ${eur(direct.adr)} ADR versus ${eur(ota.adr)} on OTA today — the same demand is worth more when it comes direct.`,
       });
     }
-    if (kpi.adr !== null && kpi.adr < goals.targetAdr) {
+    if (kpi.adr !== null && goals.targetAdr > 0 && kpi.adr < goals.targetAdr) {
       out.push({
         tone: "warn",
         title: "Upsell superior rooms and add-ons on today's arrivals",
@@ -696,7 +735,6 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     }
   }, [hotelId, today, goals, kpi, recommendations, leakage, liveBookings]);
 
-
   /* -------------------------------------------------------- booking list */
   const listed = useMemo(() => {
     let list = periodBookings.slice();
@@ -720,7 +758,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     if (!kpi.bookings) return "No bookings have been created today yet.";
     const worst = leakage.channel[0] ?? leakage.roomType[0];
     const base = `${periodWord} you created ${kpi.bookings} booking${kpi.bookings === 1 ? "" : "s"}, ${kpi.roomNights} room night${kpi.roomNights === 1 ? "" : "s"} and ${eur(Math.round(kpi.revenue))} in room revenue at an ADR of ${eur(kpi.adr)}`;
-    if (kpi.variance === null) return `${base}.`;
+    if (!goals.targetAdr || kpi.variance === null) return `${base}.`;
     if (kpi.variance >= 0) return `${base}, which is ${eur(Math.round(kpi.variance))} above your ${eur(goals.targetAdr)} target.`;
     const cause = worst && worst.diff < 0 ? ` The largest negative impact comes from ${worst.label}.` : "";
     return `${base}, which is ${eur(Math.round(Math.abs(kpi.variance)))} below your ${eur(goals.targetAdr)} target.${cause}`;
@@ -821,11 +859,70 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="pt-2 grid grid-cols-2 gap-2">
-            <GoalInput label={`Target ADR (${currencySymbol()})`} value={goals.targetAdr} onChange={(v) => saveGoals({ ...goals, targetAdr: v })} />
-            <GoalInput label="Room-night target" value={goals.targetRoomNights} onChange={(v) => saveGoals({ ...goals, targetRoomNights: v })} />
-            <GoalInput label={`Booking value target (${currencySymbol()})`} value={goals.targetValue} onChange={(v) => saveGoals({ ...goals, targetValue: v })} />
-            <GoalInput label={`Max promotion budget (${currencySymbol()})`} value={goals.promoBudget} onChange={(v) => saveGoals({ ...goals, promoBudget: v })} />
-            <p className="col-span-2 text-[11px] text-muted-foreground">Saved for this property in {currencySymbol()} — everyone on the team sees the same targets.</p>
+            <GoalInput
+              label={`Target ADR (${currencySymbol(revenueCurrency.displayCode)})`}
+              value={goalDisplayValue(goalDraft.targetAdr)}
+              disabled={goalsLoading || goalsSaving}
+              onChange={(v) => {
+                const base = toBaseCurrency(v);
+                if (base !== null) updateGoalDraft({ targetAdr: base });
+              }}
+            />
+            <GoalInput
+              label="Room-night target"
+              value={goalDraft.targetRoomNights}
+              disabled={goalsLoading || goalsSaving}
+              onChange={(v) => updateGoalDraft({ targetRoomNights: v })}
+            />
+            <GoalInput
+              label={`Booking value target (${currencySymbol(revenueCurrency.displayCode)})`}
+              value={goalDisplayValue(goalDraft.targetValue)}
+              disabled={goalsLoading || goalsSaving}
+              onChange={(v) => {
+                const base = toBaseCurrency(v);
+                if (base !== null) updateGoalDraft({ targetValue: base });
+              }}
+            />
+            <GoalInput
+              label={`Max promotion budget (${currencySymbol(revenueCurrency.displayCode)})`}
+              value={goalDisplayValue(goalDraft.promoBudget)}
+              disabled={goalsLoading || goalsSaving}
+              onChange={(v) => {
+                const base = toBaseCurrency(v);
+                if (base !== null) updateGoalDraft({ promoBudget: base });
+              }}
+            />
+            <div className="col-span-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] text-muted-foreground">
+                Shared property targets · shown in {currencySymbol(revenueCurrency.displayCode)}
+                {revenueCurrency.displayCode !== revenueCurrency.code
+                  ? ` · stored in ${currencySymbol(revenueCurrency.code)}`
+                  : ""}. Changes apply only after Save.
+              </p>
+              <div className="flex items-center gap-1.5">
+                {goalsDirty && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 text-xs"
+                    disabled={goalsSaving}
+                    onClick={() => { setGoalDraft(goals); setGoalsDirty(false); setGoalsError(null); }}
+                  >
+                    Discard
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  className="h-8 text-xs"
+                  disabled={!hotelId || !goalsDirty || goalsLoading || goalsSaving}
+                  onClick={() => void saveGoals()}
+                >
+                  {goalsSaving && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                  Save targets
+                </Button>
+              </div>
+            </div>
+            {goalsError && <p className="col-span-2 text-xs text-red-600 dark:text-red-400">{goalsError}</p>}
           </CollapsibleContent>
         </Collapsible>
 
@@ -861,7 +958,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
               />
               <Kpi
                 label="ADR target"
-                value={eur(goals.targetAdr)}
+                value={goals.targetAdr ? eur(goals.targetAdr) : "—"}
                 info="The nightly rate you are aiming for. Set it in Goals above; it is saved for this property so the whole team sees the same target."
               />
               <Kpi
@@ -873,8 +970,8 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
               />
               <Kpi
                 label="Revenue goal"
-                value={pct(kpi.valueGoalPct)}
-                sub={`of ${eur(goals.targetValue)}`}
+                value={goals.targetValue ? pct(kpi.valueGoalPct) : "—"}
+                sub={goals.targetValue ? `of ${eur(goals.targetValue)}` : "Set a booking-value target in Goals"}
                 info="Booking value as a share of the booking-value target set in Goals."
               />
               <Kpi
@@ -904,18 +1001,20 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                 <span className={`font-semibold ${toneClass}`}>
                   {kpi.adr === null
                     ? "No bookings yet today"
-                    : `${eur(Math.round(kpi.adr))} ADR · ${eur(Math.round(Math.abs(kpi.variance ?? 0)))} ${((kpi.variance ?? 0) >= 0) ? "above" : "below"} target`}
+                    : !goals.targetAdr
+                      ? `${eur(Math.round(kpi.adr))} ADR · target not set`
+                      : `${eur(Math.round(kpi.adr))} ADR · ${eur(Math.round(Math.abs(kpi.variance ?? 0)))} ${((kpi.variance ?? 0) >= 0) ? "above" : "below"} target`}
                 </span>
               </div>
               <Progress
                 value={Math.min(100, kpi.adrGoalPct)}
                 aria-label="Share of the ADR goal achieved"
-                className={adrTone === "good" ? "[&>div]:bg-emerald-500" : adrTone === "warn" ? "[&>div]:bg-amber-500" : "[&>div]:bg-red-500"}
+                className={adrTone === "good" ? "[&>div]:bg-emerald-500" : adrTone === "warn" ? "[&>div]:bg-amber-500" : adrTone === "bad" ? "[&>div]:bg-red-500" : "[&>div]:bg-muted-foreground/40"}
               />
               <div className="flex justify-between text-[11px] text-muted-foreground">
                 <span>{eur(0)}</span>
-                <span>{kpi.adr === null ? "—" : `${pct(kpi.adrGoalPct)} of ADR goal achieved`}</span>
-                <span>{eur(goals.targetAdr)}{kpi.adrGoalPct > 100 ? "+" : ""}</span>
+                <span>{!goals.targetAdr ? "Set an ADR target in Goals" : kpi.adr === null ? "—" : `${pct(kpi.adrGoalPct)} of ADR goal achieved`}</span>
+                <span>{goals.targetAdr ? `${eur(goals.targetAdr)}${kpi.adrGoalPct > 100 ? "+" : ""}` : "—"}</span>
               </div>
               {kpi.cancelled > 0 && (
                 <p className="text-[11px] text-muted-foreground">
@@ -961,8 +1060,10 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                       labelFormatter={(l) => `${l} Budapest · booked in the 2h up to this point`}
                     />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <ReferenceLine yAxisId="adr" y={goals.targetAdr} stroke="hsl(var(--primary))" strokeDasharray="5 3"
-                      label={{ value: `ADR target ${eur(goals.targetAdr)}`, position: "right", fontSize: 10, fill: "hsl(var(--primary))" }} />
+                    {goals.targetAdr > 0 && (
+                      <ReferenceLine yAxisId="adr" y={goals.targetAdr} stroke="hsl(var(--primary))" strokeDasharray="5 3"
+                        label={{ value: `ADR target ${eur(goals.targetAdr)}`, position: "right", fontSize: 10, fill: "hsl(var(--primary))" }} />
+                    )}
                     {/* Bars show WHEN the bookings actually landed, not the running total. */}
                     <Bar yAxisId="v" dataKey="windowValue" name="Booked in this window"
                       fill="hsl(199 89% 48% / 0.35)" barSize={14} radius={[3, 3, 0, 0]} />
@@ -983,7 +1084,9 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                 the filled line is the running total since 00:00 Budapest and the green line is ADR on the
                 right axis{isMobile ? "" : `, against ${compareLabel.toLowerCase()}`}.
                 Today so far: {kpi.roomNights} room night{kpi.roomNights === 1 ? "" : "s"}.
-                End-of-day goal: {eur(goals.targetValue)} value · {goals.targetRoomNights} room nights.
+                {goals.targetValue || goals.targetRoomNights
+                  ? ` End-of-day goal: ${goals.targetValue ? eur(goals.targetValue) : "—"} value · ${goals.targetRoomNights || "—"} room nights.`
+                  : " End-of-day goals are not set yet."}
               </p>
 
               {bookingTiming && (
@@ -1047,6 +1150,8 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
             <Section title="What is lowering today’s ADR?" defaultOpen={false}>
               {liveBookings.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No bookings to analyse yet.</p>
+              ) : !goals.targetAdr ? (
+                <p className="text-sm text-muted-foreground">Set an ADR target in Goals to analyse performance against target.</p>
               ) : (
                 <div className="space-y-3">
                   <LeakTable title="Booking channel" rows={leakage.channel} target={goals.targetAdr} />
@@ -1145,8 +1250,6 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
               </p>
             </Section>
 
-
-
             {/* ------------------------------------------ booking list */}
             <Section title={`Bookings created ${preset === "today" ? "today" : "in this period"}`} defaultOpen>
               <div className="flex flex-wrap items-center gap-2 pb-2">
@@ -1177,12 +1280,12 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
               ) : (
                 <ul className="divide-y rounded-md border">
                   {listed.map((b) => {
-                    const below = (b.adr ?? 0) < goals.targetAdr;
+                    const below = goals.targetAdr > 0 && (b.adr ?? 0) < goals.targetAdr;
                     return (
                       <li key={b.key} className={`p-2 space-y-1 ${b.cancelled ? "opacity-60" : ""}`}>
                         <div className="flex items-center justify-between gap-2 text-xs">
                           <span className="text-muted-foreground">{fmtTime(b.created)}</span>
-                          <span className={`font-semibold ${below ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                          <span className={`font-semibold ${!goals.targetAdr ? "text-foreground" : below ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}>
                             {eur(Math.round(b.adr ?? 0))} ADR
                           </span>
                         </div>
@@ -1195,9 +1298,11 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                           <Badge variant="outline" className="font-normal">{b.direct ? "Direct" : "OTA"}</Badge>
                           <Badge variant="secondary" className="font-normal">{eur(Math.round(b.revenue))}</Badge>
                           {b.cancelled && <Badge variant="destructive" className="font-normal">Cancelled</Badge>}
-                          <Badge variant={below ? "destructive" : "secondary"} className="font-normal">
-                            {below ? `${eur(Math.round(goals.targetAdr - (b.adr ?? 0)))} below goal` : "At or above goal"}
-                          </Badge>
+                          {goals.targetAdr > 0 && (
+                            <Badge variant={below ? "destructive" : "secondary"} className="font-normal">
+                              {below ? `${eur(Math.round(goals.targetAdr - (b.adr ?? 0)))} below goal` : "At or above goal"}
+                            </Badge>
+                          )}
                         </div>
                       </li>
                     );
@@ -1258,11 +1363,16 @@ function Mini({ label, value }: { label: string; value: string }) {
   );
 }
 
-function GoalInput({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+function GoalInput({ label, value, onChange, disabled = false }: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  disabled?: boolean;
+}) {
   return (
     <div>
       <Label className="text-[11px] text-muted-foreground">{label}</Label>
-      <Input type="number" inputMode="decimal" min={0} className="h-9" value={value}
+      <Input type="number" inputMode="decimal" min={0} step="any" className="h-9" value={value} disabled={disabled}
         onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))} />
     </div>
   );
