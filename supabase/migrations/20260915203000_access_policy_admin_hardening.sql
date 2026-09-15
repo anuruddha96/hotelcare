@@ -36,7 +36,7 @@ ON public.department_access_config
 FOR SELECT
 TO authenticated
 USING (
-  public.get_user_role(auth.uid()) = 'admin'::user_role
+  COALESCE(public.get_user_role(auth.uid()) = 'admin'::user_role, false)
   OR COALESCE(public.is_super_admin(auth.uid()), false)
 );
 
@@ -61,8 +61,10 @@ BEGIN
     RAISE EXCEPTION 'Authentication required' USING ERRCODE = '42501';
   END IF;
 
-  IF public.get_user_role(auth.uid()) <> 'admin'::user_role
-     AND NOT COALESCE(public.is_super_admin(auth.uid()), false) THEN
+  IF NOT (
+    COALESCE(public.get_user_role(auth.uid()) = 'admin'::user_role, false)
+    OR COALESCE(public.is_super_admin(auth.uid()), false)
+  ) THEN
     RAISE EXCEPTION 'Admin access required' USING ERRCODE = '42501';
   END IF;
 
