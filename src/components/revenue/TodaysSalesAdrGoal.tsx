@@ -178,6 +178,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   const [showCancelled, setShowCancelled] = useState(false);
   const isMobile = useIsMobile();
   const revenueCurrency = useRevenueCurrency();
+  const currencyKey = `${revenueCurrency.code}:${revenueCurrency.displayCode}:${revenueCurrency.eurRate ?? ""}`;
   const [compare, setCompare] = useState<CompareKey>("goal");
   const [filter, setFilter] = useState<BookingFilter>("all");
   const [sort, setSort] = useState<SortKey>("created");
@@ -530,7 +531,8 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
         return {
           label, bookings: v.bookings, roomNights: v.nights, revenue: v.revenue,
           adr, diff,
-          // How many euros of ADR this group drags the whole day by.
+          // Impact is calculated in the hotel's base currency, then formatted
+          // in the user's selected display currency wherever it is shown.
           impact: kpi.roomNights ? (diff * v.nights) / kpi.roomNights : 0,
         };
       }).sort((a, b) => a.impact - b.impact);
@@ -614,7 +616,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
       });
     }
     return out;
-  }, [liveBookings, leakage, goals.targetAdr, kpi.adr, nightsByStayDate]);
+  }, [liveBookings, leakage, goals.targetAdr, kpi.adr, nightsByStayDate, currencyKey]);
 
   /* ------------------------------------------- signal actions + AI review */
   const [aiSignals, setAiSignals] = useState<AiSignal[]>([]);
@@ -624,6 +626,14 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
   const [actions, setActions] = useState<Record<string, SignalAction>>({});
   const [noteFor, setNoteFor] = useState<string | null>(null);
   const [noteText, setNoteText] = useState("");
+
+  // AI signal text can contain formatted money. Drop an old rendered snapshot
+  // when the user changes currency so it can never leave mixed HUF/EUR copy on
+  // screen; rule-based signals below are regenerated immediately.
+  useEffect(() => {
+    setAiSignals([]);
+    setAiHeadline(null);
+  }, [currencyKey]);
 
   const loadActions = useCallback(async () => {
     if (!hotelId) return;
@@ -709,6 +719,11 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     setAiError(null);
     try {
       const evidence = {
+        currency: {
+          base: revenueCurrency.code,
+          display: revenueCurrency.displayCode,
+          eurRate: revenueCurrency.eurRate,
+        },
         goals,
         kpi: { adr: kpi.adr, roomNights: kpi.roomNights, revenue: kpi.revenue },
         heuristics: recommendations,
@@ -733,7 +748,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     } finally {
       setAiLoading(false);
     }
-  }, [hotelId, today, goals, kpi, recommendations, leakage, liveBookings]);
+  }, [hotelId, today, goals, kpi, recommendations, leakage, liveBookings, revenueCurrency.code, revenueCurrency.displayCode, revenueCurrency.eurRate]);
 
   /* -------------------------------------------------------- booking list */
   const listed = useMemo(() => {
@@ -762,7 +777,15 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     if (kpi.variance >= 0) return `${base}, which is ${eur(Math.round(kpi.variance))} above your ${eur(goals.targetAdr)} target.`;
     const cause = worst && worst.diff < 0 ? ` The largest negative impact comes from ${worst.label}.` : "";
     return `${base}, which is ${eur(Math.round(Math.abs(kpi.variance)))} below your ${eur(goals.targetAdr)} target.${cause}`;
-  }, [kpi, goals.targetAdr, leakage, periodWord]);
+  }, [kpi, goals.targetAdr, leakage, periodWord, currencyKey]);
+
+  const moneyTick = useCallback((value: number) => {
+    const displayed = convert(Number(value));
+    if (displayed === null) return "—";
+    return Math.abs(displayed) >= 1000
+      ? `${Math.round(displayed / 100) / 10}k`
+      : String(Math.round(displayed));
+  }, [currencyKey]);
 
   /* ----------------------------------------------------------------- UI */
   return (
@@ -1043,11 +1066,11 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                   <ComposedChart data={chart} margin={{ top: 8, right: 4, left: -8, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
                     <XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                    {/* Compact labels (12k) so large euro totals are never clipped. */}
+                    {/* The chart stays in base units internally; every visible tick follows the user's display currency. */}
                     <YAxis yAxisId="v" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={40}
-                      tickFormatter={(v: number) => (Math.abs(v) >= 1000 ? `${Math.round(v / 100) / 10}k` : String(Math.round(v)))} />
+                      tickFormatter={moneyTick} />
                     <YAxis yAxisId="adr" orientation="right" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={38}
-                      domain={[0, (max: number) => Math.max(goals.targetAdr * 1.4, max * 1.15)]} />
+                      domain={[0, (max: number) => Math.max(goals.targetAdr * 1.4, max * 1.15)]} tickFormatter={moneyTick} />
                     <RTooltip
                       contentStyle={{ fontSize: 11, padding: "4px 8px" }}
                       formatter={(value: unknown, name: string, item: any) => {
@@ -1160,7 +1183,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                   <LeakTable title="Length of stay" rows={leakage.los} target={goals.targetAdr} />
                   <LeakTable title="Arrival (stay) date" rows={leakage.stayDate} target={goals.targetAdr} formatLabel={fmtDay} />
                   <p className="text-[11px] text-muted-foreground">
-                    Estimated ADR impact = how many euros each group moves today’s overall ADR.
+                    Estimated ADR impact = how much each group moves today’s overall ADR in the selected display currency.
                     A rate below {eur(goals.targetAdr)} is not automatically bad: single room-nights on
                     otherwise empty stay dates still add revenue. Rate plans and promotions are not
                     exposed by the Previo reservation feed, so the channel is used as the closest proxy.
