@@ -15,6 +15,7 @@ vi.mock("@/integrations/supabase/client", () => ({
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
 import { EXECUTIVE_RESUME_EVENT } from "@/components/system/ExecutiveResumeRefresh";
 import { beginRevenueEdit, __resetRevenueEditGuard } from "@/lib/revenueEditGuard";
+import { REVENUE_PREF_CHANGED_EVENT } from "@/lib/revenuePrefs";
 
 const payloadRow = {
   payload: { roomTypes: [], nights: [], snapshots: [], rates: [], cancellations: [], movements: [], settings: {} },
@@ -32,10 +33,14 @@ describe("useRevenueHotelData — executive resume", () => {
   beforeEach(() => {
     rpc.mockReset();
     channel.mockReset();
+    localStorage.clear();
     __resetRevenueEditGuard();
     rpc.mockResolvedValue({ data: [payloadRow], error: null });
   });
-  afterEach(() => __resetRevenueEditGuard());
+  afterEach(() => {
+    localStorage.clear();
+    __resetRevenueEditGuard();
+  });
 
   const PAYLOAD_FNS = new Set([
     "get_revenue_published_payload",
@@ -69,9 +74,30 @@ describe("useRevenueHotelData — executive resume", () => {
 
     const last = rpc.mock.calls[rpc.mock.calls.length - 1];
     expect(last[0]).toBe("get_revenue_published_payload_window");
-    expect(last[1]).toEqual({ _hotel_id: "hotel-resume-selection", _horizon_days: 365 });
+    // Desktop opens on the 45-day grid plus a 20-day prefetch buffer instead
+    // of silently decoding the full year on every resume.
+    expect(last[1]).toEqual({ _hotel_id: "hotel-resume-selection", _horizon_days: 65 });
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
+  });
+
+  it("expands the payload when the user asks the grid for a wider range", async () => {
+    const { result } = renderHook(() => useRevenueHotelData("hotel-range-expansion", "org-1"));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() => expect(result.current.extending).toBe(false));
+    const initial = rpc.mock.calls.length;
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(REVENUE_PREF_CHANGED_EVENT, {
+        detail: { name: "grid-range", value: 90 },
+      }));
+    });
+
+    await waitFor(() => expect(rpc.mock.calls.length).toBeGreaterThan(initial));
+    await waitFor(() => expect(result.current.extending).toBe(false));
+    const last = rpc.mock.calls[rpc.mock.calls.length - 1];
+    expect(last[0]).toBe("get_revenue_published_payload_window");
+    expect(last[1]).toEqual({ _hotel_id: "hotel-range-expansion", _horizon_days: 110 });
   });
 
   it("defers the refresh while a rate editor holds unsaved values", async () => {
