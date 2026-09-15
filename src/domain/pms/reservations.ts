@@ -120,28 +120,34 @@ export function calculateAvailableInventory({
 }
 
 export interface ReservationExternalIdentity {
+  organizationSlug: string;
   hotelId: string;
   sourceSystem: string;
   externalReservationId: string;
 }
 
 /**
- * Stable, delimiter-safe identity used to make external reservation ingestion idempotent.
+ * Stable, tenant-scoped and delimiter-safe identity used to make external
+ * reservation ingestion idempotent.
  */
 export function buildReservationIdempotencyKey({
+  organizationSlug,
   hotelId,
   sourceSystem,
   externalReservationId,
 }: ReservationExternalIdentity): string {
+  const organization = organizationSlug.trim().toLowerCase();
   const hotel = hotelId.trim();
   const source = sourceSystem.trim().toLowerCase();
   const externalId = externalReservationId.trim();
 
-  if (!hotel || !source || !externalId) {
-    throw new Error("hotelId, sourceSystem and externalReservationId are required");
+  if (!organization || !hotel || !source || !externalId) {
+    throw new Error(
+      "organizationSlug, hotelId, sourceSystem and externalReservationId are required",
+    );
   }
 
-  return ["pms-reservation", hotel, source, externalId]
+  return ["pms-reservation", organization, hotel, source, externalId]
     .map((part) => encodeURIComponent(part))
     .join(":");
 }
