@@ -172,7 +172,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
         .eq('is_cleared', false)
         .gte('usage_date', startDate)
         .lte('usage_date', endDate);
-      setGuestReportedItems(new Set((data || []).map(d => d.minibar_item_id));
+      setGuestReportedItems(new Set((data || []).map(d => d.minibar_item_id)));
     } catch (error) {
       console.error('Error fetching guest reported items:', error);
     }
@@ -340,9 +340,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
         throw new Error('Room note update was not applied');
       }
 
-      const persistedNotes = savedRow.notes || '';
-      lastSavedNotesRef.current = persistedNotes;
-      setRoomNotes(persistedNotes);
+      lastSavedNotesRef.current = nextNotes;
       setNotesSaveState('saved');
       await fetchRoomNoteHistory(room.id);
       onRoomUpdated?.();
