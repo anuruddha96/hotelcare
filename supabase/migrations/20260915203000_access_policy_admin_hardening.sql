@@ -116,6 +116,13 @@ BEGIN
     RAISE EXCEPTION 'Super admin access required to change global access rules' USING ERRCODE = '42501';
   END IF;
 
+  -- Serialize all policy mutations so concurrent create/delete requests cannot
+  -- bypass uniqueness or the final-global-rule lockout check.
+  PERFORM pg_advisory_xact_lock(
+    hashtext('hotelcare'),
+    hashtext('department_access_config')
+  );
+
   SELECT p.role, p.organization_slug
   INTO v_actor_role, v_actor_org
   FROM public.profiles p
@@ -244,6 +251,11 @@ BEGIN
   IF NOT COALESCE(public.is_super_admin(v_actor_id), false) THEN
     RAISE EXCEPTION 'Super admin access required to change global access rules' USING ERRCODE = '42501';
   END IF;
+
+  PERFORM pg_advisory_xact_lock(
+    hashtext('hotelcare'),
+    hashtext('department_access_config')
+  );
 
   SELECT e.action
   INTO v_existing_action
