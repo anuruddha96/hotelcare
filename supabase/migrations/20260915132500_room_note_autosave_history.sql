@@ -21,6 +21,7 @@ USING (
         SELECT 1
         FROM public.profiles p
         WHERE p.id = auth.uid()
+          AND p.deleted_at IS NULL
           AND (
             p.assigned_hotel = rooms.hotel
             OR p.hotel_id = rooms.hotel
@@ -65,7 +66,8 @@ $$;
 
 -- 3) Capture every successful human free-text note change in housekeeping_notes.
 --    SECURITY DEFINER is deliberate: the originating room UPDATE already passed
---    room RLS, and the audit insert must never fail because of a narrower notes policy.
+--    room RLS (or the verified RPC below), and the audit insert must never fail
+--    because of a narrower legacy housekeeping_notes policy.
 CREATE OR REPLACE FUNCTION public.capture_room_note_history()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -124,7 +126,8 @@ ON public.housekeeping_notes (room_id, created_at DESC)
 WHERE note_type = 'room_note_history';
 
 -- 4) Save notes through a single verified RPC. This avoids the former failure mode
---    where PostgREST returned no error even though RLS affected zero rows.
+--    where PostgREST could return no error even though RLS affected zero rows.
+--    Existing service flags are preserved independently from the editable free text.
 CREATE OR REPLACE FUNCTION public.save_room_note(
   p_room_id uuid,
   p_notes text
@@ -140,6 +143,7 @@ SET search_path = public
 AS $$
 DECLARE
   v_role public.user_role;
+  v_free_text text;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'Authentication required';
@@ -147,7 +151,7 @@ BEGIN
 
   v_role := get_user_role(auth.uid());
 
-  IF v_role <> ALL (ARRAY[
+  IF v_role IS NULL OR v_role <> ALL (ARRAY[
     'admin'::user_role,
     'top_management'::user_role,
     'top_management_manager'::user_role,
@@ -165,9 +169,19 @@ BEGIN
     RAISE EXCEPTION 'Room is outside your hotel scope';
   END IF;
 
+  v_free_text := public.room_note_history_text(p_notes);
+
   RETURN QUERY
   UPDATE public.rooms r
-  SET notes = NULLIF(btrim(coalesce(p_notes, '')), '')
+  SET notes = NULLIF(
+    concat_ws(
+      ' ',
+      CASE WHEN coalesce(r.notes, '') LIKE '%[COLLECT_EXTRA_TOWELS]%' THEN '[COLLECT_EXTRA_TOWELS]' END,
+      CASE WHEN coalesce(r.notes, '') LIKE '%[ROOM_CLEANING]%' THEN '[ROOM_CLEANING]' END,
+      NULLIF(v_free_text, '')
+    ),
+    ''
+  )
   WHERE r.id = p_room_id
   RETURNING r.id, r.notes, r.updated_at;
 
@@ -234,7 +248,11 @@ BEGIN
   IF OLD.note_type = 'room_note_history' THEN
     RAISE EXCEPTION 'Room note history is immutable';
   END IF;
-  RETURN COALESCE(NEW, OLD);
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
 END;
 $$;
 
