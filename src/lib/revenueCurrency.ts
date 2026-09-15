@@ -98,6 +98,22 @@ export function convert(value: number | null | undefined): number | null {
 }
 
 /**
+ * Convert an amount entered in the active display currency back into the
+ * hotel's stored/base currency. Editable revenue fields must use this inverse
+ * of `convert()` before persisting so a value typed as €100 is not stored as
+ * 100 HUF on a HUF property.
+ */
+export function toBaseCurrency(value: number | null | undefined): number | null {
+  if (value === null || value === undefined || !Number.isFinite(value)) return null;
+  if (current.displayCode === current.code) return value;
+  if (current.displayCode === "EUR") {
+    if (!current.eurRate || current.eurRate <= 0) return null;
+    return value * current.eurRate;
+  }
+  return value;
+}
+
+/**
  * Format a stored amount for the screen: converted if needed, always a whole
  * number with thousands separators. `digits` is accepted for call-site
  * compatibility but ignored — Revenue never shows decimals.
