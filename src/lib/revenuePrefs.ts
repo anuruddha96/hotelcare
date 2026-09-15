@@ -10,6 +10,9 @@
 
 const isBrowser = typeof window !== "undefined";
 
+/** Same-tab notification used by the revenue data loader when a range changes. */
+export const REVENUE_PREF_CHANGED_EVENT = "hotelcare:revenue-pref-changed";
+
 export const isDesktopViewport = () => isBrowser && window.innerWidth >= 768;
 
 /** Fast first paint: 45 days on desktop, one readable month on mobile. */
@@ -35,6 +38,12 @@ export function readNumberPref(name: string, fallback: number): number {
 export function writeNumberPref(name: string, value: number): void {
   if (!isBrowser) return;
   try { window.localStorage.setItem(key(name), String(value)); } catch { /* private mode */ }
+  // The browser's native "storage" event does not fire in the same tab that
+  // made the change. Revenue data loading needs to react immediately so a
+  // 30/45-day grid never keeps a hidden six-month payload alive behind it.
+  window.dispatchEvent(new CustomEvent(REVENUE_PREF_CHANGED_EVENT, {
+    detail: { name, value },
+  }));
 }
 
 /** State initialiser + setter wrapper for a remembered numeric range. */
