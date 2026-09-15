@@ -94,6 +94,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   const { t } = useTranslation();
   const { profile } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [notesSaving, setNotesSaving] = useState(false);
   const [minibarItems, setMinibarItems] = useState<MinibarItem[]>([]);
   const [minibarUsage, setMinibarUsage] = useState<MinibarUsage[]>([]);
   const [minibarCategory, setMinibarCategory] = useState<string | null>(null);
@@ -255,12 +256,17 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
         updateData.last_cleaned_by = profile?.id;
       }
 
-      const { error } = await supabase
+      const { data: updatedRoom, error } = await supabase
         .from('rooms')
         .update(updateData)
-        .eq('id', room.id);
+        .eq('id', room.id)
+        .select('id')
+        .maybeSingle();
 
       if (error) throw error;
+      if (!updatedRoom) {
+        throw new Error('Room update was not applied. Please refresh and verify your hotel access.');
+      }
 
       toast({
         title: "Success",
@@ -277,6 +283,41 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveNotes = async () => {
+    if (!room) return;
+
+    setNotesSaving(true);
+    try {
+      const normalizedNotes = roomNotes.trim();
+      const { data: updatedRoom, error } = await supabase
+        .from('rooms')
+        .update({ notes: normalizedNotes || null })
+        .eq('id', room.id)
+        .select('id, notes')
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!updatedRoom) {
+        throw new Error('Room notes were not saved. Please refresh and verify your hotel access.');
+      }
+
+      setRoomNotes(updatedRoom.notes || '');
+      toast({
+        title: 'Notes saved',
+        description: `Room ${room.room_number} notes were saved successfully.`,
+      });
+      onRoomUpdated?.();
+    } catch (error: any) {
+      toast({
+        title: 'Could not save notes',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setNotesSaving(false);
     }
   };
 
@@ -560,6 +601,16 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                     className="mt-1"
                     rows={2}
                   />
+                  <div className="mt-2 flex justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleSaveNotes}
+                      disabled={notesSaving || loading}
+                    >
+                      {notesSaving ? 'Saving…' : 'Save Notes'}
+                    </Button>
+                  </div>
                 </div>
 
                 {room.last_cleaned_at && (
