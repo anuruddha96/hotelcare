@@ -16,6 +16,11 @@ import { retryTransient } from "@/lib/transientRetry";
 import { runWhenRevenueEditorsClosed } from "@/lib/revenueEditGuard";
 import { EXECUTIVE_RESUME_EVENT } from "@/components/system/ExecutiveResumeRefresh";
 import {
+  defaultRangeDays,
+  readNumberPref,
+  REVENUE_PREF_CHANGED_EVENT,
+} from "@/lib/revenuePrefs";
+import {
   readCachedRevenueHotPayload,
   readCachedRevenuePayload,
   readCachedRevenueRoomMetadata,
@@ -77,6 +82,13 @@ const revenuePayloadCache = new Map<string, CachedRevenuePayload>();
 const FIRST_WINDOW_DAYS = 45;
 /** Compact local hot cache used for instant revisit / reload paint. */
 const HOT_WINDOW_DAYS = 60;
+/** A small safety buffer keeps the next scroll screen ready without loading months invisibly. */
+const GRID_HORIZON_BUFFER_DAYS = 20;
+
+function preferredGridHorizonDays(): number {
+  const visibleDays = readNumberPref("grid-range", defaultRangeDays(30, 45));
+  return Math.min(365, Math.max(FIRST_WINDOW_DAYS, Math.ceil(visibleDays) + GRID_HORIZON_BUFFER_DAYS));
+}
 
 function readAnyCache(cacheKey: string): CachedRevenuePayload | undefined {
   const memory = revenuePayloadCache.get(cacheKey);
@@ -186,13 +198,30 @@ export function useRevenueHotelData(
   );
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(initialCache?.lastSyncAt ?? null);
   const [lastSyncBy, setLastSyncBy] = useState<string | null>(initialCache?.lastSyncBy ?? null);
+  const [gridHorizonDays, setGridHorizonDays] = useState(preferredGridHorizonDays);
 
   const payloadRef = useRef<PublishedRevenuePayload | null>(initialCache?.payload ?? null);
   const requestVersionRef = useRef(0);
   const inFlightRef = useRef<Promise<void> | null>(null);
 
+  useEffect(() => {
+    const onPreferenceChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ name?: string; value?: number }>).detail;
+      if (detail?.name !== "grid-range") return;
+      const value = Number(detail.value);
+      if (!Number.isFinite(value) || value <= 0) return;
+      setGridHorizonDays(Math.min(
+        365,
+        Math.max(FIRST_WINDOW_DAYS, Math.ceil(value) + GRID_HORIZON_BUFFER_DAYS),
+      ));
+    };
+    window.addEventListener(REVENUE_PREF_CHANGED_EVENT, onPreferenceChanged);
+    return () => window.removeEventListener(REVENUE_PREF_CHANGED_EVENT, onPreferenceChanged);
+  }, []);
+
+  const effectiveHorizonDays = Math.max(1, Math.min(365, horizonDays, gridHorizonDays));
   const today = budapestToday();
-  const horizonEnd = addDays(today, horizonDays);
+  const horizonEnd = addDays(today, effectiveHorizonDays);
 
   const runLoad = useCallback(async () => {
     if (!hotelId || !organizationSlug || !cacheKey) { setLoading(false); return; }
@@ -267,7 +296,7 @@ export function useRevenueHotelData(
       const hadData = !!payloadRef.current;
       if (!hadData) setLoading(true);
       setError(null);
-      const wantsWindow = !hadData && horizonDays > FIRST_WINDOW_DAYS;
+      const wantsWindow = !hadData && effectiveHorizonDays > FIRST_WINDOW_DAYS;
 
       try {
         if (wantsWindow) {
@@ -278,16 +307,17 @@ export function useRevenueHotelData(
           setExtending(true);
         }
 
-        if (!wantsWindow || horizonDays > FIRST_WINDOW_DAYS) {
+        if (!wantsWindow || effectiveHorizonDays > FIRST_WINDOW_DAYS) {
           // Never let a six-/twelve-month JSON decode interrupt the first
           // interaction. Cached / first-window prices remain visible while the
-          // browser gets one idle turn before extending the horizon.
+          // browser gets one idle turn before extending only as far as the
+          // calendar the user can actually see or has explicitly requested.
           if (hadData || wantsWindow) {
             setExtending(true);
             await waitForBrowserIdle();
             if (requestVersion !== requestVersionRef.current) return;
           }
-          const requested = await fetchStage(horizonDays);
+          const requested = await fetchStage(effectiveHorizonDays);
           if (requestVersion !== requestVersionRef.current) return;
           apply(requested, !wantsWindow);
         }
@@ -306,7 +336,7 @@ export function useRevenueHotelData(
     try { await request; } finally {
       if (inFlightRef.current === request) inFlightRef.current = null;
     }
-  }, [hotelId, organizationSlug, cacheKey, horizonDays, today]);
+  }, [hotelId, organizationSlug, cacheKey, effectiveHorizonDays, today]);
 
   /** Re-read the currently requested horizon: used after a sync or price push. */
   const reload = useCallback(async () => { await runLoad(); }, [runLoad]);
