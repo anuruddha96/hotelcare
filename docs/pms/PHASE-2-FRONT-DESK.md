@@ -105,6 +105,10 @@ Phase 2 is considered development-complete when:
 - no live price/channel publishing or SLNT configuration is touched
 - PR documents the existing repository-wide failing-test baseline separately from Phase 2 changes
 
+## Validation workflow
+
+The repository's Frontend CI workflow is configured only for pull requests targeting `main`. The stacked Phase 2 PR is therefore temporarily retargeted to `main` to run build/tests, then restored to the Phase 1 branch so review remains limited to the incremental Phase 2 diff.
+
 ## Next phase
 
 Phase 3 builds authoritative room inventory and rate-plan/restriction primitives: physical inventory, OOO/blocks, rate plans, daily rates, min/max stay, stop-sell, CTA/CTD and availability calculation. It must consume this reservation ledger rather than creating a second inventory truth.
