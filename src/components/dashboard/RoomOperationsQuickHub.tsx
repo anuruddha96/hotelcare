@@ -29,6 +29,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Textarea } from '@/components/ui/textarea';
 import { RoomGuestRequestsPanel } from './RoomGuestRequestsPanel';
 import { RoomMinibarOperations } from './RoomMinibarOperations';
+import { RoomCommunicationPanel } from './RoomCommunicationPanel';
 import { toast } from 'sonner';
 
 type StaffMap = Record<string, string>;
@@ -628,6 +629,18 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
           )}
         </div>
       </section>
+
+      {selection.roomId && canWriteNotes && (
+        <section className="rounded-2xl border border-blue-200 bg-blue-50/60 p-3 sm:p-4">
+          <RoomCommunicationPanel
+            assignmentId={selection.assignmentId || ''}
+            roomId={selection.roomId}
+            roomNumber={selection.roomNumber}
+            dateLabel={selectedDate}
+            readOnly={readOnlyForPast}
+          />
+        </section>
+      )}
 
       <section className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <button
