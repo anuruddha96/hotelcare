@@ -502,7 +502,7 @@ export function HistoricalHotelRoomOverview({
                   <div key={task.id} className="rounded border bg-muted/40 px-2 py-1 text-[10px]">
                     <span className="font-semibold">{task.task_name}</span>
                     <span className="ml-1 text-muted-foreground">
-                      · {assigneeLabel(staffMap[task.assigned_to] || task.assigned_to)} · {task.status.replace(/_/g, ' ')}
+                      · {assigneeLabel(staffMap, task.assigned_to)} · {task.status.replace(/_/g, ' ')}
                     </span>
                   </div>
                 ))}

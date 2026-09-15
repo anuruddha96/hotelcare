@@ -58,7 +58,7 @@ export function ParkingInventory({ organizationSlug, hotelId, refreshVersion, on
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!preview.ok) return toast.error(preview.error);
+    if (!preview.ok) return toast.error((preview as { error: string }).error);
     setBusy(true);
     try {
       const batch = await createParkingBatch({
@@ -111,7 +111,7 @@ export function ParkingInventory({ organizationSlug, hotelId, refreshVersion, on
             </div>
             {rangeStart && rangeEnd && (
               <div className={`rounded-md border p-3 text-sm ${preview.ok ? 'border-emerald-200 bg-emerald-50/70 dark:border-emerald-900 dark:bg-emerald-950/30' : 'border-destructive/30 bg-destructive/5 text-destructive'}`}>
-                {preview.ok ? <><p className="font-semibold">{preview.count} tickets</p><p className="font-mono text-xs">{preview.canonicalStart} → {preview.canonicalEnd}</p></> : preview.error}
+                {preview.ok ? <><p className="font-semibold">{preview.count} tickets</p><p className="font-mono text-xs">{preview.canonicalStart} → {preview.canonicalEnd}</p></> : (preview as { error: string }).error}
               </div>
             )}
             <div className="space-y-1.5"><Label htmlFor="parking-range-expiry">Batch expiry (optional)</Label><Input id="parking-range-expiry" type="date" min={todayISO()} value={expiresOn} onChange={(event) => setExpiresOn(event.target.value)} /></div>
