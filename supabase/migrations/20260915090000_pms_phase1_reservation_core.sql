@@ -27,7 +27,8 @@ create table if not exists public.pms_reservations (
   updated_by uuid,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint pms_reservations_valid_stay check (departure_date > arrival_date)
+  constraint pms_reservations_valid_stay check (departure_date > arrival_date),
+  constraint pms_reservations_id_scope_key unique (id, organization_slug, hotel_id)
 );
 
 create unique index if not exists pms_reservations_external_identity_uidx
@@ -42,7 +43,7 @@ create index if not exists pms_reservations_hotel_status_idx
 
 create table if not exists public.pms_reservation_rooms (
   id uuid primary key default gen_random_uuid(),
-  reservation_id uuid not null references public.pms_reservations(id) on delete cascade,
+  reservation_id uuid not null,
   organization_slug text not null,
   hotel_id text not null,
   room_type_id text,
@@ -53,7 +54,13 @@ create table if not exists public.pms_reservation_rooms (
   assigned_at timestamptz,
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint pms_reservation_rooms_reservation_scope_fk
+    foreign key (reservation_id, organization_slug, hotel_id)
+    references public.pms_reservations (id, organization_slug, hotel_id)
+    on delete cascade,
+  constraint pms_reservation_rooms_id_scope_key
+    unique (id, reservation_id, organization_slug, hotel_id)
 );
 
 create index if not exists pms_reservation_rooms_reservation_idx
@@ -65,8 +72,8 @@ create index if not exists pms_reservation_rooms_hotel_room_idx
 
 create table if not exists public.pms_reservation_nights (
   id uuid primary key default gen_random_uuid(),
-  reservation_id uuid not null references public.pms_reservations(id) on delete cascade,
-  reservation_room_id uuid not null references public.pms_reservation_rooms(id) on delete cascade,
+  reservation_id uuid not null,
+  reservation_room_id uuid not null,
   organization_slug text not null,
   hotel_id text not null,
   stay_date date not null,
@@ -78,7 +85,11 @@ create table if not exists public.pms_reservation_nights (
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (reservation_room_id, stay_date)
+  constraint pms_reservation_nights_room_scope_fk
+    foreign key (reservation_room_id, reservation_id, organization_slug, hotel_id)
+    references public.pms_reservation_rooms (id, reservation_id, organization_slug, hotel_id)
+    on delete cascade,
+  constraint pms_reservation_nights_room_date_key unique (reservation_room_id, stay_date)
 );
 
 create index if not exists pms_reservation_nights_hotel_date_idx
@@ -89,7 +100,7 @@ create index if not exists pms_reservation_nights_reservation_idx
 
 create table if not exists public.pms_reservation_events (
   id uuid primary key default gen_random_uuid(),
-  reservation_id uuid not null references public.pms_reservations(id) on delete cascade,
+  reservation_id uuid not null,
   organization_slug text not null,
   hotel_id text not null,
   event_type text not null,
@@ -99,7 +110,11 @@ create table if not exists public.pms_reservation_events (
   before_state jsonb,
   after_state jsonb,
   metadata jsonb not null default '{}'::jsonb,
-  occurred_at timestamptz not null default now()
+  occurred_at timestamptz not null default now(),
+  constraint pms_reservation_events_reservation_scope_fk
+    foreign key (reservation_id, organization_slug, hotel_id)
+    references public.pms_reservations (id, organization_slug, hotel_id)
+    on delete cascade
 );
 
 create unique index if not exists pms_reservation_events_idempotency_uidx
@@ -126,7 +141,8 @@ create table if not exists public.pms_external_events (
   processed_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (organization_slug, hotel_id, provider, external_event_id)
+  constraint pms_external_events_provider_event_key
+    unique (organization_slug, hotel_id, provider, external_event_id)
 );
 
 create index if not exists pms_external_events_work_queue_idx
