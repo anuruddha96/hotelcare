@@ -241,7 +241,7 @@ function ChatSession({
     [threadId, language, page, capabilities],
   );
 
-  const { messages, sendMessage, status, stop } = useChat<AssistantUiMessage>({
+  const { messages, sendMessage, regenerate, status, stop } = useChat<AssistantUiMessage>({
     id: threadId,
     messages: initialMessages,
     transport,
@@ -317,6 +317,12 @@ function ChatSession({
     setFailed(null);
     lastQuestionRef.current = value;
     await sendMessage({ text: value });
+  };
+
+  const retryLastQuestion = async () => {
+    if (!lastQuestionRef.current || status === "submitted" || status === "streaming") return;
+    setFailed(null);
+    await regenerate();
   };
 
   const reportFailure = async () => {
@@ -513,7 +519,7 @@ function ChatSession({
             <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2.5">
               <p className="text-sm">{failed} Please try again in a moment.</p>
               <div className="mt-2 flex gap-2">
-                <Button size="sm" variant="secondary" onClick={() => void submit({ text: lastQuestionRef.current })}>
+                <Button size="sm" variant="secondary" onClick={() => void retryLastQuestion()}>
                   Try again
                 </Button>
                 <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void reportFailure()}>

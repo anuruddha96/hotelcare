@@ -6,7 +6,7 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-const PREMIUM_MODEL = Deno.env.get("OPENAI_PREMIUM_MODEL") || "gpt-5.6-terra";
+const PREMIUM_MODEL = Deno.env.get("OPENAI_PREMIUM_MODEL") || "gpt-5.6-sol";
 const HOTEL_TZ = "Europe/Budapest";
 
 type Scope = "revenue" | "housekeeping" | "maintenance" | "reception";
@@ -29,6 +29,12 @@ function json(body: unknown, status = 200) {
     status,
     headers: { ...CORS, "Content-Type": "application/json" },
   });
+}
+
+function runInBackground(promise: Promise<unknown>) {
+  const runtime = (globalThis as any).EdgeRuntime;
+  if (runtime?.waitUntil) runtime.waitUntil(promise);
+  else void promise;
 }
 
 function extractText(message: any): string {
@@ -265,7 +271,14 @@ function bookingPaceSummary(payload: any, today: string) {
   const nights = Array.isArray(payload?.nights) ? payload.nights : [];
   const cancellations = Array.isArray(payload?.cancellations) ? payload.cancellations : [];
   const cutoffMinutes = budapestParts().minutes;
-  const statsFor = (day: string) => paceStatsForDay(nights, cancellations, day, cutoffMinutes);
+  const statsCache = new Map<string, PaceStats>();
+  const statsFor = (day: string) => {
+    const cached = statsCache.get(day);
+    if (cached) return cached;
+    const value = paceStatsForDay(nights, cancellations, day, cutoffMinutes);
+    statsCache.set(day, value);
+    return value;
+  };
 
   const current = statsFor(today);
   const yesterday = statsFor(addDays(today, -1));
@@ -349,7 +362,6 @@ function latestSnapshotForDate(snapshots: any[], stayDate: string) {
 
 function revenueSummary(payload: any, today: string, syncCompletedAt: string | null) {
   const nights = Array.isArray(payload?.nights) ? payload.nights : [];
-  const cancellations = Array.isArray(payload?.cancellations) ? payload.cancellations : [];
   const snapshots = Array.isArray(payload?.snapshots) ? payload.snapshots : [];
   const roomTypes = Array.isArray(payload?.roomTypes) ? payload.roomTypes : [];
   const rates = Array.isArray(payload?.rates) ? payload.rates : [];
@@ -593,6 +605,7 @@ async function buildContext(db: any, profile: any, hotels: any[], question: stri
   const today = budapestDay();
   const picked = selectedHotels(question, page, hotels);
   const context: any = {
+    organization_slug: profile.organization_slug,
     now: {
       timezone: HOTEL_TZ,
       today,
@@ -778,11 +791,19 @@ Deno.serve(async (req) => {
   }
 
   const [{ data: profile }, { data: thread }] = await Promise.all([
-    db.from("profiles").select("id,role,assigned_hotel,organization_slug,preferred_language").eq("id", authData.user.id).is("deleted_at", null).maybeSingle(),
+    db.from("profiles").select("id,role,assigned_hotel,organization_slug,preferred_language,is_super_admin").eq("id", authData.user.id).is("deleted_at", null).maybeSingle(),
     db.from("assistant_threads").select("id,user_id,organization_slug").eq("id", threadId).eq("user_id", authData.user.id).maybeSingle(),
   ]);
   if (!profile) return json({ error: "Profile not found" }, 403);
   if (!thread) return json({ error: "Conversation not found" }, 404);
+
+  const page = body?.page && typeof body.page === "object" ? body.page : null;
+  const requestedOrgSlug = typeof page?.organizationSlug === "string" ? page.organizationSlug.trim() : "";
+  const targetOrgSlug = profile.is_super_admin && requestedOrgSlug
+    ? requestedOrgSlug
+    : profile.organization_slug;
+  if (!targetOrgSlug) return json({ error: "No organization is available for this request" }, 403);
+  const scopedProfile = { ...profile, organization_slug: targetOrgSlug };
 
   const scope = requestedScope(question);
   const scopes = allowedScopes(String(profile.role ?? ""));
@@ -790,11 +811,11 @@ Deno.serve(async (req) => {
     return manualStream(`I can’t access ${scope} information with your current role.`, { needsScope: scope });
   }
 
-  const { data: org } = profile.organization_slug
-    ? await db.from("organizations").select("id").eq("slug", profile.organization_slug).maybeSingle()
-    : { data: null };
+  const { data: org } = await db.from("organizations").select("id").eq("slug", targetOrgSlug).maybeSingle();
+  if (!org?.id) return json({ error: "The selected organization could not be resolved" }, 404);
+
   let hotels: any[] = [];
-  if (org?.id && ["admin", "manager", "top_management", "top_management_manager"].includes(String(profile.role))) {
+  if (["admin", "manager", "top_management", "top_management_manager"].includes(String(profile.role))) {
     const { data } = await db.from("hotel_configurations")
       .select("hotel_id,hotel_name")
       .eq("organization_id", org.id)
@@ -802,74 +823,84 @@ Deno.serve(async (req) => {
       .order("hotel_name");
     hotels = data ?? [];
   }
-  if (!hotels.length && profile.assigned_hotel) {
+  if (!hotels.length && profile.assigned_hotel && targetOrgSlug === profile.organization_slug) {
     hotels = [{ hotel_id: profile.assigned_hotel, hotel_name: profile.assigned_hotel }];
   }
 
-  const { data: reservation, error: reserveError } = await db.rpc("reserve_assistant_premium_question", {
-    _user_id: authData.user.id,
-    _organization_slug: profile.organization_slug,
-    _thread_id: threadId,
-    _model: PREMIUM_MODEL,
-  });
-  if (reserveError) return json({ error: `Could not reserve deep-analysis capacity: ${reserveError.message}` }, 500);
-
-  if (!reservation?.allowed) {
-    const answer = "This needs a deeper analysis. You’ve used today’s 5 included deep-analysis questions. Add credits to continue — purchased credits stay in your account until you use them.";
-    await db.from("assistant_messages").insert([
-      { thread_id: threadId, user_id: authData.user.id, role: "user", content: question, refused: false },
-      { thread_id: threadId, user_id: authData.user.id, role: "assistant", content: answer, refused: false },
-    ]);
-    await db.from("assistant_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId).eq("user_id", authData.user.id);
-    return manualStream(answer, {
-      premiumRequired: true,
-      premiumUsage: reservation,
-      premiumPackages: [
-        { id: "premium_5", credits: 5, amount_eur: 5 },
-        { id: "premium_10", credits: 10, amount_eur: 10 },
-      ],
-    });
-  }
-
-  const usageId = String(reservation.usage_id);
-  let finalized = false;
-  const finalize = async (success: boolean) => {
-    if (finalized) return;
-    finalized = true;
-    const { error } = await db.rpc("finalize_assistant_premium_question", { _usage_id: usageId, _success: success });
-    if (error) console.error("premium finalize failed", error);
-  };
+  let finalize: ((success: boolean) => Promise<void>) | null = null;
 
   try {
-    const page = body?.page && typeof body.page === "object" ? body.page : null;
-    const context = await buildContext(db, profile, hotels, question, page, scope);
+    // Build the authoritative context before reserving a premium question. A
+    // database/context failure must never consume or lock a user's allowance.
+    const context = await buildContext(db, scopedProfile, hotels, question, page, scope);
     const { data: stored } = await db.from("assistant_messages")
       .select("role,content,created_at")
       .eq("thread_id", threadId)
       .eq("user_id", authData.user.id)
       .order("created_at", { ascending: true })
       .limit(30);
-    const history = (stored ?? []).slice(-12).map((row: any) => ({
+
+    const storedRows = stored ?? [];
+    const lastStored = storedRows.at(-1);
+    const samePendingQuestion = lastStored?.role === "user" && String(lastStored?.content ?? "").trim() === question;
+    const historyRows = samePendingQuestion ? storedRows.slice(0, -1) : storedRows;
+    const history = historyRows.slice(-12).map((row: any) => ({
       role: row.role === "assistant" ? "assistant" : "user",
       content: String(row.content ?? "").slice(0, 5000),
     }));
 
-    const { error: userSaveError } = await db.from("assistant_messages").insert({
-      thread_id: threadId,
-      user_id: authData.user.id,
-      role: "user",
-      content: question,
-      refused: false,
+    const { data: reservation, error: reserveError } = await db.rpc("reserve_assistant_premium_question", {
+      _user_id: authData.user.id,
+      _organization_slug: targetOrgSlug,
+      _thread_id: threadId,
+      _model: PREMIUM_MODEL,
     });
-    if (userSaveError) {
-      await finalize(false);
-      return json({ error: "Could not save your question" }, 500);
+    if (reserveError) return json({ error: `Could not reserve deep-analysis capacity: ${reserveError.message}` }, 500);
+
+    if (!reservation?.allowed) {
+      const answer = "This needs a deeper analysis. You’ve used today’s 5 included deep-analysis questions. Add credits to continue — purchased credits stay in your account until you use them.";
+      if (!samePendingQuestion) {
+        await db.from("assistant_messages").insert({ thread_id: threadId, user_id: authData.user.id, role: "user", content: question, refused: false });
+      }
+      await db.from("assistant_messages").insert({ thread_id: threadId, user_id: authData.user.id, role: "assistant", content: answer, refused: false });
+      await db.from("assistant_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId).eq("user_id", authData.user.id);
+      return manualStream(answer, {
+        premiumRequired: true,
+        premiumUsage: reservation,
+        premiumPackages: [
+          { id: "premium_5", credits: 5, amount_eur: 5 },
+          { id: "premium_10", credits: 10, amount_eur: 10 },
+        ],
+      });
+    }
+
+    const usageId = String(reservation.usage_id);
+    let finalized = false;
+    finalize = async (success: boolean) => {
+      if (finalized) return;
+      finalized = true;
+      const { error } = await db.rpc("finalize_assistant_premium_question", { _usage_id: usageId, _success: success });
+      if (error) console.error("premium finalize failed", error);
+    };
+
+    if (!samePendingQuestion) {
+      const { error: userSaveError } = await db.from("assistant_messages").insert({
+        thread_id: threadId,
+        user_id: authData.user.id,
+        role: "user",
+        content: question,
+        refused: false,
+      });
+      if (userSaveError) {
+        await finalize(false);
+        return json({ error: "Could not save your question" }, 500);
+      }
     }
 
     const openai = createOpenAI({ apiKey: openAiKey });
     const result = streamText({
       model: openai.responses(PREMIUM_MODEL),
-      system: `You are HotelCare Deep Analysis, the higher-intelligence problem-solving tier inside HotelCare.app. A deep-analysis allowance is being used, so the answer must feel like an experienced hotel revenue manager investigated the problem, not like a generic chatbot.
+      system: `You are HotelCare Deep Analysis, the highest-intelligence problem-solving tier inside HotelCare.app. Use the strongest available reasoning for questions that require KPI diagnosis, revenue strategy, root-cause analysis or multi-signal decisions. The answer must feel like an experienced hotel revenue manager investigated the problem, not like a generic chatbot.
 
 CURRENT HOTELCARE CONTEXT is authoritative for this turn and OVERRIDES earlier assistant messages. If an earlier answer claimed data was unavailable but current context contains it, ignore the old claim.
 
@@ -925,7 +956,7 @@ Never expose table names, database fields, internal ids, tools, model names, quo
       ] as any,
       abortSignal: req.signal,
       providerOptions: {
-        openai: { store: false, reasoningEffort: "high", reasoningSummary: "auto" },
+        openai: { store: false, reasoningEffort: "xhigh", reasoningSummary: "auto" },
       },
     });
 
@@ -933,12 +964,12 @@ Never expose table names, database fields, internal ids, tools, model names, quo
       headers: CORS,
       onFinish: async ({ responseMessage, isAborted }) => {
         if (isAborted) {
-          await finalize(false);
+          await finalize?.(false);
           return;
         }
         const answer = extractText(responseMessage as any);
         if (!answer) {
-          await finalize(false);
+          await finalize?.(false);
           return;
         }
         const { error: saveError } = await db.from("assistant_messages").insert({
@@ -951,30 +982,30 @@ Never expose table names, database fields, internal ids, tools, model names, quo
         });
         if (saveError) {
           console.error("premium answer save failed", saveError);
-          await finalize(false);
+          await finalize?.(false);
           return;
         }
         await db.from("assistant_threads").update({ updated_at: new Date().toISOString() }).eq("id", threadId).eq("user_id", authData.user.id);
         await db.from("assistant_audit_log").insert({
           user_id: authData.user.id,
-          organization_slug: profile.organization_slug,
-          hotel_id: context?.properties?.length === 1 ? context.properties[0].id : profile.assigned_hotel,
+          organization_slug: targetOrgSlug,
+          hotel_id: context?.properties?.length === 1 ? context.properties[0].id : (targetOrgSlug === profile.organization_slug ? profile.assigned_hotel : null),
           role: profile.role,
           question,
           refused: false,
           scopes_used: scope ? [`premium-${scope}`] : ["premium-analysis"],
           model: PREMIUM_MODEL,
         });
-        await finalize(true);
+        await finalize?.(true);
       },
       onError: (error) => {
-        void finalize(false);
+        if (finalize) runInBackground(finalize(false));
         console.error("premium assistant stream failed", error);
         return "The deep analysis could not finish. Your allowance has been returned; please try again.";
       },
     });
   } catch (error) {
-    await finalize(false);
+    if (finalize) await finalize(false);
     if (error instanceof DOMException && error.name === "AbortError") return json({ error: "Request cancelled" }, 499);
     console.error("assistant-chat-router premium error", error);
     return json({ error: error instanceof Error ? error.message : "Deep analysis failed" }, 500);
