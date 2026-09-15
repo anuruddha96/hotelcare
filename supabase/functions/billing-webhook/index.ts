@@ -37,6 +37,15 @@ function parseSelections(meta: Record<string, string> | null | undefined) {
     .map((s) => ({ ...s, module: s.module === "revenue" ? "revenue_automation" : s.module }));
 }
 
+function parseSelectionItemIndexes(meta: Record<string, string> | null | undefined) {
+  const raw = meta?.selection_item_indexes ?? "";
+  if (!raw) return [];
+  return raw.split(",").map((value) => {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : -1;
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
@@ -74,21 +83,31 @@ Deno.serve(async (req) => {
       const subMeta = (sub.metadata ?? {}) as Record<string, string>;
       const slug = subMeta.organization_slug;
       const selections = parseSelections(subMeta);
+      const selectionItemIndexes = parseSelectionItemIndexes(subMeta);
       if (!slug || !selections.length) return;
 
       const items = sub.items?.data ?? [];
       const periodEnd = (sub as unknown as { current_period_end?: number }).current_period_end;
+      const primaryItemIndexes = new Set<number>();
 
       for (let i = 0; i < selections.length; i++) {
         const sel = selections[i];
-        const item = items[i];
+        const mappedIndex = selectionItemIndexes[i];
+        const itemIndex = mappedIndex != null && mappedIndex >= 0 ? mappedIndex : i;
+        const item = items[itemIndex];
+        const isPrimaryBillingRow = !primaryItemIndexes.has(itemIndex);
+        primaryItemIndexes.add(itemIndex);
+
         await db.from("module_subscriptions").upsert(
           {
             organization_slug: slug,
             hotel_id: sel.hotel_id,
             module: sel.module,
             status: sub.status,
-            quantity: item?.quantity ?? 0,
+            // Shared organization agreements intentionally create one Stripe item
+            // for several hotel/module access rows. Only one row carries the billed
+            // quantity so aggregate monthly totals are not multiplied per property.
+            quantity: isPrimaryBillingRow ? item?.quantity ?? 0 : 0,
             unit_amount_cents: item?.price?.unit_amount ?? 0,
             currency: (item?.price?.currency ?? "eur").toUpperCase(),
             stripe_customer_id: typeof sub.customer === "string" ? sub.customer : sub.customer?.id ?? null,
