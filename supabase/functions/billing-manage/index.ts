@@ -2,12 +2,11 @@
 //
 // Actions:
 //   summary  — settings, hotels + live room counts, current subscriptions, trial state
-//   checkout — creates a Stripe Checkout session (monthly subscription, per-room quantity)
+//   checkout — creates a Stripe Checkout session using the resolved commercial agreement
 //   portal   — opens the Stripe billing portal
 //
 // Prices and room counts are always recomputed server-side; the client can
-// only say WHICH hotel/module pairs it wants. Amounts are VAT-exclusive
-// (automatic tax disabled).
+// only say WHICH hotel/module pairs it wants. Amounts are VAT-exclusive.
 
 import Stripe from "npm:stripe@18";
 import {
@@ -17,17 +16,20 @@ import {
   requireBillingCaller,
   loadSettings,
   loadHotels,
-  priceFor,
   promotionForModule,
   moduleEnabled,
   moduleLabel,
   trialEndsAt,
   normaliseModule,
-  isRevenueModule,
   vatCents,
   type BillingSettings,
   type ModuleKey,
 } from "../_shared/billing.ts";
+import {
+  loadBillingOverrides,
+  resolveBillingBypass,
+  resolveModulePricing,
+} from "../_shared/billingOverrides.ts";
 
 const MODULES: ModuleKey[] = ["revenue_bi", "revenue_automation", "operations", "maintenance"];
 
@@ -86,6 +88,7 @@ Deno.serve(async (req) => {
 
     const settings = await loadSettings(slug);
     const hotels = await loadHotels(slug);
+    const { moduleRows, accessRows } = await loadBillingOverrides(slug);
     const db = admin();
 
     const { data: subs } = await db
@@ -93,10 +96,19 @@ Deno.serve(async (req) => {
       .select("*")
       .eq("organization_slug", slug);
 
+    const resolvedHotels = hotels.map((hotel) => {
+      const bypass = resolveBillingBypass(accessRows, hotel.hotel_id);
+      return {
+        ...hotel,
+        billing_bypass: bypass.active,
+        billing_bypass_scope: bypass.scope,
+      };
+    });
+    const modulePricing = hotels.flatMap((hotel) =>
+      MODULES.map((module) => resolveModulePricing(settings, hotel.hotel_id, module, moduleRows)),
+    );
+
     if (action === "summary") {
-      // Percentage-based Revenue Management settles last full month automatically:
-      // the figures are recomputed, stored and (outside the trial) invoiced here,
-      // so nobody has to press a button.
       let usage: UsageRow[] = [];
       if (settings.revenue_pricing_mode === "percent") {
         try {
@@ -109,15 +121,14 @@ Deno.serve(async (req) => {
 
       return json({
         settings: { ...settings, stripe_secret_configured: Boolean(Deno.env.get("STRIPE_SECRET_KEY")) },
-        hotels,
+        hotels: resolvedHotels,
         subscriptions: subs ?? [],
         trial_ends_at: trialEndsAt(settings),
         revenue_usage: usage,
+        module_pricing: modulePricing,
       });
     }
 
-    // Kept for the monthly cron / API callers. Stripe is optional here: without it
-    // the figures are still stored, just not invoiced.
     if (action === "usage_rollup") {
       if (settings.revenue_pricing_mode !== "percent") {
         return json({ error: "This organization is not on percentage pricing" }, 400);
@@ -131,9 +142,6 @@ Deno.serve(async (req) => {
 
     if (action === "portal") {
       const customerId = (subs ?? []).find((s) => s.stripe_customer_id)?.stripe_customer_id;
-      // No Stripe customer exists until the first successful checkout. This is a
-      // normal state (e.g. during the trial), not an error — tell the client so
-      // it can point the user at checkout instead of showing a failure.
       if (!customerId) {
         return json({
           needs_checkout: true,
@@ -148,7 +156,6 @@ Deno.serve(async (req) => {
     }
 
     if (action === "invoices") {
-      if (!stripe) return json({ invoices: [] });
       const customerId = (subs ?? []).find((s) => s.stripe_customer_id)?.stripe_customer_id;
       if (!customerId) return json({ invoices: [] });
       const list = await stripe.invoices.list({ customer: String(customerId), limit: 24 });
@@ -184,16 +191,14 @@ Deno.serve(async (req) => {
       for (const sel of selections) {
         const module = normaliseModule(String(sel.module));
         if (!MODULES.includes(module)) continue;
-        // Maintenance is quoted individually — it never goes through checkout.
-        if (module === "maintenance" && settings.maintenance_pricing_mode !== "per_room") continue;
         const hotel = hotels.find((h) => h.hotel_id === sel.hotel_id);
         if (!hotel) continue;
         if (!moduleEnabled(settings, module)) continue;
 
-        // Revenue Management can be sold as a share of realised revenue. The
-        // subscription then carries a zero-amount monthly line and the real fee
-        // is invoiced monthly from the synced revenue.
-        if (isRevenueModule(module) && settings.revenue_pricing_mode !== "per_room") {
+        const pricing = resolveModulePricing(settings, hotel.hotel_id, module, moduleRows);
+        if (pricing.pricing_mode === "custom") continue;
+
+        if (pricing.pricing_mode === "percent") {
           const pct = (settings.revenue_percent_bps / 100).toFixed(2).replace(/\.00$/, "");
           lineItems.push({
             quantity: 1,
@@ -212,10 +217,13 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const unit = priceFor(settings, module);
-        const promotion = promotionForModule(settings, module);
-        const qty = hotel.rooms;
+        const unit = pricing.price_cents;
+        const qty = pricing.pricing_mode === "fixed_monthly" ? 1 : hotel.rooms;
         if (unit <= 0 || qty <= 0) continue;
+        const promotion = pricing.source === "standard" ? promotionForModule(settings, module) : null;
+        const basis = pricing.pricing_mode === "fixed_monthly"
+          ? `Fixed monthly fee ${(unit / 100).toFixed(2)} ${settings.currency} (excl. VAT)`
+          : `${qty} rooms × ${(unit / 100).toFixed(2)} ${settings.currency} per room / month (excl. VAT)`;
 
         lineItems.push({
           quantity: qty,
@@ -226,9 +234,7 @@ Deno.serve(async (req) => {
             recurring: { interval: "month" },
             product_data: {
               name: `${moduleLabel(settings, module)} — ${hotel.hotel_name}`,
-              description: `${qty} rooms × ${(unit / 100).toFixed(2)} ${settings.currency} per room / month (excl. VAT)${
-                promotion?.active ? ` · ${promotion.label}` : ""
-              }`,
+              description: `${basis}${promotion?.active ? ` · ${promotion.label}` : ""}`,
             },
           },
         });
@@ -242,13 +248,6 @@ Deno.serve(async (req) => {
       const existingCustomer = (subs ?? []).find((s) => s.stripe_customer_id)?.stripe_customer_id;
       const origin = String(body.returnUrl ?? req.headers.get("origin") ?? "");
 
-      // Subscribing during the trial is allowed and must not charge early:
-      // billing starts the day the trial ends.
-      // Stripe rejects a `trial_end` that is less than 48 hours away, so only
-      // pass it when the trial still has more than two days to run. Closer to
-      // the end (or past it) billing simply starts immediately.
-      // The courtesy (grace) window after the trial counts as free time too, so
-      // a customer who adds a card during it is only charged once it runs out.
       const trialEnd = trialEndsAt(settings);
       const graceDays = Math.max(0, Number(settings.grace_days ?? 0));
       const freeUntil = trialEnd
@@ -258,15 +257,11 @@ Deno.serve(async (req) => {
       const nowSec = Math.floor(Date.now() / 1000);
       const useTrial = trialEndSec > nowSec + 48 * 3600 + 300;
 
-      // Company details for the invoice: collected at checkout (name, address,
-      // tax number) so every Stripe invoice carries them.
       const base: Stripe.Checkout.SessionCreateParams = {
         mode: "subscription",
         line_items: lineItems,
         customer: existingCustomer ?? undefined,
         billing_address_collection: "required",
-        // Card details are always captured, even when nothing is due today, so
-        // the subscription can start by itself when the free period ends.
         payment_method_collection: "always",
         tax_id_collection: { enabled: true },
         ...(existingCustomer ? { customer_update: { name: "auto", address: "auto" } } : {}),
@@ -279,10 +274,6 @@ Deno.serve(async (req) => {
         cancel_url: `${origin}?billing=cancelled`,
       };
 
-      // VAT must always show as a separate line on the checkout. Stripe Tax only
-      // computes it when the account has an active tax registration; without one
-      // it silently returns "Tax 0.00". So we check first and otherwise attach an
-      // explicit VAT rate so the customer sees net + VAT + gross.
       let hasTaxRegistration = false;
       try {
         const regs = await stripe.tax.registrations.list({ status: "active", limit: 1 });
@@ -305,7 +296,6 @@ Deno.serve(async (req) => {
           line_items: lineItems.map((li) => ({ ...li, tax_rates: rate ? [rate] : undefined })),
         });
       }
-
 
       return json({
         url: session.url,

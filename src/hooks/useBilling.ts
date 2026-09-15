@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
 export type BillingModule = 'revenue_bi' | 'revenue_automation' | 'operations' | 'maintenance';
+export type BillingPricingMode = 'per_room' | 'fixed_monthly' | 'percent' | 'custom';
 
 /** Old rows/clients used a single 'revenue' key — it means the automation tier. */
 export function normaliseModule(module: string): BillingModule {
@@ -72,7 +73,6 @@ export interface BillingSettings {
   grace_days: number;
 }
 
-
 /** Last full month's realised revenue and the resulting percentage fee. */
 export interface RevenueUsage {
   hotel_id: string;
@@ -93,6 +93,17 @@ export interface BillingHotel {
   hotel_id: string;
   hotel_name: string;
   rooms: number;
+  /** Billing-only override; never represents hotel_configurations.is_active. */
+  billing_bypass?: boolean;
+  billing_bypass_scope?: 'organization' | 'hotel' | null;
+}
+
+export interface ResolvedModulePricing {
+  hotel_id: string;
+  module: BillingModule;
+  pricing_mode: BillingPricingMode;
+  price_cents: number;
+  source: 'standard' | 'organization' | 'hotel';
 }
 
 export interface ModuleSubscription {
@@ -127,6 +138,7 @@ export interface BillingSummary {
   subscriptions: ModuleSubscription[];
   trial_ends_at: string | null;
   revenue_usage?: RevenueUsage[];
+  module_pricing?: ResolvedModulePricing[];
 }
 
 const ACTIVE = ['active', 'trialing', 'past_due'];
@@ -160,10 +172,15 @@ function courtesyOpen(summary: BillingSummary | null) {
   return trialIsRunning(summary) || inGracePeriod(summary);
 }
 
-/** A module is usable while the trial runs or a subscription is active. */
+/** True when an admin has explicitly bypassed payment gating for the hotel. */
+export function billingBypassed(summary: BillingSummary | null, hotelId: string) {
+  return Boolean(summary?.hotels.find((hotel) => hotel.hotel_id === hotelId)?.billing_bypass);
+}
+
+/** A module is usable while billing is bypassed, the trial runs or a subscription is active. */
 export function moduleUnlocked(summary: BillingSummary | null, hotelId: string, module: BillingModule) {
   if (!summary) return true;
-  if (courtesyOpen(summary)) return true;
+  if (billingBypassed(summary, hotelId) || courtesyOpen(summary)) return true;
   return isSubscriptionActive(
     summary.subscriptions.find(
       (s) => s.hotel_id === hotelId && normaliseModule(s.module) === normaliseModule(module),
@@ -174,7 +191,7 @@ export function moduleUnlocked(summary: BillingSummary | null, hotelId: string, 
 /** Any Revenue tier unlocks the revenue screens. */
 export function revenueUnlocked(summary: BillingSummary | null, hotelId: string) {
   if (!summary) return true;
-  if (courtesyOpen(summary)) return true;
+  if (billingBypassed(summary, hotelId) || courtesyOpen(summary)) return true;
   return summary.subscriptions.some(
     (s) => s.hotel_id === hotelId && isRevenueModule(s.module) && isSubscriptionActive(s),
   );
@@ -183,7 +200,7 @@ export function revenueUnlocked(summary: BillingSummary | null, hotelId: string)
 /** Only the BI + Automation tier unlocks the automated pricing engine. */
 export function automationUnlocked(summary: BillingSummary | null, hotelId: string) {
   if (!summary) return true;
-  if (courtesyOpen(summary)) return true;
+  if (billingBypassed(summary, hotelId) || courtesyOpen(summary)) return true;
   return moduleUnlocked(summary, hotelId, 'revenue_automation');
 }
 
@@ -307,6 +324,33 @@ export function effectivePriceFor(
   return promotion?.active ? promotion.promotionalPriceCents : listPriceFor(settings, module);
 }
 
+/** Resolved commercial model after hotel > organization > standard precedence. */
+export function resolvedPricingFor(
+  summary: BillingSummary | null | undefined,
+  hotelId: string,
+  module: BillingModule,
+): ResolvedModulePricing {
+  const resolved = summary?.module_pricing?.find(
+    (row) => row.hotel_id === hotelId && normaliseModule(row.module) === normaliseModule(module),
+  );
+  if (resolved) return resolved;
+
+  const settings = summary?.settings;
+  if (isRevenueModule(module) && settings?.revenue_pricing_mode !== 'per_room') {
+    return { hotel_id: hotelId, module, pricing_mode: 'percent', price_cents: 0, source: 'standard' };
+  }
+  if (normaliseModule(module) === 'maintenance' && settings?.maintenance_pricing_mode !== 'per_room') {
+    return { hotel_id: hotelId, module, pricing_mode: 'custom', price_cents: 0, source: 'standard' };
+  }
+  return {
+    hotel_id: hotelId,
+    module: normaliseModule(module),
+    pricing_mode: 'per_room',
+    price_cents: effectivePriceFor(settings, module),
+    source: 'standard',
+  };
+}
+
 /** Backward-compatible aggregate used by any client still expecting a single promotion flag. */
 export function earlyBirdActive(settings: BillingSettings | undefined | null, asOf: Date | string = new Date()) {
   return Boolean(
@@ -326,7 +370,6 @@ export async function fetchBillingSummary(organizationSlug?: string | null) {
   if (!payload || payload.error) return null;
   return payload;
 }
-
 
 /** VAT for a net amount, using the organization's rate. */
 export function vatCents(summary: BillingSummary | null, netCents: number) {

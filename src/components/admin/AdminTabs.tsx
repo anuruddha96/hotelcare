@@ -8,6 +8,7 @@ import PMSConfigurationManagement from './PMSConfigurationManagement';
 import { BreakfastCodeManagement } from './BreakfastCodeManagement';
 import { Building2, Hotel, Languages, HardDrive, Cable, Coffee, GraduationCap, MapPin, Mail, CreditCard, Megaphone } from 'lucide-react';
 import BillingSettingsPanel from './BillingSettingsPanel';
+import BillingOverridesPanel from './BillingOverridesPanel';
 import AnnouncementsPanel from './AnnouncementsPanel';
 import { TrainingAdminPanel } from './TrainingAdminPanel';
 import AiProviderStatus from './AiProviderStatus';
@@ -124,7 +125,10 @@ export const AdminTabs = () => {
         </TabsContent>
 
         <TabsContent value="payments">
-          <BillingSettingsPanel />
+          <div className="space-y-6">
+            <BillingSettingsPanel />
+            <BillingOverridesPanel />
+          </div>
         </TabsContent>
 
         <TabsContent value="announcements">
