@@ -322,7 +322,7 @@ export function HistoricalHotelRoomOverview({
     const history = room.history;
 
     const assignedTo = history?.assigned_to ?? assignment?.assigned_to ?? null;
-    const name = assignedTo ? assigneeLabel(staffMap[assignedTo] || assignedTo) : null;
+    const name = assignedTo ? assigneeLabel(staffMap, assignedTo) : null;
     const assignmentStatus = history?.assignment_status ?? assignment?.status ?? null;
     const approved = Boolean(history?.supervisor_approved ?? assignment?.supervisor_approved);
     const noService = Boolean(
@@ -502,7 +502,7 @@ export function HistoricalHotelRoomOverview({
                   <div key={task.id} className="rounded border bg-muted/40 px-2 py-1 text-[10px]">
                     <span className="font-semibold">{task.task_name}</span>
                     <span className="ml-1 text-muted-foreground">
-                      · {assigneeLabel(staffMap[task.assigned_to] || task.assigned_to)} · {task.status.replace(/_/g, ' ')}
+                      · {assigneeLabel(staffMap, task.assigned_to)} · {task.status.replace(/_/g, ' ')}
                     </span>
                   </div>
                 ))}

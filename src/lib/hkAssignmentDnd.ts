@@ -321,7 +321,7 @@ function autoScrollMobileDrag(y: number) {
 
 function installMobileHousekeeperDragBridge() {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
-  const win = window as Window & Record<string, unknown>;
+  const win = window as unknown as Record<string, unknown>;
   if (win[MOBILE_DND_INSTALL_KEY]) return;
   win[MOBILE_DND_INSTALL_KEY] = true;
 

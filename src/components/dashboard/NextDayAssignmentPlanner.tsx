@@ -653,7 +653,7 @@ export function NextDayAssignmentPlanner({
         notFound: result.notFound,
         checkoutsToday: result.checkouts,
         errors: result.errors,
-        reservationDataAuthoritative: result.reservationDataAuthoritative !== false,
+        reservationDataAuthoritative: (result.reservationDataAuthoritative as boolean | undefined) !== false,
         managerMessage: result.managerMessage || null,
         selectedDateOverviewSupported: (overviewData as any)?.supported !== false,
         selectedDateOverviewRows: Number((overviewData as any)?.rowsInserted || 0),
