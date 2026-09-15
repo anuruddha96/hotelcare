@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { addDays, budapestDayOf, eur } from "@/lib/revenueAnalytics";
-import { currencySymbol } from "@/lib/revenueCurrency";
+import { convert, currencySymbol, toBaseCurrency, useRevenueCurrency } from "@/lib/revenueCurrency";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 /* ------------------------------------------------------------------ types */
@@ -156,6 +156,9 @@ interface Props {
  * Every figure comes from Previo reservation data (Budapest calendar days).
  */
 export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props) {
+  const currency = useRevenueCurrency();
+  const currencyKey = `${currency.code}:${currency.displayCode}:${currency.eurRate ?? ""}`;
+
   /* ------------------------------------------------------------- filters */
   const [preset, setPreset] = useState<PresetKey>("today");
   const [customFrom, setCustomFrom] = useState(today);
@@ -236,6 +239,15 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
       promo_budget: next.promoBudget,
     } as any, { onConflict: "hotel_id" });
   }, [storageKey, hotelId]);
+
+  const saveDisplayedMoneyGoal = useCallback((
+    field: "targetAdr" | "targetValue" | "promoBudget",
+    displayValue: number,
+  ) => {
+    const baseValue = toBaseCurrency(displayValue);
+    if (baseValue === null) return;
+    saveGoals({ ...goals, [field]: Math.round(baseValue) });
+  }, [goals, saveGoals, currencyKey]);
 
 
   /* ---------------------------------------------------------------- data */
@@ -491,7 +503,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
         return {
           label, bookings: v.bookings, roomNights: v.nights, revenue: v.revenue,
           adr, diff,
-          // How many euros of ADR this group drags the whole day by.
+          // How much this group moves the overall ADR in the hotel's base currency.
           impact: kpi.roomNights ? (diff * v.nights) / kpi.roomNights : 0,
         };
       }).sort((a, b) => a.impact - b.impact);
@@ -575,7 +587,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
       });
     }
     return out;
-  }, [liveBookings, leakage, goals.targetAdr, kpi.adr, nightsByStayDate]);
+  }, [liveBookings, leakage, goals.targetAdr, kpi.adr, nightsByStayDate, currencyKey]);
 
   /* ------------------------------------------- signal actions + AI review */
   const [aiSignals, setAiSignals] = useState<AiSignal[]>([]);
@@ -670,6 +682,11 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     setAiError(null);
     try {
       const evidence = {
+        currency: {
+          base: currency.code,
+          display: currency.displayCode,
+          eurRate: currency.eurRate,
+        },
         goals,
         kpi: { adr: kpi.adr, roomNights: kpi.roomNights, revenue: kpi.revenue },
         heuristics: recommendations,
@@ -694,7 +711,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     } finally {
       setAiLoading(false);
     }
-  }, [hotelId, today, goals, kpi, recommendations, leakage, liveBookings]);
+  }, [hotelId, today, goals, kpi, recommendations, leakage, liveBookings, currency.code, currency.displayCode, currency.eurRate]);
 
 
   /* -------------------------------------------------------- booking list */
@@ -724,7 +741,15 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
     if (kpi.variance >= 0) return `${base}, which is ${eur(Math.round(kpi.variance))} above your ${eur(goals.targetAdr)} target.`;
     const cause = worst && worst.diff < 0 ? ` The largest negative impact comes from ${worst.label}.` : "";
     return `${base}, which is ${eur(Math.round(Math.abs(kpi.variance)))} below your ${eur(goals.targetAdr)} target.${cause}`;
-  }, [kpi, goals.targetAdr, leakage, periodWord]);
+  }, [kpi, goals.targetAdr, leakage, periodWord, currencyKey]);
+
+  const moneyTick = useCallback((value: number) => {
+    const displayed = convert(Number(value));
+    if (displayed === null) return "—";
+    return Math.abs(displayed) >= 1000
+      ? `${Math.round(displayed / 100) / 10}k`
+      : String(Math.round(displayed));
+  }, [currencyKey]);
 
   /* ----------------------------------------------------------------- UI */
   return (
@@ -821,11 +846,25 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="pt-2 grid grid-cols-2 gap-2">
-            <GoalInput label={`Target ADR (${currencySymbol()})`} value={goals.targetAdr} onChange={(v) => saveGoals({ ...goals, targetAdr: v })} />
+            <GoalInput
+              label={`Target ADR (${currencySymbol()})`}
+              value={Math.round(convert(goals.targetAdr) ?? goals.targetAdr)}
+              onChange={(v) => saveDisplayedMoneyGoal("targetAdr", v)}
+            />
             <GoalInput label="Room-night target" value={goals.targetRoomNights} onChange={(v) => saveGoals({ ...goals, targetRoomNights: v })} />
-            <GoalInput label={`Booking value target (${currencySymbol()})`} value={goals.targetValue} onChange={(v) => saveGoals({ ...goals, targetValue: v })} />
-            <GoalInput label={`Max promotion budget (${currencySymbol()})`} value={goals.promoBudget} onChange={(v) => saveGoals({ ...goals, promoBudget: v })} />
-            <p className="col-span-2 text-[11px] text-muted-foreground">Saved for this property in {currencySymbol()} — everyone on the team sees the same targets.</p>
+            <GoalInput
+              label={`Booking value target (${currencySymbol()})`}
+              value={Math.round(convert(goals.targetValue) ?? goals.targetValue)}
+              onChange={(v) => saveDisplayedMoneyGoal("targetValue", v)}
+            />
+            <GoalInput
+              label={`Max promotion budget (${currencySymbol()})`}
+              value={Math.round(convert(goals.promoBudget) ?? goals.promoBudget)}
+              onChange={(v) => saveDisplayedMoneyGoal("promoBudget", v)}
+            />
+            <p className="col-span-2 text-[11px] text-muted-foreground">
+              Displayed in {currency.displayCode}; saved in {currency.code} for this property so everyone on the team shares the same targets.
+            </p>
           </CollapsibleContent>
         </Collapsible>
 
@@ -944,11 +983,11 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                   <ComposedChart data={chart} margin={{ top: 8, right: 4, left: -8, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-muted" />
                     <XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                    {/* Compact labels (12k) so large euro totals are never clipped. */}
+                    {/* The chart stays in base units internally; every visible tick follows the user's display currency. */}
                     <YAxis yAxisId="v" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={40}
-                      tickFormatter={(v: number) => (Math.abs(v) >= 1000 ? `${Math.round(v / 100) / 10}k` : String(Math.round(v)))} />
+                      tickFormatter={moneyTick} />
                     <YAxis yAxisId="adr" orientation="right" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={38}
-                      domain={[0, (max: number) => Math.max(goals.targetAdr * 1.4, max * 1.15)]} />
+                      domain={[0, (max: number) => Math.max(goals.targetAdr * 1.4, max * 1.15)]} tickFormatter={moneyTick} />
                     <RTooltip
                       contentStyle={{ fontSize: 11, padding: "4px 8px" }}
                       formatter={(value: unknown, name: string, item: any) => {
@@ -1055,7 +1094,7 @@ export default function TodaysSalesAdrGoal({ hotelId, today, lastSyncAt }: Props
                   <LeakTable title="Length of stay" rows={leakage.los} target={goals.targetAdr} />
                   <LeakTable title="Arrival (stay) date" rows={leakage.stayDate} target={goals.targetAdr} formatLabel={fmtDay} />
                   <p className="text-[11px] text-muted-foreground">
-                    Estimated ADR impact = how many euros each group moves today’s overall ADR.
+                    Estimated ADR impact = how much each group moves today’s overall ADR in the selected display currency.
                     A rate below {eur(goals.targetAdr)} is not automatically bad: single room-nights on
                     otherwise empty stay dates still add revenue. Rate plans and promotions are not
                     exposed by the Previo reservation feed, so the channel is used as the closest proxy.
