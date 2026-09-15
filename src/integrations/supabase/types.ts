@@ -736,6 +736,45 @@ export type Database = {
         }
         Relationships: []
       }
+      billing_access_overrides: {
+        Row: {
+          bypass_billing: boolean
+          created_at: string
+          expires_at: string | null
+          hotel_id: string | null
+          id: string
+          organization_slug: string
+          reason: string | null
+          scope_key: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          bypass_billing?: boolean
+          created_at?: string
+          expires_at?: string | null
+          hotel_id?: string | null
+          id?: string
+          organization_slug: string
+          reason?: string | null
+          scope_key?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          bypass_billing?: boolean
+          created_at?: string
+          expires_at?: string | null
+          hotel_id?: string | null
+          id?: string
+          organization_slug?: string
+          reason?: string | null
+          scope_key?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       billing_events: {
         Row: {
           created_at: string
@@ -787,6 +826,45 @@ export type Database = {
           organization_slug?: string
           room_count?: number | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      billing_module_overrides: {
+        Row: {
+          created_at: string
+          hotel_id: string | null
+          id: string
+          module: string
+          organization_slug: string
+          price_cents: number
+          pricing_mode: string
+          scope_key: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          hotel_id?: string | null
+          id?: string
+          module: string
+          organization_slug: string
+          price_cents?: number
+          pricing_mode?: string
+          scope_key?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          hotel_id?: string | null
+          id?: string
+          module?: string
+          organization_slug?: string
+          price_cents?: number
+          pricing_mode?: string
+          scope_key?: string | null
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: []
       }
