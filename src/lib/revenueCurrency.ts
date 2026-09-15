@@ -38,7 +38,12 @@ const prefKey = (hotelId: string) => `revenue.displayCurrency.${hotelId}`;
 export function setRevenueCurrency(cfg: Partial<RevenueCurrencyConfig> & { hotelId?: string }) {
   const code = (cfg.code || current.code || "EUR").toUpperCase();
   const eurRate = cfg.eurRate ?? (code === "EUR" ? 1 : null);
-  let displayCode = (cfg.displayCode || code).toUpperCase();
+  // Updating only the rate/source for the hotel already on screen must not
+  // silently reset a user's HUF/EUR choice. A real property/base-currency
+  // switch still starts from the new base currency and then restores that
+  // property's persisted preference below.
+  const preserveCurrentDisplay = !cfg.hotelId && !cfg.displayCode && code === current.code;
+  let displayCode = (cfg.displayCode || (preserveCurrentDisplay ? current.displayCode : code)).toUpperCase();
 
   if (cfg.hotelId && !cfg.displayCode) {
     try {
