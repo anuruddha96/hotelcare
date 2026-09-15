@@ -322,7 +322,7 @@ export function HistoricalHotelRoomOverview({
     const history = room.history;
 
     const assignedTo = history?.assigned_to ?? assignment?.assigned_to ?? null;
-    const name = assignedTo ? assigneeLabel(staffMap[assignedTo] || assignedTo) : null;
+    const name = assignedTo ? assigneeLabel(staffMap, assignedTo) : null;
     const assignmentStatus = history?.assignment_status ?? assignment?.status ?? null;
     const approved = Boolean(history?.supervisor_approved ?? assignment?.supervisor_approved);
     const noService = Boolean(
