@@ -38,7 +38,11 @@ const prefKey = (hotelId: string) => `revenue.displayCurrency.${hotelId}`;
 export function setRevenueCurrency(cfg: Partial<RevenueCurrencyConfig> & { hotelId?: string }) {
   const code = (cfg.code || current.code || "EUR").toUpperCase();
   const eurRate = cfg.eurRate ?? (code === "EUR" ? 1 : null);
-  let displayCode = (cfg.displayCode || code).toUpperCase();
+  // A rate/source refresh for the hotel already on screen must not reset the
+  // user's Ft/€ choice. A real hotel/base-currency switch still starts from the
+  // new base currency (then restores that hotel's persisted preference below).
+  const preserveCurrentDisplay = !cfg.hotelId && !cfg.displayCode && code === current.code;
+  let displayCode = (cfg.displayCode || (preserveCurrentDisplay ? current.displayCode : code)).toUpperCase();
 
   if (cfg.hotelId && !cfg.displayCode) {
     try {
@@ -93,6 +97,22 @@ export function convert(value: number | null | undefined): number | null {
   if (current.displayCode === "EUR") {
     if (!current.eurRate || current.eurRate <= 0) return null;
     return value / current.eurRate;
+  }
+  return value;
+}
+
+/**
+ * Convert an amount entered in the selected display currency back to the
+ * hotel's PMS/base currency before it is persisted. This keeps editable goals
+ * safe: an input labelled "€" can never be written to a HUF field as if it were
+ * already forints.
+ */
+export function toBaseCurrency(value: number | null | undefined): number | null {
+  if (value === null || value === undefined || !Number.isFinite(value)) return null;
+  if (current.displayCode === current.code) return value;
+  if (current.displayCode === "EUR" && current.code !== "EUR") {
+    if (!current.eurRate || current.eurRate <= 0) return null;
+    return value * current.eurRate;
   }
   return value;
 }
