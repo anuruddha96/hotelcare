@@ -12,10 +12,10 @@ Turn the Phase 1 canonical reservation ledger into a usable property-scoped fron
 
 The workspace includes:
 - 14-day room × date tape chart with sticky room/date headers
-- HotelCare-native stays visually separated from read-only Previo snapshot stays
+- HotelCare-native stays visually separated from read-only Previo-backed stays
 - responsive list view with search
 - arrivals today, in-house, departures today and unassigned counters
-- unassigned-reservation queue
+- unassigned HotelCare-native reservation queue
 - refresh and rolling-window navigation
 - visible dual-run safety messaging
 
@@ -36,7 +36,7 @@ The reservation lifecycle is enforced server-side, not only in the React UI.
 
 ### Booked-rate integrity
 
-Manual reservations require a numeric nightly booked rate. Creation writes one immutable booked-rate row per stay night. Editing the Phase 2 flat nightly rate rebuilds the nightly snapshots transactionally and recalculates the reservation total.
+Manual reservations require a numeric nightly booked rate. Creation writes one booked-rate row per stay night. Editing the Phase 2 flat nightly rate rebuilds the nightly snapshots transactionally and recalculates the reservation total.
 
 This preserves the Phase 1 rule that the future PMS must not contain price-less booked nights.
 
@@ -44,7 +44,13 @@ This preserves the Phase 1 rule that the future PMS must not contain price-less 
 
 The server rejects overlapping active HotelCare-native reservations for the same physical room.
 
-A database trigger additionally verifies that every assigned room belongs to the same hotel as the reservation and keeps `room_type_id` aligned to the selected physical room. This is defense in depth against malformed/malicious clients and future server integrations.
+A database trigger additionally:
+- verifies that every assigned room belongs to the same hotel as the reservation
+- keeps `room_type_id` aligned to the selected physical room
+- rejects overlap with another active canonical HotelCare reservation
+- rejects overlap with the current Previo-backed `reservations` mirror
+
+This is defense in depth against malformed clients, future integrations and accidental dual-run double booking.
 
 ### Authorization
 
@@ -65,14 +71,17 @@ Create, edit and lifecycle transitions append `pms_reservation_events` rows with
 
 `pms_get_front_desk_feed` returns two independent sources:
 1. canonical `pms_*` reservations owned by HotelCare
-2. deduplicated `daily_overview_snapshots` used only as a read-only Previo visual adapter
+2. the existing Previo-backed `reservations` mirror, shaped as read-only stays for Reservations v2
 
-The UI never exposes edit/status actions for snapshot-backed stays.
+The existing reservation mirror is used instead of relying on daily overview snapshots because it contains current and future Previo bookings and physical-room mappings. The UI never exposes HotelCare edit/status actions for those imported stays.
+
+The live schema was checked read-only before finalizing Phase 2. At validation time the existing mirror contained 1,441 Previo reservations, including 939 current/future reservations and 853 current/future reservations already mapped to physical rooms. No production rows were modified by this validation.
 
 ## Files
 
 - `supabase/migrations/20260915103000_pms_phase2_front_desk.sql`
 - `supabase/migrations/20260915104500_pms_phase2_room_scope_guard.sql`
+- `supabase/migrations/20260915105500_pms_phase2_dual_run_hardening.sql`
 - `src/lib/pmsFrontDesk.ts`
 - `src/lib/pmsFrontDesk.test.ts`
 - `src/components/pms/PMSFrontDeskWorkspace.tsx`
@@ -100,7 +109,8 @@ Phase 2 is considered development-complete when:
 - production frontend build succeeds
 - new PMS front-desk unit tests pass
 - Phase 1 PMS tests continue to pass
-- no additional failure is introduced beyond the known `main` test baseline
+- no additional failure is introduced beyond the known repository test baseline
+- live table/column compatibility is checked read-only for the migration dependencies
 - branch remains safely stacked on Phase 1
 - no live price/channel publishing or SLNT configuration is touched
 - PR documents the existing repository-wide failing-test baseline separately from Phase 2 changes
