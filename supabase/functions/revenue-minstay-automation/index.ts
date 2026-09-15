@@ -106,7 +106,13 @@ async function writeMinStay(input: {
   }
 }
 
-type EventSignal = { impact: "high" | "medium" | "low" | null; title: string | null };
+type EventSignal = {
+  impact: "high" | "medium" | "low" | null;
+  title: string | null;
+  confidence: number | null;
+  durationDays: number | null;
+};
+
 type DecisionFacts = {
   stayDate: string;
   daysOut: number;
@@ -129,7 +135,18 @@ type PlannedChange = {
   pickup24h: number;
   eventTitle: string | null;
   eventImpact: string | null;
+  eventConfidence: number | null;
+  eventDurationDays: number | null;
 };
+
+function eventDurationDays(fromDate: string | null | undefined, toDate: string | null | undefined): number | null {
+  if (!fromDate) return null;
+  const endDate = toDate || fromDate;
+  const startMs = Date.parse(`${fromDate}T00:00:00Z`);
+  const endMs = Date.parse(`${endDate}T00:00:00Z`);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+  return Math.floor((endMs - startMs) / 86_400_000) + 1;
+}
 
 function decideMinStay(f: DecisionFacts, maxNights: number): { target: number; reason: string } {
   const occ = f.occupancy ?? 0;
@@ -137,46 +154,84 @@ function decideMinStay(f: DecisionFacts, maxNights: number): { target: number; r
   const pickup = f.pickup24h;
   const dow = isoDow(f.stayDate);
   const weekend = dow === 5 || dow === 6;
-  const highEvent = f.event.impact === "high";
   const monthOcc = f.monthOcc ?? 0;
+  const confidence = f.event.confidence ?? 0;
+  const highEvent = f.event.impact === "high" && confidence >= 0.7;
+  const veryStrongEvent = f.event.impact === "high" && confidence >= 0.85;
+  const shortEvent = f.event.durationDays != null && f.event.durationDays <= 7;
+  const broadEvent = f.event.durationDays == null || f.event.durationDays > 14;
   const two = Math.min(2, Math.max(1, maxNights));
+  const three = Math.min(3, Math.max(1, maxNights));
 
   if (left !== null && left <= 0) return { target: f.current, reason: "sold_out_hold" };
 
-  // The final seven days are conversion-first without exceptions. A high event,
-  // strong pickup, 95% occupancy or one last room is not a reason to hide that
-  // room from one-night shoppers. If inventory remains, minLOS must be 1.
+  // A short, high-confidence event can justify 3 nights, but only when the
+  // hotel's configured max allows it and live demand proves compression.
+  if (maxNights >= 3 && veryStrongEvent && shortEvent && f.daysOut > 7 && f.daysOut <= 90) {
+    const occupancyThreshold = f.daysOut <= 14 ? 88 : f.daysOut <= 30 ? 82 : f.daysOut <= 60 ? 74 : 66;
+    const roomsLeftLimit = f.daysOut <= 14 ? 3 : f.daysOut <= 30 ? 4 : f.daysOut <= 60 ? 5 : 6;
+    if (occ >= occupancyThreshold && left !== null && left <= roomsLeftLimit && pickup >= 2) {
+      return { target: three, reason: "event_peak_3n" };
+    }
+  }
+
+  // Event protection is evaluated before soft-month logic. A long seasonal
+  // event (for example Christmas Markets) is not enough by name alone; it needs
+  // stronger corroboration than a concentrated event.
+  if (highEvent && f.daysOut > 7 && f.daysOut <= 120) {
+    const occupancyThreshold = f.daysOut <= 14 ? 80 : f.daysOut <= 30 ? 72 : f.daysOut <= 60 ? 64 : 58;
+    const roomsLeftLimit = f.daysOut <= 14 ? 4 : f.daysOut <= 30 ? 6 : f.daysOut <= 60 ? 7 : 8;
+    const concentratedProof = !broadEvent && (pickup >= 1 || occ >= occupancyThreshold + 6);
+    const broadProof = broadEvent && weekend && pickup >= 1 && occ >= occupancyThreshold;
+    if (left !== null && left <= roomsLeftLimit && occ >= occupancyThreshold && (concentratedProof || broadProof)) {
+      return { target: two, reason: broadEvent ? "broad_event_compression_2n" : "event_protection_2n" };
+    }
+  }
+
+  // Final week is conversion-first, but not blindly. A genuinely compressed,
+  // short major event can retain 2 nights; otherwise weak last-minute demand
+  // should be opened to one-night shoppers.
   if (f.daysOut <= 7) {
-    return { target: 1, reason: "final_week_open_to_one_night" };
+    if (maxNights >= 2 && veryStrongEvent && shortEvent && occ >= 94 && left !== null && left <= 2 && pickup >= 1) {
+      return { target: two, reason: "final_week_event_hold_2n" };
+    }
+    if (occ < 88 || pickup === 0 || (left !== null && left >= 3)) {
+      return { target: 1, reason: "final_week_open_to_one_night" };
+    }
+    return { target: f.current, reason: "final_week_signal_hold" };
   }
 
-  // Soft future months must remain discoverable to one-night shoppers. This is
-  // intentionally stronger than a generic weekend restriction.
-  if (monthOcc > 0 && monthOcc < 45) {
-    return { target: 1, reason: `soft_month_${Math.round(monthOcc)}pct_release` };
+  // Normal weekend compression still matters, but only when occupancy and
+  // pickup prove demand. The thresholds get progressively lower farther out.
+  if (weekend && maxNights >= 2) {
+    if (f.daysOut <= 14 && occ >= 84 && left !== null && left <= 3 && pickup >= 1) {
+      return { target: two, reason: "weekend_compression_8_14" };
+    }
+    if (f.daysOut <= 30 && occ >= 78 && left !== null && left <= 5 && pickup >= 1) {
+      return { target: two, reason: "weekend_compression_15_30" };
+    }
+    if (f.daysOut <= 60 && occ >= 72 && left !== null && left <= 6 && pickup >= 1) {
+      return { target: two, reason: "weekend_compression_31_60" };
+    }
+    if (f.daysOut > 60 && occ >= 70 && monthOcc >= 55 && pickup >= 1) {
+      return { target: two, reason: "weekend_compression_61_120" };
+    }
   }
 
-  if (f.daysOut <= 14) {
-    if (highEvent && occ >= 78 && left !== null && left <= 4) return { target: two, reason: "event_compression_8_14" };
-    if (weekend && occ >= 82 && left !== null && left <= 3 && pickup >= 1) return { target: two, reason: "weekend_compression_8_14" };
-    return { target: 1, reason: "open_demand_8_14" };
+  // Release only when the individual stay date is demonstrably soft. The old
+  // rule opened every date in a month below 45%, which could override events.
+  if (!highEvent && pickup === 0) {
+    if (monthOcc > 0 && monthOcc < 40 && occ < 45) {
+      return { target: 1, reason: `soft_date_release_${Math.round(monthOcc)}pct_month` };
+    }
+    if (f.daysOut > 30 && occ < 30) {
+      return { target: 1, reason: "low_occupancy_release" };
+    }
   }
 
-  if (f.daysOut <= 30) {
-    if (highEvent && occ >= 70 && left !== null && left <= 6) return { target: two, reason: "event_compression_15_30" };
-    if (weekend && occ >= 75 && left !== null && left <= 5 && pickup >= 1) return { target: two, reason: "weekend_compression_15_30" };
-    return { target: 1, reason: "open_demand_15_30" };
-  }
-
-  if (f.daysOut <= 60) {
-    if (highEvent && occ >= 65 && left !== null && left <= 7) return { target: two, reason: "event_compression_31_60" };
-    if (weekend && occ >= 70 && left !== null && left <= 6 && monthOcc >= 50) return { target: two, reason: "weekend_compression_31_60" };
-    return { target: 1, reason: "open_demand_31_60" };
-  }
-
-  if (highEvent && occ >= 60 && left !== null && left <= 8) return { target: two, reason: "event_compression_61_90" };
-  if (weekend && occ >= 70 && monthOcc >= 55) return { target: two, reason: "weekend_compression_61_90" };
-  return { target: 1, reason: "open_demand_61_90" };
+  // Inconclusive evidence should not cause 2 -> 1 -> 2 oscillation. Hold the
+  // current restriction until demand gives a clear reason to change it.
+  return { target: f.current, reason: highEvent ? "event_signal_hold" : "signal_hold" };
 }
 
 function eventStrength(v: unknown): number {
@@ -185,21 +240,28 @@ function eventStrength(v: unknown): number {
 }
 
 function reasonDetail(change: PlannedChange): string {
+  const eventName = change.eventTitle ?? "Detected event";
+  if (change.reason === "event_peak_3n") {
+    return `${eventName} is a short, high-confidence event with strong occupancy and pickup, so the minimum stay increased to 3 nights.`;
+  }
+  if (change.reason === "event_protection_2n" || change.reason === "broad_event_compression_2n" || change.reason === "final_week_event_hold_2n") {
+    return `${eventName} is supported by current occupancy, pickup and remaining inventory, so the 2-night minimum is protected.`;
+  }
   if (change.reason === "final_week_open_to_one_night") {
     const left = change.roomsLeft == null ? "inventory remains" : `${change.roomsLeft} room${change.roomsLeft === 1 ? "" : "s"} left`;
-    return `${change.daysOut} day${change.daysOut === 1 ? "" : "s"} to arrival, ${left}. Opened to 1-night stays so the remaining inventory is visible to last-minute shoppers.`;
-  }
-  if (change.reason.startsWith("event_compression")) {
-    return `${change.eventTitle ?? "High-impact event"} supports a ${change.target}-night minimum at current demand.`;
+    return `${change.daysOut} day${change.daysOut === 1 ? "" : "s"} to arrival, ${left}. Current demand does not justify keeping a restriction, so the date was opened to 1-night stays.`;
   }
   if (change.reason.startsWith("weekend_compression")) {
-    return `Weekend demand supports a ${change.target}-night minimum at current occupancy and pickup.`;
+    return `Weekend demand supports a ${change.target}-night minimum based on occupancy, pickup and remaining inventory.`;
   }
-  if (change.reason.startsWith("soft_month_")) {
-    return "The stay month is still soft, so the date was opened to one-night shoppers.";
+  if (change.reason.startsWith("soft_date_release_")) {
+    return "This individual stay date is soft, has no recent pickup and is not protected by a high-confidence event, so it was opened to one-night stays.";
+  }
+  if (change.reason === "low_occupancy_release") {
+    return "The stay date is far out, very low occupancy and has no recent pickup, so it was opened to one-night stays.";
   }
   return change.target === 1
-    ? "Demand does not justify a stay-length restriction, so the date is open for one night."
+    ? "Demand evidence supports opening this date to one-night stays."
     : `Demand supports a ${change.target}-night minimum for this date.`;
 }
 
@@ -232,7 +294,7 @@ Deno.serve(async (req: Request) => {
 
     const horizonDays = Math.max(7, Math.min(120, Number(rule.min_stay_automation_horizon_days ?? 90)));
     const horizonDate = addDays(today, horizonDays);
-    const maxNights = Math.max(1, Math.min(2, Number(rule.min_stay_max_nights ?? 2)));
+    const maxNights = Math.max(1, Math.min(3, Number(rule.min_stay_max_nights ?? 2)));
     const cooldownHours = Math.max(0, Number(rule.min_stay_change_cooldown_hours ?? 12));
 
     const { data: run, error: runError } = await admin.from("revenue_min_stay_automation_runs").insert({
@@ -306,15 +368,26 @@ Deno.serve(async (req: Request) => {
 
     const eventByDate = new Map<string, EventSignal>();
     for (const ev of (eventRes.data ?? []) as any[]) {
-      if (ev.approved === false || Number(ev.confidence ?? 1) < 0.6) continue;
+      const confidence = Number(ev.confidence ?? 0);
+      if (ev.approved === false || confidence < 0.6) continue;
       const from = String(ev.event_date ?? "");
       if (!from || from > horizonDate) continue;
       const to = String(ev.end_date ?? ev.event_date ?? from);
+      const durationDays = eventDurationDays(from, to);
       for (let d = from; d <= to && d <= horizonDate; d = addDays(d, 1)) {
         if (d < today) continue;
-        const candidate: EventSignal = { impact: String(ev.expected_impact ?? "").toLowerCase() as EventSignal["impact"], title: ev.title ?? null };
+        const candidate: EventSignal = {
+          impact: String(ev.expected_impact ?? "").toLowerCase() as EventSignal["impact"],
+          title: ev.title ?? null,
+          confidence,
+          durationDays,
+        };
         const existing = eventByDate.get(d);
-        if (!existing || eventStrength(candidate.impact) > eventStrength(existing.impact)) eventByDate.set(d, candidate);
+        const candidateSpecificity = candidate.durationDays == null ? 0 : Math.max(0, 30 - Math.min(30, candidate.durationDays)) / 300;
+        const existingSpecificity = existing?.durationDays == null ? 0 : Math.max(0, 30 - Math.min(30, existing.durationDays)) / 300;
+        const candidateScore = eventStrength(candidate.impact) * 10 + confidence + candidateSpecificity;
+        const existingScore = existing ? eventStrength(existing.impact) * 10 + (existing.confidence ?? 0) + existingSpecificity : -1;
+        if (!existing || candidateScore > existingScore) eventByDate.set(d, candidate);
       }
     }
 
@@ -351,14 +424,12 @@ Deno.serve(async (req: Request) => {
         stayDate: d, daysOut, current, occupancy, roomsLeft: left,
         pickup24h: pickupByDate.get(d)?.size ?? 0,
         monthOcc: monthOcc.get(monthKey(d)) ?? null,
-        event: eventByDate.get(d) ?? { impact: null, title: null },
+        event: eventByDate.get(d) ?? { impact: null, title: null, confidence: null, durationDays: null },
       };
       const decision = decideMinStay(facts, maxNights);
       const changed = decision.target !== current;
       const lastAt = lastAppliedAt.get(d) ?? 0;
       const inCooldown = changed && cooldownHours > 0 && lastAt > 0 && now.getTime() - lastAt < cooldownHours * 3_600_000;
-      // Releasing a final-week restriction is urgent and must not wait behind a
-      // prior MLOS change's generic 12-hour cooldown.
       const releaseOverride = daysOut <= 7 && decision.target === 1 && current > 1;
       const status = !changed ? "unchanged" : (inCooldown && !releaseOverride ? "cooldown" : "pending");
       decisions.push({
@@ -366,13 +437,15 @@ Deno.serve(async (req: Request) => {
         stay_date: d, days_out: daysOut, current_min_stay: current, target_min_stay: decision.target,
         occupancy_pct: occupancy, rooms_left: left, pickup_24h: facts.pickup24h,
         month_occupancy_pct: facts.monthOcc, event_impact: facts.event.impact, event_title: facts.event.title,
-        reason: decision.reason, status,
+        reason: `${decision.reason}|event_conf=${facts.event.confidence == null ? "na" : facts.event.confidence.toFixed(2)}|event_days=${facts.event.durationDays ?? "na"}`,
+        status,
       });
       if (status === "pending") {
         changes.push({
           stayDate: d, current, target: decision.target, reason: decision.reason,
           daysOut, occupancyPct: occupancy, roomsLeft: left, pickup24h: facts.pickup24h,
           eventTitle: facts.event.title, eventImpact: facts.event.impact,
+          eventConfidence: facts.event.confidence, eventDurationDays: facts.event.durationDays,
         });
       }
     }
@@ -416,7 +489,7 @@ Deno.serve(async (req: Request) => {
       if (allOk) {
         const rows = group.dates.map((stayDate) => ({
           hotel_id: hotelId, organization_slug: rule.organization_slug, stay_date: stayDate,
-          min_nights: group.target, notes: "automation: smart minimum stay", updated_at: new Date().toISOString(),
+          min_nights: group.target, notes: "automation: smart minimum stay v3", updated_at: new Date().toISOString(),
         }));
         const { error } = await admin.from("min_stay_rules").upsert(rows, { onConflict: "hotel_id,stay_date" });
         if (error) throw error;
@@ -437,6 +510,7 @@ Deno.serve(async (req: Request) => {
       groups: groupResults,
       one_night_target_dates: decisions.filter((d) => d.target_min_stay === 1).length,
       two_night_target_dates: decisions.filter((d) => d.target_min_stay === 2).length,
+      three_night_target_dates: decisions.filter((d) => d.target_min_stay === 3).length,
     };
     await admin.from("revenue_min_stay_automation_runs").update({
       status: failed > 0 ? "completed_with_errors" : "completed",
@@ -444,9 +518,6 @@ Deno.serve(async (req: Request) => {
       changes_attempted: changes.length, changes_applied: applied, changes_failed: failed, summary,
     }).eq("id", runId);
 
-    // Only runs that actually changed a restriction (or failed to) create an
-    // inbox item. Hourly no-op evaluations stay silent, so managers get useful
-    // evidence that MLOS automation worked without notification noise.
     if (applied > 0 || failed > 0) {
       const notificationChanges = changes
         .filter((c) => appliedDates.has(c.stayDate) || failedDates.has(c.stayDate))
@@ -464,14 +535,18 @@ Deno.serve(async (req: Request) => {
           pickup_24h: c.pickup24h,
           event_title: c.eventTitle,
           event_impact: c.eventImpact,
+          event_confidence: c.eventConfidence,
+          event_duration_days: c.eventDurationDays,
           min_stay_run_id: runId,
         }));
       const opened = notificationChanges.filter((c) => c.status === "applied" && c.new_min_stay === 1).length;
-      const compressed = notificationChanges.filter((c) => c.status === "applied" && c.new_min_stay > 1).length;
+      const twoNight = notificationChanges.filter((c) => c.status === "applied" && c.new_min_stay === 2).length;
+      const threeNight = notificationChanges.filter((c) => c.status === "applied" && c.new_min_stay === 3).length;
       const parts = [
         applied > 0 ? `${applied} date${applied === 1 ? "" : "s"} updated in Previo` : null,
         opened > 0 ? `${opened} opened to 1 night` : null,
-        compressed > 0 ? `${compressed} set to 2 nights` : null,
+        twoNight > 0 ? `${twoNight} set to 2 nights` : null,
+        threeNight > 0 ? `${threeNight} set to 3 nights` : null,
         failed > 0 ? `${failed} failed` : null,
       ].filter(Boolean);
       const { error: notificationError } = await admin.from("revenue_automation_notifications").insert({
