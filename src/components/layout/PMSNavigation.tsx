@@ -53,7 +53,7 @@ const PMS_NAV_ITEMS: NavigationItem[] = [
     icon: CarFront,
     label: 'Parking Tickets',
     href: (basePath) => `${basePath}/parking-tickets`,
-    roles: PARKING_ROLES,
+    roles: [...PARKING_ROLES],
   },
   {
     key: 'housekeeping',
