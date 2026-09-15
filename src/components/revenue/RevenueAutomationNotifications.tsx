@@ -44,6 +44,7 @@ const nights = (value: number | null | undefined) => {
   return `${n} night${n === 1 ? '' : 's'}`;
 };
 
+const CATCH_UP_DELAY_MS = 12_000;
 
 type DirectionFilter = 'all' | 'increase' | 'decrease' | 'hold';
 
@@ -70,19 +71,28 @@ export function RevenueAutomationNotifications() {
   const [search, setSearch] = useState('');
   const welcomed = useRef(false);
 
-  // One tasteful catch-up message per session — never one toast per change.
+  // One lightweight catch-up per session. Give the dashboard a quiet first
+  // impression before surfacing non-urgent automation history.
   useEffect(() => {
     if (!canSee || welcomed.current || unreadCount === 0) return;
-    welcomed.current = true;
-    const unread = items.filter((n) => !n.read);
-    const changes = unread.reduce((sum, n) => sum + (n.actions_count || n.changes.length), 0);
-    toast.message(
-      `While you were away, HotelCare completed ${changes} revenue automation update${changes === 1 ? '' : 's'} across ${unread.length} run${unread.length === 1 ? '' : 's'}`,
-      {
-        action: { label: 'View', onClick: () => setOpen(true) },
-        duration: 10_000,
-      },
-    );
+
+    const timer = window.setTimeout(() => {
+      if (welcomed.current) return;
+      const unread = items.filter((n) => !n.read);
+      if (unread.length === 0) return;
+
+      welcomed.current = true;
+      const changes = unread.reduce((sum, n) => sum + (n.actions_count || n.changes.length), 0);
+      toast.message(
+        `${changes} revenue automation update${changes === 1 ? '' : 's'} completed while you were away`,
+        {
+          action: { label: 'View', onClick: () => setOpen(true) },
+          duration: 8_000,
+        },
+      );
+    }, CATCH_UP_DELAY_MS);
+
+    return () => window.clearTimeout(timer);
   }, [canSee, unreadCount, items]);
 
   if (!canSee) return null;
