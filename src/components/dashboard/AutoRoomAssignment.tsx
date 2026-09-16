@@ -20,7 +20,7 @@ export function AutoRoomAssignment(props: Props) {
   const [verified, setVerified] = useState(false);
   const [schemaUnavailable, setSchemaUnavailable] = useState(false);
   const [dutyIds, setDutyIds] = useState<string[]>([]);
-  const [revision, setRevision] = useState(0);
+  const [commitRevision, setCommitRevision] = useState(0);
   const date = props.selectedDate;
 
   useEffect(() => {
@@ -62,11 +62,12 @@ export function AutoRoomAssignment(props: Props) {
 
   return <>
     <GozsduLaundryDutyPicker open={props.open} workDate={date}
-      onReady={onReady} onChanged={() => setRevision(old => old + 1)}
+      onReady={onReady} onChanged={() => setCommitRevision(old => old + 1)}
       onSchemaUnavailable={onSchemaUnavailable} />
     {verified && <OriginalAutoRoomAssignment
-      key={`${date}:${dutyIds.join(',')}:${revision}`}
       {...props}
+      laundryDutyIds={dutyIds}
+      laundryDutyCommitRevision={commitRevision}
     />}
   </>;
 }
