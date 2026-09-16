@@ -4,7 +4,7 @@ import { Calendar, User, MapPin, AlertCircle, PauseCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { useTranslation } from '@/hooks/useTranslation';
 import { MaintenanceTicketTranslation } from './MaintenanceTicketTranslation';
-import { maintenanceTicketStatusClass, maintenanceTicketStatusLabel, type MaintenanceTicketStatus } from '@/lib/maintenanceTicketStatus';
+import { maintenanceHoldReasonLabel, maintenanceMissingHoldReasonLabel, maintenanceTicketStatusClass, maintenanceTicketStatusLabel, type MaintenanceTicketStatus } from '@/lib/maintenanceTicketStatus';
 
 interface Ticket {
   id: string;
@@ -28,7 +28,7 @@ interface TicketCardProps {
 }
 
 export function TicketCard({ ticket, onClick }: TicketCardProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -53,11 +53,12 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
     }
   };
   const getTranslatedStatus = (status: MaintenanceTicketStatus) => {
+    if (language === 'hu') return maintenanceTicketStatusLabel(status, language);
     switch (status) {
       case 'open': return t('tickets.openStatus');
       case 'in_progress': return t('tickets.inProgressStatus');
       case 'completed': return t('tickets.completedStatus');
-      default: return maintenanceTicketStatusLabel(status);
+      default: return maintenanceTicketStatusLabel(status, language);
     }
   };
   const getTranslatedPriority = (priority: string) => {
@@ -102,7 +103,7 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
         {ticket.status === 'on_hold' && (
           <div className="flex items-start gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2 py-1.5 text-xs text-orange-900" role="note">
             <PauseCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span><strong>Hold reason:</strong> {ticket.hold_reason?.trim() || 'Reason not recorded'}</span>
+            <span><strong>{maintenanceHoldReasonLabel(language)}</strong> {ticket.hold_reason?.trim() || maintenanceMissingHoldReasonLabel(language)}</span>
           </div>
         )}
         {ticket.department === 'maintenance' && <MaintenanceTicketTranslation ticketId={ticket.id} title={ticket.title} description={ticket.description} />}
