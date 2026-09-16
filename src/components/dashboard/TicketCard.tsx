@@ -1,9 +1,10 @@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Calendar, User, MapPin, AlertCircle } from 'lucide-react';
+import { Calendar, User, MapPin, AlertCircle, PauseCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { useTranslation } from '@/hooks/useTranslation';
 import { MaintenanceTicketTranslation } from './MaintenanceTicketTranslation';
+import { maintenanceTicketStatusClass, maintenanceTicketStatusLabel, type MaintenanceTicketStatus } from '@/lib/maintenanceTicketStatus';
 
 interface Ticket {
   id: string;
@@ -12,7 +13,8 @@ interface Ticket {
   description: string;
   room_number: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
-  status: 'open' | 'in_progress' | 'completed';
+  status: MaintenanceTicketStatus;
+  hold_reason?: string | null;
   created_at: string;
   department?: string;
   hotel?: string;
@@ -50,20 +52,12 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
       default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'open': return 'bg-blue-100 text-blue-800 border-blue-300';
-      case 'in_progress': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
-      case 'completed': return 'bg-green-100 text-green-800 border-green-300';
-      default: return 'bg-gray-100 text-gray-800 border-gray-300';
-    }
-  };
-  const getTranslatedStatus = (status: string) => {
+  const getTranslatedStatus = (status: MaintenanceTicketStatus) => {
     switch (status) {
       case 'open': return t('tickets.openStatus');
       case 'in_progress': return t('tickets.inProgressStatus');
       case 'completed': return t('tickets.completedStatus');
-      default: return status.replace('_', ' ').toUpperCase();
+      default: return maintenanceTicketStatusLabel(status);
     }
   };
   const getTranslatedPriority = (priority: string) => {
@@ -96,17 +90,23 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
             <h3 className="font-semibold text-sm text-foreground">{ticket.ticket_number}</h3>
             <p className="text-sm font-medium text-foreground mt-1 whitespace-pre-wrap">{ticket.title}</p>
           </div>
-          <div className="flex flex-col gap-1 shrink-0">
+          <div className="flex flex-col gap-1 shrink-0 items-end">
             <Badge className={getPriorityColor(ticket.priority)} variant="secondary">{getTranslatedPriority(ticket.priority)}</Badge>
             {ticket.department && <Badge className={getDepartmentColor(ticket.department)}>{ticket.department.replace('_', ' ').toUpperCase()}</Badge>}
-            <Badge className={getStatusColor(ticket.status)} variant="outline">{getTranslatedStatus(ticket.status)}</Badge>
+            <Badge className={maintenanceTicketStatusClass(ticket.status)} variant="outline">{getTranslatedStatus(ticket.status)}</Badge>
           </div>
         </div>
       </CardHeader>
       <CardContent className="pt-0 space-y-2">
         <p className="text-sm text-muted-foreground line-clamp-2">{ticket.description}</p>
+        {ticket.status === 'on_hold' && (
+          <div className="flex items-start gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2 py-1.5 text-xs text-orange-900" role="note">
+            <PauseCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span><strong>Hold reason:</strong> {ticket.hold_reason?.trim() || 'Reason not recorded'}</span>
+          </div>
+        )}
         {ticket.department === 'maintenance' && <MaintenanceTicketTranslation ticketId={ticket.id} title={ticket.title} description={ticket.description} />}
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <div className="flex items-center gap-1"><MapPin className="h-3 w-3" />{t('ticketCard.room')} {ticket.room_number}</div>
           <div className="flex items-center gap-1"><Calendar className="h-3 w-3" />{format(new Date(ticket.created_at), 'MMM dd')}</div>
         </div>
