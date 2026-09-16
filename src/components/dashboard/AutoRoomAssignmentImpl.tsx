@@ -75,6 +75,8 @@ import { getLocalDateString } from '@/lib/utils';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { isActiveGozsduLaundryner } from '@/lib/gozsduLaundryDutySession';
 import { gozsduCanReviewAssignment, gozsduPreviewCoversWork } from '@/lib/gozsduAutoAssignGuard';
+import { gozsduAllocationRespectsBuildings } from '@/lib/gozsduBuildingAssignment';
+import { fetchVerifiedGozsduAutoAssignRooms } from '@/lib/gozsduVerifiedAutoAssign';
 import {
   buildTomorrowAutoAssignRooms,
   loadExistingNextDayPlan,
@@ -319,7 +321,18 @@ export function AutoRoomAssignment({
       .in('hotel', keys);
     if (roomErr || !roomRows) return;
 
-    const roomIds = roomRows.map(room => room.id);
+    let currentRooms = roomRows.map(addSectionContext);
+    if (isGozsdu) {
+      if (!profile?.organization_slug) return;
+      try {
+        currentRooms = await fetchVerifiedGozsduAutoAssignRooms(currentRooms, profile.organization_slug, selectedDate);
+      } catch (error) {
+        // Keep the last verified preview; never replace it with misleading imported flags.
+        console.warn('[Gozsdu Auto Assign] date-matched PMS refresh not verified', error);
+        return;
+      }
+    }
+    const roomIds = currentRooms.map(room => room.id);
     let assignmentRows: any[] = [];
     if (roomIds.length > 0) {
       const { data } = await supabase
@@ -337,13 +350,13 @@ export function AutoRoomAssignment({
     const completedRoomIds = new Set(assignmentRows
       .filter(row => row.status === 'completed')
       .map(row => row.room_id));
-    const availableRooms = roomRows
+    const availableRooms = currentRooms
       .filter(room => isRoomEligibleForAutoAssign(room, {
         hasActiveAssignment: activeRoomIds.has(room.id),
         hasCompletedAssignment: completedRoomIds.has(room.id),
       }))
       .map(room => ({
-        ...addSectionContext(room),
+        ...room,
         ready_to_clean: assignmentMap.get(room.id)?.ready_to_clean ?? false,
       })) as RoomForAssignment[];
     const availableRoomMap = new Map(availableRooms.map(room => [room.id, room]));
@@ -530,6 +543,9 @@ export function AutoRoomAssignment({
       }));
 
       const allHotelRooms = (roomRows || []).map(addSectionContext);
+      const verifiedLiveRooms = isGozsdu && !isNextDayPlanning
+        ? await fetchVerifiedGozsduAutoAssignRooms(allHotelRooms, profile.organization_slug, selectedDate)
+        : allHotelRooms;
       let workingRooms: RoomForAssignment[] = [];
       let existingRows: ExistingAssignment[] = [];
       let selectedFromDb = new Set<string>(checked);
@@ -615,7 +631,7 @@ export function AutoRoomAssignment({
             .filter(row => row.status === 'completed')
             .map(row => row.room_id));
           const assignedRoomIds = new Set(existingRows.map(row => row.room_id));
-          workingRooms = allHotelRooms
+          workingRooms = verifiedLiveRooms
             .filter(room => isRoomEligibleForAutoAssign(room, {
               hasActiveAssignment: assignedRoomIds.has(room.id),
               hasCompletedAssignment: completedRoomIds.has(room.id),
@@ -704,7 +720,9 @@ export function AutoRoomAssignment({
       setRoomAffinity(patternData?.length ? buildAffinityMap(patternData) : undefined);
     } catch (error) {
       console.error('[AutoRoomAssignment] fetch failed:', error);
-      toast.error(t('autoAssign.failedToLoad'));
+      toast.error(isGozsdu && error instanceof Error
+        ? `Gozsdu PMS could not be verified. Refresh Previo and retry: ${error.message}`
+        : t('autoAssign.failedToLoad'));
     } finally {
       setLoading(false);
     }
@@ -904,7 +922,7 @@ export function AutoRoomAssignment({
 
     const previews = best || autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, hotelConfig);
     if (isGozsdu && !gozsduPreviewCoversWork(previews, roomsToAssign.length, cleaningStaffIds, isLaundryner)) {
-      toast.error('Room preview is incomplete or includes a Laundryner. Return to staff selection and regenerate.');
+      toast.error('Gozsdu allocation is incomplete. Check mapped buildings and select enough cleaning housekeepers for incompatible routes.');
       setStep('select-staff');
       return;
     }
@@ -923,8 +941,12 @@ export function AutoRoomAssignment({
 
   const applyRoomMove = (roomId: string, fromStaffId: string, toStaffId: string) => {
     if (!roomId || !fromStaffId || !toStaffId || fromStaffId === toStaffId) return;
-    pushHistory(assignmentPreviews);
     const next = moveRoom(assignmentPreviews, roomId, fromStaffId, toStaffId);
+    if (isGozsdu && next === assignmentPreviews) {
+      toast.warning('These buildings cannot be combined for the same housekeeper.');
+      return;
+    }
+    pushHistory(assignmentPreviews);
     setAssignmentPreviews(next);
     if (isNextDayPlanning && sharedByRoom.get(roomId) === toStaffId) {
       setSharedByRoom(previous => {
@@ -1034,7 +1056,8 @@ export function AutoRoomAssignment({
   };
 
   const handleProceedToConfirm = () => {
-    if (isGozsdu && !gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner)) {
+    if (isGozsdu && (!gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner)
+      || !gozsduAllocationRespectsBuildings(assignmentPreviews))) {
       toast.error('No valid cleaning allocation to confirm. Select a cleaning housekeeper and regenerate.');
       setStep('select-staff');
       return;
@@ -1104,6 +1127,7 @@ export function AutoRoomAssignment({
   const handleConfirmAssignment = async () => {
     if (!user || !profile?.organization_slug) return;
     if (isGozsdu && (!gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner)
+      || !gozsduAllocationRespectsBuildings(assignmentPreviews)
       || sectionTasks.some(task => isLaundryner(task.staff_id)))) {
       toast.error('The allocation is empty or conflicts with Laundryner duty. Regenerate before saving.');
       setStep('select-staff');
