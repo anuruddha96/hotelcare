@@ -172,7 +172,11 @@ begin
         previous_bed
       );
 
-      new.notes := concat_ws(E'\n', nullif(btrim(coalesce(new.notes, '')), ''), previous_note);
+      -- The UPDATE that caused this trigger may already have prepared the same
+      -- context line (for example a one-time stale-room cleanup). Normalize it
+      -- before appending so the message is always present exactly once.
+      new.notes := nullif(btrim(replace(coalesce(new.notes, ''), previous_note, '')), '');
+      new.notes := concat_ws(E'\n', new.notes, previous_note);
       new.pms_metadata := jsonb_set(
         new.pms_metadata,
         '{previousGuestBedSetup}',
@@ -241,10 +245,14 @@ set
     E'\n',
     nullif(
       btrim(
-        case
-          when s.pms_note is not null then replace(coalesce(r.notes, ''), s.pms_note, '')
-          else coalesce(r.notes, '')
-        end
+        replace(
+          case
+            when s.pms_note is not null then replace(coalesce(r.notes, ''), s.pms_note, '')
+            else coalesce(r.notes, '')
+          end,
+          s.previous_note,
+          ''
+        )
       ),
       ''
     ),
