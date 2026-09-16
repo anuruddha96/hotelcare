@@ -14,11 +14,9 @@ const MANAGER_ROLES = new Set(['manager', 'housekeeping_manager', 'admin', 'top_
 type Staff = { id: string; full_name: string; nickname: string | null };
 
 /**
- * The duty selector must be INSIDE the staff step, not fixed at top:3px: on
- * iOS/PWA that old button sat behind the status bar / modal and was invisible.
- * The original Auto Assign grid is kept intact for every other hotel. The
- * portal inserts a Gozsdu-only control as the FIRST grid item; when the board
- * is on Preview/Confirm it remains available above the bottom action buttons.
+ * The Gozsdu-specific selector mounts in the Auto Assign staff step's
+ * explicit in-flow slot. It never overlays action buttons on phones or desktop.
+ * Return to Staff to change duties after generating a preview.
  */
 export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, onSchemaUnavailable }: {
   open: boolean;
@@ -34,7 +32,7 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, on
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [staffGrid, setStaffGrid] = useState<HTMLElement | null>(null);
+  const [staffSlot, setStaffSlot] = useState<HTMLElement | null>(null);
   const allowed = !!profile?.organization_slug && isGozsduCourtHotel(profile.assigned_hotel)
     && MANAGER_ROLES.has(profile.role);
 
@@ -87,19 +85,17 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, on
   }, [open, allowed, refresh]);
 
   useEffect(() => {
-    if (!open || !allowed) { setStaffGrid(null); return; }
-    // The staff grid only exists during Step 1. Watch for it because the board
-    // mounts AFTER duties have been verified and later changes steps in place.
-    const findGrid = () => {
-      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
-      const grid = dialogs.flatMap(dialog => Array.from(dialog.querySelectorAll<HTMLElement>('.grid')))
-        .find(node => node.classList.contains('max-h-[38vh]')) || null;
-      setStaffGrid(previous => previous === grid ? previous : grid);
+    if (!open || !allowed) { setStaffSlot(null); return; }
+    // The first staff step declares a stable, in-flow portal slot. No floating
+    // controls in Preview, Confirm or Public Areas; Back returns to this picker.
+    const findSlot = () => {
+      const slot = document.querySelector<HTMLElement>('[role="dialog"] [data-gozsdu-laundryner-slot]');
+      setStaffSlot(previous => previous === slot ? previous : slot);
     };
-    findGrid();
-    const observer = new MutationObserver(findGrid);
+    findSlot();
+    const observer = new MutationObserver(findSlot);
     observer.observe(document.body, { childList: true, subtree: true });
-    return () => { observer.disconnect(); setStaffGrid(null); };
+    return () => { observer.disconnect(); setStaffSlot(null); };
   }, [open, allowed]);
 
   const toggle = async (userId: string, enabled: boolean) => {
@@ -124,19 +120,17 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, on
 
   if (!open || !allowed) return null;
   if (loading && staff.length === 0 && !failed) return <div role="status"
-    className="pointer-events-none fixed bottom-36 right-4 z-[10002] rounded-md bg-background px-3 py-2 text-xs shadow">
+    className="pointer-events-none fixed left-1/2 top-1/2 z-[10002] w-max max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-md bg-background px-3 py-2 text-xs shadow">
     <Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> Checking Gozsdu Laundryner duty…
   </div>;
-  if (failed) return <div role="alert" className="fixed bottom-36 right-4 z-[10002] max-w-sm rounded-md border border-destructive bg-background p-3 text-xs shadow">
+  if (failed) return <div role="alert" className="fixed left-1/2 top-1/2 z-[10002] w-[90vw] max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-md border border-destructive bg-background p-3 text-xs shadow">
     <AlertTriangle className="mr-1 inline h-4 w-4" /> Laundryner duty could not be verified. Room allocation is blocked.
     <Button size="sm" variant="outline" className="ml-2" onClick={() => { setLoading(true); void refresh(); }}>Retry</Button>
   </div>;
 
   const assigned = staff.filter(person => dutyIds.includes(person.id));
   const control = <div data-testid="gozsdu-laundryner-autoassign-control"
-    className={staffGrid
-      ? 'order-first col-span-full sticky top-0 z-10 rounded-lg border-2 border-emerald-300 bg-background p-3 shadow-sm'
-      : 'fixed bottom-[calc(10rem+env(safe-area-inset-bottom))] right-4 z-[10002] max-w-[min(94vw,370px)] rounded-lg border-2 border-emerald-300 bg-background p-3 shadow-xl'}>
+    className="w-full min-w-0 rounded-lg border-2 border-emerald-300 bg-background p-2.5 shadow-sm sm:p-3">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div className="flex items-center gap-1.5 text-sm font-semibold"><Shirt className="h-4 w-4 text-emerald-700" /> Laundryner duty</div>
       <Button type="button" size="sm" variant="outline" className="gap-1 border-emerald-500"
@@ -151,7 +145,7 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, on
   </div>;
 
   return <>
-    {staffGrid ? createPortal(control, staffGrid) : control}
+    {staffSlot ? createPortal(control, staffSlot) : null}
     <Dialog open={show} onOpenChange={setShow}>
       <DialogContent className="z-[10003] max-h-[85vh] max-w-md overflow-y-auto">
         <DialogHeader><DialogTitle>Gozsdu Court • Select Laundryner</DialogTitle></DialogHeader>
