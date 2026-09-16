@@ -10,10 +10,9 @@ import { GozsduLaundryDutyPicker } from './GozsduLaundryDutyPicker';
 
 type Props = React.ComponentProps<typeof OriginalAutoRoomAssignment>;
 
-/** Keep the complete existing portfolio/next-day Auto Assign board unchanged.
- * Gozsdu is the only property which hydrates date-specific laundry exclusions
- * BEFORE its original board mounts. Database triggers enforce the same rule
- * for stale clients, manual drag and background planning/release. */
+/** Original portfolio and tomorrow workflows are preserved unchanged. For
+ * Gozsdu only, hydrate duty exclusions before mounting the original board.
+ * SQL triggers independently protect writes from stale/manual clients. */
 export function AutoRoomAssignment(props: Props) {
   const { profile } = useAuth();
   const gozsdu = isGozsduCourtHotel(profile?.assigned_hotel);
@@ -30,7 +29,12 @@ export function AutoRoomAssignment(props: Props) {
     return () => clearGozsduLaundryDutySession(date);
   }, [gozsdu, props.open, date]);
 
-  const onReady = useCallback((ids: string[]) => {
+  const onReady = useCallback((ids: string[] | null) => {
+    if (ids === null) {
+      clearGozsduLaundryDutySession(date);
+      setVerified(false);
+      return;
+    }
     const unique = [...new Set(ids)].sort();
     setGozsduLaundryDutySession(date, unique);
     setDutyIds(old => old.join('|') === unique.join('|') ? old : unique);
@@ -40,12 +44,8 @@ export function AutoRoomAssignment(props: Props) {
   if (!gozsdu) return <OriginalAutoRoomAssignment {...props} />;
 
   return <>
-    <GozsduLaundryDutyPicker
-      open={props.open}
-      workDate={date}
-      onReady={onReady}
-      onChanged={() => setRevision(old => old + 1)}
-    />
+    <GozsduLaundryDutyPicker open={props.open} workDate={date}
+      onReady={onReady} onChanged={() => setRevision(old => old + 1)} />
     {verified && <OriginalAutoRoomAssignment
       key={`${date}:${dutyIds.join(',')}:${revision}`}
       {...props}
