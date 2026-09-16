@@ -1,449 +1,442 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BedDouble, Building2, Hotel, MapPin, Plus, RefreshCw, UserX } from 'lucide-react';
+import { BedDouble, Building2, Coffee, GripVertical, Hotel, MapPin, Plus, RefreshCw, UserX } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { resolveHotelKeys } from '@/lib/hotelKeys';
-import { canManageHousekeepingMapping } from '@/lib/roleAccess';
-import {
-  GOZSDU_COURT_HOTEL_ID,
-  GOZSDU_COURT_HOTEL_NAME,
-  getGozsduHousekeepingCycle,
-  type GozsduHousekeepingService,
-} from '@/lib/gozsdu-housekeeping';
+import { canManageHousekeepingMapping, hasManagerPowers } from '@/lib/roleAccess';
+import { GOZSDU_COURT_HOTEL_ID, getGozsduHousekeepingCycle, type GozsduHousekeepingService } from '@/lib/gozsdu-housekeeping';
+import { setHousekeeperDragPayload, readHousekeeperDragPayload, setRoomDragPayload, assignRoomToStaff, isAssignmentInProgressError } from '@/lib/hkAssignmentDnd';
+import { parseRoomFlags } from '@/lib/room-service-flags';
+import { isPmsRtcToday } from '@/lib/pmsReadiness';
+import { assigneeLabel, cleanName } from '@/lib/staffNames';
+import { todayBudapest } from '@/lib/budapestTime';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import type { SignedInHousekeeper } from './HotelRoomOverviewLive';
 
-interface RoomData {
-  id: string;
-  hotel: string | null;
-  room_number: string;
-  floor_number: number | null;
-  status: string | null;
-  is_checkout_room: boolean | null;
-  is_dnd: boolean | null;
-  notes: string | null;
-  wing: string | null;
-  room_category: string | null;
-  room_size_sqm: number | null;
-  bed_type: string | null;
-  guest_nights_stayed: number | null;
-  towel_change_required: boolean | null;
-  linen_change_required: boolean | null;
+// Only Gozsdu is routed here. Do not change the common room board, the PMS
+// classification, or any other hotel's display or assignment behavior.
+const HOTEL_NAME = 'Gozsdu Court Budapest';
+const HOTEL_KEYS = [GOZSDU_COURT_HOTEL_ID, HOTEL_NAME];
+
+type Bucket = 'checkout' | 'service' | 'other' | 'noshow';
+type Room = {
+  id: string; hotel: string | null; room_number: string; floor_number: number | null;
+  status: string | null; last_cleaned_at: string | null; updated_at: string | null;
+  is_checkout_room: boolean | null; is_dnd: boolean | null; notes: string | null;
+  wing: string | null; room_category: string | null; room_size_sqm: number | null;
+  bed_type: string | null; bed_configuration: string | null; guest_nights_stayed: number | null;
+  towel_change_required: boolean | null; linen_change_required: boolean | null;
   pms_metadata?: any;
-}
+};
+type Assignment = {
+  id: string; room_id: string; assigned_to: string; status: string;
+  assignment_type: string; started_at: string | null; supervisor_approved: boolean | null;
+  ready_to_clean: boolean | null; notes: string | null;
+};
+type Building = { id: string; name: string; sort_order: number };
+type Mapping = { room_id: string; section_id: string };
+type PublicArea = { id: string; task_name: string; assigned_to: string; status: string };
 
-interface AssignmentData {
-  id: string;
-  room_id: string;
-  assigned_to: string;
-  status: string;
-  assignment_type: string;
-}
+type Props = {
+  selectedDate: string; hotelName: string; staffMap: Record<string, string>;
+  refreshKey?: number; signedInHousekeepers?: SignedInHousekeeper[];
+};
 
-interface BuildingSection {
-  id: string;
-  name: string;
-  sort_order: number;
-}
+const STATUS_COLORS: Record<string, string> = {
+  clean: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200 dark:border-emerald-600',
+  dirty: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-600',
+  in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200 dark:border-sky-600',
+  out_of_order: 'bg-red-200 text-red-900 border-red-500 dark:bg-red-900/50 dark:text-red-200 dark:border-red-600',
+  inspected: 'bg-teal-200 text-teal-900 border-teal-500 dark:bg-teal-900/50 dark:text-teal-200 dark:border-teal-600',
+  pending_approval: 'bg-violet-200 text-violet-900 border-violet-500 dark:bg-violet-900/50 dark:text-violet-200 dark:border-violet-600',
+  overdue: 'bg-rose-300 text-rose-950 border-rose-600 dark:bg-rose-900/60 dark:text-rose-200 dark:border-rose-500',
+};
 
-interface BuildingMapping {
-  room_id: string;
-  section_id: string;
-}
-
-interface GozsduCourtRoomOverviewProps {
-  selectedDate: string;
-  hotelName: string;
-  staffMap: Record<string, string>;
-  refreshKey?: number;
-  signedInHousekeepers?: SignedInHousekeeper[];
-}
-
-function numericRoomSort(a: RoomData, b: RoomData): number {
-  return String(a.room_number).localeCompare(String(b.room_number), undefined, { numeric: true });
-}
-
-function isCheckout(room: RoomData, assignment?: AssignmentData): boolean {
-  return room.is_checkout_room === true
-    || room.pms_metadata?.scheduledDepartureToday === true
+function checkout(room: Room, assignment?: Assignment) {
+  if (room.pms_metadata?.manual_daily === true) return false;
+  return room.is_checkout_room === true || room.pms_metadata?.scheduledDepartureToday === true
     || room.pms_metadata?.checkedOutToday === true
-    || assignment?.assignment_type === 'checkout_cleaning';
+    || (room.pms_metadata?.pmsSyncDate !== todayBudapest() && assignment?.assignment_type === 'checkout_cleaning');
 }
-
-function isNoShow(room: RoomData): boolean {
+function noShow(room: Room) {
   return room.pms_metadata?.isNoShow === true || Number(room.pms_metadata?.reservationStatusId) === 8;
 }
-
-function serviceFor(room: RoomData, checkout: boolean): GozsduHousekeepingService {
-  if (checkout || isNoShow(room)) return 'none';
+function service(room: Room, isCheckout: boolean): GozsduHousekeepingService {
+  if (isCheckout || noShow(room)) return 'none';
   const stored = room.pms_metadata?.gozsduHousekeeping?.serviceType;
   if (stored === 'towel_change' || stored === 'change_room') return stored;
-
   return getGozsduHousekeepingCycle({
     currentNight: room.pms_metadata?.currentNight ?? room.guest_nights_stayed,
     totalNights: room.pms_metadata?.totalNights,
-    isCheckout: checkout,
+    isCheckout,
   }).service;
 }
-
-function stayLabel(room: RoomData): string | null {
-  const current = Number(room.pms_metadata?.currentNight ?? room.guest_nights_stayed ?? 0);
-  const total = Number(room.pms_metadata?.totalNights ?? 0);
-  return current > 0 && total > 0 ? `${current}/${total}` : null;
+function roomFloor(room: Room): number {
+  if (room.floor_number != null) return room.floor_number;
+  const firstDigits = room.room_number.match(/^\d+/)?.[0];
+  return firstDigits ? Math.floor(Number(firstDigits) / 100) : 0;
+}
+function roomSort(a: Room, b: Room) {
+  return a.room_number.localeCompare(b.room_number, undefined, { numeric: true });
 }
 
-export function GozsduCourtRoomOverview({
-  selectedDate,
-  hotelName,
-  staffMap,
-  refreshKey,
-}: GozsduCourtRoomOverviewProps) {
+/** Gozsdu's buckets are unique; the chips, colors and operational flows match Team View. */
+export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, signedInHousekeepers = [] }: Props) {
   const { user, profile } = useAuth();
-  const [rooms, setRooms] = useState<RoomData[]>([]);
-  const [assignments, setAssignments] = useState<AssignmentData[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [areas, setAreas] = useState<PublicArea[]>([]);
+  const [buildings, setBuildings] = useState<Building[]>([]);
+  const [mappings, setMappings] = useState<Mapping[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [view, setView] = useState<'rooms' | 'buildings'>('rooms');
-  const [buildings, setBuildings] = useState<BuildingSection[]>([]);
-  const [buildingMappings, setBuildingMappings] = useState<BuildingMapping[]>([]);
-  const [newBuildingName, setNewBuildingName] = useState('');
-  const [mappingBusyRoom, setMappingBusyRoom] = useState<string | null>(null);
-  const [creatingBuilding, setCreatingBuilding] = useState(false);
+  const [buildingName, setBuildingName] = useState('');
+  const [mappingBusy, setMappingBusy] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [draggingHousekeeper, setDraggingHousekeeper] = useState<string | null>(null);
+  const [droppingOn, setDroppingOn] = useState<string | null>(null);
+  const canAssign = hasManagerPowers(profile?.role) || profile?.role === 'supervisor';
+  const canMap = canManageHousekeepingMapping(profile?.role);
 
-  const canManageMap = canManageHousekeepingMapping(profile?.role);
-
-  const loadRooms = useCallback(async (silent = false) => {
+  const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const resolved = await resolveHotelKeys(hotelName);
-      const keys = Array.from(new Set([GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME, ...resolved]));
-      const { data: roomRows, error: roomError } = await supabase
-        .from('rooms')
-        .select('id, hotel, room_number, floor_number, status, is_checkout_room, is_dnd, notes, wing, room_category, room_size_sqm, bed_type, guest_nights_stayed, towel_change_required, linen_change_required, pms_metadata')
-        .in('hotel', keys)
-        .order('room_number');
-      if (roomError) throw roomError;
-
-      const deduped = new Map<string, RoomData>();
-      for (const room of (roomRows || []) as RoomData[]) {
-        const current = deduped.get(room.room_number);
-        if (!current || room.hotel === GOZSDU_COURT_HOTEL_ID) deduped.set(room.room_number, room);
+      const [roomResult, areaResult, sectionsResult] = await Promise.all([
+        supabase.from('rooms')
+          .select('id, hotel, room_number, floor_number, status, last_cleaned_at, updated_at, is_checkout_room, is_dnd, notes, wing, room_category, room_size_sqm, bed_type, bed_configuration, guest_nights_stayed, towel_change_required, linen_change_required, pms_metadata')
+          .in('hotel', HOTEL_KEYS).order('room_number'),
+        supabase.from('general_tasks').select('id, task_name, assigned_to, status')
+          .in('hotel', HOTEL_KEYS).eq('assigned_date', selectedDate),
+        (supabase as any).from('hotel_housekeeping_sections')
+          .select('id, name, sort_order').eq('hotel_name', HOTEL_NAME).eq('is_active', true)
+          .order('sort_order').order('name'),
+      ]);
+      if (roomResult.error) throw roomResult.error;
+      if (areaResult.error) throw areaResult.error;
+      if (sectionsResult.error) throw sectionsResult.error;
+      const rawRooms = (roomResult.data || []) as Room[];
+      const ids = rawRooms.map(room => room.id);
+      const assignmentRows: Assignment[] = [];
+      if (ids.length > 0) {
+        const { data, error } = await supabase.from('room_assignments')
+          .select('id, room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, notes')
+          .eq('assignment_date', selectedDate).in('room_id', ids);
+        if (error) throw error;
+        assignmentRows.push(...((data || []) as Assignment[]));
       }
-      const nextRooms = Array.from(deduped.values()).sort(numericRoomSort);
-      const roomIds = nextRooms.map(room => room.id);
-
-      let nextAssignments: AssignmentData[] = [];
-      if (roomIds.length > 0) {
-        const { data: assignmentRows, error: assignmentError } = await supabase
-          .from('room_assignments')
-          .select('id, room_id, assigned_to, status, assignment_type')
-          .eq('assignment_date', selectedDate)
-          .in('room_id', roomIds);
-        if (assignmentError) throw assignmentError;
-        nextAssignments = (assignmentRows || []) as AssignmentData[];
+      const assignedIds = new Set(assignmentRows.map(row => row.room_id));
+      const deduped = new Map<string, Room>();
+      for (const room of rawRooms) {
+        const existing = deduped.get(room.room_number);
+        if (!existing || (assignedIds.has(room.id) && !assignedIds.has(existing.id))
+          || (!assignedIds.has(existing.id) && room.hotel === GOZSDU_COURT_HOTEL_ID)) {
+          deduped.set(room.room_number, room);
+        }
       }
-
-      setRooms(nextRooms);
-      setAssignments(nextAssignments);
+      const selectedRooms = Array.from(deduped.values()).sort(roomSort);
+      const selectedIds = new Set(selectedRooms.map(room => room.id));
+      const nextBuildings = (sectionsResult.data || []) as Building[];
+      let nextMappings: Mapping[] = [];
+      if (nextBuildings.length > 0) {
+        const { data, error } = await (supabase as any).from('hotel_housekeeping_section_rooms')
+          .select('room_id, section_id').in('section_id', nextBuildings.map(row => row.id));
+        if (error) throw error;
+        nextMappings = ((data || []) as Mapping[]).filter(mapping => selectedIds.has(mapping.room_id));
+      }
+      setRooms(selectedRooms);
+      setAssignments(assignmentRows.filter(row => selectedIds.has(row.room_id)));
+      setAreas((areaResult.data || []) as PublicArea[]);
+      setBuildings(nextBuildings);
+      setMappings(nextMappings);
     } catch (error) {
-      console.error('[GozsduCourtRoomOverview] load failed', error);
-      toast.error('Gozsdu housekeeping rooms could not be loaded');
+      console.error('[GozsduCourtRoomOverview] refresh failed', error);
+      toast.error('Could not refresh Gozsdu housekeeping');
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [hotelName, selectedDate]);
+  }, [selectedDate]);
 
-  const loadBuildings = useCallback(async () => {
-    try {
-      const { data: sectionRows, error: sectionError } = await (supabase as any)
-        .from('hotel_housekeeping_sections')
-        .select('id, name, sort_order')
-        .eq('hotel_name', GOZSDU_COURT_HOTEL_NAME)
-        .eq('is_active', true)
-        .order('sort_order')
-        .order('name');
-      if (sectionError) throw sectionError;
-      const nextBuildings = (sectionRows || []) as BuildingSection[];
-      setBuildings(nextBuildings);
-
-      if (nextBuildings.length === 0) {
-        setBuildingMappings([]);
-        return;
-      }
-      const { data: mappingRows, error: mappingError } = await (supabase as any)
-        .from('hotel_housekeeping_section_rooms')
-        .select('room_id, section_id')
-        .in('section_id', nextBuildings.map(section => section.id));
-      if (mappingError) throw mappingError;
-      setBuildingMappings((mappingRows || []) as BuildingMapping[]);
-    } catch (error) {
-      console.error('[GozsduCourtRoomOverview] building map failed', error);
-      toast.error('Gozsdu building mapping could not be loaded');
-    }
-  }, []);
-
+  useEffect(() => { void load(); }, [load, refreshKey]);
   useEffect(() => {
-    void loadRooms();
-  }, [loadRooms, refreshKey]);
+    const onChanged = () => { void load(true); };
+    window.addEventListener('pms-sync-completed', onChanged);
+    window.addEventListener('hk-assignments-changed', onChanged);
+    const onVisible = () => { if (!document.hidden) onChanged(); };
+    document.addEventListener('visibilitychange', onVisible);
+    const timer = window.setInterval(() => { if (!document.hidden) onChanged(); }, 60_000);
+    const channel = supabase.channel(`gozsdu-room-overview-${selectedDate}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, (event: any) => {
+        if (HOTEL_KEYS.includes(event.new?.hotel || event.old?.hotel)) onChanged();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_assignments', filter: `assignment_date=eq.${selectedDate}` }, onChanged)
+      .subscribe();
+    return () => {
+      window.removeEventListener('pms-sync-completed', onChanged);
+      window.removeEventListener('hk-assignments-changed', onChanged);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(timer);
+      void supabase.removeChannel(channel);
+    };
+  }, [load, selectedDate]);
 
-  useEffect(() => {
-    void loadBuildings();
-  }, [loadBuildings]);
-
-  const assignmentMap = useMemo(
-    () => new Map(assignments.map(assignment => [assignment.room_id, assignment])),
-    [assignments],
-  );
-  const buildingByRoom = useMemo(
-    () => new Map(buildingMappings.map(mapping => [mapping.room_id, mapping.section_id])),
-    [buildingMappings],
-  );
-  const buildingNameById = useMemo(
-    () => new Map(buildings.map(building => [building.id, building.name])),
-    [buildings],
-  );
-
+  const assignmentMap = useMemo(() => new Map(assignments.map(row => [row.room_id, row])), [assignments]);
+  const buildingByRoom = useMemo(() => new Map(mappings.map(row => [row.room_id, row.section_id])), [mappings]);
+  const nameByBuilding = useMemo(() => new Map(buildings.map(row => [row.id, row.name])), [buildings]);
   const buckets = useMemo(() => {
-    const checkoutRooms: RoomData[] = [];
-    const secondDayRooms: RoomData[] = [];
-    const otherRooms: RoomData[] = [];
-    const noShowRooms: RoomData[] = [];
-
+    const result: Record<Bucket, Room[]> = { checkout: [], service: [], other: [], noshow: [] };
     for (const room of rooms) {
-      const assignment = assignmentMap.get(room.id);
-      const checkout = isCheckout(room, assignment);
-      if (checkout) {
-        checkoutRooms.push(room);
-        continue;
-      }
-      if (isNoShow(room)) {
-        noShowRooms.push(room);
-        continue;
-      }
-      if (serviceFor(room, false) !== 'none') secondDayRooms.push(room);
-      else otherRooms.push(room);
+      const isCheckout = checkout(room, assignmentMap.get(room.id));
+      if (isCheckout) result.checkout.push(room);
+      else if (noShow(room)) result.noshow.push(room);
+      else if (service(room, false) !== 'none') result.service.push(room);
+      else result.other.push(room);
     }
+    return result;
+  }, [rooms, assignmentMap]);
 
-    return { checkoutRooms, secondDayRooms, otherRooms, noShowRooms };
-  }, [assignmentMap, rooms]);
-
-  const refresh = async () => {
-    setRefreshing(true);
-    await Promise.all([loadRooms(true), loadBuildings()]);
-    setRefreshing(false);
-  };
-
-  const createBuilding = async () => {
-    const name = newBuildingName.trim();
-    if (!name || !canManageMap) return;
-    setCreatingBuilding(true);
+  const onDropHousekeeper = async (event: React.DragEvent, room: Room) => {
+    const payload = readHousekeeperDragPayload(event);
+    if (!payload || !canAssign || selectedDate !== todayBudapest()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setDroppingOn(null);
+    const existing = assignmentMap.get(room.id);
+    if (existing?.assigned_to === payload.staffId) return;
     try {
-      const maxOrder = buildings.reduce((max, building) => Math.max(max, building.sort_order || 0), 0);
-      const { data, error } = await (supabase as any)
-        .from('hotel_housekeeping_sections')
-        .insert({
-          hotel_name: GOZSDU_COURT_HOTEL_NAME,
-          name,
-          floor_number: 0,
-          description: 'Gozsdu Court building / apartment group',
-          color: 'slate',
-          sort_order: maxOrder + 10,
-          created_by: user?.id || null,
-        })
-        .select('id, name, sort_order')
-        .single();
-      if (error) throw error;
-      setBuildings(previous => [...previous, data]);
-      setNewBuildingName('');
-      toast.success(`Building “${name}” created`);
-    } catch (error: any) {
-      console.error('[GozsduCourtRoomOverview] create building failed', error);
-      toast.error(error?.code === '23505' ? 'This building already exists' : 'Building could not be created');
-    } finally {
-      setCreatingBuilding(false);
-    }
-  };
-
-  const mapRoomToBuilding = async (room: RoomData, sectionId: string) => {
-    if (!canManageMap) return;
-    setMappingBusyRoom(room.id);
-    const previousSectionId = buildingByRoom.get(room.id) || null;
-    try {
-      if (sectionId === 'unmapped') {
-        const { error } = await (supabase as any)
-          .from('hotel_housekeeping_section_rooms')
-          .delete()
-          .eq('room_id', room.id);
-        if (error) throw error;
-        setBuildingMappings(previous => previous.filter(mapping => mapping.room_id !== room.id));
-        toast.success(`Room ${room.room_number} unmapped`);
-      } else {
-        const { error } = await (supabase as any)
-          .from('hotel_housekeeping_section_rooms')
-          .upsert({ room_id: room.id, section_id: sectionId, created_by: user?.id || null }, { onConflict: 'room_id' });
-        if (error) throw error;
-        setBuildingMappings(previous => [
-          ...previous.filter(mapping => mapping.room_id !== room.id),
-          { room_id: room.id, section_id: sectionId },
-        ]);
-        toast.success(`Room ${room.room_number} → ${buildingNameById.get(sectionId) || 'building'}`);
-      }
+      await assignRoomToStaff({
+        roomId: room.id, staffId: payload.staffId, assignmentDate: selectedDate,
+        assignedBy: profile?.id || user?.id || '', organizationSlug: profile?.organization_slug || null,
+        isCheckoutRoom: checkout(room, existing),
+      });
+      toast.success(`Room ${room.room_number} → ${cleanName(payload.staffName)}`);
+      await load(true);
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
     } catch (error) {
-      console.error('[GozsduCourtRoomOverview] map room failed', error);
-      toast.error(`Room ${room.room_number} mapping could not be saved`);
-      if (previousSectionId) await loadBuildings();
-    } finally {
-      setMappingBusyRoom(null);
+      if (isAssignmentInProgressError(error)) toast.warning(`Room ${room.room_number} is already being cleaned; its housekeeper cannot be changed.`);
+      else { console.error('[Gozsdu] assignment failed', error); toast.error('Could not assign room'); }
     }
   };
 
-  const renderRoom = (room: RoomData, bucket: 'checkout' | 'service' | 'other' | 'noshow') => {
+  const renderChip = (room: Room, bucket: Bucket) => {
     const assignment = assignmentMap.get(room.id);
-    const staffName = assignment ? staffMap[assignment.assigned_to] : null;
-    const service = bucket === 'service' ? serviceFor(room, false) : 'none';
-    const night = stayLabel(room);
-    const buildingId = buildingByRoom.get(room.id);
-    const building = buildingId ? buildingNameById.get(buildingId) : null;
-    const bucketClass = bucket === 'checkout'
-      ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/30'
-      : bucket === 'service' && service === 'change_room'
-        ? 'border-orange-500 bg-orange-50 dark:bg-orange-950/30'
-        : bucket === 'service'
-          ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30'
-          : bucket === 'noshow'
-            ? 'border-red-400 bg-red-50 dark:bg-red-950/30'
-            : 'border-border bg-muted/30';
-
+    const flags = parseRoomFlags(room.notes);
+    const isCheckout = bucket === 'checkout';
+    const isNoShow = bucket === 'noshow';
+    const change = bucket === 'service' ? service(room, false) : 'none';
+    const pending = assignment?.status === 'completed' && assignment.supervisor_approved !== true;
+    const overdue = assignment?.status === 'in_progress' && assignment.started_at
+      && Date.now() - new Date(assignment.started_at).getTime() > 2 * 60 * 60 * 1000;
+    const pmsClean = room.status === 'clean' && (
+      room.pms_metadata?.pmsSyncDate === selectedDate || room.pms_metadata?.lastPmsRefreshDate === selectedDate);
+    const cleanedToday = room.last_cleaned_at?.slice(0, 10) === selectedDate;
+    const status = overdue ? 'overdue' : pending ? 'pending_approval'
+      : assignment?.status === 'in_progress' ? 'in_progress'
+      : assignment?.status === 'completed' && assignment.supervisor_approved ? 'clean'
+      : (room.status === 'clean' && (cleanedToday || pmsClean) ? 'clean' : room.status === 'clean' ? 'dirty' : room.status || 'dirty');
+    const staffName = assignment ? assigneeLabel(staffMap, assignment.assigned_to) : null;
+    const nights = Number(room.pms_metadata?.currentNight ?? room.guest_nights_stayed ?? 0);
+    const total = Number(room.pms_metadata?.totalNights ?? 0);
+    const hasNote = !!flags.cleanNotes;
+    const size = room.room_size_sqm;
+    const sizeLabel = !size ? null : size <= 18 ? 'S' : size <= 30 ? 'M' : size <= 40 ? 'L' : 'XL';
+    const highlight = droppingOn === room.id;
     return (
-      <div key={room.id} className={`min-w-[92px] rounded-lg border px-2 py-1.5 shadow-sm ${bucketClass}`}>
-        <div className="flex items-center gap-1">
-          <span className="text-sm font-bold">{room.room_number}</span>
-          {room.is_dnd && <Badge variant="outline" className="h-4 px-1 text-[8px]">DND</Badge>}
-        </div>
-        <div className="mt-1 flex flex-wrap gap-1">
-          {night && <Badge variant="outline" className="h-4 px-1 text-[8px]">{night}</Badge>}
-          {service === 'towel_change' && <Badge className="h-4 bg-blue-600 px-1 text-[8px] text-white">T · Towel</Badge>}
-          {service === 'change_room' && <Badge className="h-4 bg-orange-600 px-1 text-[8px] text-white">CR · Change</Badge>}
-          {room.pms_metadata?.arrivalToday === true && bucket === 'other' && <Badge variant="outline" className="h-4 px-1 text-[8px]">Arrival</Badge>}
-        </div>
-        {staffName && <div className="mt-1 max-w-[130px] truncate text-[9px] text-muted-foreground">{staffName}</div>}
-        {building && <div className="mt-0.5 max-w-[130px] truncate text-[9px] text-muted-foreground">🏢 {building}</div>}
-      </div>
+      <TooltipProvider key={room.id} delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div
+              className={`flex flex-col items-center gap-0.5 select-none transition-transform ${highlight ? 'scale-110' : ''}`}
+              draggable={canAssign && selectedDate === todayBudapest()}
+              onDragStart={canAssign ? (event) => setRoomDragPayload(event, {
+                roomId: room.id, roomNumber: room.room_number,
+                sourceType: isCheckout ? 'checkout' : 'daily', origin: 'overview',
+                assignedTo: assignment?.assigned_to || null,
+                assignedToName: assignment ? staffMap[assignment.assigned_to] || null : null,
+              }) : undefined}
+              onDragEnd={() => setDroppingOn(null)}
+              onDragOver={canAssign ? event => { event.preventDefault(); setDroppingOn(room.id); } : undefined}
+              onDragLeave={() => setDroppingOn(current => current === room.id ? null : current)}
+              onDrop={canAssign ? event => { void onDropHousekeeper(event, room); } : undefined}
+              onMouseEnter={() => setHovered(room.id)}
+              onMouseLeave={() => setHovered(null)}
+              role="button" tabIndex={0}
+              onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') (event.currentTarget as HTMLElement).click(); }}
+              style={{ cursor: 'pointer' }}
+            >
+              <div className={`relative rounded border transition-all text-center px-2 py-1 text-xs font-bold border-2 min-w-[40px] ${STATUS_COLORS[status] || STATUS_COLORS.dirty}
+                ${room.is_dnd ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
+                ${isNoShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
+                ${highlight ? 'ring-2 ring-primary ring-offset-1' : ''}
+                ${hovered === room.id ? 'shadow-md' : ''}`}>
+                {room.room_number}
+                {room.pms_metadata?.manual_checkout === true && <span className="ml-0.5 rounded bg-amber-500 px-0.5 text-[9px] text-white" title="Manual checkout">M</span>}
+                {room.pms_metadata?.notArrived === true && !isNoShow && <span className="ml-0.5 rounded bg-slate-500 px-0.5 text-[9px] text-white">NA</span>}
+                {room.pms_metadata?.scheduledDepartureTomorrow === true && !isCheckout && <span className="ml-0.5 rounded bg-indigo-600 px-0.5 text-[9px] text-white">C/O+1</span>}
+                {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700">SH</span>}
+                {change === 'towel_change' && <span className="ml-0.5 rounded bg-blue-600 px-0.5 text-[9px] text-white">T</span>}
+                {change === 'change_room' && <span className="ml-0.5 rounded bg-orange-500 px-0.5 text-[9px] text-white">C</span>}
+                {flags.roomCleaning && <span className="ml-0.5 rounded bg-green-600 px-0.5 text-[9px] text-white">RC</span>}
+                {flags.collectExtraTowels && <span className="ml-0.5 text-[9px]">🧺</span>}
+                {isCheckout && (assignment?.ready_to_clean || (!assignment && isPmsRtcToday(room.pms_metadata))) && <span className="ml-0.5 rounded bg-green-600 px-0.5 text-[9px] text-white">RTC</span>}
+                {assignment?.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 rounded bg-gray-500 px-0.5 text-[9px] text-white">NS</span>}
+                {assignment?.status === 'completed' && assignment.supervisor_approved && !assignment.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 text-[9px]">✅</span>}
+                {room.is_dnd && <span className="ml-0.5 text-[9px]">🚫</span>}
+                {isNoShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
+                {pending && <span className="ml-0.5 text-[9px]">⏳</span>}
+                {overdue && <span className="ml-0.5 text-[9px]">🔴</span>}
+                {sizeLabel && <span className="ml-0.5 text-[8px] opacity-70">{sizeLabel}</span>}
+              </div>
+              {room.bed_configuration && <span className="max-w-[48px] truncate text-[8px] font-semibold text-purple-600" title={room.bed_configuration}>{room.bed_configuration.includes('Twin') ? 'TW' : room.bed_configuration.includes('Double') ? 'DB' : room.bed_configuration.slice(0, 3).toUpperCase()}</span>}
+              {hasNote && <span className="text-[8px]" title={flags.cleanNotes}>📝</span>}
+              {staffName && <span className="max-w-[76px] break-words text-center text-[9px] font-medium leading-tight text-muted-foreground" title={staffMap[assignment?.assigned_to || '']}>{staffName}</span>}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="max-w-xs text-xs">
+            <p className="font-semibold">Room {room.room_number} · {status.replaceAll('_', ' ')}</p>
+            {nights > 0 && total > 0 && <p>Stay {nights}/{total}</p>}
+            {change !== 'none' && <p>{change === 'change_room' ? 'Change Room' : 'Towel change'}</p>}
+            {nameByBuilding.get(buildingByRoom.get(room.id) || '') && <p>Building: {nameByBuilding.get(buildingByRoom.get(room.id) || '')}</p>}
+            {staffName && <p>Housekeeper: {staffName}</p>}
+            <p className="text-muted-foreground">Click for the same room operations as other hotels.</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   };
 
-  const renderSection = (
-    title: string,
-    list: RoomData[],
-    bucket: 'checkout' | 'service' | 'other' | 'noshow',
-    icon: React.ReactNode,
-    description: string,
-  ) => (
-    <section className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        {icon}
-        <span className="text-sm font-semibold">{title}</span>
-        <Badge variant="secondary" className="text-xs">{list.length}</Badge>
-        <span className="text-[10px] text-muted-foreground">{description}</span>
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {list.map(room => renderRoom(room, bucket))}
-        {list.length === 0 && <span className="text-xs text-muted-foreground">No rooms</span>}
-      </div>
-    </section>
-  );
-
-  if (loading) {
+  const renderSection = (title: string, list: Room[], bucket: Bucket, icon: React.ReactNode, hint: string) => {
+    const floors = new Map<number, Room[]>();
+    for (const room of list) {
+      const floor = roomFloor(room);
+      if (!floors.has(floor)) floors.set(floor, []);
+      floors.get(floor)!.push(room);
+    }
     return (
-      <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">Loading Gozsdu housekeeping overview…</CardContent></Card>
+      <section className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {icon}<span className="text-sm font-semibold">{title}</span>
+          <Badge variant="secondary" className="text-xs">{list.length}</Badge>
+          <span className="text-[10px] text-muted-foreground">{hint}</span>
+        </div>
+        {list.length === 0 ? <p className="pl-6 text-xs text-muted-foreground">No rooms</p> : (
+          <div className="space-y-1.5">
+            {Array.from(floors).sort(([a], [b]) => a - b).map(([floor, floorRooms]) => (
+              <div key={floor} className="flex items-start gap-2">
+                <Badge variant="outline" className="mt-0.5 min-w-[28px] shrink-0 text-center text-[10px]">F{floor}</Badge>
+                <div className="flex flex-wrap gap-1.5">
+                  {floorRooms.sort(roomSort).map(room => <div key={room.id} className="animate-fade-in">{renderChip(room, bucket)}</div>)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     );
-  }
+  };
 
+  const refresh = async () => { setRefreshing(true); await load(true); setRefreshing(false); };
+  const createBuilding = async () => {
+    const name = buildingName.trim();
+    if (!name || !canMap) return;
+    setCreating(true);
+    try {
+      const { data, error } = await (supabase as any).from('hotel_housekeeping_sections').insert({
+        hotel_name: HOTEL_NAME, name, floor_number: 0,
+        description: 'Gozsdu Court building / apartment group', color: 'slate',
+        sort_order: buildings.reduce((max, row) => Math.max(max, row.sort_order || 0), 0) + 10,
+        created_by: user?.id || null,
+      }).select('id, name, sort_order').single();
+      if (error) throw error;
+      setBuildings(current => [...current, data]);
+      setBuildingName('');
+      toast.success(`Building ${name} created`);
+    } catch (error: any) {
+      toast.error(error?.code === '23505' ? 'Building already exists' : 'Could not create building');
+    } finally { setCreating(false); }
+  };
+  const mapRoom = async (room: Room, sectionId: string) => {
+    if (!canMap) return;
+    setMappingBusy(room.id);
+    try {
+      const query = (supabase as any).from('hotel_housekeeping_section_rooms');
+      const { error } = sectionId === 'unmapped'
+        ? await query.delete().eq('room_id', room.id)
+        : await query.upsert({ room_id: room.id, section_id: sectionId, created_by: user?.id || null }, { onConflict: 'room_id' });
+      if (error) throw error;
+      setMappings(current => [ ...current.filter(row => row.room_id !== room.id),
+        ...(sectionId === 'unmapped' ? [] : [{ room_id: room.id, section_id: sectionId }]) ]);
+      toast.success(`Room ${room.room_number} mapping saved`);
+    } catch (error) { toast.error('Could not save room mapping'); }
+    finally { setMappingBusy(null); }
+  };
+
+  if (loading) return <Card><CardContent className="py-4 text-sm text-muted-foreground">Loading room overview…</CardContent></Card>;
   return (
     <Card id="hotel-room-overview" className="border-primary/20">
-      <CardHeader className="space-y-3 pb-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Hotel className="h-4 w-4 text-primary" />
-            Gozsdu Court Budapest · Housekeeping
-          </CardTitle>
-          <div className="flex gap-1.5">
-            <Button size="sm" variant={view === 'rooms' ? 'default' : 'outline'} onClick={() => setView('rooms')}>Rooms</Button>
-            <Button size="sm" variant={view === 'buildings' ? 'default' : 'outline'} onClick={() => setView('buildings')}>
-              <Building2 className="mr-1 h-3.5 w-3.5" />Building mapping
+      <CardHeader className="space-y-3 px-3 pb-2 pt-3 sm:px-4">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="flex min-w-0 items-center gap-1.5 text-sm font-semibold sm:text-base"><Hotel className="h-4 w-4 shrink-0 text-primary" />Hotel Room Overview</CardTitle>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => setView(current => current === 'rooms' ? 'buildings' : 'rooms')}>
+              {view === 'rooms' ? <><Building2 className="mr-1 h-3.5 w-3.5" />Map</> : <><BedDouble className="mr-1 h-3.5 w-3.5" />List</>}
             </Button>
-            <Button size="sm" variant="outline" onClick={refresh} disabled={refreshing}>
+            <Button size="sm" className="h-8 px-2 text-xs" onClick={() => void refresh()} disabled={refreshing} aria-label="Refresh">
               <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
             </Button>
           </div>
         </div>
-        <div className="rounded-md border border-blue-200 bg-blue-50/60 px-3 py-2 text-xs text-blue-900 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100">
-          Gozsdu-only rule: service every 2nd stay night. Every 4th stay night is <strong>Change Room</strong> only when more than one night remains; otherwise it is <strong>towel-only</strong>. Checkout rooms always follow checkout cleaning.
+        <div className="grid grid-cols-4 gap-2">
+          {[['Total', rooms.length], ['Checkout', buckets.checkout.length], ['Service', buckets.service.length], ['No show', buckets.noshow.length]].map(([label, count]) => (
+            <div key={label} className="rounded-lg border bg-muted/40 px-2 py-1.5 text-center">
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{label}</div>
+              <div className="text-sm font-semibold leading-tight">{count}</div>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border/50 bg-muted/30 p-2 text-[10px] text-muted-foreground">
+          <span>🟩 Clean</span><span>🟨 Dirty/assigned</span><span>🟦 In progress</span><span>🟪 Approval</span>
+          <span><b className="rounded bg-blue-600 px-1 text-white">T</b> Towel</span>
+          <span><b className="rounded bg-orange-500 px-1 text-white">C</b> Change Room</span>
+          <span>🟢 RTC</span><span>🚫 DND</span>
         </div>
       </CardHeader>
-
-      <CardContent className="space-y-4">
-        {view === 'rooms' ? (
-          <>
-            {renderSection('Checkout rooms', buckets.checkoutRooms, 'checkout', <BedDouble className="h-4 w-4 text-amber-600" />, 'Departure / checkout cleaning')}
-            <div className="border-t" />
-            {renderSection('Second-day service rooms', buckets.secondDayRooms, 'service', <BedDouble className="h-4 w-4 text-blue-600" />, 'T = towel change · CR = Change Room')}
-            <div className="border-t" />
-            {renderSection('Other rooms', buckets.otherRooms, 'other', <MapPin className="h-4 w-4 text-slate-600" />, 'No scheduled housekeeping service today')}
-            <div className="border-t" />
-            {renderSection('No show', buckets.noShowRooms, 'noshow', <UserX className="h-4 w-4 text-red-600" />, 'Reservation no-show; not a stay-over service room')}
-          </>
-        ) : (
-          <div className="space-y-4">
-            <div className="rounded-lg border bg-muted/20 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="flex items-center gap-2 text-sm font-semibold"><Building2 className="h-4 w-4" />Gozsdu building / apartment mapping</h3>
-                  <p className="mt-1 text-xs text-muted-foreground">Create the real building names, then map every apartment to its building. This mapping is stored only for Gozsdu Court Budapest.</p>
-                </div>
-                <div className="flex gap-1.5">
-                  <Badge variant="secondary">{buildings.length} buildings</Badge>
-                  <Badge variant="secondary">{buildingMappings.length}/{rooms.length} mapped</Badge>
-                </div>
+      <CardContent className="space-y-3 px-4 pb-3">
+        {canAssign && signedInHousekeepers.length > 0 && selectedDate === todayBudapest() && (
+          <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
+            <div className="mb-1.5 flex items-center gap-1.5"><GripVertical className="h-3.5 w-3.5" /><span className="text-[11px] font-semibold">Signed in today</span><span className="text-[10px] text-muted-foreground">— drag a housekeeper onto a room</span></div>
+            <div className="flex flex-wrap gap-1.5">{signedInHousekeepers.map(person => (
+              <div key={person.id} draggable onDragStart={event => { setHousekeeperDragPayload(event, { staffId: person.id, staffName: person.fullName }); setDraggingHousekeeper(person.id); }}
+                onDragEnd={() => { setDraggingHousekeeper(null); setDroppingOn(null); }}
+                className={`flex cursor-grab items-center gap-1 rounded-full border bg-background px-2 py-1 text-[11px] font-medium shadow-sm ${draggingHousekeeper === person.id ? 'opacity-60' : ''}`}>
+                <GripVertical className="h-3 w-3 text-muted-foreground" />{cleanName(person.nickname) || cleanName(person.fullName)}
+                {person.onBreak && <span className="text-[9px] text-amber-700"><Coffee className="inline h-2.5 w-2.5" />Break</span>}
               </div>
-              {canManageMap && (
-                <div className="mt-3 flex max-w-md gap-2">
-                  <Input value={newBuildingName} onChange={event => setNewBuildingName(event.target.value)} placeholder="Building name / address label" onKeyDown={event => { if (event.key === 'Enter') void createBuilding(); }} />
-                  <Button onClick={createBuilding} disabled={creatingBuilding || !newBuildingName.trim()}>
-                    <Plus className="mr-1 h-4 w-4" />Add
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
-              {rooms.map(room => {
-                const mapped = buildingByRoom.get(room.id) || 'unmapped';
-                return (
-                  <div key={room.id} className="flex items-center gap-2 rounded-lg border bg-card p-2">
-                    <div className="min-w-[70px]">
-                      <div className="text-sm font-bold">{room.room_number}</div>
-                      <div className="text-[9px] text-muted-foreground">{stayLabel(room) ? `Stay ${stayLabel(room)}` : 'Apartment'}</div>
-                    </div>
-                    <Select value={mapped} onValueChange={value => void mapRoomToBuilding(room, value)} disabled={!canManageMap || mappingBusyRoom === room.id}>
-                      <SelectTrigger className="h-8 flex-1 text-xs"><SelectValue placeholder="Unmapped" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="unmapped">Unmapped</SelectItem>
-                        {buildings.map(building => <SelectItem key={building.id} value={building.id}>{building.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                );
-              })}
-            </div>
-            {!canManageMap && <p className="text-xs text-muted-foreground">Building mapping is read-only for your role. Managers and supervisors can edit it.</p>}
+            ))}</div>
           </div>
         )}
+        {view === 'rooms' ? <>
+          {renderSection('Checkout Rooms', buckets.checkout, 'checkout', <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'Departure / checkout cleaning')}
+          <div className="border-t border-border/50" />
+          {renderSection('Second-day service rooms', buckets.service, 'service', <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'T = towel · C = Change Room')}
+          <div className="border-t border-border/50" />
+          {renderSection('Other rooms', buckets.other, 'other', <MapPin className="h-3.5 w-3.5 text-slate-500" />, 'No housekeeping scheduled today')}
+          <div className="border-t border-border/50" />
+          {renderSection('No show', buckets.noshow, 'noshow', <UserX className="h-3.5 w-3.5 text-red-600" />, 'No-show reservations')}
+          {areas.length > 0 && <><div className="border-t border-border/50" /><div className="space-y-2"><div className="flex items-center gap-2"><MapPin className="h-3.5 w-3.5 text-emerald-600" /><span className="text-sm font-semibold">Public Areas</span><Badge variant="secondary">{areas.length}</Badge></div><div className="flex flex-wrap gap-1.5">{areas.map(area => <div key={area.id} className="flex flex-col items-center gap-0.5"><div className={`rounded border px-2 py-1 text-xs font-semibold ${STATUS_COLORS[area.status] || STATUS_COLORS.dirty}`}>{area.task_name}</div><span className="text-[9px] text-muted-foreground">{assigneeLabel(staffMap, area.assigned_to)}</span></div>)}</div></div></>}
+        </> : <div className="space-y-3">
+          <div className="rounded-lg border bg-muted/20 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-sm font-semibold">Gozsdu building / apartment mapping</span><Badge variant="secondary">{mappings.length}/{rooms.length} mapped</Badge></div>
+            {canMap && <div className="mt-3 flex max-w-md gap-2"><Input value={buildingName} onChange={event => setBuildingName(event.target.value)} placeholder="Building name / address" onKeyDown={event => { if (event.key === 'Enter') void createBuilding(); }} /><Button disabled={creating || !buildingName.trim()} onClick={() => void createBuilding()}><Plus className="mr-1 h-4 w-4" />Add</Button></div>}
+          </div>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">{rooms.map(room => <div key={room.id} className="flex items-center gap-2 rounded-lg border p-2"><span className="min-w-[72px] text-xs font-bold">{room.room_number}</span><Select value={buildingByRoom.get(room.id) || 'unmapped'} onValueChange={value => void mapRoom(room, value)} disabled={!canMap || mappingBusy === room.id}><SelectTrigger className="h-8 flex-1 text-xs"><SelectValue placeholder="Unmapped" /></SelectTrigger><SelectContent><SelectItem value="unmapped">Unmapped</SelectItem>{buildings.map(building => <SelectItem key={building.id} value={building.id}>{building.name}</SelectItem>)}</SelectContent></Select></div>)}</div>
+        </div>}
       </CardContent>
     </Card>
   );
