@@ -105,7 +105,7 @@ describe('next-day housekeeping selected-date snapshot', () => {
     const rooms = [make('five', 'ST-101'), make('six', 'ST-102'), make('odd', 'ST-103')];
     const rows = [snapshot('ST-101','ongoing','2026-09-07','2026-09-12'),
       snapshot('ST-102','ongoing','2026-09-07','2026-09-13'),
-      snapshot('ST-103','ongoing','2026-09-09','2026-09-14')];
+      snapshot('ST-103','ongoing','2026-09-10','2026-09-14')];
     const workload = buildSelectedDateHousekeepingWorkload(rooms, rows, '2026-09-10');
     expect(workload.rooms.map(room => room.id)).toEqual(['five','six']);
     expect(workload.rooms[0].towel_change_required).toBe(true);
