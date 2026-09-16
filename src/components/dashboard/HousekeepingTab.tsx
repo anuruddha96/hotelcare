@@ -9,8 +9,9 @@ import { Button } from '@/components/ui/button';
 
 type Props = ComponentProps<typeof HousekeepingTabEnhanced>;
 
-/** Normal housekeeping remains unchanged for all other hotels and all normal
- * days. Laundryner is a date-specific Gozsdu duty, not an elevated global role. */
+/** Normal housekeeping is unchanged outside Gozsdu and on non-laundry days.
+ * During a code-before-database rollout, the original tasks remain usable;
+ * other database failures still fail closed to protect assigned work. */
 export function HousekeepingTab(props: Props = {}) {
   const { user, profile } = useAuth();
   const [workDate, setWorkDate] = useState(todayBudapest);
@@ -28,6 +29,16 @@ export function HousekeepingTab(props: Props = {}) {
       .eq('hotel_id', 'gozsdu-court').eq('work_date', workDate)
       .eq('user_id', user.id).maybeSingle();
     if (error) {
+      const missingTable = (error.code === '42P01' || error.code === 'PGRST205')
+        && String(error.message || '').includes('gozsdu_laundry_duties');
+      if (missingTable) {
+        // A GitHub merge does not itself apply the new Supabase migrations.
+        // Never disable the established housekeeping UI just for that rollout gap.
+        setActiveDuty(false);
+        setFailed(false);
+        setReady(true);
+        return;
+      }
       console.error('[HousekeepingTab] Laundryner duty read failed', error);
       setFailed(true);
       setReady(true);
