@@ -10,20 +10,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 
 const MANAGER_ROLES = new Set(['manager', 'housekeeping_manager', 'admin', 'top_management', 'top_management_manager']);
+type Staff = { id: string; full_name: string; nickname: string | null };
 
-type StaffRow = { id: string; full_name: string; nickname: string | null };
-
-export function GozsduLaundryDutyPicker({
-  open, workDate, onReady, onChanged,
-}: {
+export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged }: {
   open: boolean;
   workDate: string;
-  onReady: (ids: string[]) => void;
+  onReady: (ids: string[] | null) => void;
   onChanged: () => void;
 }) {
   const { profile } = useAuth();
   const [show, setShow] = useState(false);
-  const [staff, setStaff] = useState<StaffRow[]>([]);
+  const [staff, setStaff] = useState<Staff[]>([]);
   const [dutyIds, setDutyIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -31,8 +28,8 @@ export function GozsduLaundryDutyPicker({
   const allowed = !!profile?.organization_slug && isGozsduCourtHotel(profile.assigned_hotel)
     && MANAGER_ROLES.has(profile.role);
 
-  const refresh = useCallback(async () => {
-    if (!open || !allowed || !profile?.organization_slug) return;
+  const refresh = useCallback(async (): Promise<boolean> => {
+    if (!open || !allowed || !profile?.organization_slug) return false;
     try {
       const [staffResult, dutiesResult] = await Promise.all([
         supabase.from('profiles').select('id, full_name, nickname')
@@ -45,19 +42,20 @@ export function GozsduLaundryDutyPicker({
       ]);
       if (staffResult.error) throw staffResult.error;
       if (dutiesResult.error) throw dutiesResult.error;
-      const eligibleStaff = (staffResult.data || []) as StaffRow[];
+      const eligibleStaff = (staffResult.data || []) as Staff[];
       const eligibleIds = new Set(eligibleStaff.map(person => person.id));
       const ids: string[] = (dutiesResult.data || []).map((d: any) => String(d.user_id))
         .filter((id: string) => eligibleIds.has(id));
       setStaff(eligibleStaff);
       setDutyIds(ids);
-      onReady(ids);
       setFailed(false);
+      onReady(ids);
+      return true;
     } catch (error) {
       console.error('[GozsduLaundryDutyPicker] failed to verify duties', error);
       setFailed(true);
-      // Fail closed: the parent must not mount a stale assignment board.
-      onReady([]);
+      onReady(null); // Never mount the optimizer with unknown exclusions.
+      return false;
     } finally {
       setLoading(false);
     }
@@ -79,32 +77,29 @@ export function GozsduLaundryDutyPicker({
         p_user_id: userId, p_work_date: workDate, p_enabled: enabled,
       });
       if (error) throw error;
-      // A saved room-assignment preview predating the duty is now invalid.
-      try {
-        localStorage.removeItem(`auto_assignment_v2_${profile?.assigned_hotel}_${workDate}`);
-      } catch { /* Optional browser cache only. */ }
-      await refresh();
+      // Drop the stale preview saved before the duty change, including its
+      // selected staff and manual room moves; regenerate from current PMS.
+      try { localStorage.removeItem(`auto_assignment_v2_${profile?.assigned_hotel}_${workDate}`); }
+      catch { /* browser cache optional */ }
+      const refreshed = await refresh();
+      if (!refreshed) return;
       onChanged();
-      toast.success(enabled ? 'Laundryner duty assigned. Room allocation preview refreshed.'
-        : 'Laundryner duty removed. Room allocation preview refreshed.');
+      toast.success(enabled ? 'Laundryner assigned. Please regenerate the room preview.'
+        : 'Laundryner duty removed. Please regenerate the room preview.');
     } catch (error: any) {
-      toast.error(error?.message || 'Could not update Laundryner duty. Resolve existing cleaning tasks first.');
+      toast.error(error?.message || 'Could not change duty. Resolve existing cleaning tasks first.');
       await refresh();
-    } finally {
-      setBusyId(null);
-    }
+    } finally { setBusyId(null); }
   };
 
   if (!open || !allowed) return null;
-  if (loading && staff.length === 0) {
-    return <div className="fixed right-3 top-3 z-[10002] rounded-md bg-background px-3 py-2 text-xs shadow"><Loader2 className="inline h-3 w-3 animate-spin" /> Checking laundry duty…</div>;
-  }
-  if (failed) {
-    return <div className="fixed right-3 top-3 z-[10002] max-w-xs rounded-md border border-destructive bg-background p-3 text-xs shadow">
-      Laundry duty could not be verified. Auto Assign is blocked for safety.
-      <Button size="sm" variant="outline" className="ml-2" onClick={() => { setLoading(true); void refresh(); }}>Retry</Button>
-    </div>;
-  }
+  if (loading && staff.length === 0 && !failed) return <div className="fixed right-3 top-3 z-[10002] rounded-md bg-background px-3 py-2 text-xs shadow">
+    <Loader2 className="inline h-3 w-3 animate-spin" /> Checking Laundryner duty…
+  </div>;
+  if (failed) return <div role="alert" className="fixed right-3 top-3 z-[10002] max-w-xs rounded-md border border-destructive bg-background p-3 text-xs shadow">
+    Laundry duty could not be verified. Auto Assign is blocked to prevent an incorrect allocation.
+    <Button size="sm" variant="outline" className="ml-2" onClick={() => { setLoading(true); void refresh(); }}>Retry</Button>
+  </div>;
 
   return <>
     <div className="pointer-events-auto fixed right-3 top-3 z-[10002] flex max-w-[220px] flex-col items-end gap-1">
@@ -116,20 +111,18 @@ export function GozsduLaundryDutyPicker({
     <Dialog open={show} onOpenChange={setShow}>
       <DialogContent className="z-[10003] max-h-[85vh] max-w-md overflow-y-auto">
         <DialogHeader><DialogTitle>Gozsdu Court • Laundryner duty</DialogTitle></DialogHeader>
-        <p className="text-sm text-muted-foreground">{workDate}: Tick an eligible housekeeper to collect dirty linen only. They will receive zero cleaning rooms or public areas. Existing work must be resolved before changing duty.</p>
+        <p className="text-sm text-muted-foreground">{workDate}: Tick a Gozsdu housekeeper to collect dirty linen only. Laundryners receive no cleaning rooms or public areas. Resolve existing work before changing their duty.</p>
         <div className="space-y-2">
-          {staff.map(person => {
-            const selected = dutyIds.includes(person.id);
-            return <label key={person.id} className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm">
-              <Checkbox checked={selected} disabled={!!busyId} onCheckedChange={checked => { void toggle(person.id, checked === true); }} />
-              <span className="min-w-0 flex-1 truncate">{person.nickname || person.full_name}</span>
-              {selected && <Badge> Laundryner </Badge>}
-              {busyId === person.id && <Loader2 className="h-4 w-4 animate-spin" />}
-            </label>;
-          })}
+          {staff.map(person => <label key={person.id} className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm">
+            <Checkbox checked={dutyIds.includes(person.id)} disabled={!!busyId}
+              onCheckedChange={checked => { void toggle(person.id, checked === true); }} />
+            <span className="min-w-0 flex-1 truncate">{person.nickname || person.full_name}</span>
+            {dutyIds.includes(person.id) && <Badge>Laundryner</Badge>}
+            {busyId === person.id && <Loader2 className="h-4 w-4 animate-spin" />}
+          </label>)}
           {staff.length === 0 && <p className="text-sm text-muted-foreground">No Gozsdu housekeepers available.</p>}
         </div>
-        <p className="text-xs text-muted-foreground">Duty is date-specific and does not change the worker's account, attendance or other hotels. The database rejects any cleaning assignments to a Laundryner.</p>
+        <p className="text-xs text-muted-foreground">Date-specific: does not change the account's attendance or other hotels. Database guards independently reject conflicting assignments.</p>
       </DialogContent>
     </Dialog>
   </>;
