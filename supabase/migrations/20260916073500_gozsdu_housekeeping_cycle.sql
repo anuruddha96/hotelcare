@@ -13,6 +13,7 @@ declare
   remaining_nights integer := 0;
   service_type text := 'none';
   metadata jsonb := coalesce(new.pms_metadata, '{}'::jsonb);
+  scheduled_departure_today boolean := false;
 begin
   if lower(trim(coalesce(new.hotel, ''))) not in ('gozsdu-court', 'gozsdu court budapest') then
     return new;
@@ -28,10 +29,10 @@ begin
     total_nights := (metadata ->> 'totalNights')::integer;
   end if;
 
+  scheduled_departure_today := lower(coalesce(metadata ->> 'scheduledDepartureToday', 'false')) in ('true', '1', 'yes');
   remaining_nights := greatest(total_nights - current_night, 0);
 
-  if coalesce(new.is_checkout_room, false)
-     or coalesce((metadata ->> 'scheduledDepartureToday')::boolean, false) then
+  if coalesce(new.is_checkout_room, false) or scheduled_departure_today then
     service_type := 'none';
   elsif current_night >= 2 and mod(current_night, 2) = 0 then
     if mod(current_night, 4) = 0 and remaining_nights > 1 then
@@ -72,3 +73,10 @@ before insert or update of hotel, guest_nights_stayed, is_checkout_room, pms_met
 on public.rooms
 for each row
 execute function public.apply_gozsdu_housekeeping_cycle();
+
+-- Recalculate only the existing Gozsdu room rows immediately on rollout so
+-- today's T / Change Room flags are correct before the next PMS refresh.
+-- Assigning pms_metadata to itself intentionally fires the exact-gated trigger.
+update public.rooms
+set pms_metadata = coalesce(pms_metadata, '{}'::jsonb)
+where lower(trim(coalesce(hotel, ''))) in ('gozsdu-court', 'gozsdu court budapest');
