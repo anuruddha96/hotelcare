@@ -31,6 +31,7 @@ import {
   Printer,
   RefreshCw,
   Shuffle,
+  Shirt,
   Trash2,
   Undo2,
   Users,
@@ -1473,6 +1474,9 @@ export function AutoRoomAssignment({
     </motion.div>
   );
 
+  // Read from the verified, date-scoped Gozsdu duty session, never a draft.
+  const laundrynerStaff = isGozsdu ? allStaff.filter(staff => isLaundryner(staff.id)) : [];
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1496,6 +1500,16 @@ export function AutoRoomAssignment({
             <ArrowRight className={`h-3 w-3 text-muted-foreground ${isGozsdu ? 'hidden sm:block' : ''}`} />
             <Badge variant={step === 'public-areas' ? 'default' : 'secondary'} className="text-xs">4. {t('autoAssign.stepPublicAreas')}</Badge>
           </div>
+
+          {isGozsdu && !loading && step !== 'select-staff' && (
+            <div data-testid="gozsdu-laundryner-progress-summary" role="status" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-emerald-300 bg-emerald-50/70 px-2.5 py-1.5 text-xs text-emerald-900 dark:bg-emerald-950/25 dark:text-emerald-100">
+              <span className="inline-flex shrink-0 items-center gap-1 font-semibold"><Shirt className="h-3.5 w-3.5" />Laundryners ({laundrynerStaff.length})</span>
+              {laundrynerStaff.length > 0
+                ? laundrynerStaff.map(staff => <Badge key={staff.id} variant="outline" className="max-w-full border-emerald-400 bg-background text-[11px] text-emerald-800 dark:text-emerald-100"><Check className="mr-1 h-3 w-3 shrink-0" /><span className="truncate">{staff.nickname || staff.full_name}</span></Badge>)
+                : <span>None selected</span>}
+              <span className="text-[11px] text-muted-foreground">0 cleaning rooms · 0 public areas · Back to Staff to edit</span>
+            </div>
+          )}
 
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-1">
             {loading ? (
@@ -1525,9 +1539,11 @@ export function AutoRoomAssignment({
                         const selected = !laundryner && cleaningStaffIds.has(staff.id);
                         return (
                           <button key={staff.id} type="button" disabled={laundryner} onClick={() => toggleStaffSelection(staff.id)} className={`flex items-center gap-3 rounded-lg border p-3 text-left ${laundryner ? 'cursor-not-allowed border-emerald-300 bg-emerald-50/60 opacity-80 dark:bg-emerald-950/20' : selected ? 'border-primary bg-primary/5' : 'hover:bg-muted'}`}>
-                            <Checkbox checked={selected} disabled={laundryner} />
+                            {laundryner
+                              ? <span aria-label="Selected as Laundryner duty, not for cleaning" className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-emerald-600 bg-emerald-600 text-white"><Check className="h-3 w-3" /></span>
+                              : <Checkbox checked={selected} />}
                             <span className="min-w-0 flex-1"><span className="block truncate font-medium">{staff.full_name}</span>{staff.nickname && <span className="block truncate text-xs text-muted-foreground">{staff.nickname}</span>}</span>
-                            {laundryner && <Badge variant="secondary" className="shrink-0 border border-emerald-400 text-[10px]">🧺 Laundryner</Badge>}
+                            {laundryner && <Badge variant="secondary" className="shrink-0 border border-emerald-400 text-[10px]">✓ 🧺 Laundryner</Badge>}
                             {checkedInStaff.has(staff.id) && <Badge variant="outline" className="border-green-500 text-green-600"><Check className="mr-1 h-3 w-3" />{isNextDayPlanning ? 'Scheduled' : t('autoAssign.checkedIn')}</Badge>}
                           </button>
                         );

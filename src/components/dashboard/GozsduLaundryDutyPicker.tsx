@@ -1,22 +1,22 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Shirt, Loader2, AlertTriangle } from 'lucide-react';
+import { Shirt, Loader2, AlertTriangle, X, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 
 const MANAGER_ROLES = new Set(['manager', 'housekeeping_manager', 'admin', 'top_management', 'top_management_manager']);
 type Staff = { id: string; full_name: string; nickname: string | null };
 
 /**
- * The Gozsdu-specific selector mounts in the Auto Assign staff step's
- * explicit in-flow slot. It never overlays action buttons on phones or desktop.
- * Return to Staff to change duties after generating a preview.
+ * The Gozsdu-specific selector and expanded checkbox list both live inside
+ * Auto Assign Step 1. Avoid nesting a second modal over the parent dialog:
+ * it obscured the cleaning roster and was hard to close on iOS. The main
+ * roster separately identifies Laundryners as duty-selected, not cleaners.
  */
 export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, onSchemaUnavailable }: {
   open: boolean;
@@ -33,6 +33,7 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, on
   const [failed, setFailed] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [staffSlot, setStaffSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => { if (!open) setShow(false); }, [open, workDate]);
   const allowed = !!profile?.organization_slug && isGozsduCourtHotel(profile.assigned_hotel)
     && MANAGER_ROLES.has(profile.role);
 
@@ -134,34 +135,40 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, on
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div className="flex items-center gap-1.5 text-sm font-semibold"><Shirt className="h-4 w-4 text-emerald-700" /> Laundryner duty</div>
       <Button type="button" size="sm" variant="outline" className="gap-1 border-emerald-500"
-        onClick={() => setShow(true)} aria-label={`Select Laundryner from ${staff.length} Gozsdu housekeepers`}>
-        Select staff <Badge variant="secondary">{dutyIds.length}/{staff.length}</Badge>
+        onClick={() => setShow(current => !current)} aria-expanded={show} aria-controls="gozsdu-laundryner-staff-list"
+        aria-label={`${show ? 'Close' : 'Select'} Laundryner staff from ${staff.length} Gozsdu housekeepers`}>
+        {show ? 'Close list' : 'Select staff'} <Badge variant="secondary">{dutyIds.length}/{staff.length}</Badge>
       </Button>
     </div>
     <p className="mt-1 text-xs text-muted-foreground">Gozsdu only · Select separately from cleaning staff. Laundryners get zero rooms and zero public areas.</p>
     {assigned.length > 0 && <div className="mt-2 flex flex-wrap gap-1" aria-live="polite">
-      {assigned.map(person => <Badge key={person.id} variant="secondary" className="max-w-full truncate">🧺 {person.nickname || person.full_name}</Badge>)}
+      {assigned.map(person => <Badge key={person.id} variant="secondary" className="max-w-full truncate border border-emerald-400 bg-emerald-50 text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100"><Check className="mr-1 h-3 w-3" />🧺 {person.nickname || person.full_name}</Badge>)}
     </div>}
-  </div>;
-
-  return <>
-    {staffSlot ? createPortal(control, staffSlot) : null}
-    <Dialog open={show} onOpenChange={setShow}>
-      <DialogContent className="z-[10003] max-h-[85vh] max-w-md overflow-y-auto">
-        <DialogHeader><DialogTitle>Gozsdu Court • Select Laundryner</DialogTitle></DialogHeader>
-        <p className="text-sm text-muted-foreground">{workDate}: All {staff.length} eligible Gozsdu housekeepers are listed below, including staff not checked in yet. Tick Laundryner duty for this date only. Existing room/area work must be resolved first.</p>
-        <div className="space-y-2">
-          {staff.map(person => <label key={person.id} className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm">
-            <Checkbox checked={dutyIds.includes(person.id)} disabled={!!busyId}
+    {show && <section id="gozsdu-laundryner-staff-list" aria-label="Select Laundryner duty staff" className="mt-3 min-w-0 border-t border-emerald-200 pt-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold">Laundryner staff · {workDate}</p>
+        <Button type="button" variant="ghost" size="sm" className="h-9 shrink-0 gap-1" onClick={() => setShow(false)} aria-label="Close Laundryner staff list"><X className="h-4 w-4" />Close</Button>
+      </div>
+      <p className="mb-2 text-xs text-muted-foreground">Tick a person to give them Laundryner duty for this date. Green ticks here mean Laundryner duty, not cleaning allocation. Staff with existing room or public-area work must have that work resolved first.</p>
+      <div role="group" aria-label="Available Gozsdu Laundryner staff" className="max-h-[min(40dvh,320px)] space-y-1.5 overflow-y-auto overscroll-contain pr-1">
+        {staff.map(person => {
+          const selected = dutyIds.includes(person.id);
+          return <label key={person.id} className={`flex cursor-pointer items-center gap-3 rounded-lg border p-2.5 text-sm ${selected ? 'border-emerald-400 bg-emerald-50/70 dark:bg-emerald-950/30' : 'bg-background'}`}>
+            <Checkbox checked={selected} disabled={!!busyId} aria-label={`${person.full_name}: Laundryner duty ${selected ? 'selected' : 'not selected'}`}
               onCheckedChange={checked => { void toggle(person.id, checked === true); }} />
             <span className="min-w-0 flex-1"><span className="block truncate font-medium">{person.full_name}</span>{person.nickname && <span className="block truncate text-xs text-muted-foreground">{person.nickname}</span>}</span>
-            {dutyIds.includes(person.id) && <Badge>Laundryner</Badge>}
-            {busyId === person.id && <Loader2 className="h-4 w-4 animate-spin" />}
-          </label>)}
-          {staff.length === 0 && <p className="text-sm text-muted-foreground">No eligible Gozsdu housekeepers were found.</p>}
-        </div>
-        <p className="text-xs text-muted-foreground">Staff retain ordinary housekeeping sign-in, attendance and breaks. Only the selected date's cleaning allocation changes; the database also enforces the exclusion.</p>
-      </DialogContent>
-    </Dialog>
-  </>;
+            {selected && <Badge className="shrink-0 border border-emerald-500 bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"><Check className="mr-1 h-3 w-3" />Selected</Badge>}
+            {busyId === person.id && <Loader2 className="h-4 w-4 shrink-0 animate-spin" />}
+          </label>;
+        })}
+        {staff.length === 0 && <p className="py-2 text-sm text-muted-foreground">No eligible Gozsdu housekeepers found.</p>}
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-2 border-t border-emerald-200 pt-2">
+        <span className="text-xs text-muted-foreground">{dutyIds.length} selected · zero rooms and areas</span>
+        <Button type="button" size="sm" onClick={() => setShow(false)} disabled={!!busyId}>Done</Button>
+      </div>
+    </section>}
+  </div>;
+
+  return staffSlot ? createPortal(control, staffSlot) : null;
 }
