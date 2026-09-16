@@ -6,8 +6,8 @@ import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { canManageHousekeepingMapping } from '@/lib/roleAccess';
 import {
   GOZSDU_COURT_HOTEL_ID,
+  GOZSDU_COURT_HOTEL_NAME,
   getGozsduHousekeepingCycle,
-  gozsduServiceLabel,
   type GozsduHousekeepingService,
 } from '@/lib/gozsdu-housekeeping';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -121,7 +121,7 @@ export function GozsduCourtRoomOverview({
     if (!silent) setLoading(true);
     try {
       const resolved = await resolveHotelKeys(hotelName);
-      const keys = Array.from(new Set([GOZSDU_COURT_HOTEL_ID, 'Gozsdu Court Budapest', ...resolved]));
+      const keys = Array.from(new Set([GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME, ...resolved]));
       const { data: roomRows, error: roomError } = await supabase
         .from('rooms')
         .select('id, hotel, room_number, floor_number, status, is_checkout_room, is_dnd, notes, wing, room_category, room_size_sqm, bed_type, guest_nights_stayed, towel_change_required, linen_change_required, pms_metadata')
@@ -163,7 +163,7 @@ export function GozsduCourtRoomOverview({
       const { data: sectionRows, error: sectionError } = await (supabase as any)
         .from('hotel_housekeeping_sections')
         .select('id, name, sort_order')
-        .eq('hotel_name', GOZSDU_COURT_HOTEL_ID)
+        .eq('hotel_name', GOZSDU_COURT_HOTEL_NAME)
         .eq('is_active', true)
         .order('sort_order')
         .order('name');
@@ -192,8 +192,8 @@ export function GozsduCourtRoomOverview({
   }, [loadRooms, refreshKey]);
 
   useEffect(() => {
-    if (view === 'buildings') void loadBuildings();
-  }, [loadBuildings, view]);
+    void loadBuildings();
+  }, [loadBuildings]);
 
   const assignmentMap = useMemo(
     () => new Map(assignments.map(assignment => [assignment.room_id, assignment])),
@@ -234,7 +234,7 @@ export function GozsduCourtRoomOverview({
 
   const refresh = async () => {
     setRefreshing(true);
-    await Promise.all([loadRooms(true), view === 'buildings' ? loadBuildings() : Promise.resolve()]);
+    await Promise.all([loadRooms(true), loadBuildings()]);
     setRefreshing(false);
   };
 
@@ -247,7 +247,7 @@ export function GozsduCourtRoomOverview({
       const { data, error } = await (supabase as any)
         .from('hotel_housekeeping_sections')
         .insert({
-          hotel_name: GOZSDU_COURT_HOTEL_ID,
+          hotel_name: GOZSDU_COURT_HOTEL_NAME,
           name,
           floor_number: 0,
           description: 'Gozsdu Court building / apartment group',
