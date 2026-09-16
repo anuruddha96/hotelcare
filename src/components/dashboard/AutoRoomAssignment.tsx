@@ -10,13 +10,14 @@ import { GozsduLaundryDutyPicker } from './GozsduLaundryDutyPicker';
 
 type Props = ComponentProps<typeof OriginalAutoRoomAssignment>;
 
-/** Original portfolio and tomorrow workflows are preserved unchanged. For
- * Gozsdu only, hydrate duty exclusions before mounting the original board.
- * SQL triggers independently protect writes from stale/manual clients. */
+/** Leave every other property untouched. If the code deploys ahead of the
+ * additive migration, keep the existing Gozsdu workflow available. A failed
+ * read of an installed duty table still blocks allocation (fail closed). */
 export function AutoRoomAssignment(props: Props) {
   const { profile } = useAuth();
   const gozsdu = isGozsduCourtHotel(profile?.assigned_hotel);
   const [verified, setVerified] = useState(false);
+  const [schemaUnavailable, setSchemaUnavailable] = useState(false);
   const [dutyIds, setDutyIds] = useState<string[]>([]);
   const [revision, setRevision] = useState(0);
   const date = props.selectedDate;
@@ -24,6 +25,7 @@ export function AutoRoomAssignment(props: Props) {
   useEffect(() => {
     if (gozsdu && props.open) {
       setVerified(false);
+      setSchemaUnavailable(false);
       setDutyIds([]);
     }
     return () => clearGozsduLaundryDutySession(date);
@@ -41,11 +43,18 @@ export function AutoRoomAssignment(props: Props) {
     setVerified(true);
   }, [date]);
 
-  if (!gozsdu) return <OriginalAutoRoomAssignment {...props} />;
+  const onSchemaUnavailable = useCallback(() => {
+    clearGozsduLaundryDutySession(date);
+    setVerified(false);
+    setSchemaUnavailable(true);
+  }, [date]);
+
+  if (!gozsdu || schemaUnavailable) return <OriginalAutoRoomAssignment {...props} />;
 
   return <>
     <GozsduLaundryDutyPicker open={props.open} workDate={date}
-      onReady={onReady} onChanged={() => setRevision(old => old + 1)} />
+      onReady={onReady} onChanged={() => setRevision(old => old + 1)}
+      onSchemaUnavailable={onSchemaUnavailable} />
     {verified && <OriginalAutoRoomAssignment
       key={`${date}:${dutyIds.join(',')}:${revision}`}
       {...props}
