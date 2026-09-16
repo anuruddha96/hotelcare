@@ -12,6 +12,7 @@ export function projectVerifiedGozsduWorkload(
   rooms: RoomForAssignment[], registry: Registry[], snapshots: GozsduPmsRow[], selectedDate: string,
 ): RoomForAssignment[] {
   const { byRoom } = reconcileGozsduPmsRoster(rooms, registry, snapshots, selectedDate);
+  const fullNames = new Map(registry.map(entry => [entry.room_id, entry.pms_room_name]));
   return rooms.map(room => {
     const verified = byRoom.get(room.id)!;
     const checkout = verified.bucket === 'checkout';
@@ -22,6 +23,8 @@ export function projectVerifiedGozsduWorkload(
       linen_change_required: verified.service === 'change_room',
       pms_metadata: {
         ...(room.pms_metadata || {}),
+        gozsduAvailability: { ...(room.pms_metadata?.gozsduAvailability || {}),
+          pmsRoomName: fullNames.get(room.id) },
         // These flags are projected for today's Auto Assign only, never saved.
         scheduledDepartureToday: checkout,
         checkedOutToday: checkout && room.pms_metadata?.checkedOutToday === true,
