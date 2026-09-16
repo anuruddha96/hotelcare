@@ -1,0 +1,41 @@
+name: Gozsdu Auto Assign One-Shot Patch
+
+on:
+  push:
+    branches: [fix/gozsdu-autoassign-mobile-desktop-flow]
+    paths: [.github/workflows/gozsdu-autoassign-one-shot.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout isolated branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Apply exact-match source patch
+        run: python3 scripts/apply_gozsdu_autoassign_layout_hotfix.py
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install frozen dependencies
+        run: bun install --frozen-lockfile
+      - name: Verify Gozsdu guard regression tests
+        run: bunx vitest run src/lib/__tests__/gozsduAutoAssignGuard.test.ts
+      - name: Build full production frontend
+        run: bun run build
+      - name: Run full test suite
+        run: bun run test
+      - name: Commit code only; remove temporary workflow and patch script
+        run: |
+          git rm -- .github/workflows/gozsdu-autoassign-one-shot.yml scripts/apply_gozsdu_autoassign_layout_hotfix.py
+          git add src/components/dashboard/AutoRoomAssignmentImpl.tsx src/components/dashboard/GozsduLaundryDutyPicker.tsx src/lib/gozsduAutoAssignGuard.ts src/lib/__tests__/gozsduAutoAssignGuard.test.ts
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Fix Gozsdu Laundryner mobile and desktop Auto Assign flow'
+          git push origin HEAD:fix/gozsdu-autoassign-mobile-desktop-flow
