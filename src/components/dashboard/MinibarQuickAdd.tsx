@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { toast } from '@/hooks/use-toast';
 import { Search, Plus, Loader2 } from 'lucide-react';
 import { startOfDay, endOfDay } from 'date-fns';
+import { persistMinibarQuickAdd } from '@/lib/minibarQuickAdd';
 
 interface MinibarQuickAddProps {
   open: boolean;
@@ -38,123 +39,150 @@ export function MinibarQuickAdd({ open, onOpenChange, onRecorded, source = 'rece
   const [selectedItem, setSelectedItem] = useState('');
   const [quantity, setQuantity] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  // React state alone cannot guard two clicks within the same event batch.
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     if (open) {
-      fetchData();
+      setRooms([]);
+      setItems([]);
       setSelectedRoom(null);
       setSelectedItem('');
       setQuantity(1);
       setRoomSearch('');
+      void fetchData();
     }
-  }, [open]);
+  // Reset when changing properties/accounts while the dialog is open.
+  }, [open, profile?.id, profile?.assigned_hotel, profile?.organization_slug]);
 
   const fetchData = async () => {
     const assignedHotel = profile?.assigned_hotel || '';
-    
-    // Resolve hotel name variants (slug vs full name)
-    const { data: hotelConfigs } = await supabase
-      .from('hotel_configurations')
-      .select('hotel_id, hotel_name')
-      .or(`hotel_id.eq.${assignedHotel},hotel_name.eq.${assignedHotel}`);
+    if (!assignedHotel || !profile?.organization_slug) {
+      setRooms([]);
+      setItems([]);
+      return;
+    }
 
-    const hotelNames = new Set<string>();
-    hotelNames.add(assignedHotel);
-    (hotelConfigs || []).forEach(h => {
-      hotelNames.add(h.hotel_id);
-      hotelNames.add(h.hotel_name);
-    });
-    const hotelFilter = Array.from(hotelNames).map(n => `hotel.eq.${n}`).join(',');
+    try {
+      // Resolve the assigned hotel within the current organization. Never
+      // accept a different organization's identically named hotel alias.
+      const { data: hotelConfigs, error: hotelError } = await supabase
+        .from('hotel_configurations')
+        .select('hotel_id, hotel_name, organizations!inner(slug)')
+        .eq('organizations.slug', profile.organization_slug)
+        .or(`hotel_id.eq.${assignedHotel},hotel_name.eq.${assignedHotel}`);
+      if (hotelError) throw hotelError;
+      if (!hotelConfigs?.length) throw new Error('Hotel access could not be verified.');
 
-    const [roomsRes, itemsRes] = await Promise.all([
-      supabase.from('rooms').select('id, room_number').or(hotelFilter).order('room_number'),
-      supabase.from('minibar_items').select('id, name, price, category').eq('is_active', true).order('name'),
-    ]);
-    
-    // Sort rooms numerically
-    const sortedRooms = (roomsRes.data || []).sort((a, b) => {
-      const na = parseInt(a.room_number, 10);
-      const nb = parseInt(b.room_number, 10);
-      if (!isNaN(na) && !isNaN(nb)) return na - nb;
-      return a.room_number.localeCompare(b.room_number);
-    });
-    
-    setRooms(sortedRooms);
-    setItems(itemsRes.data || []);
+      const hotelNames = new Set<string>();
+      hotelConfigs.forEach(h => {
+        hotelNames.add(h.hotel_id);
+        hotelNames.add(h.hotel_name);
+      });
+
+      const [roomsRes, itemsRes] = await Promise.all([
+        supabase.from('rooms').select('id, room_number, organization_slug').in('hotel', Array.from(hotelNames)).order('room_number'),
+        supabase.from('minibar_items').select('id, name, price, category').eq('is_active', true).order('name'),
+      ]);
+      if (roomsRes.error) throw roomsRes.error;
+      if (itemsRes.error) throw itemsRes.error;
+
+      // Preserve legacy rooms with no organization_slug only if their hotel's
+      // canonical alias was verified above; never show a different tenant's rows.
+      const sortedRooms = (roomsRes.data || [])
+        .filter(r => !r.organization_slug || r.organization_slug === profile.organization_slug)
+        .sort((a, b) => {
+          const na = parseInt(a.room_number, 10);
+          const nb = parseInt(b.room_number, 10);
+          if (!isNaN(na) && !isNaN(nb)) return na - nb;
+          return a.room_number.localeCompare(b.room_number);
+        });
+      setRooms(sortedRooms.map(({ id, room_number }) => ({ id, room_number })));
+      setItems(itemsRes.data || []);
+    } catch (error: any) {
+      setRooms([]);
+      setItems([]);
+      toast({ title: 'Unable to load minibar', description: error.message || 'Please try again.', variant: 'destructive' });
+    }
   };
 
   const filteredRooms = rooms.filter(r => r.room_number.toLowerCase().includes(roomSearch.toLowerCase()));
 
   const handleSubmit = async () => {
-    if (!selectedRoom || !selectedItem) {
-      toast({ title: 'Error', description: 'Please select a room and item', variant: 'destructive' });
+    if (submittingRef.current) return;
+    if (!selectedRoom || !selectedItem || !rooms.some(r => r.id === selectedRoom.id)) {
+      toast({ title: 'Error', description: 'Please select a valid room and item', variant: 'destructive' });
       return;
     }
-    if (!profile?.organization_slug) {
+    if (!profile?.organization_slug || !profile.id) {
       toast({ title: 'Access error', description: 'Organization access could not be verified', variant: 'destructive' });
       return;
     }
 
+    submittingRef.current = true;
     setSubmitting(true);
     try {
-      const today = new Date();
-      const dayStart = startOfDay(today).toISOString();
-      const dayEnd = endOfDay(today).toISOString();
-
-      // Check for duplicates
-      const { data: existing } = await supabase
-        .from('room_minibar_usage')
-        .select('id, source, quantity_used')
-        .eq('room_id', selectedRoom.id)
-        .eq('minibar_item_id', selectedItem)
-        .eq('is_cleared', false)
-        .gte('usage_date', dayStart)
-        .lte('usage_date', dayEnd)
-        .limit(1);
-
-      if (existing && existing.length > 0) {
-        const existingRecord = existing[0] as any;
-        if (existingRecord.source === 'guest') {
-          // Staff overrides guest record — update it
-          await supabase
+      const now = new Date();
+      const dayStart = startOfDay(now).toISOString();
+      const dayEnd = endOfDay(now).toISOString();
+      const outcome = await persistMinibarQuickAdd({
+        findExisting: async () => {
+          const result = await supabase
             .from('room_minibar_usage')
-            .update({ quantity_used: quantity, recorded_by: profile?.id || null, source })
-            .eq('id', existingRecord.id);
-          toast({
-            title: 'Updated',
-            description: `Guest record for Room ${selectedRoom.room_number} confirmed & updated by staff.`,
+            .select('id, source')
+            .eq('room_id', selectedRoom.id)
+            .eq('minibar_item_id', selectedItem)
+            .eq('is_cleared', false)
+            .gte('usage_date', dayStart)
+            .lte('usage_date', dayEnd)
+            .limit(1);
+          return { data: result.data, error: result.error };
+        },
+        confirmGuest: async (recordId) => {
+          const result = await supabase
+            .from('room_minibar_usage')
+            .update({ quantity_used: quantity, recorded_by: profile.id, source })
+            .eq('id', recordId)
+            .eq('room_id', selectedRoom.id)
+            .eq('minibar_item_id', selectedItem)
+            .eq('source', 'guest')
+            .eq('is_cleared', false)
+            .select('id');
+          return { data: result.data, error: result.error };
+        },
+        createUsage: async () => {
+          const result = await supabase.from('room_minibar_usage').insert({
+            room_id: selectedRoom.id,
+            minibar_item_id: selectedItem,
+            quantity_used: quantity,
+            recorded_by: profile.id,
+            source,
+            organization_slug: profile.organization_slug,
           });
-          onRecorded();
-          onOpenChange(false);
-          setSubmitting(false);
-          return;
-        }
-        // Already recorded by staff/reception — block
+          return { data: result.data, error: result.error };
+        },
+      }, quantity);
+
+      if (outcome === 'already-recorded') {
         toast({
           title: 'Already Recorded',
-          description: `This item was already recorded for Room ${selectedRoom.room_number} today (by ${existingRecord.source || 'staff'}).`,
+          description: `This item was already recorded for Room ${selectedRoom.room_number} today.`,
         });
-        setSubmitting(false);
         return;
       }
 
-      const { error } = await supabase.from('room_minibar_usage').insert({
-        room_id: selectedRoom.id,
-        minibar_item_id: selectedItem,
-        quantity_used: quantity,
-        recorded_by: profile?.id || null,
-        source,
-        organization_slug: profile.organization_slug,
+      toast({
+        title: outcome === 'guest-confirmed' ? 'Updated' : 'Success',
+        description: outcome === 'guest-confirmed'
+          ? `Guest record for Room ${selectedRoom.room_number} confirmed & updated by staff.`
+          : `Minibar usage recorded for Room ${selectedRoom.room_number}`,
       });
-
-      if (error) throw error;
-
-      toast({ title: 'Success', description: `Minibar usage recorded for Room ${selectedRoom.room_number}` });
       onRecorded();
       onOpenChange(false);
     } catch (error: any) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      toast({ title: 'Error', description: error.message || 'Minibar update failed', variant: 'destructive' });
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -167,7 +195,6 @@ export function MinibarQuickAdd({ open, onOpenChange, onRecorded, source = 'rece
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Room selection */}
           <div className="space-y-2">
             <Label>Room Number</Label>
             {selectedRoom ? (
@@ -197,7 +224,6 @@ export function MinibarQuickAdd({ open, onOpenChange, onRecorded, source = 'rece
             )}
           </div>
 
-          {/* Item selection */}
           <div className="space-y-2">
             <Label>Item</Label>
             <Select value={selectedItem} onValueChange={setSelectedItem}>
@@ -212,7 +238,6 @@ export function MinibarQuickAdd({ open, onOpenChange, onRecorded, source = 'rece
             </Select>
           </div>
 
-          {/* Quantity */}
           <div className="space-y-2">
             <Label>Quantity</Label>
             <Input type="number" min={1} max={20} value={quantity} onChange={e => setQuantity(Math.min(20, Math.max(1, parseInt(e.target.value) || 1)))} />
