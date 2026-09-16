@@ -44,7 +44,8 @@ CREATE OR REPLACE FUNCTION public.refresh_gozsdu_autoassign_target_metadata()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE v_hotel uuid;
 BEGIN
-  v_hotel := COALESCE(NEW.hotel_configuration_id, OLD.hotel_configuration_id);
+  IF TG_OP = 'DELETE' THEN v_hotel := OLD.hotel_configuration_id;
+  ELSE v_hotel := NEW.hotel_configuration_id; END IF;
   IF NOT EXISTS (SELECT 1 FROM public.hotel_configurations hc
                  WHERE hc.id = v_hotel AND hc.hotel_id = 'gozsdu-court') THEN RETURN NULL; END IF;
   UPDATE public.rooms r SET pms_metadata = COALESCE(r.pms_metadata, '{}'::jsonb)
