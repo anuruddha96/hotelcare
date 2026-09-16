@@ -2,6 +2,7 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, RefreshCw, Copy } from 'lucide-react';
 import { reportClientError, getLastAction } from '@/lib/clientErrorReporter';
+import { freshApplicationUrl, isLazyModuleCrash } from '@/lib/lazyModuleRecovery';
 
 interface Props {
   children: React.ReactNode;
@@ -40,11 +41,23 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   handleReset = () => {
+    // React.lazy remembers a fulfilled-but-undefined module. Resetting the
+    // boundary immediately rethrows, so use a fresh document for this case.
+    if (isLazyModuleCrash(this.state.error, this.state.componentStack)) {
+      this.handleReload();
+      return;
+    }
     this.setState({ hasError: false, error: null, componentStack: null });
     this.props.onReset?.();
   };
 
   handleReload = () => {
+    if (isLazyModuleCrash(this.state.error, this.state.componentStack)) {
+      // A plain Safari reload can reuse a broken module graph. Use a new URL
+      // while retaining the exact hotel route, other query params and hash.
+      window.location.replace(freshApplicationUrl(window.location.href, Date.now()));
+      return;
+    }
     window.location.reload();
   };
 
@@ -69,6 +82,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
   render() {
     if (this.state.hasError) {
       const isFullscreen = this.props.variant === 'fullscreen';
+      const lazyModuleCrash = isLazyModuleCrash(this.state.error, this.state.componentStack);
       return (
         <div
           className={`flex flex-col items-center justify-center p-6 text-center space-y-4 ${
@@ -81,8 +95,9 @@ export class ErrorBoundary extends React.Component<Props, State> {
               {this.props.fallbackTitle || 'Something went wrong'}
             </h3>
             <p className="text-sm text-muted-foreground mt-1">
-              {this.props.fallbackMessage ||
-                'An unexpected error occurred. Please try again.'}
+              {lazyModuleCrash
+                ? 'A part of the app did not load correctly. Reload the latest app version to continue. Any unsaved changes may be lost.'
+                : this.props.fallbackMessage || 'An unexpected error occurred. Please try again.'}
             </p>
             {this.state.error?.message && (
               <p className="text-xs text-muted-foreground mt-2 font-mono break-all">
@@ -91,11 +106,11 @@ export class ErrorBoundary extends React.Component<Props, State> {
             )}
           </div>
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <Button onClick={isFullscreen ? this.handleReload : this.handleReset} variant="default">
+            <Button onClick={isFullscreen || lazyModuleCrash ? this.handleReload : this.handleReset} variant="default">
               <RefreshCw className="h-4 w-4 mr-2" />
-              {isFullscreen ? 'Reload' : 'Retry'}
+              {lazyModuleCrash ? 'Reload latest version' : isFullscreen ? 'Reload' : 'Retry'}
             </Button>
-            {isFullscreen && (
+            {isFullscreen && !lazyModuleCrash && (
               <Button onClick={this.handleReset} variant="outline">
                 Try again
               </Button>
