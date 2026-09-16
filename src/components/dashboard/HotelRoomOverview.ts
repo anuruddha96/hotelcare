@@ -1,7 +1,9 @@
 import React from 'react';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { HotelRoomOverview as LiveHotelRoomOverview } from './HotelRoomOverviewLive';
+import { GozsduCourtRoomOverview } from './GozsduCourtRoomOverview';
 import { HistoricalHotelRoomOverviewSaved } from './HistoricalHotelRoomOverviewSaved';
 import { RoomOperationsQuickHub } from './RoomOperationsQuickHub';
 import { RoomHoverIntentGuard } from './RoomHoverIntentGuard';
@@ -19,6 +21,10 @@ type HotelRoomOverviewProps = React.ComponentProps<typeof LiveHotelRoomOverview>
  * the pointer moves across the room board. Past dates replay the immutable
  * per-business-date snapshot read-only.
  *
+ * Gozsdu Court Budapest is intentionally routed to its own live housekeeping
+ * board because its every-second-night service cycle and building mapping are
+ * property-specific and must never leak into another hotel.
+ *
  * The live Team View also exposes the next-day planner as a visible manager-only
  * card. Its launcher still routes through AutoRoomAssignment, so tomorrow uses
  * exactly the same NextDayAssignmentPlanner as the existing date-based flow.
@@ -28,7 +34,10 @@ export function HotelRoomOverview(props: HotelRoomOverviewProps) {
     return React.createElement(HistoricalHotelRoomOverviewSaved, props);
   }
 
-  const liveOverview = React.createElement(LiveHotelRoomOverview, props);
+  const liveOverview = isGozsduCourtHotel(props.hotelName)
+    ? React.createElement(GozsduCourtRoomOverview, props)
+    : React.createElement(LiveHotelRoomOverview, props);
+
   const scopedOverview = isHotelMemoriesBudapest(props.hotelName)
     ? React.createElement(
         'div',
