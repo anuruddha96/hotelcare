@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ComponentProps } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { todayBudapest } from '@/lib/budapestTime';
@@ -7,9 +7,9 @@ import { HousekeepingTabEnhanced } from './HousekeepingTabEnhanced';
 import { GozsduLaundrynerTasks } from './GozsduLaundrynerTasks';
 import { Button } from '@/components/ui/button';
 
-type Props = React.ComponentProps<typeof HousekeepingTabEnhanced>;
+type Props = ComponentProps<typeof HousekeepingTabEnhanced>;
 
-/** Housekeeping shell remains unchanged for all other hotels and all normal
+/** Normal housekeeping remains unchanged for all other hotels and all normal
  * days. Laundryner is a date-specific Gozsdu duty, not an elevated global role. */
 export function HousekeepingTab(props: Props = {}) {
   const { user, profile } = useAuth();
