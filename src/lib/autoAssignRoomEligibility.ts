@@ -9,14 +9,9 @@ export interface AutoAssignRoomEligibility {
 type EligibilityRoom = Pick<RoomForAssignment, 'status' | 'hotel' | 'is_checkout_room' | 'pms_metadata'>;
 
 /**
- * Auto Assign represents the day's PMS workload, not only rooms whose
- * housekeeping status has already changed to `dirty`. A clean room can still
- * be a checkout or daily service room for today.
- *
- * Gozsdu Court Budapest is the one deliberate exception to the generic
- * stay-over workload. It does not provide daily service: only checkout rooms
- * and stay-over rooms due under its every-second-night cycle are eligible.
- * The exact property gate keeps every other hotel's existing behaviour intact.
+ * Auto Assign represents the day's PMS workload. Gozsdu Court Budapest is the
+ * only exception: an explicitly operating room must also be due for checkout
+ * or its every-second-night stay-over service. All other hotels are unchanged.
  */
 export function isRoomEligibleForAutoAssign(
   room: EligibilityRoom,
@@ -25,6 +20,10 @@ export function isRoomEligibleForAutoAssign(
   if (assignment.hasCompletedAssignment) return false;
 
   if (isGozsduCourtHotel(room.hotel)) {
+    // Reattached by a server-side room trigger after every PMS synchronization;
+    // a missing registry entry is not evidence that the room is operating.
+    if (room.pms_metadata?.gozsduAvailability?.status !== 'operating') return false;
+
     const isNoShow = room.pms_metadata?.isNoShow === true
       || Number(room.pms_metadata?.reservationStatusId) === 8;
     if (isNoShow) return false;
