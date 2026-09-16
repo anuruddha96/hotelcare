@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ComponentProps } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import {
@@ -8,7 +8,7 @@ import {
 import { AutoRoomAssignment as OriginalAutoRoomAssignment } from './AutoRoomAssignmentLegacy';
 import { GozsduLaundryDutyPicker } from './GozsduLaundryDutyPicker';
 
-type Props = React.ComponentProps<typeof OriginalAutoRoomAssignment>;
+type Props = ComponentProps<typeof OriginalAutoRoomAssignment>;
 
 /** Original portfolio and tomorrow workflows are preserved unchanged. For
  * Gozsdu only, hydrate duty exclusions before mounting the original board.
