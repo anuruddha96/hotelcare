@@ -71,6 +71,9 @@ import { isPmsRtcToday } from '@/lib/pmsReadiness';
 import { isRoomEligibleForAutoAssign } from '@/lib/autoAssignRoomEligibility';
 import { assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
 import { getLocalDateString } from '@/lib/utils';
+import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { isActiveGozsduLaundryner } from '@/lib/gozsduLaundryDutySession';
+import { gozsduCanReviewAssignment, gozsduPreviewCoversWork } from '@/lib/gozsduAutoAssignGuard';
 import {
   buildTomorrowAutoAssignRooms,
   loadExistingNextDayPlan,
@@ -181,6 +184,8 @@ export function AutoRoomAssignment({
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const isNextDayPlanning = planningMode === 'next-day';
+  const isGozsdu = isGozsduCourtHotel(profile?.assigned_hotel);
+  const isLaundryner = (staffId: string) => isGozsdu && isActiveGozsduLaundryner(staffId);
 
   const [step, setStep] = useState<Step>('select-staff');
   const [loading, setLoading] = useState(false);
@@ -226,6 +231,12 @@ export function AutoRoomAssignment({
   const roomSectionsRef = useRef<Map<string, { id: string; name: string }>>(new Map());
 
   const saveKey = getSaveKey(profile?.assigned_hotel, selectedDate);
+  // The shared duty bridge is populated before Gozsdu's board mounts. Count
+  // only CLEANING staff; selected laundry collectors never enter the preview.
+  const cleaningStaffIds = useMemo(
+    () => new Set([...selectedStaffIds].filter(id => !isGozsdu || !isActiveGozsduLaundryner(id))),
+    [selectedStaffIds, isGozsdu],
+  );
 
   const effectiveRooms = useMemo(
     () => dirtyRooms.filter(room => !excludedRoomIds.has(room.id) && !maintenanceHoldRoomIds.has(room.id)),
@@ -619,6 +630,13 @@ export function AutoRoomAssignment({
         selectedFromDb = new Set<string>([...Array.from(checked), ...Array.from(ownerIds)]);
       }
 
+      // Existing live work must NEVER be hidden if database duty state conflicts.
+      if (isGozsdu && existingRows.some(row => isActiveGozsduLaundryner(row.assigned_to))) {
+        throw new Error('A Laundryner still owns cleaning work. Resolve this conflict before Auto Assign.');
+      }
+      if (isGozsdu) {
+        selectedFromDb = new Set([...selectedFromDb].filter(id => !isActiveGozsduLaundryner(id)));
+      }
       existingAssignmentsRef.current = new Map(existingRows.map(row => [row.room_id, row]));
       setDirtyRooms(workingRooms);
 
@@ -701,7 +719,11 @@ export function AutoRoomAssignment({
 
     let restored = false;
     try {
-      const saved = localStorage.getItem(saveKey);
+      // Live Gozsdu PMS changes during the shift: never resurrect an older
+      // local 48-room snapshot when today's authoritative workload is 35.
+      // Keep other hotels' existing draft restoration unchanged.
+      if (isGozsdu) localStorage.removeItem(saveKey);
+      const saved = isGozsdu ? null : localStorage.getItem(saveKey);
       if (saved) {
         const data: SavedState = JSON.parse(saved);
         if (Date.now() - data.savedAt < 12 * 60 * 60 * 1000 && data.previews?.length > 0) {
@@ -731,7 +753,7 @@ export function AutoRoomAssignment({
   }, [open, selectedDate]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || isGozsdu) return;
     if (selectedStaffIds.size === 0 && assignmentPreviews.length === 0) return;
     const data: SavedState = {
       staffIds: Array.from(selectedStaffIds),
@@ -745,7 +767,7 @@ export function AutoRoomAssignment({
     } catch {
       // Browser storage is best-effort only.
     }
-  }, [open, saveKey, selectedStaffIds, assignmentPreviews, excludedRoomIds, maintenanceHoldRoomIds]);
+  }, [open, saveKey, isGozsdu, selectedStaffIds, assignmentPreviews, excludedRoomIds, maintenanceHoldRoomIds]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -787,6 +809,10 @@ export function AutoRoomAssignment({
   };
 
   const toggleStaffSelection = (staffId: string) => {
+    if (isLaundryner(staffId)) {
+      toast.info('This employee is on Laundryner duty. Remove that duty first to assign cleaning rooms.');
+      return;
+    }
     setSelectedStaffIds(previous => {
       const next = new Set(previous);
       if (next.has(staffId)) next.delete(staffId);
@@ -805,9 +831,14 @@ export function AutoRoomAssignment({
   };
 
   const handleGeneratePreview = async () => {
-    const selectedStaff = allStaff.filter(staff => selectedStaffIds.has(staff.id));
+    const selectedStaff = allStaff.filter(staff => cleaningStaffIds.has(staff.id));
     const roomsToAssign = effectiveRooms;
-    if (selectedStaff.length === 0 || roomsToAssign.length === 0) return;
+    if (selectedStaff.length === 0 || roomsToAssign.length === 0) {
+      if (isGozsdu) toast.warning(selectedStaff.length === 0
+        ? 'Select at least one cleaning housekeeper. Laundryners cannot receive rooms.'
+        : 'There are no eligible rooms to assign. Refresh PMS or check exclusions.');
+      return;
+    }
 
     const hotelName = managerHotelRef.current || await getManagerHotel();
     let hotelConfig: HotelAssignmentConfig = { hotelName: hotelName || undefined };
@@ -871,6 +902,11 @@ export function AutoRoomAssignment({
     }
 
     const previews = best || autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, hotelConfig);
+    if (isGozsdu && !gozsduPreviewCoversWork(previews, roomsToAssign.length, cleaningStaffIds, isLaundryner)) {
+      toast.error('Room preview is incomplete or includes a Laundryner. Return to staff selection and regenerate.');
+      setStep('select-staff');
+      return;
+    }
     pushHistory(assignmentPreviews);
     setAssignmentPreviews(previews);
     if (isNextDayPlanning) {
@@ -966,7 +1002,7 @@ export function AutoRoomAssignment({
 
   /** Redistribute only the movable public-area tasks across the busiest-last staff. */
   const shufflePublicAreas = () => {
-    const eligible = assignmentPreviews.filter(preview => selectedStaffIds.has(preview.staffId));
+    const eligible = assignmentPreviews.filter(preview => cleaningStaffIds.has(preview.staffId));
     if (eligible.length === 0) return;
     const movable = sectionTasks.filter(task => !task.lockedStatus);
     if (movable.length === 0) {
@@ -997,6 +1033,11 @@ export function AutoRoomAssignment({
   };
 
   const handleProceedToConfirm = () => {
+    if (isGozsdu && !gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner)) {
+      toast.error('No valid cleaning allocation to confirm. Select a cleaning housekeeper and regenerate.');
+      setStep('select-staff');
+      return;
+    }
     const overAllocated = assignmentPreviews
       .filter(preview => staffIdsWithWork.has(preview.staffId))
       .map(preview => {
@@ -1061,6 +1102,12 @@ export function AutoRoomAssignment({
 
   const handleConfirmAssignment = async () => {
     if (!user || !profile?.organization_slug) return;
+    if (isGozsdu && (!gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner)
+      || sectionTasks.some(task => isLaundryner(task.staff_id)))) {
+      toast.error('The allocation is empty or conflicts with Laundryner duty. Regenerate before saving.');
+      setStep('select-staff');
+      return;
+    }
     if (isNextDayPlanning) {
       setStep('public-areas');
       return;
@@ -1197,7 +1244,7 @@ export function AutoRoomAssignment({
           selectedDate,
           pmsSyncedAt: nextDayPmsSyncedAt,
           previews: assignmentPreviews,
-          selectedStaffIds: Array.from(selectedStaffIds),
+          selectedStaffIds: Array.from(cleaningStaffIds),
           scheduleByUser,
           excludedRoomIds: Array.from(excludedRoomIds),
           maintenanceHoldRoomIds: Array.from(maintenanceHoldRoomIds),
@@ -1219,7 +1266,7 @@ export function AutoRoomAssignment({
         window.dispatchEvent(new CustomEvent('hk-next-day-plan-changed', {
           detail: { hotelId: profile.assigned_hotel, planDate: selectedDate, planId: saved.planId },
         }));
-        onAssignmentCreated(saved.roomCount, selectedStaffIds.size);
+        onAssignmentCreated(saved.roomCount, cleaningStaffIds.size);
         toast.success(`Tomorrow’s plan approved: ${saved.roomCount} rooms · ${saved.areaCount} public-area tasks · release ${autoRelease ? '08:00' : 'held'}.`);
         onOpenChange(false);
       } catch (error) {
@@ -1429,7 +1476,7 @@ export function AutoRoomAssignment({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className={`max-h-[92vh] flex flex-col p-3 sm:p-6 gap-2 sm:gap-4 ${step === 'preview' ? 'max-w-[100vw] sm:max-w-[95vw] w-full' : 'max-w-4xl'}`}>
+        <DialogContent className={`flex min-h-0 flex-col gap-2 p-3 sm:gap-4 sm:p-6 ${isGozsdu ? 'h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden sm:h-[min(92vh,900px)] sm:w-[95vw] sm:max-w-[95vw]' : `max-h-[92vh] ${step === 'preview' ? 'max-w-[100vw] sm:max-w-[95vw] w-full' : 'max-w-4xl'}`}`}>
           <DialogHeader>
             <DialogTitle className="flex flex-wrap items-center gap-2">
               <Wand2 className="h-5 w-5" />
@@ -1440,21 +1487,22 @@ export function AutoRoomAssignment({
             </DialogTitle>
           </DialogHeader>
 
-          <div className="flex flex-wrap items-center justify-center gap-1.5 py-1">
+          <div className={isGozsdu ? 'grid grid-cols-4 items-center gap-1 py-1 text-center sm:flex sm:flex-wrap sm:justify-center' : 'flex flex-wrap items-center justify-center gap-1.5 py-1'}>
             <Badge variant={step === 'select-staff' ? 'default' : 'secondary'} className="text-xs">1. {t('autoAssign.stepStaff')}</Badge>
-            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            <ArrowRight className={`h-3 w-3 text-muted-foreground ${isGozsdu ? 'hidden sm:block' : ''}`} />
             <Badge variant={step === 'preview' ? 'default' : 'secondary'} className="text-xs">2. {t('autoAssign.stepPreview')}</Badge>
-            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            <ArrowRight className={`h-3 w-3 text-muted-foreground ${isGozsdu ? 'hidden sm:block' : ''}`} />
             <Badge variant={step === 'confirm' ? 'default' : 'secondary'} className="text-xs">3. {t('autoAssign.stepConfirm')}</Badge>
-            <ArrowRight className="h-3 w-3 text-muted-foreground" />
+            <ArrowRight className={`h-3 w-3 text-muted-foreground ${isGozsdu ? 'hidden sm:block' : ''}`} />
             <Badge variant={step === 'public-areas' ? 'default' : 'secondary'} className="text-xs">4. {t('autoAssign.stepPublicAreas')}</Badge>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto px-1">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-1">
             {loading ? (
               <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
             ) : step === 'select-staff' ? (
               <div className="space-y-4">
+                {isGozsdu && <div data-gozsdu-laundryner-slot className="min-w-0" />}
                 <div className="grid grid-cols-3 gap-3 rounded-lg bg-muted p-3">
                   <div className="text-center"><p className="text-2xl font-bold">{effectiveRooms.length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.totalRooms')}</p></div>
                   <div className="text-center"><p className="text-2xl font-bold text-amber-600">{effectiveRooms.filter(isCheckoutLike).length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.checkouts')}</p></div>
@@ -1470,14 +1518,16 @@ export function AutoRoomAssignment({
                   <div className="py-8 text-center text-muted-foreground"><AlertCircle className="mx-auto mb-3 h-10 w-10 opacity-50" /><p>{t('autoAssign.noDirtyRooms')}</p></div>
                 ) : (
                   <>
-                    <h3 className="flex items-center gap-2 font-medium"><Users className="h-4 w-4" />{t('autoAssign.selectHousekeepers')} ({selectedStaffIds.size} {t('autoAssign.selected')})</h3>
+                    <h3 className="flex items-center gap-2 font-medium"><Users className="h-4 w-4" />{t('autoAssign.selectHousekeepers')} ({cleaningStaffIds.size} {t('autoAssign.selected')})</h3>
                     <div className="grid max-h-[38vh] grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
                       {allStaff.map(staff => {
-                        const selected = selectedStaffIds.has(staff.id);
+                        const laundryner = isLaundryner(staff.id);
+                        const selected = !laundryner && cleaningStaffIds.has(staff.id);
                         return (
-                          <button key={staff.id} type="button" onClick={() => toggleStaffSelection(staff.id)} className={`flex items-center gap-3 rounded-lg border p-3 text-left ${selected ? 'border-primary bg-primary/5' : 'hover:bg-muted'}`}>
-                            <Checkbox checked={selected} />
+                          <button key={staff.id} type="button" disabled={laundryner} onClick={() => toggleStaffSelection(staff.id)} className={`flex items-center gap-3 rounded-lg border p-3 text-left ${laundryner ? 'cursor-not-allowed border-emerald-300 bg-emerald-50/60 opacity-80 dark:bg-emerald-950/20' : selected ? 'border-primary bg-primary/5' : 'hover:bg-muted'}`}>
+                            <Checkbox checked={selected} disabled={laundryner} />
                             <span className="min-w-0 flex-1"><span className="block truncate font-medium">{staff.full_name}</span>{staff.nickname && <span className="block truncate text-xs text-muted-foreground">{staff.nickname}</span>}</span>
+                            {laundryner && <Badge variant="secondary" className="shrink-0 border border-emerald-400 text-[10px]">🧺 Laundryner</Badge>}
                             {checkedInStaff.has(staff.id) && <Badge variant="outline" className="border-green-500 text-green-600"><Check className="mr-1 h-3 w-3" />{isNextDayPlanning ? 'Scheduled' : t('autoAssign.checkedIn')}</Badge>}
                           </button>
                         );
@@ -1509,7 +1559,7 @@ export function AutoRoomAssignment({
                   {fairnessMetrics && <div className="flex flex-wrap gap-2 text-xs"><span>CO±{fairnessMetrics.checkoutDiff}</span><span>Daily±{fairnessMetrics.dailyDiff}</span><span>⏱{fairnessMetrics.timeSpreadMinutes}m</span><span>F↔{fairnessMetrics.splitFloorCount}</span></div>}
                 </div>
 
-                <div className={isMobile && assignmentPreviews.length >= 3 ? 'grid grid-cols-2 gap-2 overflow-y-auto' : 'flex gap-2 overflow-x-auto'}>
+                <div className={isMobile && assignmentPreviews.length >= 3 ? (isGozsdu ? 'grid grid-cols-1 min-[520px]:grid-cols-2 gap-2' : 'grid grid-cols-2 gap-2 overflow-y-auto') : 'flex gap-2 overflow-x-auto'}>
                   {assignmentPreviews.map(preview => {
                     const checkouts = preview.rooms.filter(isCheckoutLike);
                     const daily = preview.rooms.filter(room => !isCheckoutLike(room));
@@ -1564,7 +1614,7 @@ export function AutoRoomAssignment({
                     <span className="text-[10px] text-muted-foreground">Tap another staff column to move it, or:</span>
                     <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => removeRoomFromPreview(selectedRoomContext.room.id, selectedRoomContext.preview.staffId, true)}><X className="mr-1 h-3.5 w-3.5" />Remove assignment</Button>
                     <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => stageMaintenanceHold(selectedRoomContext.room, selectedRoomContext.preview.staffId)}><Wrench className="mr-1 h-3.5 w-3.5" />Maintenance hold</Button>
-                    {isNextDayPlanning && selectedStaffIds.size > 1 && (
+                    {isNextDayPlanning && cleaningStaffIds.size > 1 && (
                       <Select
                         value={sharedByRoom.get(selectedRoomContext.room.id) || 'none'}
                         onValueChange={value => setSharedByRoom(previous => {
@@ -1578,7 +1628,7 @@ export function AutoRoomAssignment({
                         <SelectContent>
                           <SelectItem value="none">Not shared</SelectItem>
                           {allStaff
-                            .filter(staff => selectedStaffIds.has(staff.id) && staff.id !== selectedRoomContext.preview.staffId)
+                            .filter(staff => cleaningStaffIds.has(staff.id) && staff.id !== selectedRoomContext.preview.staffId)
                             .map(staff => <SelectItem key={staff.id} value={staff.id}>Share with {staff.full_name}</SelectItem>)}
                         </SelectContent>
                       </Select>
@@ -1615,22 +1665,22 @@ export function AutoRoomAssignment({
               <div className="space-y-4">
                 <div className="text-center"><Check className="mx-auto mb-2 h-12 w-12 text-green-600" /><h3 className="text-lg font-semibold">{isNextDayPlanning ? 'Review tomorrow’s public areas' : t('autoAssign.roomsAssignedSuccess')}</h3><p className="text-sm text-muted-foreground">{isNextDayPlanning ? 'Mapped section tasks are included in the same 08:00 plan. Add any extra one-off public areas, then approve the complete plan.' : 'Mapped section tasks are already assigned. Add only any extra one-off public areas needed today.'}</p></div>
                 <div className="space-y-2">
-                  {PUBLIC_AREAS.map(area => <div key={area.key} className="flex items-center gap-3 rounded-lg border p-3"><span className="text-lg">{area.icon}</span><span className="min-w-0 flex-1 text-sm font-medium">{area.name}</span><Select value={publicAreaAssignments.get(area.key) || ''} onValueChange={value => setPublicAreaAssignments(previous => { const next = new Map(previous); if (value === 'none') next.delete(area.key); else next.set(area.key, value); return next; })}><SelectTrigger className="w-[160px]"><SelectValue placeholder={t('autoAssign.notAssigned')} /></SelectTrigger><SelectContent><SelectItem value="none">{t('autoAssign.notAssigned')}</SelectItem>{allStaff.filter(staff => selectedStaffIds.has(staff.id)).map(staff => <SelectItem key={staff.id} value={staff.id}>{staff.full_name}</SelectItem>)}</SelectContent></Select></div>)}
+                  {PUBLIC_AREAS.map(area => <div key={area.key} className="flex items-center gap-3 rounded-lg border p-3"><span className="text-lg">{area.icon}</span><span className="min-w-0 flex-1 text-sm font-medium">{area.name}</span><Select value={publicAreaAssignments.get(area.key) || ''} onValueChange={value => setPublicAreaAssignments(previous => { const next = new Map(previous); if (value === 'none') next.delete(area.key); else next.set(area.key, value); return next; })}><SelectTrigger className="w-[160px]"><SelectValue placeholder={t('autoAssign.notAssigned')} /></SelectTrigger><SelectContent><SelectItem value="none">{t('autoAssign.notAssigned')}</SelectItem>{allStaff.filter(staff => cleaningStaffIds.has(staff.id)).map(staff => <SelectItem key={staff.id} value={staff.id}>{staff.full_name}</SelectItem>)}</SelectContent></Select></div>)}
                 </div>
               </div>
             )}
           </div>
 
-          <DialogFooter className="flex-shrink-0 gap-2">
-            {step === 'select-staff' && <><Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button><Button onClick={handleGeneratePreview} disabled={selectedStaffIds.size === 0 || effectiveRooms.length === 0}>{t('autoAssign.generatePreview')}<ArrowRight className="ml-2 h-4 w-4" /></Button></>}
+          <DialogFooter className={isGozsdu ? '!grid grid-cols-2 gap-2 border-t pt-2 sm:!flex sm:flex-wrap sm:justify-end' : 'flex-shrink-0 gap-2'}>
+            {step === 'select-staff' && <><Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button><Button onClick={handleGeneratePreview} disabled={cleaningStaffIds.size === 0 || effectiveRooms.length === 0}>{t('autoAssign.generatePreview')}<ArrowRight className="ml-2 h-4 w-4" /></Button></>}
             {step === 'preview' && <>
               {restoredFromSave && <Button variant="ghost" size="sm" className="mr-auto text-muted-foreground" onClick={handleClearSaved}><Trash2 className="mr-1 h-3.5 w-3.5" />{t('autoAssign.clearSaved')}</Button>}
               {previewHistory.length > 0 && <Button variant="ghost" size="sm" onClick={handleUndo}><Undo2 className="mr-1 h-3.5 w-3.5" />{t('autoAssign.undo')} ({previewHistory.length})</Button>}
               <Button variant="outline" onClick={() => setStep('select-staff')}>{t('autoAssign.back')}</Button>
-              <Button variant="outline" onClick={handleGeneratePreview}><RefreshCw className="mr-2 h-4 w-4" />{t('autoAssign.regenerate')}</Button>
-              <Button onClick={handleProceedToConfirm}>{editingExistingAssignments ? 'Review changes' : t('autoAssign.proceedToConfirm')}<ArrowRight className="ml-2 h-4 w-4" /></Button>
+              <Button variant="outline" onClick={handleGeneratePreview} disabled={isGozsdu && (cleaningStaffIds.size === 0 || effectiveRooms.length === 0)}><RefreshCw className="mr-2 h-4 w-4" />{t('autoAssign.regenerate')}</Button>
+              <Button onClick={handleProceedToConfirm} disabled={isGozsdu && !gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner)} className={isGozsdu ? 'col-span-2 sm:w-auto' : undefined}>{editingExistingAssignments ? 'Review changes' : t('autoAssign.proceedToConfirm')}<ArrowRight className="ml-2 h-4 w-4" /></Button>
             </>}
-            {step === 'confirm' && <><Button variant="outline" onClick={() => setStep('preview')}>{t('autoAssign.back')}</Button><Button variant="outline" onClick={handlePrintAssignments}><Printer className="mr-2 h-4 w-4" />{t('autoAssign.print')}</Button><Button onClick={handleConfirmAssignment} disabled={submitting}>{submitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{t('autoAssign.assigning')}</> : <><Check className="mr-2 h-4 w-4" />{isNextDayPlanning ? 'Continue to Public Areas' : editingExistingAssignments ? 'Save Changes' : t('autoAssign.confirmAndAssign')}</>}</Button></>}
+            {step === 'confirm' && <><Button variant="outline" onClick={() => setStep('preview')}>{t('autoAssign.back')}</Button><Button variant="outline" onClick={handlePrintAssignments}><Printer className="mr-2 h-4 w-4" />{t('autoAssign.print')}</Button><Button onClick={handleConfirmAssignment} disabled={submitting || (isGozsdu && !gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner))}>{submitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />{t('autoAssign.assigning')}</> : <><Check className="mr-2 h-4 w-4" />{isNextDayPlanning ? 'Continue to Public Areas' : editingExistingAssignments ? 'Save Changes' : t('autoAssign.confirmAndAssign')}</>}</Button></>}
             {step === 'public-areas' && <><Button variant="outline" onClick={() => isNextDayPlanning ? setStep('confirm') : onOpenChange(false)}>{isNextDayPlanning ? t('autoAssign.back') : t('autoAssign.skipAndClose')}</Button><Button onClick={handleAssignPublicAreas} disabled={submitting || (!isNextDayPlanning && publicAreaAssignments.size === 0)}>{submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MapPin className="mr-2 h-4 w-4" />}{isNextDayPlanning ? `Approve tomorrow’s plan (${sectionTasks.length + publicAreaAssignments.size} areas)` : `${t('autoAssign.assignAreas')} (${publicAreaAssignments.size})`}</Button></>}
           </DialogFooter>
         </DialogContent>
