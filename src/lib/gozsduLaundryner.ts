@@ -21,11 +21,17 @@ export function isEligibleLaundryRoom(room: LaundryRoom): boolean {
     && Number(metadata.reservationStatusId ?? 0) !== 8;
 }
 
-/** This is *collection priority*, not a new cleaning cadence or a PMS write. */
+/**
+ * This is collection priority, not a new cleaning cadence or a PMS write.
+ * Gozsdu's stayover service is every second night, so every positive even
+ * currentNight belongs with the second-day/service-due queue (2, 4, 6, ...).
+ * Checkout always wins because linen must be collected after guest departure.
+ */
 export function getLaundryBucket(room: LaundryRoom): LaundryBucket {
   const metadata = room.pms_metadata || {};
   if (room.is_checkout_room === true || metadata.scheduledDepartureToday === true) return 'checkout';
-  if (Number(metadata.currentNight ?? 0) === 2) return 'second_day';
+  const currentNight = Number(metadata.currentNight ?? 0);
+  if (Number.isInteger(currentNight) && currentNight > 0 && currentNight % 2 === 0) return 'second_day';
   return 'other';
 }
 
