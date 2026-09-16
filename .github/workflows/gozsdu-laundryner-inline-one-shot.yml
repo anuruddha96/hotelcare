@@ -1,0 +1,39 @@
+name: Gozsdu Laundryner Inline One-Shot
+
+on:
+  push:
+    branches: [fix/gozsdu-laundryner-inline-picker-progress]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout isolated branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Apply exact-match Gozsdu-only patch
+        run: python3 scripts/one-shot-gozsdu-laundryner-inline.py
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install frozen dependencies
+        run: bun install --frozen-lockfile
+      - name: Build production frontend
+        run: bun run build
+      - name: Run frontend test suite
+        run: bun run test
+      - name: Commit only validated source and remove temporary automation
+        run: |
+          git rm -f scripts/one-shot-gozsdu-laundryner-inline.py .github/workflows/gozsdu-laundryner-inline-one-shot.yml
+          git add src/components/dashboard/GozsduLaundryDutyPicker.tsx src/components/dashboard/AutoRoomAssignmentImpl.tsx
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Keep Gozsdu Laundryner selection inline and visible across assignment steps'
+          git push origin HEAD:fix/gozsdu-laundryner-inline-picker-progress
