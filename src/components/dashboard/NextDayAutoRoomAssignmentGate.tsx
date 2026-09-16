@@ -9,6 +9,7 @@ import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { tomorrowBudapest } from '@/lib/budapestTime';
 import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
+import { GOZSDU_COURT_HOTEL_ID } from '@/lib/gozsdu-housekeeping';
 import { ensureTomorrowPmsSnapshot, type TomorrowSnapshotState } from '@/lib/nextDayAutoAssignBridge';
 import { AutoRoomAssignment as AutoRoomAssignmentImpl } from './AutoRoomAssignmentImpl';
 
@@ -132,7 +133,9 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
         if (!exactDay) {
           throw new Error(`The Previo snapshot for ${expectedTomorrow} is missing. Nothing was assigned.`);
         }
-        if (exactDay.totalRows < result.roomCount) {
+        if (exactDay.totalRows < result.roomCount
+          && !(canonicalHotelId === GOZSDU_COURT_HOTEL_ID && result.authoritative
+            && exactDay.totalRows === result.rowCount)) {
           throw new Error(
             `The Previo snapshot for ${expectedTomorrow} is incomplete (${exactDay.totalRows}/${result.roomCount} rooms). Nothing was assigned.`,
           );

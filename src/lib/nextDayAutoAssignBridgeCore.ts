@@ -1,4 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
+import { GOZSDU_COURT_HOTEL_ID } from '@/lib/gozsdu-housekeeping';
+import { verifyGozsduTomorrowCoverage } from '@/lib/gozsduPmsRoster';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { runPmsRefresh } from '@/lib/pmsRefresh';
 import {
@@ -128,7 +130,7 @@ async function findReusableSnapshot(args: {
   const [snapshotResult, roomCountResult] = await Promise.all([
     (supabase as any)
       .from('daily_overview_snapshots')
-      .select('captured_at')
+      .select('room_label,room_number,captured_at')
       .eq('organization_slug', args.organizationSlug)
       .eq('hotel_id', args.hotelId)
       .eq('business_date', args.selectedDate)
@@ -140,12 +142,28 @@ async function findReusableSnapshot(args: {
   ]);
 
   if (snapshotResult.error || roomCountResult.error) return null;
-  const snapshotRows = (snapshotResult.data || []) as Array<{ captured_at: string | null }>;
+  const snapshotRows = (snapshotResult.data || []) as Array<{ room_label: string | null; captured_at: string | null }>;
   const capturedTimes = snapshotRows
     .map(row => row.captured_at ? Date.parse(row.captured_at) : Number.NaN)
     .filter(Number.isFinite);
   const roomCount = Number(roomCountResult.count || 0);
-  if (!roomCount || capturedTimes.length < roomCount || snapshotRows.length < roomCount) return null;
+  if (!roomCount || capturedTimes.length !== snapshotRows.length) return null;
+  if (args.hotelId === GOZSDU_COURT_HOTEL_ID) {
+    const [todayResult, registryResult] = await Promise.all([
+      (supabase as any).from('daily_overview_snapshots').select('room_label,departure_date,captured_at')
+        .eq('organization_slug', args.organizationSlug).eq('hotel_id', args.hotelId)
+        .eq('business_date', addIsoDays(args.selectedDate, -1)).eq('source', 'previo'),
+      (supabase as any).from('gozsdu_housekeeping_room_registry').select('pms_room_name'),
+    ]);
+    if (todayResult.error || registryResult.error) return null;
+    const registryNames = (registryResult.data || []).map((row: any) => row.pms_room_name as string);
+    if (registryNames.length !== roomCount || !verifyGozsduTomorrowCoverage(
+      registryNames, todayResult.data || [], snapshotRows, addIsoDays(args.selectedDate, -1),
+    )) return null;
+    const todayTimes = (todayResult.data || []).map((row: any) => Date.parse(row.captured_at));
+    if (todayTimes.length !== roomCount || todayTimes.some((time: number) => !Number.isFinite(time))
+      || Date.now() - Math.min(...todayTimes) > TOMORROW_PMS_REUSE_MS) return null;
+  } else if (snapshotRows.length < roomCount) return null;
 
   const oldest = Math.min(...capturedTimes);
   const newest = Math.max(...capturedTimes);
@@ -172,13 +190,14 @@ export async function ensureTomorrowPmsSnapshot(args: {
     if (reusable) return reusable;
   }
 
-  const result = await runPmsRefresh(args.hotelId, { trigger: 'manual' });
-  if (result.status === 'error' || result.reservationDataAuthoritative === false) {
-    throw new Error(
-      result.managerMessage
-      || result.errors?.join(' · ')
-      || 'Previo reservation data was not authoritative.',
-    );
+  // Gozsdu relies on its selected-date overview, not sparse checked-out poll events.
+  // Do not mutate today's live room flags just to open tomorrow's planner.
+  if (args.hotelId !== GOZSDU_COURT_HOTEL_ID) {
+    const result = await runPmsRefresh(args.hotelId, { trigger: 'manual' });
+    if (result.status === 'error' || result.reservationDataAuthoritative === false) {
+      throw new Error(result.managerMessage || result.errors?.join(' · ')
+        || 'Previo reservation data was not authoritative.');
+    }
   }
 
   const { data: overviewData, error: overviewError } = await supabase.functions.invoke(
@@ -186,9 +205,9 @@ export async function ensureTomorrowPmsSnapshot(args: {
     {
       body: {
         hotelId: args.hotelId,
-        fromDate: args.selectedDate,
+        fromDate: args.hotelId === GOZSDU_COURT_HOTEL_ID ? addIsoDays(args.selectedDate, -1) : args.selectedDate,
         toDate: addIsoDays(args.selectedDate, 1),
-        days: 1,
+        days: args.hotelId === GOZSDU_COURT_HOTEL_ID ? 2 : 1,
       },
     },
   );
