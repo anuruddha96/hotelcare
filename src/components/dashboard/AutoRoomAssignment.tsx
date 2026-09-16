@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ComponentProps } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import {
@@ -10,9 +11,9 @@ import { GozsduLaundryDutyPicker } from './GozsduLaundryDutyPicker';
 
 type Props = ComponentProps<typeof OriginalAutoRoomAssignment>;
 
-/** Leave every other property untouched. If the code deploys ahead of the
- * additive migration, keep the existing Gozsdu workflow available. A failed
- * read of an installed duty table still blocks allocation (fail closed). */
+/** Gozsdu alone has a date-specific Laundryner duty. All other hotels use
+ * exactly the existing allocation board. The DB must verify exclusion before
+ * a new Gozsdu preview can be generated. */
 export function AutoRoomAssignment(props: Props) {
   const { profile } = useAuth();
   const gozsdu = isGozsduCourtHotel(profile?.assigned_hotel);
@@ -49,7 +50,15 @@ export function AutoRoomAssignment(props: Props) {
     setSchemaUnavailable(true);
   }, [date]);
 
-  if (!gozsdu || schemaUnavailable) return <OriginalAutoRoomAssignment {...props} />;
+  if (!gozsdu) return <OriginalAutoRoomAssignment {...props} />;
+
+  if (schemaUnavailable) return <>
+    <OriginalAutoRoomAssignment {...props} />
+    {props.open && <div role="alert" className="fixed bottom-[calc(10rem+env(safe-area-inset-bottom))] left-4 right-4 z-[10002] mx-auto max-w-md rounded-lg border-2 border-amber-500 bg-background p-3 text-sm shadow-xl">
+      <p className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4 text-amber-600" /> Laundryner setup incomplete</p>
+      <p className="mt-1 text-xs text-muted-foreground">The Gozsdu duty database is not installed. Ordinary Auto Assign remains available, but no staff can be safely marked Laundryner or guaranteed zero cleaning rooms. Complete the database rollout, then close and reopen Auto Assign.</p>
+    </div>}
+  </>;
 
   return <>
     <GozsduLaundryDutyPicker open={props.open} workDate={date}

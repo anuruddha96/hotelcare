@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Shirt, Loader2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Shirt, Loader2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -12,6 +13,13 @@ import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 const MANAGER_ROLES = new Set(['manager', 'housekeeping_manager', 'admin', 'top_management', 'top_management_manager']);
 type Staff = { id: string; full_name: string; nickname: string | null };
 
+/**
+ * The duty selector must be INSIDE the staff step, not fixed at top:3px: on
+ * iOS/PWA that old button sat behind the status bar / modal and was invisible.
+ * The original Auto Assign grid is kept intact for every other hotel. The
+ * portal inserts a Gozsdu-only control as the FIRST grid item; when the board
+ * is on Preview/Confirm it remains available above the bottom action buttons.
+ */
 export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, onSchemaUnavailable }: {
   open: boolean;
   workDate: string;
@@ -26,6 +34,7 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, on
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [staffGrid, setStaffGrid] = useState<HTMLElement | null>(null);
   const allowed = !!profile?.organization_slug && isGozsduCourtHotel(profile.assigned_hotel)
     && MANAGER_ROLES.has(profile.role);
 
@@ -53,13 +62,10 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, on
       onReady(ids);
       return true;
     } catch (error: any) {
-      // The frontend may deploy ahead of the additive DB migrations. In that
-      // specific case retain the existing Gozsdu Auto Assign workflow instead
-      // of blocking housekeeping. All other read/permission errors fail closed.
       const missingTable = (error?.code === '42P01' || error?.code === 'PGRST205')
         && String(error?.message || '').includes('gozsdu_laundry_duties');
       if (missingTable) {
-        setFailed(false);
+        // Never pretend the duty can be selected when the migration is absent.
         onSchemaUnavailable();
         return false;
       }
@@ -80,6 +86,22 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, on
     return () => window.clearInterval(interval);
   }, [open, allowed, refresh]);
 
+  useEffect(() => {
+    if (!open || !allowed) { setStaffGrid(null); return; }
+    // The staff grid only exists during Step 1. Watch for it because the board
+    // mounts AFTER duties have been verified and later changes steps in place.
+    const findGrid = () => {
+      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'));
+      const grid = dialogs.flatMap(dialog => Array.from(dialog.querySelectorAll<HTMLElement>('.grid')))
+        .find(node => node.classList.contains('max-h-[38vh]')) || null;
+      setStaffGrid(previous => previous === grid ? previous : grid);
+    };
+    findGrid();
+    const observer = new MutationObserver(findGrid);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => { observer.disconnect(); setStaffGrid(null); };
+  }, [open, allowed]);
+
   const toggle = async (userId: string, enabled: boolean) => {
     if (busyId || !allowed) return;
     setBusyId(userId);
@@ -89,49 +111,62 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, on
       });
       if (error) throw error;
       try { localStorage.removeItem(`auto_assignment_v2_${profile?.assigned_hotel}_${workDate}`); }
-      catch { /* browser cache optional */ }
-      const refreshed = await refresh();
-      if (!refreshed) return;
-      onChanged();
-      toast.success(enabled ? 'Laundryner assigned. Please regenerate the room preview.'
-        : 'Laundryner duty removed. Please regenerate the room preview.');
+      catch { /* optional browser draft */ }
+      if (!await refresh()) return;
+      onChanged(); // Discards previews/drafts and remounts the board safely.
+      toast.success(enabled ? 'Laundryner assigned. Regenerate the room preview.'
+        : 'Laundryner duty removed. Regenerate the room preview.');
     } catch (error: any) {
-      toast.error(error?.message || 'Could not change duty. Resolve existing cleaning tasks first.');
+      toast.error(error?.message || 'Could not change Laundryner duty. Resolve existing cleaning assignments first.');
       await refresh();
     } finally { setBusyId(null); }
   };
 
   if (!open || !allowed) return null;
-  if (loading && staff.length === 0 && !failed) return <div className="fixed right-3 top-3 z-[10002] rounded-md bg-background px-3 py-2 text-xs shadow">
-    <Loader2 className="inline h-3 w-3 animate-spin" /> Checking Laundryner duty…
+  if (loading && staff.length === 0 && !failed) return <div role="status"
+    className="pointer-events-none fixed bottom-36 right-4 z-[10002] rounded-md bg-background px-3 py-2 text-xs shadow">
+    <Loader2 className="mr-1 inline h-3 w-3 animate-spin" /> Checking Gozsdu Laundryner duty…
   </div>;
-  if (failed) return <div role="alert" className="fixed right-3 top-3 z-[10002] max-w-xs rounded-md border border-destructive bg-background p-3 text-xs shadow">
-    Laundry duty could not be verified. Auto Assign is blocked to prevent an incorrect allocation.
+  if (failed) return <div role="alert" className="fixed bottom-36 right-4 z-[10002] max-w-sm rounded-md border border-destructive bg-background p-3 text-xs shadow">
+    <AlertTriangle className="mr-1 inline h-4 w-4" /> Laundryner duty could not be verified. Room allocation is blocked.
     <Button size="sm" variant="outline" className="ml-2" onClick={() => { setLoading(true); void refresh(); }}>Retry</Button>
   </div>;
 
-  return <>
-    <div className="pointer-events-auto fixed right-3 top-3 z-[10002] flex max-w-[220px] flex-col items-end gap-1">
-      <Button type="button" size="sm" variant="outline" className="gap-1.5 bg-background shadow-lg" onClick={() => setShow(true)}>
-        <Shirt className="h-4 w-4" /> Laundryner <Badge variant="secondary">{dutyIds.length}</Badge>
+  const assigned = staff.filter(person => dutyIds.includes(person.id));
+  const control = <div data-testid="gozsdu-laundryner-autoassign-control"
+    className={staffGrid
+      ? 'order-first col-span-full sticky top-0 z-10 rounded-lg border-2 border-emerald-300 bg-background p-3 shadow-sm'
+      : 'fixed bottom-[calc(10rem+env(safe-area-inset-bottom))] right-4 z-[10002] max-w-[min(94vw,370px)] rounded-lg border-2 border-emerald-300 bg-background p-3 shadow-xl'}>
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex items-center gap-1.5 text-sm font-semibold"><Shirt className="h-4 w-4 text-emerald-700" /> Laundryner duty</div>
+      <Button type="button" size="sm" variant="outline" className="gap-1 border-emerald-500"
+        onClick={() => setShow(true)} aria-label={`Select Laundryner from ${staff.length} Gozsdu housekeepers`}>
+        Select staff <Badge variant="secondary">{dutyIds.length}/{staff.length}</Badge>
       </Button>
-      {dutyIds.length > 0 && <span className="rounded-md bg-background/95 px-2 py-1 text-[10px] shadow">Laundry duty • no cleaning rooms</span>}
     </div>
+    <p className="mt-1 text-xs text-muted-foreground">Gozsdu only · Select separately from cleaning staff. Laundryners get zero rooms and zero public areas.</p>
+    {assigned.length > 0 && <div className="mt-2 flex flex-wrap gap-1" aria-live="polite">
+      {assigned.map(person => <Badge key={person.id} variant="secondary" className="max-w-full truncate">🧺 {person.nickname || person.full_name}</Badge>)}
+    </div>}
+  </div>;
+
+  return <>
+    {staffGrid ? createPortal(control, staffGrid) : control}
     <Dialog open={show} onOpenChange={setShow}>
       <DialogContent className="z-[10003] max-h-[85vh] max-w-md overflow-y-auto">
-        <DialogHeader><DialogTitle>Gozsdu Court • Laundryner duty</DialogTitle></DialogHeader>
-        <p className="text-sm text-muted-foreground">{workDate}: Tick a Gozsdu housekeeper to collect dirty linen only. Laundryners receive no cleaning rooms or public areas. Resolve existing work before changing their duty.</p>
+        <DialogHeader><DialogTitle>Gozsdu Court • Select Laundryner</DialogTitle></DialogHeader>
+        <p className="text-sm text-muted-foreground">{workDate}: All {staff.length} eligible Gozsdu housekeepers are listed below, including staff not checked in yet. Tick Laundryner duty for this date only. Existing room/area work must be resolved first.</p>
         <div className="space-y-2">
           {staff.map(person => <label key={person.id} className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm">
             <Checkbox checked={dutyIds.includes(person.id)} disabled={!!busyId}
               onCheckedChange={checked => { void toggle(person.id, checked === true); }} />
-            <span className="min-w-0 flex-1 truncate">{person.nickname || person.full_name}</span>
+            <span className="min-w-0 flex-1"><span className="block truncate font-medium">{person.full_name}</span>{person.nickname && <span className="block truncate text-xs text-muted-foreground">{person.nickname}</span>}</span>
             {dutyIds.includes(person.id) && <Badge>Laundryner</Badge>}
             {busyId === person.id && <Loader2 className="h-4 w-4 animate-spin" />}
           </label>)}
-          {staff.length === 0 && <p className="text-sm text-muted-foreground">No Gozsdu housekeepers available.</p>}
+          {staff.length === 0 && <p className="text-sm text-muted-foreground">No eligible Gozsdu housekeepers were found.</p>}
         </div>
-        <p className="text-xs text-muted-foreground">Date-specific: does not change the account's attendance or other hotels. Database guards independently reject conflicting assignments.</p>
+        <p className="text-xs text-muted-foreground">Staff retain ordinary housekeeping sign-in, attendance and breaks. Only the selected date's cleaning allocation changes; the database also enforces the exclusion.</p>
       </DialogContent>
     </Dialog>
   </>;
