@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Calendar, User, MapPin, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { useTranslation } from '@/hooks/useTranslation';
+import { MaintenanceTicketTranslation } from './MaintenanceTicketTranslation';
 
 interface Ticket {
   id: string;
@@ -15,13 +16,8 @@ interface Ticket {
   created_at: string;
   department?: string;
   hotel?: string;
-  created_by?: {
-    full_name: string;
-    role: string;
-  };
-  assigned_to?: {
-    full_name: string;
-  };
+  created_by?: { full_name: string; role: string };
+  assigned_to?: { full_name: string };
 }
 
 interface TicketCardProps {
@@ -41,7 +37,6 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
       default: return 'bg-gray-500 text-white';
     }
   };
-
   const getDepartmentColor = (department?: string) => {
     switch (department) {
       case 'maintenance': return 'bg-blue-100 text-blue-800 border-blue-200';
@@ -55,7 +50,6 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
       default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
-
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'open': return 'bg-blue-100 text-blue-800 border-blue-300';
@@ -64,7 +58,6 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
       default: return 'bg-gray-100 text-gray-800 border-gray-300';
     }
   };
-
   const getTranslatedStatus = (status: string) => {
     switch (status) {
       case 'open': return t('tickets.openStatus');
@@ -73,7 +66,6 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
       default: return status.replace('_', ' ').toUpperCase();
     }
   };
-
   const getTranslatedPriority = (priority: string) => {
     switch (priority) {
       case 'urgent': return t('tickets.urgentPriority');
@@ -85,73 +77,43 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
   };
 
   return (
-    <Card 
+    <Card
       className="cursor-pointer hover:shadow-md transition-shadow duration-200"
       onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={event => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onClick(); }
+      }}
+      aria-label={`${ticket.ticket_number}: ${ticket.title}`}
       data-training="ticket-card"
       data-training-priority={ticket.priority}
     >
       <CardHeader className="pb-2">
-        <div className="flex items-start justify-between">
-          <div>
-            <h3 className="font-semibold text-sm text-foreground">
-              {ticket.ticket_number}
-            </h3>
-            <p className="text-sm font-medium text-foreground mt-1">
-              {ticket.title}
-            </p>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="font-semibold text-sm text-foreground">{ticket.ticket_number}</h3>
+            <p className="text-sm font-medium text-foreground mt-1 whitespace-pre-wrap">{ticket.title}</p>
           </div>
-          <div className="flex flex-col gap-1">
-            <Badge className={getPriorityColor(ticket.priority)} variant="secondary">
-              {getTranslatedPriority(ticket.priority)}
-            </Badge>
-            {ticket.department && (
-              <Badge className={getDepartmentColor(ticket.department)}>
-                {ticket.department.replace('_', ' ').toUpperCase()}
-              </Badge>
-            )}
-            <Badge className={getStatusColor(ticket.status)} variant="outline">
-              {getTranslatedStatus(ticket.status)}
-            </Badge>
+          <div className="flex flex-col gap-1 shrink-0">
+            <Badge className={getPriorityColor(ticket.priority)} variant="secondary">{getTranslatedPriority(ticket.priority)}</Badge>
+            {ticket.department && <Badge className={getDepartmentColor(ticket.department)}>{ticket.department.replace('_', ' ').toUpperCase()}</Badge>}
+            <Badge className={getStatusColor(ticket.status)} variant="outline">{getTranslatedStatus(ticket.status)}</Badge>
           </div>
         </div>
       </CardHeader>
-      
       <CardContent className="pt-0 space-y-2">
-        <p className="text-sm text-muted-foreground line-clamp-2">
-          {ticket.description}
-        </p>
-        
+        <p className="text-sm text-muted-foreground line-clamp-2">{ticket.description}</p>
+        {ticket.department === 'maintenance' && <MaintenanceTicketTranslation ticketId={ticket.id} title={ticket.title} description={ticket.description} />}
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
-          <div className="flex items-center gap-1">
-            <MapPin className="h-3 w-3" />
-            {t('ticketCard.room')} {ticket.room_number}
-          </div>
-          <div className="flex items-center gap-1">
-            <Calendar className="h-3 w-3" />
-            {format(new Date(ticket.created_at), 'MMM dd')}
-          </div>
+          <div className="flex items-center gap-1"><MapPin className="h-3 w-3" />{t('ticketCard.room')} {ticket.room_number}</div>
+          <div className="flex items-center gap-1"><Calendar className="h-3 w-3" />{format(new Date(ticket.created_at), 'MMM dd')}</div>
         </div>
-        
         <div className="space-y-1">
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <User className="h-3 w-3" />
-            {ticket.created_by?.full_name ?? t('ticketCard.unknown')}
-          </div>
-          
-          {ticket.hotel && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <span className="text-xs">🏨</span>
-              <span>{ticket.hotel.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}</span>
-            </div>
-          )}
-          
-          {ticket.assigned_to && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <AlertCircle className="h-3 w-3" />
-              {t('ticketCard.assignedTo')} {ticket.assigned_to.full_name}
-            </div>
-          )}
+          <div className="flex items-center gap-1 text-xs text-muted-foreground"><User className="h-3 w-3" />{ticket.created_by?.full_name ?? t('ticketCard.unknown')}</div>
+          {ticket.hotel && <div className="flex items-center gap-1 text-xs text-muted-foreground"><span className="text-xs">🏨</span><span>{ticket.hotel.replace('-', ' ').replace(/\b\w/g, letter => letter.toUpperCase())}</span></div>}
+          {ticket.assigned_to && <div className="flex items-center gap-1 text-xs text-muted-foreground"><AlertCircle className="h-3 w-3" />{t('ticketCard.assignedTo')} {ticket.assigned_to.full_name}</div>}
         </div>
       </CardContent>
     </Card>
