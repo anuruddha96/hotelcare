@@ -1,0 +1,1 @@
+Existing HousekeepingTab component is preserved unchanged in HousekeepingTabLegacy.tsx; HousekeepingTab.tsx forwards to the enhanced wrapper.
