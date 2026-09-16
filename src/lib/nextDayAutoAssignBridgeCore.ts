@@ -147,7 +147,11 @@ async function findReusableSnapshot(args: {
     .map(row => row.captured_at ? Date.parse(row.captured_at) : Number.NaN)
     .filter(Number.isFinite);
   const roomCount = Number(roomCountResult.count || 0);
-  if (!roomCount || capturedTimes.length !== snapshotRows.length) return null;
+  // Preserve the original count-based reuse behaviour for every other hotel.
+  // Only Gozsdu requires every selected-date row to carry a capture timestamp.
+  if (!roomCount || (args.hotelId === GOZSDU_COURT_HOTEL_ID
+    ? capturedTimes.length !== snapshotRows.length
+    : capturedTimes.length < roomCount)) return null;
   if (args.hotelId === GOZSDU_COURT_HOTEL_ID) {
     const [todayResult, registryResult] = await Promise.all([
       (supabase as any).from('daily_overview_snapshots').select('room_label,departure_date,captured_at')
