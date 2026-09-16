@@ -32,8 +32,9 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, on
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [hasEdits, setHasEdits] = useState(false);
   const [staffSlot, setStaffSlot] = useState<HTMLElement | null>(null);
-  useEffect(() => { if (!open) setShow(false); }, [open, workDate]);
+  useEffect(() => { if (!open) { setShow(false); setHasEdits(false); } }, [open, workDate]);
   const allowed = !!profile?.organization_slug && isGozsduCourtHotel(profile.assigned_hotel)
     && MANAGER_ROLES.has(profile.role);
 
@@ -107,16 +108,35 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, on
         p_user_id: userId, p_work_date: workDate, p_enabled: enabled,
       });
       if (error) throw error;
-      try { localStorage.removeItem(`auto_assignment_v2_${profile?.assigned_hotel}_${workDate}`); }
-      catch { /* optional browser draft */ }
-      if (!await refresh()) return;
-      onChanged(); // Discards previews/drafts and remounts the board safely.
-      toast.success(enabled ? 'Laundryner assigned. Regenerate the room preview.'
-        : 'Laundryner duty removed. Regenerate the room preview.');
+      // The RPC is authoritative, but selecting a checkbox must never unmount
+      // the whole allocation dialog. Revalidate and invalidate previews on Done.
+      const next = enabled ? [...new Set([...dutyIds, userId])] : dutyIds.filter(id => id !== userId);
+      setDutyIds(next);
+      onReady(next);
+      setHasEdits(true);
+      toast.success(enabled ? 'Laundryner duty saved. Tap Done to update the room plan.'
+        : 'Laundryner duty removed. Tap Done to update the room plan.');
     } catch (error: any) {
       toast.error(error?.message || 'Could not change Laundryner duty. Resolve existing cleaning assignments first.');
       await refresh();
     } finally { setBusyId(null); }
+  };
+
+  const finish = async () => {
+    if (busyId) return;
+    setShow(false);
+    if (!hasEdits) return;
+    // Refresh only the duty list in the background; the room-assignment dialog
+    // stays mounted. The parent clears any stale preview in place on success.
+    if (await refresh()) {
+      try { localStorage.removeItem(`auto_assignment_v2_${profile?.assigned_hotel}_${workDate}`); }
+      catch { /* browser storage is optional */ }
+      setHasEdits(false);
+      onChanged();
+    } else {
+      setShow(true);
+      toast.error('Could not verify Laundryner changes. Please retry Done.');
+    }
   };
 
   if (!open || !allowed) return null;
@@ -135,7 +155,7 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, on
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div className="flex items-center gap-1.5 text-sm font-semibold"><Shirt className="h-4 w-4 text-emerald-700" /> Laundryner duty</div>
       <Button type="button" size="sm" variant="outline" className="gap-1 border-emerald-500"
-        onClick={() => setShow(current => !current)} aria-expanded={show} aria-controls="gozsdu-laundryner-staff-list"
+        onClick={() => { if (show) void finish(); else setShow(true); }} aria-expanded={show} aria-controls="gozsdu-laundryner-staff-list"
         aria-label={`${show ? 'Close' : 'Select'} Laundryner staff from ${staff.length} Gozsdu housekeepers`}>
         {show ? 'Close list' : 'Select staff'} <Badge variant="secondary">{dutyIds.length}/{staff.length}</Badge>
       </Button>
@@ -147,7 +167,7 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, on
     {show && <section id="gozsdu-laundryner-staff-list" aria-label="Select Laundryner duty staff" className="mt-3 min-w-0 border-t border-emerald-200 pt-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <p className="text-sm font-semibold">Laundryner staff · {workDate}</p>
-        <Button type="button" variant="ghost" size="sm" className="h-9 shrink-0 gap-1" onClick={() => setShow(false)} aria-label="Close Laundryner staff list"><X className="h-4 w-4" />Close</Button>
+        <Button type="button" variant="ghost" size="sm" className="h-9 shrink-0 gap-1" onClick={() => void finish()} aria-label="Close Laundryner staff list"><X className="h-4 w-4" />Close</Button>
       </div>
       <p className="mb-2 text-xs text-muted-foreground">Tick a person to give them Laundryner duty for this date. Green ticks here mean Laundryner duty, not cleaning allocation. Staff with existing room or public-area work must have that work resolved first.</p>
       <div role="group" aria-label="Available Gozsdu Laundryner staff" className="max-h-[min(40dvh,320px)] space-y-1.5 overflow-y-auto overscroll-contain pr-1">
@@ -165,7 +185,7 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, on
       </div>
       <div className="mt-3 flex items-center justify-between gap-2 border-t border-emerald-200 pt-2">
         <span className="text-xs text-muted-foreground">{dutyIds.length} selected · zero rooms and areas</span>
-        <Button type="button" size="sm" onClick={() => setShow(false)} disabled={!!busyId}>Done</Button>
+        <Button type="button" size="sm" onClick={() => void finish()} disabled={!!busyId}>Done</Button>
       </div>
     </section>}
   </div>;

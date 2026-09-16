@@ -34,10 +34,13 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
 import { parseRoomFlags } from '@/lib/room-service-flags';
+import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { buildGozsduRoomRegistryIndex, type GozsduRoomRegistryEntry } from '@/lib/gozsduRoomRegistryDisplay';
 
 interface RoomData {
   id: string;
   room_number: string;
+  display_room_number?: string;
   floor_number: number | null;
   status: string | null;
   is_checkout_room: boolean | null;
@@ -210,13 +213,13 @@ function RoomChip({
         selected ? 'ring-2 ring-primary ring-offset-2' : ''
       } ${room.is_dnd ? 'ring-2 ring-violet-500 ring-offset-1' : ''}`}
       title={[
-        `Room ${room.room_number}`,
+        `Room ${room.display_room_number || room.room_number}`,
         staffName ? `Assigned to ${staffName}` : '',
         room.room_category || '',
       ].filter(Boolean).join(' · ')}
     >
       {editMode && <GripVertical className="h-3 w-3 opacity-50" />}
-      <span>{room.room_number}</span>
+      <span>{room.display_room_number || room.room_number}</span>
       {room.bed_type === 'shabath' && <span className="text-[8px] font-extrabold text-blue-700">SH</span>}
       {room.towel_change_required && !room.is_checkout_room && <span className="rounded bg-blue-600 px-1 text-[8px] text-white">T</span>}
       {room.linen_change_required && !room.is_checkout_room && <span className="rounded bg-orange-500 px-1 text-[8px] text-white">C</span>}
@@ -235,6 +238,10 @@ export function HotelFloorMap({
   isAdmin = false,
 }: HotelFloorMapProps) {
   const { user } = useAuth();
+  const isGozsdu = isGozsduCourtHotel(hotelName);
+  const roomIdsKey = rooms.map(room => room.id).sort().join('|');
+  const [roomRegistry, setRoomRegistry] = useState<Map<string, GozsduRoomRegistryEntry>>(new Map());
+  const [mapError, setMapError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
   const [sections, setSections] = useState<HousekeepingSection[]>([]);
@@ -260,6 +267,17 @@ export function HotelFloorMap({
     if (!hotelName) return;
     setLoading(true);
     try {
+      if (isGozsdu) {
+        const scopedRoomIds = roomIdsKey ? roomIdsKey.split('|') : [];
+        const result = scopedRoomIds.length ? await (supabase as any)
+          .from('gozsdu_housekeeping_room_registry')
+          .select('room_id,pms_room_name,service_status')
+          .in('room_id', scopedRoomIds) : { data: [], error: null };
+        if (result.error) throw result.error;
+        setRoomRegistry(buildGozsduRoomRegistryIndex(scopedRoomIds.map(id => ({ id })),
+          (result.data || []) as GozsduRoomRegistryEntry[]));
+      } else setRoomRegistry(new Map());
+      setMapError(null);
       const { data: sectionRows, error: sectionError } = await (supabase as any)
         .from('hotel_housekeeping_sections')
         .select('id, hotel_name, name, floor_number, description, color, sort_order, is_active')
@@ -298,15 +316,20 @@ export function HotelFloorMap({
       setTasks((taskResult.data || []) as SectionTask[]);
     } catch (error) {
       console.error('[HotelFloorMap] failed to load section map', error);
+      if (isGozsdu) setMapError('Gozsdu room names or building assignments could not be verified. Nothing can be remapped until the authoritative registry loads.');
       toast.error('The housekeeping section map could not be loaded');
     } finally {
       setLoading(false);
     }
-  }, [hotelName]);
+  }, [hotelName, isGozsdu, roomIdsKey]);
 
   useEffect(() => {
     void loadMap();
   }, [loadMap]);
+
+  const displayRooms = useMemo(() => isGozsdu ? rooms.map(room => ({ ...room,
+    display_room_number: roomRegistry.get(room.id)?.pms_room_name || 'Unverified PMS room',
+  })) : rooms, [rooms, isGozsdu, roomRegistry]);
 
   const mappingByRoom = useMemo(
     () => new Map(roomMappings.map(mapping => [mapping.room_id, mapping.section_id])),
@@ -316,21 +339,21 @@ export function HotelFloorMap({
   const persistedRoomsBySection = useMemo(() => {
     const result = new Map<string, RoomData[]>();
     sections.forEach(section => result.set(section.id, []));
-    rooms.forEach(room => {
+    displayRooms.forEach(room => {
       const sectionId = mappingByRoom.get(room.id);
       if (sectionId && result.has(sectionId)) result.get(sectionId)!.push(room);
     });
     result.forEach(sectionRooms => sectionRooms.sort(sortRooms));
     return result;
-  }, [mappingByRoom, rooms, sections]);
+  }, [mappingByRoom, displayRooms, sections]);
 
   const unmappedRooms = useMemo(
-    () => rooms.filter(room => !mappingByRoom.has(room.id)).sort(sortRooms),
-    [mappingByRoom, rooms],
+    () => displayRooms.filter(room => !mappingByRoom.has(room.id)).sort(sortRooms),
+    [mappingByRoom, displayRooms],
   );
 
   const legacySections = useMemo<HousekeepingSection[]>(() => {
-    if (sections.length > 0 || editMode) return [];
+    if (isGozsdu || sections.length > 0 || editMode) return [];
     const keys = new Map<string, HousekeepingSection>();
     rooms.forEach(room => {
       const floor = inferFloor(room);
@@ -350,7 +373,7 @@ export function HotelFloorMap({
       }
     });
     return Array.from(keys.values());
-  }, [editMode, hotelName, rooms, sections.length]);
+  }, [editMode, hotelName, rooms, sections.length, isGozsdu]);
 
   const legacyRoomsBySection = useMemo(() => {
     const result = new Map<string, RoomData[]>();
@@ -367,11 +390,12 @@ export function HotelFloorMap({
   const roomsBySection = sections.length > 0 ? persistedRoomsBySection : legacyRoomsBySection;
 
   const floorOrder = useMemo(() => {
+    if (isGozsdu) return displaySections.length ? [0] : [];
     const floors = new Set<number>();
     displaySections.forEach(section => floors.add(section.floor_number));
     if (editMode) rooms.forEach(room => floors.add(inferFloor(room)));
     return Array.from(floors).sort((a, b) => a - b);
-  }, [displaySections, editMode, rooms]);
+  }, [displaySections, editMode, rooms, isGozsdu]);
 
   const tasksBySection = useMemo(() => {
     const result = new Map<string, SectionTask[]>();
@@ -383,7 +407,7 @@ export function HotelFloorMap({
   }, [tasks]);
 
   const openCreateSection = (floor: number) => {
-    setSectionName(floor === 0 ? 'Ground Floor' : `${floor * 100} Side`);
+    setSectionName(isGozsdu ? '' : floor === 0 ? 'Ground Floor' : `${floor * 100} Side`);
     setSectionFloor(floor);
     setSectionDescription('');
     setSectionColor(floor === 0 ? 'emerald' : 'sky');
@@ -408,7 +432,7 @@ export function HotelFloorMap({
           .from('hotel_housekeeping_sections')
           .update({
             name,
-            floor_number: sectionFloor,
+            floor_number: isGozsdu ? 0 : sectionFloor,
             description: sectionDescription.trim() || null,
             color: sectionColor,
           })
@@ -425,7 +449,7 @@ export function HotelFloorMap({
           .insert({
             hotel_name: hotelName,
             name,
-            floor_number: sectionFloor,
+            floor_number: isGozsdu ? 0 : sectionFloor,
             description: sectionDescription.trim() || null,
             color: sectionColor,
             sort_order: maxOrder + 10,
@@ -474,7 +498,7 @@ export function HotelFloorMap({
       setSelectedRoomId(null);
       return;
     }
-    const room = rooms.find(candidate => candidate.id === roomId);
+    const room = displayRooms.find(candidate => candidate.id === roomId);
     const section = sections.find(candidate => candidate.id === sectionId);
     if (!room || !section) return;
 
@@ -631,11 +655,14 @@ export function HotelFloorMap({
     || null
   );
 
-  const selectedRoom = selectedRoomId ? rooms.find(room => room.id === selectedRoomId) : null;
+  const selectedRoom = selectedRoomId ? displayRooms.find(room => room.id === selectedRoomId) : null;
 
   if (loading) {
     return <div className="flex items-center justify-center py-12"><Loader2 className="h-7 w-7 animate-spin text-muted-foreground" /></div>;
   }
+  if (mapError) return <div role="alert" className="rounded-lg border border-amber-400 p-3 text-sm">
+    {mapError} <Button size="sm" variant="outline" onClick={() => void loadMap()}>Retry</Button>
+  </div>;
 
   return (
     <div className="space-y-4">
@@ -644,10 +671,10 @@ export function HotelFloorMap({
           <div>
             <div className="flex items-center gap-2">
               <Layers className="h-4 w-4 text-primary" />
-              <h3 className="text-sm font-semibold">Operational room sections</h3>
+              <h3 className="text-sm font-semibold">{isGozsdu ? 'Gozsdu buildings & apartments' : 'Operational room sections'}</h3>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Floors show the physical level. Sections keep nearby rooms and their shared-area cleaning together.
+              {isGozsdu ? 'Uses the existing Gozsdu building / apartment mapping and full verified Previo room names. PMS prefixes are not physical-building identifiers.' : 'Floors show the physical level. Sections keep nearby rooms and their shared-area cleaning together.'}
             </p>
             <div className="mt-2 flex flex-wrap gap-1.5">
               <Badge variant="secondary">{sections.length || legacySections.length} sections</Badge>
@@ -669,9 +696,9 @@ export function HotelFloorMap({
                   <Button size="sm" variant="outline" onClick={() => openCreateSection(floorOrder[0] ?? 0)}>
                     <Plus className="mr-1 h-3.5 w-3.5" />New section
                   </Button>
-                  <Button size="sm" variant="outline" onClick={autoMapFloors} disabled={busy || unmappedRooms.length === 0}>
+                  {!isGozsdu && <Button size="sm" variant="outline" onClick={autoMapFloors} disabled={busy || unmappedRooms.length === 0}>
                     <Sparkles className="mr-1 h-3.5 w-3.5" />Auto-map floors
-                  </Button>
+                  </Button>}
                   <Button size="sm" onClick={() => { setEditMode(false); setSelectedRoomId(null); }}>
                     Done
                   </Button>
@@ -742,12 +769,13 @@ export function HotelFloorMap({
       )}
 
       {floorOrder.map(floor => {
-        const floorSections = displaySections.filter(section => section.floor_number === floor);
+        const floorSections = displaySections.filter(section => section.floor_number === floor
+          && (!isGozsdu || editMode || (roomsBySection.get(section.id)?.length || 0) > 0 || (tasksBySection.get(section.id)?.length || 0) > 0));
         return (
           <section key={floor} className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <Badge variant="outline" className="font-semibold">{floorLabel(floor)}</Badge>
+                <Badge variant="outline" className="font-semibold">{isGozsdu ? 'Buildings & apartments' : floorLabel(floor)}</Badge>
                 <span className="text-xs text-muted-foreground">
                   {floorSections.length} section{floorSections.length === 1 ? '' : 's'} · {' '}
                   {floorSections.reduce((sum, section) => sum + (roomsBySection.get(section.id)?.length || 0), 0)} rooms
@@ -765,7 +793,7 @@ export function HotelFloorMap({
                 const sectionRooms = roomsBySection.get(section.id) || [];
                 const sectionTasks = tasksBySection.get(section.id) || [];
                 const dropTarget = dragOverSectionId === section.id;
-                const mismatchedFloors = sectionRooms.filter(room => inferFloor(room) !== section.floor_number).length;
+                const mismatchedFloors = isGozsdu ? 0 : sectionRooms.filter(room => inferFloor(room) !== section.floor_number).length;
                 const legacy = section.id.startsWith('legacy-');
 
                 return (
@@ -873,7 +901,7 @@ export function HotelFloorMap({
 
               {editMode && floorSections.length === 0 && (
                 <button type="button" onClick={() => openCreateSection(floor)} className="flex min-h-36 items-center justify-center rounded-xl border-2 border-dashed text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary">
-                  <Plus className="mr-2 h-4 w-4" />Create a section on {floorLabel(floor)}
+                  <Plus className="mr-2 h-4 w-4" />{isGozsdu ? 'Create a building or apartment group' : `Create a section on ${floorLabel(floor)}`}
                 </button>
               )}
             </div>
@@ -895,13 +923,13 @@ export function HotelFloorMap({
           <div className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-sm font-medium" htmlFor="section-name">Section name</label>
-              <input id="section-name" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={sectionName} onChange={event => setSectionName(event.target.value)} placeholder="e.g. 200 Side" autoFocus />
+              <input id="section-name" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={sectionName} onChange={event => setSectionName(event.target.value)} placeholder={isGozsdu ? 'e.g. Kazinczy A' : 'e.g. 200 Side'} autoFocus />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
+              {!isGozsdu && <div className="space-y-1.5">
                 <label className="text-sm font-medium" htmlFor="section-floor">Floor number</label>
                 <input id="section-floor" type="number" min={-5} max={99} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={sectionFloor} onChange={event => setSectionFloor(Number(event.target.value))} />
-              </div>
+              </div>}
               <div className="space-y-1.5">
                 <label className="text-sm font-medium" htmlFor="section-color">Colour</label>
                 <select id="section-color" className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={sectionColor} onChange={event => setSectionColor(event.target.value as SectionColor)}>
