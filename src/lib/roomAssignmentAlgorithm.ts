@@ -9,6 +9,7 @@ import {
   gozsduRoomsCanShare,
   planGozsduBuildingAssignments,
 } from './gozsduBuildingAssignment';
+import { rebalanceGozsduAssignments } from './gozsduAssignmentBalance';
 
 export const autoAssignRooms: typeof original.autoAssignRooms = (
   rooms, staff, wingProximityMap, affinityMap, hotelConfig,
@@ -20,7 +21,8 @@ export const autoAssignRooms: typeof original.autoAssignRooms = (
     return original.autoAssignRooms(rooms, staff, wingProximityMap, affinityMap, hotelConfig);
   }
   const eligibleStaff = staff.filter(person => !isActiveGozsduLaundryner(person.id));
-  return planGozsduBuildingAssignments(rooms, eligibleStaff, hotelConfig);
+  const preliminary = planGozsduBuildingAssignments(rooms, eligibleStaff, hotelConfig);
+  return preliminary.length ? rebalanceGozsduAssignments(preliminary) : preliminary;
 };
 
 export const moveRoom: typeof original.moveRoom = (previews, roomId, fromStaffId, toStaffId) => {
