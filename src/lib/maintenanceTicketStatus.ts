@@ -5,7 +5,24 @@ export type MaintenanceTicketStatus =
   | 'pending_supervisor_approval'
   | 'completed';
 
-export const maintenanceTicketStatusLabel = (status: string): string => {
+export type MaintenanceTicketLanguage = 'en' | 'hu' | string;
+
+const hungarianStatusLabels: Partial<Record<MaintenanceTicketStatus, string>> = {
+  open: 'Nyitott',
+  in_progress: 'Folyamatban',
+  on_hold: 'Felfüggesztve',
+  pending_supervisor_approval: 'Jóváhagyásra vár',
+  completed: 'Befejezve',
+};
+
+export const maintenanceTicketStatusLabel = (
+  status: string,
+  language: MaintenanceTicketLanguage = 'en',
+): string => {
+  if (language === 'hu' && status in hungarianStatusLabels) {
+    return hungarianStatusLabels[status as MaintenanceTicketStatus] ?? status;
+  }
+
   switch (status) {
     case 'open': return 'Open';
     case 'in_progress': return 'In progress';
@@ -15,6 +32,12 @@ export const maintenanceTicketStatusLabel = (status: string): string => {
     default: return status.replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
   }
 };
+
+export const maintenanceHoldReasonLabel = (language: MaintenanceTicketLanguage = 'en'): string =>
+  language === 'hu' ? 'Felfüggesztés oka:' : 'Hold reason:';
+
+export const maintenanceMissingHoldReasonLabel = (language: MaintenanceTicketLanguage = 'en'): string =>
+  language === 'hu' ? 'Nincs rögzített ok' : 'Reason not recorded';
 
 export const maintenanceTicketStatusClass = (status: string): string => {
   switch (status) {
