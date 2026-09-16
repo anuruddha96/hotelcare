@@ -12,11 +12,12 @@ import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 const MANAGER_ROLES = new Set(['manager', 'housekeeping_manager', 'admin', 'top_management', 'top_management_manager']);
 type Staff = { id: string; full_name: string; nickname: string | null };
 
-export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged }: {
+export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged, onSchemaUnavailable }: {
   open: boolean;
   workDate: string;
   onReady: (ids: string[] | null) => void;
   onChanged: () => void;
+  onSchemaUnavailable: () => void;
 }) {
   const { profile } = useAuth();
   const [show, setShow] = useState(false);
@@ -51,15 +52,25 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged }: 
       setFailed(false);
       onReady(ids);
       return true;
-    } catch (error) {
+    } catch (error: any) {
+      // The frontend may deploy ahead of the additive DB migrations. In that
+      // specific case retain the existing Gozsdu Auto Assign workflow instead
+      // of blocking housekeeping. All other read/permission errors fail closed.
+      const missingTable = (error?.code === '42P01' || error?.code === 'PGRST205')
+        && String(error?.message || '').includes('gozsdu_laundry_duties');
+      if (missingTable) {
+        setFailed(false);
+        onSchemaUnavailable();
+        return false;
+      }
       console.error('[GozsduLaundryDutyPicker] failed to verify duties', error);
       setFailed(true);
-      onReady(null); // Never mount the optimizer with unknown exclusions.
+      onReady(null);
       return false;
     } finally {
       setLoading(false);
     }
-  }, [open, allowed, profile?.organization_slug, workDate, onReady]);
+  }, [open, allowed, profile?.organization_slug, workDate, onReady, onSchemaUnavailable]);
 
   useEffect(() => {
     if (!open || !allowed) return;
@@ -77,8 +88,6 @@ export function GozsduLaundryDutyPicker({ open, workDate, onReady, onChanged }: 
         p_user_id: userId, p_work_date: workDate, p_enabled: enabled,
       });
       if (error) throw error;
-      // Drop the stale preview saved before the duty change, including its
-      // selected staff and manual room moves; regenerate from current PMS.
       try { localStorage.removeItem(`auto_assignment_v2_${profile?.assigned_hotel}_${workDate}`); }
       catch { /* browser cache optional */ }
       const refreshed = await refresh();
