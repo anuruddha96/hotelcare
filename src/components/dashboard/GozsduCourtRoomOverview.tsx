@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BedDouble, Building2, Coffee, GripVertical, Hotel, MapPin, Plus, RefreshCw, UserX } from 'lucide-react';
+import { BedDouble, Building2, ChevronDown, ChevronRight, Coffee, GripVertical, Hotel, MapPin, Plus, RefreshCw, UserX } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { canManageHousekeepingMapping, hasManagerPowers } from '@/lib/roleAccess';
@@ -18,11 +18,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { toast } from 'sonner';
 import type { SignedInHousekeeper } from './HotelRoomOverviewLive';
 
-// Only Gozsdu is routed here. Do not change the common room board, the PMS
-// classification, or any other hotel's display or assignment behavior.
+// Entire component and its registry query are exclusive to Gozsdu. Its active
+// chips retain the same target/drag contracts as the ordinary Team View.
 const HOTEL_NAME = 'Gozsdu Court Budapest';
 const HOTEL_KEYS = [GOZSDU_COURT_HOTEL_ID, HOTEL_NAME];
-
 type Bucket = 'checkout' | 'service' | 'other' | 'noshow';
 type Room = {
   id: string; hotel: string | null; room_number: string; floor_number: number | null;
@@ -41,12 +40,15 @@ type Assignment = {
 type Building = { id: string; name: string; sort_order: number };
 type Mapping = { room_id: string; section_id: string };
 type PublicArea = { id: string; task_name: string; assigned_to: string; status: string };
-
+type RegistryRoom = {
+  room_id: string; pms_room_name: string; building_code: string;
+  service_status: 'operating' | 'unavailable' | 'non_guest';
+  unavailability_reason: string | null;
+};
 type Props = {
   selectedDate: string; hotelName: string; staffMap: Record<string, string>;
   refreshKey?: number; signedInHousekeepers?: SignedInHousekeeper[];
 };
-
 const STATUS_COLORS: Record<string, string> = {
   clean: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200 dark:border-emerald-600',
   dirty: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-600',
@@ -56,7 +58,6 @@ const STATUS_COLORS: Record<string, string> = {
   pending_approval: 'bg-violet-200 text-violet-900 border-violet-500 dark:bg-violet-900/50 dark:text-violet-200 dark:border-violet-600',
   overdue: 'bg-rose-300 text-rose-950 border-rose-600 dark:bg-rose-900/60 dark:text-rose-200 dark:border-rose-500',
 };
-
 function checkout(room: Room, assignment?: Assignment) {
   if (room.pms_metadata?.manual_daily === true) return false;
   return room.is_checkout_room === true || room.pms_metadata?.scheduledDepartureToday === true
@@ -85,10 +86,10 @@ function roomSort(a: Room, b: Room) {
   return a.room_number.localeCompare(b.room_number, undefined, { numeric: true });
 }
 
-/** Gozsdu's buckets are unique; the chips, colors and operational flows match Team View. */
 export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, signedInHousekeepers = [] }: Props) {
   const { user, profile } = useAuth();
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [registry, setRegistry] = useState<RegistryRoom[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [areas, setAreas] = useState<PublicArea[]>([]);
   const [buildings, setBuildings] = useState<Building[]>([]);
@@ -96,6 +97,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [view, setView] = useState<'rooms' | 'buildings'>('rooms');
+  const [showUnavailable, setShowUnavailable] = useState(false);
   const [buildingName, setBuildingName] = useState('');
   const [mappingBusy, setMappingBusy] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -108,7 +110,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [roomResult, areaResult, sectionsResult] = await Promise.all([
+      const [roomResult, areaResult, sectionsResult, registryResult] = await Promise.all([
         supabase.from('rooms')
           .select('id, hotel, room_number, floor_number, status, last_cleaned_at, updated_at, is_checkout_room, is_dnd, notes, wing, room_category, room_size_sqm, bed_type, bed_configuration, guest_nights_stayed, towel_change_required, linen_change_required, pms_metadata')
           .in('hotel', HOTEL_KEYS).order('room_number'),
@@ -117,10 +119,13 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
         (supabase as any).from('hotel_housekeeping_sections')
           .select('id, name, sort_order').eq('hotel_name', HOTEL_NAME).eq('is_active', true)
           .order('sort_order').order('name'),
+        (supabase as any).from('gozsdu_housekeeping_room_registry')
+          .select('room_id, pms_room_name, building_code, service_status, unavailability_reason'),
       ]);
       if (roomResult.error) throw roomResult.error;
       if (areaResult.error) throw areaResult.error;
       if (sectionsResult.error) throw sectionsResult.error;
+      if (registryResult.error) throw registryResult.error;
       const rawRooms = (roomResult.data || []) as Room[];
       const ids = rawRooms.map(room => room.id);
       const assignmentRows: Assignment[] = [];
@@ -151,13 +156,14 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
         nextMappings = ((data || []) as Mapping[]).filter(mapping => selectedIds.has(mapping.room_id));
       }
       setRooms(selectedRooms);
+      setRegistry(((registryResult.data || []) as RegistryRoom[]).filter(row => selectedIds.has(row.room_id)));
       setAssignments(assignmentRows.filter(row => selectedIds.has(row.room_id)));
       setAreas((areaResult.data || []) as PublicArea[]);
       setBuildings(nextBuildings);
       setMappings(nextMappings);
     } catch (error) {
       console.error('[GozsduCourtRoomOverview] refresh failed', error);
-      toast.error('Could not refresh Gozsdu housekeeping');
+      toast.error('Could not refresh Gozsdu housekeeping or the operational room list');
     } finally {
       if (!silent) setLoading(false);
     }
@@ -176,6 +182,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
         if (HOTEL_KEYS.includes(event.new?.hotel || event.old?.hotel)) onChanged();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'room_assignments', filter: `assignment_date=eq.${selectedDate}` }, onChanged)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'gozsdu_housekeeping_room_registry' }, onChanged)
       .subscribe();
     return () => {
       window.removeEventListener('pms-sync-completed', onChanged);
@@ -186,12 +193,18 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
     };
   }, [load, selectedDate]);
 
+  const registryByRoom = useMemo(() => new Map(registry.map(row => [row.room_id, row])), [registry]);
+  const isOperating = (room: Room) => registryByRoom.get(room.id)?.service_status === 'operating';
   const assignmentMap = useMemo(() => new Map(assignments.map(row => [row.room_id, row])), [assignments]);
   const buildingByRoom = useMemo(() => new Map(mappings.map(row => [row.room_id, row.section_id])), [mappings]);
   const nameByBuilding = useMemo(() => new Map(buildings.map(row => [row.id, row.name])), [buildings]);
   const buckets = useMemo(() => {
-    const result: Record<Bucket, Room[]> = { checkout: [], service: [], other: [], noshow: [] };
+    const result: Record<Bucket, Room[]> & { inactive: Room[] } = { checkout: [], service: [], other: [], noshow: [], inactive: [] };
     for (const room of rooms) {
+      if (registryByRoom.get(room.id)?.service_status !== 'operating') {
+        result.inactive.push(room);
+        continue;
+      }
       const isCheckout = checkout(room, assignmentMap.get(room.id));
       if (isCheckout) result.checkout.push(room);
       else if (noShow(room)) result.noshow.push(room);
@@ -199,11 +212,11 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
       else result.other.push(room);
     }
     return result;
-  }, [rooms, assignmentMap]);
+  }, [rooms, registryByRoom, assignmentMap]);
 
   const onDropHousekeeper = async (event: React.DragEvent, room: Room) => {
     const payload = readHousekeeperDragPayload(event);
-    if (!payload || !canAssign || selectedDate !== todayBudapest()) return;
+    if (!payload || !canAssign || selectedDate !== todayBudapest() || !isOperating(room)) return;
     event.preventDefault();
     event.stopPropagation();
     setDroppingOn(null);
@@ -254,7 +267,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
             <div
               className={`flex flex-col items-center gap-0.5 select-none transition-transform ${highlight ? 'scale-110' : ''}`}
               draggable={canAssign && selectedDate === todayBudapest()}
-              onDragStart={canAssign ? (event) => setRoomDragPayload(event, {
+              onDragStart={canAssign ? event => setRoomDragPayload(event, {
                 roomId: room.id, roomNumber: room.room_number,
                 sourceType: isCheckout ? 'checkout' : 'daily', origin: 'overview',
                 assignedTo: assignment?.assigned_to || null,
@@ -300,6 +313,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-xs text-xs">
             <p className="font-semibold">Room {room.room_number} · {status.replaceAll('_', ' ')}</p>
+            <p>PMS: {registryByRoom.get(room.id)?.pms_room_name || room.room_number}</p>
             {nights > 0 && total > 0 && <p>Stay {nights}/{total}</p>}
             {change !== 'none' && <p>{change === 'change_room' ? 'Change Room' : 'Towel change'}</p>}
             {nameByBuilding.get(buildingByRoom.get(room.id) || '') && <p>Building: {nameByBuilding.get(buildingByRoom.get(room.id) || '')}</p>}
@@ -372,7 +386,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
       if (error) throw error;
       setMappings(current => [ ...current.filter(row => row.room_id !== room.id),
         ...(sectionId === 'unmapped' ? [] : [{ room_id: room.id, section_id: sectionId }]) ]);
-      toast.success(`Room ${room.room_number} mapping saved`);
+      toast.success(`Room ${registryByRoom.get(room.id)?.pms_room_name || room.room_number} mapping saved`);
     } catch (error) { toast.error('Could not save room mapping'); }
     finally { setMappingBusy(null); }
   };
@@ -393,7 +407,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
           </div>
         </div>
         <div className="grid grid-cols-4 gap-2">
-          {[['Total', rooms.length], ['Checkout', buckets.checkout.length], ['Service', buckets.service.length], ['No show', buckets.noshow.length]].map(([label, count]) => (
+          {[['Operating', rooms.length - buckets.inactive.length], ['Checkout', buckets.checkout.length], ['Service', buckets.service.length], ['Unavailable', buckets.inactive.length]].map(([label, count]) => (
             <div key={label} className="rounded-lg border bg-muted/40 px-2 py-1.5 text-center">
               <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{label}</div>
               <div className="text-sm font-semibold leading-tight">{count}</div>
@@ -429,13 +443,31 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
           {renderSection('Other rooms', buckets.other, 'other', <MapPin className="h-3.5 w-3.5 text-slate-500" />, 'No housekeeping scheduled today')}
           <div className="border-t border-border/50" />
           {renderSection('No show', buckets.noshow, 'noshow', <UserX className="h-3.5 w-3.5 text-red-600" />, 'No-show reservations')}
+          <div className="border-t border-border/50" />
+          <section className="space-y-2">
+            <button type="button" aria-expanded={showUnavailable} onClick={() => setShowUnavailable(current => !current)} className="flex w-full items-center gap-2 rounded-md p-1 text-left hover:bg-muted/40">
+              {showUnavailable ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              <span className="text-sm font-semibold">Not available rooms</span><Badge variant="secondary">{buckets.inactive.length}</Badge>
+              <span className="text-[10px] text-muted-foreground">PMS rooms not in the operating housekeeping inventory · hidden by default</span>
+            </button>
+            {showUnavailable && <div className="flex flex-wrap gap-2 rounded-md border border-border/50 bg-muted/20 p-2">
+              {buckets.inactive.map(room => {
+                const entry = registryByRoom.get(room.id);
+                return <div key={room.id} className="flex flex-col gap-0.5 rounded border border-slate-300 bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-900 dark:text-slate-200" title={entry?.unavailability_reason || 'Not approved for housekeeping'}>
+                  <span className="font-semibold">{entry?.pms_room_name || room.room_number}</span>
+                  <span className="text-[10px]">{entry?.unavailability_reason || (entry?.service_status === 'unavailable' ? 'Not available' : 'Not mapped / non-guest')}</span>
+                </div>;
+              })}
+            </div>}
+          </section>
           {areas.length > 0 && <><div className="border-t border-border/50" /><div className="space-y-2"><div className="flex items-center gap-2"><MapPin className="h-3.5 w-3.5 text-emerald-600" /><span className="text-sm font-semibold">Public Areas</span><Badge variant="secondary">{areas.length}</Badge></div><div className="flex flex-wrap gap-1.5">{areas.map(area => <div key={area.id} className="flex flex-col items-center gap-0.5"><div className={`rounded border px-2 py-1 text-xs font-semibold ${STATUS_COLORS[area.status] || STATUS_COLORS.dirty}`}>{area.task_name}</div><span className="text-[9px] text-muted-foreground">{assigneeLabel(staffMap, area.assigned_to)}</span></div>)}</div></div></>}
         </> : <div className="space-y-3">
           <div className="rounded-lg border bg-muted/20 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-sm font-semibold">Gozsdu building / apartment mapping</span><Badge variant="secondary">{mappings.length}/{rooms.length} mapped</Badge></div>
+            <p className="mt-1 text-xs text-muted-foreground">PMS apartment names are kept intact. Unavailable units stay mapped but cannot be assigned.</p>
             {canMap && <div className="mt-3 flex max-w-md gap-2"><Input value={buildingName} onChange={event => setBuildingName(event.target.value)} placeholder="Building name / address" onKeyDown={event => { if (event.key === 'Enter') void createBuilding(); }} /><Button disabled={creating || !buildingName.trim()} onClick={() => void createBuilding()}><Plus className="mr-1 h-4 w-4" />Add</Button></div>}
           </div>
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">{rooms.map(room => <div key={room.id} className="flex items-center gap-2 rounded-lg border p-2"><span className="min-w-[72px] text-xs font-bold">{room.room_number}</span><Select value={buildingByRoom.get(room.id) || 'unmapped'} onValueChange={value => void mapRoom(room, value)} disabled={!canMap || mappingBusy === room.id}><SelectTrigger className="h-8 flex-1 text-xs"><SelectValue placeholder="Unmapped" /></SelectTrigger><SelectContent><SelectItem value="unmapped">Unmapped</SelectItem>{buildings.map(building => <SelectItem key={building.id} value={building.id}>{building.name}</SelectItem>)}</SelectContent></Select></div>)}</div>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">{rooms.map(room => <div key={room.id} className="flex items-center gap-2 rounded-lg border p-2"><div className="min-w-[85px]"><div className="text-xs font-bold">{registryByRoom.get(room.id)?.pms_room_name || room.room_number}</div>{!isOperating(room) && <div className="text-[9px] text-slate-500">Not available</div>}</div><Select value={buildingByRoom.get(room.id) || 'unmapped'} onValueChange={value => void mapRoom(room, value)} disabled={!canMap || mappingBusy === room.id}><SelectTrigger className="h-8 flex-1 text-xs"><SelectValue placeholder="Unmapped" /></SelectTrigger><SelectContent><SelectItem value="unmapped">Unmapped</SelectItem>{buildings.map(building => <SelectItem key={building.id} value={building.id}>{building.name}</SelectItem>)}</SelectContent></Select></div>)}</div>
         </div>}
       </CardContent>
     </Card>
