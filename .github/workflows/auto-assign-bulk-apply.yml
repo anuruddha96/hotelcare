@@ -1,0 +1,43 @@
+name: Apply parallel Auto Assign bulk selection patch
+
+on:
+  push:
+    branches:
+      - feature/auto-assign-parallel-bulk-select-20260917
+    paths:
+      - scripts/apply_auto_assign_bulk_ui.py
+      - .github/workflows/auto-assign-bulk-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Guard against unexpected base changes and patch existing UI
+        run: python3 scripts/apply_auto_assign_bulk_ui.py
+      - name: Remove one-shot application tooling
+        run: rm scripts/apply_auto_assign_bulk_ui.py .github/workflows/auto-assign-bulk-apply.yml
+      - name: Check patch whitespace
+        run: git diff --check
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Validate bulk transfer regressions
+        run: bun run test -- src/lib/__tests__/autoAssignmentBulkMove.test.ts
+      - name: Build production frontend
+        run: bun run build
+      - name: Commit verified implementation to the feature branch only
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/dashboard/AutoRoomAssignmentImpl.tsx src/lib/autoAssignmentBulkMove.ts src/lib/__tests__/autoAssignmentBulkMove.test.ts scripts/apply_auto_assign_bulk_ui.py .github/workflows/auto-assign-bulk-apply.yml
+          git commit -m "feat(housekeeping): parallel drag-and-drop and bulk room selection"
+          git push origin HEAD:feature/auto-assign-parallel-bulk-select-20260917
