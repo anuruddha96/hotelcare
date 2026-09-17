@@ -10,7 +10,7 @@ const registry = rooms.map(room => ({ room_id: room.id, pms_room_name: room.room
 const captured_at = '2026-09-16T18:16:24.392Z';
 const snapshots = [
   { room_label: '2B-1/3/1', room_number: null, arrival_date: '2026-09-13', departure_date: '2026-09-16', status: 'departing', housekeeping_dep: 'DEP', captured_at },
-  { room_label: '2B-1/T/2', room_number: null, arrival_date: '2026-09-15', departure_date: '2026-09-19', status: 'ongoing', housekeeping_dep: null, captured_at },
+  { room_label: '2B-1/T/2', room_number: null, arrival_date: '2026-09-14', departure_date: '2026-09-19', status: 'ongoing', housekeeping_dep: null, captured_at },
   { room_label: 'OFFICE', room_number: null, arrival_date: '2026-09-15', departure_date: '2026-09-20', status: 'ongoing', housekeeping_dep: null, captured_at },
 ];
 
@@ -22,6 +22,26 @@ describe('Gozsdu selected-date PMS reconciliation', () => {
     expect(result.byRoom.get('stay')?.service).toBe('towel_change');
     expect(result.byRoom.get('inactive')?.service).toBe('none');
   });
+  it.each([
+    ['2/3', '2026-09-15', '2026-09-18', 'other', 'none'],
+    ['2/5', '2026-09-15', '2026-09-20', 'other', 'none'],
+    ['3/3', '2026-09-14', '2026-09-17', 'service', 'towel_change'],
+    ['3/4', '2026-09-14', '2026-09-18', 'service', 'towel_change'],
+    ['3/5', '2026-09-14', '2026-09-19', 'service', 'towel_change'],
+    ['4/10', '2026-09-13', '2026-09-23', 'other', 'none'],
+    ['5/6', '2026-09-12', '2026-09-18', 'service', 'towel_change'],
+    ['5/7', '2026-09-12', '2026-09-19', 'service', 'change_room'],
+    ['5/8', '2026-09-12', '2026-09-20', 'service', 'change_room'],
+    ['5/10', '2026-09-12', '2026-09-22', 'service', 'change_room'],
+  ] as const)('classifies Previo %s correctly', (_, arrival, departure, bucket, service) => {
+    const rows = snapshots.map(row => row.room_label === '2B-1/T/2'
+      ? { ...row, arrival_date: arrival, departure_date: departure }
+      : row);
+    const result = reconcileGozsduPmsRoster(rooms, registry, rows, '2026-09-16', Date.parse('2026-09-16T18:20:00Z'));
+    expect(result.byRoom.get('stay')?.bucket).toBe(bucket);
+    expect(result.byRoom.get('stay')?.service).toBe(service);
+  });
+
   it('does not claim verified figures for missing, duplicate or stale rows', () => {
     const now = Date.parse('2026-09-16T18:20:00Z');
     expect(() => reconcileGozsduPmsRoster(rooms, registry, snapshots.slice(1), '2026-09-16', now)).toThrow(/incomplete/);

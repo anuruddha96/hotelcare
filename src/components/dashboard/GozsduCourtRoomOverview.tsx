@@ -71,8 +71,8 @@ function noShow(room: Room) {
 }
 function service(room: Room, isCheckout: boolean): GozsduHousekeepingService {
   if (isCheckout || noShow(room)) return 'none';
-  const stored = room.pms_metadata?.gozsduHousekeeping?.serviceType;
-  if (stored === 'towel_change' || stored === 'change_room') return stored;
+  // Persisted serviceType may represent the old 2/4/6 night rule. Recalculate
+  // from PMS night counters, never resurrect a stale assignment classification.
   return getGozsduHousekeepingCycle({
     currentNight: room.pms_metadata?.currentNight ?? room.guest_nights_stayed,
     totalNights: room.pms_metadata?.totalNights,
@@ -320,7 +320,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
                 {(verified?.leavesTomorrow ?? (room.pms_metadata?.scheduledDepartureTomorrow === true)) && !isCheckout && <span className="ml-0.5 rounded bg-indigo-600 px-0.5 text-[9px] text-white">C/O+1</span>}
                 {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700">SH</span>}
                 {change === 'towel_change' && <span className="ml-0.5 rounded bg-blue-600 px-0.5 text-[9px] text-white">T</span>}
-                {change === 'change_room' && <span className="ml-0.5 rounded bg-orange-500 px-0.5 text-[9px] text-white">C</span>}
+                {change === 'change_room' && <span title="Complete Textile Change" className="ml-0.5 rounded bg-orange-500 px-0.5 text-[9px] text-white">C</span>}
                 {flags.roomCleaning && <span className="ml-0.5 rounded bg-green-600 px-0.5 text-[9px] text-white">RC</span>}
                 {flags.collectExtraTowels && <span className="ml-0.5 text-[9px]">🧺</span>}
                 {isCheckout && (assignment?.ready_to_clean || (!assignment && isPmsRtcToday(room.pms_metadata))) && <span className="ml-0.5 rounded bg-green-600 px-0.5 text-[9px] text-white">RTC</span>}
@@ -341,7 +341,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
             <p className="font-semibold">Room {displayName(room)} · {status.replaceAll('_', ' ')}</p>
             <p>PMS: {displayName(room)}</p>
             {nights > 0 && total > 0 && <p>Stay {nights}/{total}</p>}
-            {change !== 'none' && <p>{change === 'change_room' ? 'Change Room' : 'Towel change'}</p>}
+            {change !== 'none' && <p>{change === 'change_room' ? 'Complete Textile Change' : 'Towel change'}</p>}
             {nameByBuilding.get(buildingByRoom.get(room.id) || '') && <p>Building: {nameByBuilding.get(buildingByRoom.get(room.id) || '')}</p>}
             {staffName && <p>Housekeeper: {staffName}</p>}
             <p className="text-muted-foreground">Click for the same room operations as other hotels.</p>
@@ -440,12 +440,12 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border/50 bg-muted/30 p-2 text-[10px] text-muted-foreground">
           <span>🟩 Clean</span><span>🟨 Dirty/assigned</span><span>🟦 In progress</span><span>🟪 Approval</span>
           <span><b className="rounded bg-blue-600 px-1 text-white">T</b> Towel</span>
-          <span><b className="rounded bg-orange-500 px-1 text-white">C</b> Change Room</span>
+          <span><b className="rounded bg-orange-500 px-1 text-white">C</b> Complete Textile Change</span>
           <span>🟢 RTC</span><span>🚫 DND</span>
         </div>
       </CardHeader>
       <CardContent className="space-y-3 px-4 pb-3">
-        {pmsRoster.error ? <div role="alert" className="rounded-md border border-amber-500 bg-amber-50 p-2 text-xs text-amber-950">PMS not verified for {selectedDate}: {pmsRoster.error} The counts below use stored room flags and may be wrong. Confirm departures in Previo before assigning.</div>
+        {pmsRoster.error ? <div role="alert" className="rounded-md border border-amber-500 bg-amber-50 p-2 text-xs text-amber-950">PMS not verified for {selectedDate}: {pmsRoster.error} The counts below use stored room state and stay-night counters and may be wrong. Confirm the PMS roster before assigning.</div>
           : <p className="text-[10px] text-muted-foreground">Verified against Previo for {selectedDate} · captured {new Date(pmsRoster.data!.capturedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Budapest' })} Budapest time · scheduled departures (not rooms awaiting cleaning)</p>}
         {canAssign && signedInHousekeepers.length > 0 && selectedDate === todayBudapest() && (
           <div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
@@ -463,7 +463,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
         {view === 'rooms' ? <>
           {renderSection('Checkout Rooms', buckets.checkout, 'checkout', <BedDouble className="h-3.5 w-3.5 text-amber-600" />, 'Departure / checkout cleaning')}
           <div className="border-t border-border/50" />
-          {renderSection('Second-day service rooms', buckets.service, 'service', <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'T = towel · C = Change Room')}
+          {renderSection('Second-day service rooms', buckets.service, 'service', <BedDouble className="h-3.5 w-3.5 text-blue-600" />, 'T = towel · C = Complete Textile Change · PMS 3/N, 5/N, 7/N…')}
           <div className="border-t border-border/50" />
           {renderSection('Other rooms', buckets.other, 'other', <MapPin className="h-3.5 w-3.5 text-slate-500" />, 'No housekeeping scheduled today')}
           <div className="border-t border-border/50" />

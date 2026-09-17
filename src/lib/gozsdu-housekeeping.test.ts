@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { getGozsduHousekeepingCycle, isGozsduCourtHotel } from './gozsdu-housekeeping';
+import { getGozsduHousekeepingCycle, gozsduServiceLabel, isGozsduCourtHotel } from './gozsdu-housekeeping';
 
-describe('Gozsdu Court Budapest housekeeping cycle', () => {
+describe('Gozsdu Court Budapest PMS stay-night service cycle', () => {
   it('is gated only to the Gozsdu property aliases', () => {
     expect(isGozsduCourtHotel('gozsdu-court')).toBe(true);
     expect(isGozsduCourtHotel('Gozsdu Court Budapest')).toBe(true);
@@ -9,29 +9,37 @@ describe('Gozsdu Court Budapest housekeeping cycle', () => {
     expect(isGozsduCourtHotel('Mika Downtown')).toBe(false);
   });
 
-  it('does not schedule service on odd stay nights', () => {
-    expect(getGozsduHousekeepingCycle({ currentNight: 1, totalNights: 6 }).service).toBe('none');
-    expect(getGozsduHousekeepingCycle({ currentNight: 3, totalNights: 6 }).service).toBe('none');
+  it.each([2, 4, 6, 8, 10])('never treats PMS %i/N as a service day', (night) => {
+    expect(getGozsduHousekeepingCycle({ currentNight: night, totalNights: 12 }).service).toBe('none');
   });
 
-  it('schedules towel change every second night', () => {
-    expect(getGozsduHousekeepingCycle({ currentNight: 2, totalNights: 3 }).service).toBe('towel_change');
-    expect(getGozsduHousekeepingCycle({ currentNight: 6, totalNights: 8 }).service).toBe('towel_change');
+  it.each([3, 7, 11])('schedules towel service at PMS %i/N after two, six, ten nights', (night) => {
+    expect(getGozsduHousekeepingCycle({ currentNight: night, totalNights: 12 }).service).toBe('towel_change');
   });
 
-  it('schedules Change Room on the fourth night when the guest stays long enough', () => {
-    const cycle = getGozsduHousekeepingCycle({ currentNight: 4, totalNights: 6 });
-    expect(cycle.service).toBe('change_room');
-    expect(cycle.remainingNightsAfterToday).toBe(2);
+  it.each([3, 4, 5])('schedules towel service at 3/%i (including the final night)', (totalNights) => {
+    const result = getGozsduHousekeepingCycle({ currentNight: 3, totalNights });
+    expect(result.service).toBe('towel_change');
+    expect(result.serviceDue).toBe(true);
   });
 
-  it('downgrades fourth-night Change Room to towel-only when checkout is next day', () => {
-    const cycle = getGozsduHousekeepingCycle({ currentNight: 4, totalNights: 5 });
-    expect(cycle.service).toBe('towel_change');
-    expect(cycle.remainingNightsAfterToday).toBe(1);
+  it.each([7, 8, 10])('schedules Complete Textile Change at PMS 5/%i', (totalNights) => {
+    const result = getGozsduHousekeepingCycle({ currentNight: 5, totalNights });
+    expect(result.service).toBe('change_room');
+    expect(result.remainingNightsAfterToday).toBe(totalNights - 5);
+    expect(gozsduServiceLabel(result.service)).toBe('Complete Textile Change');
   });
 
-  it('never schedules stay-over service for a checkout room', () => {
-    expect(getGozsduHousekeepingCycle({ currentNight: 4, totalNights: 8, isCheckout: true }).service).toBe('none');
+  it('downgrades Complete Textile Change to towel-only when checkout is the next day', () => {
+    const result = getGozsduHousekeepingCycle({ currentNight: 5, totalNights: 6 });
+    expect(result.service).toBe('towel_change');
+    expect(result.remainingNightsAfterToday).toBe(1);
+  });
+
+  it('never schedules stay-over service on a checkout or with unusable counters', () => {
+    expect(getGozsduHousekeepingCycle({ currentNight: 5, totalNights: 8, isCheckout: true }).service).toBe('none');
+    expect(getGozsduHousekeepingCycle({ currentNight: 3, totalNights: null }).service).toBe('none');
+    expect(getGozsduHousekeepingCycle({ currentNight: 5, totalNights: 4 }).service).toBe('none');
+    expect(getGozsduHousekeepingCycle({ currentNight: 1, totalNights: 5 }).service).toBe('none');
   });
 });

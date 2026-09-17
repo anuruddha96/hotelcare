@@ -40,11 +40,12 @@ export function isGozsduCourtHotel(value: string | null | undefined): boolean {
  * Gozsdu Court Budapest stay-over service policy.
  *
  * - No normal daily cleaning.
- * - Every second stay night is a service day: 2, 4, 6, 8, ...
- * - Every fourth stay night becomes a full Change Room only when the guest
- *   still has at least two nights after today.
- * - If a fourth-night Change Room would be immediately before departure,
- *   downgrade it to towel-only (4/5 => towel, while 4/6 => Change Room).
+ * - Previo 1/5 is the first night of five, NOT a completed first night.
+ * - After two nights, towel service is due at PMS 3/N, then 7/N, 11/N, ...
+ * - After four nights, Complete Textile Change is due at PMS 5/N,
+ *   then 9/N, 13/N, ... only when at least two nights remain.
+ * - Downgrade that complete change to towel-only when departure is too close
+ *   (5/6 => towel, while 5/7 => Complete Textile Change).
  * - Checkout always wins and is handled as checkout cleaning instead.
  */
 export function getGozsduHousekeepingCycle(
@@ -54,7 +55,7 @@ export function getGozsduHousekeepingCycle(
   const totalNights = positiveInteger(input.totalNights);
   const remainingNightsAfterToday = Math.max(0, totalNights - currentNight);
 
-  if (input.isCheckout || currentNight < 2 || currentNight % 2 !== 0) {
+  if (input.isCheckout || currentNight < 3 || currentNight > totalNights || currentNight % 2 === 0) {
     return {
       service: 'none',
       serviceDue: false,
@@ -64,7 +65,7 @@ export function getGozsduHousekeepingCycle(
     };
   }
 
-  const fullChangeDue = currentNight % 4 === 0 && remainingNightsAfterToday > 1;
+  const fullChangeDue = (currentNight - 1) % 4 === 0 && remainingNightsAfterToday > 1;
   const service: GozsduHousekeepingService = fullChangeDue ? 'change_room' : 'towel_change';
 
   return {
@@ -77,7 +78,7 @@ export function getGozsduHousekeepingCycle(
 }
 
 export function gozsduServiceLabel(service: GozsduHousekeepingService): string {
-  if (service === 'change_room') return 'Change Room';
+  if (service === 'change_room') return 'Complete Textile Change';
   if (service === 'towel_change') return 'Towel change';
   return 'No service today';
 }
