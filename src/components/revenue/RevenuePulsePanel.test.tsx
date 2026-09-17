@@ -41,11 +41,12 @@ describe("RevenuePulsePanel data integrity", () => {
   });
 
   it("keeps normal live occupancy and rate guidance unchanged", () => {
-    render(<RevenuePulsePanel today={today} metrics={[metric({ roomsSold: 15, occupancyPct: 75, adrEur: 140, revparEur: 105 })]} roomsAvailable={20} />);
+    render(<RevenuePulsePanel today={today} metrics={[metric({ roomsSold: 15, roomsLeft: 5, occupancyPct: 75, adrEur: 140, revparEur: 105 })]} roomsAvailable={20} />);
 
     expect(screen.getByText("75%")).toBeInTheDocument();
-    expect(screen.getByText("5 / 20 rooms")).toBeInTheDocument();
+    expect(screen.getByText("15 / 20 rooms")).toBeInTheDocument();
     expect(screen.getByText("€140")).toBeInTheDocument();
     expect(screen.getByText("€105")).toBeInTheDocument();
+    expect(screen.getByText(/5 units left tonight/)).toBeInTheDocument();
   });
 });
