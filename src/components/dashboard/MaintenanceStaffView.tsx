@@ -86,6 +86,7 @@ export function MaintenanceStaffView() {
   const [holdDetails, setHoldDetails] = useState('');
   const [resolution, setResolution] = useState('');
   const [completionFile, setCompletionFile] = useState<File | null>(null);
+  const [isSubmittingCompletion, setIsSubmittingCompletion] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const loadAttachmentUrls = useCallback(async (rows: Ticket[]) => {
@@ -184,7 +185,10 @@ export function MaintenanceStaffView() {
   };
 
   const submitCompletion = async () => {
+    if (isSubmittingCompletion) return;
     if (!selected || !resolution.trim() || !completionFile || !user?.id) { toast.error(c.photoRequired); return; }
+    if (!completionFile.type.startsWith('image/')) { toast.error(c.photoRequired); return; }
+    setIsSubmittingCompletion(true);
     try {
       const ext = completionFile.name.split('.').pop() || 'jpg';
       const path = `${selected.id}/completion-${Date.now()}.${ext}`;
@@ -198,6 +202,7 @@ export function MaintenanceStaffView() {
       await addComment(selected.id, `✅ ${c.submitted}: ${resolution.trim()}`);
       toast.success(c.submitted); setResolution(''); setCompletionFile(null); setDialog(null); void refresh();
     } catch (error) { console.error(error); toast.error(c.failed); }
+    finally { setIsSubmittingCompletion(false); }
   };
 
   const filtered = activeTab === 'approval' ? tickets.filter(t => t.pending_supervisor_approval) : activeTab === 'done' ? completed : tickets.filter(t => !t.pending_supervisor_approval);
@@ -245,7 +250,7 @@ export function MaintenanceStaffView() {
               {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => { setSelected(ticket); setDialog('hold'); }}><PauseCircle className="h-4 w-4 mr-1" />{c.hold}</Button>}
               {ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => void resumeWork(ticket)} disabled={!signedIn}><Play className="h-4 w-4 mr-1" />{c.resume}</Button>}
               {!ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => { setSelected(ticket); setDialog('note'); }}><MessageSquare className="h-4 w-4 mr-1" />{c.note}</Button>}
-              {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => { setSelected(ticket); setDialog('complete'); }} className="bg-green-600 hover:bg-green-700"><CheckCircle2 className="h-4 w-4 mr-1" />{c.complete}</Button>}
+              {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => { setSelected(ticket); setResolution(ticket.resolution_text || ''); setCompletionFile(null); if (fileRef.current) fileRef.current.value = ''; setDialog('complete'); }} className="bg-green-600 hover:bg-green-700"><CheckCircle2 className="h-4 w-4 mr-1" />{c.complete}</Button>}
             </div>}
             <div className="text-[11px] text-muted-foreground flex items-center gap-1"><Clock3 className="h-3 w-3" />{new Date(ticket.updated_at || ticket.created_at).toLocaleString()}</div>
           </CardContent>
@@ -256,7 +261,45 @@ export function MaintenanceStaffView() {
 
       <Dialog open={dialog === 'hold'} onOpenChange={(open) => !open && setDialog(null)}><DialogContent><DialogHeader><DialogTitle>{c.holdReason}</DialogTitle></DialogHeader><Select value={holdReason} onValueChange={setHoldReason}><SelectTrigger><SelectValue placeholder={c.holdReason} /></SelectTrigger><SelectContent>{HOLD_REASONS.map(([value, key]) => <SelectItem key={value} value={value}>{c[key]}</SelectItem>)}</SelectContent></Select><Textarea value={holdDetails} onChange={e => setHoldDetails(e.target.value)} placeholder={c.pendingDetails} rows={3} /><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => setDialog(null)}>{c.cancel}</Button><Button onClick={() => void saveHold()} disabled={!holdReason}>{c.saveHold}</Button></div></DialogContent></Dialog>
 
-      <Dialog open={dialog === 'complete'} onOpenChange={(open) => !open && setDialog(null)}><DialogContent><DialogHeader><DialogTitle>{c.complete}</DialogTitle></DialogHeader><Textarea value={resolution} onChange={e => setResolution(e.target.value)} placeholder={c.resolutionPlaceholder} rows={4} /><input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => setCompletionFile(e.target.files?.[0] || null)} /><Button variant="outline" onClick={() => fileRef.current?.click()}><Camera className="h-4 w-4 mr-2" />{completionFile ? completionFile.name : c.photoRequired}</Button><div className="grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => setDialog(null)}>{c.cancel}</Button><Button onClick={() => void submitCompletion()} disabled={!resolution.trim() || !completionFile} className="bg-green-600 hover:bg-green-700"><CheckCircle2 className="h-4 w-4 mr-1" />{c.submitApproval}</Button></div></DialogContent></Dialog>
+      <Dialog open={dialog === 'complete'} onOpenChange={(next) => { if (!next && !isSubmittingCompletion) setDialog(null); }}>
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-lg max-h-[90dvh] overflow-y-auto p-4 sm:p-6">
+          <DialogHeader><DialogTitle>{c.complete}</DialogTitle></DialogHeader>
+          <Textarea value={resolution} onChange={e => setResolution(e.target.value)} placeholder={c.resolutionPlaceholder} rows={4} disabled={isSubmittingCompletion} />
+          <p className="text-xs text-muted-foreground">
+            {language === 'hu'
+              ? 'A hibabejelentés mellékletei nem helyettesítik a javítás utáni fotót. Készítsen képet, vagy válassza ki a galériából.'
+              : 'Issue attachments show the original problem. Add a separate after-repair photo using the camera or gallery.'}
+          </p>
+          <input ref={fileRef} type="file" accept="image/*" className="sr-only" aria-label={c.photoRequired}
+            onChange={e => {
+              const file = e.currentTarget.files?.[0] || null;
+              if (file && !file.type.startsWith('image/')) {
+                toast.error(c.photoRequired);
+                e.currentTarget.value = '';
+                setCompletionFile(null);
+                return;
+              }
+              setCompletionFile(file);
+            }} />
+          <Button type="button" variant="outline" disabled={isSubmittingCompletion}
+            className="h-auto min-h-11 w-full min-w-0 justify-start whitespace-normal break-all py-2 text-left"
+            onClick={() => fileRef.current?.click()}>
+            <Camera className="mr-2 h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1">{completionFile
+              ? `${language === 'hu' ? 'Kiválasztott fotó' : 'Selected photo'}: ${completionFile.name}`
+              : language === 'hu' ? 'Befejezési fotó készítése / kiválasztása' : 'Take or choose completion photo'}</span>
+          </Button>
+          {!completionFile && <p className="text-xs text-amber-700" role="status">{c.photoRequired}</p>}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Button type="button" className="h-auto min-h-11 w-full min-w-0 whitespace-normal py-2" variant="outline"
+              disabled={isSubmittingCompletion} onClick={() => setDialog(null)}>{c.cancel}</Button>
+            <Button type="button" className="h-auto min-h-11 w-full min-w-0 whitespace-normal break-words bg-green-600 py-2 text-center leading-snug hover:bg-green-700"
+              onClick={() => void submitCompletion()} disabled={isSubmittingCompletion || !resolution.trim() || !completionFile}>
+              <CheckCircle2 className="mr-1 h-4 w-4 shrink-0" />{isSubmittingCompletion ? (language === 'hu' ? 'Beküldés…' : 'Submitting…') : c.submitApproval}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

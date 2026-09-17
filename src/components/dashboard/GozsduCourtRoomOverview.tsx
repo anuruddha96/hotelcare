@@ -290,6 +290,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
         <Tooltip>
           <TooltipTrigger asChild>
             <div
+              data-room-id={room.id}
               className={`flex flex-col items-center gap-0.5 select-none transition-transform ${highlight ? 'scale-110' : ''}`}
               draggable={canAssign && selectedDate === todayBudapest()}
               onDragStart={canAssign ? event => setRoomDragPayload(event, {
