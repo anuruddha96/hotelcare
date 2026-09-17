@@ -6,7 +6,8 @@ export interface AutoAssignRoomEligibility {
   hasCompletedAssignment?: boolean;
 }
 
-type EligibilityRoom = Pick<RoomForAssignment, 'status' | 'hotel' | 'is_checkout_room' | 'pms_metadata'>;
+type EligibilityRoom = Pick<RoomForAssignment, 'status' | 'hotel' | 'is_checkout_room' | 'pms_metadata'>
+  & Partial<Pick<RoomForAssignment, 'towel_change_required' | 'linen_change_required'>>;
 
 /**
  * Auto Assign represents the day's PMS workload. Gozsdu Court Budapest is the
@@ -33,10 +34,17 @@ export function isRoomEligibleForAutoAssign(
       || room.pms_metadata?.checkedOutToday === true;
     if (checkout) return true;
 
-    const storedService = room.pms_metadata?.gozsduHousekeeping?.serviceType;
-    if (storedService === 'towel_change' || storedService === 'change_room') return true;
-    if (storedService === 'none') return false;
+    // These are fresh, read-only workload projections calculated for the
+    // selected planning date, so today's persisted PMS counters do not apply.
+    if (room.pms_metadata?.plannedFromDailyOverview === true
+      && room.pms_metadata?.selectedDateSnapshotKind === 'daily') {
+      return room.towel_change_required === true || room.linen_change_required === true;
+    }
+    const tomorrowService = room.pms_metadata?.gozsduTomorrowService;
+    if (tomorrowService === 'towel_change' || tomorrowService === 'change_room') return true;
 
+    // The persisted serviceType may still be from the old 2/4/6 rule. Do not
+    // let that stale value override the hotel's PMS 3/5/7 calculation.
     return getGozsduHousekeepingCycle({
       currentNight: room.pms_metadata?.currentNight,
       totalNights: room.pms_metadata?.totalNights,
