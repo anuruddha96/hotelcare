@@ -1,5 +1,4 @@
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { TrendingUp, TrendingDown, BedDouble, Euro, Gauge } from "lucide-react";
 import { eur, type DayMetrics } from "@/lib/revenueAnalytics";
 import { occupancyTone2, type RevenueThresholds, DEFAULT_THRESHOLDS } from "@/lib/revenueThresholds";
@@ -34,20 +33,25 @@ export default function RevenuePulsePanel({
   today, metrics, roomsAvailable, thresholds = DEFAULT_THRESHOLDS,
 }: Props) {
   const tonight = metrics.find((m) => m.stay_date === today);
+  const hasTonightData = Boolean(tonight);
   const moved = metrics.filter((m) => (m.netPickup ?? 0) !== 0);
   const totalPickup = moved.reduce((s, m) => s + (m.netPickup ?? 0), 0);
   const gained = moved.filter((m) => (m.netPickup ?? 0) > 0);
   const lost = moved.filter((m) => (m.netPickup ?? 0) < 0);
-  const occTone = occupancyTone2(tonight?.occupancyPct ?? 0, thresholds);
+  const occTone = hasTonightData ? occupancyTone2(tonight?.occupancyPct ?? 0, thresholds) : null;
 
-  const roomsLeftTonight = Math.max(0, roomsAvailable - (tonight?.roomsSold ?? 0));
-  const action = roomsLeftTonight === 0
-    ? "Sold out tonight — protect rate on the next open dates."
-    : occTone.severity === "critical"
-      ? `${roomsLeftTonight} unit${roomsLeftTonight === 1 ? "" : "s"} still open tonight — consider a short-term price cut, but never below the minimum ADR.`
-      : totalPickup > 0
-        ? `Pickup is positive (${totalPickup} net) — hold or raise prices on the dates that moved.`
-        : `${roomsLeftTonight} unit${roomsLeftTonight === 1 ? "" : "s"} left tonight — watch pickup before changing anything.`;
+  const roomsLeftTonight = hasTonightData
+    ? Math.max(0, roomsAvailable - (tonight?.roomsSold ?? 0))
+    : null;
+  const action = !hasTonightData
+    ? "Tonight's PMS metrics are unavailable. Do not make a rate decision from this card until the stay-date data refreshes."
+    : roomsLeftTonight === 0
+      ? "Sold out tonight — protect rate on the next open dates."
+      : occTone?.severity === "critical"
+        ? `${roomsLeftTonight} unit${roomsLeftTonight === 1 ? "" : "s"} still open tonight — consider a short-term price cut, but never below the minimum ADR.`
+        : totalPickup > 0
+          ? `Pickup is positive (${totalPickup} net) — hold or raise prices on the dates that moved.`
+          : `${roomsLeftTonight} unit${roomsLeftTonight === 1 ? "" : "s"} left tonight — watch pickup before changing anything.`;
 
   return (
     <Card>
@@ -57,8 +61,13 @@ export default function RevenuePulsePanel({
           <span className="text-[11px] text-muted-foreground">tonight's stay date</span>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        {!hasTonightData && (
+          <div role="status" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-800 dark:text-amber-200">
+            Tonight's PMS data is unavailable. Values below stay blank instead of being treated as zero.
+          </div>
+        )}
 
+        <div className="flex flex-wrap gap-2">
           <Tile
             label="Pickup in window"
             value={`${totalPickup > 0 ? "+" : ""}${totalPickup}`}
@@ -68,21 +77,21 @@ export default function RevenuePulsePanel({
           />
           <Tile
             label="Occupancy tonight"
-            value={tonight?.occupancyPct ? `${Math.round(tonight.occupancyPct)}%` : "—"}
-            sub={`${tonight?.roomsSold ?? 0} / ${roomsAvailable} rooms`}
+            value={hasTonightData ? `${Math.round(tonight?.occupancyPct ?? 0)}%` : "—"}
+            sub={hasTonightData ? `${tonight?.roomsSold ?? 0} / ${roomsAvailable} rooms` : "PMS stay-date data unavailable"}
             icon={<BedDouble className="h-3.5 w-3.5" />}
-            tone={occTone.severity === "critical" ? "text-destructive" : ""}
+            tone={occTone?.severity === "critical" ? "text-destructive" : ""}
           />
           <Tile
             label="ADR tonight"
-            value={eur(tonight?.adrEur ?? null)}
-            sub="revenue ÷ rooms sold"
+            value={hasTonightData ? eur(tonight?.adrEur ?? null) : "—"}
+            sub={hasTonightData ? "revenue ÷ rooms sold" : "PMS stay-date data unavailable"}
             icon={<Euro className="h-3.5 w-3.5" />}
           />
           <Tile
             label="RevPAR tonight"
-            value={eur(tonight?.revparEur ?? null)}
-            sub="ADR × occupancy"
+            value={hasTonightData ? eur(tonight?.revparEur ?? null) : "—"}
+            sub={hasTonightData ? "ADR × occupancy" : "PMS stay-date data unavailable"}
             icon={<Gauge className="h-3.5 w-3.5" />}
           />
         </div>
@@ -90,14 +99,12 @@ export default function RevenuePulsePanel({
         <div className="rounded-md border bg-muted/30 px-2.5 py-2 text-[11px]">
           <span className="font-medium">What to do now: </span>
           <span className="text-muted-foreground">{action}</span>
-          {moved.length > 0 && (
+          {hasTonightData && moved.length > 0 && (
             <span className="text-muted-foreground">
               {" "}({gained.length} date{gained.length === 1 ? "" : "s"} up · {lost.length} down — detail in the movement board below.)
             </span>
           )}
         </div>
-
-
       </CardContent>
     </Card>
   );
