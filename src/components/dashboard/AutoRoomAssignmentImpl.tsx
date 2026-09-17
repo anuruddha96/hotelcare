@@ -73,6 +73,7 @@ import { isRoomEligibleForAutoAssign } from '@/lib/autoAssignRoomEligibility';
 import { assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
 import { getLocalDateString } from '@/lib/utils';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { hasManagerPowers } from '@/lib/roleAccess';
 import { isActiveGozsduLaundryner } from '@/lib/gozsduLaundryDutySession';
 import { gozsduCanReviewAssignment, gozsduPreviewCoversWork } from '@/lib/gozsduAutoAssignGuard';
 import { gozsduAllocationRespectsBuildings } from '@/lib/gozsduBuildingAssignment';
@@ -964,10 +965,18 @@ export function AutoRoomAssignment({
 
   const applyRoomMove = (roomId: string, fromStaffId: string, toStaffId: string) => {
     if (!roomId || !fromStaffId || !toStaffId || fromStaffId === toStaffId) return;
-    const next = moveRoom(assignmentPreviews, roomId, fromStaffId, toStaffId);
+    // Building restrictions apply to automatic proposals. A deliberate manual
+    // move may override the route only for a verified manager role.
+    const managerOverride = isGozsdu && hasManagerPowers(profile?.role);
+    const next = moveRoom(assignmentPreviews, roomId, fromStaffId, toStaffId, managerOverride);
     if (isGozsdu && next === assignmentPreviews) {
-      toast.warning('These buildings cannot be combined for the same housekeeper.');
+      toast.warning(isLaundryner(toStaffId)
+        ? 'Laundryners cannot receive cleaning rooms.'
+        : 'These buildings cannot be combined automatically. Only managers can override manually.');
       return;
+    }
+    if (managerOverride && !gozsduAllocationRespectsBuildings(next)) {
+      toast.info('Manager override: this housekeeper now has rooms across mapped buildings. Automatic allocation rules remain unchanged.');
     }
     pushHistory(assignmentPreviews);
     setAssignmentPreviews(next);
@@ -1080,7 +1089,7 @@ export function AutoRoomAssignment({
 
   const handleProceedToConfirm = () => {
     if (isGozsdu && (!gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner)
-      || !gozsduAllocationRespectsBuildings(assignmentPreviews))) {
+      || (!hasManagerPowers(profile?.role) && !gozsduAllocationRespectsBuildings(assignmentPreviews)))) {
       toast.error('No valid cleaning allocation to confirm. Select a cleaning housekeeper and regenerate.');
       setStep('select-staff');
       return;
@@ -1150,7 +1159,7 @@ export function AutoRoomAssignment({
   const handleConfirmAssignment = async () => {
     if (!user || !profile?.organization_slug) return;
     if (isGozsdu && (!gozsduCanReviewAssignment(assignmentPreviews, cleaningStaffIds, isLaundryner)
-      || !gozsduAllocationRespectsBuildings(assignmentPreviews)
+      || (!hasManagerPowers(profile?.role) && !gozsduAllocationRespectsBuildings(assignmentPreviews))
       || sectionTasks.some(task => isLaundryner(task.staff_id)))) {
       toast.error('The allocation is empty or conflicts with Laundryner duty. Regenerate before saving.');
       setStep('select-staff');
