@@ -40,8 +40,13 @@ export default function RevenuePulsePanel({
   const lost = moved.filter((m) => (m.netPickup ?? 0) < 0);
   const occTone = hasTonightData ? occupancyTone2(tonight?.occupancyPct ?? 0, thresholds) : null;
 
+  // Prefer the stay-date metric's PMS-derived inventory. The prop is a legacy
+  // fallback and can represent a different hotel-level/static room count.
+  const tonightInventory = hasTonightData
+    ? (tonight?.roomsAvailable ?? roomsAvailable)
+    : null;
   const roomsLeftTonight = hasTonightData
-    ? Math.max(0, roomsAvailable - (tonight?.roomsSold ?? 0))
+    ? (tonight?.roomsLeft ?? Math.max(0, (tonightInventory ?? 0) - (tonight?.roomsSold ?? 0)))
     : null;
   const action = !hasTonightData
     ? "Tonight's PMS metrics are unavailable. Do not make a rate decision from this card until the stay-date data refreshes."
@@ -78,7 +83,7 @@ export default function RevenuePulsePanel({
           <Tile
             label="Occupancy tonight"
             value={hasTonightData ? `${Math.round(tonight?.occupancyPct ?? 0)}%` : "—"}
-            sub={hasTonightData ? `${tonight?.roomsSold ?? 0} / ${roomsAvailable} rooms` : "PMS stay-date data unavailable"}
+            sub={hasTonightData ? `${tonight?.roomsSold ?? 0} / ${tonightInventory} rooms` : "PMS stay-date data unavailable"}
             icon={<BedDouble className="h-3.5 w-3.5" />}
             tone={occTone?.severity === "critical" ? "text-destructive" : ""}
           />

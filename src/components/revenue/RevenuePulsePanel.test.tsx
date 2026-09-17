@@ -49,4 +49,18 @@ describe("RevenuePulsePanel data integrity", () => {
     expect(screen.getByText("€105")).toBeInTheDocument();
     expect(screen.getByText(/5 units left tonight/)).toBeInTheDocument();
   });
+
+  it("uses tonight's PMS inventory instead of a mismatched hotel-level room count", () => {
+    render(
+      <RevenuePulsePanel
+        today={today}
+        metrics={[metric({ roomsSold: 15, roomsAvailable: 18, roomsLeft: 3, occupancyPct: 83.3, adrEur: 140, revparEur: 116.62 })]}
+        roomsAvailable={20}
+      />,
+    );
+
+    expect(screen.getByText("15 / 18 rooms")).toBeInTheDocument();
+    expect(screen.getByText(/3 units left tonight/)).toBeInTheDocument();
+    expect(screen.queryByText("15 / 20 rooms")).not.toBeInTheDocument();
+  });
 });
