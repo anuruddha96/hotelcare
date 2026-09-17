@@ -42,4 +42,14 @@ describe('maintenance launch readiness wiring', () => {
     expect(source).toContain("if (isSubmitting) return");
     expect(source).toContain("language === 'hu'");
   });
+
+  it('prevents stale maintenance translations from leaking across tickets or languages', () => {
+    const source = read('MaintenanceTicketTranslation.tsx');
+    expect(source).toContain('const requestSequence = useRef(0)');
+    expect(source).toContain('requestSequence.current += 1');
+    expect(source).toContain('const requestedLanguage = targetLanguage');
+    expect(source).toContain('targetLanguage: requestedLanguage');
+    expect(source).toContain('if (requestId !== requestSequence.current) return');
+    expect(source).toContain('onValueChange={changeTargetLanguage}');
+  });
 });
