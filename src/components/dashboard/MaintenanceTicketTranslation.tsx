@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Button } from '@/components/ui/button';
@@ -24,15 +24,34 @@ export function MaintenanceTicketTranslation({ ticketId, title, description }: P
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ title: string; description: string } | null>(null);
   const [error, setError] = useState(false);
+  const requestSequence = useRef(0);
 
   useEffect(() => {
+    // Invalidate an in-flight translation when the technician opens another
+    // ticket or the source text/language changes. A slower old request must
+    // never paint its result onto the new ticket.
+    requestSequence.current += 1;
     setResult(null);
     setError(false);
+    setBusy(false);
     setTargetLanguage(LANGUAGES.some(([code]) => code === language) ? language : 'en');
   }, [ticketId, title, description, language]);
 
+  const changeTargetLanguage = (value: string) => {
+    // Selecting a different language also invalidates any request already in
+    // flight, so Hungarian/English technicians cannot see a stale translation
+    // labelled as the newly selected language.
+    requestSequence.current += 1;
+    setTargetLanguage(value);
+    setResult(null);
+    setError(false);
+    setBusy(false);
+  };
+
   const translate = async () => {
     if (!title.trim() && !description.trim()) return;
+    const requestId = ++requestSequence.current;
+    const requestedLanguage = targetLanguage;
     setBusy(true);
     setError(false);
     setResult(null);
@@ -43,18 +62,20 @@ export function MaintenanceTicketTranslation({ ticketId, title, description }: P
         [title, description].map(async text => {
           if (!text.trim()) return '';
           const { data, error: invokeError } = await supabase.functions.invoke('translate-note', {
-            body: { text: text.slice(0, 4000), targetLanguage },
+            body: { text: text.slice(0, 4000), targetLanguage: requestedLanguage },
           });
           if (invokeError || !data?.translatedText) throw invokeError || new Error('Translation unavailable');
           return String(data.translatedText);
         }),
       );
+      if (requestId !== requestSequence.current) return;
       setResult({ title: translatedTitle, description: translatedDescription });
     } catch (translationError) {
+      if (requestId !== requestSequence.current) return;
       console.error('Maintenance ticket translation unavailable:', translationError);
       setError(true);
     } finally {
-      setBusy(false);
+      if (requestId === requestSequence.current) setBusy(false);
     }
   };
 
@@ -62,7 +83,7 @@ export function MaintenanceTicketTranslation({ ticketId, title, description }: P
     <div className="space-y-2 rounded-lg border bg-muted/30 p-2.5" onClick={event => event.stopPropagation()}>
       <div className="flex items-center gap-2">
         <Languages className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <Select value={targetLanguage} onValueChange={value => { setTargetLanguage(value); setResult(null); }}>
+        <Select value={targetLanguage} onValueChange={changeTargetLanguage}>
           <SelectTrigger className="h-9 min-w-0 flex-1" aria-label="Translation language"><SelectValue /></SelectTrigger>
           <SelectContent>{LANGUAGES.map(([code, name]) => <SelectItem key={code} value={code}>{name}</SelectItem>)}</SelectContent>
         </Select>
