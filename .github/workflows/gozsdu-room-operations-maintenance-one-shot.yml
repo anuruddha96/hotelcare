@@ -1,0 +1,57 @@
+name: One-shot Gozsdu room operations and maintenance mobile fixes
+on:
+  push:
+    branches: [fix/gozsdu-room-operations-maintenance-mobile-20260917]
+permissions:
+  contents: write
+jobs:
+  verify-and-commit:
+    name: Patch, verify, commit and remove temporary tooling
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout isolated feature branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Apply anchored corrections (fail closed on upstream changes)
+        run: python3 .github/one-shot/gozsdu-room-ops-maintenance-patch.py
+      - name: Verify limited scope and key contracts
+        run: |
+          python3 - <<'PY'
+          import subprocess
+          from pathlib import Path
+          actual = set(subprocess.check_output(['git','diff','--name-only'], text=True).splitlines())
+          expected = {'src/components/dashboard/GozsduCourtRoomOverview.tsx','src/components/dashboard/RoomOperationsWrapper.tsx','src/components/dashboard/MaintenanceStaffView.tsx'}
+          assert actual == expected, f'unexpected modified files: {actual ^ expected}'
+          overview=Path('src/components/dashboard/GozsduCourtRoomOverview.tsx').read_text()
+          ops=Path('src/components/dashboard/RoomOperationsWrapper.tsx').read_text()
+          maintenance=Path('src/components/dashboard/MaintenanceStaffView.tsx').read_text()
+          assert 'data-room-id={room.id}' in overview
+          assert 'roomOperationsLookup(roomId, roomNumber)' in ops and 'loadRoom(chip.roomNumber, chip.roomId)' in ops and 'loadRoom(selection.roomNumber, selection.roomId)' in ops
+          assert '.in(\'hotel\', hotelKeys)' in ops
+          assert 'max-h-[90dvh] overflow-y-auto' in maintenance
+          assert 'grid-cols-1 gap-2 sm:grid-cols-2' in maintenance
+          assert 'isSubmittingCompletion' in maintenance and 'Issue attachments show the original problem' in maintenance
+          print('Scope and key UI/data safety contracts passed.')
+          PY
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Focused identity regression tests
+        run: bun run test src/lib/roomOperationsLookup.test.ts
+      - name: Full frontend regression suite
+        run: bun run test
+      - name: Production build
+        run: bun run build
+      - name: Commit verified code only; delete temporary patch tools
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -- .github/one-shot/gozsdu-room-ops-maintenance-patch.py .github/workflows/gozsdu-room-operations-maintenance-one-shot.yml
+          git add -- src/components/dashboard/GozsduCourtRoomOverview.tsx src/components/dashboard/RoomOperationsWrapper.tsx src/components/dashboard/MaintenanceStaffView.tsx src/lib/roomOperationsLookup.ts src/lib/roomOperationsLookup.test.ts
+          git commit -m "fix(gozsdu): load room operations by stable ID and repair maintenance mobile completion UX"
+          git push origin HEAD:fix/gozsdu-room-operations-maintenance-mobile-20260917
