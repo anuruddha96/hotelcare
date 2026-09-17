@@ -68,6 +68,7 @@ import {
   sectionTaskMinutesForStaff,
   type HousekeepingSectionTaskTemplate,
 } from '@/lib/housekeepingSectionTasks';
+import { moveSelectedRooms } from '@/lib/autoAssignmentBulkMove';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
 import { isRoomEligibleForAutoAssign } from '@/lib/autoAssignRoomEligibility';
 import { assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
@@ -209,6 +210,9 @@ export function AutoRoomAssignment({
   const [assignmentPreviews, setAssignmentPreviews] = useState<AssignmentPreview[]>([]);
   const [previewHistory, setPreviewHistory] = useState<AssignmentPreview[][]>([]);
   const [selectedRoomForMove, setSelectedRoomForMove] = useState<{ roomId: string; fromStaffId: string } | null>(null);
+  // Independently controlled: drag/tap-to-move remains available while rooms are checked for a bulk transfer.
+  const [bulkSelectedRoomIds, setBulkSelectedRoomIds] = useState<Set<string>>(new Set());
+  const [bulkDestinationStaffId, setBulkDestinationStaffId] = useState<string>('');
   const [dragOverStaffId, setDragOverStaffId] = useState<string | null>(null);
   const [draggingRoomId, setDraggingRoomId] = useState<string | null>(null);
   const [justDroppedRoomId, setJustDroppedRoomId] = useState<string | null>(null);
@@ -262,6 +266,21 @@ export function AutoRoomAssignment({
     return { preview, room };
   }, [assignmentPreviews, selectedRoomForMove]);
 
+  const bulkRoomContexts = useMemo(() => assignmentPreviews.flatMap(person =>
+    person.rooms.filter(room => bulkSelectedRoomIds.has(room.id))
+      .map(room => ({ room, fromStaffId: person.staffId })),
+  ), [assignmentPreviews, bulkSelectedRoomIds]);
+
+  // Live PMS refresh and regeneration can remove rooms from the preview. Never
+  // keep a hidden selection that might later move a different room by mistake.
+  useEffect(() => {
+    const available = new Set(assignmentPreviews.flatMap(person => person.rooms.map(room => room.id)));
+    setBulkSelectedRoomIds(previous => {
+      const valid = new Set([...previous].filter(id => available.has(id)));
+      return valid.size === previous.size ? previous : valid;
+    });
+  }, [assignmentPreviews]);
+
   const automaticSectionTasks = useMemo(
     () => assignSectionTasksToStaff(assignmentPreviews, sectionTaskTemplates),
     [assignmentPreviews, sectionTaskTemplates],
@@ -298,6 +317,26 @@ export function AutoRoomAssignment({
       p.totalWithBreak + sectionTaskMinutesForStaff(sectionTasks, p.staffId)
     ), 1);
   }, [assignmentPreviews, sectionTasks, staffIdsWithWork]);
+
+  const bulkDestination = assignmentPreviews.find(person => person.staffId === bulkDestinationStaffId);
+  const bulkMovableRooms = bulkRoomContexts.filter(entry => entry.fromStaffId !== bulkDestinationStaffId);
+  const bulkProjectedMinutes = bulkDestination
+    ? calculateTimeEstimation([...bulkDestination.rooms, ...bulkMovableRooms.map(entry => entry.room)]).totalWithBreak
+      + sectionTaskMinutesForStaff(sectionTasks, bulkDestination.staffId)
+    : null;
+
+  const toggleBulkRooms = (roomIds: string[]) => {
+    if (!roomIds.length) return;
+    setBulkSelectedRoomIds(previous => {
+      const next = new Set(previous);
+      const allSelected = roomIds.every(id => next.has(id));
+      for (const id of roomIds) {
+        if (allSelected) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
+  };
 
   const getManagerHotel = async (): Promise<string | null> => {
     if (!profile?.assigned_hotel) return null;
@@ -740,6 +779,8 @@ export function AutoRoomAssignment({
     if (!open) return;
 
     setSelectedRoomForMove(null);
+    setBulkSelectedRoomIds(new Set());
+    setBulkDestinationStaffId('');
     setShowOverAllocationDialog(false);
     setPublicAreaAssignments(new Map());
     setPreviewHistory([]);
@@ -792,6 +833,8 @@ export function AutoRoomAssignment({
     setSharedByRoom(new Map());
     setSuggestedByRoom(new Map());
     setSelectedRoomForMove(null);
+    setBulkSelectedRoomIds(new Set());
+    setBulkDestinationStaffId('');
     setStep('select-staff');
   }, [open, isGozsdu, laundryDutyCommitRevision, laundryDutyIds]);
 
@@ -839,6 +882,7 @@ export function AutoRoomAssignment({
     setMaintenanceHoldRoomIds(ids => new Set(Array.from(ids).filter(id => !restoredRoomIds.has(id))));
     setExcludedRoomIds(ids => new Set(Array.from(ids).filter(id => !restoredRoomIds.has(id))));
     setSelectedRoomForMove(null);
+    setBulkSelectedRoomIds(new Set());
     toast.success(t('autoAssign.undoSuccess'));
   };
 
@@ -848,6 +892,8 @@ export function AutoRoomAssignment({
     setExcludedRoomIds(new Set());
     setMaintenanceHoldRoomIds(new Set());
     setSelectedRoomForMove(null);
+    setBulkSelectedRoomIds(new Set());
+    setBulkDestinationStaffId('');
     void fetchData(false);
   };
 
@@ -960,6 +1006,8 @@ export function AutoRoomAssignment({
     }
     setFairnessMetrics(bestMetrics || computeFairnessMetrics(previews));
     setSelectedRoomForMove(null);
+    setBulkSelectedRoomIds(new Set());
+    setBulkDestinationStaffId('');
     setStep('preview');
   };
 
@@ -989,12 +1037,57 @@ export function AutoRoomAssignment({
     }
     setFairnessMetrics(computeFairnessMetrics(next));
     setSelectedRoomForMove(null);
+    setBulkSelectedRoomIds(previous => {
+      if (!previous.has(roomId)) return previous;
+      const nextSelection = new Set(previous);
+      nextSelection.delete(roomId);
+      return nextSelection;
+    });
     setJustDroppedRoomId(roomId);
     setJustDroppedStaffId(toStaffId);
     setTimeout(() => {
       setJustDroppedRoomId(null);
       setJustDroppedStaffId(null);
     }, 650);
+  };
+
+  const handleBulkRoomMove = () => {
+    if (!bulkDestinationStaffId || !cleaningStaffIds.has(bulkDestinationStaffId) || isLaundryner(bulkDestinationStaffId)) {
+      toast.warning('Choose an eligible housekeeper from this hotel. Laundryners cannot receive rooms.');
+      return;
+    }
+    const managerOverride = isGozsdu && hasManagerPowers(profile?.role);
+    const result = moveSelectedRooms(
+      assignmentPreviews, [...bulkSelectedRoomIds], bulkDestinationStaffId,
+      { allowGozsduManagerOverride: managerOverride, destinationIsLaundryner: isLaundryner(bulkDestinationStaffId) },
+    );
+    if (result.error) {
+      toast.warning(result.error === 'restricted_move'
+        ? 'One or more selected rooms cannot be moved under the building rules. Nothing was changed.'
+        : result.error === 'nothing_to_move'
+          ? 'All selected rooms are already with this housekeeper. Choose other rooms.'
+          : 'The selection or housekeeper has changed. Review the rooms and try again. Nothing was moved.');
+      return;
+    }
+    if (managerOverride && !gozsduAllocationRespectsBuildings(result.previews)) {
+      toast.info('Manager override: the selected rooms cross mapped buildings. Automatic allocation rules remain unchanged.');
+    }
+    pushHistory(assignmentPreviews); // one Undo restores the whole bulk action
+    setAssignmentPreviews(result.previews);
+    setFairnessMetrics(computeFairnessMetrics(result.previews));
+    if (isNextDayPlanning) {
+      setSharedByRoom(previous => {
+        const updated = new Map(previous);
+        result.movedRoomIds.forEach(id => {
+          if (updated.get(id) === bulkDestinationStaffId) updated.delete(id);
+        });
+        return updated;
+      });
+    }
+    setBulkSelectedRoomIds(new Set());
+    setBulkDestinationStaffId('');
+    setSelectedRoomForMove(null);
+    toast.success(`${result.movedRoomIds.length} rooms moved in the preview. Confirm the plan to save.`);
   };
 
   const removeRoomFromPreview = (roomId: string, fromStaffId: string, markExcluded: boolean = true) => {
@@ -1016,6 +1109,12 @@ export function AutoRoomAssignment({
       });
     }
     setSelectedRoomForMove(null);
+    setBulkSelectedRoomIds(previous => {
+      if (!previous.has(roomId)) return previous;
+      const updated = new Set(previous);
+      updated.delete(roomId);
+      return updated;
+    });
   };
 
   const stageMaintenanceHold = (room: RoomForAssignment, fromStaffId: string) => {
@@ -1447,6 +1546,7 @@ export function AutoRoomAssignment({
 
   const renderRoomChip = (room: RoomForAssignment, preview: AssignmentPreview) => {
     const selected = selectedRoomForMove?.roomId === room.id;
+    const checkedForBulk = bulkSelectedRoomIds.has(room.id);
     const checkout = isCheckoutLike(room);
     const rtc = checkout && (room.ready_to_clean === true || isPmsRtcToday(room.pms_metadata as any));
     const held = room.status === 'out_of_order';
@@ -1485,10 +1585,19 @@ export function AutoRoomAssignment({
           setSelectedRoomForMove(selected ? null : { roomId: room.id, fromStaffId: preview.staffId });
         }}
         className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] leading-tight font-medium select-none touch-none cursor-grab active:cursor-grabbing ${color} ${
-          selected ? 'ring-2 ring-primary ring-offset-1 scale-105' : ''
+          selected ? 'ring-2 ring-primary ring-offset-1 scale-105' : checkedForBulk ? 'ring-2 ring-sky-500 ring-offset-1' : ''
         } ${draggingRoomId === room.id ? 'opacity-75' : ''} ${justDroppedRoomId === room.id ? 'ring-2 ring-green-500' : ''}`}
         title={`Room ${roomDisplayName(room)}${rtc ? ' · Ready to clean' : ''}${held ? ' · Maintenance hold' : ''}`}
       >
+        <button
+          type="button"
+          aria-label={`${checkedForBulk ? 'Deselect' : 'Select'} room ${roomDisplayName(room)} for bulk assignment`}
+          aria-pressed={checkedForBulk}
+          title={checkedForBulk ? 'Remove from bulk selection' : 'Select for bulk assignment'}
+          onPointerDown={event => event.stopPropagation()}
+          onClick={event => { event.stopPropagation(); toggleBulkRooms([room.id]); }}
+          className={`mr-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 bg-background/90 ${checkedForBulk ? 'border-sky-600 bg-sky-600 text-white' : 'border-current/50 text-current'} focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
+        >{checkedForBulk ? <Check className="h-3 w-3" /> : <span className="h-1 w-1 rounded-full bg-current opacity-30" />}</button>
         <span className="font-semibold">{roomDisplayName(room)}</span>
         {rtc && <span className="rounded bg-green-600 px-0.5 text-[8px] font-extrabold text-white">RTC</span>}
         {held && <span className="rounded bg-red-600 px-0.5 text-[8px] font-extrabold text-white">HOLD</span>}
@@ -1644,6 +1753,12 @@ export function AutoRoomAssignment({
                   {fairnessMetrics && <div className="flex flex-wrap gap-2 text-xs"><span>CO±{fairnessMetrics.checkoutDiff}</span><span>Daily±{fairnessMetrics.dailyDiff}</span><span>⏱{fairnessMetrics.timeSpreadMinutes}m</span><span>{isGozsdu ? 'Building' : 'F'}↔{fairnessMetrics.splitFloorCount}</span></div>}
                 </div>
 
+                <div role="note" className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg border border-sky-200 bg-sky-50/70 px-2.5 py-1.5 text-[11px] text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100">
+                  <span><strong>One room:</strong> drag its chip or tap it, then tap another staff card.</span>
+                  <span><strong>Several rooms:</strong> tap the circles, choose a housekeeper, then tap Done.</span>
+                  <span className="text-muted-foreground">Both methods work together; nothing saves until Confirm.</span>
+                </div>
+
                 <div className={isMobile && assignmentPreviews.length >= 3 ? (isGozsdu ? 'grid grid-cols-1 min-[520px]:grid-cols-2 gap-2' : 'grid grid-cols-2 gap-2 overflow-y-auto') : 'flex gap-2 overflow-x-auto'}>
                   {assignmentPreviews.map(preview => {
                     const checkouts = preview.rooms.filter(isCheckoutLike);
@@ -1663,16 +1778,16 @@ export function AutoRoomAssignment({
                         data-staff-drop-id={preview.staffId}
                         style={style}
                         onClick={() => isDropTarget && selectedRoomForMove && applyRoomMove(selectedRoomForMove.roomId, selectedRoomForMove.fromStaffId, preview.staffId)}
-                        className={`flex min-h-[130px] flex-col rounded-lg border ${isDropTarget ? 'ring-2 ring-primary' : ''} ${isDragOver ? 'border-dashed bg-blue-50 ring-2 ring-blue-500 dark:bg-blue-950/30' : ''} ${justDroppedStaffId === preview.staffId ? 'ring-2 ring-green-500' : ''} ${exceedsShift ? 'border-destructive' : ''}`}
+                        className={`flex min-h-[130px] flex-col rounded-lg border ${bulkDestinationStaffId === preview.staffId ? 'ring-2 ring-sky-500 bg-sky-50/30 dark:bg-sky-950/20' : ''} ${isDropTarget ? 'ring-2 ring-primary' : ''} ${isDragOver ? 'border-dashed bg-blue-50 ring-2 ring-blue-500 dark:bg-blue-950/30' : ''} ${justDroppedStaffId === preview.staffId ? 'ring-2 ring-green-500' : ''} ${exceedsShift ? 'border-destructive' : ''}`}
                       >
                         <div className="border-b bg-muted/40 px-2 py-1.5">
-                          <div className="flex items-center justify-between gap-1"><span className="truncate text-xs font-semibold">{preview.staffName}</span>{exceedsShift && <AlertTriangle className="h-3 w-3 text-destructive" />}</div>
+                          <div className="flex items-center justify-between gap-1"><span className="min-w-0 truncate text-xs font-semibold">{preview.staffName}</span><Button type="button" size="sm" variant={bulkDestinationStaffId === preview.staffId ? 'default' : 'outline'} aria-pressed={bulkDestinationStaffId === preview.staffId} className="h-6 shrink-0 px-1 text-[9px]" onClick={event => { event.stopPropagation(); setBulkDestinationStaffId(preview.staffId); }}>{bulkDestinationStaffId === preview.staffId ? '✓ Target' : 'Assign here'}</Button>{exceedsShift && <AlertTriangle className="h-3 w-3 shrink-0 text-destructive" />}</div>
                           <div className="mt-0.5 flex items-center justify-between text-[10px] text-muted-foreground"><span>{checkouts.length}co · {daily.length}d · {mappedTasks.length} areas</span><span>{formatMinutesToTime(totalWithAreas)}</span></div>
                           <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted"><div className={`h-full ${exceedsShift ? 'bg-destructive' : workload > 80 ? 'bg-amber-500' : 'bg-green-500'}`} style={{ width: `${workload}%` }} /></div>
                         </div>
                         <div className="flex-1 space-y-1.5 overflow-y-auto p-1.5">
-                          {checkouts.length > 0 && <div><p className="mb-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">{t('autoAssign.checkouts')}</p>{groupByFloor(checkouts).map(group => <div key={`co-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">{isGozsdu ? group.floor : `F${group.floor}`}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
-                          {daily.length > 0 && <div><p className="mb-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">{t('autoAssign.daily')}</p>{groupByFloor(daily).map(group => <div key={`d-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">{isGozsdu ? group.floor : `F${group.floor}`}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
+                          {checkouts.length > 0 && <div><div className="mb-0.5 flex flex-wrap items-center justify-between gap-1"><p className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('autoAssign.checkouts')}</p><button type="button" className="text-[9px] text-sky-700 underline dark:text-sky-300" onClick={event => { event.stopPropagation(); toggleBulkRooms(checkouts.map(room => room.id)); }}>{checkouts.every(room => bulkSelectedRoomIds.has(room.id)) ? 'Deselect all' : 'Select all'}</button></div>{groupByFloor(checkouts).map(group => <div key={`co-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">{isGozsdu ? group.floor : `F${group.floor}`}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
+                          {daily.length > 0 && <div><div className="mb-0.5 flex flex-wrap items-center justify-between gap-1"><p className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('autoAssign.daily')}</p><button type="button" className="text-[9px] text-sky-700 underline dark:text-sky-300" onClick={event => { event.stopPropagation(); toggleBulkRooms(daily.map(room => room.id)); }}>{daily.every(room => bulkSelectedRoomIds.has(room.id)) ? 'Deselect all' : 'Select all'}</button></div>{groupByFloor(daily).map(group => <div key={`d-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">{isGozsdu ? group.floor : `F${group.floor}`}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
                           {mappedTasks.length > 0 && <div><p className="mb-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">Public areas · drag to reassign</p><div className="flex flex-wrap gap-1">{mappedTasks.map(task => renderPublicAreaChip(task, preview.staffId))}</div></div>}
                           {preview.rooms.length === 0 && mappedTasks.length === 0 && <div className={`rounded border border-dashed p-3 text-center text-[10px] text-muted-foreground ${isDragOver ? 'border-primary bg-primary/5' : ''}`}>Drop a room or public area here</div>}
                         </div>
@@ -1755,6 +1870,20 @@ export function AutoRoomAssignment({
               </div>
             )}
           </div>
+
+          {step === 'preview' && bulkRoomContexts.length > 0 && (
+            <div data-testid="auto-assign-bulk-bar" className="flex shrink-0 flex-wrap items-center gap-2 rounded-lg border-2 border-sky-300 bg-background p-2 shadow-sm">
+              <span className="text-xs font-semibold">{bulkRoomContexts.length} selected · {bulkRoomContexts.filter(entry => entry.room.is_checkout_room || entry.room.pms_metadata?.scheduledDepartureToday === true).length} checkout · {bulkRoomContexts.filter(entry => !isCheckoutLike(entry.room)).length} daily</span>
+              <Select value={bulkDestinationStaffId || undefined} onValueChange={setBulkDestinationStaffId}>
+                <SelectTrigger className="h-8 min-w-[145px] flex-1 text-xs sm:max-w-[230px]" aria-label="Bulk assignment destination housekeeper"><SelectValue placeholder="Choose housekeeper" /></SelectTrigger>
+                <SelectContent>{assignmentPreviews.filter(person => cleaningStaffIds.has(person.staffId) && !isLaundryner(person.staffId)).map(person => <SelectItem key={person.staffId} value={person.staffId}>{person.staffName}</SelectItem>)}</SelectContent>
+              </Select>
+              {bulkProjectedMinutes !== null && <span className={`text-[11px] ${bulkProjectedMinutes > STANDARD_SHIFT_MINUTES ? 'font-semibold text-destructive' : 'text-muted-foreground'}`}>After move: {formatMinutesToTime(bulkProjectedMinutes)}{bulkProjectedMinutes > STANDARD_SHIFT_MINUTES ? ' · exceeds shift' : ''}</span>}
+              <Button type="button" size="sm" className="h-8 flex-1 sm:flex-none" disabled={!bulkDestinationStaffId || bulkMovableRooms.length === 0 || !cleaningStaffIds.has(bulkDestinationStaffId) || isLaundryner(bulkDestinationStaffId)} onClick={handleBulkRoomMove}>Done · Move {bulkMovableRooms.length} room{bulkMovableRooms.length === 1 ? '' : 's'}</Button>
+              <Button type="button" size="sm" variant="ghost" className="h-8 text-xs" onClick={() => setBulkSelectedRoomIds(new Set())}>Clear selection</Button>
+              <span className="w-full text-[10px] text-muted-foreground">This changes the preview only. Use Proceed to Confirm to save.</span>
+            </div>
+          )}
 
           <DialogFooter className={isGozsdu ? '!grid grid-cols-2 gap-2 border-t pt-2 sm:!flex sm:flex-wrap sm:justify-end' : 'flex-shrink-0 gap-2'}>
             {step === 'select-staff' && <><Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.cancel')}</Button><Button onClick={handleGeneratePreview} disabled={cleaningStaffIds.size === 0 || effectiveRooms.length === 0}>{t('autoAssign.generatePreview')}<ArrowRight className="ml-2 h-4 w-4" /></Button></>}
