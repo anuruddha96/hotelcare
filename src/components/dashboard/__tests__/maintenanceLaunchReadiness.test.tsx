@@ -32,4 +32,14 @@ describe('maintenance launch readiness wiring', () => {
     expect(source).toContain("status: 'in_progress'");
     expect(source).toContain("completion_photos: [path]");
   });
+
+  it('prevents stale maintenance resolution dialogs from overwriting completed work', () => {
+    const source = read('MaintenanceResolutionDialog.tsx');
+    expect(source).toContain(".neq('status', 'resolved')");
+    expect(source).toContain(".is('resolved_at', null)");
+    expect(source).toContain(".select('id')");
+    expect(source).toContain("if (!data?.length)");
+    expect(source).toContain("if (isSubmitting) return");
+    expect(source).toContain("language === 'hu'");
+  });
 });
