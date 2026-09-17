@@ -44,8 +44,9 @@ REVOKE ALL ON public.work_schedule_entries FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON public.work_schedule_events FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.work_schedule_entries TO authenticated;
 
--- Venue authorization is always checked against the signed-in user's persisted profile
--- and the hotel's actual owning organization, never the venue chosen by a browser.
+-- Venue authorization checks the authenticated, persisted profile and the
+-- hotel's owner. Legacy profiles contain either an ID or that hotel's exact
+-- registered display name, never a fuzzy alias or a browser-provided name.
 CREATE OR REPLACE FUNCTION public.work_schedule_can_manage(p_hotel_id text)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path = public, pg_temp AS $$
@@ -60,7 +61,7 @@ SET search_path = public, pg_temp AS $$
        OR (actor.role::text IN ('manager','top_management','top_management_manager',
           'housekeeping_manager','maintenance_manager','reception_manager',
           'back_office_manager','control_manager','finance_manager','marketing_manager')
-          AND actor.assigned_hotel = p_hotel_id)
+          AND actor.assigned_hotel IN (h.hotel_id,h.hotel_name))
      )
  );
 $$;
@@ -86,8 +87,10 @@ BEGIN
    RAISE EXCEPTION 'Schedule management is not permitted for this venue' USING ERRCODE = '42501';
  END IF;
  RETURN QUERY SELECT p.id, p.full_name, p.role::text FROM public.profiles p
- WHERE p.organization_slug = 'rdhotels'
-   AND (p.assigned_hotel = p_hotel_id OR p.hotel_id = p_hotel_id)
+ JOIN public.hotel_configurations h ON h.hotel_id=p_hotel_id
+ JOIN public.organizations org ON org.id=h.organization_id
+ WHERE p.organization_slug = org.slug AND org.slug='rdhotels'
+   AND (p.assigned_hotel IN (h.hotel_id,h.hotel_name) OR p.hotel_id=h.hotel_id)
  ORDER BY p.full_name;
 END;
 $$;
@@ -108,9 +111,11 @@ BEGIN
    RAISE EXCEPTION 'Schedule management is not permitted for this venue' USING ERRCODE = '42501';
  END IF;
  IF p_staff_id IS NULL OR NOT EXISTS (
-    SELECT 1 FROM public.profiles staff WHERE staff.id=p_staff_id
-      AND staff.organization_slug='rdhotels'
-      AND (staff.assigned_hotel=p_hotel_id OR staff.hotel_id=p_hotel_id)
+    SELECT 1 FROM public.profiles staff
+    JOIN public.hotel_configurations h ON h.hotel_id=p_hotel_id
+    JOIN public.organizations org ON org.id=h.organization_id
+    WHERE staff.id=p_staff_id AND staff.organization_slug=org.slug AND org.slug='rdhotels'
+      AND (staff.assigned_hotel IN (h.hotel_id,h.hotel_name) OR staff.hotel_id=h.hotel_id)
  ) THEN
    RAISE EXCEPTION 'Employee must be explicitly assigned to this venue' USING ERRCODE='42501';
  END IF;
