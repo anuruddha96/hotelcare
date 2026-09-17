@@ -4,252 +4,212 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { dryRunRoster, type RosterRows } from '@/lib/workScheduleImport';
-import {
-  findConfirmedRosterAccount, rosterIdentityKey, suggestRosterAccounts,
-  type ConfirmedRosterLink, type ScheduleAccount,
-} from '@/lib/workScheduleIdentity';
+import type { RosterRows } from '@/lib/workScheduleImport';
+import { findConfirmedRosterAccount, rosterIdentityKey, suggestRosterAccounts,
+  type ConfirmedRosterLink, type ScheduleAccount } from '@/lib/workScheduleIdentity';
+import { rosterHeaderVenues, rosterSheetMonth } from '@/lib/workScheduleWorkbook';
 
-type Person = { id: string; full_name: string; role: string };
-type Props = { hotelId: string; month: string; staff: Person[] };
+type Props = { hotelId: string; month: string; staff: { id: string; full_name: string; role: string }[] };
 type SourceSheet = { name: string; rows: RosterRows };
-type SourceColumn = { index: number; person: string; department: string };
-const MONTHS = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
-const toMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
-const accountLabel = (account: ScheduleAccount) =>
+const message = (error: unknown) => error instanceof Error ? error.message : String(error);
+const labelAccount = (account: ScheduleAccount) =>
   `${account.full_name} · ${account.nickname ? `@${account.nickname}` : 'no username'} · ${account.role} · ${account.id.slice(0, 8)}`;
 
-/** Only source names and stable account UUIDs are saved when a manager explicitly confirms links.
- * All spreadsheet dates, codes, shift cells and file bytes remain in this browser. */
+/** Step 1: map a spreadsheet employee name to an existing venue-authorized
+ * HotelCare profile ID. Upload is parsed in-browser; only confirmed aliases
+ * and account IDs reach the server. Formulas in unselected sheets are harmless. */
 export function ExcelRosterDryRun({ hotelId, month, staff }: Props) {
-  const [filename, setFilename] = useState('');
   const [sheets, setSheets] = useState<SourceSheet[]>([]);
+  const [filename, setFilename] = useState('');
   const [sheetName, setSheetName] = useState('');
   const [assignments, setAssignments] = useState<Record<number, string>>({});
-  const [fileError, setFileError] = useState('');
-  const [reading, setReading] = useState(false);
   const [accounts, setAccounts] = useState<ScheduleAccount[]>([]);
   const [savedLinks, setSavedLinks] = useState<ConfirmedRosterLink[]>([]);
-  const [identityHotel, setIdentityHotel] = useState('');
-  const [identityError, setIdentityError] = useState('');
-  const [identityBusy, setIdentityBusy] = useState(false);
-  const [linkNotice, setLinkNotice] = useState('');
+  const [identityReady, setIdentityReady] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setFilename(''); setSheets([]); setSheetName(''); setAssignments({});
-    setFileError(''); setLinkNotice('');
+    setSheets([]); setFilename(''); setSheetName(''); setAssignments({});
+    setError(''); setNotice('');
   }, [hotelId, month]);
-
   useEffect(() => {
     let active = true;
-    setAccounts([]); setSavedLinks([]); setIdentityHotel('');
-    setIdentityError(''); setLinkNotice('');
+    setAccounts([]); setSavedLinks([]); setIdentityReady(false);
     if (!hotelId || staff.length === 0) return () => { active = false; };
     void (async () => {
-      const [accountResult, linkResult] = await Promise.all([
+      const [people, links] = await Promise.all([
         supabase.rpc('work_schedule_staff_accounts_for_hotel' as any, { p_hotel_id: hotelId }),
         (supabase.from('work_schedule_employee_links' as any) as any)
           .select('id,source_label,staff_id').eq('organization_slug', 'rdhotels').eq('hotel_id', hotelId),
       ]);
-      if (accountResult.error) throw accountResult.error;
-      if (linkResult.error) throw linkResult.error;
+      if (people.error) throw people.error;
+      if (links.error) throw links.error;
       if (!active) return;
-      const allowedIds = new Set(staff.map(person => person.id));
-      setAccounts(((accountResult.data ?? []) as ScheduleAccount[])
-        .filter(account => allowedIds.has(account.id)));
-      setSavedLinks((linkResult.data ?? []) as ConfirmedRosterLink[]);
-      setIdentityHotel(hotelId);
-    })().catch(error => { if (active) setIdentityError(`Account matching unavailable: ${toMessage(error)}`); });
+      const ids = new Set(staff.map(person => person.id));
+      setAccounts(((people.data ?? []) as ScheduleAccount[]).filter(person => ids.has(person.id)));
+      setSavedLinks((links.data ?? []) as ConfirmedRosterLink[]);
+      setIdentityReady(true);
+    })().catch(caught => { if (active) setError(`Account lookup failed: ${message(caught)}`); });
     return () => { active = false; };
   }, [hotelId, staff]);
 
-  const currentSheet = sheets.find(sheet => sheet.name === sheetName);
-  const columns = useMemo((): SourceColumn[] => {
-    if (!currentSheet) return [];
-    const rows = currentSheet.rows;
-    const width = Math.max(0, ...rows.map(row => row.length));
-    return Array.from({ length: Math.max(0, width - 2) }, (_, index) => index + 2)
-      .filter(index => Boolean(String(rows[1]?.[index] ?? '').trim()) ||
-        rows.slice(2).some(row => String(row[index] ?? '').trim() !== ''))
-      .map(index => ({ index, person: String(rows[1]?.[index] ?? '').trim(),
-        department: String(rows[0]?.[index] ?? '').trim() }));
-  }, [currentSheet]);
-
-  const expectedMonth = MONTHS[Number(month.slice(5, 7)) - 1];
-  const matchingMonth = Boolean(expectedMonth && sheetName.toUpperCase().includes(expectedMonth));
-  const identityReady = identityHotel === hotelId && !identityError && accounts.length > 0;
+  const sheet = sheets.find(item => item.name === sheetName);
+  const columns = useMemo(() => {
+    if (!sheet) return [];
+    const width = Math.max(0, ...sheet.rows.slice(0, 40).map(row => row.length));
+    return Array.from({ length: Math.max(0, width - 2) }, (_, offset) => offset + 2)
+      .filter(column => String(sheet.rows[1]?.[column] ?? '').trim() ||
+        sheet.rows.slice(2, 40).some(row => String(row[column] ?? '').trim()))
+      .map(column => ({ index: column, name: String(sheet.rows[1]?.[column] ?? '').trim(),
+        department: String(sheet.rows[0]?.[column] ?? '').trim() }));
+  }, [sheet]);
   const nameCounts = useMemo(() => {
     const result = new Map<string, number>();
     columns.forEach(column => {
-      const key = rosterIdentityKey(column.person);
+      const key = rosterIdentityKey(column.name);
       if (key) result.set(key, (result.get(key) ?? 0) + 1);
     });
     return result;
   }, [columns]);
-  const effectiveAssignments = useMemo(() => {
+  const mapped = useMemo(() => {
     const result: Record<number, string> = {};
     if (!identityReady) return result;
     columns.forEach(column => {
-      const duplicate = (nameCounts.get(rosterIdentityKey(column.person)) ?? 0) > 1;
-      const previouslyConfirmed = findConfirmedRosterAccount(column.person, accounts, savedLinks, duplicate);
-      result[column.index] = assignments[column.index] ?? previouslyConfirmed?.id ?? '';
+      const venues = rosterHeaderVenues(column.department);
+      const otherHotel = venues.length === 1 && venues[0] !== hotelId ||
+        venues.length > 1 && !venues.includes(hotelId);
+      const duplicate = (nameCounts.get(rosterIdentityKey(column.name)) ?? 0) > 1;
+      const confirmed = findConfirmedRosterAccount(column.name, accounts, savedLinks, duplicate);
+      result[column.index] = assignments[column.index] ??
+        (otherHotel ? '__exclude__' : confirmed?.id ?? '');
     });
     return result;
-  }, [identityReady, columns, nameCounts, accounts, savedLinks, assignments]);
-  const unmapped = columns.filter(column => !effectiveAssignments[column.index]).length;
-  const reviewedRows = useMemo(() => currentSheet?.rows.map(row =>
-    row.map((value, col) => effectiveAssignments[col] === '__exclude__' ? '' : value)) ?? [],
-    [currentSheet, effectiveAssignments]);
-  const mappedColumns = useMemo(() => Object.fromEntries(Object.entries(effectiveAssignments)
-    .filter(([, value]) => value && value !== '__exclude__')
-    .map(([col, staffId]) => [Number(col), { staffId, hotelId }])), [effectiveAssignments, hotelId]);
-  const review = useMemo(() => currentSheet && matchingMonth && unmapped === 0 && identityReady
-    ? dryRunRoster(reviewedRows, {
-      month, hotelId, columns: mappedColumns,
-      eligibleStaff: accounts.map(account => ({ id: account.id, hotelId })),
-    }) : null, [currentSheet, matchingMonth, unmapped, identityReady, reviewedRows, month, hotelId, mappedColumns, accounts]);
-
-  const eligibleLinks = columns.filter(column => effectiveAssignments[column.index] &&
-    effectiveAssignments[column.index] !== '__exclude__');
-  const hasDuplicateAliases = eligibleLinks.some(column =>
-    (nameCounts.get(rosterIdentityKey(column.person)) ?? 0) !== 1);
-  const duplicateAccounts = new Set(eligibleLinks.map(column => effectiveAssignments[column.index])).size !== eligibleLinks.length;
-  const linkConflict = eligibleLinks.some(column => savedLinks.some(link =>
-    rosterIdentityKey(link.source_label) === rosterIdentityKey(column.person) &&
-      link.staff_id !== effectiveAssignments[column.index]));
-  const linkable = identityReady && matchingMonth && unmapped === 0 && eligibleLinks.length > 0 &&
-    !hasDuplicateAliases && !duplicateAccounts && !linkConflict &&
-    eligibleLinks.every(column => Boolean(column.person.trim()) &&
-      accounts.some(account => account.id === effectiveAssignments[column.index]));
+  }, [identityReady, columns, hotelId, nameCounts, accounts, savedLinks, assignments]);
+  const chosen = columns.filter(column => mapped[column.index] && mapped[column.index] !== '__exclude__');
+  const unmapped = columns.filter(column => !mapped[column.index]).length;
+  const duplicateNames = chosen.some(column => (nameCounts.get(rosterIdentityKey(column.name)) ?? 0) > 1);
+  const duplicateAccounts = new Set(chosen.map(column => mapped[column.index])).size !== chosen.length;
+  const conflict = chosen.some(column => savedLinks.some(link =>
+    rosterIdentityKey(link.source_label) === rosterIdentityKey(column.name) &&
+    link.staff_id !== mapped[column.index]));
+  const wrongVenue = chosen.some(column => {
+    const venues = rosterHeaderVenues(column.department);
+    return venues.length > 0 && !venues.includes(hotelId);
+  });
+  const ready = identityReady && rosterSheetMonth(sheetName) === month && !busy &&
+    unmapped === 0 && chosen.length > 0 && !duplicateNames && !duplicateAccounts &&
+    !conflict && !wrongVenue && chosen.every(column => Boolean(column.name) &&
+      accounts.some(person => person.id === mapped[column.index]));
 
   const load = async (file?: File) => {
-    setFilename(''); setSheets([]); setSheetName(''); setAssignments({});
-    setFileError(''); setLinkNotice('');
+    setSheets([]); setFilename(''); setSheetName(''); setAssignments({});
+    setError(''); setNotice('');
     if (!file) return;
-    if (!/\.(xls|xlsx)$/i.test(file.name) || file.size > 8 * 1024 * 1024 || file.size === 0) {
-      setFileError('Select a nonempty XLS/XLSX file no larger than 8 MB.'); return;
+    if (!/\.(xlsx|xls)$/i.test(file.name) || file.size === 0 || file.size > 8 * 1024 * 1024) {
+      setError('Select a nonempty XLS/XLSX workbook up to 8 MB.'); return;
     }
-    setReading(true);
+    setBusy(true);
     try {
-      const workbook = XLSX.read(await file.arrayBuffer(), {
-        type: 'array', bookVBA: false, cellDates: false,
-      });
-      const parsed: SourceSheet[] = workbook.SheetNames.map(name => {
-        const worksheet = workbook.Sheets[name];
-        if (Object.values(worksheet).some(cell => typeof cell === 'object' && cell !== null && 'f' in cell)) {
-          throw new Error(`Sheet ${name} contains formulas. Review a values-only copy before importing.`);
-        }
-        return { name, rows: XLSX.utils.sheet_to_json<RosterRows[number]>(worksheet,
-          { header: 1, raw: true, defval: '' }) };
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', bookVBA: false, cellDates: false });
+      if (workbook.SheetNames.length > 24) throw new Error('Maximum 24 worksheets.');
+      let area = 0;
+      const parsed = workbook.SheetNames.map(name => {
+        const ws = workbook.Sheets[name];
+        const bounds = XLSX.utils.decode_range(ws['!ref'] ?? 'A1');
+        area += (bounds.e.r + 1) * (bounds.e.c + 1);
+        if (bounds.e.r > 1999 || bounds.e.c > 249 || area > 500000)
+          throw new Error('Workbook too large for a safe browser review.');
+        // Do not reject the entire historic workbook because a totals/footer
+        // formula exists in another month: identity mapping reads names only.
+        return { name, rows: XLSX.utils.sheet_to_json<RosterRows[number]>(ws,
+          { header: 1, raw: true, blankrows: true, defval: '' }) };
       });
       setSheets(parsed); setFilename(file.name);
-      setSheetName(parsed.find(sheet => expectedMonth && sheet.name.toUpperCase().includes(expectedMonth))?.name ?? parsed[0]?.name ?? '');
-    } catch (error) { setFileError(`Excel review unavailable: ${toMessage(error)}`); }
-    finally { setReading(false); }
+      setSheetName(parsed.find(item => rosterSheetMonth(item.name) === month)?.name ?? '');
+    } catch (caught) { setError(`Workbook review failed: ${message(caught)}`); }
+    finally { setBusy(false); }
   };
-
-  const confirmLinks = async () => {
-    if (!linkable || identityBusy) return;
-    const links = eligibleLinks.map(column => ({ source_label: column.person.trim(),
-      staff_id: effectiveAssignments[column.index] }));
-    if (!window.confirm(`Confirm ${links.length} Excel name → existing HotelCare account links for this venue? Only the name and profile ID are saved. Shifts are NOT imported. Incorrect links require an audited correction.`)) return;
-    setIdentityBusy(true); setIdentityError(''); setLinkNotice('');
+  const confirm = async () => {
+    if (!ready) return;
+    const payload = chosen.map(column => ({ source_label: column.name,
+      staff_id: mapped[column.index] }));
+    if (!window.confirm(`Link ${payload.length} Excel names to the existing HotelCare accounts for this hotel? This saves no shifts. Verify usernames and identities first.`)) return;
+    setBusy(true); setError(''); setNotice('');
     try {
-      const { data, error } = await supabase.rpc('work_schedule_confirm_employee_links' as any,
-        { p_hotel_id: hotelId, p_links: links });
-      if (error) throw error;
-      const { data: refreshed, error: refreshError } = await (supabase.from('work_schedule_employee_links' as any) as any)
+      const { data, error: rpcError } = await supabase.rpc('work_schedule_confirm_employee_links' as any,
+        { p_hotel_id: hotelId, p_links: payload });
+      if (rpcError) throw rpcError;
+      const { data: refreshed, error: lookupError } = await (supabase.from('work_schedule_employee_links' as any) as any)
         .select('id,source_label,staff_id').eq('organization_slug', 'rdhotels').eq('hotel_id', hotelId);
-      if (refreshError) throw refreshError;
+      if (lookupError) throw lookupError;
       setSavedLinks((refreshed ?? []) as ConfirmedRosterLink[]);
-      setLinkNotice(`${data ?? 0} new permanent account links confirmed; previously saved links retained. No shifts imported.`);
-    } catch (error) { setIdentityError(`Links were not verified: ${toMessage(error)}. Refresh to check whether any were saved.`); }
-    finally { setIdentityBusy(false); }
+      setNotice(`${data ?? 0} new account links confirmed. Open section 2 and reload links before reviewing shifts.`);
+    } catch (caught) { setError(`Link confirmation not verified: ${message(caught)}. Refresh to check existing links.`); }
+    finally { setBusy(false); }
   };
 
   return <Card>
-    <CardHeader><CardTitle>Excel employee-to-account mapping · no shift import</CardTitle></CardHeader>
+    <CardHeader><CardTitle>1 · Match spreadsheet employees to existing HotelCare accounts</CardTitle></CardHeader>
     <CardContent className="space-y-4 text-sm">
-      <p>Upload here means inspect the file in this browser: the workbook never goes to the server. Existing HotelCare usernames and names are suggested only from accounts authorized for the selected venue. Managers confirm the correct person; the saved link uses the stable login account ID, not a potentially changing name.</p>
-      {identityError && <p role="alert" className="text-destructive">{identityError}</p>}
-      {linkNotice && <p role="status" className="rounded-md border p-2">{linkNotice}</p>}
-      {!identityReady && !identityError && <p role="status">Loading authorized employee accounts and existing links…</p>}
-      <Input aria-label="Excel roster file" type="file" accept=".xls,.xlsx"
-        disabled={!hotelId || reading || identityBusy} onChange={event => void load(event.target.files?.[0])} />
-      {reading && <p role="status">Inspecting local spreadsheet…</p>}
-      {fileError && <p role="alert" className="text-destructive">{fileError}</p>}
+      <p>Upload a workbook locally, select the month tab and verify each employee by existing username, role and account ID. A confirmed alias is reusable on later uploads. Other hotels are excluded by their headings; shared/mixed departments require explicit choices. No workbook bytes or shift data are uploaded here.</p>
+      <Input type="file" aria-label="Excel roster file for account linking" accept=".xls,.xlsx" disabled={busy || !identityReady}
+        onChange={event => void load(event.target.files?.[0])} />
+      {!identityReady && !error && <p role="status">Loading authorized HotelCare accounts…</p>}
+      {busy && <p role="status">Working…</p>}
+      {error && <p role="alert" className="text-destructive">{error}</p>}
+      {notice && <p role="status" className="rounded-md border p-2">{notice}</p>}
+      {filename && <p className="font-medium">{filename} · {sheets.length} tabs found</p>}
       {sheets.length > 0 && <>
-        <p className="font-medium">{filename} · {sheets.length} sheets found</p>
-        <label className="block">Source worksheet
-          <select aria-label="Source worksheet" className="block mt-1 h-10 w-full max-w-md rounded-md border bg-background px-3"
-            value={sheetName} onChange={event => { setSheetName(event.target.value); setAssignments({}); setLinkNotice(''); }}>
-            {sheets.map(sheet => <option key={sheet.name} value={sheet.name}>{sheet.name}</option>)}
+        <label className="block">Source month
+          <select aria-label="Source worksheet for mapping" className="block mt-1 h-10 w-full max-w-md rounded-md border bg-background px-3"
+            value={sheetName} onChange={event => { setSheetName(event.target.value); setAssignments({}); setNotice(''); }}>
+            <option value="">Select a dated worksheet</option>
+            {sheets.filter(item => rosterSheetMonth(item.name)).map(item =>
+              <option key={item.name} value={item.name}>{item.name}</option>)}
           </select>
         </label>
-        {!matchingMonth && <p role="alert" className="text-destructive">The worksheet title does not match {month}. Select the correct monthly sheet; templates and unknown titles cannot pass review.</p>}
-        {matchingMonth && <>
-          <div className="flex flex-wrap gap-3 rounded-md border p-3">
-            <span>Source columns: <strong>{columns.length}</strong></span>
-            <span>Mappings required: <strong>{unmapped}</strong></span>
-            <span>Existing links: <strong>{eligibleLinks.filter(column => savedLinks.some(link =>
-              rosterIdentityKey(link.source_label) === rosterIdentityKey(column.person) &&
-              link.staff_id === effectiveAssignments[column.index])).length}</strong></span>
-            <span>Excluded: <strong>{columns.filter(column => effectiveAssignments[column.index] === '__exclude__').length}</strong></span>
-          </div>
-          <div className="max-h-96 overflow-auto space-y-3 border rounded-md p-2" aria-label="Source column mapping">
+        {sheetName && rosterSheetMonth(sheetName) !== month && <p role="alert" className="text-destructive">Choose the worksheet matching the page's month ({month}).</p>}
+        {sheet && <>
+          <div className="rounded-md border p-3">{columns.length} employee/source columns · {unmapped} still need a decision · {columns.length - chosen.length - unmapped} excluded.</div>
+          <div className="max-h-96 overflow-auto space-y-2 rounded-md border p-2">
             {columns.map(column => {
-              const duplicates = (nameCounts.get(rosterIdentityKey(column.person)) ?? 0) > 1;
-              const saved = findConfirmedRosterAccount(column.person, accounts, savedLinks, duplicates);
-              const suggestions = suggestRosterAccounts(column.person, accounts);
-              const selected = effectiveAssignments[column.index];
-              const approved = saved && selected === saved.id;
-              return <div key={column.index} className="space-y-2 border-b pb-3">
+              const duplicated = (nameCounts.get(rosterIdentityKey(column.name)) ?? 0) > 1;
+              const confirmed = findConfirmedRosterAccount(column.name, accounts, savedLinks, duplicated);
+              const selected = mapped[column.index];
+              const venues = rosterHeaderVenues(column.department);
+              const otherHotel = venues.length > 0 && !venues.includes(hotelId);
+              return <div key={column.index} className="space-y-1 border-b pb-2">
                 <label className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="min-w-0"><strong>Column {column.index + 1} · {column.person || '(unnamed)'}</strong>
-                    <span className="ml-2 text-muted-foreground">{column.department}</span></span>
-                  <select aria-label={`Map column ${column.index + 1}`} value={selected}
-                    disabled={!identityReady || identityBusy}
-                    onChange={event => { setAssignments(previous => ({ ...previous, [column.index]: event.target.value })); setLinkNotice(''); }}
-                    className="h-9 min-w-44 max-w-full rounded-md border bg-background px-2">
-                    <option value="">Select existing HotelCare account</option>
-                    <option value="__exclude__">Exclude — other venue / not an employee</option>
-                    {accounts.map(account => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}
+                  <span>Column {column.index + 1} · <strong>{column.name || '(unnamed)'}</strong> · {column.department}</span>
+                  <select aria-label={`Map column ${column.index + 1}`} value={selected ?? ''} disabled={busy}
+                    className="h-9 max-w-full rounded-md border bg-background px-2"
+                    onChange={event => { setAssignments(previous => ({ ...previous, [column.index]: event.target.value })); setNotice(''); }}>
+                    <option value="">Choose an account or exclude</option>
+                    <option value="__exclude__">Exclude — other venue / not staff</option>
+                    {accounts.map(account => <option key={account.id} value={account.id}>{labelAccount(account)}</option>)}
                   </select>
                 </label>
-                {approved && <p className="text-xs text-green-700 dark:text-green-400">Previously confirmed link: {accountLabel(saved)}. This continues to use the account ID if the username changes.</p>}
-                {duplicates && <p role="alert" className="text-xs text-destructive">Duplicate source name in this sheet. Distinguish the employees in the workbook before saving; identical labels cannot be assigned automatically.</p>}
-                {!approved && !duplicates && suggestions.length > 0 && <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="text-muted-foreground">Potential accounts (not automatically linked):</span>
-                  {suggestions.map(suggestion => <Button key={suggestion.account.id} type="button" size="sm" variant="outline"
-                    disabled={!identityReady || identityBusy}
-                    onClick={() => setAssignments(previous => ({ ...previous, [column.index]: suggestion.account.id }))}>
-                    {suggestion.reason === 'username' ? 'Username' : suggestion.reason === 'name' ? 'Exact name' : 'Possible'} · {suggestion.account.nickname ? `@${suggestion.account.nickname}` : suggestion.account.full_name}
+                {otherHotel && <p className="text-xs text-muted-foreground">Other hotel header: excluded by default. Cross-hotel selections are blocked.</p>}
+                {confirmed && selected === confirmed.id && <p className="text-xs text-green-700 dark:text-green-400">Previously confirmed account: {labelAccount(confirmed)}</p>}
+                {duplicated && selected !== '__exclude__' && <p role="alert" className="text-xs text-destructive">Duplicate name: distinguish this employee before saving the link.</p>}
+                {!confirmed && selected !== '__exclude__' && suggestRosterAccounts(column.name, accounts).map(hint =>
+                  <Button key={hint.account.id} size="sm" type="button" variant="outline" disabled={busy}
+                    onClick={() => setAssignments(previous => ({ ...previous, [column.index]: hint.account.id }))}>
+                    Suggested {hint.reason}: {hint.account.nickname ?? hint.account.full_name}
                   </Button>)}
-                </div>}
-                {selected && selected !== '__exclude__' && !accounts.some(account => account.id === selected) &&
-                  <p role="alert" className="text-xs text-destructive">Previously linked account is no longer authorized for this venue. HR must verify its hotel assignment.</p>}
               </div>;
             })}
           </div>
-          {linkConflict && <p role="alert" className="text-destructive">A name is already linked to a different account. This upload cannot silently reassign it; request an audited correction.</p>}
-          {duplicateAccounts && <p role="alert" className="text-destructive">The same account is selected for multiple columns. Confirm identities separately before saving.</p>}
-          {hasDuplicateAliases && <p role="alert" className="text-destructive">Duplicate Excel labels must be distinguished before saving permanent links.</p>}
-          <Button type="button" disabled={!linkable || identityBusy} onClick={() => void confirmLinks()}>
-            {identityBusy ? 'Confirming…' : `Confirm ${eligibleLinks.length} employee/account links`}
+          {conflict && <p role="alert" className="text-destructive">A name is already attached to a different account; audited correction required.</p>}
+          {duplicateNames && <p role="alert" className="text-destructive">Duplicate selected name. Distinguish employees before confirming.</p>}
+          {duplicateAccounts && <p role="alert" className="text-destructive">One account is mapped to multiple source columns.</p>}
+          {wrongVenue && <p role="alert" className="text-destructive">Other-hotel column selected; correct the venue mapping.</p>}
+          <Button type="button" disabled={!ready} onClick={() => void confirm()}>
+            {busy ? 'Confirming…' : `Confirm ${chosen.length} employee/account links`}
           </Button>
-          <p className="text-xs text-muted-foreground">This saves ONLY the confirmed Excel employee name, selected venue and existing account ID, with an audit record. It does not create accounts, change their hotel access or import a single shift. Once linked, future uploads for this venue reuse the same verified ID.</p>
-          {review && <div className="space-y-2 rounded-md border p-3" aria-live="polite">
-            <p><strong>{review.ready ? 'Schedule dry-run complete — NOT imported' : 'Schedule import blocked: exceptions require correction'}</strong></p>
-            <p>{review.scannedCells} shift cells examined · {review.entries.length} recognized entries · {review.issues.length} exceptions.</p>
-            {review.issues.length > 0 && <div className="max-h-56 overflow-auto">
-              {review.issues.slice(0, 50).map((issue, index) => <p key={`${issue.row}-${issue.column}-${index}`} className="border-t py-1">
-                Row {issue.row}, column {issue.column}: {issue.code.replaceAll('_', ' ')} — {issue.detail}
-              </p>)}
-              {review.issues.length > 50 && <p>{review.issues.length - 50} additional exceptions. Correct the source copy before importing.</p>}
-            </div>}
-            <p className="text-muted-foreground">A successful identity match is independent of shift parsing. HR-approved codes, atomic import and rollback are still mandatory before rosters can be imported.</p>
-          </div>}
-          {unmapped > 0 && <Button type="button" variant="outline" disabled>Map or exclude all columns to validate</Button>}
+          <p className="text-xs text-muted-foreground">After confirmation, use section 2 below to review and import draft shifts. No new users are created and no account privileges are changed.</p>
         </>}
       </>}
     </CardContent>
