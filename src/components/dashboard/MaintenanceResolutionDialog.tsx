@@ -7,6 +7,7 @@ import { CheckCircle, X } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
+import { RESOLVABLE_MAINTENANCE_STATUSES } from '@/lib/maintenanceLifecycle';
 import { toast } from 'sonner';
 
 interface MaintenanceResolutionDialogProps {
@@ -57,7 +58,7 @@ export function MaintenanceResolutionDialog({
           resolution_text: resolutionText.trim()
         })
         .eq('id', issueId)
-        .in('status', ['open', 'pending', 'in_progress'])
+        .in('status', [...RESOLVABLE_MAINTENANCE_STATUSES])
         .is('resolved_at', null)
         .select('id');
 
