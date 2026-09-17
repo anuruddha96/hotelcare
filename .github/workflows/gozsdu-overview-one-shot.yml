@@ -1,0 +1,45 @@
+name: One-shot Gozsdu overview canonical room names
+
+on:
+  push:
+    branches: [fix/gozsdu-overview-full-names-building-groups-20260917]
+    paths:
+      - .github/workflows/gozsdu-overview-one-shot.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-verify-cleanup:
+    name: Patch and verify Gozsdu-only room overview
+    if: github.actor == 'anuruddha96'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Apply exact-anchor patch
+        run: python3 scripts/one_shot_patch_gozsdu_overview.py
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Focused room-label and building tests
+        run: bunx vitest run src/lib/gozsduRoomOverviewDisplay.test.ts src/lib/gozsduRoomRegistryDisplay.test.ts
+      - name: Full frontend regression suite
+        run: bun run test
+      - name: Production build
+        run: bun run build
+      - name: Commit only verified changes and remove temporary patch tooling
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/dashboard/GozsduCourtRoomOverview.tsx
+          git rm .github/workflows/gozsdu-overview-one-shot.yml scripts/one_shot_patch_gozsdu_overview.py
+          git diff --cached --check
+          git diff --cached --name-only
+          git commit -m "fix(gozsdu): show full PMS names and grouped buildings in hotel room overview"
+          git push origin HEAD:fix/gozsdu-overview-full-names-building-groups-20260917
