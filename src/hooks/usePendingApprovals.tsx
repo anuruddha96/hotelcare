@@ -140,9 +140,12 @@ export function usePendingApprovals() {
   useEffect(() => {
     fetchPendingCount();
 
-    // Set up real-time subscription for pending count. RLS restricts RD Hotels
-    // room assignment events to the active property; the refetch remains
-    // hotel-scoped as a second layer of protection.
+    // Subscribe to every room-assignment change, then let the hotel-scoped
+    // query above decide whether it belongs in the badge. A Realtime UPDATE is
+    // filtered against the event's old row as well as the new row; filtering
+    // only `status=completed` can therefore miss the exact in_progress ->
+    // completed transition that creates a manager approval. Refetching is cheap
+    // and preserves organization/hotel isolation in the authoritative query.
     const channel = supabase
       .channel('pending-approvals-count')
       .on(
@@ -151,7 +154,6 @@ export function usePendingApprovals() {
           event: '*',
           schema: 'public',
           table: 'room_assignments',
-          filter: 'status=eq.completed'
         },
         () => fetchPendingCount()
       )
