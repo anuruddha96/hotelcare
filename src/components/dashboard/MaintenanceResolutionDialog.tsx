@@ -26,21 +26,27 @@ export function MaintenanceResolutionDialog({
   issueDescription,
   onResolved
 }: MaintenanceResolutionDialogProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { user } = useAuth();
   const [resolutionText, setResolutionText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const isHungarian = language === 'hu';
+
   const handleSubmit = async () => {
+    if (isSubmitting) return;
     if (!user || !resolutionText.trim()) {
-      toast.error('Please enter resolution details');
+      toast.error(isHungarian ? 'Adja meg a javítás részleteit.' : 'Please enter resolution details');
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      const { error } = await supabase
+      // Guard against a stale dialog resolving an issue that another technician
+      // has already resolved. Supabase updates that match zero rows are not errors,
+      // so select the updated id and treat an empty result as a lifecycle conflict.
+      const { data, error } = await supabase
         .from('maintenance_issues')
         .update({
           status: 'resolved',
@@ -48,30 +54,44 @@ export function MaintenanceResolutionDialog({
           resolved_by: user.id,
           resolution_text: resolutionText.trim()
         })
-        .eq('id', issueId);
+        .eq('id', issueId)
+        .neq('status', 'resolved')
+        .is('resolved_at', null)
+        .select('id');
 
       if (error) throw error;
 
-      toast.success('Maintenance issue marked as resolved');
+      if (!data?.length) {
+        toast.error(isHungarian
+          ? 'Ezt a hibát közben már lezárták. A lista frissült.'
+          : 'This issue was already resolved by someone else. The list has been refreshed.');
+        setResolutionText('');
+        onResolved();
+        onOpenChange(false);
+        return;
+      }
+
+      toast.success(isHungarian ? 'A karbantartási hiba megoldva.' : 'Maintenance issue marked as resolved');
       setResolutionText('');
       onResolved();
       onOpenChange(false);
     } catch (error: any) {
       console.error('Error marking issue as resolved:', error);
-      toast.error('Failed to mark issue as resolved: ' + error.message);
+      toast.error((isHungarian ? 'Nem sikerült megoldottnak jelölni: ' : 'Failed to mark issue as resolved: ') + error.message);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleClose = () => {
+    if (isSubmitting) return;
     setResolutionText('');
     onOpenChange(false);
   };
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-2xl max-h-[94vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CheckCircle className="h-5 w-5 text-green-600" />
@@ -98,7 +118,7 @@ export function MaintenanceResolutionDialog({
           </div>
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="gap-2 sm:gap-0">
           <Button
             type="button"
             onClick={handleClose}
