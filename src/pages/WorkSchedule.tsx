@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Header } from '@/components/layout/Header';
 import { ExcelRosterDryRun } from '@/components/work-schedule/ExcelRosterDryRun';
+import { ExcelRosterSync } from '@/components/work-schedule/ExcelRosterSync';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -178,7 +179,7 @@ export default function WorkSchedule() {
         <Link to={`/${organizationSlug || profile.organization_slug}`} className="text-sm underline">Back to workspace</Link>
       </div>
       <Card className="border-amber-400/60"><CardContent className="pt-4 text-sm">
-        <strong>Testing only — not deployed.</strong> The schema must be applied only to an approved test environment before data loads. The Excel wizard validates locally but cannot import. Planned hours do not represent actual attendance, payroll or verified leave entitlement. Never put diagnoses in roster notes.
+        <strong>Testing only — not deployed.</strong> The new schema and imported drafts require an approved test database and authenticated UAT before deployment. Excel imports never publish shifts automatically. Planned hours do not represent actual attendance, payroll or verified leave entitlement. Never put diagnoses in roster notes.
       </CardContent></Card>
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-sm font-medium">Month <Input type="month" value={month} onChange={event => { setEntries([]); setMonth(event.target.value); resetEditor(); }} className="mt-1" /></label>
@@ -240,6 +241,8 @@ export default function WorkSchedule() {
           <Button disabled={busy || loading || drafts === 0} onClick={publish}>Publish {drafts} drafts for {month}</Button>
         </CardContent></Card>
         {!loading && <ExcelRosterDryRun hotelId={hotelId} month={month} staff={staff} />}
+        {!loading && <ExcelRosterSync hotelId={hotelId} month={month} staff={staff}
+          onImported={() => setRefresh(number => number + 1)} />}
         {orgWide && <Card><CardHeader><CardTitle className="flex items-center gap-2"><ShieldCheck />HR analytics and documents — pending</CardTitle></CardHeader><CardContent className="text-sm space-y-2">
           <p>Current metrics are planned shift counts, scheduled staff and planned hours. Actual hours, payroll, leave and sick leave require attendance, contract and verified entitlement reconciliation.</p>
           <p>Contracts and sick certificates are not accepted. Separate private storage, health-document permissions, access logging and retention controls are required before deployment.</p>
