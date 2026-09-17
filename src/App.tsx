@@ -40,6 +40,7 @@ const AssistantPage = lazy(() => import("./pages/AssistantPage"));
 const AssistantInsights = lazy(() => import("./pages/AssistantInsights"));
 const Billing = lazy(() => import("./pages/Billing"));
 const ParkingTickets = lazy(() => import("./pages/ParkingTickets"));
+const WorkSchedule = lazy(() => import("./pages/WorkSchedule"));
 
 // Lazy load non-critical global components
 const AssistantLauncher = lazy(() => import("@/components/assistant/AssistantLauncher"));
@@ -157,6 +158,7 @@ const TenantRouter = () => {
           <Route path="/assistant-insights" element={<AssistantInsights />} />
           <Route path="/billing" element={<Billing />} />
           <Route path="/parking-tickets" element={<ParkingTickets />} />
+          <Route path="/work-schedule" element={<WorkSchedule />} />
         </Routes>
         <AssistantLauncher />
       </Suspense>
