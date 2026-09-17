@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { reconcileGozsduPmsRoster, type GozsduPmsRow } from '@/lib/gozsduPmsRoster';
+import { canonicalGozsduOverviewName, groupGozsduOverviewByBuilding } from '@/lib/gozsduRoomOverviewDisplay';
 import { BedDouble, Building2, ChevronDown, ChevronRight, Coffee, GripVertical, Hotel, MapPin, Plus, RefreshCw, UserX } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -77,11 +78,6 @@ function service(room: Room, isCheckout: boolean): GozsduHousekeepingService {
     totalNights: room.pms_metadata?.totalNights,
     isCheckout,
   }).service;
-}
-function roomFloor(room: Room): number {
-  if (room.floor_number != null) return room.floor_number;
-  const firstDigits = room.room_number.match(/^\d+/)?.[0];
-  return firstDigits ? Math.floor(Number(firstDigits) / 100) : 0;
 }
 function roomSort(a: Room, b: Room) {
   return a.room_number.localeCompare(b.room_number, undefined, { numeric: true });
@@ -212,6 +208,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
     }
   }, [rooms, registry, pmsRows, selectedDate, pmsFetchIssue]);
   const registryByRoom = useMemo(() => new Map(registry.map(row => [row.room_id, row])), [registry]);
+  const displayName = useCallback((room: Room) => canonicalGozsduOverviewName(room, registryByRoom), [registryByRoom]);
   const isOperating = (room: Room) => registryByRoom.get(room.id)?.service_status === 'operating';
   const assignmentMap = useMemo(() => new Map(assignments.map(row => [row.room_id, row])), [assignments]);
   const buildingByRoom = useMemo(() => new Map(mappings.map(row => [row.room_id, row.section_id])), [mappings]);
@@ -255,11 +252,11 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
         assignedBy: profile?.id || user?.id || '', organizationSlug: profile?.organization_slug || null,
         isCheckoutRoom: pmsRoster.data.byRoom.get(room.id)?.bucket === 'checkout',
       });
-      toast.success(`Room ${room.room_number} → ${cleanName(payload.staffName)}`);
+      toast.success(`Room ${displayName(room)} → ${cleanName(payload.staffName)}`);
       await load(true);
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
     } catch (error) {
-      if (isAssignmentInProgressError(error)) toast.warning(`Room ${room.room_number} is already being cleaned; its housekeeper cannot be changed.`);
+      if (isAssignmentInProgressError(error)) toast.warning(`Room ${displayName(room)} is already being cleaned; its housekeeper cannot be changed.`);
       else { console.error('[Gozsdu] assignment failed', error); toast.error('Could not assign room'); }
     }
   };
@@ -316,7 +313,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
                 ${isNoShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
                 ${highlight ? 'ring-2 ring-primary ring-offset-1' : ''}
                 ${hovered === room.id ? 'shadow-md' : ''}`}>
-                {room.room_number}
+                {displayName(room)}
                 {room.pms_metadata?.manual_checkout === true && <span className="ml-0.5 rounded bg-amber-500 px-0.5 text-[9px] text-white" title="Manual checkout">M</span>}
                 {room.pms_metadata?.notArrived === true && !isNoShow && <span className="ml-0.5 rounded bg-slate-500 px-0.5 text-[9px] text-white">NA</span>}
                 {(verified?.leavesTomorrow ?? (room.pms_metadata?.scheduledDepartureTomorrow === true)) && !isCheckout && <span className="ml-0.5 rounded bg-indigo-600 px-0.5 text-[9px] text-white">C/O+1</span>}
@@ -340,8 +337,8 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
             </div>
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-xs text-xs">
-            <p className="font-semibold">Room {room.room_number} · {status.replaceAll('_', ' ')}</p>
-            <p>PMS: {registryByRoom.get(room.id)?.pms_room_name || room.room_number}</p>
+            <p className="font-semibold">Room {displayName(room)} · {status.replaceAll('_', ' ')}</p>
+            <p>PMS: {displayName(room)}</p>
             {nights > 0 && total > 0 && <p>Stay {nights}/{total}</p>}
             {change !== 'none' && <p>{change === 'change_room' ? 'Change Room' : 'Towel change'}</p>}
             {nameByBuilding.get(buildingByRoom.get(room.id) || '') && <p>Building: {nameByBuilding.get(buildingByRoom.get(room.id) || '')}</p>}
@@ -354,12 +351,9 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
   };
 
   const renderSection = (title: string, list: Room[], bucket: Bucket, icon: React.ReactNode, hint: string) => {
-    const floors = new Map<number, Room[]>();
-    for (const room of list) {
-      const floor = roomFloor(room);
-      if (!floors.has(floor)) floors.set(floor, []);
-      floors.get(floor)!.push(room);
-    }
+    // Manager section assignments are the physical location source. A 1B/2B
+    // PMS name does NOT identify a real building; neither does numeric floor.
+    const groups = groupGozsduOverviewByBuilding(list, mappings, buildings, displayName);
     return (
       <section className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -369,11 +363,11 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
         </div>
         {list.length === 0 ? <p className="pl-6 text-xs text-muted-foreground">No rooms</p> : (
           <div className="space-y-1.5">
-            {Array.from(floors).sort(([a], [b]) => a - b).map(([floor, floorRooms]) => (
-              <div key={floor} className="flex items-start gap-2">
-                <Badge variant="outline" className="mt-0.5 min-w-[28px] shrink-0 text-center text-[10px]">F{floor}</Badge>
-                <div className="flex flex-wrap gap-1.5">
-                  {floorRooms.sort(roomSort).map(room => <div key={room.id} className="animate-fade-in">{renderChip(room, bucket)}</div>)}
+            {groups.map(group => (
+              <div key={group.key} className="flex items-start gap-2">
+                <Badge variant="outline" className="mt-0.5 w-[88px] max-w-[88px] shrink-0 whitespace-normal break-words text-center text-[10px] leading-tight sm:w-[110px] sm:max-w-[110px]" title={group.label}>{group.label}</Badge>
+                <div className="flex min-w-0 flex-wrap gap-1.5">
+                  {group.rooms.map(room => <div key={room.id} className="animate-fade-in">{renderChip(room, bucket)}</div>)}
                 </div>
               </div>
             ))}
