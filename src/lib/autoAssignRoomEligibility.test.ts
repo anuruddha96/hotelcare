@@ -32,11 +32,13 @@ describe('isRoomEligibleForAutoAssign', () => {
     },
   );
 
-  it('accepts operating Gozsdu checkouts and due towel services only', () => {
+  it('accepts operating Gozsdu checkouts and due towel services without trusting stale service types', () => {
     const room = { status: 'dirty', hotel: 'gozsdu-court', is_checkout_room: false,
-      pms_metadata: { gozsduAvailability: { status: 'operating' }, gozsduHousekeeping: { serviceType: 'towel_change' } } };
+      pms_metadata: { gozsduAvailability: { status: 'operating' }, currentNight: 3, totalNights: 6,
+        gozsduHousekeeping: { serviceType: 'none' } } };
     expect(isRoomEligibleForAutoAssign(room)).toBe(true);
-    expect(isRoomEligibleForAutoAssign({ ...room, pms_metadata: { ...room.pms_metadata, gozsduHousekeeping: { serviceType: 'none' } } })).toBe(false);
+    expect(isRoomEligibleForAutoAssign({ ...room, pms_metadata: { ...room.pms_metadata,
+      currentNight: 4, gozsduHousekeeping: { serviceType: 'towel_change' } } })).toBe(false);
     expect(isRoomEligibleForAutoAssign({ ...room, is_checkout_room: true })).toBe(true);
   });
 });

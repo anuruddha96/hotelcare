@@ -30,12 +30,12 @@ function mockWorkload(rooms: RoomForAssignment[], source: 'metadata-fallback' | 
 beforeEach(() => vi.resetAllMocks());
 
 describe('Gozsdu next-day Auto Assign metadata fallback', () => {
-  it('keeps checkout, selects only even-night service, and excludes inactive rooms', async () => {
+  it('keeps checkout, selects tomorrow PMS 3/N and 5/N service, and excludes inactive rooms', async () => {
     mockWorkload([
       room('checkout', 1, 2, { checkout: true }),
-      room('odd', 2, 6), room('towel', 3, 5), room('full', 3, 6),
-      room('private', 3, 6, { availability: 'non_guest' }),
-      room('unavailable', 3, 6, { availability: 'unavailable' }),
+      room('not_due', 3, 6), room('towel', 2, 5), room('full', 4, 7),
+      room('private', 4, 7, { availability: 'non_guest' }),
+      room('unavailable', 4, 7, { availability: 'unavailable' }),
     ]);
     const result = await buildTomorrowAutoAssignRooms(args);
     expect(result.rooms.map(r => r.id)).toEqual(['checkout', 'towel', 'full']);

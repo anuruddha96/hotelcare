@@ -19,6 +19,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { hasManagerPowers } from '@/lib/roleAccess';
+import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { buildRoomNotes, parseRoomFlags } from '@/lib/room-service-flags';
 import { cleanName } from '@/lib/staffNames';
@@ -143,6 +144,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   const canOpen = canManage || role === 'reception';
   const canWriteNotes = canManage || role === 'reception';
   const readOnlyForPast = selectedDate !== todayBudapest();
+  const textileChangeLabel = isGozsduCourtHotel(hotelName) ? 'Complete Textile Change' : 'Change Room';
 
   const loadRoom = useCallback(async (roomNumber: string) => {
     const requestId = ++requestRef.current;
@@ -582,10 +584,10 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
           <button
             type="button"
             disabled={!canManage || !!actionLoading}
-            onClick={() => void patchRoom({ linen_change_required: !selection.linenChangeRequired }, { linenChangeRequired: !selection.linenChangeRequired }, `Change Room ${selection.linenChangeRequired ? 'removed' : 'required'} — room ${selection.roomNumber}`)}
+            onClick={() => void patchRoom({ linen_change_required: !selection.linenChangeRequired }, { linenChangeRequired: !selection.linenChangeRequired }, `${textileChangeLabel} ${selection.linenChangeRequired ? 'removed' : 'required'} — room ${selection.roomNumber}`)}
             className={`rounded-xl border p-3 text-left transition-all ${selection.linenChangeRequired ? 'border-violet-500 bg-violet-500 text-white shadow-sm' : 'border-violet-200 bg-violet-50 text-violet-900 hover:bg-violet-100'}`}
           >
-            <div className="text-lg">🛏️</div><p className="mt-1 text-xs font-bold">Change Room</p><p className="text-[10px] opacity-80">{selection.linenChangeRequired ? 'Required' : 'Not required'}</p>
+            <div className="text-lg">🛏️</div><p className="mt-1 text-xs font-bold">{textileChangeLabel}</p><p className="text-[10px] opacity-80">{selection.linenChangeRequired ? 'Required' : 'Not required'}</p>
           </button>
 
           <button

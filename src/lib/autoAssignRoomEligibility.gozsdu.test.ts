@@ -13,24 +13,24 @@ describe('Gozsdu Auto Assign eligibility', () => {
     expect(isRoomEligibleForAutoAssign({ ...baseRoom, is_checkout_room: true })).toBe(true);
   });
 
-  it('includes operating second-night towel service', () => {
+  it('includes third-night PMS towel service (two nights completed)', () => {
     expect(isRoomEligibleForAutoAssign({
       ...baseRoom,
-      pms_metadata: { ...baseRoom.pms_metadata, currentNight: 2, totalNights: 3 },
+      pms_metadata: { ...baseRoom.pms_metadata, currentNight: 3, totalNights: 3 },
     })).toBe(true);
   });
 
-  it('includes operating fourth-night Change Room when the stay continues long enough', () => {
+  it('includes operating fifth-night Complete Textile Change when the stay continues long enough', () => {
+    expect(isRoomEligibleForAutoAssign({
+      ...baseRoom,
+      pms_metadata: { ...baseRoom.pms_metadata, currentNight: 5, totalNights: 7 },
+    })).toBe(true);
+  });
+
+  it('keeps even PMS nights and arrival-only rooms out of Auto Assign', () => {
     expect(isRoomEligibleForAutoAssign({
       ...baseRoom,
       pms_metadata: { ...baseRoom.pms_metadata, currentNight: 4, totalNights: 6 },
-    })).toBe(true);
-  });
-
-  it('keeps odd-night and arrival-only rooms out of Auto Assign', () => {
-    expect(isRoomEligibleForAutoAssign({
-      ...baseRoom,
-      pms_metadata: { ...baseRoom.pms_metadata, currentNight: 3, totalNights: 6 },
     })).toBe(false);
     expect(isRoomEligibleForAutoAssign({
       ...baseRoom,
@@ -41,7 +41,7 @@ describe('Gozsdu Auto Assign eligibility', () => {
   it('keeps no-shows out of Auto Assign', () => {
     expect(isRoomEligibleForAutoAssign({
       ...baseRoom,
-      pms_metadata: { ...baseRoom.pms_metadata, isNoShow: true, currentNight: 2, totalNights: 3 },
+      pms_metadata: { ...baseRoom.pms_metadata, isNoShow: true, currentNight: 3, totalNights: 3 },
     })).toBe(false);
   });
 
