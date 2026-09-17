@@ -20,6 +20,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { todayBudapest } from '@/lib/budapestTime';
+import { selectCurrentHousekeepingAssignments } from '@/lib/currentHousekeepingAssignments';
 import {
   hasMemoriesGreenBoardRequest,
   isGuestDeclinedService,
@@ -470,14 +471,15 @@ export function HotelMemoriesManagerStatusDialog({
           )
         `)
         .eq('assigned_to', staffId)
-        .eq('assignment_date', selectedDate)
-        .eq('status', status);
+        .eq('assignment_date', selectedDate);
 
       if (error) throw error;
 
-      const rows = (data || [])
+      const hotelRows = (data || [])
         .map((row: any) => ({ ...row, rooms: row.rooms || null }))
         .filter((row: AssignmentRow) => isHotelMemoriesBudapest(row.rooms?.hotel)) as AssignmentRow[];
+      const currentByRoom = selectCurrentHousekeepingAssignments(hotelRows);
+      const rows = hotelRows.filter(row => currentByRoom.get(row.room_id)?.id === row.id && row.status === status);
       setAssignments(rows);
     } catch (error) {
       console.error('[Hotel Memories manager status drilldown] Failed to load assignments', error);

@@ -26,6 +26,8 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { selectCurrentHousekeepingAssignments } from '@/lib/currentHousekeepingAssignments';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { usePropertyTerms } from '@/lib/propertyTerminology';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
@@ -535,7 +537,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
       const { data: assignmentsData, error: assignmentsError } = await supabase
         .from('room_assignments')
-        .select('assigned_to, status, room_id')
+        .select('id, assigned_to, status, room_id, created_at')
         .eq('assignment_date', selectedDate);
 
       if (assignmentsError) throw assignmentsError;
@@ -555,6 +557,17 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         ? (assignmentsData || []).filter((a: any) => roomMap.has(a.room_id))
         : (assignmentsData || []);
 
+      // Count only the latest room assignment for Hotel Memories. A supervisor
+      // recheck creates a fresh row and preserves the earlier completed one
+      // for approval history; it must not inflate Done/Working/room counts.
+      const memoriesCurrent = selectCurrentHousekeepingAssignments(
+        filteredData.filter(row => isHotelMemoriesBudapest(roomMap.get(row.room_id)?.hotel)),
+      );
+      const currentData = filteredData.filter(row =>
+        !isHotelMemoriesBudapest(roomMap.get(row.room_id)?.hotel)
+        || memoriesCurrent.get(row.room_id)?.id === row.id,
+      );
+
       const summaryMap = new Map<string, TeamAssignment>();
 
       // Initialize all staff with zero counts so cards always show
@@ -571,7 +584,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
       });
 
-      filteredData.forEach((row: any) => {
+      currentData.forEach((row: any) => {
         const staffId = row.assigned_to as string;
         let summary = summaryMap.get(staffId);
         if (!summary) {
@@ -617,6 +630,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
           room_id,
           assigned_to,
           status,
+          created_at,
           rooms!inner(room_number, hotel, venue_id)
         `)
         .eq('assignment_date', selectedDate);
@@ -627,7 +641,13 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
         ? (data || []).filter((item: any) => item.rooms?.hotel && hotelKeys.includes(item.rooms.hotel))
         : (data || []);
 
-      const assignments = filteredData.map((item: any) => ({
+      const currentMemories = selectCurrentHousekeepingAssignments(
+        filteredData.filter((item: any) => isHotelMemoriesBudapest(item.rooms?.hotel)),
+      );
+      const assignments = filteredData.filter((item: any) =>
+        !isHotelMemoriesBudapest(item.rooms?.hotel)
+        || currentMemories.get(item.room_id)?.id === item.id,
+      ).map((item: any) => ({
         id: item.id,
         room_id: item.room_id,
         assigned_to: item.assigned_to,

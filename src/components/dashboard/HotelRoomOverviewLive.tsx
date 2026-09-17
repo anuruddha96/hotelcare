@@ -30,6 +30,8 @@ import { HotelFloorMap } from './HotelFloorMap';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
+import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { isCurrentNoServiceOutcome, selectCurrentHousekeepingAssignments } from '@/lib/currentHousekeepingAssignments';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
 import { assigneeLabel, cleanName } from '@/lib/staffNames';
 import { useVenues } from '@/hooks/useVenues';
@@ -76,6 +78,8 @@ interface AssignmentData {
   ready_to_clean: boolean | null;
   pms_hold?: boolean | null;
   notes: string | null;
+  created_at?: string | null;
+  service_result?: string | null;
 }
 
 interface PublicAreaTask {
@@ -340,7 +344,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           .order('room_number'),
         supabase
           .from('room_assignments')
-          .select('id, room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes')
+          .select('id, room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes, created_at, service_result')
           .eq('assignment_date', selectedDate),
         supabase
           .from('general_tasks')
@@ -595,8 +599,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     }
   };
 
-  const assignmentMap = new Map<string, AssignmentData>();
-  assignments.forEach(a => assignmentMap.set(a.room_id, a));
+  // A Memories supervisor recheck retains the earlier submission for audit
+  // and inserts a new assignment. PostgREST does not promise row order: an
+  // old completed [NO_SERVICE] row must never replace active cleaning.
+  // Preserve the other hotels' existing assignment behavior unchanged.
+  const memoriesOverview = isHotelMemoriesBudapest(hotelName);
+  const assignmentMap: Map<string, AssignmentData> = memoriesOverview
+    ? selectCurrentHousekeepingAssignments(assignments)
+    : new Map<string, AssignmentData>();
+  if (!memoriesOverview) assignments.forEach(a => assignmentMap.set(a.room_id, a));
 
   // A room counts as a "checkout room" in Team View only when the guest
   // departs today. Departure-tomorrow rooms stay in Daily Rooms and show the
@@ -875,6 +886,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const renderRoomChip = (room: RoomData) => {
     const assignment = assignmentMap.get(room.id);
     const assignmentStatus = assignment?.status || null;
+    const noServiceOutcome = memoriesOverview
+      ? isCurrentNoServiceOutcome(assignment)
+      : !!assignment?.notes?.includes('[NO_SERVICE]');
     const roomFlags = parseRoomFlags(room.notes);
     const isPendingApproval = assignmentStatus === 'completed' && assignment?.supervisor_approved === false;
     const roomOverdue = isOverdue(assignment, assignment?.started_at || undefined);
@@ -1065,8 +1079,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RTC</span>
             ) : null;
           })()}
-          {assignment?.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-gray-500 text-white">NS</span>}
-          {assignment?.status === 'completed' && assignment?.supervisor_approved && !assignment?.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 text-[9px]">✅</span>}
+          {noServiceOutcome && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-gray-500 text-white">NS</span>}
+          {assignment?.status === 'completed' && assignment?.supervisor_approved && !noServiceOutcome && <span className="ml-0.5 text-[9px]">✅</span>}
           {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
           {noShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
           {earlyCheckout && <span className="ml-0.5 text-[9px]">🔶</span>}
