@@ -1,0 +1,44 @@
+name: One-shot Gozsdu manager manual room moves
+
+on:
+  push:
+    branches:
+      - fix/gozsdu-manager-cross-building-manual-moves-20260917
+    paths:
+      - .github/workflows/gozsdu-manager-manual-move-one-shot.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    name: Verify manager manual cross-building moves
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Patch only exact Gozsdu manager UI anchors
+        run: python3 scripts/one_shot_gozsdu_manager_manual_moves.py
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Focused Gozsdu regression tests
+        run: bun run test src/lib/gozsduManagerManualMoves.test.ts src/lib/gozsduBuildingAssignment.test.ts
+      - name: Full frontend regression suite
+        run: bun run test
+      - name: Production build
+        run: bun run build
+      - name: Commit verified source and remove temporary tooling
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/dashboard/AutoRoomAssignmentImpl.tsx src/lib/gozsduManagerManualMoves.test.ts
+          git rm .github/workflows/gozsdu-manager-manual-move-one-shot.yml scripts/one_shot_gozsdu_manager_manual_moves.py
+          git commit -m 'fix(gozsdu): allow managers manual cross-building moves while keeping automatic routes strict'
+          git push origin HEAD:fix/gozsdu-manager-cross-building-manual-moves-20260917
