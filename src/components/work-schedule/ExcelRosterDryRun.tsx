@@ -183,7 +183,7 @@ export function ExcelRosterDryRun({ hotelId, month, staff }: Props) {
         <label className="block">Source worksheet
           <select aria-label="Source worksheet" className="block mt-1 h-10 w-full max-w-md rounded-md border bg-background px-3"
             value={sheetName} onChange={event => { setSheetName(event.target.value); setAssignments({}); setLinkNotice(''); }}>
-            {sheets.map(sheet => <option key={sheet.name} value={sheet.name}>{sheet.name}</option>}
+            {sheets.map(sheet => <option key={sheet.name} value={sheet.name}>{sheet.name}</option>)}
           </select>
         </label>
         {!matchingMonth && <p role="alert" className="text-destructive">The worksheet title does not match {month}. Select the correct monthly sheet; templates and unknown titles cannot pass review.</p>}
