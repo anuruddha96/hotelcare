@@ -52,8 +52,9 @@ describe('Gozsdu manager manual reassignment', () => {
     expect(new Set(moved.flatMap(person => person.rooms.map(item => item.id))).size).toBe(2);
     expect(gozsduAllocationRespectsBuildings(moved)).toBe(false);
     expect(gozsduAllocationRespectsBuildings(plan)).toBe(true);
-    expect(autoAssignRooms([room('another-west', 'Building I'), room('another-east', 'Kazinczy C')], staff,
-      undefined, undefined, { hotelName: 'Gozsdu Court Budapest' })).toSatisfy?.toBeUndefined;
+    const regenerated = autoAssignRooms([room('another-west', 'Building I'), room('another-east', 'Kazinczy C')], staff,
+      undefined, undefined, { hotelName: 'Gozsdu Court Budapest' });
+    expect(gozsduAllocationRespectsBuildings(regenerated)).toBe(true);
   });
 
   it('never permits moving a cleaning room to a Laundryner even with manager override', () => {
