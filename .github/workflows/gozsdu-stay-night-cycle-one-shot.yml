@@ -14,33 +14,41 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: true
-      - name: Apply anchored Gozsdu-only correction
-        run: python3 .github/one-shot/gozsdu-stay-night-cycle-patch.py
-      - name: Verify scope, avoid old labels, and inspect related callers
+      - name: Apply anchored Gozsdu-only correction and update dependent tests
+        run: |
+          python3 .github/one-shot/gozsdu-stay-night-cycle-patch.py
+          python3 .github/one-shot/gozsdu-stay-night-followup.py
+      - name: Verify property isolation and scope
         run: |
           python3 - <<'PY'
           import subprocess
           from pathlib import Path
           actual=set(subprocess.check_output(['git','diff','--name-only'], text=True).splitlines())
-          expected={'src/lib/gozsdu-housekeeping.ts','src/lib/gozsdu-housekeeping.test.ts','src/lib/gozsduPmsRoster.test.ts','src/components/dashboard/GozsduCourtRoomOverview.tsx'}
+          expected={
+            'src/lib/gozsdu-housekeeping.ts','src/lib/gozsdu-housekeeping.test.ts',
+            'src/lib/gozsduPmsRoster.test.ts','src/components/dashboard/GozsduCourtRoomOverview.tsx',
+            'src/lib/autoAssignRoomEligibility.gozsdu.test.ts','src/lib/nextDayAutoAssignBridge.gozsdu.test.ts',
+            'src/lib/nextDayHousekeepingSnapshot.test.ts','src/components/dashboard/RoomOperationsQuickHub.tsx',
+          }
           assert actual==expected, f'Unexpected source mutations: {actual ^ expected}'
           source=Path('src/lib/gozsdu-housekeeping.ts').read_text()
           overview=Path('src/components/dashboard/GozsduCourtRoomOverview.tsx').read_text()
+          hub=Path('src/components/dashboard/RoomOperationsQuickHub.tsx').read_text()
           assert 'currentNight < 3' in source and '(currentNight - 1) % 4' in source
           assert 'Complete Textile Change' in source and 'Complete Textile Change' in overview
           assert 'const stored = room.pms_metadata?.gozsduHousekeeping?.serviceType' not in overview
           assert "'Second-day service rooms'" in overview
-          print('Confirmed changes confined to Gozsdu cycle, Gozsdu UI and their tests.')
+          assert "isGozsduCourtHotel(hotelName) ? 'Complete Textile Change' : 'Change Room'" in hub
+          print('Verified only Gozsdu policy/UI and dependent tests change. Other venues keep their labels and logic.')
           PY
-          git grep -n -E 'getGozsduHousekeepingCycle|gozsduServiceLabel|Change Room' -- src | head -70 || true
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Focused PMS night regression tests
-        run: bun run test src/lib/gozsdu-housekeeping.test.ts src/lib/gozsduPmsRoster.test.ts
+      - name: Focused PMS night and planning regression tests
+        run: bun run test src/lib/gozsdu-housekeeping.test.ts src/lib/gozsduPmsRoster.test.ts src/lib/autoAssignRoomEligibility.gozsdu.test.ts src/lib/nextDayAutoAssignBridge.gozsdu.test.ts src/lib/nextDayHousekeepingSnapshot.test.ts
       - name: Full frontend regression suite
         run: bun run test
       - name: Production build
@@ -49,7 +57,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -- .github/one-shot/gozsdu-stay-night-cycle-patch.py .github/workflows/gozsdu-stay-night-cycle-one-shot.yml
-          git add -- src/lib/gozsdu-housekeeping.ts src/lib/gozsdu-housekeeping.test.ts src/lib/gozsduPmsRoster.test.ts src/components/dashboard/GozsduCourtRoomOverview.tsx
+          git rm -- .github/one-shot/gozsdu-stay-night-cycle-patch.py .github/one-shot/gozsdu-stay-night-followup.py .github/workflows/gozsdu-stay-night-cycle-one-shot.yml
+          git add -- src/lib/gozsdu-housekeeping.ts src/lib/gozsdu-housekeeping.test.ts src/lib/gozsduPmsRoster.test.ts src/components/dashboard/GozsduCourtRoomOverview.tsx src/lib/autoAssignRoomEligibility.gozsdu.test.ts src/lib/nextDayAutoAssignBridge.gozsdu.test.ts src/lib/nextDayHousekeepingSnapshot.test.ts src/components/dashboard/RoomOperationsQuickHub.tsx
           git commit -m "fix(gozsdu): schedule stayover service by Previo completed nights and rename textile change"
           git push origin HEAD:fix/gozsdu-stay-night-service-cycle-20260917
