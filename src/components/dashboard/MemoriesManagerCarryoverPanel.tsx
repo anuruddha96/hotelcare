@@ -5,18 +5,15 @@ import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
+import { deriveMemoriesLegacyIncidents, type MemoriesIncident,
+  type MemoriesSnapshot, type MemoriesDatedAssignment, type MemoriesDndPhoto } from '@/lib/memoriesLegacyService';
 import { pendingServices, previousBusinessDate } from './MemoriesServiceCarryover';
 
 type Room = { id: string; room_number: string; is_checkout_room: boolean | null; pms_metadata: any };
-type Event = {
-  id: string; room_id: string; source_business_date: string;
-  incident_type: 'dnd' | 'no_service'; towel_due: boolean; linen_due: boolean;
-  towel_confirmed_at: string | null; linen_confirmed_at: string | null;
-  incident_resolved_same_day: boolean;
-};
 
-/** Only the selected venue's managers see prior-day checkout incidents. The
- * underlying carryover RLS also denies checkout incidents to housekeepers. */
+/** Only the selected venue's managers see previous-day checkout incidents.
+ * Verified pre-migration incidents are reconstructed read-only; no snapshot
+ * updates or invented DND from the sticky had_dnd flag. */
 export function MemoriesManagerCarryoverPanel({ hotelName, selectedDate }: {
   hotelName: string; selectedDate: string;
 }) {
@@ -33,14 +30,33 @@ export function MemoriesManagerCarryoverPanel({ hotelName, selectedDate }: {
         .in('hotel', keys.length ? keys : [hotelName]);
       if (roomError) throw roomError;
       const rooms = (rows || []) as Room[];
-      if (!rooms.length) return { rooms: [], events: [] as Event[] };
-      const { data: events, error: eventError } = await (supabase as any)
-        .from('memories_service_carryovers')
-        .select('id,room_id,source_business_date,incident_type,towel_due,linen_due,towel_confirmed_at,linen_confirmed_at,incident_resolved_same_day')
-        .in('room_id', rooms.map(room => room.id))
-        .eq('source_business_date', yesterday);
-      if (eventError) throw eventError;
-      return { rooms, events: (events || []) as Event[] };
+      if (!rooms.length) return { rooms: [], events: [] as MemoriesIncident[] };
+      const roomIds = rooms.map(room => room.id);
+      const [eventResult, snapshotResult, assignmentResult, photoResult] = await Promise.all([
+        (supabase as any).from('memories_service_carryovers')
+          .select('id,room_id,source_business_date,incident_type,towel_due,linen_due,towel_confirmed_at,linen_confirmed_at,incident_resolved_same_day')
+          .in('room_id', roomIds).eq('source_business_date', yesterday),
+        (supabase as any).from('housekeeping_room_snapshots')
+          .select('room_id,business_date,towel_change_required,linen_change_required')
+          .in('room_id', roomIds).eq('business_date', yesterday),
+        (supabase as any).from('room_assignments')
+          .select('id,room_id,assignment_date,assignment_type,status,service_result,notes,is_dnd,dnd_attempt_count,completed_at')
+          .in('room_id', roomIds).eq('assignment_date', yesterday),
+        (supabase as any).from('dnd_photos')
+          .select('room_id,assignment_id,assignment_date,marked_at')
+          .in('room_id', roomIds).eq('assignment_date', yesterday),
+      ]);
+      if (eventResult.error || snapshotResult.error || assignmentResult.error || photoResult.error) {
+        throw eventResult.error || snapshotResult.error || assignmentResult.error || photoResult.error;
+      }
+      const ledger = (eventResult.data || []) as MemoriesIncident[];
+      const savedRoomIds = new Set(ledger.map(event => event.room_id));
+      const old = deriveMemoriesLegacyIncidents(
+        (snapshotResult.data || []) as MemoriesSnapshot[],
+        (assignmentResult.data || []) as MemoriesDatedAssignment[],
+        (photoResult.data || []) as MemoriesDndPhoto[], yesterday,
+      ).filter(event => !savedRoomIds.has(event.room_id));
+      return { rooms, events: ledger.concat(old) };
     },
   });
   if (!enabled) return null;
@@ -62,6 +78,7 @@ export function MemoriesManagerCarryoverPanel({ hotelName, selectedDate }: {
         const outstanding = pendingServices(event);
         return <div key={event.id} className="rounded-lg border border-amber-200 bg-white p-2 text-xs text-slate-900">
           <strong>Room {room?.room_number}</strong> — {event.incident_type === 'dnd' ? 'DND attempt' : 'No Service'} on {event.source_business_date}.
+          {event.legacy_verified && <p className="text-slate-600">Verified from the dated historical assignment; original records retained.</p>}
           {event.incident_resolved_same_day && <p>Cleaning was subsequently completed that day.</p>}
           {checkout ? <p className="font-medium text-blue-800">Checkout today: normal checkout cleaning. Prior incident is manager-only; do not pass it as a current guest DND.</p>
             : outstanding.length ? <p className="font-medium text-red-800">Carry forward: {outstanding.join(' and ')}. Require explicit completion confirmation.</p>
