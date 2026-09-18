@@ -1,0 +1,28 @@
+/* Only the Memories saved-day renderer uses this title. Keep live boards and
+ * historical boards for other properties entirely unchanged. The background
+ * communicates the recorded incident; the check mark still communicates the
+ * separately verified final cleaning/approval outcome. */
+#hotel-room-overview button[title*="Read-only saved history"]:has(> span.bg-gray-600) {
+  background-color: #fee2e2;
+  color: #7f1d1d;
+  border-color: #fca5a5;
+}
+#hotel-room-overview button[title*="Read-only saved history"][title*="DND at saved cutoff"],
+#hotel-room-overview button[title*="Read-only saved history"][title*="DND encounter recorded"],
+#hotel-room-overview button[title*="Read-only saved history"][title*="DND and approval disagree"] {
+  background-color: #fecaca;
+  color: #7f1d1d;
+  border-color: #dc2626;
+}
+.dark #hotel-room-overview button[title*="Read-only saved history"]:has(> span.bg-gray-600) {
+  background-color: #7f1d1d;
+  color: #fee2e2;
+  border-color: #ef4444;
+}
+.dark #hotel-room-overview button[title*="Read-only saved history"][title*="DND at saved cutoff"],
+.dark #hotel-room-overview button[title*="Read-only saved history"][title*="DND encounter recorded"],
+.dark #hotel-room-overview button[title*="Read-only saved history"][title*="DND and approval disagree"] {
+  background-color: #991b1b;
+  color: #fff1f2;
+  border-color: #f87171;
+}
