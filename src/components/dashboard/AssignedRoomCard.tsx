@@ -15,6 +15,7 @@ import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { readGozsduRoomOverride } from '@/lib/gozsduRoomBucketOverride';
 import { gozsduWorkPresentation } from '@/lib/gozsduWorkPresentation';
 import { supabase } from '@/integrations/supabase/client';
+import './housekeeper-card-visibility.css';
 
 /** Resolve the manager's building mapping once for all Gozsdu housekeeper cards.
  * Never infer a building from a PMS prefix or room number, and never write a
@@ -93,6 +94,16 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
       .filter(Boolean).join(' · '),
   } : bedConfiguredRoom;
 
+  // Match the shared card's PMS-first checkout classification, using the
+  // date-specific Gozsdu manager presentation when present. A stale checkout
+  // assignment must not hide DND on what is currently a stayover room.
+  const checkoutMeta = roomForDisplay?.pms_metadata;
+  const freshCheckoutPms = checkoutMeta?.pmsSyncDate === todayBudapest();
+  const pmsSaysCheckout = roomForDisplay?.is_checkout_room === true || checkoutMeta?.scheduledDepartureToday === true;
+  const isCheckoutClean = freshCheckoutPms
+    ? pmsSaysCheckout
+    : displayAssignment.assignment_type === 'checkout_cleaning' || pmsSaysCheckout;
+
   // Hotel Memories only. The live Previo feed currently carries "LCO UNTIL
   // 1500" in a reservation note even though its ordinary Departure field is
   // still 10:00. Show only the extracted time: never expose the raw OTA note,
@@ -112,7 +123,7 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
       ?? parsePrevioLateCheckoutTime(meta?.noteOta)
     : null;
 
-  return <div className="space-y-2">
+  return <div className={`space-y-2${isGozsduRoom ? ' gozsdu-housekeeper-card' : ''}${isCheckoutClean ? ' checkout-housekeeper-card' : ''}`}>
     {gozsduOverride && gozsduOverride.bucket !== 'other' && <div role="status" className="rounded-md border border-primary/40 bg-primary/5 px-3 py-1.5 text-xs font-semibold">
       Manager cleaning plan: {gozsduOverride.bucket === 'checkout' ? 'Checkout cleaning' : gozsduOverride.service === 'change_room' ? 'Full cleaning / complete textile change' : 'Towel change'}
     </div>}
