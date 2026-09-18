@@ -11,128 +11,75 @@ import { historicalDndState, isBudapestBusinessDate, selectSavedSnapshot, type H
 import { useTranslation } from '@/hooks/useTranslation';
 
 type RoomSnapshot = {
-  business_date: string;
-  hotel: string;
-  room_id: string;
-  room_number: string;
-  floor_number: number | null;
-  venue_id: string | null;
-  room_size_sqm: number | null;
-  bed_type: string | null;
-  bed_configuration: string | null;
-  room_status: string | null;
-  is_checkout_room: boolean | null;
-  is_dnd: boolean | null;
-  had_dnd: boolean | null;
-  dnd_attempt_count: number | null;
-  towel_change_required: boolean | null;
-  linen_change_required: boolean | null;
-  had_towel_change: boolean | null;
-  had_linen_change: boolean | null;
-  had_room_cleaning_request: boolean | null;
-  had_extra_towels_request: boolean | null;
-  had_ready_to_clean: boolean | null;
-  had_no_service: boolean | null;
-  had_no_show: boolean | null;
-  room_notes: string | null;
-  pms_metadata: any;
-  guest_nights_stayed: number | null;
-  assignment_id: string | null;
-  assigned_to: string | null;
-  assignment_type: string | null;
-  assignment_status: string | null;
-  assignment_started_at: string | null;
-  assignment_completed_at: string | null;
-  supervisor_approved: boolean | null;
-  ready_to_clean: boolean | null;
-  assignment_notes: string | null;
-  source: string | null;
-  captured_at: string | null;
-  updated_at: string | null;
+  business_date: string; hotel: string; room_id: string; room_number: string;
+  floor_number: number | null; venue_id: string | null; room_size_sqm: number | null;
+  bed_type: string | null; bed_configuration: string | null; room_status: string | null;
+  is_checkout_room: boolean | null; is_dnd: boolean | null; had_dnd: boolean | null;
+  dnd_attempt_count: number | null; towel_change_required: boolean | null;
+  linen_change_required: boolean | null; had_towel_change: boolean | null;
+  had_linen_change: boolean | null; had_room_cleaning_request: boolean | null;
+  had_extra_towels_request: boolean | null; had_ready_to_clean: boolean | null;
+  had_no_service: boolean | null; had_no_show: boolean | null;
+  room_notes: string | null; pms_metadata: any; guest_nights_stayed: number | null;
+  assignment_id: string | null; assigned_to: string | null; assignment_type: string | null;
+  assignment_status: string | null; assignment_started_at: string | null;
+  assignment_completed_at: string | null; supervisor_approved: boolean | null;
+  ready_to_clean: boolean | null; assignment_notes: string | null;
+  source: string | null; captured_at: string | null; updated_at: string | null;
   status_history: Array<Record<string, any>> | null;
 };
-
 type DatedAssignment = {
-  id: string;
-  room_id: string;
-  assignment_date: string;
-  status: string;
-  is_dnd: boolean | null;
-  dnd_attempt_count: number | null;
-  supervisor_approved: boolean | null;
-  supervisor_approved_at: string | null;
-  assignment_type: string;
-  started_at: string | null;
-  completed_at: string | null;
+  id: string; room_id: string; assignment_date: string; status: string;
+  is_dnd: boolean | null; dnd_attempt_count: number | null;
+  supervisor_approved: boolean | null; supervisor_approved_at: string | null;
+  assignment_type: string; started_at: string | null; completed_at: string | null;
   service_result: string | null;
 };
-
 type DndEvidence = { id: string; assignment_id: string | null; marked_at: string; attempt_number: number | null };
 type Task = { id: string; task_name: string; task_type: string; assigned_to: string; status: string };
-type Props = {
-  selectedDate: string;
-  hotelName: string;
-  staffMap: Record<string, string>;
-  refreshKey?: number;
-};
-
+type Props = { selectedDate: string; hotelName: string; staffMap: Record<string, string>; refreshKey?: number };
 type VerifiedRoom = {
-  snapshot: RoomSnapshot;
-  assignment: DatedAssignment | null;
-  evidence: DndEvidence[];
-  dnd: HistoricalDndState;
-  checkout: boolean;
-  approved: boolean;
+  snapshot: RoomSnapshot; assignment: DatedAssignment | null; evidence: DndEvidence[];
+  dnd: HistoricalDndState; checkout: boolean; approved: boolean;
 };
 
-const STATUS_COLORS: Record<string, string> = {
+const COLORS: Record<string, string> = {
   approved: 'bg-emerald-200 text-emerald-900 border-emerald-500 dark:bg-emerald-900/50 dark:text-emerald-200',
   dirty: 'bg-amber-200 text-amber-900 border-amber-500 dark:bg-amber-900/50 dark:text-amber-200',
   in_progress: 'bg-sky-200 text-sky-900 border-sky-500 dark:bg-sky-900/50 dark:text-sky-200',
   pending: 'bg-violet-200 text-violet-900 border-violet-500 dark:bg-violet-900/50 dark:text-violet-200',
   out_of_order: 'bg-red-200 text-red-900 border-red-500 dark:bg-red-900/50 dark:text-red-200',
 };
-
-function isCheckout(row: RoomSnapshot): boolean {
-  const meta = row.pms_metadata || {};
-  if (meta.manual_daily === true) return false;
-  return row.is_checkout_room === true || meta.scheduledDepartureToday === true || row.assignment_type === 'checkout_cleaning';
-}
-
-function isNoShow(row: RoomSnapshot): boolean {
-  const meta = row.pms_metadata || {};
-  const status = String(meta.reservationStatus ?? meta.reservation_status ?? meta.pmsStatus ?? meta.pms_status
-    ?? meta.bookingStatus ?? meta.booking_status ?? meta.status ?? meta.reservation?.status ?? '').trim().toLowerCase();
-  return row.had_no_show === true || meta.isNoShow === true || meta.noShow === true || meta.no_show === true
+const isCheckout = (row: RoomSnapshot) => row.pms_metadata?.manual_daily !== true &&
+  (row.is_checkout_room === true || row.pms_metadata?.scheduledDepartureToday === true || row.assignment_type === 'checkout_cleaning');
+const isNoShow = (row: RoomSnapshot) => {
+  const m = row.pms_metadata || {};
+  const status = String(m.reservationStatus ?? m.reservation_status ?? m.pmsStatus ?? m.pms_status
+    ?? m.bookingStatus ?? m.booking_status ?? m.status ?? m.reservation?.status ?? '').trim().toLowerCase();
+  return row.had_no_show === true || m.isNoShow === true || m.noShow === true || m.no_show === true
     || ['no_show', 'no-show', 'noshow', 'no show'].includes(status)
     || (row.room_notes || '').toLowerCase().includes('no show');
-}
-
-function sizeLabel(sqm: number | null): string | null {
-  if (!sqm) return null;
-  return sqm <= 18 ? 'S' : sqm <= 30 ? 'M' : sqm <= 40 ? 'L' : 'XL';
-}
-
-function bedLabel(configuration: string | null): string | null {
-  if (!configuration) return null;
-  if (configuration.includes('Double')) return 'DB';
-  if (configuration.includes('Twin') && configuration.includes('Sep')) return 'TW-S';
-  if (configuration.includes('Twin')) return 'TW';
-  if (configuration.includes('Single')) return 'SGL';
-  if (configuration.includes('Baby')) return '👶BB';
-  if (configuration.includes('Sofa')) return 'SOFA';
-  if (configuration.includes('Extra') || configuration.includes('Cot')) return '+COT';
-  return configuration.slice(0, 3).toUpperCase();
-}
-
-function localTime(timestamp: string | null | undefined): string {
+};
+const sizeLabel = (sqm: number | null) => !sqm ? null : sqm <= 18 ? 'S' : sqm <= 30 ? 'M' : sqm <= 40 ? 'L' : 'XL';
+const bedLabel = (config: string | null) => {
+  if (!config) return null;
+  if (config.includes('Double')) return 'DB';
+  if (config.includes('Twin') && config.includes('Sep')) return 'TW-S';
+  if (config.includes('Twin')) return 'TW';
+  if (config.includes('Single')) return 'SGL';
+  if (config.includes('Baby')) return '👶BB';
+  if (config.includes('Sofa')) return 'SOFA';
+  if (config.includes('Extra') || config.includes('Cot')) return '+COT';
+  return config.slice(0, 3).toUpperCase();
+};
+const localTime = (timestamp: string | null | undefined): string => {
   if (!timestamp) return 'Not recorded';
   const value = new Date(timestamp);
   if (!Number.isFinite(value.getTime())) return 'Invalid timestamp';
   return `${new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Budapest', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(value)} (Budapest)`;
-}
+};
 
-/** Memories-only read-only history: no writes and no access to today's rooms table. */
+/** Memories-only historical board. Selects the requested business date and never performs writes. */
 export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffMap, refreshKey }: Props) {
   const { t } = useTranslation();
   const [snapshots, setSnapshots] = useState<RoomSnapshot[]>([]);
@@ -227,10 +174,7 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
         is_dnd: assignment.is_dnd,
         dnd_attempt_count: assignment.dnd_attempt_count,
       } : snapshot;
-      return {
-        snapshot,
-        assignment,
-        evidence: photos,
+      return { snapshot, assignment, evidence: photos,
         dnd: historicalDndState(resolved, photos.length),
         checkout: isCheckout(snapshot),
         approved: resolved.assignment_status === 'completed' && resolved.supervisor_approved === true,
@@ -278,7 +222,7 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
     return (
       <div key={row.room_id} className="flex flex-col items-center gap-0.5 select-none">
         <button type="button" onClick={() => setSelectedRoomId(row.room_id)}
-          className={`relative rounded border-2 px-2 py-1 text-xs font-bold min-w-[40px] text-center ${STATUS_COLORS[status]} ${room.dnd === 'active' ? 'ring-2 ring-purple-500 ring-offset-1' : ''} ${room.dnd === 'conflict' ? 'ring-2 ring-red-500 ring-offset-1' : ''}`}
+          className={`relative rounded border-2 px-2 py-1 text-xs font-bold min-w-[40px] text-center ${COLORS[status]} ${room.dnd === 'active' ? 'ring-2 ring-purple-500 ring-offset-1' : ''} ${room.dnd === 'conflict' ? 'ring-2 ring-red-500 ring-offset-1' : ''}`}
           title={[`Room ${row.room_number}`, row.assignment_status ? `Assignment: ${row.assignment_status}` : null,
             label, name ? `Assigned: ${name}` : null, 'Read-only saved history – click for details'].filter(Boolean).join(' · ')}>
           {row.room_number}
@@ -308,10 +252,11 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
   const section = (heading: string, sectionRooms: VerifiedRoom[], sectionType: string) => {
     const floors = new Map<number, VerifiedRoom[]>();
     for (const room of sectionRooms) {
-      const value = room.snapshot.floor_number ?? Math.floor(Number.parseInt(room.snapshot.room_number, 10) / 100) || 0;
-      const list = floors.get(value) || [];
+      const parsed = Number.parseInt(room.snapshot.room_number, 10);
+      const floor = room.snapshot.floor_number ?? (Number.isFinite(parsed) ? Math.floor(parsed / 100) : 0);
+      const list = floors.get(floor) || [];
       list.push(room);
-      floors.set(value, list);
+      floors.set(floor, list);
     }
     const activeCount = sectionRooms.filter(room => room.dnd === 'active').length;
     const earlierCount = sectionRooms.filter(room => room.dnd === 'earlier').length;
@@ -383,7 +328,7 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
             <div className="flex items-center gap-2 text-sm font-semibold"><MapPin className="h-4 w-4" />{t('roomOverview.publicAreas')}<Badge variant="secondary">{tasks.length}</Badge></div>
             <div className="flex flex-wrap gap-2">{tasks.map(task => (
               <div key={task.id} className="flex flex-col items-center">
-                <span className={`rounded border px-2 py-1 text-xs ${task.status === 'completed' ? STATUS_COLORS.approved : STATUS_COLORS.dirty}`}>{task.task_name}</span>
+                <span className={`rounded border px-2 py-1 text-xs ${task.status === 'completed' ? COLORS.approved : COLORS.dirty}`}>{task.task_name}</span>
                 <span className="text-[9px] text-muted-foreground">{assigneeLabel(staffMap, task.assigned_to)}</span>
               </div>
             ))}</div>
@@ -402,7 +347,7 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
                   : selectedRoom.dnd === 'active' ? 'DND reported at the saved cutoff.'
                     : 'Saved DND and approval states conflict; review the audit trail.'}</p>
               {selectedRoom.dnd === 'none' && selectedRoom.snapshot.had_dnd &&
-                <p className="rounded border border-amber-200 bg-amber-50 p-2 text-amber-900">The raw snapshot has had_dnd=true, but this date’s assignment has no recorded DND attempt. A previous-day flag can carry into the midnight capture; it is not counted as a September {selectedDate.slice(-2)} DND event.</p>}
+                <p className="rounded border border-amber-200 bg-amber-50 p-2 text-amber-900">The raw snapshot has had_dnd=true, but this date’s assignment has no recorded DND attempt. A previous-day flag can carry into the midnight capture; it is not counted as a DND event for {selectedDate}.</p>}
               <p><strong>Cleaning started:</strong> {localTime(selectedRoom.assignment?.started_at || selectedRoom.snapshot.assignment_started_at)}</p>
               <p><strong>Cleaning finished:</strong> {localTime(selectedRoom.assignment?.completed_at || selectedRoom.snapshot.assignment_completed_at)}</p>
               <p><strong>Approved at:</strong> {localTime(selectedRoom.assignment?.supervisor_approved_at)}</p>
