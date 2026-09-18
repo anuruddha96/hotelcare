@@ -5,6 +5,7 @@ import { BedDouble, Clock3, ImagePlus } from 'lucide-react';
 import { AssignedRoomCard as ExistingAssignedRoomCard } from './AssignedRoomCardLegacy';
 import { ExtraRoomPhotos } from './ExtraRoomPhotos';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
+import { MemoriesServiceCarryover } from './MemoriesServiceCarryover';
 import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
@@ -128,6 +129,18 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
       Manager cleaning plan: {gozsduOverride.bucket === 'checkout' ? 'Checkout cleaning' : gozsduOverride.service === 'change_room' ? 'Full cleaning / complete textile change' : 'Towel change'}
     </div>}
     <ExistingAssignedRoomCard {...props} assignment={{ ...displayAssignment, rooms: roomForDisplay }} />
+    {isMemories && roomForDisplay && <MemoriesServiceCarryover
+      assignmentId={props.assignment.id}
+      assignmentDate={date}
+      roomId={props.assignment.room_id}
+      roomNumber={roomForDisplay.room_number}
+      isCheckout={isCheckoutClean}
+      assignmentStatus={props.assignment.status}
+      assignmentIsDnd={props.assignment.is_dnd}
+      assignmentNotes={props.assignment.notes}
+      towelRequired={roomForDisplay.towel_change_required}
+      linenRequired={roomForDisplay.linen_change_required}
+    />}
     {room && canEditBedSetup && props.assignment.status !== 'completed' && <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-2 dark:border-blue-900 dark:bg-blue-950/20">
       <Button type="button" variant="outline" size="sm" className="w-full justify-start border-blue-300 text-blue-900 dark:text-blue-200" aria-expanded={bedSetupOpen} onClick={() => setBedSetupOpen((value) => !value)}>
         <BedDouble className="mr-2 h-4 w-4" />{bedSetupOpen ? 'Hide bed setup' : 'Edit bed setup'}
