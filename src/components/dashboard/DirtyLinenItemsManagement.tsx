@@ -16,8 +16,6 @@ import { toast } from 'sonner';
 
 type LinenItem = { id: string; name: string; display_name: string; is_active: boolean; sort_order: number };
 type ItemFormData = Pick<LinenItem, 'name' | 'display_name' | 'is_active' | 'sort_order'>;
-
-/** Top-level component, not recreated on every keystroke (preserves focus). */
 function LinenItemForm({ formData, setFormData, editing, onSave, onCancel }: {
   formData: ItemFormData; setFormData: Dispatch<SetStateAction<ItemFormData>>;
   editing: boolean; onSave: () => void; onCancel: () => void;
@@ -148,13 +146,20 @@ export function DirtyLinenItemsManagement() {
                 <LinenItemForm formData={formData} setFormData={setFormData} editing onSave={handleSave} onCancel={() => setIsEditDialogOpen(false)} />
               </DialogContent>
             </Dialog>
-            <AlertDialog><AlertDialogTrigger asChild><Button variant="outline" size="sm" className="text-destructive"><Trash2 className="h-3 w-3" /></Button></AlertDialogTrigger>
-              <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete Linen Item</AlertDialogTitle>
-                <AlertDialogDescription>Delete "{item.display_name}"? Existing count records might prevent this operation.</AlertDialogDescription>
-              </AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => { void handleDelete(item); }}>Delete</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialog></div>}
+            <AlertDialog>
+              <AlertDialogTrigger asChild><Button variant="outline" size="sm" className="text-destructive"><Trash2 className="h-3 w-3" /></Button></AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete Linen Item</AlertDialogTitle>
+                  <AlertDialogDescription>Delete "{item.display_name}"? Existing count records might prevent this operation.</AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => { void handleDelete(item); }}>Delete</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>}
         </div>)}</div>}
     </CardContent></Card>
   </div>;
