@@ -5,6 +5,7 @@ import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { HotelRoomOverview as LiveHotelRoomOverview } from './HotelRoomOverviewLive';
 import { GozsduRoomOverviewActions } from './GozsduRoomOverviewActions';
 import { HistoricalHotelRoomOverviewSaved } from './HistoricalHotelRoomOverviewSaved';
+import { MemoriesHistoricalRoomOverview } from './MemoriesHistoricalRoomOverview';
 import { RoomOperationsQuickHub } from './RoomOperationsQuickHub';
 import { RoomHoverIntentGuard } from './RoomHoverIntentGuard';
 import { TomorrowHousekeepingLauncher } from './TomorrowHousekeepingLauncher';
@@ -21,6 +22,10 @@ type HotelRoomOverviewProps = React.ComponentProps<typeof LiveHotelRoomOverview>
  * the pointer moves across the room board. Past dates replay the immutable
  * per-business-date snapshot read-only.
  *
+ * Memories uses a date-verified historical DND view: a prior-day DND flag
+ * must not contaminate an approved checkout on the following business date.
+ * All other venues retain their existing historical implementation.
+ *
  * Gozsdu has its own room-ID-based click handler. Its PMS display names are not
  * always the rooms.room_number key used by the generic quick hub. Routing its
  * clicks through the generic text lookup caused the false room-not-found error.
@@ -31,7 +36,9 @@ type HotelRoomOverviewProps = React.ComponentProps<typeof LiveHotelRoomOverview>
  */
 export function HotelRoomOverview(props: HotelRoomOverviewProps) {
   if (props.selectedDate < todayBudapest()) {
-    return React.createElement(HistoricalHotelRoomOverviewSaved, props);
+    return isHotelMemoriesBudapest(props.hotelName)
+      ? React.createElement(MemoriesHistoricalRoomOverview, props)
+      : React.createElement(HistoricalHotelRoomOverviewSaved, props);
   }
 
   const isGozsdu = isGozsduCourtHotel(props.hotelName);
