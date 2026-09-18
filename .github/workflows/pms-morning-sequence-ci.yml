@@ -1,0 +1,42 @@
+name: PMS morning sequence CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/functions/hotelcare-pms-morning-sequence/**'
+      - 'supabase/migrations/*portfolio_morning_pms_sequence.sql'
+      - 'supabase/config.toml'
+      - '.github/workflows/pms-morning-sequence-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  edge-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check new edge worker
+        run: deno check supabase/functions/hotelcare-pms-morning-sequence/index.ts
+      - name: Validate schedule and authorization invariants
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          code = Path('supabase/functions/hotelcare-pms-morning-sequence/index.ts').read_text()
+          sql = Path('supabase/migrations/20260918104500_portfolio_morning_pms_sequence.sql').read_text()
+          config = Path('supabase/config.toml').read_text()
+          assert '"memories-budapest", "mika-downtown", "ottofiori", "gozsdu-court"' in code
+          assert 'clock.minute % 10 !== 0' in code
+          assert 'timeZone: "Europe/Budapest"' in code
+          assert 'get_housekeeping_release_worker_secret' in code
+          assert 'pms_morning_sync_runs' in code
+          assert "'*/10 4-8 * * *'" in sql
+          assert "'hotelcare-housekeeping-pms-preflight'" not in sql
+          assert "[functions.hotelcare-pms-morning-sequence]\nverify_jwt = false" in config
+          print('PASS: sequence order, ten-minute gate, Budapest DST, secret, claim, cron, independent preflight, auth')
+          PY
