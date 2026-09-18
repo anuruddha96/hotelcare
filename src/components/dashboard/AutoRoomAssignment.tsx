@@ -8,6 +8,7 @@ import {
 } from '@/lib/gozsduLaundryDutySession';
 import { AutoRoomAssignment as OriginalAutoRoomAssignment } from './AutoRoomAssignmentLegacy';
 import { GozsduLaundryDutyPicker } from './GozsduLaundryDutyPicker';
+import './auto-assignment-legibility.css';
 
 type Props = ComponentProps<typeof OriginalAutoRoomAssignment>;
 
