@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { BedDouble, Clock3, ImagePlus } from 'lucide-react';
 import { AssignedRoomCard as ExistingAssignedRoomCard } from './AssignedRoomCardLegacy';
@@ -13,6 +14,34 @@ import { parsePrevioLateCheckoutTime } from '@/lib/previoLateCheckout';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { readGozsduRoomOverride } from '@/lib/gozsduRoomBucketOverride';
 import { gozsduWorkPresentation } from '@/lib/gozsduWorkPresentation';
+import { supabase } from '@/integrations/supabase/client';
+
+/** Resolve the manager's building mapping once for all Gozsdu housekeeper cards.
+ * Never infer a building from a PMS prefix or room number, and never write a
+ * display-only building label back to the room or to Previo. */
+async function loadGozsduHousekeeperBuildings(): Promise<Map<string, string>> {
+  const { data: sections, error: sectionError } = await (supabase as any)
+    .from('hotel_housekeeping_sections')
+    .select('id,name')
+    .eq('hotel_name', 'Gozsdu Court Budapest')
+    .eq('is_active', true);
+  if (sectionError) throw sectionError;
+  const sectionNames = new Map<string, string>(
+    (sections || []).map((section: { id: string; name: string }) => [section.id, section.name]),
+  );
+  if (!sectionNames.size) return new Map();
+  const { data: mappings, error: mappingError } = await (supabase as any)
+    .from('hotel_housekeeping_section_rooms')
+    .select('room_id,section_id')
+    .in('section_id', Array.from(sectionNames.keys()));
+  if (mappingError) throw mappingError;
+  const result = new Map<string, string>();
+  for (const mapping of (mappings || []) as { room_id: string; section_id: string }[]) {
+    const name = sectionNames.get(mapping.section_id)?.trim();
+    if (name) result.set(mapping.room_id, name);
+  }
+  return result;
+}
 
 /** The production room card and five required-photo flow remain unchanged.
  * One optional action gives every hotel unlimited additional camera angles. */
@@ -20,12 +49,21 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
   const [open, setOpen] = useState(false);
   const [bedSetupOpen, setBedSetupOpen] = useState(false);
   const { language } = useTranslation();
-  const { profile } = useAuth();
+  const { user, profile } = useAuth();
   const role = String(profile?.role || '').toLowerCase();
   const canEditBedSetup = hasManagerPowers(profile?.role) || ['supervisor', 'reception', 'front_office', 'reception_manager'].includes(role);
   const date = (props.assignment as typeof props.assignment & { assignment_date?: string }).assignment_date || todayBudapest();
   const originalRoom = props.assignment.rooms;
-  const gozsduOverride = originalRoom && isGozsduCourtHotel(originalRoom.hotel)
+  const isGozsduRoom = !!originalRoom && isGozsduCourtHotel(originalRoom.hotel);
+  const { data: buildingByRoom } = useQuery({
+    queryKey: ['gozsdu-housekeeper-building-map', user?.id],
+    queryFn: loadGozsduHousekeeperBuildings,
+    enabled: !!user?.id && isGozsduRoom,
+    staleTime: 60_000,
+    retry: 1,
+  });
+  const mappedBuilding = isGozsduRoom ? buildingByRoom?.get(props.assignment.room_id) : undefined;
+  const gozsduOverride = originalRoom && isGozsduRoom
     ? readGozsduRoomOverride(originalRoom.pms_metadata, date)
     : null;
   // Presentation only: the real PMS values remain untouched in Supabase.
@@ -34,7 +72,7 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
   const meta = originalRoom?.pms_metadata;
   // Display-only: manager setup wins over stale PMS inference. Keep Gozsdu work overrides.
   const manualBedInstruction = displayHousekeepingBedSetup(room?.bed_configuration);
-  const roomForDisplay = room && manualBedInstruction ? {
+  const bedConfiguredRoom = room && manualBedInstruction ? {
     ...room,
     bed_configuration: manualBedInstruction,
     pms_metadata: {
@@ -42,6 +80,18 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
       inferredBedConfig: null,
     },
   } : room;
+  // The legacy card renders room_name on the compact Floor · Hotel location
+  // line. Append the manager-mapped building there without changing hotel
+  // identity (which is used for property-specific business rules).
+  const buildingLabel = mappedBuilding
+    ? (/^building\b/i.test(mappedBuilding) ? mappedBuilding : `${language === 'hu' ? 'Épület' : 'Building'}: ${mappedBuilding}`)
+    : null;
+  const originalRoomName = bedConfiguredRoom?.room_name?.trim();
+  const roomForDisplay = bedConfiguredRoom && buildingLabel ? {
+    ...bedConfiguredRoom,
+    room_name: [buildingLabel, originalRoomName && originalRoomName !== mappedBuilding && originalRoomName !== buildingLabel ? originalRoomName : null]
+      .filter(Boolean).join(' · '),
+  } : bedConfiguredRoom;
 
   // Hotel Memories only. The live Previo feed currently carries "LCO UNTIL
   // 1500" in a reservation note even though its ordinary Departure field is
