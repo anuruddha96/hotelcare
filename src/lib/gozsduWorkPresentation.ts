@@ -21,6 +21,8 @@ export function gozsduWorkPresentation<T extends {
   if (!override || override.bucket === 'other') return assignment;
   const checkout = override.bucket === 'checkout';
   const metadata = room.pms_metadata && typeof room.pms_metadata === 'object' ? room.pms_metadata : {};
+  // Preserve the input assignment's extended fields (photos, status, IDs).
+  // Only the derived values passed into the existing card change.
   return {
     ...assignment,
     assignment_type: checkout ? 'checkout_cleaning' : 'daily_cleaning',
@@ -31,5 +33,5 @@ export function gozsduWorkPresentation<T extends {
       linen_change_required: override.bucket === 'service' && override.service === 'change_room',
       pms_metadata: { ...metadata, scheduledDepartureToday: checkout },
     },
-  };
+  } as T;
 }
