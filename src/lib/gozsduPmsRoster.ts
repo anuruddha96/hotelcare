@@ -1,4 +1,5 @@
 import { getGozsduHousekeepingCycle, type GozsduHousekeepingService } from './gozsdu-housekeeping';
+import { readGozsduRoomOverride } from './gozsduRoomBucketOverride';
 
 export type GozsduPmsRow = {
   room_label: string | null;
@@ -61,10 +62,15 @@ export function reconcileGozsduPmsRoster(
     const totalNights = departure - arrival;
     const registryEntry = registry.find(entry => entry.room_id === roomId)!;
     const noShow = !isCheckout && room.pms_metadata?.isNoShow === true && row.status !== 'ongoing';
-    const service = isCheckout || noShow || registryEntry.service_status !== 'operating'
+    const computedService = isCheckout || noShow || registryEntry.service_status !== 'operating'
       ? 'none' : getGozsduHousekeepingCycle({ currentNight: night, totalNights, isCheckout }).service;
+    // Manual cleaning plans are date-scoped and do not modify PMS stay facts.
+    // Never turn a no-show or unavailable room into an operational task.
+    const override = !noShow && registryEntry.service_status === 'operating'
+      ? readGozsduRoomOverride(room.pms_metadata, selectedDate) : null;
+    const service = override?.service ?? computedService;
     byRoom.set(roomId, {
-      bucket: isCheckout ? 'checkout' : noShow ? 'noshow' : service !== 'none' ? 'service' : 'other',
+      bucket: override?.bucket ?? (isCheckout ? 'checkout' : noShow ? 'noshow' : service !== 'none' ? 'service' : 'other'),
       service, night, totalNights, leavesTomorrow: row.departure_date === new Date((selected + 1) * 86400000).toISOString().slice(0, 10),
     });
   }
