@@ -6,8 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { todayBudapest } from '@/lib/budapestTime';
-import { deriveMemoriesLegacyIncidents, keepSameStayIncidents, type MemoriesIncident,
-  type MemoriesSnapshot, type MemoriesDatedAssignment, type MemoriesDndPhoto } from '@/lib/memoriesLegacyService';
+import { keepSameStayIncidents, type MemoriesIncident } from '@/lib/memoriesLegacyService';
 
 type Proof = { service_type: 'towel' | 'linen' };
 type Props = {
@@ -34,9 +33,9 @@ export function pendingServices(incident: MemoriesIncident): string[] {
     incident.linen_due && !incident.linen_confirmed_at ? 'full linen change' : ''].filter(Boolean);
 }
 
-/** RLS prevents housekeepers from reading checkout incident rows. No saved
- * assignment or historical snapshot is written or changed. Pre-migration
- * incidents are reconstructed read-only from DATED evidence, never had_dnd. */
+/** RLS prevents housekeepers from reading checkout incident rows. The dated
+ * legacy fallback is a sanitized SECURITY DEFINER RPC restricted to the
+ * signed-in person's CURRENT assignment; historical rows stay unchanged. */
 export function MemoriesServiceCarryover({ assignmentId, assignmentDate, roomId, roomNumber,
   isCheckout, assignmentStatus, assignmentIsDnd, assignmentNotes, towelRequired, linenRequired }: Props) {
   const { user, profile } = useAuth();
@@ -65,32 +64,29 @@ export function MemoriesServiceCarryover({ assignmentId, assignmentDate, roomId,
       if (proofs.error) throw proofs.error;
       let incidents = (events.data || []) as MemoriesIncident[];
       const todayProofs = (proofs.data || []) as Proof[];
-      // The ledger begins at deployment. Read old verified assignments/photos
-      // for exactly yesterday, so 17 September incidents remain visible on
-      // 18 September without manufacturing events or mutating old rows.
+      // The new ledger has no historical backfill. The RPC independently
+      // verifies yesterday's dated assignment and its DND evidence, including
+      // 17 September -> 18 September, without granting general snapshot access.
       if (yesterday && !incidents.some(event => event.source_business_date === yesterday)) {
-        const [saved, dated, photos] = await Promise.all([
-          (supabase as any).from('housekeeping_room_snapshots')
-            .select('room_id,business_date,towel_change_required,linen_change_required')
-            .eq('room_id', roomId).eq('business_date', yesterday).maybeSingle(),
-          (supabase as any).from('room_assignments')
-            .select('id,room_id,assignment_date,assignment_type,status,service_result,notes,is_dnd,dnd_attempt_count,completed_at')
-            .eq('room_id', roomId).eq('assignment_date', yesterday),
-          (supabase as any).from('dnd_photos')
-            .select('room_id,assignment_id,assignment_date,marked_at')
-            .eq('room_id', roomId).eq('assignment_date', yesterday),
-        ]);
-        if (saved.error || dated.error || photos.error) {
-          throw saved.error || dated.error || photos.error;
-        }
-        incidents = incidents.concat(deriveMemoriesLegacyIncidents(
-          saved.data ? [saved.data as MemoriesSnapshot] : [],
-          (dated.data || []) as MemoriesDatedAssignment[],
-          (photos.data || []) as MemoriesDndPhoto[], yesterday,
-        ));
+        const legacy = await (supabase as any).rpc('memories_previous_day_service', {
+          p_assignment_id: assignmentId,
+        });
+        if (legacy.error) throw legacy.error;
+        incidents = incidents.concat((legacy.data || []).map((item: any) => ({
+          id: `legacy-${item.source_assignment_id}`,
+          room_id: roomId,
+          source_business_date: item.source_business_date,
+          incident_type: item.incident_type,
+          towel_due: item.towel_due,
+          linen_due: item.linen_due,
+          towel_confirmed_at: null,
+          linen_confirmed_at: null,
+          incident_resolved_same_day: item.incident_resolved_same_day,
+          legacy_verified: true,
+        } as MemoriesIncident)));
       }
-      // Prevent a pending item from belonging to a different guest after an
-      // intervening checkout (including a full cleanup and new arrival).
+      // A new guest must never inherit an earlier guest's deferred textile
+      // work after an intervening checkout. Yesterday's verified note survives.
       if (incidents.some(event => event.source_business_date < yesterday)) {
         const history = await (supabase as any).from('housekeeping_room_snapshots')
           .select('business_date,is_checkout_room,assignment_type,pms_metadata')
@@ -101,9 +97,10 @@ export function MemoriesServiceCarryover({ assignmentId, assignmentDate, roomId,
           row.pms_metadata?.manual_daily !== true &&
           (row.is_checkout_room === true || row.pms_metadata?.scheduledDepartureToday === true
             || row.assignment_type === 'checkout_cleaning')).map((row: any) => row.business_date);
+        // Housekeepers are intentionally barred from raw snapshots. Their
+        // previous-day RPC still works; older unverified items fail closed.
         incidents = keepSameStayIncidents(incidents, checkoutDates, assignmentDate);
-        // If the oldest available history is newer than an incident, its
-        // guest boundary is unverified: fail closed rather than leak an old stay.
+        if (!canManage) incidents = incidents.filter(event => event.source_business_date === yesterday);
         const oldestSavedDate = (history.data || []).at(-1)?.business_date;
         if (history.data?.length === 180 && oldestSavedDate) {
           incidents = incidents.filter(event => event.source_business_date >= oldestSavedDate);
