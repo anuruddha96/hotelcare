@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { GozsduCourtRoomOverview } from './GozsduCourtRoomOverview';
+import { GozsduRoomEssentials } from './GozsduRoomEssentials';
 import { RoomDetailDialog } from './RoomDetailDialog';
 
 type Props = React.ComponentProps<typeof GozsduCourtRoomOverview>;
@@ -34,7 +35,9 @@ const SECTION_NAMES: Array<{ bucket: GozsduRoomBucket; title: string }> = [
 ];
 
 /** Gozsdu has distinct PMS display labels and internal room IDs. All click and
- * drag actions resolve the ID and stay within this property's live inventory. */
+ * drag actions resolve the ID and stay within this property's live inventory.
+ * The full manager controls below use the same ID; the generic text-based
+ * quick hub must not be attached, as it can select a different room. */
 export function GozsduRoomOverviewActions(props: Props) {
   const { user, profile } = useAuth();
   const role = String(profile?.role || '').toLowerCase();
@@ -241,8 +244,7 @@ export function GozsduRoomOverviewActions(props: Props) {
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
     } catch (error) {
       console.error('[Gozsdu] cleaning/assignment change failed', error);
-      // Best-effort recovery: if the assignment write fails, restore the room
-      // category and previously recorded types, never announce a false success.
+      // Best-effort recovery of the date override and previous assignment types.
       if (metadataSaved && previousMetadata) {
         const { error: rollbackError } = await supabase.from('rooms').update({ pms_metadata: previousMetadata } as any)
           .eq('id', room.id).in('hotel', HOTEL_KEYS);
@@ -260,6 +262,10 @@ export function GozsduRoomOverviewActions(props: Props) {
       setSaving(false);
     }
   };
+
+  const serviceLabel = bucket === 'checkout' ? 'Checkout'
+    : bucket === 'service' ? service === 'change_room' ? 'Second-day · complete textile change' : 'Second-day · towel change'
+      : 'Other rooms';
 
   return (
     <>
@@ -287,52 +293,64 @@ export function GozsduRoomOverviewActions(props: Props) {
         <GozsduCourtRoomOverview {...props} />
       </div>
       <Dialog open={open} onOpenChange={next => { if (!next) requestId.current++; setOpen(next); }}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
-          <DialogHeader><DialogTitle>Room {label}</DialogTitle></DialogHeader>
-          {loading ? <p className="text-sm text-muted-foreground">Loading room details…</p> : room ? (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">Room status: {room.status || 'Unknown'} · {props.selectedDate}</p>
-              {currentStaff && <p className="text-xs text-muted-foreground">Currently assigned: {props.staffMap[currentStaff] || 'Existing housekeeper'}</p>}
-              {locked && <p role="alert" className="rounded border border-amber-400 bg-amber-50 p-2 text-xs text-amber-900">Cleaning is already in progress or completed. Reassignment and cleaning-type changes are locked.</p>}
-              {canEdit && !locked ? <>
-                <label className="block space-y-1 text-sm font-medium">Cleaning section
-                  <Select value={bucket} onValueChange={value => setBucket(value as GozsduRoomBucket)}>
-                    <SelectTrigger><SelectValue placeholder="Choose a cleaning section" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="checkout">Checkout cleaning</SelectItem>
-                      <SelectItem value="service">Second-day cleaning</SelectItem>
-                      <SelectItem value="other">Other rooms — no service today</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </label>
-                {bucket === 'service' && <label className="block space-y-1 text-sm font-medium">Cleaning required
-                  <Select value={service} onValueChange={value => setService(value as Service)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="towel_change">Towel change</SelectItem>
-                      <SelectItem value="change_room">Full cleaning / complete textile change</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </label>}
-                <label className="block space-y-1 text-sm font-medium">Assign to housekeeper
-                  <Select value={staffId} onValueChange={setStaffId}>
-                    <SelectTrigger><SelectValue placeholder="Choose housekeeper" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="keep">{currentStaff ? 'Keep existing housekeeper' : 'Do not assign yet'}</SelectItem>
-                      {availableStaff.map(([id, name]) => <SelectItem key={id} value={id}>{name}{props.signedInHousekeepers?.some(person => person.id === id) ? ' · Signed in' : ''}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </label>
-                <label className="block space-y-1 text-sm font-medium">Reason (optional)
-                  <Input value={reason} onChange={event => setReason(event.target.value)} maxLength={200} placeholder="e.g. Cleaning missed yesterday" />
-                </label>
-                <p className="text-xs text-muted-foreground">Changes HotelCare's plan for this date only; never changes the Previo reservation or guest departure. Room assignments cannot be changed after cleaning starts.</p>
-                <Button className="w-full" disabled={saving || !bucket || (bucket === 'other' && staffId !== 'keep')}
-                  onClick={() => void save()}>{saving ? 'Saving…' : staffId === 'keep' ? 'Save cleaning section' : 'Save & assign room'}</Button>
-              </> : <p className="text-xs text-muted-foreground">Only authorized managers and supervisors can change the cleaning plan. Past dates remain read-only.</p>}
-              <Button variant="outline" className="w-full" onClick={() => { setOpen(false); setDetailsOpen(true); }}>Open full room details</Button>
-            </div>
-          ) : <p className="text-sm text-muted-foreground">Room information is unavailable. Refresh the overview.</p>}
+        <DialogContent className="flex max-h-[94dvh] w-[calc(100vw-1.25rem)] max-w-3xl flex-col overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b bg-gradient-to-r from-slate-50 via-white to-sky-50 px-4 py-4 sm:px-5">
+            <DialogTitle>Room {label} · Gozsdu Court Budapest</DialogTitle>
+            <p className="text-xs text-muted-foreground">{props.selectedDate}</p>
+          </DialogHeader>
+          <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-5">
+            {loading ? <p className="text-sm text-muted-foreground">Loading room details…</p> : room ? (
+              <>
+                <section className="space-y-4 rounded-xl border border-primary/20 bg-muted/20 p-3 sm:p-4" aria-label="Gozsdu-specific cleaning plan">
+                  <div>
+                    <h3 className="font-semibold">Gozsdu cleaning plan</h3>
+                    <p className="text-xs text-muted-foreground">Room status: {room.status || 'Unknown'} · currently assigned: {currentStaff ? props.staffMap[currentStaff] || 'Existing housekeeper' : 'Unassigned'}</p>
+                  </div>
+                  {locked && <p role="alert" className="rounded border border-amber-400 bg-amber-50 p-2 text-xs text-amber-900">Cleaning is already in progress or completed. Reassignment and cleaning-type changes are locked.</p>}
+                  {canEdit && !locked ? <>
+                    <label className="block space-y-1 text-sm font-medium">Cleaning section
+                      <Select value={bucket} onValueChange={value => setBucket(value as GozsduRoomBucket)}>
+                        <SelectTrigger><SelectValue placeholder="Choose a cleaning section" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="checkout">Checkout cleaning</SelectItem>
+                          <SelectItem value="service">Second-day cleaning</SelectItem>
+                          <SelectItem value="other">Other rooms — no service today</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </label>
+                    {bucket === 'service' && <label className="block space-y-1 text-sm font-medium">Cleaning required
+                      <Select value={service} onValueChange={value => setService(value as Service)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="towel_change">Towel change</SelectItem>
+                          <SelectItem value="change_room">Full cleaning / complete textile change</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </label>}
+                    <label className="block space-y-1 text-sm font-medium">Assign to housekeeper
+                      <Select value={staffId} onValueChange={setStaffId}>
+                        <SelectTrigger><SelectValue placeholder="Choose housekeeper" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="keep">{currentStaff ? 'Keep existing housekeeper' : 'Do not assign yet'}</SelectItem>
+                          {availableStaff.map(([id, name]) => <SelectItem key={id} value={id}>{name}{props.signedInHousekeepers?.some(person => person.id === id) ? ' · Signed in' : ''}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </label>
+                    <label className="block space-y-1 text-sm font-medium">Reason (optional)
+                      <Input value={reason} onChange={event => setReason(event.target.value)} maxLength={200} placeholder="e.g. Cleaning missed yesterday" />
+                    </label>
+                    <p className="text-xs text-muted-foreground">Changes HotelCare's plan for this date only; never changes the Previo reservation or guest departure. Room assignments cannot be changed after cleaning starts.</p>
+                    <Button className="w-full" disabled={saving || !bucket || (bucket === 'other' && staffId !== 'keep')}
+                      onClick={() => void save()}>{saving ? 'Saving…' : staffId === 'keep' ? 'Save cleaning section' : 'Save & assign room'}</Button>
+                  </> : <p className="text-xs text-muted-foreground">Only authorized managers and supervisors can change the cleaning plan. Past dates remain read-only.</p>}
+                </section>
+                <GozsduRoomEssentials key={`${room.id}:${props.selectedDate}`} roomId={room.id}
+                  roomLabel={label} selectedDate={props.selectedDate} serviceLabel={serviceLabel}
+                  staffMap={props.staffMap} onChanged={() => { /* The companion dispatches the room-board refresh. */ }} />
+                <Button variant="outline" className="w-full" onClick={() => { setOpen(false); setDetailsOpen(true); }}>Open full room details</Button>
+              </>
+            ) : <p className="text-sm text-muted-foreground">Room information is unavailable. Refresh the overview.</p>}
+          </div>
         </DialogContent>
       </Dialog>
       <RoomDetailDialog
