@@ -1,7 +1,7 @@
 /* A snapshot's had_dnd is an OR-accumulator, not proof of an encounter on its
- * business date. In particular, midnight capture can inherit yesterday's
- * rooms.is_dnd before PMS checkout reconciliation clears it in the morning.
- * Do not change persisted history; interpret it conservatively in the UI. */
+ * business date. A midnight capture can inherit yesterday's rooms.is_dnd
+ * before PMS checkout reconciliation clears it the next morning.
+ * Never change persisted history to correct its presentation. */
 export interface HistoricalDndInput {
   is_dnd: boolean | null;
   had_dnd: boolean | null;
@@ -16,16 +16,17 @@ export type HistoricalDndState = 'none' | 'active' | 'earlier' | 'conflict';
 export function historicalDndState(row: HistoricalDndInput, evidenceCount: number): HistoricalDndState {
   const approved = row.assignment_status === 'completed' && row.supervisor_approved === true;
   const reportedActive = row.is_dnd === true || row.assignment_status === 'dnd_pending_retry';
-  // A completed and approved room cannot simultaneously be displayed as an
-  // active DND. Preserve conflicting facts visibly rather than rewriting one.
-  if (approved && reportedActive) return 'conflict';
+  const datedAttempt = evidenceCount > 0 || (row.dnd_attempt_count ?? 0) > 0;
+  // Approval of a DND/no-entry outcome is possible. Keep the day's documented
+  // encounter, but never render it as an ACTIVE DND on an approved task.
+  if (approved && reportedActive) return datedAttempt ? 'earlier' : 'conflict';
   if (reportedActive) return 'active';
-  // The assignment counter is date-scoped. had_dnd is NOT: it may be inherited
-  // from the previous night's rooms.is_dnd at midnight.
-  if (evidenceCount > 0 || (row.dnd_attempt_count ?? 0) > 0) return 'earlier';
+  // An assignment counter and photos are dated; had_dnd alone is not.
+  if (datedAttempt) return 'earlier';
   return 'none';
 }
 
+/** Stable venue-scoped snapshot choice, independent of backend row ordering. */
 export function selectSavedSnapshot<T extends {
   hotel: string;
   room_number: string;
@@ -45,7 +46,7 @@ export function selectSavedSnapshot<T extends {
     const x = rank(a), y = rank(b);
     for (let i = 0; i < x.length; i++) {
       if (x[i] === y[i]) continue;
-      return x[i] > y[i];
+      return String(x[i]) > String(y[i]);
     }
     return false;
   };
@@ -57,6 +58,7 @@ export function selectSavedSnapshot<T extends {
   return [...byNumber.values()].sort((a, b) => a.room_number.localeCompare(b.room_number, undefined, { numeric: true }));
 }
 
+/** Midnight UTC can already belong to the next Budapest business date. */
 export function isBudapestBusinessDate(timestamp: string, businessDate: string): boolean {
   const date = new Date(timestamp);
   return Number.isFinite(date.getTime())
