@@ -1,0 +1,44 @@
+/* Scope this readability adjustment to the auto-assignment preview. Other room
+   overview chips and hotel-specific housekeeping screens remain unchanged. */
+[role="dialog"]:has([data-staff-drop-id]) [title^="Room "] {
+  min-height: 32px;
+  max-width: 100%;
+  gap: 4px;
+  padding: 4px 7px;
+  font-size: 12px;
+  line-height: 1.3;
+  border-radius: 6px;
+}
+
+[role="dialog"]:has([data-staff-drop-id]) [title^="Room "] > .font-semibold {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+[role="dialog"]:has([data-staff-drop-id]) [title^="Room "] > span:not(.font-semibold) {
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+[role="dialog"]:has([data-staff-drop-id]) [title^="Room "] > button[aria-label^="Select room"],
+[role="dialog"]:has([data-staff-drop-id]) [title^="Room "] > button[aria-label^="Deselect room"] {
+  min-width: 26px;
+  min-height: 26px;
+  width: 26px;
+  height: 26px;
+  margin-right: 2px;
+}
+
+@media (pointer: coarse) {
+  [role="dialog"]:has([data-staff-drop-id]) [title^="Room "] {
+    min-height: 38px;
+    padding: 5px 8px;
+  }
+  [role="dialog"]:has([data-staff-drop-id]) [title^="Room "] > button[aria-label^="Select room"],
+  [role="dialog"]:has([data-staff-drop-id]) [title^="Room "] > button[aria-label^="Deselect room"] {
+    min-width: 30px;
+    min-height: 30px;
+    width: 30px;
+    height: 30px;
+  }
+}
