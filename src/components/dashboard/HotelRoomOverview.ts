@@ -3,7 +3,7 @@ import { todayBudapest } from '@/lib/budapestTime';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { HotelRoomOverview as LiveHotelRoomOverview } from './HotelRoomOverviewLive';
-import { GozsduCourtRoomOverview } from './GozsduCourtRoomOverview';
+import { GozsduRoomOverviewActions } from './GozsduRoomOverviewActions';
 import { HistoricalHotelRoomOverviewSaved } from './HistoricalHotelRoomOverviewSaved';
 import { RoomOperationsQuickHub } from './RoomOperationsQuickHub';
 import { RoomHoverIntentGuard } from './RoomHoverIntentGuard';
@@ -21,9 +21,9 @@ type HotelRoomOverviewProps = React.ComponentProps<typeof LiveHotelRoomOverview>
  * the pointer moves across the room board. Past dates replay the immutable
  * per-business-date snapshot read-only.
  *
- * Gozsdu Court Budapest is intentionally routed to its own live housekeeping
- * board because its every-second-night service cycle and building mapping are
- * property-specific and must never leak into another hotel.
+ * Gozsdu has its own room-ID-based click handler. Its PMS display names are not
+ * always the rooms.room_number key used by the generic quick hub. Routing its
+ * clicks through the generic text lookup caused the false room-not-found error.
  *
  * The live Team View also exposes the next-day planner as a visible manager-only
  * card. Its launcher still routes through AutoRoomAssignment, so tomorrow uses
@@ -34,22 +34,19 @@ export function HotelRoomOverview(props: HotelRoomOverviewProps) {
     return React.createElement(HistoricalHotelRoomOverviewSaved, props);
   }
 
-  const liveOverview = isGozsduCourtHotel(props.hotelName)
-    ? React.createElement(GozsduCourtRoomOverview, props)
+  const isGozsdu = isGozsduCourtHotel(props.hotelName);
+  const liveOverview = isGozsdu
+    ? React.createElement(GozsduRoomOverviewActions, props)
     : React.createElement(LiveHotelRoomOverview, props);
 
   const scopedOverview = isHotelMemoriesBudapest(props.hotelName)
-    ? React.createElement(
-        'div',
-        { className: 'hotel-memories-room-overview' },
-        liveOverview,
-      )
+    ? React.createElement('div', { className: 'hotel-memories-room-overview' }, liveOverview)
     : liveOverview;
 
   const overview = React.createElement(
     RoomHoverIntentGuard,
     null,
-    React.createElement(RoomOperationsQuickHub, {
+    isGozsdu ? scopedOverview : React.createElement(RoomOperationsQuickHub, {
       selectedDate: props.selectedDate,
       hotelName: props.hotelName,
       staffMap: props.staffMap,
