@@ -1,0 +1,44 @@
+/* Loaded after revenue-grid-performance.css. Only the Rate & Pickup card is affected. */
+[data-training="revenue-grid"]:not(.fixed) .overscroll-x-contain {
+  /* A nested calendar must never trap ordinary page scrolling at its edges. */
+  overscroll-behavior-x: contain !important;
+  overscroll-behavior-y: auto !important;
+}
+
+/* Large (91-365 day) views should not force Chrome to paint thousands of
+   off-screen cells. Keep the sticky dates/metric headers fully painted and
+   restore native content-visibility only for the body cells. The original
+   explicit width/height + intrinsic sizes retain the grid's layout geometry. */
+[data-training="revenue-grid"][data-rate-calendar-long="true"]
+  .overscroll-x-contain > div > div:not(.sticky.top-0) [style*="content-visibility"] {
+  content-visibility: auto !important;
+}
+
+/* The switch lives alongside the existing toolbar controls, not over cells. */
+[data-training="revenue-grid"] .rate-calendar-wheel-toggle {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 9px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  line-height: 1.1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+[data-training="revenue-grid"] .rate-calendar-wheel-toggle:hover,
+[data-training="revenue-grid"] .rate-calendar-wheel-toggle[aria-pressed="true"] {
+  background: hsl(var(--accent));
+}
+[data-training="revenue-grid"] .rate-calendar-wheel-toggle:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+@media (max-width: 767px) {
+  [data-training="revenue-grid"] .rate-calendar-wheel-toggle {
+    min-height: 30px;
+    font-size: 11px;
+  }
+}
