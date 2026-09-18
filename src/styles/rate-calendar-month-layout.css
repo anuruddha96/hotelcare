@@ -1,0 +1,135 @@
+/* Rate & Pickup only. The rate matrix keeps its own date/row geometry, native
+   horizontal scroll and minimum legible cell widths; no rate data is touched. */
+@media (min-width: 1024px) {
+  /* Tailwind's .container max-width capped the whole revenue workspace even on
+     wide monitors. Widen only the container actually hosting this calendar. */
+  .container:has([data-training="revenue-grid"]) {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0;
+  }
+
+  /* The old 72dvh cap wasted usable laptop/monitor space when the hotel has
+     enough rows. Use a larger responsive ceiling; short hotels still hug rows. */
+  [data-training="revenue-grid"]:not(.fixed) .overscroll-x-contain {
+    max-height: min(90dvh, calc(100dvh - 108px)) !important;
+  }
+}
+
+[data-training="revenue-grid"] {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+[data-training="revenue-grid"] > div,
+[data-training="revenue-grid"] > div > .relative,
+[data-training="revenue-grid"] .overscroll-x-contain {
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* The old unlabelled month buttons looked like plain text (especially on an
+   iPhone). Present them as an obvious, separate decision toolbar. :has is
+   supported by current Chrome and Safari; the JS enhancer also adds an exact
+   data attribute, with equivalent rules below for either selector. */
+[data-training="revenue-grid"] [data-rate-month-navigation],
+[data-training="revenue-grid"] div:has(> button[title^="Show only "]) {
+  display: flex;
+  flex-flow: row nowrap;
+  align-items: center;
+  gap: .4rem;
+  padding: .65rem .7rem;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: .7rem;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  border-block: 1px solid hsl(var(--primary) / .25);
+  background: hsl(var(--primary) / .045);
+  -webkit-overflow-scrolling: touch;
+}
+
+[data-training="revenue-grid"] [data-rate-month-navigation]::before,
+[data-training="revenue-grid"] div:has(> button[title^="Show only "])::before {
+  content: "MONTH VIEW  ·  Choose a month →";
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .025em;
+  color: hsl(var(--primary));
+  padding-right: .35rem;
+}
+
+[data-training="revenue-grid"] [data-rate-month-navigation] > button,
+[data-training="revenue-grid"] div:has(> button[title^="Show only "]) > button {
+  flex: 0 0 auto;
+  min-height: 38px;
+  min-width: 60px;
+  padding-inline: .7rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: .55rem;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  font-weight: 650;
+  box-shadow: 0 1px 2px hsl(var(--foreground) / .04);
+  scroll-snap-align: start;
+  transition: background-color .12s ease, border-color .12s ease;
+}
+
+[data-training="revenue-grid"] [data-rate-month-navigation] > button:hover,
+[data-training="revenue-grid"] div:has(> button[title^="Show only "]) > button:hover {
+  background: hsl(var(--primary) / .10);
+  border-color: hsl(var(--primary) / .65);
+}
+
+[data-training="revenue-grid"] [data-rate-month-navigation] > button[aria-pressed="true"],
+[data-training="revenue-grid"] div:has(> button[title^="Show only "]) > button.bg-primary,
+[data-training="revenue-grid"] div:has(> button[title^="Show only "]) > button.bg-secondary {
+  background: hsl(var(--primary)) !important;
+  border-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  font-weight: 750;
+  box-shadow: 0 0 0 2px hsl(var(--primary) / .20);
+}
+
+[data-training="revenue-grid"] [data-rate-month-navigation] > button:focus-visible,
+[data-training="revenue-grid"] div:has(> button[title^="Show only "]) > button:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+@media (max-width: 767px) {
+  [data-training="revenue-grid"] [data-rate-month-navigation],
+  [data-training="revenue-grid"] div:has(> button[title^="Show only "]) {
+    padding: .55rem .6rem;
+    gap: .35rem;
+  }
+  [data-training="revenue-grid"] [data-rate-month-navigation]::before,
+  [data-training="revenue-grid"] div:has(> button[title^="Show only "])::before {
+    content: "MONTH →";
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    padding: .45rem .4rem .45rem 0;
+    background: hsl(var(--card));
+    font-size: 10px;
+  }
+  [data-training="revenue-grid"] [data-rate-month-navigation] > button,
+  [data-training="revenue-grid"] div:has(> button[title^="Show only "]) > button {
+    min-height: 42px;
+    min-width: 66px;
+    font-size: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-training="revenue-grid"] [data-rate-month-navigation] > button {
+    transition: none;
+  }
+}
