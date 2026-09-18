@@ -6,6 +6,7 @@ import { HotelRoomOverview as LiveHotelRoomOverview } from './HotelRoomOverviewL
 import { GozsduRoomOverviewActions } from './GozsduRoomOverviewActions';
 import { HistoricalHotelRoomOverviewSaved } from './HistoricalHotelRoomOverviewSaved';
 import { MemoriesHistoricalRoomOverview } from './MemoriesHistoricalRoomOverview';
+import { MemoriesManagerCarryoverPanel } from './MemoriesManagerCarryoverPanel';
 import { RoomOperationsQuickHub } from './RoomOperationsQuickHub';
 import { RoomHoverIntentGuard } from './RoomHoverIntentGuard';
 import { TomorrowHousekeepingLauncher } from './TomorrowHousekeepingLauncher';
@@ -48,7 +49,13 @@ export function HotelRoomOverview(props: HotelRoomOverviewProps) {
     : React.createElement(LiveHotelRoomOverview, props);
 
   const scopedOverview = isHotelMemoriesBudapest(props.hotelName)
-    ? React.createElement('div', { className: 'hotel-memories-room-overview' }, liveOverview)
+    ? React.createElement('div', { className: 'hotel-memories-room-overview' },
+      React.createElement(MemoriesManagerCarryoverPanel, {
+        hotelName: props.hotelName,
+        selectedDate: props.selectedDate,
+      }),
+      liveOverview,
+    )
     : liveOverview;
 
   const overview = React.createElement(
