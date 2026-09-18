@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState, type ComponentProps } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { laundryCopy } from '@/lib/gozsduLaundrynerI18n';
 import { HousekeepingTabEnhanced } from './HousekeepingTabEnhanced';
 import { GozsduLaundrynerTasks } from './GozsduLaundrynerTasks';
 import { Button } from '@/components/ui/button';
@@ -10,10 +12,12 @@ import { Button } from '@/components/ui/button';
 type Props = ComponentProps<typeof HousekeepingTabEnhanced>;
 
 /** Normal housekeeping is unchanged outside Gozsdu and on non-laundry days.
- * During a code-before-database rollout, the original tasks remain usable;
+ * During a code-before-database rollout, original tasks remain available;
  * other database failures still fail closed to protect assigned work. */
 export function HousekeepingTab(props: Props = {}) {
   const { user, profile } = useAuth();
+  const { language } = useTranslation();
+  const copy = laundryCopy(language);
   const [workDate, setWorkDate] = useState(todayBudapest);
   const [activeDuty, setActiveDuty] = useState(false);
   const [ready, setReady] = useState(false);
@@ -32,8 +36,6 @@ export function HousekeepingTab(props: Props = {}) {
       const missingTable = (error.code === '42P01' || error.code === 'PGRST205')
         && String(error.message || '').includes('gozsdu_laundry_duties');
       if (missingTable) {
-        // A GitHub merge does not itself apply the new Supabase migrations.
-        // Never disable the established housekeeping UI just for that rollout gap.
         setActiveDuty(false);
         setFailed(false);
         setReady(true);
@@ -71,10 +73,10 @@ export function HousekeepingTab(props: Props = {}) {
   }, [scoped, user?.id, workDate, refresh]);
 
   if (!scoped) return <HousekeepingTabEnhanced {...props} />;
-  if (!ready) return <p className="p-4 text-sm text-muted-foreground">Checking Gozsdu housekeeping duty…</p>;
+  if (!ready) return <p role="status" className="p-4 text-sm text-muted-foreground">{copy.loading}</p>;
   if (failed) return <div role="alert" className="space-y-3 rounded-lg border p-4">
-    <p className="text-sm">Cannot verify today's Laundryner duty. Tasks are hidden rather than showing incorrect cleaning assignments.</p>
-    <Button variant="outline" size="sm" onClick={() => { setReady(false); void refresh(); }}>Retry</Button>
+    <p className="text-sm">{copy.syncError}</p>
+    <Button variant="outline" size="sm" onClick={() => { setReady(false); void refresh(); }}>{copy.refresh}</Button>
   </div>;
   return activeDuty ? <GozsduLaundrynerTasks /> : <HousekeepingTabEnhanced {...props} />;
 }
