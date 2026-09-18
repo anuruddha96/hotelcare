@@ -6,6 +6,7 @@ import {
   DoorOpen,
   Users,
   Clock,
+  CalendarDays,
   Radio,
   TrendingUp,
   Receipt,
@@ -31,6 +32,14 @@ const MANAGEMENT_ROLES = [
   'top_management_manager',
 ];
 
+const SCHEDULE_MANAGER_ROLES = [
+  ...MANAGEMENT_ROLES, 'hr', 'maintenance_manager', 'reception_manager',
+  'back_office_manager', 'control_manager', 'finance_manager', 'marketing_manager',
+];
+const SCHEDULE_EMPLOYEE_ROLES = [
+  'housekeeping', 'maintenance', 'reception', 'front_office', 'supervisor',
+  'breakfast_staff', 'marketing', 'control_finance',
+];
 const PARKING_ROLES: readonly string[] = PARKING_ISSUER_ROLES;
 
 const PMS_NAV_ITEMS: NavigationItem[] = [
@@ -70,6 +79,13 @@ const PMS_NAV_ITEMS: NavigationItem[] = [
     roles: MANAGEMENT_ROLES,
   },
   {
+    key: 'work-schedule',
+    icon: CalendarDays,
+    label: 'Work schedule / My schedule',
+    href: (basePath) => `${basePath}/work-schedule`,
+    roles: [...SCHEDULE_MANAGER_ROLES, ...SCHEDULE_EMPLOYEE_ROLES],
+  },
+  {
     key: 'revenue',
     icon: TrendingUp,
     label: 'Revenue Management',
@@ -100,7 +116,8 @@ export function PMSNavigation() {
   const basePath = `/${organizationSlug || 'rdhotels'}`;
 
   const visibleItems = PMS_NAV_ITEMS.filter(
-    (item) => profile && item.roles.includes(profile.role),
+    (item) => profile && item.roles.includes(profile.role) &&
+      (item.key !== 'work-schedule' || profile.organization_slug === 'rdhotels'),
   );
 
   if (!profile || visibleItems.length === 0) return null;
@@ -113,6 +130,7 @@ export function PMSNavigation() {
 
   const activeKey = (() => {
     if (isReceptionPath) return 'reception';
+    if (location.pathname.startsWith(`${basePath}/work-schedule`)) return 'work-schedule';
     if (location.pathname.startsWith(`${basePath}/parking-tickets`)) return 'parking';
     if (location.pathname.startsWith(`${basePath}/revenue`)) return 'revenue';
     if (location.pathname.startsWith(`${basePath}/channel-manager`)) return 'channel-manager';
@@ -145,7 +163,7 @@ export function PMSNavigation() {
                   )}
                 >
                   <item.icon className="h-4 w-4" />
-                  <span className="hidden sm:inline">{item.label}</span>
+                  <span className="hidden sm:inline">{item.key === 'work-schedule' ? (SCHEDULE_MANAGER_ROLES.includes(profile.role) ? 'Work schedule' : 'My schedule') : item.label}</span>
                 </Button>
               </Link>
             );
