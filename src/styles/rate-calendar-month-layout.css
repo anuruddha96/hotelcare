@@ -1,16 +1,13 @@
-/* Rate & Pickup only. The rate matrix keeps its own date/row geometry, native
-   horizontal scroll and minimum legible cell widths; no rate data is touched. */
+/* Rate & Pickup only. Preserve native grid scroll, rate-cell dimensions and
+   legible minimum widths: this file changes presentation, never price data. */
 @media (min-width: 1024px) {
-  /* Tailwind's .container max-width capped the whole revenue workspace even on
-     wide monitors. Widen only the container actually hosting this calendar. */
+  /* Use the whole available desktop workspace, not Tailwind's container cap. */
   .container:has([data-training="revenue-grid"]) {
     width: 100% !important;
     max-width: none !important;
     min-width: 0;
   }
 
-  /* The old 72dvh cap wasted usable laptop/monitor space when the hotel has
-     enough rows. Use a larger responsive ceiling; short hotels still hug rows. */
   [data-training="revenue-grid"]:not(.fixed) .overscroll-x-contain {
     max-height: min(90dvh, calc(100dvh - 108px)) !important;
   }
@@ -29,17 +26,28 @@
   box-sizing: border-box;
 }
 
-/* The old unlabelled month buttons looked like plain text (especially on an
-   iPhone). Present them as an obvious, separate decision toolbar. :has is
-   supported by current Chrome and Safari; the JS enhancer also adds an exact
-   data attribute, with equivalent rules below for either selector. */
+/* The original MONTH arrow was a sticky ::before INSIDE the horizontally
+   scrolling list. On iPhone it painted OVER the All/Sep buttons, obscuring
+   their text and pressed state. Put the label above (outside) that scroller
+   instead, leaving its first button fully visible even after a swipe. */
+[data-training="revenue-grid"] .relative:has(> div > button[title^="Show only "])::before,
+[data-training="revenue-grid"] .relative:has(> [data-rate-month-navigation])::before {
+  content: "MONTH VIEW · Select a month";
+  display: block;
+  padding: .4rem .8rem .1rem;
+  color: hsl(var(--primary));
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .025em;
+}
+
 [data-training="revenue-grid"] [data-rate-month-navigation],
 [data-training="revenue-grid"] div:has(> button[title^="Show only "]) {
   display: flex;
   flex-flow: row nowrap;
   align-items: center;
   gap: .4rem;
-  padding: .65rem .7rem;
+  padding: .55rem .7rem;
   width: 100%;
   min-width: 0;
   overflow-x: auto;
@@ -53,16 +61,11 @@
   -webkit-overflow-scrolling: touch;
 }
 
+/* No sticky pseudo-element may cover the first or currently selected month. */
 [data-training="revenue-grid"] [data-rate-month-navigation]::before,
 [data-training="revenue-grid"] div:has(> button[title^="Show only "])::before {
-  content: "MONTH VIEW  ·  Choose a month →";
-  flex: 0 0 auto;
-  white-space: nowrap;
-  font-size: 11px;
-  font-weight: 750;
-  letter-spacing: .025em;
-  color: hsl(var(--primary));
-  padding-right: .35rem;
+  content: none !important;
+  display: none !important;
 }
 
 [data-training="revenue-grid"] [data-rate-month-navigation] > button,
@@ -80,6 +83,13 @@
   box-shadow: 0 1px 2px hsl(var(--foreground) / .04);
   scroll-snap-align: start;
   transition: background-color .12s ease, border-color .12s ease;
+}
+
+/* The native first button says All. Clarify it visually without replacing
+   React's button or altering its existing onClick/keyboard functionality. */
+[data-training="revenue-grid"] [data-rate-month-navigation] > button:first-child::after,
+[data-training="revenue-grid"] div:has(> button[title^="Show only "]) > button:first-child::after {
+  content: " dates";
 }
 
 [data-training="revenue-grid"] [data-rate-month-navigation] > button:hover,
@@ -105,20 +115,15 @@
 }
 
 @media (max-width: 767px) {
+  [data-training="revenue-grid"] .relative:has(> div > button[title^="Show only "])::before,
+  [data-training="revenue-grid"] .relative:has(> [data-rate-month-navigation])::before {
+    content: "Choose month";
+    padding: .3rem .65rem .05rem;
+  }
   [data-training="revenue-grid"] [data-rate-month-navigation],
   [data-training="revenue-grid"] div:has(> button[title^="Show only "]) {
-    padding: .55rem .6rem;
+    padding: .45rem .6rem;
     gap: .35rem;
-  }
-  [data-training="revenue-grid"] [data-rate-month-navigation]::before,
-  [data-training="revenue-grid"] div:has(> button[title^="Show only "])::before {
-    content: "MONTH →";
-    position: sticky;
-    left: 0;
-    z-index: 2;
-    padding: .45rem .4rem .45rem 0;
-    background: hsl(var(--card));
-    font-size: 10px;
   }
   [data-training="revenue-grid"] [data-rate-month-navigation] > button,
   [data-training="revenue-grid"] div:has(> button[title^="Show only "]) > button {
@@ -126,6 +131,32 @@
     min-width: 66px;
     font-size: 12px;
   }
+}
+
+/* Root cause of the moving Demand + market / Events bands: the older
+   row-separation stylesheet puts overflow:hidden on the WHOLE flex row.
+   Overflow on a sticky element's containing block creates a clipping/scroll
+   ancestor; iOS Safari then scrolls the frozen left label away with dates.
+   Keep row wrappers overflow-visible, and clip only their date contents (the
+   existing row-separation rules already clip the individual market buttons
+   and the events date-band div). This also preserves event-bar hit targets. */
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-hc-competitor-pricing-row="1"],
+[data-training="revenue-grid"][data-rate-calendar-v2="true"]
+  [data-rate-grid-scroll="true"] > div > .sticky.top-0.z-30 > .flex:nth-child(8) {
+  overflow: visible !important;
+}
+
+/* Every header metric's label must keep its allocated width while the date
+   rail pans; do not let flex-shrink compress it on narrow devices. Explicit
+   z-index/opaque background keep event bars behind the frozen label. */
+[data-training="revenue-grid"] [data-rate-grid-scroll="true"]
+  > div > .sticky.top-0.z-30 > .flex > .sticky.left-0 {
+  position: sticky !important;
+  left: 0 !important;
+  flex-shrink: 0 !important;
+  z-index: 60 !important;
+  background-color: hsl(var(--card)) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
