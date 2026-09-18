@@ -241,15 +241,19 @@ verify_jwt = false
 [functions.housekeeping-next-day-release-worker]
 verify_jwt = false
 
-# Runs a server-side full room-state sync before a planned housekeeping release
-# and staggers morning Previo syncs. It uses the same Vault-backed worker secret.
+# Also used independently for pre-release room-state validation and the
+# per-property sync_hotel operation invoked by the portfolio morning worker.
 [functions.housekeeping-pms-preflight-worker]
 verify_jwt = false
 
-# SLNT portfolio morning PMS refresh. The function is isolated to organization
-# slug `slnt`, validates the Vault-backed worker secret, and staggers its Previo
-# accounts from 07:00 Europe/Budapest so it does not overlap RD hotel warm-up.
+# SLNT portfolio account sync, dispatched after RD hotels by the protected
+# portfolio morning sequence; retains independent manual server test modes.
 [functions.slnt-pms-morning-sync]
+verify_jwt = false
+
+# Runs only from pg_cron, validates the existing Vault-backed worker secret,
+# and claims each physical hotel / SLNT account once per Budapest business day.
+[functions.hotelcare-pms-morning-sequence]
 verify_jwt = false
 
 # Called only by pg_cron. The function checks a separate Vault-backed
