@@ -24,9 +24,8 @@ type RoomRow = {
 };
 const HOTEL_KEYS = [GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME];
 
-/** Gozsdu's PMS display labels differ from rooms.room_number. Never resolve a
- * clicked chip using its visible text: the existing board exposes the real ID
- * in data-room-id. The generic quick hub uses the text and is not used here. */
+/** PMS display labels differ from rooms.room_number. Use the chip's actual
+ * data-room-id instead of passing visual text to the generic room quick hub. */
 export function GozsduRoomOverviewActions(props: Props) {
   const { user, profile } = useAuth();
   const role = String(profile?.role || '').toLowerCase();
@@ -39,7 +38,7 @@ export function GozsduRoomOverviewActions(props: Props) {
   const [label, setLabel] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [bucket, setBucket] = useState<GozsduRoomBucket>('service');
+  const [bucket, setBucket] = useState<GozsduRoomBucket | ''>('');
   const [service, setService] = useState<Service>('towel_change');
   const [reason, setReason] = useState('');
   const requestId = useRef(0);
@@ -54,7 +53,7 @@ export function GozsduRoomOverviewActions(props: Props) {
     event.stopPropagation();
     const current = ++requestId.current;
     setRoom(null);
-    setLabel(target?.textContent?.trim() || 'Room');
+    setLabel(target.textContent?.trim() || 'Room');
     setLoading(true);
     setOpen(true);
     try {
@@ -72,7 +71,8 @@ export function GozsduRoomOverviewActions(props: Props) {
       setRoom(found);
       setLabel(registryResult.data.pms_room_name || found.room_number);
       const override = readGozsduRoomOverride(found.pms_metadata, props.selectedDate);
-      setBucket(override?.bucket || (found.is_checkout_room ? 'checkout' : 'service'));
+      // No default target: a tap and an accidental Save must never move a room.
+      setBucket(override?.bucket || '');
       setService(override?.service === 'change_room' ? 'change_room' : 'towel_change');
       setReason(override?.reason || '');
       if (registryResult.data.service_status !== 'operating') {
@@ -89,11 +89,10 @@ export function GozsduRoomOverviewActions(props: Props) {
   };
 
   const save = async () => {
-    if (!room || !canEdit || saving || room.pms_metadata?.isNoShow === true) return;
+    if (!room || !bucket || !canEdit || saving || room.pms_metadata?.isNoShow === true) return;
     setSaving(true);
     try {
-      // Read fresh metadata: do not erase PMS updates or another day's override
-      // using the snapshot taken when the dialog was first opened.
+      // Read fresh metadata to preserve any PMS changes and other day overrides.
       const { data: fresh, error: readError } = await supabase.from('rooms')
         .select('id,hotel,pms_metadata').eq('id', room.id).in('hotel', HOTEL_KEYS).maybeSingle();
       if (readError) throw readError;
@@ -104,8 +103,9 @@ export function GozsduRoomOverviewActions(props: Props) {
       if ((assignments || []).some(row => row.status === 'in_progress' || row.status === 'completed')) {
         throw new Error('Cleaning has started or finished. Resolve the active assignment before changing this room.');
       }
-      const previousMetadata = fresh.pms_metadata && typeof fresh.pms_metadata === 'object' ? fresh.pms_metadata : {};
-      const previousOverrides = previousMetadata[GOZSDU_ROOM_OVERRIDE_KEY] && typeof previousMetadata[GOZSDU_ROOM_OVERRIDE_KEY] === 'object'
+      const previousMetadata: Record<string, any> = fresh.pms_metadata && typeof fresh.pms_metadata === 'object' && !Array.isArray(fresh.pms_metadata)
+        ? fresh.pms_metadata as Record<string, any> : {};
+      const previousOverrides: Record<string, unknown> = previousMetadata[GOZSDU_ROOM_OVERRIDE_KEY] && typeof previousMetadata[GOZSDU_ROOM_OVERRIDE_KEY] === 'object'
         ? previousMetadata[GOZSDU_ROOM_OVERRIDE_KEY] : {};
       const nextMetadata = {
         ...previousMetadata,
@@ -161,7 +161,7 @@ export function GozsduRoomOverviewActions(props: Props) {
               {canEdit && room.pms_metadata?.isNoShow !== true ? <>
                 <label className="block space-y-1 text-sm font-medium">Move room to
                   <Select value={bucket} onValueChange={value => setBucket(value as GozsduRoomBucket)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Choose a cleaning section" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="checkout">Checkout cleaning</SelectItem>
                       <SelectItem value="service">Second-day cleaning</SelectItem>
@@ -182,7 +182,7 @@ export function GozsduRoomOverviewActions(props: Props) {
                   <Input value={reason} onChange={event => setReason(event.target.value)} maxLength={200} placeholder="e.g. Cleaning missed yesterday" />
                 </label>
                 <p className="text-xs text-muted-foreground">Changes the HotelCare cleaning plan for this date only. It does not change the guest's Previo reservation or departure date.</p>
-                <Button className="w-full" disabled={saving} onClick={() => void save()}>{saving ? 'Saving…' : 'Save cleaning section'}</Button>
+                <Button className="w-full" disabled={saving || !bucket} onClick={() => void save()}>{saving ? 'Saving…' : 'Save cleaning section'}</Button>
               </> : <p className="text-xs text-muted-foreground">Only authorized managers and supervisors can change today's or a future day's cleaning plan.</p>}
               <Button variant="outline" className="w-full" onClick={() => { setOpen(false); setDetailsOpen(true); }}>Open full room details</Button>
             </div>
