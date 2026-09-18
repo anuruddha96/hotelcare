@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { addDays, differenceInDays, format, isSameDay, parseISO, startOfDay } from 'date-fns';
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Radio, Search } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { ChevronLeft, ChevronRight, Radio } from 'lucide-react';
-import { addDays, format, differenceInDays, isSameDay, parseISO, startOfDay } from 'date-fns';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { useTranslation } from '@/hooks/useTranslation';
 import { reservationGuestLabel } from '@/lib/reservations';
+import { getRoomLaneCount, layoutRoomStays } from '@/lib/receptionPlanner';
 
 interface PlannerRoom {
   id: string;
@@ -22,334 +24,205 @@ interface ReservationCalendarProps {
   showUnassigned?: boolean;
 }
 
-const SPAN_COLORS: Record<string, string> = {
-  pending: 'bg-amber-100 border-amber-300 text-amber-950 dark:bg-amber-950/35 dark:border-amber-800 dark:text-amber-200',
-  confirmed: 'bg-emerald-600 border-emerald-700 text-white dark:bg-emerald-700 dark:border-emerald-600',
-  checked_in: 'bg-sky-600 border-sky-700 text-white dark:bg-sky-700 dark:border-sky-600',
-  checked_out: 'bg-zinc-400 border-zinc-500 text-white dark:bg-zinc-700 dark:border-zinc-600',
+type WindowDays = 7 | 14 | 21 | 31;
+const COLUMN_WIDTH = 88;
+const ROOM_WIDTH = 194;
+const ROW_HEIGHT = 44;
+const ACTIVE_STATUSES = new Set(['pending', 'confirmed', 'checked_in', 'checked_out']);
+
+const RESERVATION_COLORS: Record<string, string> = {
+  pending: 'bg-amber-100 border-amber-400 text-amber-950 dark:bg-amber-950 dark:text-amber-100',
+  confirmed: 'bg-emerald-600 border-emerald-700 text-white',
+  checked_in: 'bg-sky-600 border-sky-700 text-white',
+  checked_out: 'bg-slate-400 border-slate-500 text-white',
+};
+const ROOM_COLORS: Record<string, string> = {
+  clean: 'bg-emerald-500', dirty: 'bg-amber-500', occupied: 'bg-sky-500',
 };
 
-const ROOM_DOT: Record<string, string> = {
-  clean: 'bg-emerald-500',
-  dirty: 'bg-amber-500',
-  occupied: 'bg-sky-500',
-};
+function startNearToday() {
+  // Two preceding days are enough to explain turnarounds without burying arrivals.
+  return addDays(startOfDay(new Date()), -2);
+}
 
-const COL_W = 50;
-const LABEL_W = 160;
-const ROW_H = 42;
-const DEFAULT_WINDOW_DAYS = 21;
-
-type WindowDays = 14 | 21 | 31;
-
-function sourceCode(source?: string | null): string {
-  const s = String(source || '').toLowerCase();
-  if (s.includes('booking')) return 'B';
-  if (s.includes('expedia')) return 'E';
-  if (s.includes('previo')) return 'P';
-  if (s.includes('walk')) return 'W';
-  if (s.includes('direct')) return 'D';
+function channelLetter(source: unknown): string {
+  const name = String(source ?? '').toLowerCase();
+  if (name.includes('booking')) return 'B';
+  if (name.includes('expedia')) return 'E';
+  if (name.includes('previo')) return 'P';
+  if (name.includes('walk')) return 'W';
+  if (name.includes('direct')) return 'D';
   return 'R';
 }
 
-function centeredStartDate(windowDays: number): Date {
-  return addDays(startOfDay(new Date()), -Math.floor(windowDays / 2));
-}
-
-/**
- * Previo-inspired physical-room planner. It keeps the HotelCare visual language,
- * but follows the proven PMS interaction pattern: rooms on the left, dates on
- * top, reservation spans in the grid and a wide month-aware working horizon.
- */
-export function ReservationCalendar({
-  rooms,
-  reservations,
-  basePath,
-  showUnassigned = true,
-}: ReservationCalendarProps) {
+/** Read-only snapshot bookings are displayed separately from editable HotelCare records. */
+export function ReservationCalendar({ rooms, reservations, basePath, showUnassigned = true }: ReservationCalendarProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [days, setDays] = useState<WindowDays>(DEFAULT_WINDOW_DAYS);
-  const [startDate, setStartDate] = useState(() => centeredStartDate(DEFAULT_WINDOW_DAYS));
+  const [days, setDays] = useState<WindowDays>(14);
+  const [startDate, setStartDate] = useState(startNearToday);
+  const [roomSearch, setRoomSearch] = useState('');
+  const [onlyAvailable, setOnlyAvailable] = useState(false);
 
-  const dateRange = useMemo(
-    () => Array.from({ length: days }, (_, i) => addDays(startDate, i)),
-    [startDate, days],
-  );
-  const rangeEnd = useMemo(() => addDays(startDate, days), [startDate, days]);
-  const todayIndex = useMemo(
-    () => dateRange.findIndex((date) => isSameDay(date, new Date())),
-    [dateRange],
-  );
+  const endDate = useMemo(() => addDays(startDate, days), [startDate, days]);
+  const dates = useMemo(() => Array.from({ length: days }, (_, i) => addDays(startDate, i)), [startDate, days]);
+  const currentStart = format(startDate, 'yyyy-MM-dd');
+  const currentEnd = format(endDate, 'yyyy-MM-dd');
+  const active = useMemo(() => reservations.filter((reservation) =>
+    ACTIVE_STATUSES.has(reservation.status)
+    && typeof reservation.check_in_date === 'string'
+    && typeof reservation.check_out_date === 'string'
+    && reservation.check_out_date > currentStart
+    && reservation.check_in_date < currentEnd
+    && reservation.check_out_date > reservation.check_in_date,
+  ), [reservations, currentStart, currentEnd]);
 
-  // Whenever Today is part of the currently rendered range, position its date
-  // column in the middle of the usable grid viewport. This runs when the range
-  // is opened/reset, not while the user manually drags the planner sideways.
-  useEffect(() => {
-    if (todayIndex < 0) return;
-    const scroller = scrollRef.current;
-    if (!scroller) return;
+  const roomBookings = useMemo(() => {
+    const bookings = new Map<string, any[]>();
+    for (const reservation of active) {
+      if (!reservation.room_id) continue;
+      const group = bookings.get(reservation.room_id) ?? [];
+      group.push(reservation);
+      bookings.set(reservation.room_id, group);
+    }
+    return bookings;
+  }, [active]);
 
-    const frame = window.requestAnimationFrame(() => {
-      const usableWidth = Math.max(COL_W, scroller.clientWidth - LABEL_W);
-      const requestedLeft = todayIndex * COL_W - (usableWidth - COL_W) / 2;
-      const maxLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
-      scroller.scrollTo({
-        left: Math.min(maxLeft, Math.max(0, requestedLeft)),
-        behavior: 'auto',
-      });
-    });
+  const visibleRooms = useMemo(() => {
+    const term = roomSearch.trim().toLocaleLowerCase();
+    return rooms
+      .filter((room) => (!term || `${room.room_number} ${room.room_type ?? ''}`.toLocaleLowerCase().includes(term))
+        && (!onlyAvailable || !(roomBookings.get(room.id)?.length)))
+      .slice()
+      .sort((a, b) => a.room_number.localeCompare(b.room_number, undefined, { numeric: true }));
+  }, [rooms, roomBookings, roomSearch, onlyAvailable]);
 
-    return () => window.cancelAnimationFrame(frame);
-  }, [todayIndex, days, startDate]);
+  const unassigned = useMemo(() => active.filter((r) => !r.room_id && r.status !== 'checked_out'), [active]);
+  const conflictRooms = useMemo(() => {
+    let count = 0;
+    for (const room of rooms) {
+      if (layoutRoomStays(roomBookings.get(room.id) ?? []).some((stay) => stay.overlaps)) count += 1;
+    }
+    return count;
+  }, [rooms, roomBookings]);
 
+  const openReservation = (reservation: any) => {
+    if (reservation.snapshotOnly) return;
+    navigate(`${basePath}/reservations/${reservation.id}`);
+  };
+
+  const setAnchor = (value: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
+    const date = parseISO(value);
+    if (Number.isNaN(date.getTime())) return;
+    setStartDate(addDays(date, -2));
+  };
+
+  const gridWidth = days * COLUMN_WIDTH;
   const monthGroups = useMemo(() => {
-    const groups: Array<{ key: string; label: string; count: number }> = [];
-    for (const date of dateRange) {
+    const groups: { key: string; label: string; count: number }[] = [];
+    for (const date of dates) {
       const key = format(date, 'yyyy-MM');
-      const last = groups[groups.length - 1];
-      if (last?.key === key) last.count += 1;
+      const latest = groups[groups.length - 1];
+      if (latest?.key === key) latest.count += 1;
       else groups.push({ key, label: format(date, 'MMMM yyyy'), count: 1 });
     }
     return groups;
-  }, [dateRange]);
-
-  const active = useMemo(
-    () => reservations.filter((r) => {
-      if (!['pending', 'confirmed', 'checked_in', 'checked_out'].includes(r.status)) return false;
-      if (!r.check_in_date || !r.check_out_date) return false;
-      const checkIn = parseISO(r.check_in_date);
-      const checkOut = parseISO(r.check_out_date);
-      return checkIn < rangeEnd && checkOut > startDate;
-    }),
-    [reservations, startDate, rangeEnd],
-  );
-
-  const byRoom = useMemo(() => {
-    const map = new Map<string, any[]>();
-    for (const r of active) {
-      if (!r.room_id) continue;
-      const list = map.get(r.room_id) ?? [];
-      list.push(r);
-      map.set(r.room_id, list);
-    }
-    return map;
-  }, [active]);
-
-  const unassigned = useMemo(
-    () => active.filter((r) => !r.room_id && r.status !== 'checked_out'),
-    [active],
-  );
-
-  const sortedRooms = useMemo(
-    () => [...rooms].sort((a, b) => a.room_number.localeCompare(b.room_number, undefined, { numeric: true })),
-    [rooms],
-  );
-
-  const gridWidth = days * COL_W;
-  const openReservation = (r: any) => {
-    if (r.snapshotOnly) return;
-    navigate(`${basePath}/reservations/${r.id}`);
-  };
-
-  const changeWindowDays = (count: WindowDays) => {
-    const today = startOfDay(new Date());
-    const todayIsInCurrentRange = today >= startDate && today < rangeEnd;
-    setDays(count);
-    if (todayIsInCurrentRange) setStartDate(centeredStartDate(count));
-  };
-
-  const goToToday = () => {
-    setStartDate(centeredStartDate(days));
-  };
+  }, [dates]);
 
   return (
-    <Card data-training="res-planner" className="overflow-hidden">
-      <CardHeader className="p-2.5 border-b border-border bg-card">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="text-sm font-semibold">{t('pms.planner.title')}</span>
-            <Badge variant="secondary" className="text-[10px]">{sortedRooms.length} {t('pms.res.room')}</Badge>
+    <Card data-training="res-planner" className="min-w-0 overflow-hidden">
+      <CardHeader className="p-3 border-b border-border space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold flex items-center gap-1.5"><CalendarDays className="h-4 w-4" />{t('pms.planner.title')}</h2>
+            <Badge variant="secondary" className="text-[11px]">{visibleRooms.length}/{rooms.length} {t('pms.res.room')}</Badge>
+            {conflictRooms > 0 && <Badge variant="destructive" role="alert" className="gap-1 text-[11px]"><AlertTriangle className="h-3 w-3" /> {conflictRooms} room conflicts</Badge>}
           </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <div className="flex border border-border rounded-md overflow-hidden">
-              {([14, 21, 31] as WindowDays[]).map((count) => (
-                <Button
-                  key={count}
-                  type="button"
-                  variant={days === count ? 'default' : 'ghost'}
-                  size="sm"
-                  className="rounded-none h-8 px-2.5 text-xs"
-                  onClick={() => changeWindowDays(count)}
-                >
-                  {count}d
-                </Button>
-              ))}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => setStartDate((current) => addDays(current, -7))} aria-label="Previous week"><ChevronLeft className="h-4 w-4" /></Button>
+            <Input type="date" aria-label="Planner focus date" className="h-8 w-[143px] text-xs" value={format(addDays(startDate, 2), 'yyyy-MM-dd')} onChange={(event) => setAnchor(event.target.value)} />
+            <Button type="button" size="sm" variant="outline" className="h-8 px-2" onClick={() => setStartDate(startNearToday())}>{t('pms.planner.today')}</Button>
+            <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => setStartDate((current) => addDays(current, 7))} aria-label="Next week"><ChevronRight className="h-4 w-4" /></Button>
+            <div className="flex overflow-hidden rounded-md border border-border" role="group" aria-label="Planner date range">
+              {([7, 14, 21, 31] as WindowDays[]).map((count) => <Button key={count} type="button" size="sm" variant={count === days ? 'default' : 'ghost'} className="rounded-none h-8 px-2 text-xs" aria-pressed={count === days} onClick={() => setDays(count)}>{count}d</Button>)}
             </div>
-            <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => setStartDate(addDays(startDate, -7))}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button type="button" variant="outline" size="sm" className="h-8" onClick={goToToday}>
-              {t('pms.planner.today')}
-            </Button>
-            <Button type="button" variant="outline" size="icon" className="h-8 w-8" onClick={() => setStartDate(addDays(startDate, 7))}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
           </div>
         </div>
+        <div className="flex items-center flex-wrap gap-2 justify-between">
+          <div className="relative w-full sm:w-56">
+            <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+            <Input value={roomSearch} onChange={(event) => setRoomSearch(event.target.value)} placeholder="Filter room or room type" aria-label="Filter rooms" className="h-8 pl-8 text-xs" />
+          </div>
+          <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+            <input type="checkbox" checked={onlyAvailable} onChange={(event) => setOnlyAvailable(event.target.checked)} className="accent-primary" />
+            Show only rooms without bookings in this window
+          </label>
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 items-center text-[11px] text-muted-foreground" aria-label="Planner legend">
+          {(['confirmed', 'checked_in', 'pending', 'checked_out'] as const).map((status) => (
+            <span key={status} className="inline-flex items-center gap-1"><span className={`inline-block w-4 h-2.5 rounded-sm border ${RESERVATION_COLORS[status]}`} /> {t(`pms.planner.legend_${status}`)}</span>
+          ))}
+          <span className="inline-flex items-center gap-1"><Radio className="h-3 w-3" /> Previo snapshot · read-only, not independently confirmed live</span>
+        </div>
       </CardHeader>
-
       <CardContent className="p-0">
         {showUnassigned && unassigned.length > 0 && (
-          <div className="px-3 py-2 flex items-center gap-2 flex-wrap border-b border-border bg-amber-50/50 dark:bg-amber-950/10">
-            <span className="text-xs font-medium text-amber-800 dark:text-amber-300">{t('pms.planner.unassignedSection')}:</span>
-            {unassigned.map((r) => (
-              <button type="button" key={r.id} onClick={() => openReservation(r)} disabled={r.snapshotOnly}>
-                <Badge variant="outline" className="text-[10px] cursor-pointer hover:bg-accent gap-1">
-                  {r.snapshotOnly && <Radio className="h-3 w-3" />}
-                  {reservationGuestLabel(r)} · {r.check_in_date.slice(5)}→{r.check_out_date.slice(5)}
-                </Badge>
-              </button>
-            ))}
+          <div className="border-b border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-2 flex flex-wrap items-center gap-2" role="status">
+            <Badge variant="outline" className="text-xs">{t('pms.planner.unassignedSection')}: {unassigned.length}</Badge>
+            {unassigned.map((reservation) => <Button key={reservation.id} type="button" size="sm" variant="ghost" className="h-auto min-h-7 py-1 text-xs" disabled={reservation.snapshotOnly} title={reservation.snapshotOnly ? 'Imported snapshot: open the booking in Previo' : undefined} onClick={() => openReservation(reservation)}>{reservationGuestLabel(reservation)} · {reservation.check_in_date}</Button>)}
           </div>
         )}
-
-        <div
-          ref={scrollRef}
-          className="overflow-auto overscroll-contain max-h-[68vh] sm:max-h-[72vh]"
-          data-training="res-planner-scroll"
-        >
-          <div style={{ minWidth: LABEL_W + gridWidth }}>
-            <div className="flex border-b border-border bg-muted/25 sticky top-0 z-30">
-              <div
-                className="shrink-0 sticky left-0 z-50 bg-card border-r border-border flex items-center px-3 text-xs font-semibold shadow-[4px_0_8px_-7px_rgba(0,0,0,0.6)]"
-                style={{ width: LABEL_W }}
-              >
-                {t('pms.res.room')}
-              </div>
+        {/* No fixed vertical scroll area: a normal mouse wheel must scroll the page, not trap reception staff inside the planner. */}
+        <div className="w-full overflow-x-auto" data-training="res-planner-scroll" tabIndex={0} role="region" aria-label="Reservation calendar; scroll horizontally for more dates">
+          <div style={{ minWidth: ROOM_WIDTH + gridWidth }}>
+            <div className="flex border-b border-border bg-muted/30">
+              <div className="sticky left-0 z-20 bg-card border-r border-border shrink-0 px-3 flex items-center text-xs font-semibold" style={{ width: ROOM_WIDTH }}>Rooms / dates</div>
               <div className="flex" style={{ width: gridWidth }}>
-                {monthGroups.map((group) => (
-                  <div
-                    key={group.key}
-                    className="h-7 flex items-center justify-center border-r border-border text-[11px] font-semibold text-muted-foreground bg-muted/30"
-                    style={{ width: group.count * COL_W }}
-                  >
-                    {group.label}
-                  </div>
-                ))}
+                {monthGroups.map((group) => <div key={group.key} className="h-7 border-r border-border text-[11px] font-semibold flex justify-center items-center" style={{ width: group.count * COLUMN_WIDTH }}>{group.label}</div>)}
               </div>
             </div>
-
-            <div className="flex border-b border-border sticky top-7 bg-card z-30">
-              <div
-                className="shrink-0 sticky left-0 z-50 bg-card border-r border-border px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground shadow-[4px_0_8px_-7px_rgba(0,0,0,0.6)]"
-                style={{ width: LABEL_W }}
-              >
-                {sortedRooms.length} {t('pms.unified.rooms')}
+            <div className="flex border-b border-border bg-card">
+              <div className="sticky left-0 z-20 shrink-0 bg-card border-r border-border px-3 flex items-center text-[10px] text-muted-foreground" style={{ width: ROOM_WIDTH }}>{visibleRooms.length} rooms</div>
+              <div className="flex" style={{ width: gridWidth }}>
+                {dates.map((date) => <div key={format(date, 'yyyy-MM-dd')} className={`shrink-0 text-center border-r border-border py-1 ${isSameDay(date, new Date()) ? 'bg-amber-100 dark:bg-amber-950/40' : [0, 6].includes(date.getDay()) ? 'bg-muted/50' : ''}`} style={{ width: COLUMN_WIDTH }}><div className="text-[10px] text-muted-foreground uppercase">{format(date, 'EEE')}</div><div className="text-sm font-semibold">{format(date, 'd')}</div></div>)}
               </div>
-              <div className="flex">
-                {dateRange.map((date) => {
-                  const todayCell = isSameDay(date, new Date());
-                  const weekend = [0, 6].includes(date.getDay());
-                  return (
-                    <div
-                      key={date.toISOString()}
-                      data-today={todayCell ? 'true' : undefined}
-                      className={`text-center border-r border-border py-1 ${todayCell ? 'bg-amber-100 dark:bg-amber-950/35 ring-1 ring-inset ring-amber-400/60' : weekend ? 'bg-muted/35' : ''}`}
-                      style={{ width: COL_W }}
+            </div>
+            {visibleRooms.length === 0 ? <div className="p-10 text-center text-sm text-muted-foreground">No rooms match the current filters.</div> : visibleRooms.map((room, roomIndex) => {
+              const positioned = layoutRoomStays(roomBookings.get(room.id) ?? []);
+              const roomHeight = Math.max(ROW_HEIGHT, getRoomLaneCount(positioned) * 37 + 7);
+              const conflict = positioned.some((stay) => stay.overlaps);
+              return <div key={room.id} className={`flex border-b border-border ${roomIndex % 2 ? 'bg-muted/10' : 'bg-card'}`}>
+                <div className="sticky left-0 z-20 shrink-0 bg-card border-r border-border px-2.5 flex items-center gap-2" style={{ width: ROOM_WIDTH, minHeight: roomHeight }}>
+                  <span className={`h-2 w-2 rounded-full shrink-0 ${ROOM_COLORS[room.status ?? ''] ?? 'bg-muted-foreground/40'}`} aria-hidden="true" />
+                  <div className="min-w-0 flex-1"><div className="flex gap-1 items-center text-xs font-semibold"><span className="truncate">{room.room_number}</span>{conflict && <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-label="Reservation conflict" />}</div><div className="text-[10px] text-muted-foreground truncate">{room.room_type || '—'}</div></div>
+                </div>
+                <div className="relative shrink-0" style={{ width: gridWidth, height: roomHeight }}>
+                  <div className="absolute inset-0 flex" aria-hidden="true">{dates.map((date) => <div key={format(date, 'yyyy-MM-dd')} className={`shrink-0 border-r border-border ${isSameDay(date, new Date()) ? 'bg-amber-50/60 dark:bg-amber-950/20' : [0, 6].includes(date.getDay()) ? 'bg-muted/20' : ''}`} style={{ width: COLUMN_WIDTH }} />)}</div>
+                  {positioned.map(({ reservation, lane, overlaps }) => {
+                    const start = Math.max(0, differenceInDays(parseISO(reservation.check_in_date), startDate));
+                    const end = Math.min(days, differenceInDays(parseISO(reservation.check_out_date), startDate));
+                    if (end <= start) return null;
+                    const snapshot = reservation.snapshotOnly === true;
+                    const label = reservationGuestLabel(reservation);
+                    return <button
+                      type="button"
+                      key={reservation.id}
+                      disabled={snapshot}
+                      onClick={() => openReservation(reservation)}
+                      title={`${label} · ${reservation.check_in_date} → ${reservation.check_out_date}${snapshot ? ' · Previo snapshot, read-only; verify in PMS' : ''}${overlaps ? ' · CHECK ROOM CONFLICT' : ''}`}
+                      aria-label={`${label}, ${reservation.check_in_date} to ${reservation.check_out_date}${snapshot ? ', read-only snapshot' : ''}${overlaps ? ', room conflict' : ''}`}
+                      className={`absolute flex items-center gap-1 rounded border text-[11px] font-semibold text-left px-1.5 overflow-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${RESERVATION_COLORS[reservation.status] || 'bg-muted border-border'} ${snapshot ? 'border-dashed opacity-75 cursor-not-allowed' : 'hover:brightness-95 cursor-pointer'} ${overlaps ? 'ring-2 ring-destructive ring-inset' : ''}`}
+                      style={{ left: start * COLUMN_WIDTH + 2, top: lane * 37 + 4, width: Math.max(20, (end - start) * COLUMN_WIDTH - 4), height: 32 }}
                     >
-                      <div className="text-[9px] uppercase text-muted-foreground">{format(date, 'EEE')}</div>
-                      <div className={`text-xs font-bold ${todayCell ? 'text-amber-700 dark:text-amber-300' : ''}`}>{format(date, 'd')}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {sortedRooms.length === 0 ? (
-              <div className="text-center py-12 text-sm text-muted-foreground">{t('pms.planner.noRooms')}</div>
-            ) : sortedRooms.map((room, roomIndex) => {
-              const spans = (byRoom.get(room.id) ?? []).map((r) => {
-                const checkIn = parseISO(r.check_in_date);
-                const checkOut = parseISO(r.check_out_date);
-                const startCol = Math.max(0, differenceInDays(checkIn, startDate));
-                const endCol = Math.min(days, differenceInDays(checkOut, startDate));
-                return { r, startCol, endCol };
-              }).filter((s) => s.endCol > s.startCol);
-
-              return (
-                <div key={room.id} className={`flex border-b border-border ${roomIndex % 2 ? 'bg-muted/[0.10]' : 'bg-card'} hover:bg-accent/10 transition-colors`}>
-                  <div
-                    className="shrink-0 sticky left-0 z-20 bg-card border-r border-border px-2.5 flex items-center gap-2 shadow-[4px_0_8px_-7px_rgba(0,0,0,0.6)]"
-                    style={{ width: LABEL_W, height: ROW_H }}
-                  >
-                    <span className={`h-2 w-2 rounded-full shrink-0 ${ROOM_DOT[room.status ?? ''] ?? 'bg-muted-foreground/40'}`} />
-                    <div className="min-w-0 leading-tight">
-                      <div className="text-xs font-bold truncate">{room.room_number}</div>
-                      {room.room_type && <div className="text-[9px] text-muted-foreground truncate mt-0.5">{room.room_type}</div>}
-                    </div>
-                  </div>
-
-                  <div className="relative" style={{ width: gridWidth, height: ROW_H }}>
-                    <div className="absolute inset-0 flex">
-                      {dateRange.map((date) => {
-                        const todayCell = isSameDay(date, new Date());
-                        const weekend = [0, 6].includes(date.getDay());
-                        return (
-                          <div
-                            key={date.toISOString()}
-                            className={`border-r border-border h-full ${todayCell ? 'bg-amber-50/70 dark:bg-amber-950/15' : weekend ? 'bg-muted/20' : ''}`}
-                            style={{ width: COL_W }}
-                          />
-                        );
-                      })}
-                    </div>
-
-                    {spans.map(({ r, startCol, endCol }, idx) => {
-                      const narrow = endCol - startCol <= 1;
-                      const snapshot = r.snapshotOnly === true;
-                      const special = Boolean(r.special_requests);
-                      return (
-                        <button
-                          type="button"
-                          key={r.id}
-                          onClick={() => openReservation(r)}
-                          disabled={snapshot}
-                          className={`absolute rounded-sm border text-[10px] font-semibold truncate px-1.5 flex items-center gap-1 shadow-sm ${SPAN_COLORS[r.status] ?? 'bg-muted border-border'} ${snapshot ? 'opacity-80 cursor-default' : 'hover:brightness-95 cursor-pointer'} ${special ? 'border-b-2 border-b-red-500' : ''}`}
-                          style={{
-                            left: startCol * COL_W + 1,
-                            width: Math.max(12, (endCol - startCol) * COL_W - 2),
-                            top: 4 + (idx % 2 === 1 && spans.length > 1 ? 2 : 0),
-                            height: 34 - (idx % 2 === 1 && spans.length > 1 ? 4 : 0),
-                          }}
-                          title={`${reservationGuestLabel(r)} · ${r.check_in_date} → ${r.check_out_date}${snapshot ? ' · PMS snapshot' : ''}`}
-                        >
-                          <span className="inline-flex h-4 min-w-4 px-0.5 items-center justify-center rounded-[2px] bg-black/15 text-[9px] shrink-0">
-                            {sourceCode(r.source)}
-                          </span>
-                          {!narrow && <span className="truncate">{reservationGuestLabel(r)}</span>}
-                          {snapshot && <Radio className="h-3 w-3 shrink-0 ml-auto" />}
-                        </button>
-                      );
-                    })}
-                  </div>
+                      <span className="shrink-0 text-[9px] rounded bg-black/15 px-1">{channelLetter(reservation.source)}</span>
+                      <span className="truncate">{label}</span>
+                      {snapshot && <Radio className="h-3 w-3 shrink-0 ml-auto" />}
+                    </button>;
+                  })}
                 </div>
-              );
+              </div>;
             })}
-
-            <div className="flex items-center gap-3 px-3 py-2.5 flex-wrap bg-muted/15">
-              {(['confirmed', 'checked_in', 'pending', 'checked_out'] as const).map((status) => (
-                <div key={status} className="flex items-center gap-1.5">
-                  <div className={`h-3 w-6 rounded-sm border ${SPAN_COLORS[status]}`} />
-                  <span className="text-[10px] text-muted-foreground">{t(`pms.planner.legend_${status}`)}</span>
-                </div>
-              ))}
-              <div className="flex items-center gap-1.5 ml-auto">
-                <Radio className="h-3 w-3 text-muted-foreground" />
-                <span className="text-[10px] text-muted-foreground">{t('pms.unified.liveSnapshotReadOnly')}</span>
-              </div>
-            </div>
           </div>
         </div>
       </CardContent>
