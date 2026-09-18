@@ -12,36 +12,50 @@ interface RoomCommunicationPanelProps {
   hideWhenEmpty?: boolean;
 }
 
+// Keep the existing persisted values so older clients and housekeeper cards
+// continue to receive the same instructions. Codes are presentation only.
 const BED_SETUP_OPTIONS = [
-  { value: 'Single Bed', label: 'Single bed', icon: '🛏️' },
-  { value: 'Twin Beds Together', label: 'Beds together', icon: '🛌' },
-  { value: 'Twin Beds Separated', label: 'Beds separated', icon: '↔️' },
-  { value: 'Sofa Bed', label: 'Sofa bed', icon: '🛋️' },
-  { value: 'Extra Bed', label: 'Extra bed', icon: '➕' },
+  { value: 'Single Bed', label: 'Single beds', code: 'SB', icon: '🛏️' },
+  { value: 'Twin Beds Together', label: 'Beds together', code: 'BT', icon: '🛌' },
+  { value: 'Sofa Bed', label: 'Sofa bed', code: null, icon: '🛋️' },
+  { value: 'Extra Bed', label: 'Extra bed', code: null, icon: '➕' },
+  { value: 'Baby Bed', label: 'Baby bed', code: null, icon: '👶' },
+  { value: 'Remove Baby Bed', label: 'Remove baby bed', code: null, icon: '🚫' },
 ] as const;
+
+type BedSetupOption = (typeof BED_SETUP_OPTIONS)[number];
 
 function isEquivalentBedSetup(current: string | null, option: string): boolean {
   if (!current) return false;
   const normalized = current.trim().toLowerCase();
 
+  // The retired "Beds separated" control and old singular/plural values all
+  // select the one SB control. Never silently erase existing instructions.
+  if (option === 'Single Bed') {
+    return [
+      'single bed', 'single beds', 'twin beds separated',
+      'beds separated', 'separate beds', 'separated beds',
+    ].includes(normalized);
+  }
+
   if (option === 'Twin Beds Together') {
     return ['twin beds together', 'twin beds', 'beds together'].includes(normalized);
   }
 
-  if (option === 'Twin Beds Separated') {
-    return ['twin beds separated', 'beds separated', 'separate beds'].includes(normalized);
+  if (option === 'Remove Baby Bed') {
+    return ['remove baby bed', 'baby bed out', 'out baby bed'].includes(normalized);
   }
 
   return normalized === option.toLowerCase();
 }
 
-/**
- * Quick housekeeping setup controls shown directly in the room-chip card.
- *
- * The previous legacy room-message thread was removed because it duplicated
- * manager / housekeeper notes. This slot now carries one-click operational
- * instructions that already have a dedicated persisted field on rooms.
- */
+function instructionLabel(value: string): string {
+  const option = BED_SETUP_OPTIONS.find((item) => isEquivalentBedSetup(value, item.value));
+  if (!option) return value;
+  return option.code ? `${option.code} · ${option.label}` : option.label;
+}
+
+/** Shared room setup component: no hotel or organization-specific feature gate. */
 export function RoomCommunicationPanel({
   roomId,
   roomNumber,
@@ -64,17 +78,19 @@ export function RoomCommunicationPanel({
       setBedConfiguration(data?.bed_configuration || null);
     } catch (error) {
       console.error('Failed to load bed setup instruction:', error);
+      toast.error(`Could not load bed instructions for room ${roomNumber}`);
     } finally {
       setLoading(false);
     }
-  }, [roomId]);
+  }, [roomId, roomNumber]);
 
   useEffect(() => {
+    setBedConfiguration(null);
     void loadBedConfiguration();
   }, [loadBedConfiguration]);
 
   const saveBedConfiguration = async (nextValue: string | null) => {
-    if (readOnly || savingValue !== null) return;
+    if (readOnly || savingValue !== null || loading) return;
 
     const savingKey = nextValue ?? '__clear__';
     setSavingValue(savingKey);
@@ -87,7 +103,7 @@ export function RoomCommunicationPanel({
         .maybeSingle();
 
       if (error) throw error;
-      if (!data?.id) {
+      if (!data?.id || (data.bed_configuration || null) !== nextValue) {
         throw new Error('Bed setup instruction was not applied. Please refresh and verify your hotel access.');
       }
 
@@ -95,17 +111,23 @@ export function RoomCommunicationPanel({
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
 
       if (nextValue) {
-        const option = BED_SETUP_OPTIONS.find((item) => item.value === nextValue);
-        toast.success(`Room ${roomNumber}: ${option?.label || nextValue} instruction sent to housekeeping`);
+        toast.success(`Room ${roomNumber}: ${instructionLabel(nextValue)} instruction sent to housekeeping`);
       } else {
         toast.success(`Room ${roomNumber}: bed setup instruction cleared`);
       }
     } catch (error: any) {
       console.error('Failed to save bed setup instruction:', error);
       toast.error(error?.message || 'Failed to save bed setup instruction');
+      void loadBedConfiguration();
     } finally {
       setSavingValue(null);
     }
+  };
+
+  const selectOption = (option: BedSetupOption) => {
+    // Pressing the selected option a second time deselects it, just like Clear.
+    const active = isEquivalentBedSetup(bedConfiguration, option.value);
+    void saveBedConfiguration(active ? null : option.value);
   };
 
   return (
@@ -119,7 +141,7 @@ export function RoomCommunicationPanel({
       </div>
 
       <p className="text-[10px] text-muted-foreground">
-        Tap once to send a clear bed instruction to the assigned housekeeper.
+        Tap a setup to send it to housekeeping. Tap the selected setup again to remove it.
       </p>
 
       <div className="flex flex-wrap gap-1.5">
@@ -134,7 +156,7 @@ export function RoomCommunicationPanel({
               disabled={readOnly || savingValue !== null || loading}
               onClick={(event) => {
                 event.stopPropagation();
-                void saveBedConfiguration(option.value);
+                selectOption(option);
               }}
               className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                 active
@@ -142,9 +164,11 @@ export function RoomCommunicationPanel({
                   : 'border-border bg-background text-foreground hover:bg-muted'
               }`}
               aria-pressed={active}
+              aria-label={`${option.label}${option.code ? ` (${option.code})` : ''}${active ? ', selected; tap to remove' : ''}`}
             >
               <span aria-hidden="true">{option.icon}</span>
               <span>{option.label}</span>
+              {option.code && <span className="rounded bg-current/10 px-1 font-bold">{option.code}</span>}
               {saving && <Loader2 className="h-3 w-3 animate-spin" />}
             </button>
           );
@@ -158,17 +182,18 @@ export function RoomCommunicationPanel({
               event.stopPropagation();
               void saveBedConfiguration(null);
             }}
-            className="inline-flex items-center gap-1 rounded-full border border-dashed border-muted-foreground/40 bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-full border border-rose-500 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-800 shadow-sm transition-colors hover:bg-rose-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600 dark:bg-rose-950/50 dark:text-rose-200 disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="Clear bed setup instruction"
           >
             {savingValue === '__clear__' ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
-            Clear
+            Clear setup
           </button>
         )}
       </div>
 
       {bedConfiguration && (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[10px] text-blue-800 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
-          Current instruction: <span className="font-semibold">{bedConfiguration}</span>
+          Current instruction: <span className="font-semibold">{instructionLabel(bedConfiguration)}</span>
         </div>
       )}
 

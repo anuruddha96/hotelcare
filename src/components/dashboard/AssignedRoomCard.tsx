@@ -1,8 +1,12 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Clock3, ImagePlus } from 'lucide-react';
+import { BedDouble, Clock3, ImagePlus } from 'lucide-react';
 import { AssignedRoomCard as ExistingAssignedRoomCard } from './AssignedRoomCardLegacy';
 import { ExtraRoomPhotos } from './ExtraRoomPhotos';
+import { RoomCommunicationPanel } from './RoomCommunicationPanel';
+import { useAuth } from '@/hooks/useAuth';
+import { hasManagerPowers } from '@/lib/roleAccess';
+import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
 import { useTranslation } from '@/hooks/useTranslation';
 import { todayBudapest } from '@/lib/budapestTime';
 import { parsePrevioLateCheckoutTime } from '@/lib/previoLateCheckout';
@@ -14,7 +18,11 @@ import { gozsduWorkPresentation } from '@/lib/gozsduWorkPresentation';
  * One optional action gives every hotel unlimited additional camera angles. */
 export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssignedRoomCard>) {
   const [open, setOpen] = useState(false);
+  const [bedSetupOpen, setBedSetupOpen] = useState(false);
   const { language } = useTranslation();
+  const { profile } = useAuth();
+  const role = String(profile?.role || '').toLowerCase();
+  const canEditBedSetup = hasManagerPowers(profile?.role) || ['supervisor', 'reception', 'front_office', 'reception_manager'].includes(role);
   const date = (props.assignment as typeof props.assignment & { assignment_date?: string }).assignment_date || todayBudapest();
   const originalRoom = props.assignment.rooms;
   const gozsduOverride = originalRoom && isGozsduCourtHotel(originalRoom.hotel)
@@ -24,6 +32,16 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
   const displayAssignment = gozsduWorkPresentation(props.assignment, date);
   const room = displayAssignment.rooms;
   const meta = originalRoom?.pms_metadata;
+  // Display-only: manager setup wins over stale PMS inference. Keep Gozsdu work overrides.
+  const manualBedInstruction = displayHousekeepingBedSetup(room?.bed_configuration);
+  const roomForDisplay = room && manualBedInstruction ? {
+    ...room,
+    bed_configuration: manualBedInstruction,
+    pms_metadata: {
+      ...(room.pms_metadata && typeof room.pms_metadata === 'object' && !Array.isArray(room.pms_metadata) ? room.pms_metadata : {}),
+      inferredBedConfig: null,
+    },
+  } : room;
 
   // Hotel Memories only. The live Previo feed currently carries "LCO UNTIL
   // 1500" in a reservation note even though its ordinary Departure field is
@@ -48,7 +66,13 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
     {gozsduOverride && gozsduOverride.bucket !== 'other' && <div role="status" className="rounded-md border border-primary/40 bg-primary/5 px-3 py-1.5 text-xs font-semibold">
       Manager cleaning plan: {gozsduOverride.bucket === 'checkout' ? 'Checkout cleaning' : gozsduOverride.service === 'change_room' ? 'Full cleaning / complete textile change' : 'Towel change'}
     </div>}
-    <ExistingAssignedRoomCard {...props} assignment={displayAssignment} />
+    <ExistingAssignedRoomCard {...props} assignment={{ ...displayAssignment, rooms: roomForDisplay }} />
+    {room && canEditBedSetup && props.assignment.status !== 'completed' && <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-2 dark:border-blue-900 dark:bg-blue-950/20">
+      <Button type="button" variant="outline" size="sm" className="w-full justify-start border-blue-300 text-blue-900 dark:text-blue-200" aria-expanded={bedSetupOpen} onClick={() => setBedSetupOpen((value) => !value)}>
+        <BedDouble className="mr-2 h-4 w-4" />{bedSetupOpen ? 'Hide bed setup' : 'Edit bed setup'}
+      </Button>
+      {bedSetupOpen && <div className="mt-2"><RoomCommunicationPanel assignmentId={props.assignment.id} roomId={props.assignment.room_id} roomNumber={room.room_number} /></div>}
+    </div>}
     {lateCheckoutTime && <div role="status" className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100">
       <Clock3 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
       <span>{language === 'hu'
