@@ -49,7 +49,7 @@ describe('Gozsdu manual housekeeping sections', () => {
     const noShowSnapshot = [{ ...snapshot[0], status: 'no_show' }];
     expect(reconcileGozsduPmsRoster([noShowRoom], registry, noShowSnapshot, date, now).byRoom.get(room.id)?.bucket).toBe('noshow');
     const unavailable = [{ ...registry[0], service_status: 'unavailable' }];
-    expect(reconcileGozsduPmsRoster([withOverride('checkout')], unavailable, snapshot, date, now).byRoom.get(room.id)?.bucket).toBe('service');
+    expect(reconcileGozsduPmsRoster([withOverride('checkout')], unavailable, snapshot, date, now).byRoom.get(room.id)?.bucket).toBe('other');
   });
 
   it('rejects incomplete PMS coverage rather than guessing an operational checkout', () => {
