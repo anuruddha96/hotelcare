@@ -18,6 +18,7 @@ import { Hotel, BedDouble, EyeOff, MapPin, UserX, Map as MapIcon, CheckCircle, A
 import { StructuredRoomNote } from '@/components/pms/StructuredRoomNote';
 import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
+import { housekeepingBedShortCode } from '@/lib/housekeepingBedSetup';
 import { usePropertyTerms } from '@/lib/propertyTerminology';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { setRoomDragPayload, readRoomDragPayload, unassignRoom, assignRoomToStaff, setHousekeeperDragPayload, readHousekeeperDragPayload, isAssignmentInProgressError } from '@/lib/hkAssignmentDnd';
@@ -1095,9 +1096,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               {(() => {
                 const bc = (room as any).bed_configuration;
                 if (bc.includes('Double')) return 'DB';
-                if (bc.includes('Twin') && bc.includes('Sep')) return 'TW-S';
-                if (bc.includes('Twin')) return 'TW';
-                if (bc.includes('Single')) return 'SGL';
+                const shortCode = housekeepingBedShortCode(bc);
+                if (shortCode) return shortCode;
+                if (bc === 'Remove Baby Bed') return '-BB';
                 if (bc.includes('Baby')) return '👶BB';
                 if (bc.includes('Sofa')) return 'SOFA';
                 if (bc.includes('Extra') || bc.includes('Cot')) return '+COT';
@@ -1358,7 +1359,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">{t('roomOverview.bedConfig')}</p>
                   <select
                     className="w-full text-xs p-1.5 rounded border border-input bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                    value={(room as any).bed_configuration || ''}
+                    value={((room as any).bed_configuration === 'Twin Beds Separated' ? 'Single Bed' : (room as any).bed_configuration === 'Twin Beds' ? 'Twin Beds Together' : (room as any).bed_configuration) || ''}
                     onClick={(e) => e.stopPropagation()}
                     onChange={async (e) => {
                       const val = e.target.value || null;
@@ -1372,10 +1373,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   >
                     <option value="">{t('roomOverview.bedNone')}</option>
                     <option value="Double Bed">{t('roomOverview.bedDouble')}</option>
-                    <option value="Twin Beds">{t('roomOverview.bedTwin')}</option>
-                    <option value="Twin Beds Separated">{t('roomOverview.bedTwinSeparated')}</option>
-                    <option value="Single Bed">{t('roomOverview.bedSingle')}</option>
-                    <option value="Baby Bed">{t('roomOverview.bedBaby')}</option>
+                    <option value="Twin Beds Together">Beds together (BT)</option>
+                    <option value="Single Bed">Single beds (SB)</option>
+                    <option value="Sofa Bed">Sofa bed</option>
+                    <option value="Extra Bed">Extra bed</option>
+                    <option value="Baby Bed">Baby bed</option>
+                    <option value="Remove Baby Bed">Remove baby bed</option>
                     <option value="Extra Cot Added">{t('roomOverview.bedExtraCot')}</option>
                   </select>
                 </div>
@@ -1711,9 +1714,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               {(() => {
                 const bc = (room as any).bed_configuration;
                 if (bc.includes('Double')) return 'DB';
-                if (bc.includes('Twin') && bc.includes('Sep')) return 'TW-S';
-                if (bc.includes('Twin')) return 'TW';
-                if (bc.includes('Single')) return 'SGL';
+                const shortCode = housekeepingBedShortCode(bc);
+                if (shortCode) return shortCode;
+                if (bc === 'Remove Baby Bed') return '-BB';
                 if (bc.includes('Baby')) return '👶BB';
                 if (bc.includes('Sofa')) return 'SOFA';
                 if (bc.includes('Extra') || bc.includes('Cot')) return '+COT';

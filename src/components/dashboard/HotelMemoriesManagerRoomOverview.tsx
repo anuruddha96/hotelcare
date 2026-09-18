@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { parseRoomFlags } from '@/lib/room-service-flags';
+import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
 import {
@@ -169,9 +170,9 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
   const optionalDaily = workClass.bucket === 4 && !checkout && assignment.assignment_type === 'daily_cleaning';
   const managerNote = managerVisibleRoomNote(room.notes);
   const managerInstruction = String(assignment.manager_instruction_text || '').trim();
-  const bedConfig = room.pms_metadata?.inferredBedConfig?.value
+  const bedConfig = room.bed_configuration
+    || room.pms_metadata?.inferredBedConfig?.value
     || room.pms_metadata?.inferredBedConfig?.bedConfiguration
-    || room.bed_configuration
     || null;
   const nights = room.guest_nights_stayed || room.pms_metadata?.currentNight || null;
 
@@ -237,7 +238,7 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
               <BedDouble className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wide text-blue-700 dark:text-blue-300">Bed configuration</p>
-                <p className="text-sm font-semibold">{String(bedConfig)}</p>
+                <p className="text-sm font-semibold">{displayHousekeepingBedSetup(String(bedConfig)) || String(bedConfig)}</p>
               </div>
             </div>
           </div>
