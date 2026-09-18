@@ -6,14 +6,24 @@ import { ExtraRoomPhotos } from './ExtraRoomPhotos';
 import { useTranslation } from '@/hooks/useTranslation';
 import { todayBudapest } from '@/lib/budapestTime';
 import { parsePrevioLateCheckoutTime } from '@/lib/previoLateCheckout';
+import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { readGozsduRoomOverride } from '@/lib/gozsduRoomBucketOverride';
+import { gozsduWorkPresentation } from '@/lib/gozsduWorkPresentation';
 
 /** The production room card and five required-photo flow remain unchanged.
  * One optional action gives every hotel unlimited additional camera angles. */
 export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssignedRoomCard>) {
   const [open, setOpen] = useState(false);
   const { language } = useTranslation();
-  const room = props.assignment.rooms;
-  const meta = room?.pms_metadata;
+  const date = (props.assignment as typeof props.assignment & { assignment_date?: string }).assignment_date || todayBudapest();
+  const originalRoom = props.assignment.rooms;
+  const gozsduOverride = originalRoom && isGozsduCourtHotel(originalRoom.hotel)
+    ? readGozsduRoomOverride(originalRoom.pms_metadata, date)
+    : null;
+  // Presentation only: the real PMS values remain untouched in Supabase.
+  const displayAssignment = gozsduWorkPresentation(props.assignment, date);
+  const room = displayAssignment.rooms;
+  const meta = originalRoom?.pms_metadata;
 
   // Hotel Memories only. The live Previo feed currently carries "LCO UNTIL
   // 1500" in a reservation note even though its ordinary Departure field is
@@ -35,7 +45,10 @@ export function AssignedRoomCard(props: React.ComponentProps<typeof ExistingAssi
     : null;
 
   return <div className="space-y-2">
-    <ExistingAssignedRoomCard {...props} />
+    {gozsduOverride && gozsduOverride.bucket !== 'other' && <div role="status" className="rounded-md border border-primary/40 bg-primary/5 px-3 py-1.5 text-xs font-semibold">
+      Manager cleaning plan: {gozsduOverride.bucket === 'checkout' ? 'Checkout cleaning' : gozsduOverride.service === 'change_room' ? 'Full cleaning / complete textile change' : 'Towel change'}
+    </div>}
+    <ExistingAssignedRoomCard {...props} assignment={displayAssignment} />
     {lateCheckoutTime && <div role="status" className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100">
       <Clock3 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
       <span>{language === 'hu'
