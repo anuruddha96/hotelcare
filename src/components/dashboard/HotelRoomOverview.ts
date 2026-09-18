@@ -10,6 +10,7 @@ import { RoomOperationsQuickHub } from './RoomOperationsQuickHub';
 import { RoomHoverIntentGuard } from './RoomHoverIntentGuard';
 import { TomorrowHousekeepingLauncher } from './TomorrowHousekeepingLauncher';
 import './hotel-memories-room-overview.css';
+import './memories-historical-service-colors.css';
 
 export type { SignedInHousekeeper } from './HotelRoomOverviewLive';
 
