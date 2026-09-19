@@ -38,6 +38,18 @@ export function startOfBudapestDayUtc(day: string): string {
   return new Date(utcMidnight.getTime() - (hour * 3600 + minute * 60 + second) * 1000).toISOString();
 }
 
+/** Advance only a live day view when Budapest rolls over. Never override a
+ * manager-selected historical/future date or discard pending assignments.
+ */
+export function rollForwardSelectedBusinessDate(
+  selectedDate: string, previousBusinessDate: string, currentBusinessDate: string,
+  hasUnsavedMoves = false,
+): string {
+  return !hasUnsavedMoves && selectedDate === previousBusinessDate
+    && currentBusinessDate > previousBusinessDate
+    ? currentBusinessDate : selectedDate;
+}
+
 function budapestHour(at: Date = new Date()): number {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Europe/Budapest',

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { todayBudapest, tomorrowBudapest, startOfBudapestDayUtc } from "./budapestTime";
+import { todayBudapest, tomorrowBudapest, startOfBudapestDayUtc, rollForwardSelectedBusinessDate } from "./budapestTime";
 import { budapestBusinessDate, budapestBusinessDayStartUtc } from "../../supabase/functions/_shared/budapestBusinessDate";
 import { classifyPmsHousekeepingRow } from "./pmsClassification";
 
@@ -29,6 +29,13 @@ describe("Budapest housekeeping business dates", () => {
   ])("returns correct UTC history cutoff for %s", (day, expected) => {
     expect(startOfBudapestDayUtc(day)).toBe(expected);
     expect(budapestBusinessDayStartUtc(day)).toBe(expected);
+  });
+
+  it("rolls an open room board forward but protects selected dates and unsaved assignments", () => {
+    expect(rollForwardSelectedBusinessDate("2026-09-19", "2026-09-19", "2026-09-20")).toBe("2026-09-20");
+    expect(rollForwardSelectedBusinessDate("2026-09-18", "2026-09-19", "2026-09-20")).toBe("2026-09-18");
+    expect(rollForwardSelectedBusinessDate("2026-09-21", "2026-09-19", "2026-09-20")).toBe("2026-09-21");
+    expect(rollForwardSelectedBusinessDate("2026-09-19", "2026-09-19", "2026-09-20", true)).toBe("2026-09-19");
   });
 
   it("turns yesterday's seven C/O+1 rooms into today's scheduled checkouts only on a new PMS snapshot", () => {
