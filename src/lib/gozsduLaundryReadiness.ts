@@ -53,16 +53,39 @@ export function approvedEarlyCheckoutForLinen(room: LaundryRoom, rows: LaundryAs
 }
 
 /**
- * Require explicit same-day PMS checkout AND release, even when a housekeeper
- * is in_progress or a supervisor has approved cleaning. An RTC assignment
- * without checkout evidence (e.g. 4005) is an inconsistency, not consent.
- * Completed checkout assignments remain editable after approval (PR #274).
+ * A completed checkout already checked and approved by a supervisor is a
+ * valid linen-only operational release when Previo's REST room has switched to
+ * the incoming arrival and omitted the departed reservation (4005 case).
+ * Require today's PMS-derived departure date, no current/incoming occupant,
+ * a clean room and ONE completed/approved/unheld RTC checkout assignment.
+ * This never changes occupancy, PMS flags or the housekeeping assignment.
+ */
+export function approvedOperationalCheckoutForLinen(room: LaundryRoom, rows: LaundryAssignment[], date: string): boolean {
+  const meta = room.pms_metadata || {};
+  if (room.is_checkout_room !== true || room.status !== 'clean'
+    || meta.lastPmsRefreshDate !== date || meta.gozsduVerifiedDepartureDate !== date
+    || meta.occupiedToday !== false || meta.stayThroughToday === true
+    || meta.gozsduIncomingGuestNotArrived !== true || meta.isNoShow === true) return false;
+  const relevant = rows.filter(row => row.assignment_type !== 'maintenance'
+    && ['assigned', 'in_progress', 'completed'].includes(row.status));
+  return relevant.length === 1 && relevant[0].assignment_type === 'checkout_cleaning'
+    && relevant[0].status === 'completed' && relevant[0].supervisor_approved === true
+    && relevant[0].ready_to_clean === true && relevant[0].pms_hold !== true
+    && relevant[0].is_dnd !== true;
+}
+
+/**
+ * Ordinary checkouts require actual PMS checkout and RTC release. If Previo
+ * drops an already-departed reservation from REST/XML, the narrowly scoped
+ * completed + supervisor-approved operational release above enables only
+ * linen recording; an in-progress or unapproved checkout remains blocked.
  */
 export function laundryAccess(room: LaundryRoom, assignments: LaundryAssignment[], date: string): LaundryAccess {
   if (!isEligibleLaundryRoom(room)) return 'unavailable';
   if (room.is_dnd || assignments.some(row => row.is_dnd)) return 'dnd';
   if (!isCheckout(room)) return 'guest_permission';
   const meta = room.pms_metadata || {};
+  if (approvedOperationalCheckoutForLinen(room, assignments, date)) return 'ready';
   if (meta.lastPmsRefreshDate !== date || meta.checkedOutToday !== true || meta.readyToClean !== true
     || (meta.readyToCleanDate && meta.readyToCleanDate !== date)) return 'guest_inside';
   const relevant = assignments.filter(row => row.assignment_type !== 'maintenance'
