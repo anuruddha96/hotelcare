@@ -10,6 +10,9 @@ export type LaundryAssignment = {
   ready_to_clean: boolean | null;
   is_dnd: boolean | null;
   pms_hold: boolean | null;
+  pms_hold_reason?: string | null;
+  pms_hold_event_id?: string | null;
+  supervisor_approved?: boolean | null;
   notes?: string | null;
   updated_at?: string | null;
 };
@@ -33,23 +36,42 @@ export function activeCleaningHousekeeperIds(rows: LaundryAssignment[]): string[
     .map(row => row.assigned_to as string))];
 }
 
-/** A completed checkout is not an active housekeeping assignment, but the linen
- * record must remain editable after the housekeeper finishes/gets approved.
- * Keep the original strict same-day PMS checkout/release checks: neither a clean
- * room nor approval on its own establishes that the guest has departed. */
+/**
+ * A verified early checkout may have been assigned as daily_cleaning first.
+ * This is strictly a linen-recording exception after supervisor approval,
+ * NOT permission to resolve the housekeeping hold or to change room status.
+ * The database guard additionally verifies the linked system checkout event.
+ */
+export function approvedEarlyCheckoutForLinen(room: LaundryRoom, rows: LaundryAssignment[]): boolean {
+  const relevant = rows.filter(row => row.assignment_type !== 'maintenance'
+    && ['assigned', 'in_progress', 'completed'].includes(row.status));
+  return room.status === 'clean' && relevant.length === 1 && relevant[0].assignment_type === 'daily_cleaning'
+    && relevant[0].status === 'completed' && relevant[0].supervisor_approved === true
+    && relevant[0].ready_to_clean === true && relevant[0].pms_hold === true
+    && relevant[0].pms_hold_reason === 'Guest checked out — assignment type may need to change'
+    && !!relevant[0].pms_hold_event_id && relevant[0].is_dnd !== true;
+}
+
+/**
+ * Require explicit same-day PMS checkout AND release, even when a housekeeper
+ * is in_progress or a supervisor has approved cleaning. An RTC assignment
+ * without checkout evidence (e.g. 4005) is an inconsistency, not consent.
+ * Completed checkout assignments remain editable after approval (PR #274).
+ */
 export function laundryAccess(room: LaundryRoom, assignments: LaundryAssignment[], date: string): LaundryAccess {
   if (!isEligibleLaundryRoom(room)) return 'unavailable';
   if (room.is_dnd || assignments.some(row => row.is_dnd)) return 'dnd';
   if (!isCheckout(room)) return 'guest_permission';
   const meta = room.pms_metadata || {};
+  if (meta.lastPmsRefreshDate !== date || meta.checkedOutToday !== true || meta.readyToClean !== true
+    || (meta.readyToCleanDate && meta.readyToCleanDate !== date)) return 'guest_inside';
   const relevant = assignments.filter(row => row.assignment_type !== 'maintenance'
     && ['assigned', 'in_progress', 'completed'].includes(row.status));
   const checkouts = relevant.filter(row => row.assignment_type === 'checkout_cleaning');
   const conflicting = relevant.filter(row => row.assignment_type !== 'checkout_cleaning');
-  if (meta.lastPmsRefreshDate !== date || meta.checkedOutToday !== true || meta.readyToClean !== true
-    || (meta.readyToCleanDate && meta.readyToCleanDate !== date) || !checkouts.length || conflicting.length
-    || checkouts.some(row => row.ready_to_clean !== true || row.pms_hold === true || row.is_dnd === true)) return 'guest_inside';
-  return 'ready';
+  const normalCheckout = checkouts.length > 0 && conflicting.length === 0
+    && checkouts.every(row => row.ready_to_clean === true && row.pms_hold !== true && row.is_dnd !== true);
+  return normalCheckout || approvedEarlyCheckoutForLinen(room, assignments) ? 'ready' : 'guest_inside';
 }
 
 /** Show what was specifically planned for the room; a generic daily assignment is

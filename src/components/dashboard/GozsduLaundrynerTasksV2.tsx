@@ -23,6 +23,10 @@ type Count = { room_id: string; linen_item_id: string; count: number };
 type Progress = { room_id: string; status: 'collected' | 'nothing_to_collect' | 'could_not_access'; reason: string | null };
 type Staff = { id: string; full_name: string | null; nickname: string | null };
 const HOTELS = ['gozsdu-court', 'Gozsdu Court Budapest'];
+// The early-checkout exception depends on these REAL assignment columns. Both
+// the list and the pre-open/pre-save recheck must request them. Never rely on
+// clean status alone or silently strip the supervisor's existing PMS hold.
+const ASSIGNMENT_FIELDS = 'id,room_id,assigned_to,assignment_type,status,ready_to_clean,is_dnd,pms_hold,pms_hold_reason,pms_hold_event_id,supervisor_approved,notes,updated_at';
 const GROUPS: { key: LaundryBucket; title: 'checkout' | 'stayover' | 'other'; description: 'checkoutHint' | 'stayoverHint' | 'otherHint' }[] = [
   { key: 'checkout', title: 'checkout', description: 'checkoutHint' },
   { key: 'second_day', title: 'stayover', description: 'stayoverHint' },
@@ -59,8 +63,7 @@ export function GozsduLaundrynerTasksV2() {
     const [roomResponse, assignmentResponse] = await Promise.all([
       supabase.from('rooms').select('id,hotel,room_number,status,is_checkout_room,is_dnd,pms_metadata')
         .eq('id', id).eq('organization_slug', profile.organization_slug).in('hotel', HOTELS).maybeSingle(),
-      supabase.from('room_assignments')
-        .select('id,room_id,assigned_to,assignment_type,status,ready_to_clean,is_dnd,pms_hold,notes,updated_at')
+      supabase.from('room_assignments').select(ASSIGNMENT_FIELDS)
         .eq('room_id', id).eq('organization_slug', profile.organization_slug).eq('assignment_date', workDate),
     ]);
     if (roomResponse.error || assignmentResponse.error || !roomResponse.data) {
@@ -92,8 +95,7 @@ export function GozsduLaundrynerTasksV2() {
       let savedCounts: Count[] = [];
       if (ids.length) {
         const [assignmentResponse, countResponse] = await Promise.all([
-          supabase.from('room_assignments')
-            .select('id,room_id,assigned_to,assignment_type,status,ready_to_clean,is_dnd,pms_hold,notes,updated_at')
+          supabase.from('room_assignments').select(ASSIGNMENT_FIELDS)
             .eq('organization_slug', profile.organization_slug).eq('assignment_date', workDate).in('room_id', ids),
           supabase.from('dirty_linen_counts').select('room_id,linen_item_id,count')
             .eq('housekeeper_id', user.id).eq('work_date', workDate).in('room_id', ids),
