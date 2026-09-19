@@ -6,7 +6,7 @@ import { todayBudapest } from '@/lib/budapestTime';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { laundryCopy } from '@/lib/gozsduLaundrynerI18n';
 import { HousekeepingTabEnhanced } from './HousekeepingTabEnhanced';
-import { GozsduLaundrynerTasks } from './GozsduLaundrynerTasks';
+import { GozsduLaundrynerTasksV2 } from './GozsduLaundrynerTasksV2';
 import { Button } from '@/components/ui/button';
 
 type Props = ComponentProps<typeof HousekeepingTabEnhanced>;
@@ -78,5 +78,5 @@ export function HousekeepingTab(props: Props = {}) {
     <p className="text-sm">{copy.syncError}</p>
     <Button variant="outline" size="sm" onClick={() => { setReady(false); void refresh(); }}>{copy.refresh}</Button>
   </div>;
-  return activeDuty ? <GozsduLaundrynerTasks /> : <HousekeepingTabEnhanced {...props} />;
+  return activeDuty ? <GozsduLaundrynerTasksV2 /> : <HousekeepingTabEnhanced {...props} />;
 }
