@@ -484,14 +484,14 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
             }
           }
 
-          // Batch reset towel/linen change flags AND bed_configuration to prevent stale data from previous uploads
+          // Reset PMS-owned towel/linen flags only. A manager-selected bed setup must survive a repeated spreadsheet import.
           const { error: tcResetError } = await supabase
             .from('rooms')
-            .update({ towel_change_required: false, linen_change_required: false, bed_configuration: null } as any)
+            .update({ towel_change_required: false, linen_change_required: false } as any)
             .in('hotel', hotelKeys);
           
           if (tcResetError) {
-            console.warn(`Error resetting T/RC/bed_config flags for ${hotelNameForFilter}:`, tcResetError);
+            console.warn(`Error resetting T/RC flags for ${hotelNameForFilter}:`, tcResetError);
           } else {
             // Verify T/RC reset
             const { count: tcStillOn } = await supabase
@@ -503,7 +503,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               console.error(`T/RC reset FAILED - ${tcStillOn} rooms still have flags set. Likely RLS issue.`);
               toast.error(`Towel/linen reset failed for ${tcStillOn} rooms. Contact admin.`);
             } else {
-              console.log(`Reset towel/linen/bed_config flags for all rooms in ${hotelNameForFilter}`);
+              console.log(`Reset towel/linen flags for all rooms in ${hotelNameForFilter}`);
             }
           }
 
@@ -808,7 +808,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
           // Update room status and checkout information
           const roomNotes = noteVal ? String(noteVal).trim() : null;
           const statusNote = isNoShow ? 'No Show' : isEarlyCheckout && isCheckout ? 'Early Checkout' : null;
-          const combinedNotes = [statusNote, roomNotes].filter(Boolean).join(' - ');
+          // PMS spreadsheet text is source-owned; never overwrite manager notes with it.
           
           // Extract room type, category and Shabath flag from PMS Room column name
           const extractRoomInfo = (roomName: string, hotelName: string): { roomType: string | null; roomCategory: string | null; isShabath: boolean } => {
@@ -850,7 +850,7 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
 
           const updateData: any = { 
             status: newStatus,
-            notes: combinedNotes || null,
+            // Manager-owned rooms.notes is deliberately absent from the PMS update.
             is_checkout_room: isCheckout,
             guest_count: peopleVal || 0,
             guest_nights_stayed: guestNightsStayed,
@@ -870,6 +870,10 @@ export function PMSUpload({ onNavigateToTeamView }: PMSUploadProps = {}) {
               ...(pmsCheckedOut ? { readyToClean: true, checkedOutAt: new Date().toISOString() } : {}),
               currentNight: guestNightsStayed || null,
               totalNights: totalNights || null,
+              // Keep raw spreadsheet guidance separate from the active housekeeping note.
+              // Empty cells clear only this PMS-owned field, not any manual instruction.
+              pmsUploadNote: roomNotes,
+              pmsUploadStatusNote: statusNote,
               pmsUploadDate: new Date().toISOString().split('T')[0],
               lastPmsRefreshDate: new Date().toISOString().split('T')[0],
             },
