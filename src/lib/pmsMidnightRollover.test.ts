@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { todayBudapest, tomorrowBudapest, startOfBudapestDayUtc } from "./budapestTime";
-import { budapestBusinessDate } from "../../supabase/functions/_shared/budapestBusinessDate";
+import { budapestBusinessDate, budapestBusinessDayStartUtc } from "../../supabase/functions/_shared/budapestBusinessDate";
 import { classifyPmsHousekeepingRow } from "./pmsClassification";
 
 describe("Budapest housekeeping business dates", () => {
@@ -28,6 +28,7 @@ describe("Budapest housekeeping business dates", () => {
     ["2026-10-26", "2026-10-25T23:00:00.000Z"],
   ])("returns correct UTC history cutoff for %s", (day, expected) => {
     expect(startOfBudapestDayUtc(day)).toBe(expected);
+    expect(budapestBusinessDayStartUtc(day)).toBe(expected);
   });
 
   it("turns yesterday's seven C/O+1 rooms into today's scheduled checkouts only on a new PMS snapshot", () => {

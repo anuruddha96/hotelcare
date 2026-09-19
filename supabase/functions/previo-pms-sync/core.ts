@@ -17,7 +17,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
 import { callPrevioXml, loadPrevioCredentials, type PrevioXmlAuthVariant } from "../_shared/previoCredentials.ts";
-import { budapestBusinessDate } from "../_shared/budapestBusinessDate.ts";
+import { budapestBusinessDate, budapestBusinessDayStartUtc } from "../_shared/budapestBusinessDate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -720,8 +720,8 @@ serve(async (req) => {
           .eq("hotel_id", targetHotel)
           .maybeSingle();
         const hotelFilters = Array.from(new Set([targetHotel, (hotelCfg as any)?.hotel_name].filter(Boolean)));
-        const todayStart = `${today}T00:00:00Z`;
-        const todayEnd = `${tomorrow}T00:00:00Z`;
+        const todayStart = budapestBusinessDayStartUtc(today);
+        const todayEnd = budapestBusinessDayStartUtc(tomorrow);
         const { data: latestUpload } = await service
           .from("pms_upload_summary")
           .select("checkout_rooms, daily_cleaning_rooms, upload_date")

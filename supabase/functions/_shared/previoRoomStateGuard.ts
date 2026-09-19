@@ -9,6 +9,8 @@
 // supersede the old checkout when the continuing reservation is explicitly
 // in-house, or when the old/new reservation share a guest identity.
 
+import { budapestBusinessDate } from "./budapestBusinessDate.ts";
+
 interface CurrentRoomState {
   strongInHouse: boolean;
   guestKeys: Set<string>;
@@ -177,7 +179,7 @@ export function installPrevioRoomStateGuard(): void {
 
     const requestBody = getRequestBody(input, init);
     const hotId = grab(requestBody, "hotId") || "unknown";
-    const today = new Date().toISOString().slice(0, 10);
+    const today = budapestBusinessDate();
     const isOverlapSnapshot = /<termType>\s*overlap\s*<\/termType>/i.test(requestBody);
 
     const text = await response.text();
