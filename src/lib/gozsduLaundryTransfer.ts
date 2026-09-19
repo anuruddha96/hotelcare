@@ -9,6 +9,7 @@ export type GozsduTransferCounts = {
 export type GozsduTransferReplacement = {
   id: string;
   name: string;
+  full_name?: string;
   nickname: string | null;
 };
 
