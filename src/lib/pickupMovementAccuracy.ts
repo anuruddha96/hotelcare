@@ -32,6 +32,7 @@ export interface ReservationMovementRow {
 const roomKey = (row: MovementNight) => row.room_key || row.obk_id || row.room_type_name || "room";
 const eventTime = (row: MovementNight, kind: MovementKind) =>
   kind === "booked" ? row.created_at_pms : (row as CancelledNight).cancelled_at;
+const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 /**
  * The PMS may cancel only the unconsumed nights of an in-house reservation.
@@ -82,7 +83,7 @@ export function buildReservationMovementRows(
         key: id,
         roomType: roomRows[0].room_type_name ?? "Room",
         nights: new Set(roomRows.map((row) => row.stay_date)).size,
-        value: roomRows.reduce((sum, row) => sum + (Number(row.nightly_price_eur) || 0), 0),
+        value: roundMoney(roomRows.reduce((sum, row) => sum + (Number(row.nightly_price_eur) || 0), 0)),
       }));
       result.push({
         key,
@@ -96,7 +97,7 @@ export function buildReservationMovementRows(
         nights: new Set(dates).size,
         rooms,
         guests: Math.max(1, ...rows.map((row) => Number(row.guests) || 1)),
-        value: rooms.reduce((sum, room) => sum + room.value, 0),
+        value: roundMoney(rooms.reduce((sum, room) => sum + room.value, 0)),
         channel: rows[0].source_name ?? "Direct / unknown",
       });
     }
@@ -120,5 +121,5 @@ export function sumReservationMovementRows(rows: ReservationMovementRow[]) {
       lostValue += row.value;
     }
   }
-  return { gained, lost, gainedValue, lostValue };
+  return { gained, lost, gainedValue: roundMoney(gainedValue), lostValue: roundMoney(lostValue) };
 }
