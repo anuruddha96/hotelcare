@@ -29,6 +29,14 @@ export function GozsduLaundryDutyUniversalSlot({ open, workDate }: {
       slot.dataset.gozsduLaundrynerSlot = 'true';
       slot.dataset.laundrynerFallback = 'true';
       slot.className = 'mb-3 min-w-0';
+      // Duty changes are persisted independently. The legacy assignment board
+      // still invalidates an unsaved preview on Done. Make this visible before
+      // users interact with the newly accessible control, not after data loss.
+      const warning = document.createElement('p');
+      warning.setAttribute('role', 'note');
+      warning.className = 'mb-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950';
+      warning.textContent = 'Changing Laundryner duty will reset an unconfirmed room preview. Review or save room changes first. Existing approved plans are not deleted.';
+      slot.append(warning);
       scroller.prepend(slot);
       fallbackRef.current = slot;
     };
