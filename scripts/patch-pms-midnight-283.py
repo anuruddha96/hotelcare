@@ -1,95 +1,94 @@
 #!/usr/bin/env python3
-"""Second fail-closed patch for issue #283: server-side midnight safety."""
+"""Third guarded patch: update an open Team View on Budapest day rollover."""
 from pathlib import Path
 import subprocess
 
 
-def patch(path: str, replacements: list[tuple[str, str]]) -> None:
-    p = Path(path)
-    content = p.read_text(encoding="utf-8")
-    for old, new in replacements:
-        count = content.count(old)
+def patch(path: str, edits: list[tuple[str, str]]) -> None:
+    source = Path(path).read_text(encoding='utf-8')
+    for old, new in edits:
+        count = source.count(old)
         if count != 1:
-            raise RuntimeError(f"{path}: expected one match, found {count}: {old[:95]!r}")
-        content = content.replace(old, new, 1)
-    p.write_text(content, encoding="utf-8")
-    print(f"PATCHED {path}")
+            raise RuntimeError(f'{path}: expected one match, found {count}: {old[:100]!r}')
+        source = source.replace(old, new, 1)
+    Path(path).write_text(source, encoding='utf-8')
+    print(f'PATCHED {path}')
 
 
-patch("supabase/functions/_shared/budapestBusinessDate.ts", [(
-    "  return `${year}-${month}-${day}`;\n}\n",
-    "  return `${year}-${month}-${day}`;\n}\n\n"
-    "/** UTC instant at the start of the specified Budapest calendar day.\n"
-    " * Unlike `${day}T00:00:00Z`, this respects winter/summer time.\n"
-    " */\n"
-    "export function budapestBusinessDayStartUtc(day: string): string {\n"
-    "  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(day)) throw new Error('Invalid Budapest business date');\n"
-    "  const midnight = new Date(`${day}T00:00:00.000Z`);\n"
-    "  if (Number.isNaN(midnight.getTime())) throw new Error('Invalid Budapest business date');\n"
-    "  const parts = new Intl.DateTimeFormat('en-GB', {\n"
-    "    timeZone: 'Europe/Budapest', hour: '2-digit', minute: '2-digit',\n"
-    "    second: '2-digit', hourCycle: 'h23',\n"
-    "  }).formatToParts(midnight);\n"
-    "  const part = (type: string) => Number(parts.find(item => item.type === type)?.value);\n"
-    "  const hour = part('hour');\n"
-    "  const minute = part('minute');\n"
-    "  const second = part('second');\n"
-    "  if (![hour, minute, second].every(Number.isFinite)) throw new Error('Invalid Budapest midnight');\n"
-    "  return new Date(midnight.getTime() - (hour * 3600 + minute * 60 + second) * 1000).toISOString();\n"
-    "}\n",
+patch('src/lib/budapestTime.ts', [(
+    'function budapestHour(at: Date = new Date()): number {',
+    '/** Advance only a live day view when Budapest rolls over. Never override a\n'
+    ' * manager-selected historical/future date or discard pending assignments.\n'
+    ' */\n'
+    'export function rollForwardSelectedBusinessDate(\n'
+    '  selectedDate: string, previousBusinessDate: string, currentBusinessDate: string,\n'
+    '  hasUnsavedMoves = false,\n'
+    '): string {\n'
+    '  return !hasUnsavedMoves && selectedDate === previousBusinessDate\n'
+    '    && currentBusinessDate > previousBusinessDate\n'
+    '    ? currentBusinessDate : selectedDate;\n'
+    '}\n\n'
+    'function budapestHour(at: Date = new Date()): number {',
 )])
 
-patch("supabase/functions/_shared/previoRoomStateGuard.ts", [
+patch('src/components/dashboard/HousekeepingManagerView.tsx', [
     (
-        "interface CurrentRoomState {",
-        'import { budapestBusinessDate } from "./budapestBusinessDate.ts";\n\ninterface CurrentRoomState {',
+        "import React, { useState, useEffect } from 'react';",
+        "import React, { useState, useEffect, useRef } from 'react';",
     ),
     (
-        '    const today = new Date().toISOString().slice(0, 10);',
-        '    const today = budapestBusinessDate();',
+        "import { todayBudapest } from '@/lib/budapestTime';",
+        "import { todayBudapest, rollForwardSelectedBusinessDate } from '@/lib/budapestTime';",
+    ),
+    (
+        '  const [selectedDate, setSelectedDate] = useState(todayBudapest());',
+        '  const [selectedDate, setSelectedDate] = useState(todayBudapest());\n'
+        '  const previousBusinessDateRef = useRef(todayBudapest());',
+    ),
+    (
+        '  const [applying, setApplying] = useState(false);',
+        '  const [applying, setApplying] = useState(false);\n\n'
+        '  // An open Team View must move to the new Budapest workday without\n'
+        '  // changing a deliberately selected date or losing unsaved assignments.\n'
+        '  useEffect(() => {\n'
+        '    const checkBusinessDay = () => {\n'
+        '      const current = todayBudapest();\n'
+        '      const previous = previousBusinessDateRef.current;\n'
+        '      if (current === previous) return;\n'
+        '      previousBusinessDateRef.current = current;\n'
+        '      const next = rollForwardSelectedBusinessDate(\n'
+        '        selectedDate, previous, current, stagedMoves.length > 0,\n'
+        '      );\n'
+        '      if (next !== selectedDate) setSelectedDate(next);\n'
+        '      else if (selectedDate === previous && stagedMoves.length > 0) {\n'
+        '        toast.warning("A new Budapest workday started. Save or discard your unsaved room moves before switching dates.");\n'
+        '      }\n'
+        '    };\n'
+        '    const timer = window.setInterval(checkBusinessDay, 30_000);\n'
+        '    window.addEventListener("focus", checkBusinessDay);\n'
+        '    return () => {\n'
+        '      window.clearInterval(timer);\n'
+        '      window.removeEventListener("focus", checkBusinessDay);\n'
+        '    };\n'
+        '  }, [selectedDate, stagedMoves.length]);',
     ),
 ])
 
-patch("supabase/functions/previo-pms-sync/core.ts", [
+patch('src/lib/pmsMidnightRollover.test.ts', [
     (
-        'import { budapestBusinessDate } from "../_shared/budapestBusinessDate.ts";',
-        'import { budapestBusinessDate, budapestBusinessDayStartUtc } from "../_shared/budapestBusinessDate.ts";',
+        'import { todayBudapest, tomorrowBudapest, startOfBudapestDayUtc } from "./budapestTime";',
+        'import { todayBudapest, tomorrowBudapest, startOfBudapestDayUtc, rollForwardSelectedBusinessDate } from "./budapestTime";',
     ),
     (
-        '        const todayStart = `${today}T00:00:00Z`;',
-        '        const todayStart = budapestBusinessDayStartUtc(today);',
-    ),
-    (
-        '        const todayEnd = `${tomorrow}T00:00:00Z`;',
-        '        const todayEnd = budapestBusinessDayStartUtc(tomorrow);',
-    ),
-])
-
-patch("src/lib/pmsMidnightRollover.test.ts", [
-    (
-        'import { budapestBusinessDate } from "../../supabase/functions/_shared/budapestBusinessDate";',
-        'import { budapestBusinessDate, budapestBusinessDayStartUtc } from "../../supabase/functions/_shared/budapestBusinessDate";',
-    ),
-    (
-        '    expect(startOfBudapestDayUtc(day)).toBe(expected);',
-        '    expect(startOfBudapestDayUtc(day)).toBe(expected);\n    expect(budapestBusinessDayStartUtc(day)).toBe(expected);',
+        '  it("turns yesterday\'s seven C/O+1 rooms into today\'s scheduled checkouts only on a new PMS snapshot", () => {',
+        '  it("rolls an open room board forward but protects selected dates and unsaved assignments", () => {\n'
+        '    expect(rollForwardSelectedBusinessDate("2026-09-19", "2026-09-19", "2026-09-20")).toBe("2026-09-20");\n'
+        '    expect(rollForwardSelectedBusinessDate("2026-09-18", "2026-09-19", "2026-09-20")).toBe("2026-09-18");\n'
+        '    expect(rollForwardSelectedBusinessDate("2026-09-21", "2026-09-19", "2026-09-20")).toBe("2026-09-21");\n'
+        '    expect(rollForwardSelectedBusinessDate("2026-09-19", "2026-09-19", "2026-09-20", true)).toBe("2026-09-19");\n'
+        '  });\n\n'
+        '  it("turns yesterday\'s seven C/O+1 rooms into today\'s scheduled checkouts only on a new PMS snapshot", () => {',
     ),
 ])
-
-for path, stale in {
-    'supabase/functions/_shared/previoRoomStateGuard.ts': 'const today = new Date().toISOString().slice(0, 10)',
-    'supabase/functions/previo-pms-sync/core.ts': 'const todayStart = `${today}T00:00:00Z`',
-}.items():
-    if stale in Path(path).read_text(encoding='utf-8'):
-        raise RuntimeError(f'Stale UTC date remains in {path}')
-
-# Existing workflow stages first-round source files after tests/build. Stage
-# second-round changes explicitly so both rounds are committed together.
-subprocess.run([
-    'git', 'add',
-    'supabase/functions/_shared/budapestBusinessDate.ts',
-    'supabase/functions/_shared/previoRoomStateGuard.ts',
-    'supabase/functions/previo-pms-sync/core.ts',
-    'src/lib/pmsMidnightRollover.test.ts',
-], check=True)
-print('Second-round server changes staged for guarded CI commit')
+subprocess.run(['git', 'add', 'src/lib/budapestTime.ts', 'src/components/dashboard/HousekeepingManagerView.tsx', 'src/lib/pmsMidnightRollover.test.ts'], check=True)
+print('Manager live-day rollover staged')
