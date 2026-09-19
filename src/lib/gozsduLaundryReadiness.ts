@@ -16,7 +16,9 @@ export type LaundryAssignment = {
 export type LaundryAccess = 'ready' | 'guest_permission' | 'guest_inside' | 'dnd' | 'unavailable';
 export type LaundryService = 'full' | 'textile' | 'towel' | 'daily' | 'none';
 
-export const isCheckout = (room: LaundryRoom) => room.is_checkout_room === true || room.pms_metadata?.scheduledDepartureToday === true;
+/** Null-safe because dialog controls may render during their closed state. */
+export const isCheckout = (room: LaundryRoom | null | undefined): boolean =>
+  room?.is_checkout_room === true || room?.pms_metadata?.scheduledDepartureToday === true;
 
 export function activeLaundryAssignments(rows: LaundryAssignment[]): LaundryAssignment[] {
   return rows.filter(row => row.assignment_type !== 'maintenance' && row.status !== 'cancelled'
@@ -33,7 +35,7 @@ export function laundryAccess(room: LaundryRoom, assignments: LaundryAssignment[
   const otherActive = activeLaundryAssignments(assignments).filter(row => row.assignment_type !== 'checkout_cleaning');
   if (meta.lastPmsRefreshDate !== date || meta.checkedOutToday !== true || meta.readyToClean !== true
     || (meta.readyToCleanDate && meta.readyToCleanDate !== date) || !live.length || otherActive.length
-    || live.some(row => row.ready_to_clean !== true || row.pms_hold === true)) return 'guest_inside';
+    || live.some(row => row.ready_to_clean !== true || row.pms_hold === true || row.is_dnd === true)) return 'guest_inside';
   return 'ready';
 }
 
