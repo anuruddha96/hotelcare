@@ -2336,6 +2336,7 @@ export type Database = {
         Row: {
           created_at: string
           display_name: string
+          hotel_scope: string | null
           id: string
           is_active: boolean
           name: string
@@ -2345,6 +2346,7 @@ export type Database = {
         Insert: {
           created_at?: string
           display_name: string
+          hotel_scope?: string | null
           id?: string
           is_active?: boolean
           name: string
@@ -2354,6 +2356,7 @@ export type Database = {
         Update: {
           created_at?: string
           display_name?: string
+          hotel_scope?: string | null
           id?: string
           is_active?: boolean
           name?: string
@@ -3251,6 +3254,137 @@ export type Database = {
           },
         ]
       }
+      gozsdu_housekeeping_room_registry: {
+        Row: {
+          building_code: string
+          pms_room_name: string
+          room_id: string
+          service_status: string
+          source_date: string | null
+          source_file: string | null
+          unavailability_reason: string | null
+          updated_at: string
+        }
+        Insert: {
+          building_code: string
+          pms_room_name: string
+          room_id: string
+          service_status: string
+          source_date?: string | null
+          source_file?: string | null
+          unavailability_reason?: string | null
+          updated_at?: string
+        }
+        Update: {
+          building_code?: string
+          pms_room_name?: string
+          room_id?: string
+          service_status?: string
+          source_date?: string | null
+          source_file?: string | null
+          unavailability_reason?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gozsdu_housekeeping_room_registry_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: true
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gozsdu_laundry_duties: {
+        Row: {
+          assigned_at: string
+          assigned_by: string
+          hotel_id: string
+          organization_slug: string
+          user_id: string
+          work_date: string
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by: string
+          hotel_id?: string
+          organization_slug: string
+          user_id: string
+          work_date: string
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string
+          hotel_id?: string
+          organization_slug?: string
+          user_id?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gozsdu_laundry_duties_assigned_by_fkey"
+            columns: ["assigned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gozsdu_laundry_duties_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gozsdu_laundry_room_progress: {
+        Row: {
+          hotel_id: string
+          organization_slug: string
+          reason: string | null
+          room_id: string
+          status: string
+          updated_at: string
+          user_id: string
+          work_date: string
+        }
+        Insert: {
+          hotel_id?: string
+          organization_slug: string
+          reason?: string | null
+          room_id: string
+          status: string
+          updated_at?: string
+          user_id: string
+          work_date: string
+        }
+        Update: {
+          hotel_id?: string
+          organization_slug?: string
+          reason?: string | null
+          room_id?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gozsdu_laundry_room_progress_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gozsdu_laundry_room_progress_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       guest_folios: {
         Row: {
           amount: number
@@ -3496,6 +3630,41 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      hotel_cleaning_time_targets: {
+        Row: {
+          assignment_type: string
+          cleaning_size: string
+          duration_minutes: number
+          hotel_configuration_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          assignment_type: string
+          cleaning_size: string
+          duration_minutes: number
+          hotel_configuration_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          assignment_type?: string
+          cleaning_size?: string
+          duration_minutes?: number
+          hotel_configuration_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hotel_cleaning_time_targets_hotel_configuration_id_fkey"
+            columns: ["hotel_configuration_id"]
+            isOneToOne: false
+            referencedRelation: "hotel_configurations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       hotel_configurations: {
         Row: {
@@ -6883,6 +7052,39 @@ export type Database = {
             referencedColumns: ["hotel_id"]
           },
         ]
+      }
+      pms_morning_sync_runs: {
+        Row: {
+          business_date: string
+          completed_at: string | null
+          error_message: string | null
+          result: Json
+          slot: number
+          started_at: string
+          status: string
+          target_key: string
+        }
+        Insert: {
+          business_date: string
+          completed_at?: string | null
+          error_message?: string | null
+          result?: Json
+          slot: number
+          started_at?: string
+          status: string
+          target_key: string
+        }
+        Update: {
+          business_date?: string
+          completed_at?: string | null
+          error_message?: string | null
+          result?: Json
+          slot?: number
+          started_at?: string
+          status?: string
+          target_key?: string
+        }
+        Relationships: []
       }
       pms_outbound_queue: {
         Row: {
@@ -11347,6 +11549,7 @@ export type Database = {
           bed_configuration: string | null
           bed_type: string | null
           checkout_time: string | null
+          cleaning_size: string | null
           created_at: string
           dnd_marked_at: string | null
           dnd_marked_by: string | null
@@ -11377,12 +11580,14 @@ export type Database = {
           towel_change_required: boolean | null
           updated_at: string
           venue_id: string | null
+          verified_bed_count: number | null
           wing: string | null
         }
         Insert: {
           bed_configuration?: string | null
           bed_type?: string | null
           checkout_time?: string | null
+          cleaning_size?: string | null
           created_at?: string
           dnd_marked_at?: string | null
           dnd_marked_by?: string | null
@@ -11413,12 +11618,14 @@ export type Database = {
           towel_change_required?: boolean | null
           updated_at?: string
           venue_id?: string | null
+          verified_bed_count?: number | null
           wing?: string | null
         }
         Update: {
           bed_configuration?: string | null
           bed_type?: string | null
           checkout_time?: string | null
+          cleaning_size?: string | null
           created_at?: string
           dnd_marked_at?: string | null
           dnd_marked_by?: string | null
@@ -11449,6 +11656,7 @@ export type Database = {
           towel_change_required?: boolean | null
           updated_at?: string
           venue_id?: string | null
+          verified_bed_count?: number | null
           wing?: string | null
         }
         Relationships: [
@@ -12428,6 +12636,10 @@ export type Database = {
         Args: { p_hotel_id: string; p_res_id: string; p_total: number }
         Returns: undefined
       }
+      append_housekeeping_photo_angle: {
+        Args: { p_assignment_id: string; p_path: string; p_photo_url: string }
+        Returns: string[]
+      }
       assign_housekeeping_section_tasks: {
         Args: {
           p_assigned_date: string
@@ -12965,6 +13177,16 @@ export type Database = {
           sync_completed_by_name: string
         }[]
       }
+      get_room_note_history: {
+        Args: { p_limit?: number; p_room_id: string }
+        Returns: {
+          content: string
+          created_at: string
+          created_by: string
+          created_by_name: string
+          id: string
+        }[]
+      }
       get_user_access_config: {
         Args: { user_role: Database["public"]["Enums"]["user_role"] }
         Returns: {
@@ -12993,6 +13215,10 @@ export type Database = {
       get_user_role_safe: {
         Args: { user_id: string }
         Returns: Database["public"]["Enums"]["user_role"]
+      }
+      gozsdu_laundry_lock: {
+        Args: { p_date: string; p_user: string }
+        Returns: undefined
       }
       grant_assistant_premium_purchase: {
         Args: {
@@ -14145,6 +14371,15 @@ export type Database = {
         Args: { p_hotel_id: string; p_res_id: string }
         Returns: undefined
       }
+      record_gozsdu_laundry_collection: {
+        Args: {
+          p_counts?: Json
+          p_reason?: string
+          p_room_id: string
+          p_status: string
+        }
+        Returns: undefined
+      }
       refresh_housekeeping_assignment_learning_profile: {
         Args: { p_hotel_id: string; p_organization_slug: string }
         Returns: {
@@ -14201,6 +14436,10 @@ export type Database = {
       }
       release_publisher_lease: { Args: { p_token: string }; Returns: undefined }
       release_publisher_lock: { Args: { p_hotel: string }; Returns: undefined }
+      reopen_approved_room_same_housekeeper: {
+        Args: { p_assignment_id: string }
+        Returns: string
+      }
       reserve_assistant_premium_question: {
         Args: {
           _model: string
@@ -14298,6 +14537,7 @@ export type Database = {
         Returns: Json
       }
       revenue_v2_safety_gate: { Args: never; Returns: Json }
+      room_note_history_text: { Args: { p_notes: string }; Returns: string }
       run_auto_signout: { Args: never; Returns: number }
       save_next_day_housekeeping_public_area_assignments: {
         Args: {
@@ -14307,6 +14547,18 @@ export type Database = {
           p_plan_date: string
         }
         Returns: number
+      }
+      save_room_note: {
+        Args: { p_notes: string; p_room_id: string }
+        Returns: {
+          notes: string
+          room_id: string
+          updated_at: string
+        }[]
+      }
+      set_gozsdu_laundry_duty: {
+        Args: { p_enabled: boolean; p_user_id: string; p_work_date: string }
+        Returns: undefined
       }
       slnt_venue_visible: {
         Args: { _user_id: string; _venue_id: string }
