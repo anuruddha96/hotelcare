@@ -6,30 +6,23 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
-import { AlertTriangle, Building2, CheckCircle2, Clock, Eye, Hourglass, MapPin, PauseCircle, Plus, User, Wrench } from 'lucide-react';
+import { AlertTriangle, Building2, CheckCircle2, Clock, Eye, Hourglass, PauseCircle, Plus, RefreshCw, User, Wrench } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { MaintenanceIssueDialog } from './MaintenanceIssueDialog';
+import { canManageMaintenance, MaintenanceManagerControls, type ManagerMaintenanceTicket } from './MaintenanceManagerControls';
 
-interface MaintenanceTicket {
-  id: string;
-  ticket_number: string;
+interface MaintenanceTicket extends ManagerMaintenanceTicket {
   title: string;
   description: string;
-  room_number: string;
   hotel: string | null;
   priority: string;
-  status: 'open' | 'in_progress' | 'completed';
   created_at: string;
-  updated_at: string;
   assigned_to: string | null;
   attachment_urls: string[] | null;
   completion_photos: string[] | null;
-  pending_supervisor_approval: boolean | null;
-  on_hold: boolean | null;
   hold_reason: string | null;
-  resolution_text: string | null;
   source: string | null;
   assignment_method: string | null;
   created_by_profile?: { full_name: string; nickname?: string | null } | null;
@@ -41,17 +34,23 @@ const textByLanguage: Record<string, Record<string, string>> = {
     title: 'Maintenance', subtitle: 'One live maintenance queue shared with Housekeeping and the main Maintenance module.',
     report: 'Report issue', active: 'Active', progress: 'In progress', hold: 'Pending / on hold', approval: 'Awaiting approval', done: 'Done', all: 'All',
     noItems: 'No maintenance tickets in this view.', reportedBy: 'Reported by', assignedTo: 'Assigned to', unassigned: 'Unassigned',
-    noDuty: 'No maintenance staff was signed in when this was reported.', issue: 'Issue', holdReason: 'Pending reason', resolution: 'Resolution', attachments: 'Attachments',
-    created: 'Created', source: 'Source', auto: 'Auto-routed', manual: 'Manual', housekeeping: 'Housekeeping', statusOpen: 'Open', statusProgress: 'In progress', statusDone: 'Done',
+    noDuty: 'No maintenance staff was signed in when this was reported. Managers can record a manual resolution below.',
+    issue: 'Issue', holdReason: 'Pending reason', resolution: 'Resolution', attachments: 'Attachments', refresh: 'Refresh',
+    source: 'Source', auto: 'Auto-routed', manual: 'Manual', housekeeping: 'Housekeeping',
+    statusOpen: 'Open', statusProgress: 'In progress', statusDone: 'Done',
   },
   hu: {
     title: 'Karbantartás', subtitle: 'Egy közös, élő karbantartási sor a Takarítás és a fő Karbantartás modul számára.',
     report: 'Hiba jelentése', active: 'Aktív', progress: 'Folyamatban', hold: 'Függőben / várakozik', approval: 'Jóváhagyásra vár', done: 'Kész', all: 'Összes',
     noItems: 'Nincs karbantartási jegy ebben a nézetben.', reportedBy: 'Jelentette', assignedTo: 'Hozzárendelve', unassigned: 'Nincs kiosztva',
-    noDuty: 'A jelentéskor nem volt bejelentkezett karbantartó.', issue: 'Hiba', holdReason: 'Várakozás oka', resolution: 'Megoldás', attachments: 'Mellékletek',
-    created: 'Létrehozva', source: 'Forrás', auto: 'Automatikus', manual: 'Kézi', housekeeping: 'Takarítás', statusOpen: 'Nyitott', statusProgress: 'Folyamatban', statusDone: 'Kész',
+    noDuty: 'A jelentéskor nem volt bejelentkezett karbantartó. A vezetők alább rögzíthetik a kézi megoldást.',
+    issue: 'Hiba', holdReason: 'Várakozás oka', resolution: 'Megoldás', attachments: 'Mellékletek', refresh: 'Frissítés',
+    source: 'Forrás', auto: 'Automatikus', manual: 'Kézi', housekeeping: 'Takarítás',
+    statusOpen: 'Nyitott', statusProgress: 'Folyamatban', statusDone: 'Kész',
   },
 };
+
+type Filter = 'active' | 'progress' | 'hold' | 'approval' | 'done' | 'all';
 
 export function MaintenancePhotosManagement() {
   const { language } = useTranslation();
@@ -59,31 +58,39 @@ export function MaintenancePhotosManagement() {
   const { profile } = useAuth();
   const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'active' | 'progress' | 'hold' | 'approval' | 'done' | 'all'>('active');
+  const [filter, setFilter] = useState<Filter>('active');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const canCreate = hasManagerPowers(profile?.role);
+  const canManage = canManageMaintenance(profile?.role);
 
   const fetchTickets = useCallback(async () => {
-    if (!profile?.organization_slug) return;
+    // Never broaden a hotel-scoped query when the current hotel cannot be resolved.
+    if (!profile?.organization_slug || !profile.assigned_hotel) {
+      setTickets([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const hotelKeys = await resolveHotelKeys(profile.assigned_hotel);
-      let query = (supabase as any)
-        .from('tickets')
+      if (!hotelKeys.length) {
+        setTickets([]);
+        return;
+      }
+      const { data, error } = await (supabase as any).from('tickets')
         .select(`
           id, ticket_number, title, description, room_number, hotel, priority, status,
           created_at, updated_at, assigned_to, attachment_urls, completion_photos,
-          pending_supervisor_approval, on_hold, hold_reason, resolution_text,
+          pending_supervisor_approval, on_hold, hold_reason, resolution_text, sla_due_date,
           source, assignment_method,
           created_by_profile:profiles!tickets_created_by_fkey(full_name, nickname),
           assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, nickname)
         `)
         .eq('department', 'maintenance')
         .eq('organization_slug', profile.organization_slug)
+        .in('hotel', hotelKeys)
         .order('created_at', { ascending: false })
         .limit(300);
-      if (hotelKeys.length) query = query.in('hotel', hotelKeys);
-      const { data, error } = await query;
       if (error) throw error;
       setTickets((data || []) as MaintenanceTicket[]);
     } catch (error) {
@@ -111,152 +118,129 @@ export function MaintenancePhotosManagement() {
     };
   }, [fetchTickets, profile?.id]);
 
-  const visibleTickets = useMemo(() => tickets.filter(ticket => {
+  const visibleTickets = useMemo(() => tickets.filter((ticket) => {
     if (filter === 'all') return true;
     if (filter === 'done') return ticket.status === 'completed';
-    if (filter === 'approval') return !!ticket.pending_supervisor_approval;
-    if (filter === 'hold') return !!ticket.on_hold;
+    if (filter === 'approval') return !!ticket.pending_supervisor_approval && ticket.status !== 'completed';
+    if (filter === 'hold') return !!ticket.on_hold && ticket.status !== 'completed';
     if (filter === 'progress') return ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval;
     return ticket.status !== 'completed' && !ticket.on_hold && !ticket.pending_supervisor_approval;
   }), [tickets, filter]);
 
   const counts = useMemo(() => ({
-    active: tickets.filter(t => t.status !== 'completed' && !t.on_hold && !t.pending_supervisor_approval).length,
-    progress: tickets.filter(t => t.status === 'in_progress' && !t.on_hold && !t.pending_supervisor_approval).length,
-    hold: tickets.filter(t => t.on_hold).length,
-    approval: tickets.filter(t => t.pending_supervisor_approval).length,
-    done: tickets.filter(t => t.status === 'completed').length,
+    active: tickets.filter((t) => t.status !== 'completed' && !t.on_hold && !t.pending_supervisor_approval).length,
+    progress: tickets.filter((t) => t.status === 'in_progress' && !t.on_hold && !t.pending_supervisor_approval).length,
+    hold: tickets.filter((t) => t.status !== 'completed' && t.on_hold).length,
+    approval: tickets.filter((t) => t.status !== 'completed' && t.pending_supervisor_approval).length,
+    done: tickets.filter((t) => t.status === 'completed').length,
   }), [tickets]);
 
   const statusLabel = (ticket: MaintenanceTicket) => {
+    if (ticket.status === 'completed') return c.statusDone;
     if (ticket.pending_supervisor_approval) return c.approval;
     if (ticket.on_hold) return c.hold;
-    if (ticket.status === 'in_progress') return c.statusProgress;
-    if (ticket.status === 'completed') return c.statusDone;
-    return c.statusOpen;
+    return ticket.status === 'in_progress' ? c.statusProgress : c.statusOpen;
   };
 
   const statusClass = (ticket: MaintenanceTicket) => {
+    if (ticket.status === 'completed') return 'bg-green-100 text-green-800 border-green-200';
     if (ticket.pending_supervisor_approval) return 'bg-blue-100 text-blue-800 border-blue-200';
     if (ticket.on_hold) return 'bg-amber-100 text-amber-800 border-amber-200';
-    if (ticket.status === 'in_progress') return 'bg-violet-100 text-violet-800 border-violet-200';
-    if (ticket.status === 'completed') return 'bg-green-100 text-green-800 border-green-200';
-    return 'bg-slate-100 text-slate-800 border-slate-200';
+    return ticket.status === 'in_progress'
+      ? 'bg-violet-100 text-violet-800 border-violet-200'
+      : 'bg-slate-100 text-slate-800 border-slate-200';
   };
 
   const priorityClass = (priority: string) => priority === 'urgent'
     ? 'bg-red-100 text-red-800 border-red-200'
-    : priority === 'high'
-      ? 'bg-orange-100 text-orange-800 border-orange-200'
-      : priority === 'low'
-        ? 'bg-green-50 text-green-700 border-green-200'
+    : priority === 'high' ? 'bg-orange-100 text-orange-800 border-orange-200'
+      : priority === 'low' ? 'bg-green-50 text-green-700 border-green-200'
         : 'bg-yellow-50 text-yellow-800 border-yellow-200';
 
   return (
     <div className="space-y-4 p-2 sm:p-4">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2"><Wrench className="h-5 w-5 text-primary" />{c.title}</h2>
-          <p className="text-sm text-muted-foreground mt-1 max-w-2xl">{c.subtitle}</p>
+          <h2 className="flex items-center gap-2 text-xl font-bold sm:text-2xl"><Wrench className="h-5 w-5 text-primary" />{c.title}</h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{c.subtitle}</p>
         </div>
-        {canCreate && <Button onClick={() => setIsAddDialogOpen(true)} className="h-10"><Plus className="h-4 w-4 mr-2" />{c.report}</Button>}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => void fetchTickets()}><RefreshCw className="mr-1 h-4 w-4" />{c.refresh}</Button>
+          {canCreate && <Button onClick={() => setIsAddDialogOpen(true)} className="min-h-10"><Plus className="mr-2 h-4 w-4" />{c.report}</Button>}
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-        <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">{c.active}</div><div className="text-xl font-bold">{counts.active}</div></CardContent></Card>
-        <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">{c.progress}</div><div className="text-xl font-bold">{counts.progress}</div></CardContent></Card>
-        <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">{c.hold}</div><div className="text-xl font-bold">{counts.hold}</div></CardContent></Card>
-        <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">{c.approval}</div><div className="text-xl font-bold">{counts.approval}</div></CardContent></Card>
-        <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">{c.done}</div><div className="text-xl font-bold">{counts.done}</div></CardContent></Card>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {([
+          ['active', counts.active], ['progress', counts.progress], ['hold', counts.hold],
+          ['approval', counts.approval], ['done', counts.done],
+        ] as const).map(([key, count]) => (
+          <Card key={key}><CardContent className="p-3"><div className="text-xs text-muted-foreground">{c[key]}</div><div className="text-xl font-bold">{count}</div></CardContent></Card>
+        ))}
       </div>
 
-      <Tabs value={filter} onValueChange={(v) => setFilter(v as any)}>
-        <TabsList className="w-full h-auto flex flex-wrap justify-start gap-1 bg-muted/50 p-1">
-          <TabsTrigger value="active">{c.active}</TabsTrigger>
-          <TabsTrigger value="progress">{c.progress}</TabsTrigger>
-          <TabsTrigger value="hold">{c.hold}</TabsTrigger>
-          <TabsTrigger value="approval">{c.approval}</TabsTrigger>
-          <TabsTrigger value="done">{c.done}</TabsTrigger>
-          <TabsTrigger value="all">{c.all}</TabsTrigger>
+      <Tabs value={filter} onValueChange={(value) => setFilter(value as Filter)}>
+        <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-muted/50 p-1">
+          {(['active', 'progress', 'hold', 'approval', 'done', 'all'] as const).map((key) => (
+            <TabsTrigger key={key} value={key}>{c[key]}</TabsTrigger>
+          ))}
         </TabsList>
       </Tabs>
 
-      {loading ? (
-        <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div>
-      ) : visibleTickets.length === 0 ? (
-        <Card><CardContent className="py-12 text-center"><CheckCircle2 className="h-10 w-10 mx-auto mb-3 text-muted-foreground" /><p className="text-muted-foreground">{c.noItems}</p></CardContent></Card>
-      ) : (
-        <div className="grid gap-3">
-          {visibleTickets.map(ticket => (
-            <Card key={ticket.id} className="border-l-4 border-l-primary/70 shadow-sm">
-              <CardHeader className="pb-2 p-3 sm:p-4">
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <CardTitle className="text-base sm:text-lg">Room {ticket.room_number} · {ticket.title}</CardTitle>
-                      <Badge variant="outline" className={priorityClass(ticket.priority)}>{ticket.priority.toUpperCase()}</Badge>
-                      <Badge variant="outline" className={statusClass(ticket)}>{statusLabel(ticket)}</Badge>
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground mt-1.5">
-                      <span className="flex items-center gap-1"><Building2 className="h-3 w-3" />{ticket.hotel || '—'}</span>
-                      <span>·</span><span>{ticket.ticket_number}</span>
-                      <span>·</span><span className="flex items-center gap-1"><Clock className="h-3 w-3" />{new Date(ticket.created_at).toLocaleString()}</span>
-                    </div>
+      {loading ? <div className="flex justify-center py-12"><div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" /></div>
+        : visibleTickets.length === 0 ? (
+          <Card><CardContent className="py-12 text-center"><CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-muted-foreground" /><p className="text-muted-foreground">{c.noItems}</p></CardContent></Card>
+        ) : <div className="grid gap-3">{visibleTickets.map((ticket) => (
+          <Card key={ticket.id} className="border-l-4 border-l-primary/70 shadow-sm">
+            <CardHeader className="p-3 pb-2 sm:p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <CardTitle className="text-base sm:text-lg">Room {ticket.room_number} · {ticket.title}</CardTitle>
+                    <Badge variant="outline" className={priorityClass(ticket.priority)}>{ticket.priority.toUpperCase()}</Badge>
+                    <Badge variant="outline" className={statusClass(ticket)}>{statusLabel(ticket)}</Badge>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1"><Building2 className="h-3 w-3" />{ticket.hotel || '—'}</span>
+                    <span>·</span><span>{ticket.ticket_number}</span><span>·</span>
+                    <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{new Date(ticket.created_at).toLocaleString()}</span>
                   </div>
                 </div>
-              </CardHeader>
-              <CardContent className="p-3 sm:p-4 pt-0 space-y-3">
-                <div className="rounded-lg bg-muted/45 p-3">
-                  <div className="text-xs font-semibold text-muted-foreground mb-1 flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" />{c.issue}</div>
-                  <p className="text-sm whitespace-pre-wrap">{ticket.description}</p>
-                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3 p-3 pt-0 sm:p-4 sm:pt-0">
+              <div className="rounded-lg bg-muted/45 p-3">
+                <div className="mb-1 flex items-center gap-1 text-xs font-semibold text-muted-foreground"><AlertTriangle className="h-3.5 w-3.5" />{c.issue}</div>
+                <p className="whitespace-pre-wrap text-sm">{ticket.description}</p>
+              </div>
+              <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
+                <div className="rounded-lg border p-2.5"><div className="text-[11px] text-muted-foreground">{c.reportedBy}</div><div className="flex items-center gap-1 font-semibold"><User className="h-3.5 w-3.5" />{ticket.created_by_profile?.full_name || 'Unknown'}</div></div>
+                <div className="rounded-lg border p-2.5"><div className="text-[11px] text-muted-foreground">{c.assignedTo}</div><div className="font-semibold">{ticket.assigned_to_profile?.full_name || c.unassigned}</div></div>
+                <div className="rounded-lg border p-2.5"><div className="text-[11px] text-muted-foreground">{c.source}</div><div className="font-semibold">{ticket.source?.startsWith('housekeeping') ? c.housekeeping : ticket.assignment_method?.startsWith('auto') ? c.auto : c.manual}</div></div>
+              </div>
+              {ticket.status !== 'completed' && !ticket.assigned_to && ticket.assignment_method === 'unassigned_no_staff_on_duty' && (
+                <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800"><Hourglass className="h-4 w-4 shrink-0" />{c.noDuty}</div>
+              )}
+              {ticket.on_hold && ticket.hold_reason && ticket.status !== 'completed' && (
+                <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800"><PauseCircle className="h-4 w-4 shrink-0" /><span><strong>{c.holdReason}:</strong> {ticket.hold_reason.replace(/_/g, ' ')}</span></div>
+              )}
+              {ticket.resolution_text && <div className="rounded-lg border border-green-200 bg-green-50 p-2.5 text-xs text-green-800"><strong>{c.resolution}:</strong> {ticket.resolution_text}</div>}
+              {!!ticket.attachment_urls?.length && <div className="space-y-2">
+                <div className="text-xs font-semibold text-muted-foreground">{c.attachments} ({ticket.attachment_urls.length})</div>
+                <div className="flex flex-wrap gap-2">{ticket.attachment_urls.map((url, index) => (
+                  <Dialog key={`${ticket.id}-${index}`}><DialogTrigger asChild><Button variant="outline" size="sm"><Eye className="mr-1 h-3.5 w-3.5" />{index + 1}</Button></DialogTrigger>
+                    <DialogContent className="max-w-4xl">{url.startsWith('http') ? <img src={url} alt={`Maintenance attachment ${index + 1}`} className="mx-auto max-h-[80vh] w-auto" /> : <p className="break-all text-sm">{url}</p>}</DialogContent>
+                  </Dialog>
+                ))}</div>
+              </div>}
+              {canManage && <MaintenanceManagerControls ticket={ticket} language={language} onUpdated={() => void fetchTickets()} />}
+            </CardContent>
+          </Card>
+        ))}</div>}
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
-                  <div className="rounded-lg border p-2.5"><div className="text-[11px] text-muted-foreground">{c.reportedBy}</div><div className="font-semibold flex items-center gap-1"><User className="h-3.5 w-3.5" />{ticket.created_by_profile?.full_name || 'Unknown'}</div></div>
-                  <div className="rounded-lg border p-2.5"><div className="text-[11px] text-muted-foreground">{c.assignedTo}</div><div className="font-semibold">{ticket.assigned_to_profile?.full_name || c.unassigned}</div></div>
-                  <div className="rounded-lg border p-2.5"><div className="text-[11px] text-muted-foreground">{c.source}</div><div className="font-semibold">{ticket.source?.startsWith('housekeeping') ? c.housekeeping : ticket.assignment_method?.startsWith('auto') ? c.auto : c.manual}</div></div>
-                </div>
-
-                {!ticket.assigned_to && ticket.assignment_method === 'unassigned_no_staff_on_duty' && (
-                  <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 flex gap-2"><Hourglass className="h-4 w-4 shrink-0" />{c.noDuty}</div>
-                )}
-                {ticket.on_hold && ticket.hold_reason && (
-                  <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 flex gap-2"><PauseCircle className="h-4 w-4 shrink-0" /><span><strong>{c.holdReason}:</strong> {ticket.hold_reason.replace(/_/g, ' ')}</span></div>
-                )}
-                {ticket.resolution_text && (
-                  <div className="text-xs text-green-800 bg-green-50 border border-green-200 rounded-lg p-2.5"><strong>{c.resolution}:</strong> {ticket.resolution_text}</div>
-                )}
-
-                {!!ticket.attachment_urls?.length && (
-                  <div className="space-y-2">
-                    <div className="text-xs font-semibold text-muted-foreground">{c.attachments} ({ticket.attachment_urls.length})</div>
-                    <div className="flex gap-2 flex-wrap">
-                      {ticket.attachment_urls.map((url, idx) => (
-                        <Dialog key={`${ticket.id}-${idx}`}>
-                          <DialogTrigger asChild>
-                            <Button variant="outline" size="sm"><Eye className="h-3.5 w-3.5 mr-1" />{idx + 1}</Button>
-                          </DialogTrigger>
-                          <DialogContent className="max-w-4xl">
-                            {url.startsWith('http') ? <img src={url} alt={`Maintenance attachment ${idx + 1}`} className="max-h-[80vh] w-auto mx-auto" /> : <p className="text-sm break-all">{url}</p>}
-                          </DialogContent>
-                        </Dialog>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      <MaintenanceIssueDialog
-        open={isAddDialogOpen}
-        onOpenChange={setIsAddDialogOpen}
-        roomId={null}
-        roomNumber="General"
-        onIssueReported={() => { setIsAddDialogOpen(false); void fetchTickets(); }}
-      />
+      <MaintenanceIssueDialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}
+        roomId={null} roomNumber="General"
+        onIssueReported={() => { setIsAddDialogOpen(false); void fetchTickets(); }} />
     </div>
   );
 }
