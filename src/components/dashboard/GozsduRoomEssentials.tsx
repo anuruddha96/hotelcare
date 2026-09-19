@@ -8,7 +8,6 @@ import { buildRoomNotes, parseRoomFlags } from '@/lib/room-service-flags';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { RoomGuestRequestsPanel } from './RoomGuestRequestsPanel';
-import { RoomMinibarOperations } from './RoomMinibarOperations';
 import { RoomCommunicationPanel } from './RoomCommunicationPanel';
 import { toast } from 'sonner';
 
@@ -44,7 +43,7 @@ export function GozsduRoomEssentials({ roomId, roomLabel, selectedDate, serviceL
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState('');
-  const [panel, setPanel] = useState<'main' | 'requests' | 'minibar'>('main');
+  const [panel, setPanel] = useState<'main' | 'requests'>('main');
 
   const load = useCallback(async (replaceDraft = true) => {
     setLoading(true);
@@ -217,15 +216,12 @@ export function GozsduRoomEssentials({ roomId, roomLabel, selectedDate, serviceL
     : assignment?.status === 'completed' && assignment.supervisor_approved ? 'Clean / approved'
     : room.status || 'Unknown';
   const disabled = !canManage || !today || !!busy;
-  const isCheckout = serviceLabel.toLowerCase().includes('checkout');
 
   return <div className="space-y-4 border-t pt-4" aria-label="Gozsdu room operations essentials">
     {panel !== 'main' ? <>
       <Button variant="outline" size="sm" onClick={() => setPanel('main')}>← Back to room essentials</Button>
-      {panel === 'requests' ? <RoomGuestRequestsPanel roomId={roomId} roomNumber={roomLabel}
+      <RoomGuestRequestsPanel roomId={roomId} roomNumber={roomLabel}
         assignmentId={assignment?.id || null} workDate={selectedDate} readOnly={!today} />
-        : <RoomMinibarOperations roomId={roomId} roomNumber={roomLabel} isCheckout={isCheckout}
-            readOnly={!today} onChanged={() => void load(false)} />}
     </> : <>
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-base font-semibold">Today’s essentials</h3>
@@ -270,10 +266,7 @@ export function GozsduRoomEssentials({ roomId, roomLabel, selectedDate, serviceL
       </section>
       {canWriteNotes && <RoomCommunicationPanel assignmentId={assignment?.id || ''} roomId={roomId}
         roomNumber={roomLabel} dateLabel={selectedDate} readOnly={!today} />}
-      <div className="grid gap-2 sm:grid-cols-2">
-        <Button variant="outline" onClick={() => setPanel('requests')}>Guest requests</Button>
-        <Button variant="outline" onClick={() => setPanel('minibar')}>Minibar & refill history</Button>
-      </div>
+      <Button variant="outline" className="w-full" onClick={() => setPanel('requests')}>Guest requests</Button>
     </>}
   </div>;
 }

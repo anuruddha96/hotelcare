@@ -13,6 +13,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { isGozsduNoMinibarRoom } from '@/lib/gozsduNoMinibar';
 
 type Category = 'bed' | 'tea_coffee_table' | 'bathroom' | 'trash_bin' | 'minibar';
 type SkipReason = 'guest_limited_service' | 'guest_present_privacy' | 'area_not_serviced' | 'not_applicable' | 'no_access' | 'other';
@@ -21,6 +22,7 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   roomNumber: string;
+  hotel?: string;
   assignmentId?: string;
   onPhotoCaptured?: () => void;
 }
@@ -28,7 +30,7 @@ interface Props {
 // The order follows how staff walk through the room. Keys and filenames are
 // unchanged: existing photos, completion validation and supervisor evidence
 // continue to use the same five categories.
-const STEPS = [
+const ALL_STEPS = [
   { key: 'bed', translation: 'photoCategory.bed', icon: Bed },
   { key: 'tea_coffee_table', translation: 'photoCategory.teaCoffeeTable', icon: Coffee },
   { key: 'bathroom', translation: 'photoCategory.bathroom', icon: Bath },
@@ -58,7 +60,7 @@ const filename = (url: string) => {
   try { return decodeURIComponent(url.split('#')[0].split('?')[0].split('/').pop() || ''); }
   catch { return url.split('?')[0].split('/').pop() || ''; }
 };
-const categoryOf = (url: string): Category | null => STEPS.find(step => filename(url).startsWith(`${step.key}_`))?.key || null;
+const categoryOf = (url: string): Category | null => ALL_STEPS.find(step => filename(url).startsWith(`${step.key}_`))?.key || null;
 const isSkip = (url: string) => filename(url).includes('_skipped_');
 const reasonOf = (url: string): SkipReason | null => REASONS.find(reason => filename(url).includes(`_skipped_${reason}_`)) || null;
 const escapeXml = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
@@ -66,8 +68,14 @@ const stripLimited = (value: string) => value.split('\n').filter(line => !line.i
 const limitedMarker = `${NON_FULL_CLEAN} ${LIMITED} Limited stayover service — not a full room clean. Skipped photo sections are recorded as evidence cards.`;
 
 /** Single-card mobile stepper; all evidence remains assignment-scoped and immediately saved. */
-export function GuidedRoomPhotoCapture({ open, onOpenChange, roomNumber, assignmentId, onPhotoCaptured }: Props) {
-  const { user } = useAuth();
+export function GuidedRoomPhotoCapture({ open, onOpenChange, roomNumber, hotel, assignmentId, onPhotoCaptured }: Props) {
+  const { user, profile } = useAuth();
+  const noMinibar = isGozsduNoMinibarRoom(profile?.assigned_hotel, hotel);
+  // The guest-facing minibar category does not exist at Gozsdu. Historical
+  // minibar evidence is preserved; it is not a current step or a completion gate.
+  const STEPS = useMemo(() => noMinibar
+    ? ALL_STEPS.filter(step => step.key !== 'minibar')
+    : ALL_STEPS, [noMinibar]);
   const { t, language } = useTranslation();
   const locale: Language = language === 'hu' || language === 'vi' || language === 'mn' || language === 'es' ? language : 'en';
   const copy = TEXT[locale];
@@ -91,12 +99,19 @@ export function GuidedRoomPhotoCapture({ open, onOpenChange, roomNumber, assignm
   const stream = useRef<MediaStream | null>(null);
   const picker = useRef<HTMLInputElement>(null);
   const pickerCategory = useRef<Category>('bed');
-  const current = STEPS[index];
-  const evidence = useMemo(() => Object.fromEntries(STEPS.map(step => [step.key, { real: photos.filter(url => categoryOf(url) === step.key && !isSkip(url)), skipped: photos.filter(url => categoryOf(url) === step.key && isSkip(url)) }])) as Record<Category, { real: string[]; skipped: string[] }>, [photos]);
+  const current = STEPS[Math.min(index, STEPS.length - 1)];
+  const evidence = useMemo(() => Object.fromEntries(STEPS.map(step => [step.key, { real: photos.filter(url => categoryOf(url) === step.key && !isSkip(url)), skipped: photos.filter(url => categoryOf(url) === step.key && isSkip(url)) }])) as Record<Category, { real: string[]; skipped: string[] }>, [photos, STEPS]);
   const resolved = STEPS.filter(step => evidence[step.key].real.length || evidence[step.key].skipped.length).length;
   const anySkipped = STEPS.some(step => evidence[step.key].skipped.length > 0);
   const complete = resolved === STEPS.length;
   const skipAllowed = assignmentType === 'daily_cleaning';
+  const incompleteCopy = noMinibar ? ({
+    en: 'Complete all four applicable sections with a photo or a justified skip.',
+    hu: 'Mind a négy alkalmazható részhez fotó vagy indokolt kihagyás szükséges.',
+    vi: 'Bốn mục áp dụng cần ảnh hoặc lý do bỏ qua.',
+    mn: 'Хамаарах дөрвөн хэсэг бүрд зураг эсвэл алгасах шалтгаан шаардлагатай.',
+    es: 'Las cuatro secciones aplicables necesitan foto o motivo de omisión.',
+  } as const)[locale] : copy.incomplete;
 
   const stopCamera = useCallback(() => {
     stream.current?.getTracks().forEach(track => track.stop());
@@ -125,7 +140,7 @@ export function GuidedRoomPhotoCapture({ open, onOpenChange, roomNumber, assignm
       setLoading(false);
     })();
     return () => { active = false; };
-  }, [open, assignmentId, copy.error, stopCamera]);
+  }, [open, assignmentId, noMinibar, copy.error, stopCamera]);
 
   const persist = async (transform: (urls: string[]) => string[]) => {
     if (!assignmentId) throw new Error('Missing room assignment');
@@ -239,7 +254,7 @@ export function GuidedRoomPhotoCapture({ open, onOpenChange, roomNumber, assignm
     finally { setBusy(false); }
   };
   const finish = async () => {
-    if (!complete) { toast.error(copy.incomplete); return; }
+    if (!complete) { toast.error(incompleteCopy); return; }
     if (anySkipped && limitedNote.trim().length < 3) { toast.error(copy.noteRequired); return; }
     setBusy(true);
     try {
@@ -298,7 +313,7 @@ export function GuidedRoomPhotoCapture({ open, onOpenChange, roomNumber, assignm
             {showPreviousShortcut && previous && <Button variant="outline" className="w-full min-h-11 border-dashed" disabled={busy} onClick={() => void startCamera(previous.key)}><ImagePlus className="h-4 w-4 mr-2" />{copy.anotherPrevious} {t(previous.translation)}</Button>}
             <div className="flex justify-between gap-2"><Button variant="ghost" disabled={busy || index === 0} onClick={() => { setIndex(i => i - 1); setPreviousCategory(null); }}><ArrowLeft className="h-4 w-4 mr-1" />{copy.back}</Button><Button variant="ghost" disabled={busy || index === STEPS.length - 1} onClick={() => { setIndex(i => i + 1); setPreviousCategory(null); }}>{copy.next}<ArrowRight className="h-4 w-4 ml-1" /></Button></div>
             {anySkipped && <div className="rounded-xl border border-amber-300 bg-amber-50/50 p-3 space-y-2"><Label htmlFor="limited-service-note" className="font-semibold">{copy.limitedTitle}</Label><p className="text-xs text-muted-foreground">{copy.limitedHelp}</p><Textarea id="limited-service-note" rows={2} value={limitedNote} onChange={event => setLimitedNote(event.target.value)} placeholder={copy.limitedPlaceholder} /></div>}
-            {!complete && resolved > 0 && <p className="text-xs text-muted-foreground">{copy.incomplete}</p>}
+            {!complete && resolved > 0 && <p className="text-xs text-muted-foreground">{incompleteCopy}</p>}
           </>}
         </div>
         <div className="shrink-0 border-t bg-background p-3 flex gap-2"><Button disabled={busy || loading || !complete || (anySkipped && limitedNote.trim().length < 3)} onClick={() => void finish()} className="flex-1 min-h-12"><CheckCircle className="h-4 w-4 mr-2" />{busy ? copy.saving : copy.save}</Button><Button variant="outline" disabled={busy} onClick={requestClose} className="min-h-12 px-3" aria-label={copy.cancelled}><X className="h-5 w-5" /></Button></div>

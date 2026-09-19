@@ -28,6 +28,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { DNDPhotosViewer } from './DNDPhotosViewer';
+import { isGozsduNoMinibarRoom } from '@/lib/gozsduNoMinibar';
 
 interface Room {
   id: string;
@@ -101,6 +102,7 @@ interface RoomDetailDialogProps {
 export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, lateAddition = false, alreadyApproved = false }: RoomDetailDialogProps) {
   const { t } = useTranslation();
   const { profile } = useAuth();
+  const noMinibar = isGozsduNoMinibarRoom(profile?.assigned_hotel, room?.hotel);
   const [loading, setLoading] = useState(false);
   const [notesSaveState, setNotesSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [noteHistory, setNoteHistory] = useState<RoomNoteHistoryEntry[]>([]);
@@ -141,13 +143,21 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
       setRoomSize(room.room_size_sqm?.toString() || '');
       setRoomCapacity(room.room_capacity?.toString() || '');
       fetchRoomNoteHistory(room.id);
-      fetchMinibarItems();
-      fetchMinibarUsage();
+      if (!isGozsduNoMinibarRoom(profile?.assigned_hotel, room.hotel)) {
+        fetchMinibarItems();
+        fetchMinibarUsage();
+        fetchGuestReportedItems();
+        fetchPerishableAlerts();
+      } else {
+        // Drop any cached minibar details on a property switch.
+        setMinibarItems([]);
+        setMinibarUsage([]);
+        setGuestReportedItems(new Set());
+        setPerishableAlerts([]);
+      }
       fetchRecentTickets();
-      fetchGuestReportedItems();
-      fetchPerishableAlerts();
     }
-  }, [open, room, fetchRoomNoteHistory]);
+  }, [open, room, profile?.assigned_hotel, fetchRoomNoteHistory]);
 
   useEffect(() => {
     return () => {
@@ -203,6 +213,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   };
 
   const handleCollectPerishable = async (placementId: string) => {
+    if (noMinibar) return;
     try {
       const { error } = await (supabase
         .from('minibar_placements' as any)
@@ -389,7 +400,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   };
 
   const updateMinibarUsage = async (itemId: string, change: number) => {
-    if (!room) return;
+    if (!room || noMinibar) return;
 
     const currentUsage = getCurrentUsage(itemId);
     const newQuantity = Math.max(0, currentUsage + change);
@@ -474,7 +485,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   };
 
   const clearMinibarUsage = async () => {
-    if (!room) return;
+    if (!room || noMinibar) return;
 
     try {
       const { error } = await supabase
@@ -734,8 +745,8 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
 
           {/* Perishable item alerts removed per product decision — collection now handled elsewhere. */}
 
-          {/* Minibar Section */}
-          <Card>
+          {/* Gozsdu has no minibar; all other properties retain existing usage tools. */}
+          {!noMinibar && <Card>
             <CardHeader className="pb-3 sm:pb-4">
               <div className="flex items-center justify-between gap-2 w-full">
                 <CardTitle className="flex items-center gap-2 text-base sm:text-lg">
@@ -909,7 +920,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                 )}
               </div>
             </CardContent>
-          </Card>
+          </Card>}
 
 
           {/* Recent Tickets Section */}

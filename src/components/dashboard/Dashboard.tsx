@@ -21,6 +21,7 @@ import { MaintenanceStaffView } from './MaintenanceStaffView';
 import { AttendanceTracker } from './AttendanceTracker';
 import { AttendanceReports } from './AttendanceReports';
 import { NotificationPermissionBanner } from './NotificationPermissionBanner';
+import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 
 import { AdminTabs } from '@/components/admin/AdminTabs';
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
@@ -58,6 +59,7 @@ interface Ticket {
 
 export function Dashboard() {
   const { profile } = useAuth();
+  const noMinibar = isGozsduCourtHotel(profile?.assigned_hotel);
   const { t } = useTranslation();
   const { organization, hotels } = useTenant();
   const navigate = useNavigate();
@@ -308,7 +310,7 @@ export function Dashboard() {
         return "maintenance-tasks";
       case 'reception':
       case 'front_office':
-        return "minibar";
+        return noMinibar ? "rooms" : "minibar";
       default:
         return "rooms";
     }
@@ -320,14 +322,14 @@ export function Dashboard() {
   
   useEffect(() => {
     setActiveTab(getDefaultTab(profile?.role));
-  }, [profile?.role, attendanceStatus]);
+  }, [profile?.role, attendanceStatus, noMinibar]);
 
   // Honor ?tab=<key> when arriving from external pages (Revenue, Purchase Invoices)
   useEffect(() => {
     const urlTab = searchParams.get('tab');
     const valid = ['tickets', 'rooms', 'housekeeping', 'attendance', 'minibar', 'lost-found', 'maintenance-tasks', 'admin'];
     if (urlTab && valid.includes(urlTab)) {
-      setActiveTab(urlTab);
+      setActiveTab(urlTab === 'minibar' && noMinibar ? 'rooms' : urlTab);
       // Consume the param so refreshes don't override later user clicks
       searchParams.delete('tab');
       setSearchParams(searchParams, { replace: true });
@@ -376,7 +378,7 @@ export function Dashboard() {
     const handleTrainingNavigate = (event: CustomEvent<{ mainTab?: string; tab?: string; subTab?: string }>) => {
       const detail = event.detail || {};
       const mainTab = detail.mainTab || detail.tab;
-      if (mainTab) setActiveTab(mainTab);
+      if (mainTab) setActiveTab(mainTab === 'minibar' && noMinibar ? 'rooms' : mainTab);
     };
 
     window.addEventListener('training-navigate', handleTrainingNavigate as EventListener);
@@ -385,7 +387,7 @@ export function Dashboard() {
       window.removeEventListener('training-navigate', handleTrainingNavigate as EventListener);
       window.removeEventListener('tour:navigate', handleTrainingNavigate as EventListener);
     };
-  }, []);
+  }, [noMinibar]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -451,7 +453,7 @@ export function Dashboard() {
           </Breadcrumb>
         </div>
 
-        <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setActiveHousekeepingSubTab(''); setActiveInnerTab('team'); }} className="space-y-6">
+        <Tabs value={noMinibar && activeTab === 'minibar' ? 'rooms' : activeTab} onValueChange={(val) => { setActiveTab(val); setActiveHousekeepingSubTab(''); setActiveInnerTab('team'); }} className="space-y-6">
           <div className="flex flex-col gap-4 justify-between items-start">
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold text-foreground">
@@ -566,10 +568,10 @@ export function Dashboard() {
                   <Users className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>{t('dashboard.housekeeping')}</span>
                 </TabsTrigger>
-                <TabsTrigger value="minibar" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
+                {!noMinibar && <TabsTrigger value="minibar" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <PackageIcon className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>Minibar</span>
-                </TabsTrigger>
+                </TabsTrigger>}
                 <TabsTrigger value="lost-found" className="flex-1 flex items-center justify-center gap-1 sm:gap-2 text-xs sm:text-sm">
                   <PackageIcon className="h-3 w-3 sm:h-4 sm:w-4" />
                   <span>Lost & Found</span>
@@ -856,9 +858,9 @@ export function Dashboard() {
           {/* Reception-specific tabs */}
           {profile?.role === 'reception' && (
             <>
-              <TabsContent value="minibar" className="space-y-6">
+              {!noMinibar && <TabsContent value="minibar" className="space-y-6">
                 <MinibarTrackingView />
-              </TabsContent>
+              </TabsContent>}
               <TabsContent value="lost-found" className="space-y-6">
                 <LostAndFoundManagement />
               </TabsContent>
