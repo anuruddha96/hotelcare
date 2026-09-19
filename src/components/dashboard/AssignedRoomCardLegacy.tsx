@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/integrations/supabase/client';
 import { setLastAction, reportClientError } from '@/lib/clientErrorReporter';
@@ -51,6 +51,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { todayBudapest } from '@/lib/budapestTime';
+import { isGozsduNoMinibarRoom, requiredDailyPhotoCategories } from '@/lib/gozsduNoMinibar';
 
 interface AssignedRoomCardProps {
   assignment: {
@@ -97,6 +98,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   const { t, language } = useTranslation();
   const { user, profile } = useAuth();
   const { toast: showToast } = useToast();
+  const noMinibar = isGozsduNoMinibarRoom(profile?.assigned_hotel, assignment.rooms?.hotel);
+  const completionInFlight = useRef(false);
   const [loading, setLoading] = useState(false);
   const [newNote, setNewNote] = useState('');
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
@@ -363,7 +366,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         .single();
 
       const photos: string[] = assignmentData?.completion_photos || [];
-      const requiredCategories = ['trash_bin', 'bathroom', 'bed', 'minibar', 'tea_coffee_table'];
+      const requiredCategories = requiredDailyPhotoCategories(profile?.assigned_hotel, assignment.rooms?.hotel);
       const missing = requiredCategories.filter(cat => {
         return !photos.some(url => {
           const filename = url.split('/').pop() || '';
@@ -559,6 +562,16 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     } finally {
       setLoading(false);
     }
+  };
+
+  // At Gozsdu a staff member finishes through the normal completion/status path
+  // without the shared linen/minibar confirmation. HoldButton can fire click
+  // and hold callbacks; this synchronous guard prevents duplicate submission.
+  const handleCompleteRequest = () => {
+    if (loading || completionInFlight.current || assignment.status !== 'in_progress') return;
+    if (!noMinibar) { setPreCompleteOpen(true); return; }
+    completionInFlight.current = true;
+    void updateAssignmentStatus('completed').finally(() => { completionInFlight.current = false; });
   };
 
   const handleRetrieveDNDRoom = async () => {
@@ -1398,7 +1411,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                     <span className={label}>{t('actions.dirtyLinen')}</span>
                   </button>
 
-                  <button
+                  {!noMinibar && <button
                     type="button"
                     onClick={() => setRoomDetailOpen(true)}
                     className={`${tileBase} border-border`}
@@ -1407,7 +1420,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                       <BedDouble className="h-4 w-4" />
                     </span>
                     <span className={label}>{t('actions.minibar')}</span>
-                  </button>
+                  </button>}
 
                   <button
                     type="button"
@@ -1442,8 +1455,8 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative pb-8 w-full sm:w-auto">
                 <HoldButton 
-                  onClick={() => setPreCompleteOpen(true)}
-                  onHoldComplete={() => setPreCompleteOpen(true)}
+                  onClick={handleCompleteRequest}
+                  onHoldComplete={handleCompleteRequest}
                   holdDuration={2000}
                   disabled={loading}
                   className="w-full h-12 bg-green-600 hover:bg-green-700 text-white"
@@ -1702,6 +1715,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         onOpenChange={setDailyPhotoDialogOpen}
         roomNumber={assignment.rooms?.room_number || 'N/A'}
         assignmentId={assignment.id}
+        hotel={assignment.rooms?.hotel}
         onPhotoCaptured={handlePhotoCaptured}
       />
 
@@ -1761,7 +1775,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       />
 
       {/* Pre-complete confirmation dialog */}
-      <PreCompleteChecklistDialog
+      {!noMinibar && <PreCompleteChecklistDialog
         open={preCompleteOpen}
         onOpenChange={setPreCompleteOpen}
         loading={loading}
@@ -1777,7 +1791,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
           setPreCompleteOpen(false);
           await updateAssignmentStatus('completed');
         }}
-      />
+      />}
 
 
       {/* Room Assignment Change Dialog - For changing daily to checkout */}

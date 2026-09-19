@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { HousekeepingManagerView } from './HousekeepingManagerView';
 import { HousekeepingStaffView } from './HousekeepingStaffView';
 import { HousekeepingStaffManagement } from './HousekeepingStaffManagement';
@@ -156,6 +157,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
   // Full management access: admin, top_management, top_management_manager, manager, housekeeping_manager, marketing, control_finance, hr, front_office
   const hasManagerAccess = ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager', 'marketing', 'control_finance', 'hr', 'front_office'].includes(userRole);
   const isAdmin = userRole === 'admin';
+  const noMinibar = isGozsduCourtHotel(profile?.assigned_hotel || assignedHotel);
   // Top Management now has the exact same Housekeeping powers as a manager
   // (assignments, dirty linen, minibar, approvals). No executive read-only mode.
   const isExecutiveReadOnly = false;
@@ -372,6 +374,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
 
     let order = orderedTabs.length > 0 ? orderedTabs : defaultOrder;
     if (hidePmsUploadTab) order = order.filter((id) => id !== 'pms-upload');
+    if (noMinibar) order = order.filter((id) => id !== 'minibar');
     // Hide operational/admin tabs for read-only executives
     if (isExecutiveReadOnly) {
       order = order.filter((id) => !['pms-upload', 'staff-management', 'supervisor'].includes(id));
@@ -470,7 +473,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); onActiveSubTabChange?.(val); }} className="w-full">
+      <Tabs value={noMinibar && activeTab === 'minibar' ? 'manage' : activeTab} onValueChange={(val) => { setActiveTab(val); onActiveSubTabChange?.(val); }} className="w-full">
         <TabsList className={`
           ${hasManagerAccess || isReceptionReadOnly
             ? 'inline-flex overflow-x-auto overflow-y-hidden w-full justify-start gap-1 p-1 h-auto flex-nowrap scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent' 
@@ -552,7 +555,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
             <TabsContent value="supervisor" className="space-y-6">
               <div className="space-y-6">
                 <SupervisorApprovalView
-                  lateMinibarCount={lateMinibarCount}
+                  lateMinibarCount={noMinibar ? 0 : lateMinibarCount}
                   breakRequestCount={breakRequestCount}
                 />
               </div>
@@ -609,7 +612,7 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
           <HousekeepingStaffView />
         </TabsContent>
 
-        {hasManagerAccess && (
+        {hasManagerAccess && !noMinibar && (
           <TabsContent value="minibar" className="space-y-6">
             <MinibarTrackingView />
           </TabsContent>
