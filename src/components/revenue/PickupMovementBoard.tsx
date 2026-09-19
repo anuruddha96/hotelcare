@@ -5,64 +5,46 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ArrowDownRight, ArrowUpRight, ChevronDown, ChevronRight, Scale, Search, SlidersHorizontal, Sparkles } from "lucide-react";
-import { eur, addDays, budapestDayOf, budapestToday, pickupWindowLabel, pickupWindowStartMs, type DayMetrics, type BookingNight, type CancelledNight, type RoomTypeRate } from "@/lib/revenueAnalytics";
+import {
+  eur, addDays, budapestToday, pickupWindowLabel, pickupWindowStartMs,
+  type DayMetrics, type BookingNight, type CancelledNight, type RoomTypeRate,
+} from "@/lib/revenueAnalytics";
+import { buildReservationMovementRows, sumReservationMovementRows } from "@/lib/pickupMovementAccuracy";
 import QuickRateAdjustDialog, { type QuickAdjustTarget } from "./QuickRateAdjustDialog";
 import { usePickupSeenSince, useIsNewSince } from "@/lib/pickupSeen";
 
 type StatusFilter = "all" | "booked" | "cancelled";
 type SortKey = "created" | "arrival" | "value";
 
+// Stay dates are date-only values. Formatting in UTC avoids moving them one
+// calendar day backwards for managers in a different device time zone.
 function fmtDay(iso: string) {
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, {
     timeZone: "UTC", weekday: "short", day: "numeric", month: "short",
   });
 }
 
-/**
- * Previo puts a group booking's whole amount on one room and sends the other
- * rooms at zero, so a bare "€0" reads like a free stay. Say where the money is.
- */
-function Value({ amount, grouped }: { amount: number; grouped?: boolean }) {
-  if (amount > 0) return <>{eur(amount)}</>;
-  return (
-    <span className="text-muted-foreground">
-      {eur(0)}
-      <span className="ml-1 text-[10px] font-normal">{grouped ? "· priced on the group booking" : "· no rate"}</span>
-    </span>
-  );
-}
-
-function fmtStamp(iso: string | null) {
-
-  if (!iso) return "Unknown time";
+function fmtStamp(iso: string) {
   return new Date(iso).toLocaleString(undefined, {
     timeZone: "Europe/Budapest", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
   });
 }
 
-interface ReservationRoom {
-  key: string;
-  roomType: string;
-  nights: number;
-  value: number;
-}
-
-interface ReservationRow {
-  key: string;
-  resId: string;
-  kind: "booked" | "cancelled";
-  at: string | null;
-  from: string;
-  to: string;
-  nights: number;
-  rooms: ReservationRoom[];
-  guests: number;
-  value: number;
-  channel: string;
+/** Previo puts some group booking totals on one room and other rooms at zero. */
+function Value({ amount, grouped }: { amount: number; grouped?: boolean }) {
+  if (amount > 0) return <>{eur(amount)}</>;
+  return (
+    <span className="text-muted-foreground">
+      {eur(0)}
+      <span className="ml-1 text-[10px] font-normal">
+        {grouped ? "· priced on the group booking" : "· no rate"}
+      </span>
+    </span>
+  );
 }
 
 export default function PickupMovementBoard({
-  metrics, windowDays, nights = [], cancellations = [],
+  metrics: _metrics, windowDays, nights = [], cancellations = [],
   hotelId = null, organizationSlug = null, rates = [], canEdit = false, onRatesUpdated,
 }: {
   metrics: DayMetrics[];
@@ -82,60 +64,22 @@ export default function PickupMovementBoard({
   const [adjust, setAdjust] = useState<QuickAdjustTarget | null>(null);
   const seenSince = usePickupSeenSince(hotelId);
   const isNew = useIsNewSince(seenSince);
-
-
   const windowStartMs = useMemo(() => pickupWindowStartMs(windowDays), [windowDays]);
-  const inWindow = (iso: string | null | undefined) => {
-    if (!iso) return false;
-    const t = Date.parse(iso);
-    return Number.isFinite(t) && t >= windowStartMs;
-  };
 
-  const reservations = useMemo<ReservationRow[]>(() => {
-    const build = (source: Array<BookingNight | CancelledNight>, kind: ReservationRow["kind"]) => {
-      const byReservation = new Map<string, Array<BookingNight | CancelledNight>>();
-      for (const row of source) {
-        const eventAt = kind === "booked" ? row.created_at_pms : (row as CancelledNight).cancelled_at;
-        if (!inWindow(eventAt)) continue;
-        const bucket = byReservation.get(row.res_id);
-        if (bucket) bucket.push(row); else byReservation.set(row.res_id, [row]);
-      }
-
-      return Array.from(byReservation.entries()).map(([resId, group]): ReservationRow => {
-        const dates = group.map((row) => row.stay_date).sort();
-        const from = group.find((row) => row.stay_from)?.stay_from ?? dates[0];
-        const explicitTo = group.find((row) => row.stay_to)?.stay_to;
-        const to = explicitTo ? addDays(explicitTo, -1) : dates[dates.length - 1];
-        const roomBuckets = new Map<string, Array<BookingNight | CancelledNight>>();
-        for (const row of group) {
-          const roomKey = row.room_key ?? row.obk_id ?? row.room_type_name ?? "room";
-          const bucket = roomBuckets.get(roomKey);
-          if (bucket) bucket.push(row); else roomBuckets.set(roomKey, [row]);
-        }
-        const rooms = Array.from(roomBuckets.entries()).map(([key, roomRows]) => ({
-          key,
-          roomType: roomRows[0].room_type_name ?? "Room",
-          nights: new Set(roomRows.map((row) => row.stay_date)).size,
-          value: roomRows.reduce((sum, row) => sum + (Number(row.nightly_price_eur) || 0), 0),
-        }));
-        const first = group[0];
-        return {
-          key: `${kind}-${resId}`,
-          resId,
-          kind,
-          at: kind === "booked" ? first.created_at_pms ?? null : (first as CancelledNight).cancelled_at,
-          from,
-          to,
-          nights: Math.max(1, new Set(group.map((row) => row.stay_date)).size),
-          rooms,
-          guests: Math.max(1, ...group.map((row) => Number(row.guests) || 1)),
-          value: group.reduce((sum, row) => sum + (Number(row.nightly_price_eur) || 0), 0),
-          channel: first.source_name ?? "Direct / unknown",
-        };
-      });
-    };
-    return [...build(nights, "booked"), ...build(cancellations, "cancelled")];
+  // The published revenue feed is future-focused. Do not turn a historical
+  // room-night retained in the client's cache into an apparent future loss.
+  // Keep original stay_from/stay_to in the records for audit context, while the
+  // displayed movement range must come from the nights that actually changed.
+  const reservations = useMemo(() => {
+    const today = budapestToday();
+    return buildReservationMovementRows(
+      nights.filter((night) => night.stay_date >= today),
+      cancellations.filter((night) => night.stay_date >= today),
+      windowStartMs,
+    );
   }, [nights, cancellations, windowStartMs]);
+
+  const totals = useMemo(() => sumReservationMovementRows(reservations), [reservations]);
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -148,19 +92,9 @@ export default function PickupMovementBoard({
         ? a.from.localeCompare(b.from)
         : sort === "value"
           ? b.value - a.value
-          : (b.at ?? "").localeCompare(a.at ?? ""));
+          : b.at.localeCompare(a.at));
   }, [reservations, status, search, sort]);
 
-  const totals = useMemo(() => {
-    const moved = metrics.filter((m) => (m.netPickup ?? 0) !== 0 || m.roomsLost > 0 || m.newBookings > 0);
-    const gained = moved.reduce((sum, row) => sum + row.newBookings, 0);
-    const lost = moved.reduce((sum, row) => sum + row.roomsLost, 0);
-    const gainedValue = moved.reduce((sum, row) => sum + row.newRevenueEur, 0);
-    const lostValue = moved.reduce((sum, row) => sum + row.lostRevenueEur, 0);
-    return { gained, lost, gainedValue, lostValue };
-  }, [metrics]);
-
-  // Only movement that landed after the user's previous visit counts as new.
   const newCount = useMemo(() => visible.filter((row) => isNew(row.at)).length, [visible, isNew]);
 
   return (
@@ -176,12 +110,16 @@ export default function PickupMovementBoard({
           )}
           <Badge variant="outline" className="font-normal">Budapest time</Badge>
         </CardTitle>
+        <p className="text-[11px] font-normal text-muted-foreground">
+          Future room-nights only · Actual booked/cancelled nightly values · Checkout date is not a charged night.
+          Totals cover the stay dates loaded for this hotel.
+        </p>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid grid-cols-3 gap-2">
-          <Summary label="Gained" rooms={totals.gained} money={totals.gainedValue} tone="text-emerald-600 dark:text-emerald-400" icon={<ArrowUpRight className="h-3.5 w-3.5" />} />
-          <Summary label="Lost" rooms={-totals.lost} money={-totals.lostValue} tone="text-sky-600 dark:text-sky-400" icon={<ArrowDownRight className="h-3.5 w-3.5" />} />
-          <Summary label="Net" rooms={totals.gained - totals.lost} money={totals.gainedValue - totals.lostValue} tone={totals.gained < totals.lost ? "text-destructive" : "text-foreground"} icon={<Scale className="h-3.5 w-3.5" />} />
+          <Summary label="Gained room-nights" rooms={totals.gained} money={totals.gainedValue} tone="text-emerald-600 dark:text-emerald-400" icon={<ArrowUpRight className="h-3.5 w-3.5" />} />
+          <Summary label="Lost room-nights" rooms={-totals.lost} money={-totals.lostValue} tone="text-sky-600 dark:text-sky-400" icon={<ArrowDownRight className="h-3.5 w-3.5" />} />
+          <Summary label="Net room-nights" rooms={totals.gained - totals.lost} money={totals.gainedValue - totals.lostValue} tone={totals.gained < totals.lost ? "text-destructive" : "text-foreground"} icon={<Scale className="h-3.5 w-3.5" />} />
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -208,16 +146,17 @@ export default function PickupMovementBoard({
         </div>
 
         {visible.length === 0 ? (
-          <p className="py-4 text-sm text-muted-foreground">No matching reservations moved in this window.</p>
+          <p className="py-4 text-sm text-muted-foreground">No matching future room-nights moved in this window.</p>
         ) : (
           <div className="overflow-hidden rounded-md border">
             <div className="hidden grid-cols-[minmax(150px,1.2fr)_minmax(180px,1.4fr)_70px_70px_90px_100px_38px] gap-2 bg-muted px-3 py-2 text-[10px] uppercase text-muted-foreground md:grid">
-              <span>Created</span><span>Stay</span><span>Nights</span><span>Rooms</span><span>Guests</span><span className="text-right">Value</span><span />
+              <span>Movement time</span><span>Affected dates → checkout</span><span>Nights</span><span>Rooms</span><span>Guests</span><span className="text-right">Value</span><span />
             </div>
             <div className="max-h-[440px] divide-y overflow-y-auto">
               {visible.map((row) => {
                 const expanded = open === row.key;
                 const fresh = isNew(row.at);
+                const changedOriginal = row.from !== row.originalFrom || row.checkout !== row.originalCheckout;
                 return (
                   <div key={row.key} className={fresh ? "bg-primary/5" : undefined}>
                     <div className="grid grid-cols-[1fr_auto] gap-2 px-3 py-2.5 md:grid-cols-[minmax(150px,1.2fr)_minmax(180px,1.4fr)_70px_70px_90px_100px_38px] md:items-center">
@@ -227,17 +166,16 @@ export default function PickupMovementBoard({
                             {row.kind === "booked" ? "Booked" : "Cancelled"}
                           </Badge>
                           {fresh && (
-                            <Badge variant="outline" className="border-primary px-1.5 py-0 text-[10px] font-semibold text-primary">
-                              New
-                            </Badge>
+                            <Badge variant="outline" className="border-primary px-1.5 py-0 text-[10px] font-semibold text-primary">New</Badge>
                           )}
                           <span className="truncate text-xs font-medium">{fmtStamp(row.at)}</span>
                         </div>
                         <p className="mt-0.5 truncate text-[10px] text-muted-foreground">#{row.resId} · {row.channel}</p>
                       </div>
-                      <div className="min-w-0 text-xs md:block">
+                      <div className="min-w-0 text-xs md:block" title="Affected stay nights; end date is the exclusive checkout">
                         <span className="font-medium">{fmtDay(row.from)}</span>
-                        <span className="text-muted-foreground"> – {fmtDay(row.to)}</span>
+                        <span className="text-muted-foreground"> – {fmtDay(row.checkout)}</span>
+                        <span className="ml-1 text-[10px] text-muted-foreground">checkout</span>
                       </div>
                       <span className="hidden text-xs tabular-nums md:block">{row.nights}</span>
                       <span className="hidden text-xs tabular-nums md:block">{row.rooms.length}</span>
@@ -246,12 +184,18 @@ export default function PickupMovementBoard({
                       <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setOpen(expanded ? null : row.key)} aria-label={`${expanded ? "Hide" : "Show"} reservation details`}>
                         {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </Button>
-                      <div className="col-span-2 flex gap-3 text-[11px] text-muted-foreground md:hidden">
+                      <div className="col-span-2 flex flex-wrap gap-3 text-[11px] text-muted-foreground md:hidden">
                         <span>{row.nights} nights</span><span>{row.rooms.length} rooms</span><span>{row.guests} guests</span><span className="font-medium text-foreground"><Value amount={row.value} grouped={row.rooms.length > 1} /></span>
                       </div>
                     </div>
                     {expanded && (
                       <div className="border-t bg-muted/30 px-3 py-2">
+                        {row.kind === "cancelled" && changedOriginal && (
+                          <p className="mb-2 text-xs text-muted-foreground">
+                            Original reservation: {fmtDay(row.originalFrom)} – {fmtDay(row.originalCheckout)} (checkout).
+                            Only the affected nights above are counted as lost.
+                          </p>
+                        )}
                         <div className="space-y-1">
                           {row.rooms.map((room) => (
                             <div key={room.key} className="flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -264,9 +208,10 @@ export default function PickupMovementBoard({
                           <div className="mt-2 flex justify-end">
                             <Button size="sm" variant="outline" onClick={() => setAdjust({
                               from: row.from,
-                              to: row.to,
+                              // Quick rate edit expects the last occupied night, not checkout.
+                              to: addDays(row.checkout, -1),
                               roomTypeName: row.rooms.length === 1 ? row.rooms[0].roomType : null,
-                              label: `${fmtDay(row.from)} – ${fmtDay(row.to)}`,
+                              label: `${fmtDay(row.from)} – ${fmtDay(row.checkout)} (checkout)`,
                             })}>
                               <SlidersHorizontal className="mr-1 h-3.5 w-3.5" />Adjust stay prices
                             </Button>
