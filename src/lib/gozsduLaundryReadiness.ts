@@ -26,25 +26,29 @@ export function activeLaundryAssignments(rows: LaundryAssignment[]): LaundryAssi
     && row.status !== 'dnd_pending_retry' && ['assigned', 'in_progress'].includes(row.status));
 }
 
-/** An assignment alone is not evidence that somebody is inside a room. Only today's
- * actual in_progress housekeeping assignments may display the active-cleaning label. */
+/** Only an actual in-progress housekeeping assignment indicates somebody is cleaning. */
 export function activeCleaningHousekeeperIds(rows: LaundryAssignment[]): string[] {
   return [...new Set(rows.filter(row => row.status === 'in_progress' && !!row.assigned_to
     && ['checkout_cleaning', 'daily_cleaning', 'deep_cleaning'].includes(row.assignment_type))
     .map(row => row.assigned_to as string))];
 }
 
-/** Never interpret a scheduled departure, a dirty room or an old day's RTC as permission to enter. */
+/** A completed checkout is not an active housekeeping assignment, but the linen
+ * record must remain editable after the housekeeper finishes/gets approved.
+ * Keep the original strict same-day PMS checkout/release checks: neither a clean
+ * room nor approval on its own establishes that the guest has departed. */
 export function laundryAccess(room: LaundryRoom, assignments: LaundryAssignment[], date: string): LaundryAccess {
   if (!isEligibleLaundryRoom(room)) return 'unavailable';
   if (room.is_dnd || assignments.some(row => row.is_dnd)) return 'dnd';
   if (!isCheckout(room)) return 'guest_permission';
   const meta = room.pms_metadata || {};
-  const live = activeLaundryAssignments(assignments).filter(row => row.assignment_type === 'checkout_cleaning');
-  const otherActive = activeLaundryAssignments(assignments).filter(row => row.assignment_type !== 'checkout_cleaning');
+  const relevant = assignments.filter(row => row.assignment_type !== 'maintenance'
+    && ['assigned', 'in_progress', 'completed'].includes(row.status));
+  const checkouts = relevant.filter(row => row.assignment_type === 'checkout_cleaning');
+  const conflicting = relevant.filter(row => row.assignment_type !== 'checkout_cleaning');
   if (meta.lastPmsRefreshDate !== date || meta.checkedOutToday !== true || meta.readyToClean !== true
-    || (meta.readyToCleanDate && meta.readyToCleanDate !== date) || !live.length || otherActive.length
-    || live.some(row => row.ready_to_clean !== true || row.pms_hold === true || row.is_dnd === true)) return 'guest_inside';
+    || (meta.readyToCleanDate && meta.readyToCleanDate !== date) || !checkouts.length || conflicting.length
+    || checkouts.some(row => row.ready_to_clean !== true || row.pms_hold === true || row.is_dnd === true)) return 'guest_inside';
   return 'ready';
 }
 
@@ -63,9 +67,9 @@ export function laundryService(room: LaundryRoom, assignments: LaundryAssignment
   return 'none';
 }
 
-/** Mirror the manager's explicit service bucket and service-due PMS policy. In
- * particular, 'daily_cleaning' and even currentNight alone MUST NOT merge generic
- * Other rooms into Second-day stayovers. Each room belongs to exactly one queue. */
+/** Mirror the manager's explicit service bucket and service-due PMS policy.
+ * A generic daily assignment or night parity must never merge Other rooms
+ * into Second-day stayovers. Each room belongs to exactly one queue. */
 export function laundryBucket(room: LaundryRoom, assignments: LaundryAssignment[], date: string): LaundryBucket {
   if (isCheckout(room)) return 'checkout';
   const override = readGozsduRoomOverride(room.pms_metadata, date);
@@ -73,8 +77,6 @@ export function laundryBucket(room: LaundryRoom, assignments: LaundryAssignment[
   const plan = room.pms_metadata?.gozsduHousekeeping;
   if (plan) return plan.serviceDue === true && ['towel_change', 'change_room'].includes(plan.serviceType)
     ? 'second_day' : 'other';
-  // Legacy rooms without a policy: only an explicit towel-only instruction is
-  // sufficient to place them in the second-day queue. Never guess from nights.
   return assignments.some(row => activeLaundryAssignments([row]).length > 0
     && row.notes?.includes('[TOWEL_CHANGE_ONLY]')) ? 'second_day' : 'other';
 }
@@ -86,8 +88,6 @@ export function groupCurrentLaundryRooms(rooms: LaundryRoom[], assignments: Laun
   for (const room of rooms) if (isEligibleLaundryRoom(room)) {
     grouped[laundryBucket(room, byRoom.get(room.id) || [], date)].push(room);
   }
-  // The same ranking is applied independently inside each of the THREE distinct
-  // queues; do not combine service-due stayovers with generic Other rooms.
   for (const group of Object.values(grouped)) group.sort((a, b) => {
     const aCleaning = activeCleaningHousekeeperIds(byRoom.get(a.id) || []).length > 0;
     const bCleaning = activeCleaningHousekeeperIds(byRoom.get(b.id) || []).length > 0;
