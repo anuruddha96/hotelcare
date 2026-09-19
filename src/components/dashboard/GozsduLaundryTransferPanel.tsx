@@ -21,6 +21,7 @@ export function GozsduLaundryTransferPanel({ staffId, staffName, workDate, onTra
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [committed, setCommitted] = useState(false);
   const [error, setError] = useState('');
 
   const load = async () => {
@@ -50,7 +51,7 @@ export function GozsduLaundryTransferPanel({ staffId, staffName, workDate, onTra
   useEffect(() => { void load(); }, [staffId, workDate]);
 
   const commit = async () => {
-    if (saving || !canConfirmGozsduLaundryTransfer(preview, replacementId, confirmed)) return;
+    if (saving || committed || !canConfirmGozsduLaundryTransfer(preview, replacementId, confirmed)) return;
     setSaving(true);
     setError('');
     try {
@@ -62,17 +63,26 @@ export function GozsduLaundryTransferPanel({ staffId, staffName, workDate, onTra
           p_expected_token: preview!.token,
         });
       if (writeError) throw writeError;
-      if (data?.saved !== true) throw new Error('Transfer was not confirmed by the database.');
-      await onTransferred();
+      if (data?.saved !== true) throw new Error('The database did not confirm the transfer. Refresh the schedule before retrying.');
+      // A successful RPC commits before the follow-up UI refresh. Never report
+      // an unsuccessful transfer or allow duplicate writes if refreshing fails.
+      setCommitted(true);
+      setConfirmed(false);
+      try {
+        await onTransferred();
+      } catch (refreshError: any) {
+        setError('Transfer saved successfully, but the updated duty could not be refreshed. Close and reopen Auto Assign before making any further changes.');
+        console.error('[GozsduLaundryTransfer] post-commit refresh failed', refreshError);
+      }
     } catch (cause: any) {
       setError(cause?.code === '40001'
         ? 'Someone changed the schedule. Refresh the preview and select a replacement again.'
-        : cause?.message || 'Transfer failed; no partial reassignment has been saved.');
+        : cause?.message || 'Transfer could not be completed. Refresh and verify the schedule before trying again.');
       setConfirmed(false);
     } finally { setSaving(false); }
   };
 
-  const canCommit = canConfirmGozsduLaundryTransfer(preview, replacementId, confirmed);
+  const canCommit = !committed && canConfirmGozsduLaundryTransfer(preview, replacementId, confirmed);
   const blocked = !!preview && (preview.release_locked || preview.blocked_started_or_completed > 0);
   const rooms = preview ? transferRoomCount(preview) : 0;
   const areas = preview ? transferAreaCount(preview) : 0;
@@ -81,12 +91,13 @@ export function GozsduLaundryTransferPanel({ staffId, staffName, workDate, onTra
     className="mt-3 space-y-3 rounded-lg border-2 border-amber-300 bg-amber-50/40 p-3 text-sm dark:bg-amber-950/20">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h4 className="font-semibold">Move existing work before selecting {staffName} as Laundryner</h4>
-      <Button type="button" size="sm" variant="outline" disabled={saving || loading} onClick={() => void load()}>
+      <Button type="button" size="sm" variant="outline" disabled={saving || loading || committed} onClick={() => void load()}>
         <RefreshCw className="mr-1 h-3.5 w-3.5" />Refresh
       </Button>
     </div>
     <p className="text-xs text-muted-foreground">Only Gozsdu · {workDate}. Existing room notes, cleaning statuses, Previo information and approval history stay intact. This saves all transfers and the Laundryner duty together, or nothing.</p>
     {loading && <p role="status"><Loader2 className="mr-1 inline h-4 w-4 animate-spin" />Checking current work…</p>}
+    {committed && <p role="status" className="rounded border border-emerald-500 bg-background p-2 text-emerald-700">The transfer was saved by the database. Reopen the schedule if updated assignments are not displayed.</p>}
     {error && <p role="alert" className="rounded border border-destructive bg-background p-2 text-destructive"><AlertTriangle className="mr-1 inline h-4 w-4" />{error}</p>}
     {preview && <>
       <div className="grid grid-cols-2 gap-2 rounded border bg-background p-3 text-center">
@@ -111,7 +122,7 @@ export function GozsduLaundryTransferPanel({ staffId, staffName, workDate, onTra
         <label className="block space-y-1 text-xs font-medium" htmlFor="laundry-transfer-replacement">
           Replacement housekeeper
           <select id="laundry-transfer-replacement" className="h-10 w-full rounded-md border bg-background px-2 text-sm"
-            value={replacementId} disabled={saving}
+            value={replacementId} disabled={saving || committed}
             onChange={event => { setReplacementId(event.target.value); setConfirmed(false); }}>
             <option value="">Choose an eligible housekeeper</option>
             {preview.replacement_staff.map(person => <option key={person.id} value={person.id}>
@@ -121,7 +132,7 @@ export function GozsduLaundryTransferPanel({ staffId, staffName, workDate, onTra
         </label>
         {preview.replacement_staff.length === 0 && <p role="alert" className="text-xs text-destructive">No eligible selected replacement exists. Add a housekeeper to the saved plan first.</p>}
         <label className="flex items-start gap-2 rounded border bg-background p-2 text-xs">
-          <Checkbox checked={confirmed} disabled={saving || !replacementId}
+          <Checkbox checked={confirmed} disabled={saving || committed || !replacementId}
             onCheckedChange={value => setConfirmed(value === true)} aria-label="Confirm transfer of all listed work" />
           <span>I have reviewed all {rooms} room and {areas} public-area assignments. Transfer them to the selected housekeeper and assign Laundryner duty to {staffName}.</span>
         </label>
