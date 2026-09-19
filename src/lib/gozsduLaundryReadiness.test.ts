@@ -41,7 +41,7 @@ describe('Gozsdu laundry room access', () => {
 });
 
 describe('Service information mirrors Gozsdu metadata', () => {
-  it('respects checkout, towel change, textile change and today's manual overrides', () => {
+  it('respects checkout, towel change, textile change and manual overrides for today', () => {
     expect(laundryService(room(), [assignment()], date)).toBe('full');
     const stayover = room({ is_checkout_room: false,
       pms_metadata: { gozsduAvailability: { status: 'operating' }, scheduledDepartureToday: false,
