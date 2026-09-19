@@ -1,0 +1,51 @@
+name: Gozsdu No Minibar 252 Patch
+on:
+  push:
+    branches: [fix/gozsdu-no-minibar-completion-252]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout isolated repair branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Generate targeted code and regression tests
+        run: |
+          python3 scripts/patch-gozsdu-no-minibar-252.py
+          python3 - <<'PY'
+          from pathlib import Path
+          f = Path('src/components/dashboard/GuidedRoomPhotoCapture.tsx')
+          text = f.read_text()
+          old = 'const categoryOf = (url: string): Category | null => STEPS.find('
+          assert text.count(old) == 1, 'photo category parser anchor missing'
+          f.write_text(text.replace(old, 'const categoryOf = (url: string): Category | null => ALL_STEPS.find(', 1))
+          PY
+          git diff --check
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Targeted policy regression tests
+        run: bunx vitest run src/lib/gozsduNoMinibar.test.ts
+      - name: Production build
+        run: bun run build
+      - name: Full test suite
+        run: bun run test
+      - name: Commit only verified application changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm scripts/patch-gozsdu-no-minibar-252.py .github/workflows/gozsdu-no-minibar-252-patch.yml
+          git add src/lib/gozsduNoMinibar.ts src/lib/gozsduNoMinibar.test.ts src/components/dashboard/AssignedRoomCardLegacy.tsx src/components/dashboard/GuidedRoomPhotoCapture.tsx src/components/dashboard/RoomDetailDialog.tsx src/components/dashboard/HousekeepingTabLegacy.tsx src/components/dashboard/Dashboard.tsx
+          git diff --cached --check
+          git commit -m 'fix(gozsdu): skip completion popup and remove minibar from staff workflows (#252)'
+          git push origin HEAD:fix/gozsdu-no-minibar-completion-252
