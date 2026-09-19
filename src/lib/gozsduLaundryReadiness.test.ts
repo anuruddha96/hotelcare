@@ -41,16 +41,21 @@ describe('Gozsdu laundry room access', () => {
 });
 
 describe('Service information mirrors Gozsdu metadata', () => {
-  it('respects checkout, towel change, textile change and manual overrides for today', () => {
+  it('respects checkout, towel change, textile change and validated manual overrides for today', () => {
     expect(laundryService(room(), [assignment()], date)).toBe('full');
     const stayover = room({ is_checkout_room: false,
       pms_metadata: { gozsduAvailability: { status: 'operating' }, scheduledDepartureToday: false,
         gozsduHousekeeping: { serviceType: 'change_room', serviceDue: true } } });
     expect(laundryService(stayover, [], date)).toBe('textile');
+    // Match the actual manager override schema; incomplete/mismatched dates must
+    // not silently overwrite the service shown in the room overview.
+    const override = { date, service: 'towel_change', bucket: 'service',
+      reason: 'manager requested towel change', changedAt: '2026-09-19T07:00:00Z', changedBy: 'manager' };
     const overridden = { ...stayover, pms_metadata: { ...stayover.pms_metadata,
-      hotelcareHousekeepingOverrides: { [date]: { service: 'towel_change', bucket: 'service' } } } };
+      hotelcareHousekeepingOverrides: { [date]: override } } };
     expect(laundryService(overridden, [], date)).toBe('towel');
     expect(groupCurrentLaundryRooms([overridden], [], date).second_day).toHaveLength(1);
+    expect(laundryService(overridden, [], '2026-09-20')).toBe('textile');
   });
 
   it('does not reclassify no-service odd or even nights as due when overview says none', () => {
