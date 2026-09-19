@@ -8,6 +8,7 @@ import {
 } from '@/lib/gozsduLaundryDutySession';
 import { AutoRoomAssignment as OriginalAutoRoomAssignment } from './AutoRoomAssignmentLegacy';
 import { GozsduLaundryDutyPicker } from './GozsduLaundryDutyPicker';
+import { GozsduLaundryDutyUniversalSlot } from './GozsduLaundryDutyUniversalSlot';
 
 type Props = ComponentProps<typeof OriginalAutoRoomAssignment>;
 
@@ -69,5 +70,6 @@ export function AutoRoomAssignment(props: Props) {
       laundryDutyIds={dutyIds}
       laundryDutyCommitRevision={commitRevision}
     />}
+    {verified && <GozsduLaundryDutyUniversalSlot open={props.open} workDate={date} />}
   </>;
 }
