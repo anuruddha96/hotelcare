@@ -7,13 +7,13 @@ import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { laundryCopy } from '@/lib/gozsduLaundrynerI18n';
 import { HousekeepingTabEnhanced } from './HousekeepingTabEnhanced';
 import { GozsduLaundrynerTasksV2 } from './GozsduLaundrynerTasksV2';
+import { GozsduLinenCollectionBreakdown } from './GozsduLinenCollectionBreakdown';
 import { Button } from '@/components/ui/button';
 
 type Props = ComponentProps<typeof HousekeepingTabEnhanced>;
 
-/** Normal housekeeping is unchanged outside Gozsdu and on non-laundry days.
- * During a code-before-database rollout, original tasks remain available;
- * other database failures still fail closed to protect assigned work. */
+/** Normal housekeeping remains unchanged outside Gozsdu.
+ * Gozsdu employees see the same personal linen report whether cleaning or on Laundryner duty. */
 export function HousekeepingTab(props: Props = {}) {
   const { user, profile } = useAuth();
   const { language } = useTranslation();
@@ -78,5 +78,8 @@ export function HousekeepingTab(props: Props = {}) {
     <p className="text-sm">{copy.syncError}</p>
     <Button variant="outline" size="sm" onClick={() => { setReady(false); void refresh(); }}>{copy.refresh}</Button>
   </div>;
-  return activeDuty ? <GozsduLaundrynerTasksV2 /> : <HousekeepingTabEnhanced {...props} />;
+  return <div className="space-y-5">
+    {activeDuty ? <GozsduLaundrynerTasksV2 /> : <HousekeepingTabEnhanced {...props} />}
+    <GozsduLinenCollectionBreakdown mode="own" />
+  </div>;
 }
