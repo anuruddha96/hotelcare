@@ -1,0 +1,105 @@
+name: One-shot PMS instruction safety patch
+
+on:
+  push:
+    branches:
+      - fix/memories-bed-instruction-pms-upload-20260919
+    paths:
+      - .github/workflows/one-shot-memories-instruction-safety.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Apply tightly scoped, fail-closed source patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('src/components/dashboard/PMSUpload.tsx')
+          text = path.read_text()
+          def replace_exact(before, after):
+              global text
+              count = text.count(before)
+              if count != 1:
+                  raise RuntimeError(f'Expected exactly one source anchor, found {count}: {before[:110]!r}')
+              text = text.replace(before, after, 1)
+          replace_exact(
+              '// Batch reset towel/linen change flags AND bed_configuration to prevent stale data from previous uploads',
+              '// Reset PMS-owned towel/linen flags only. A manager-selected bed setup must survive a repeated spreadsheet import.'
+          )
+          replace_exact(
+              '.update({ towel_change_required: false, linen_change_required: false, bed_configuration: null } as any)',
+              '.update({ towel_change_required: false, linen_change_required: false } as any)'
+          )
+          replace_exact('Error resetting T/RC/bed_config flags', 'Error resetting T/RC flags')
+          replace_exact('Reset towel/linen/bed_config flags', 'Reset towel/linen flags')
+          replace_exact(
+              "          const combinedNotes = [statusNote, roomNotes].filter(Boolean).join(' - ');\n",
+              "          // PMS spreadsheet text is source-owned; never overwrite manager notes with it.\n"
+          )
+          replace_exact(
+              '            notes: combinedNotes || null,\n',
+              '            // Manager-owned rooms.notes is deliberately absent from the PMS update.\n'
+          )
+          replace_exact(
+              "              pmsUploadDate: new Date().toISOString().split('T')[0],",
+              "              // Keep raw spreadsheet guidance separate from the active housekeeping note.\n              // Empty cells clear only this PMS-owned field, not any manual instruction.\n              pmsUploadNote: roomNotes,\n              pmsUploadStatusNote: statusNote,\n              pmsUploadDate: new Date().toISOString().split('T')[0],"
+          )
+          if 'bed_configuration: null' in text or 'notes: combinedNotes' in text:
+              raise RuntimeError('A destructive upload writer is still present')
+          path.write_text(text)
+          test = Path('src/lib/__tests__/pmsUploadInstructionSafety.test.ts')
+          if test.exists():
+              raise RuntimeError('Refusing to overwrite an existing safety test')
+          test.write_text('''import { readFileSync } from 'node:fs';
+          import { describe, expect, it } from 'vitest';
+
+          // Guard the real import path rather than a detached helper that may never be used.
+          const source = readFileSync(new URL('../../components/dashboard/PMSUpload.tsx', import.meta.url), 'utf8');
+          const rowUpdate = source.split('const updateData: any = {')[1]?.split('// Update room_type')[0];
+
+          describe('PMS Excel import must not erase manager-owned room instructions', () => {
+            it('does not reset bed configuration when clearing daily PMS service flags', () => {
+              expect(source).toMatch(/\\.update\\(\\{ towel_change_required: false, linen_change_required: false \\} as any\\)/);
+              expect(source).not.toContain('bed_configuration: null');
+            });
+
+            it('never replaces manual room notes with the PMS spreadsheet cell or a blank cell', () => {
+              expect(rowUpdate).toBeDefined();
+              expect(rowUpdate).not.toMatch(/^\\s*notes\\s*:/m);
+              expect(rowUpdate).toContain('pmsUploadNote: roomNotes');
+              expect(rowUpdate).toContain('pmsUploadStatusNote: statusNote');
+            });
+          });
+          ''')
+          print('Patched PMSUpload.tsx and added instruction-persistence regression tests')
+          PY
+          git diff --check
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Run targeted regression tests
+        run: bun run test -- src/lib/__tests__/pmsUploadInstructionSafety.test.ts
+      - name: Run full regression suite
+        run: bun run test
+      - name: Build production frontend
+        run: bun run build
+      - name: Commit only verified source and remove temporary automation
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/dashboard/PMSUpload.tsx src/lib/__tests__/pmsUploadInstructionSafety.test.ts
+          git rm .github/workflows/one-shot-memories-instruction-safety.yml
+          git commit -m 'fix(housekeeping): preserve manager bed setup and notes during PMS Excel import'
+          git push origin HEAD:fix/memories-bed-instruction-pms-upload-20260919
