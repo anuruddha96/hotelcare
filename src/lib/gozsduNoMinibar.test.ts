@@ -18,4 +18,12 @@ describe('Gozsdu-only minibar policy', () => {
       .toEqual(['trash_bin', 'bathroom', 'bed', 'minibar', 'tea_coffee_table']);
     expect(requiredDailyPhotoCategories('gozsdu-court', 'Hotel Ottofiori')).toContain('minibar');
   });
+
+  it('does not suppress minibar at other properties after a property switch or missing room context', () => {
+    expect(requiredDailyPhotoCategories('Hotel Mika Downtown', 'gozsdu-court')).toContain('minibar');
+    expect(requiredDailyPhotoCategories('gozsdu-court', undefined)).toContain('minibar');
+    expect(requiredDailyPhotoCategories(undefined, 'Gozsdu Court Budapest')).toContain('minibar');
+    expect(requiredDailyPhotoCategories(' Gozsdu Court Budapest ', ' GOZSDU-COURT '))
+      .toEqual(['trash_bin', 'bathroom', 'bed', 'tea_coffee_table']);
+  });
 });
