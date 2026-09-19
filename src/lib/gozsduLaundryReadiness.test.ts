@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupCurrentLaundryRooms, laundryAccess, laundryService, type LaundryAssignment } from './gozsduLaundryReadiness';
+import { approvedEarlyCheckoutForLinen, groupCurrentLaundryRooms, laundryAccess, laundryService, type LaundryAssignment } from './gozsduLaundryReadiness';
 import type { LaundryRoom } from './gozsduLaundryner';
 
 const date = '2026-09-19';
@@ -12,6 +12,12 @@ const room = (extra: Partial<LaundryRoom> = {}): LaundryRoom => ({
 const assignment = (extra: Partial<LaundryAssignment> = {}): LaundryAssignment => ({
   id: 'assignment-1', room_id: 'room-1', assigned_to: 'staff-1', assignment_type: 'checkout_cleaning',
   status: 'assigned', ready_to_clean: true, is_dnd: false, pms_hold: false, ...extra,
+});
+const approvedEarlyCheckout = (extra: Partial<LaundryAssignment> = {}): LaundryAssignment => assignment({
+  assignment_type: 'daily_cleaning', status: 'completed', supervisor_approved: true,
+  ready_to_clean: true, pms_hold: true,
+  pms_hold_reason: 'Guest checked out — assignment type may need to change',
+  pms_hold_event_id: 'linked-pms-event', ...extra,
 });
 
 describe('Gozsdu laundry room access', () => {
@@ -32,10 +38,37 @@ describe('Gozsdu laundry room access', () => {
     const completed = assignment({ status: 'completed' });
     expect(laundryAccess(cleanApproved, [completed], date)).toBe('ready');
     expect(laundryAccess(cleanApproved, [completed, assignment({ id: 'old-cancelled', status: 'cancelled' })], date)).toBe('ready');
-    expect(laundryAccess(room(), [completed], date)).toBe('ready'); // Cleaning may be completed before supervisor approval.
+    expect(laundryAccess(room(), [completed], date)).toBe('ready');
     expect(laundryAccess(cleanApproved, [assignment({ status: 'completed', ready_to_clean: false })], date)).toBe('guest_inside');
     expect(laundryAccess(cleanApproved, [assignment({ status: 'completed', pms_hold: true })], date)).toBe('guest_inside');
     expect(laundryAccess(cleanApproved, [completed, assignment({ id: 'other-type', assignment_type: 'daily_cleaning' })], date)).toBe('guest_inside');
+  });
+
+  it('handles room 410: verified departure, cleaned and approved, daily assignment with linked automatic checkout conflict', () => {
+    const cleaned = room({ room_number: '410', status: 'clean' });
+    const early = approvedEarlyCheckout();
+    expect(approvedEarlyCheckoutForLinen(cleaned, [early])).toBe(true);
+    expect(laundryAccess(cleaned, [early], date)).toBe('ready');
+    expect(laundryAccess(cleaned, [approvedEarlyCheckout({ pms_hold_reason: 'manager manual hold' })], date)).toBe('guest_inside');
+    expect(laundryAccess(cleaned, [approvedEarlyCheckout({ pms_hold_event_id: null })], date)).toBe('guest_inside');
+    expect(laundryAccess(cleaned, [approvedEarlyCheckout({ supervisor_approved: false })], date)).toBe('guest_inside');
+    expect(laundryAccess(cleaned, [approvedEarlyCheckout({ status: 'in_progress' })], date)).toBe('guest_inside');
+    expect(laundryAccess(cleaned, [approvedEarlyCheckout({ ready_to_clean: false })], date)).toBe('guest_inside');
+    expect(laundryAccess(cleaned, [approvedEarlyCheckout({ is_dnd: true })], date)).toBe('dnd');
+    expect(laundryAccess(cleaned, [early, assignment({ id: 'conflicting-live' })], date)).toBe('guest_inside');
+    expect(laundryAccess(room(), [early], date)).toBe('guest_inside');
+  });
+
+  it('handles room 4005: an RTC assignment and active cleaner alone never override absent PMS departure', () => {
+    const mismatched = room({ room_number: '4005', pms_metadata: {
+      ...room().pms_metadata, scheduledDepartureToday: true,
+      checkedOutToday: false, readyToClean: null, occupiedToday: false,
+    } });
+    const cleaning = assignment({ status: 'in_progress', ready_to_clean: true });
+    expect(laundryAccess(mismatched, [cleaning], date)).toBe('guest_inside');
+    expect(laundryAccess(room({ ...mismatched, pms_metadata: {
+      ...mismatched.pms_metadata, checkedOutToday: true, readyToClean: true,
+    } }), [cleaning], date)).toBe('ready');
   });
 
   it('never substitutes cleaning approval for actual departure or an active release', () => {
