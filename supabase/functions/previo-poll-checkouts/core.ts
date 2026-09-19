@@ -19,6 +19,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
 import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
+import { budapestBusinessDate } from "../_shared/budapestBusinessDate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -49,7 +50,6 @@ interface PrevioRoom {
   } | null;
 }
 
-const todayUtc = () => new Date().toISOString().slice(0, 10);
 const nowIso = () => new Date().toISOString();
 const addDays = (base: string, n: number) => {
   const d = new Date(`${base}T00:00:00Z`);
@@ -156,7 +156,7 @@ async function pollOneHotel(
 
   // Load all pending checkout_cleaning assignments for today (waiting for RTC).
   // Used both for early-exit and as the guard for signal (c) below.
-  const today0 = todayUtc();
+  const today0 = budapestBusinessDate();
   const { data: pendingAsg } = await service
     .from("room_assignments")
     .select("id, room_id, rooms!inner(hotel)")
@@ -227,7 +227,7 @@ async function pollOneHotel(
   // hotels we therefore add the same XML searchReservations evidence used by
   // manual PMS Refresh. ApiKey/XML-only tenants like Ottofiori keep using REST
   // only, so the previously working clean-status push is untouched.
-  const today = todayUtc();
+  const today = budapestBusinessDate();
   const checkedOutByName = new Map<string, string>(); // name -> reservationId ("" — REST /rest/rooms does not expose one)
   const checkedOutByObjId = new Map<number, string>();
   const stillInHouseByName = new Set<string>();
