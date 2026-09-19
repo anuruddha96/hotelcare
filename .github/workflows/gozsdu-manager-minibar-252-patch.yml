@@ -1,0 +1,38 @@
+name: Gozsdu Manager Minibar 252 Patch
+on:
+  push:
+    branches: [fix/gozsdu-no-minibar-completion-252]
+permissions:
+  contents: write
+jobs:
+  patch-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Apply guarded manager-only patch
+        run: |
+          python3 scripts/patch-gozsdu-manager-minibar-252.py
+          git diff --check
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - name: Check Gozsdu isolation policy
+        run: bunx vitest run src/lib/gozsduNoMinibar.test.ts
+      - name: Build production app
+        run: bun run build
+      - name: Full test suite
+        run: bun run test
+      - name: Commit verified source only
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm scripts/patch-gozsdu-manager-minibar-252.py .github/workflows/gozsdu-manager-minibar-252-patch.yml
+          git add src/components/dashboard/GozsduRoomEssentials.tsx
+          git diff --cached --check
+          git commit -m 'fix(gozsdu): remove unused manager minibar panel (#252)'
+          git push origin HEAD:fix/gozsdu-no-minibar-completion-252
