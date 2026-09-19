@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 // Importing the Deno handler would start a live server. These source-level
 // release guards cover the production handler without invoking Previo or the DB.
-const source = readFileSync(new URL('../../supabase/functions/previo-sync-reservations/index.ts', import.meta.url), 'utf8');
+// Vitest transforms import.meta.url into a non-file module URL in CI; cwd is the repository root.
+const source = readFileSync(resolve(process.cwd(), 'supabase/functions/previo-sync-reservations/index.ts'), 'utf8');
 
 describe('Previo reservation importer production safety contract', () => {
   it('paginates canonical existing reservations below the API row cap', () => {
