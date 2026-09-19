@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -34,7 +34,7 @@ import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { setRoomDragPayload, readRoomDragPayload, assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
 import { venueEdgeStyle } from '@/lib/venueColors';
 import { addDays } from 'date-fns';
-import { todayBudapest } from '@/lib/budapestTime';
+import { todayBudapest, rollForwardSelectedBusinessDate } from '@/lib/budapestTime';
 import { useVenues } from '@/hooks/useVenues';
 import {
   initStagedScope,
@@ -156,6 +156,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [housekeepingStaff, setHousekeepingStaff] = useState<HousekeepingStaff[]>([]);
   const [teamAssignments, setTeamAssignments] = useState<TeamAssignment[]>([]);
   const [selectedDate, setSelectedDate] = useState(todayBudapest());
+  const previousBusinessDateRef = useRef(todayBudapest());
   const [loading, setLoading] = useState(true);
   const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
   const [autoAssignDialogOpen, setAutoAssignDialogOpen] = useState(false);
@@ -185,6 +186,30 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const stagedEnabled = venuesEnabled && canDragAssign;
   const { moves: stagedMoves, restored: stagedRestored } = useStagedMoves();
   const [applying, setApplying] = useState(false);
+
+  // An open Team View must move to the new Budapest workday without
+  // changing a deliberately selected date or losing unsaved assignments.
+  useEffect(() => {
+    const checkBusinessDay = () => {
+      const current = todayBudapest();
+      const previous = previousBusinessDateRef.current;
+      if (current === previous) return;
+      previousBusinessDateRef.current = current;
+      const next = rollForwardSelectedBusinessDate(
+        selectedDate, previous, current, stagedMoves.length > 0,
+      );
+      if (next !== selectedDate) setSelectedDate(next);
+      else if (selectedDate === previous && stagedMoves.length > 0) {
+        toast.warning("A new Budapest workday started. Save or discard your unsaved room moves before switching dates.");
+      }
+    };
+    const timer = window.setInterval(checkBusinessDay, 30_000);
+    window.addEventListener("focus", checkBusinessDay);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", checkBusinessDay);
+    };
+  }, [selectedDate, stagedMoves.length]);
 
   // Tap-to-assign: units picked on the board above are staged onto whichever
   // housekeeper the manager taps in the sticky bar (works on touch and mouse).

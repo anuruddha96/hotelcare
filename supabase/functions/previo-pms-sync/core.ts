@@ -17,6 +17,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
 import { callPrevioXml, loadPrevioCredentials, type PrevioXmlAuthVariant } from "../_shared/previoCredentials.ts";
+import { budapestBusinessDate, budapestBusinessDayStartUtc } from "../_shared/budapestBusinessDate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,10 +34,6 @@ interface PrevioRoom {
   capacity: number;
   extraCapacity: number;
   reservation?: Record<string, unknown> | null;
-}
-
-function todayUtcDate(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function addDays(base: string, n: number): string {
@@ -338,7 +335,7 @@ serve(async (req) => {
       }
     }
 
-    const today = todayUtcDate();
+    const today = budapestBusinessDate();
     const tomorrow = addDays(today, 1);
     const windowEnd = addDays(today, 3);
     // Widen the *arrival-side* window backwards so mid-stay guests (who
@@ -723,8 +720,8 @@ serve(async (req) => {
           .eq("hotel_id", targetHotel)
           .maybeSingle();
         const hotelFilters = Array.from(new Set([targetHotel, (hotelCfg as any)?.hotel_name].filter(Boolean)));
-        const todayStart = `${today}T00:00:00Z`;
-        const todayEnd = `${tomorrow}T00:00:00Z`;
+        const todayStart = budapestBusinessDayStartUtc(today);
+        const todayEnd = budapestBusinessDayStartUtc(tomorrow);
         const { data: latestUpload } = await service
           .from("pms_upload_summary")
           .select("checkout_rooms, daily_cleaning_rooms, upload_date")
@@ -929,6 +926,7 @@ serve(async (req) => {
         ok: true,
         hotel_id: targetHotel,
         dryRun,
+        businessDate: today,
         rosterSource,
         rowCount: rows.length,
         departuresToday: departureCount,

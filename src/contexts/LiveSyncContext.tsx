@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { runPmsRefresh, type PmsSyncStatus } from "@/lib/pmsRefresh";
 import { PmsChangesDrawer } from "@/components/pms/PmsChangesDrawer";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
+import { startOfBudapestDayUtc, todayBudapest } from "@/lib/budapestTime";
 import {
   canReceiveHousekeepingOperationalNotifications,
   isExecutiveRole,
@@ -78,7 +79,20 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     pms_changes: initialTask,
   });
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [businessDate, setBusinessDate] = useState(() => todayBudapest());
   const lastRunRef = useRef<Record<TaskName, number>>({ pms: 0, revenue: 0, checkouts: 0, pms_changes: 0 });
+
+  // An open mobile/desktop tab must detect a new Budapest business day,
+  // not wait until logout, login or a full page reload.
+  useEffect(() => {
+    const updateBusinessDate = () => setBusinessDate(todayBudapest());
+    const timer = window.setInterval(updateBusinessDate, 30_000);
+    window.addEventListener("focus", updateBusinessDate);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", updateBusinessDate);
+    };
+  }, []);
 
   const enabled = !!user && !!profile?.role && ELIGIBLE_ROLES.has(profile.role) && hasPrevio;
   const showHousekeepingOperationalNotifications = canReceiveHousekeepingOperationalNotifications(profile?.role);
@@ -258,7 +272,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
   // actionable prompt so they can't work against stale PMS data.
   useEffect(() => {
     if (!enabled || !hotelId || !user?.id) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = businessDate;
     const promptedKey = `liveSync.pmsPrompt.${user.id}.${hotelId}.${today}`;
     if (sessionStorage.getItem(promptedKey) === "1") return;
     let cancelled = false;
@@ -269,7 +283,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
         .from("pms_sync_history")
         .select("created_at, sync_status")
         .in("hotel_id", keys.length ? keys : [hotelId])
-        .gte("created_at", `${today}T00:00:00`)
+        .gte("created_at", startOfBudapestDayUtc(today))
         .in("sync_status", ["success", "partial"])
         .order("created_at", { ascending: false })
         .limit(1)
@@ -313,7 +327,7 @@ export function LiveSyncProvider({ children }: { children: React.ReactNode }) {
     })();
 
     return () => { cancelled = true; };
-  }, [enabled, hotelId, user?.id, runPms, runCheckouts, executiveRole]);
+  }, [enabled, hotelId, user?.id, runPms, runCheckouts, executiveRole, businessDate]);
 
   // Revenue refresh ownership lives on the revenue route, behind the shared
   // database lease. The global shell only polls checkout state.

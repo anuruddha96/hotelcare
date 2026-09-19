@@ -4,6 +4,7 @@
 
 import { supabase } from "@/integrations/supabase/client";
 import { resolveHotelKeys } from "@/lib/hotelKeys";
+import { todayBudapest } from "@/lib/budapestTime";
 import { classifyPmsHousekeepingRow } from "@/lib/pmsClassification";
 import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
 import { buildRoomNotes, parseRoomFlags } from "@/lib/room-service-flags";
@@ -32,10 +33,11 @@ const STALE_DAY_METADATA_KEYS = [
 const getDateOnly = (value: unknown): string | null => {
   if (!value) return null;
   const raw = String(value);
-  const direct = raw.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
-  if (direct) return direct;
+  // A date-only value is a business date; timestamps are instants and
+  // must be interpreted locally (22:12Z is already next day in Budapest).
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().split("T")[0];
+  return Number.isNaN(parsed.getTime()) ? null : todayBudapest(parsed);
 };
 
 const hasManualRoomOverride = (meta?: Record<string, any> | null): boolean =>
@@ -212,6 +214,13 @@ export async function runPmsRefresh(
           consecutive_failures: 0,
         } as any).eq("id", acc.id);
       }
+      const accountBusinessDate = (accData as any)?.businessDate;
+      if (accountBusinessDate) {
+        if (merged.businessDate && merged.businessDate !== accountBusinessDate) {
+          throw new Error("Previo accounts returned snapshots for different business dates; retry the sync.");
+        }
+        merged.businessDate = accountBusinessDate;
+      }
       if ((accData as any)?.reservationDataAuthoritative === false) merged.reservationDataAuthoritative = false;
     }
     if (accountErrors.length === accounts.length) {
@@ -336,7 +345,13 @@ export async function runPmsRefresh(
   const unmatchedRoomNumbers: string[] = [];
   const errors: string[] = [];
   const proposedChanges: ProposedRoomChange[] = [];
-  const today = new Date().toISOString().split("T")[0];
+  const today = todayBudapest();
+  const snapshotBusinessDate = (data as any)?.businessDate;
+  // Do not apply a snapshot fetched across local midnight to another
+  // day, especially not before the destructive new-day housekeeping reset.
+  if (snapshotBusinessDate && snapshotBusinessDate !== today) {
+    throw new Error(`Previo snapshot is for ${snapshotBusinessDate}, but Budapest business date is ${today}. Please refresh again.`);
+  }
   const matchedRoomIds = new Set<string>();
   const protectedCheckoutAssignmentRoomIds = new Set<string>();
 
@@ -362,7 +377,7 @@ export async function runPmsRefresh(
   // on an earlier calendar day, clear all DND flags so the new day starts
   // fresh. Runs once per calendar day (subsequent same-day refreshes are
   // no-ops because lastPmsRefreshDate is already today).
-  if (!dryRun) {
+  if (!dryRun && reservationDataAuthoritative) {
     try {
       const { data: probe } = await supabase
         .from("rooms")
@@ -822,7 +837,7 @@ export async function runPmsRefresh(
       // fallback). Otherwise preserve checkout flags instead of wiping true
       // checkouts based on a status-only room roster.
       if (reservationDataAuthoritative) {
-        updateData.is_checkout_room = preserveExistingCheckout ? true : shouldBeCheckoutRoom;
+        updateData.is_checkout_room = effectiveCheckoutFlag;
       }
 
       // `checkout_time` is an actual departed timestamp, not the scheduled
