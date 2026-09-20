@@ -1,0 +1,38 @@
+name: One-time PMS service source fix
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/patch_pms_service_fabrication.py'
+      - '.github/workflows/one-time-pms-service-source-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-issue-287-only:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'fix/extension-service-rules-287'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/extension-service-rules-287
+          persist-credentials: true
+      - name: Apply exact, fail-closed source replacements
+        run: |
+          python3 scripts/patch_pms_service_fabrication.py
+          git diff --check
+          git diff -- src/lib/pmsRefresh.ts
+      - name: Commit only the validated PMS source file
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- src/lib/pmsRefresh.ts
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix(housekeeping): remove hard-coded PMS service cycle and fabricated completion dates (#287)'
+            git push origin HEAD:fix/extension-service-rules-287
+          fi
