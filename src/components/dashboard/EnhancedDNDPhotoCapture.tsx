@@ -1,12 +1,14 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Camera, X, CheckCircle, AlertTriangle, DoorOpen } from 'lucide-react';
+import { AlertTriangle, Camera, CheckCircle, DoorOpen, ImagePlus, Smartphone } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
+import { todayBudapest } from '@/lib/budapestTime';
 import { toast } from 'sonner';
 
 interface EnhancedDNDPhotoCaptureProps {
@@ -19,440 +21,327 @@ interface EnhancedDNDPhotoCaptureProps {
   onPhotoUploaded?: () => void;
 }
 
-interface CategorizedPhoto {
-  category: 'dnd_door';
-  categoryName: string;
-  dataUrl: string;
-  blob: Blob;
+type Photo = { id: string; url: string; saved: boolean };
+
+// The native input picker can launch Android's camera even when getUserMedia
+// preview is unavailable. A second picker allows a photo from the gallery.
+// Both options must use precisely the same DND evidence/save path.
+function fileExtension(mime: string): string {
+  if (mime === 'image/png') return 'png';
+  if (mime === 'image/webp') return 'webp';
+  if (mime === 'image/heic') return 'heic';
+  if (mime === 'image/heif') return 'heif';
+  return 'jpg';
 }
 
-const DND_PHOTO_CATEGORY = {
-  key: 'dnd_door' as const,
-  icon: DoorOpen,
-  color: 'from-orange-500 to-red-500'
-};
+function cameraMessage(error: unknown): string {
+  const name = error instanceof Error ? error.name : '';
+  if (!window.isSecureContext) return 'Camera preview requires a secure HTTPS connection. Use your phone camera or choose a photo below.';
+  if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
+    return 'Chrome could not open the live camera (this can happen even when camera access is enabled). Use Phone camera below, or check this website’s camera permission.';
+  }
+  if (name === 'NotReadableError' || name === 'TrackStartError') {
+    return 'Another app may be using the camera. Close it and try again, or use Phone camera below.';
+  }
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+    return 'The requested camera was not found. Try Phone camera or choose an existing photo below.';
+  }
+  return `Live camera could not start${name ? ` (${name})` : ''}. Try Phone camera or choose a photo below.`;
+}
 
-export function EnhancedDNDPhotoCapture({ 
-  open, 
-  onOpenChange, 
-  roomNumber,
-  roomId,
-  assignmentId,
-  attemptNumber = 1,
-  onPhotoUploaded 
+export function EnhancedDNDPhotoCapture({
+  open, onOpenChange, roomNumber, roomId, assignmentId,
+  attemptNumber = 1, onPhotoUploaded,
 }: EnhancedDNDPhotoCaptureProps) {
   const { user } = useAuth();
   const { t } = useTranslation();
-  const [photos, setPhotos] = useState<CategorizedPhoto[]>([]);
+  const [photos, setPhotos] = useState<Photo[]>([]);
   const [showCamera, setShowCamera] = useState(false);
-  const [isCameraLoading, setIsCameraLoading] = useState(false);
-  const [uploadingPhotos, setUploadingPhotos] = useState<Set<string>>(new Set());
-  const [uploadedPhotos, setUploadedPhotos] = useState<Set<string>>(new Set());
-  
+  const [cameraLoading, setCameraLoading] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const [saving, setSaving] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const nativeCameraRef = useRef<HTMLInputElement>(null);
+  const galleryRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const cameraRequestRef = useRef(0);
+  const openRef = useRef(open);
+  const savingRef = useRef(false);
+  const localUrlsRef = useRef<Set<string>>(new Set());
+  openRef.current = open;
+
+  const stopCamera = useCallback(() => {
+    cameraRequestRef.current += 1; // Invalidate requests still waiting for a browser prompt.
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setShowCamera(false);
+    setCameraLoading(false);
+  }, []);
 
   useEffect(() => {
-    if (open) {
-      loadExistingPhotos();
-    }
-  }, [open, assignmentId]);
-
-  const loadExistingPhotos = async () => {
-    if (!assignmentId) return;
-    
-    try {
-      const { data: dndPhotos } = await supabase
-        .from('dnd_photos')
-        .select('photo_url')
-        .eq('assignment_id', assignmentId)
-        .order('created_at', { ascending: false });
-
-      if (dndPhotos && dndPhotos.length > 0) {
-        const reconstructedPhotos: CategorizedPhoto[] = [];
-        
-        for (const dndPhoto of dndPhotos) {
-          try {
-            const response = await fetch(dndPhoto.photo_url);
-            const blob = await response.blob();
-            
-            reconstructedPhotos.push({
-              category: 'dnd_door',
-              categoryName: t('photoCapture.dndDoorPhoto'),
-              dataUrl: dndPhoto.photo_url,
-              blob: blob
-            });
-          } catch (fetchError) {
-            console.error('Error fetching photo:', fetchError);
-            reconstructedPhotos.push({
-              category: 'dnd_door',
-              categoryName: t('photoCapture.dndDoorPhoto'),
-              dataUrl: dndPhoto.photo_url,
-              blob: new Blob()
-            });
+    if (!open) return;
+    let active = true;
+    setPhotos([]);
+    setCameraError('');
+    if (assignmentId) {
+      void supabase.from('dnd_photos').select('photo_url')
+        .eq('assignment_id', assignmentId).order('created_at', { ascending: false })
+        .then(({ data, error }) => {
+          if (!active) return;
+          if (error) {
+            console.error('Could not load existing DND photos:', error);
+            return;
           }
-        }
-        
-        setPhotos(reconstructedPhotos);
+          setPhotos(previous => {
+            const pending = previous.filter(photo => !photo.saved);
+            const existing = (data ?? []).filter(item => !!item.photo_url).map(item => ({
+              id: item.photo_url, url: item.photo_url, saved: true,
+            }));
+            return [...existing, ...pending];
+          });
+        });
+    }
+    return () => {
+      active = false;
+      stopCamera();
+      localUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+      localUrlsRef.current.clear();
+    };
+  }, [open, assignmentId, stopCamera]);
+
+  const startCamera = async () => {
+    if (savingRef.current) return;
+    setCameraError('');
+    if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
+      setCameraError('The browser cannot provide a live camera preview. Use Phone camera or Choose photo below.');
+      return;
+    }
+    const request = ++cameraRequestRef.current;
+    setShowCamera(true);
+    setCameraLoading(true);
+    try {
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+      } catch (error) {
+        // Some Android devices reject a requested camera but permit the default.
+        if (error instanceof Error && (error.name === 'OverconstrainedError' || error.name === 'NotFoundError')) {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        } else throw error;
       }
+      if (!openRef.current || request !== cameraRequestRef.current || !videoRef.current) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      streamRef.current = stream;
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+      if (request === cameraRequestRef.current) setCameraLoading(false);
     } catch (error) {
-      console.error('Error loading existing photos:', error);
+      console.error('DND camera preview error:', error instanceof Error ? error.name : error);
+      if (request === cameraRequestRef.current) {
+        setCameraError(cameraMessage(error));
+        stopCamera();
+      }
     }
   };
 
-  const startCamera = useCallback(async () => {
+  const savePhoto = async (blob: Blob) => {
+    if (!user || savingRef.current || !blob.type.startsWith('image/')) {
+      if (!user) toast.error('Please sign in before saving a photo.');
+      else if (!blob.type.startsWith('image/')) toast.error('Please select an image file.');
+      return;
+    }
+    savingRef.current = true;
+    setSaving(true);
+    stopCamera();
+    setCameraError('');
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const localUrl = URL.createObjectURL(blob);
+    localUrlsRef.current.add(localUrl);
+    setPhotos(previous => [...previous, { id, url: localUrl, saved: false }]);
+    const path = `${user.id}/${roomNumber}/dnd_door_${id}.${fileExtension(blob.type)}`;
+    let recordSaved = false;
     try {
-      setShowCamera(true);
-      setIsCameraLoading(true);
-      
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        toast.error(t('photoCapture.cameraNotSupported'));
-        setShowCamera(false);
-        setIsCameraLoading(false);
-        return;
+      const { data, error: uploadError } = await supabase.storage.from('dnd-photos')
+        .upload(path, blob, { contentType: blob.type, cacheControl: '3600', upsert: false });
+      if (uploadError) throw uploadError;
+      const publicUrl = supabase.storage.from('dnd-photos').getPublicUrl(data.path).data.publicUrl;
+      const { error: recordError } = await supabase.from('dnd_photos').insert({
+        room_id: roomId,
+        assignment_id: assignmentId || null,
+        marked_by: user.id,
+        photo_url: publicUrl,
+        assignment_date: todayBudapest(),
+        attempt_number: attemptNumber,
+      } as any);
+      if (recordError) {
+        // The upload alone is not proof of a DND attempt; remove orphaned files.
+        await supabase.storage.from('dnd-photos').remove([data.path]);
+        throw recordError;
       }
-
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: 'environment',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
-        } 
-      });
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        streamRef.current = stream;
-        
-        videoRef.current.onloadedmetadata = () => {
-          if (videoRef.current) {
-            videoRef.current.play().catch(err => {
-              console.error('Error playing video:', err);
-              toast.error(t('photoCapture.cameraStartError'));
-              setIsCameraLoading(false);
-            });
-            setIsCameraLoading(false);
-          }
-        };
+      recordSaved = true;
+      setPhotos(previous => previous.map(photo => photo.id === id
+        ? { id, url: publicUrl, saved: true } : photo));
+      URL.revokeObjectURL(localUrl);
+      localUrlsRef.current.delete(localUrl);
+      if (attemptNumber >= 2) {
+        const { error: roomError } = await supabase.from('rooms').update({
+          is_dnd: true,
+          dnd_marked_at: new Date().toISOString(),
+          dnd_marked_by: user.id,
+        }).eq('id', roomId);
+        if (roomError) throw roomError;
       }
-    } catch (error: any) {
-      console.error('Error accessing camera:', error);
-      
-      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-        toast.error(t('photoCapture.cameraPermissionError'));
+      toast.success(t('photoCapture.photoSavedSuccess'));
+      onPhotoUploaded?.();
+    } catch (error) {
+      console.error('DND photo save error:', error);
+      if (!recordSaved) {
+        setPhotos(previous => previous.filter(photo => photo.id !== id));
+        URL.revokeObjectURL(localUrl);
+        localUrlsRef.current.delete(localUrl);
+        toast.error('Photo was not saved. Please try again.');
       } else {
-        toast.error(t('photoCapture.cameraAccessError'));
+        toast.error('Photo saved, but the room DND status was not updated. Please notify a manager.');
       }
-      
-      setShowCamera(false);
-      setIsCameraLoading(false);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
-  }, [t]);
+  };
 
-  const stopCamera = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    setShowCamera(false);
-    setIsCameraLoading(false);
-  }, []);
+  const handlePicker = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = ''; // Allow selecting the same file again after a failure.
+    if (file) void savePhoto(file);
+  };
 
-  const capturePhoto = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current) return;
-
+  const capturePhoto = () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    const context = canvas.getContext('2d');
-
-    if (!context) return;
-
+    if (!video || !canvas || !video.videoWidth || !video.videoHeight) {
+      setCameraError('Camera preview is not ready. Try Phone camera below.');
+      stopCamera();
+      return;
+    }
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
+    const context = canvas.getContext('2d');
+    if (!context) return;
     context.drawImage(video, 0, 0);
-
-    canvas.toBlob(async (blob) => {
-      if (blob && user) {
-        const photoUrl = URL.createObjectURL(blob);
-        const photoId = `dnd_door_${Date.now()}_${Math.random()}`;
-        
-        const newPhoto: CategorizedPhoto = {
-          category: 'dnd_door',
-          categoryName: t('photoCapture.dndDoorPhoto'),
-          dataUrl: photoUrl,
-          blob
-        };
-        
-        setPhotos(prev => [...prev, newPhoto]);
-        toast.success(t('photoCapture.dndPhotoCaptured'));
-        
-        // Show warning about DND marking
-        toast.warning(t('photoCapture.roomWillBeMarkedDnd'), {
-          description: t('photoCapture.skipCleaningToday'),
-          duration: 4000
-        });
-        
-        stopCamera();
-
-        // Auto-save the photo immediately
-        setUploadingPhotos(prev => new Set(prev).add(photoId));
-        
-        try {
-          const fileName = `${user.id}/${roomNumber}/dnd_door_${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
-          
-          const { data, error } = await supabase.storage
-            .from('dnd-photos')
-            .upload(fileName, blob, {
-              contentType: 'image/jpeg',
-              cacheControl: '3600',
-              upsert: false
-            });
-
-          if (error) throw error;
-
-          const { data: { publicUrl } } = supabase.storage
-            .from('dnd-photos')
-            .getPublicUrl(data.path);
-
-          // Save DND record (per attempt)
-          await supabase
-            .from('dnd_photos')
-            .insert({
-              room_id: roomId,
-              assignment_id: assignmentId || null,
-              marked_by: user.id,
-              photo_url: publicUrl,
-              assignment_date: new Date().toISOString().split('T')[0],
-              attempt_number: attemptNumber,
-            } as any);
-
-          // Only flip the room's DND flag on the 2nd (final) attempt
-          if (attemptNumber >= 2) {
-            await supabase
-              .from('rooms')
-              .update({
-                is_dnd: true,
-                dnd_marked_at: new Date().toISOString(),
-                dnd_marked_by: user.id
-              })
-              .eq('id', roomId);
-          }
-
-          setUploadingPhotos(prev => {
-            const next = new Set(prev);
-            next.delete(photoId);
-            return next;
-          });
-          setUploadedPhotos(prev => new Set(prev).add(photoId));
-          toast.success(t('photoCapture.photoSavedSuccess'), { duration: 2000 });
-          
-          // Call onPhotoUploaded after successful upload
-          onPhotoUploaded?.();
-        } catch (error: any) {
-          console.error('Auto-save error:', error);
-          setUploadingPhotos(prev => {
-            const next = new Set(prev);
-            next.delete(photoId);
-            return next;
-          });
-          toast.error(t('photoCapture.photoSaveError'));
-        }
-      }
-    }, 'image/jpeg', 0.95);
-  }, [user, roomNumber, roomId, assignmentId, attemptNumber, stopCamera, t]);
-
-  const removePhoto = (index: number) => {
-    setPhotos(prev => prev.filter((_, i) => i !== index));
-    toast.info(t('photoCapture.photoRemoved'), {
-      description: t('photoCapture.notDeletedFromServer')
-    });
+    canvas.toBlob(blob => {
+      if (blob) void savePhoto(blob);
+      else toast.error('Could not capture photo. Please use Phone camera.');
+    }, 'image/jpeg', 0.9);
   };
 
   const handleClose = () => {
+    if (savingRef.current) return;
+    openRef.current = false;
     stopCamera();
-    photos.forEach(photo => {
-      if (!photo.dataUrl.startsWith('http')) {
-        URL.revokeObjectURL(photo.dataUrl);
-      }
-    });
+    localUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+    localUrlsRef.current.clear();
+    setPhotos([]);
     onOpenChange(false);
-    // Don't call onPhotoUploaded on close - only on successful upload
   };
 
-  const completedCount = photos.length;
-  const progressPercentage = Math.min(completedCount * 100, 100);
-  const isUploading = uploadingPhotos.size > 0;
+  const savedCount = photos.filter(photo => photo.saved).length;
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
-      <DialogContent 
-        className="w-[100vw] sm:max-w-2xl h-[100dvh] sm:h-auto sm:max-h-[92dvh] p-0 gap-0 flex flex-col overflow-hidden rounded-none sm:rounded-lg"
-        onPointerDownOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
-      >
+    <Dialog open={open} onOpenChange={next => { if (!next) handleClose(); }}>
+      <DialogContent className="w-[100vw] sm:max-w-2xl h-[100dvh] sm:h-auto sm:max-h-[92dvh] p-0 gap-0 flex flex-col overflow-hidden rounded-none sm:rounded-lg"
+        onPointerDownOutside={event => event.preventDefault()} onEscapeKeyDown={event => event.preventDefault()}>
         <DialogHeader className="px-4 py-3 border-b shrink-0 bg-gradient-to-r from-orange-50 to-red-50">
           <DialogTitle className="flex items-center gap-2 text-base sm:text-lg leading-tight pr-8">
             <Camera className="h-5 w-5 text-orange-600" />
             {t('photoCapture.dndTitle').replace('{room}', roomNumber)}
           </DialogTitle>
         </DialogHeader>
-
         <div className="flex-1 overflow-y-auto overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
           <div className="p-4 space-y-4">
-            {/* Progress Section */}
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-medium leading-tight">{t('photoCapture.progress')}: {completedCount} {t('photoCapture.photoCaptured')}</span>
-                <Badge className="bg-green-500">
+                <span className="text-sm font-medium">{t('photoCapture.progress')}: {savedCount} {t('photoCapture.photoCaptured')}</span>
+                <Badge className={savedCount ? 'bg-green-500' : ''}>
                   <CheckCircle className="h-3 w-3 mr-1" />
-                  {completedCount > 0 ? t('photoCapture.saved') : t('photoCapture.noPhotos')}
+                  {savedCount ? t('photoCapture.saved') : t('photoCapture.noPhotos')}
                 </Badge>
               </div>
-              <Progress value={completedCount > 0 ? 100 : 0} className="h-2" />
+              <Progress value={savedCount ? 100 : 0} className="h-2" />
             </div>
-
-            {/* Info Banners */}
-            <div className="space-y-2">
-              <div className="p-3 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-lg">
-                <p className="text-sm text-orange-800 dark:text-orange-200 flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4" />
-                  {t('photoCapture.takeClearPhoto')}
-                </p>
+            <div className="p-3 bg-orange-50 dark:bg-orange-950 border border-orange-200 dark:border-orange-800 rounded-lg">
+              <p className="text-sm text-orange-800 dark:text-orange-200 flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0" />{t('photoCapture.takeClearPhoto')}
+              </p>
+            </div>
+            {cameraError && (
+              <div role="alert" className="p-3 rounded-lg border border-amber-400 bg-amber-50 text-sm text-amber-950">
+                <p>{cameraError}</p>
+                <p className="mt-1 text-xs">Live camera error does not mean the phone camera is unusable. Use one of the options below.</p>
               </div>
-              
+            )}
+            <div className="p-5 rounded-xl border-2 bg-gradient-to-br from-orange-500 to-red-500 text-white shadow-lg space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="w-14 h-14 shrink-0 rounded-full bg-white/20 flex items-center justify-center"><DoorOpen className="h-8 w-8" /></span>
+                <div className="min-w-0 flex-1"><h3 className="text-xl font-bold break-words">{t('photoCapture.dndDoorPhoto')}</h3>
+                  <p className="text-sm opacity-90">{savedCount} {t('photoCapture.photoCaptured')}</p></div>
+              </div>
               {photos.length > 0 && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                  <p className="text-xs text-amber-800">
-                    ⚠️ {t('photoCapture.afterSavingWarning')}
-                  </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {photos.map(photo => (
+                    <div key={photo.id} className="relative overflow-hidden rounded-lg aspect-video bg-black/20">
+                      <img src={photo.url} alt={t('photoCapture.dndDoorPhoto')} className="w-full h-full object-cover" />
+                      <span className="absolute bottom-1 left-1 rounded bg-black/70 px-2 py-1 text-xs">
+                        {photo.saved ? t('photoCapture.saved') : t('photoCapture.savingPhoto')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!showCamera ? (
+                <Button type="button" onClick={() => void startCamera()} disabled={saving || cameraLoading}
+                  className="w-full bg-white/20 hover:bg-white/30 border border-white/30 text-white" size="lg">
+                  <Camera className="h-5 w-5 mr-2" />{t('common.takePhoto')} (live preview)
+                </Button>
+              ) : (
+                <div className="space-y-2">
+                  <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
+                    <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                    {cameraLoading && <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-sm">{t('photoCapture.startingCamera')}</div>}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" onClick={capturePhoto} disabled={cameraLoading || saving} className="flex-1 bg-white text-orange-900 hover:bg-orange-50">
+                      {t('common.capturePhoto')}
+                    </Button>
+                    <Button type="button" onClick={stopCamera} variant="outline" className="text-foreground">{t('common.cancel')}</Button>
+                  </div>
                 </div>
               )}
             </div>
-
-            {/* Camera View or Photo Display */}
-            {!showCamera ? (
-              <div className="space-y-4">
-                  <div className={`p-6 rounded-xl border-2 bg-gradient-to-br ${DND_PHOTO_CATEGORY.color} text-white shadow-lg`}>
-                  <div className="flex items-center gap-3 mb-3 min-w-0">
-                    <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                      <DoorOpen className="h-8 w-8" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-xl font-bold leading-tight break-words">{t('photoCapture.dndDoorPhoto')}</h3>
-                      <p className="text-sm opacity-90">{completedCount} {t('photoCapture.photoCaptured')}</p>
-                    </div>
-                    {completedCount > 0 && (
-                      <Badge className="bg-white/20 text-white border-white/30">
-                        <CheckCircle className="h-3 w-3 mr-1" />
-                        {t('photoCapture.saved')}
-                      </Badge>
-                    )}
-                  </div>
-
-                  {/* Existing Photos Grid */}
-                  {photos.length > 0 && (
-                    <div className="grid grid-cols-2 gap-2 mb-3">
-                      {photos.map((photo, index) => (
-                        <div key={index} className="relative rounded-lg overflow-hidden aspect-video bg-black/20">
-                          <img
-                            src={photo.dataUrl}
-                            alt={`${t('photoCapture.dndDoorPhoto')} ${index + 1}`}
-                            className="w-full h-full object-cover"
-                          />
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="destructive"
-                            className="absolute top-1 right-1 h-6 w-6"
-                            onClick={() => removePhoto(index)}
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
-                          <div className="absolute bottom-1 left-1 bg-black/50 text-white text-xs px-2 py-1 rounded">
-                            {t('photoCapture.photo')} {index + 1}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <Button
-                    onClick={startCamera}
-                    disabled={isUploading}
-                    className="w-full bg-white/20 hover:bg-white/30 backdrop-blur-sm border border-white/30 text-white"
-                    size="lg"
-                  >
-                    <Camera className="h-5 w-5 mr-2" />
-                    {photos.length > 0 ? t('photoCapture.addAnother') : t('common.takePhoto')}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="relative rounded-lg overflow-hidden bg-black aspect-video">
-                  {isCameraLoading && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
-                      <div className="text-white text-center">
-                        <Camera className="h-8 w-8 mx-auto mb-2 animate-pulse" />
-                        <p>{t('photoCapture.startingCamera')}</p>
-                      </div>
-                    </div>
-                  )}
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={capturePhoto}
-                    className="flex-1 bg-orange-600 hover:bg-orange-700"
-                    size="lg"
-                    disabled={isCameraLoading}
-                  >
-                    <Camera className="h-5 w-5 mr-2" />
-                    {t('common.capturePhoto')}
-                  </Button>
-                  <Button
-                    onClick={stopCamera}
-                    variant="outline"
-                    size="lg"
-                  >
-                    {t('common.cancel')}
-                  </Button>
-                </div>
-              </div>
-            )}
-
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <Button type="button" variant="default" size="lg" disabled={saving}
+                onClick={() => { stopCamera(); nativeCameraRef.current?.click(); }}>
+                <Smartphone className="h-5 w-5 mr-2" />Phone camera (recommended)
+              </Button>
+              <Button type="button" variant="outline" size="lg" disabled={saving}
+                onClick={() => { stopCamera(); galleryRef.current?.click(); }}>
+                <ImagePlus className="h-5 w-5 mr-2" />Choose photo from phone
+              </Button>
+            </div>
+            <input aria-label="Take DND photo using phone camera" ref={nativeCameraRef} type="file"
+              accept="image/*" capture="environment" onChange={handlePicker} className="hidden" />
+            <input aria-label="Choose existing DND photo" ref={galleryRef} type="file"
+              accept="image/*" onChange={handlePicker} className="hidden" />
+            {saving && <p role="status" className="p-3 text-sm bg-blue-50 text-blue-900 rounded-lg">{t('photoCapture.savingPhoto')}</p>}
+            {savedCount > 0 && <p className="text-xs text-amber-800">{t('photoCapture.afterSavingWarning')}</p>}
             <canvas ref={canvasRef} className="hidden" />
-
-            {/* Upload Status */}
-            {isUploading && (
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm text-blue-800 flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4 animate-spin" />
-                  {t('photoCapture.savingPhoto')}
-                </p>
-              </div>
-            )}
           </div>
         </div>
-
-        {/* Footer Actions */}
         <div className="p-4 border-t bg-background shrink-0">
-          <Button
-            onClick={handleClose}
-            variant="outline"
-            className="w-full"
-            disabled={isUploading}
-          >
+          <Button type="button" onClick={handleClose} variant="outline" className="w-full" disabled={saving}>
             {t('photoCapture.finishDnd')}
           </Button>
         </div>
