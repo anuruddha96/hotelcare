@@ -500,7 +500,7 @@ export async function runPmsRefresh(
 
       const lookup = async (matcher: (q: any) => any) => {
         const q = supabase.from("rooms")
-          .select("id, hotel, room_number, status, guest_count, is_checkout_room, pms_metadata, bed_configuration, notes")
+          .select("id, hotel, room_number, status, guest_count, is_checkout_room, pms_metadata, bed_configuration, notes, last_cleaned_at, towel_change_required, linen_change_required, last_towel_change, last_linen_change")
           .in("hotel", hotelKeys);
         return await matcher(q);
       };
@@ -588,17 +588,10 @@ export async function runPmsRefresh(
         : rawExistingMetadata;
 
       const nightTotal = classification.nightTotal;
-      let guestNightsStayed = 0;
-      let towel = false;
-      let linen = false;
-      if (nightTotal) {
-        guestNightsStayed = nightTotal.currentNight;
-        if (guestNightsStayed >= 3) {
-          const cyc = (guestNightsStayed - 3) % 4;
-          if (cyc === 0) towel = true;
-          else if (cyc === 2) linen = true;
-        }
-      }
+      // Previo provides guest nights, NOT a universal towel/linen schedule.
+      // Every property owns its rules; neither due flags nor service-completion
+      // dates may be inferred from this shared PMS refresh.
+      const guestNightsStayed = nightTotal?.currentNight ?? 0;
 
       const previoStatusRaw = row.Status ? String(row.Status).trim().toLowerCase() : "";
       const mappedStatus =
@@ -697,11 +690,6 @@ export async function runPmsRefresh(
           category: "checkout",
         });
       }
-      if (reservationDataAuthoritative && (towel || linen)) {
-        changeFields.push({
-          field: "Linen/towel", before: "-", after: `${linen ? "linen" : ""}${towel && linen ? " + " : ""}${towel ? "towel" : ""}`, category: "linen",
-        });
-      }
       const housekeepingNote = reservationDataAuthoritative ? cleanSyncedHousekeepingNote(row) : null;
       if (reservationDataAuthoritative && housekeepingNote) {
         changeFields.push({ field: "Housekeeping note", before: "-", after: housekeepingNote, category: "note" });
@@ -766,8 +754,11 @@ export async function runPmsRefresh(
         updateData.guest_nights_stayed = guestNightsStayed;
         // Checkout cleans always include a full towel + linen change, so never
         // carry the separate "towel change required" flag on those rooms.
-        updateData.towel_change_required = towel && !effectiveCheckoutFlag;
-        updateData.linen_change_required = linen;
+        // Preserve explicit manager/service requirements across PMS syncs;
+        // a new, unoccupied arrival never inherits the previous guest's work.
+        const newGuest = classification.isNotArrived || classification.isCancelled || classification.isNoShow;
+        updateData.towel_change_required = newGuest ? false : !!room.towel_change_required;
+        updateData.linen_change_required = newGuest ? false : !!room.linen_change_required;
         updateData.pms_metadata.scheduledDepartureToday = manualDailyOverride ? false : isScheduledDeparture;
         updateData.pms_metadata.scheduledDepartureTomorrow = isDepartureTomorrow;
         updateData.pms_metadata.departureTime = manualDailyOverride ? null : departureParsed;
@@ -845,8 +836,6 @@ export async function runPmsRefresh(
       // confirms the guest has checked out.
       if (reservationDataAuthoritative) {
         updateData.checkout_time = isCheckedOut ? new Date().toISOString() : null;
-        if (towel) updateData.last_towel_change = today;
-        if (linen) updateData.last_linen_change = today;
         const currentFlags = parseRoomFlags((room as any).notes ?? null);
         updateData.notes = buildRoomNotes(
           {
