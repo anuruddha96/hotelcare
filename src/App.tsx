@@ -58,27 +58,16 @@ const PageLoader = () => (
   </div>
 );
 
-// Give a short, genuine reading opportunity without adding a second 11-second
-// wait when the root redirects to the tenant route during the same login.
-const MIN_WELCOME_DISPLAY_MS = 11_000;
-let welcomeSequenceStartedAt = 0;
-let welcomeSequenceTouchedAt = 0;
+const MIN_WELCOME_DISPLAY_MS = 7000;
 
-function useHeldLoading(loading: boolean, minDisplayMs = MIN_WELCOME_DISPLAY_MS) {
+function useHeldLoading(loading: boolean, minDisplayMs = MIN_WELCOME_DISPLAY_MS): boolean {
   const [held, setHeld] = useState(loading);
   const shownAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (loading) {
       setHeld(true);
-      if (shownAtRef.current === null) {
-        const now = Date.now();
-        // Only a contiguous bootstrap/redirect shares the clock. A future
-        // independent login or refresh starts a fresh reading opportunity.
-        if (now - welcomeSequenceTouchedAt > 30_000) welcomeSequenceStartedAt = now;
-        shownAtRef.current = welcomeSequenceStartedAt || now;
-        welcomeSequenceTouchedAt = now;
-      }
+      if (shownAtRef.current === null) shownAtRef.current = Date.now();
       return;
     }
 
@@ -90,6 +79,7 @@ function useHeldLoading(loading: boolean, minDisplayMs = MIN_WELCOME_DISPLAY_MS)
 
     const elapsed = Date.now() - shownAt;
     const remaining = Math.max(0, minDisplayMs - elapsed);
+
     if (remaining === 0) {
       setHeld(false);
       shownAtRef.current = null;
@@ -100,25 +90,17 @@ function useHeldLoading(loading: boolean, minDisplayMs = MIN_WELCOME_DISPLAY_MS)
       setHeld(false);
       shownAtRef.current = null;
     }, remaining);
+
     return () => window.clearTimeout(id);
   }, [loading, minDisplayMs]);
 
-  // People may enter early once real loading finishes. Never allow a click to
-  // dismiss the overlay while authentication or data loading is still active.
-  const continueNow = () => {
-    if (!loading) {
-      setHeld(false);
-      shownAtRef.current = null;
-    }
-  };
-
-  return { held, continueNow };
+  return held;
 }
 
 const RootRedirect = () => {
   const { user, profile, loading, bootstrapProgress } = useAuth();
-  const { held: heldLoading, continueNow } = useHeldLoading(loading);
-  if (heldLoading) return <WelcomeBackOverlay context="account" step="Checking your secure session…" progress={bootstrapProgress} ready={!loading} onContinue={continueNow} />;
+  const heldLoading = useHeldLoading(loading);
+  if (heldLoading) return <WelcomeBackOverlay context="account" step="Checking your secure session…" progress={bootstrapProgress} />;
   if (!user) return <Navigate to="/auth" replace />;
   if (!profile?.organization_slug) return <Navigate to="/auth" replace />;
 
@@ -140,8 +122,8 @@ const TenantRouter = () => {
 
   if (!organizationSlug) return <Navigate to="/auth" replace />;
 
-  const { held: heldLoading, continueNow } = useHeldLoading(loading);
-  if (heldLoading) return <WelcomeBackOverlay context="account" step="Opening your workspace…" progress={bootstrapProgress} ready={!loading} onContinue={continueNow} />;
+  const heldLoading = useHeldLoading(loading);
+  if (heldLoading) return <WelcomeBackOverlay context="account" step="Opening your workspace…" progress={bootstrapProgress} />;
 
   if (user && !profile?.organization_slug) return <Navigate to="/auth" replace />;
 
