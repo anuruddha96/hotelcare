@@ -1,61 +1,76 @@
 import { describe, expect, it } from 'vitest';
 import {
   quoteAudienceForRole,
+  quoteAudienceLabel,
+  quotePoolForAudience,
   quotePoolForRole,
-} from '@/lib/roleMotivationalQuotes';
+  type QuoteAudience,
+} from './roleMotivationalQuotes';
 
-describe('roleMotivationalQuotes', () => {
-  it('keeps operational staff in role-relevant quote pools', () => {
-    expect(quoteAudienceForRole('housekeeping')).toBe('housekeeping');
-    expect(quoteAudienceForRole('reception')).toBe('reception');
-    expect(quoteAudienceForRole('front_office')).toBe('reception');
-    expect(quoteAudienceForRole('maintenance')).toBe('maintenance');
-    expect(quoteAudienceForRole('breakfast_staff')).toBe('breakfast');
-    expect(quoteAudienceForRole('marketing')).toBe('marketing');
-    expect(quoteAudienceForRole('control_finance')).toBe('finance');
-    expect(quoteAudienceForRole('hr')).toBe('hr');
+const audiences: QuoteAudience[] = [
+  'housekeeping', 'housekeeping_leadership', 'reception', 'reception_leadership',
+  'maintenance', 'maintenance_leadership', 'breakfast', 'marketing',
+  'marketing_leadership', 'finance', 'finance_leadership', 'hr',
+  'hotel_management', 'executive', 'admin', 'supervisor', 'hospitality',
+];
+
+describe('verified, role-relevant welcome quotes', () => {
+  it('has several sourced, named, actionable quotations for every audience', () => {
+    audiences.forEach((audience) => {
+      const pool = quotePoolForAudience(audience);
+      expect(pool.length).toBeGreaterThanOrEqual(5);
+      expect(new Set(pool.map(({ id }) => id)).size).toBe(pool.length);
+      expect(quoteAudienceLabel(audience).trim().length).toBeGreaterThan(0);
+      pool.forEach(({ quote, by, takeaway, sourceUrl }) => {
+        expect(quote.trim().length).toBeGreaterThan(10);
+        expect(by.trim().length).toBeGreaterThan(3);
+        expect(takeaway.trim().length).toBeGreaterThan(10);
+        expect(sourceUrl).toMatch(/^https:\/\//);
+        expect(by).not.toMatch(/operations|clarity|quality|mindset|teamwork|craft|principle/i);
+      });
+    });
   });
 
-  it('routes manager and supervisor roles to their specific leadership audiences', () => {
-    const expectedAudiences: Record<string, string> = {
-      manager: 'hotel_management',
-      admin: 'admin',
-      top_management: 'executive',
+  it('maps existing staff and managers to their own quote audiences', () => {
+    const expectedAudiences: Record<string, QuoteAudience> = {
+      housekeeping: 'housekeeping',
       housekeeping_manager: 'housekeeping_leadership',
-      maintenance_manager: 'maintenance_leadership',
-      marketing_manager: 'marketing_leadership',
+      reception: 'reception',
+      front_office: 'reception',
       reception_manager: 'reception_leadership',
-      back_office_manager: 'hotel_management',
+      maintenance: 'maintenance',
+      maintenance_manager: 'maintenance_leadership',
+      breakfast_staff: 'breakfast',
+      marketing: 'marketing',
+      marketing_manager: 'marketing_leadership',
+      control_finance: 'finance',
       control_manager: 'finance_leadership',
       finance_manager: 'finance_leadership',
+      hr: 'hr',
+      manager: 'hotel_management',
+      back_office_manager: 'hotel_management',
+      top_management: 'executive',
       top_management_manager: 'executive',
+      admin: 'admin',
       supervisor: 'supervisor',
     };
-
-    for (const [role, audience] of Object.entries(expectedAudiences)) {
+    Object.entries(expectedAudiences).forEach(([role, audience]) => {
       expect(quoteAudienceForRole(role)).toBe(audience);
-      const pool = quotePoolForRole(role);
-      expect(pool.length).toBeGreaterThan(4);
-      expect(pool.some((line) => line.id.startsWith('shared-'))).toBe(true);
-      expect(pool.some((line) => !line.id.startsWith('shared-'))).toBe(true);
-    }
+      expect(quotePoolForRole(role)).toEqual(quotePoolForAudience(audience));
+    });
+    expect(quotePoolForRole('maintenance').some(({ id }) => id === 'franklin-prevention')).toBe(true);
+    expect(quotePoolForRole('reception').some(({ id }) => id === 'meyer-hospitality')).toBe(true);
+    expect(quotePoolForRole('control_finance').some(({ id }) => id === 'drucker-time')).toBe(true);
   });
 
-  it('never serves management/revenue-style lines from the housekeeping pool', () => {
-    const housekeeping = quotePoolForRole('housekeeping');
-    expect(housekeeping.length).toBeGreaterThan(0);
-    const housekeepingSpecific = housekeeping.filter((line) => !line.id.startsWith('shared-'));
-    expect(housekeepingSpecific.every((line) => line.id.startsWith('hk-'))).toBe(true);
-    expect(housekeeping.some((line) => /revenue|adr|pricing|occupancy/i.test(line.quote))).toBe(false);
+  it('does not push pricing or revenue statements to housekeepers', () => {
+    expect(quotePoolForRole('housekeeping').some(({ quote }) => /revenue|adr|pricing|occupancy/i.test(quote))).toBe(false);
   });
 
-  it('uses neutral hospitality quotes until a trusted role is known', () => {
+  it('uses neutral hospitality selections while the role is unknown', () => {
     expect(quoteAudienceForRole(null)).toBe('hospitality');
     expect(quoteAudienceForRole(undefined)).toBe('hospitality');
     expect(quoteAudienceForRole('unexpected_future_role')).toBe('hospitality');
-    const fallback = quotePoolForRole(null);
-    const hospitalitySpecific = fallback.filter((line) => !line.id.startsWith('shared-'));
-    expect(hospitalitySpecific.every((line) => line.id.startsWith('gen-'))).toBe(true);
-    expect(fallback.some((line) => line.id.startsWith('shared-'))).toBe(true);
+    expect(quotePoolForRole(null)).toEqual(quotePoolForAudience('hospitality'));
   });
 });
