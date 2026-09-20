@@ -270,9 +270,17 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     if (!selection?.roomId) return;
     setActionLoading(success);
     try {
-      const { error } = await supabase.from('rooms').update(patch as any).eq('id', selection.roomId);
+      let query = supabase.from('rooms').update(patch as any).eq('id', selection.roomId);
+      // Service flag toggles must not overwrite instructions changed in another session.
+      if (Object.prototype.hasOwnProperty.call(patch, 'notes')) {
+        query = selection.roomNotes == null
+          ? query.is('notes', null)
+          : query.eq('notes', selection.roomNotes);
+      }
+      const { data, error } = await query.select('id, notes').maybeSingle();
       if (error) throw error;
-      setSelection((current) => current ? { ...current, ...localPatch } : current);
+      if (!data) throw new Error('Room notes changed. Refresh and review the latest instructions.');
+      setSelection((current) => current ? { ...current, ...localPatch, roomNotes: data.notes ?? null } : current);
       toast.success(success);
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
     } catch (error) {
@@ -445,28 +453,22 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         { roomCleaning: selection.roomCleaning, collectExtraTowels: selection.collectExtraTowels },
         notesDraft,
       );
-      const { error } = await supabase.from('rooms').update({ notes: nextNotes || null } as any).eq('id', selection.roomId);
+      const { data, error } = await (supabase as any).rpc('save_room_note_if_unchanged', {
+        p_room_id: selection.roomId,
+        p_notes: nextNotes,
+        p_expected_notes: selection.roomNotes,
+      });
       if (error) throw error;
+      const savedRow = Array.isArray(data) ? data[0] : data;
+      if (!savedRow?.room_id) throw new Error('Room note update was not applied');
 
-      const trimmed = notesDraft.trim();
-      if (trimmed) {
-        const { error: historyError } = await supabase.from('housekeeping_notes').insert({
-          room_id: selection.roomId,
-          assignment_id: selection.assignmentId,
-          note_type: 'general',
-          content: trimmed,
-          created_by: profile.id,
-          organization_slug: profile.organization_slug || null,
-        } as any);
-        if (historyError) console.warn('Note saved but history insert failed', historyError);
-      }
-
-      setSelection((current) => current ? { ...current, roomNotes: nextNotes || null } : current);
+      // The database note-history trigger records this edit atomically.
+      setSelection((current) => current ? { ...current, roomNotes: savedRow.notes ?? null } : current);
       toast.success(`Note saved for room ${selection.roomNumber}`);
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
     } catch (error) {
       console.error('Failed to save note', error);
-      toast.error('Could not save the note.');
+      toast.error((error as any)?.message || 'Could not save the note.');
     } finally {
       setSavingNotes(false);
     }
