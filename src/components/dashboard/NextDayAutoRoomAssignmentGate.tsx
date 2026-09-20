@@ -9,7 +9,7 @@ import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { tomorrowBudapest } from '@/lib/budapestTime';
 import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
-import { GOZSDU_COURT_HOTEL_ID } from '@/lib/gozsdu-housekeeping';
+import { isVerifiedSparseTomorrowSnapshot } from '@/lib/nextDayPmsGateCoverage';
 import { ensureTomorrowPmsSnapshot, type TomorrowSnapshotState } from '@/lib/nextDayAutoAssignBridge';
 import { AutoRoomAssignment as AutoRoomAssignmentImpl } from './AutoRoomAssignmentImpl';
 
@@ -127,15 +127,23 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
       });
       if (current !== generation.current) return;
 
-      // Standard Previo properties must have a complete selected-date dataset.
-      // Fail closed instead of ever falling back to today's checkout/daily flags.
+      // For Mika/Gozsdu, the data layer can prove a sparse feed is complete by
+      // checking the previous day's departures and uniquely mapping all rooms.
+      // Trust that verified result only if the exact-day rows still match it;
+      // all other hotels retain the full-inventory gate. Never use today's
+      // checkout/daily classifications in place of tomorrow's dated records.
       if (result.roomCount > 0) {
         if (!exactDay) {
           throw new Error(`The Previo snapshot for ${expectedTomorrow} is missing. Nothing was assigned.`);
         }
         if (exactDay.totalRows < result.roomCount
-          && !(canonicalHotelId === GOZSDU_COURT_HOTEL_ID && result.authoritative
-            && exactDay.totalRows === result.rowCount)) {
+          && !isVerifiedSparseTomorrowSnapshot({
+            hotelId: canonicalHotelId,
+            roomCount: result.roomCount,
+            verifiedRowCount: result.rowCount,
+            exactDayRowCount: exactDay.totalRows,
+            authoritative: result.authoritative,
+          })) {
           throw new Error(
             `The Previo snapshot for ${expectedTomorrow} is incomplete (${exactDay.totalRows}/${result.roomCount} rooms). Nothing was assigned.`,
           );
