@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { GOZSDU_COURT_HOTEL_ID } from '@/lib/gozsdu-housekeeping';
 import { verifyGozsduTomorrowCoverage } from '@/lib/gozsduPmsRoster';
+import { verifyMikaTomorrowCoverage } from '@/lib/mikaTomorrowSnapshotCoverage';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { runPmsRefresh } from '@/lib/pmsRefresh';
 import {
@@ -16,6 +17,7 @@ import {
 import { splitSharedDuration } from '@/lib/nextDayHousekeepingShared';
 
 export const TOMORROW_PMS_REUSE_MS = 15 * 60 * 1000;
+const MIKA_DOWNTOWN_HOTEL_ID = 'mika-downtown';
 
 export type NextDayPlanItem = {
   id: string;
@@ -130,7 +132,7 @@ async function findReusableSnapshot(args: {
   const [snapshotResult, roomCountResult] = await Promise.all([
     (supabase as any)
       .from('daily_overview_snapshots')
-      .select('room_label,room_number,captured_at')
+      .select('room_label,room_number,arrival_date,departure_date,status,housekeeping_dep,housekeeping_stay,captured_at')
       .eq('organization_slug', args.organizationSlug)
       .eq('hotel_id', args.hotelId)
       .eq('business_date', args.selectedDate)
@@ -142,14 +144,15 @@ async function findReusableSnapshot(args: {
   ]);
 
   if (snapshotResult.error || roomCountResult.error) return null;
-  const snapshotRows = (snapshotResult.data || []) as Array<{ room_label: string | null; captured_at: string | null }>;
+  const snapshotRows = (snapshotResult.data || []) as DailyOverviewWorkRow[];
   const capturedTimes = snapshotRows
     .map(row => row.captured_at ? Date.parse(row.captured_at) : Number.NaN)
     .filter(Number.isFinite);
   const roomCount = Number(roomCountResult.count || 0);
-  // Preserve the original count-based reuse behaviour for every other hotel.
-  // Only Gozsdu requires every selected-date row to carry a capture timestamp.
-  if (!roomCount || (args.hotelId === GOZSDU_COURT_HOTEL_ID
+  // Non-Mika hotels retain their existing count-based or Gozsdu-specific rules.
+  // For Mika, missing rows can only be accepted after verifying yesterday's
+  // complete PMS roster and explicit same-day departures for every omission.
+  if (!roomCount || (args.hotelId === GOZSDU_COURT_HOTEL_ID || args.hotelId === MIKA_DOWNTOWN_HOTEL_ID
     ? capturedTimes.length !== snapshotRows.length
     : capturedTimes.length < roomCount)) return null;
   if (args.hotelId === GOZSDU_COURT_HOTEL_ID) {
@@ -166,6 +169,24 @@ async function findReusableSnapshot(args: {
     )) return null;
     const todayTimes = (todayResult.data || []).map((row: any) => Date.parse(row.captured_at));
     if (todayTimes.length !== roomCount || todayTimes.some((time: number) => !Number.isFinite(time))
+      || Date.now() - Math.min(...todayTimes) > TOMORROW_PMS_REUSE_MS) return null;
+  } else if (args.hotelId === MIKA_DOWNTOWN_HOTEL_ID) {
+    const [todayResult, inventoryResult] = await Promise.all([
+      (supabase as any).from('daily_overview_snapshots')
+        .select('room_label,room_number,arrival_date,departure_date,status,housekeeping_dep,housekeeping_stay,captured_at')
+        .eq('organization_slug', args.organizationSlug).eq('hotel_id', args.hotelId)
+        .eq('business_date', addIsoDays(args.selectedDate, -1)).eq('source', 'previo'),
+      supabase.from('rooms').select('id,room_number').in('hotel', hotelKeys),
+    ]);
+    if (todayResult.error || inventoryResult.error) return null;
+    const todayRows = (todayResult.data || []) as DailyOverviewWorkRow[];
+    const inventory = inventoryResult.data || [];
+    if (inventory.length !== roomCount || !verifyMikaTomorrowCoverage(
+      inventory, todayRows, snapshotRows, addIsoDays(args.selectedDate, -1), args.selectedDate,
+    )) return null;
+    const todayTimes = todayRows.map(row => row.captured_at ? Date.parse(row.captured_at) : Number.NaN);
+    if (todayTimes.length !== roomCount || todayTimes.some(time => !Number.isFinite(time))
+      || Math.min(...todayTimes) > Date.now() + 60_000
       || Date.now() - Math.min(...todayTimes) > TOMORROW_PMS_REUSE_MS) return null;
   } else if (snapshotRows.length < roomCount) return null;
 
@@ -204,14 +225,15 @@ export async function ensureTomorrowPmsSnapshot(args: {
     }
   }
 
+  const includePreviousDay = args.hotelId === GOZSDU_COURT_HOTEL_ID || args.hotelId === MIKA_DOWNTOWN_HOTEL_ID;
   const { data: overviewData, error: overviewError } = await supabase.functions.invoke(
     'previo-sync-daily-overview',
     {
       body: {
         hotelId: args.hotelId,
-        fromDate: args.hotelId === GOZSDU_COURT_HOTEL_ID ? addIsoDays(args.selectedDate, -1) : args.selectedDate,
+        fromDate: includePreviousDay ? addIsoDays(args.selectedDate, -1) : args.selectedDate,
         toDate: addIsoDays(args.selectedDate, 1),
-        days: args.hotelId === GOZSDU_COURT_HOTEL_ID ? 2 : 1,
+        days: includePreviousDay ? 2 : 1,
       },
     },
   );
