@@ -1,6 +1,5 @@
-// Only verbatim, source-checked quotations by named people belong here.
-// Never attribute an internally written operational tip to a real person.
-// The takeaway is HotelCare's own interpretation, deliberately separate from the quote.
+// Short, attributable quotations with a separate, optional internal takeaway.
+// The welcome screen intentionally displays only the quotation and its speaker.
 export type MotivationalQuote = {
   id: string;
   quote: string;
@@ -28,12 +27,14 @@ export type QuoteAudience =
   | 'supervisor'
   | 'hospitality';
 
+// Keep quotations concise, relevant and attributed to a person, not an invented
+// department. Preserve source details in the data without cluttering the card.
 const QUOTES = {
   habits: {
     id: 'clear-habits',
     quote: 'Habits are the compound interest of self-improvement.',
     by: 'James Clear',
-    takeaway: 'A small, careful habit each day adds up.',
+    takeaway: 'A careful daily habit adds up.',
     sourceUrl: 'https://jamesclear.com/quote/atomic-habits',
   },
   systems: {
@@ -47,88 +48,72 @@ const QUOTES = {
     id: 'franklin-prevention',
     quote: 'An ounce of prevention is worth a pound of cure.',
     by: 'Benjamin Franklin',
-    takeaway: 'Report small problems before they become big ones.',
+    takeaway: 'Report small problems early.',
     sourceUrl: 'https://www.ushistory.org/franklin/philadelphia/fire.htm',
   },
   hospitality: {
     id: 'meyer-hospitality',
     quote: 'Hospitality exists when you believe the other person is on your side.',
     by: 'Danny Meyer',
-    takeaway: 'Help guests feel that you are working with them.',
+    takeaway: 'Help guests feel supported.',
     sourceUrl: 'https://www.kqed.org/bayareabites/431/danny-meyer-at-the-commonwealth-club',
-  },
-  strategy: {
-    id: 'drucker-strategy',
-    quote: 'Strategy is a commodity. Execution is an art.',
-    by: 'Peter Drucker',
-    takeaway: 'Turn a good plan into clear daily actions.',
-    sourceUrl: 'https://drucker.institute/quote-library/',
   },
   time: {
     id: 'drucker-time',
     quote: 'Time is the scarcest resource. Unless it is managed, nothing else can be managed.',
     by: 'Peter Drucker',
-    takeaway: 'Choose the most important task first.',
+    takeaway: 'Start with the highest-priority task.',
     sourceUrl: 'https://drucker.institute/quote-library/',
   },
   colleagues: {
     id: 'marriott-colleagues',
     quote: "Take care of associates and they'll take care of your customers.",
     by: 'J. Willard Marriott',
-    takeaway: 'Supporting colleagues helps them serve guests well.',
+    takeaway: 'Support colleagues so they can support guests.',
     sourceUrl: 'https://www.marriott.com/en-gb/culture-and-values/j-willard-marriott.mi',
   },
   listen: {
     id: 'covey-listen',
     quote: 'Seek first to understand, then to be understood.',
     by: 'Stephen R. Covey',
-    takeaway: 'Listen to the whole issue before answering.',
+    takeaway: 'Listen before you answer.',
     sourceUrl: 'https://www.franklincovey.com/courses/the-7-habits/habit-5/',
   },
   notes: {
     id: 'allen-notes',
     quote: 'Your mind is for having ideas, not holding them.',
     by: 'David Allen',
-    takeaway: 'Record important details for the next shift.',
+    takeaway: 'Write down important details for the next shift.',
     sourceUrl: 'https://gettingthingsdone.com/about/',
   },
   culture: {
     id: 'godin-culture',
     quote: 'People like us do things like this.',
     by: 'Seth Godin',
-    takeaway: 'Your daily actions shape team standards.',
+    takeaway: 'Everyday actions shape team standards.',
     sourceUrl: 'https://seths.blog/2013/07/people-like-us-do-stuff-like-this/',
-  },
-  simplicity: {
-    id: 'jobs-simplicity',
-    quote: 'Simple can be harder than complex.',
-    by: 'Steve Jobs',
-    takeaway: 'Make instructions and handovers easier to follow.',
-    sourceUrl: 'https://books.apple.com/gb/book/insanely-simple/id512538141',
   },
 } as const satisfies Record<string, MotivationalQuote>;
 
 type QuoteId = keyof typeof QUOTES;
 
-// Every role gets a focused selection. Deliberately no anonymous shared pool:
-// it used to make role-specific selections feel unrelated to someone's work.
 const QUOTE_POOLS: Record<QuoteAudience, readonly QuoteId[]> = {
-  housekeeping: ['habits', 'prevention', 'systems', 'colleagues', 'simplicity'],
-  housekeeping_leadership: ['systems', 'colleagues', 'listen', 'time', 'habits', 'simplicity'],
+  housekeeping: ['habits', 'prevention', 'systems', 'colleagues', 'notes'],
+  housekeeping_leadership: ['systems', 'colleagues', 'listen', 'time', 'habits'],
   reception: ['hospitality', 'listen', 'notes', 'colleagues', 'habits'],
-  reception_leadership: ['listen', 'hospitality', 'colleagues', 'notes', 'time', 'systems'],
-  maintenance: ['prevention', 'systems', 'notes', 'habits', 'simplicity'],
-  maintenance_leadership: ['prevention', 'systems', 'time', 'colleagues', 'notes', 'strategy'],
+  reception_leadership: ['listen', 'hospitality', 'colleagues', 'notes', 'time'],
+  maintenance: ['prevention', 'systems', 'notes', 'habits', 'time'],
+  maintenance_leadership: ['prevention', 'systems', 'time', 'colleagues', 'notes'],
   breakfast: ['hospitality', 'colleagues', 'habits', 'prevention', 'listen'],
-  marketing: ['culture', 'hospitality', 'listen', 'strategy', 'simplicity'],
-  marketing_leadership: ['strategy', 'culture', 'hospitality', 'systems', 'time', 'simplicity'],
+  marketing: ['culture', 'hospitality', 'listen', 'systems', 'colleagues'],
+  marketing_leadership: ['culture', 'hospitality', 'systems', 'time', 'listen'],
   finance: ['time', 'notes', 'habits', 'prevention', 'systems'],
-  finance_leadership: ['time', 'strategy', 'systems', 'notes', 'colleagues', 'prevention'],
+  finance_leadership: ['time', 'systems', 'notes', 'colleagues', 'prevention'],
   hr: ['colleagues', 'listen', 'culture', 'notes', 'habits'],
-  hotel_management: ['colleagues', 'systems', 'hospitality', 'time', 'listen', 'strategy'],
-  executive: ['systems', 'strategy', 'colleagues', 'time', 'culture', 'hospitality', 'simplicity'],
-  admin: ['simplicity', 'systems', 'notes', 'prevention', 'habits'],
-  supervisor: ['colleagues', 'listen', 'notes', 'habits', 'time', 'systems'],
+  hotel_management: ['colleagues', 'systems', 'hospitality', 'time', 'listen'],
+  executive: ['systems', 'colleagues', 'time', 'culture', 'hospitality', 'listen'],
+  admin: ['systems', 'notes', 'prevention', 'habits', 'time'],
+  supervisor: ['colleagues', 'listen', 'notes', 'habits', 'time'],
   hospitality: ['hospitality', 'listen', 'colleagues', 'habits', 'prevention'],
 };
 
