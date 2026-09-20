@@ -60,7 +60,7 @@ describe('verified, role-relevant welcome quotes', () => {
     });
     expect(quotePoolForRole('maintenance').some(({ id }) => id === 'franklin-prevention')).toBe(true);
     expect(quotePoolForRole('reception').some(({ id }) => id === 'meyer-hospitality')).toBe(true);
-    expect(quotePoolForRole('finance').some(({ id }) => id === 'drucker-time')).toBe(true);
+    expect(quotePoolForRole('control_finance').some(({ id }) => id === 'drucker-time')).toBe(true);
   });
 
   it('does not push pricing or revenue statements to housekeepers', () => {
