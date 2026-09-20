@@ -37,7 +37,7 @@ BEGIN
       OR old_meta -> 'reservationStatusId' IS DISTINCT FROM new_meta -> 'reservationStatusId'
       OR old_meta -> 'noteOta' IS DISTINCT FROM new_meta -> 'noteOta'
     );
-  IF NOT is_snapshot THEN RETURN NEW; END IF;
+  IF is_snapshot IS NOT TRUE THEN RETURN NEW; END IF;
 
   -- Never turn "due today" into "performed today". In particular, the
   -- review trigger downstream must see the previous completion information,
