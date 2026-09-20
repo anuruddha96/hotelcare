@@ -108,6 +108,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
   const [noteHistory, setNoteHistory] = useState<RoomNoteHistoryEntry[]>([]);
   const notesSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedNotesRef = useRef('');
+  const lastPersistedNotesRef = useRef<string | null>(null);
   const [minibarItems, setMinibarItems] = useState<MinibarItem[]>([]);
   const [minibarUsage, setMinibarUsage] = useState<MinibarUsage[]>([]);
   const [minibarCategory, setMinibarCategory] = useState<string | null>(null);
@@ -134,12 +135,23 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
     }
   }, []);
 
+  // Initialize a note editor only when opening or switching rooms. A fresh
+  // parent room object must never reset an in-progress draft/autosave.
+  useEffect(() => {
+    if (notesSaveTimerRef.current) {
+      clearTimeout(notesSaveTimerRef.current);
+      notesSaveTimerRef.current = null;
+    }
+    if (!open || !room) return;
+    const initialNotes = room.notes || '';
+    setRoomNotes(initialNotes);
+    lastSavedNotesRef.current = initialNotes;
+    lastPersistedNotesRef.current = room.notes ?? null;
+    setNotesSaveState('idle');
+  }, [open, room?.id]);
+
   useEffect(() => {
     if (open && room) {
-      const initialNotes = room.notes || '';
-      setRoomNotes(initialNotes);
-      lastSavedNotesRef.current = initialNotes;
-      setNotesSaveState('idle');
       setRoomSize(room.room_size_sqm?.toString() || '');
       setRoomCapacity(room.room_capacity?.toString() || '');
       fetchRoomNoteHistory(room.id);
@@ -295,7 +307,6 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
     try {
       const updateData: any = {
         status: newStatus,
-        notes: roomNotes,
         room_size_sqm: roomSize ? parseFloat(roomSize) : null,
         room_capacity: roomCapacity ? parseInt(roomCapacity) : null,
       };
@@ -340,9 +351,10 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
 
     setNotesSaveState('saving');
     try {
-      const { data, error } = await (supabase as any).rpc('save_room_note', {
+      const { data, error } = await (supabase as any).rpc('save_room_note_if_unchanged', {
         p_room_id: room.id,
         p_notes: nextNotes,
+        p_expected_notes: lastPersistedNotesRef.current,
       });
       if (error) throw error;
 
@@ -352,6 +364,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
       }
 
       lastSavedNotesRef.current = nextNotes;
+      lastPersistedNotesRef.current = savedRow.notes ?? null;
       setNotesSaveState('saved');
       await fetchRoomNoteHistory(room.id);
       onRoomUpdated?.();
@@ -685,7 +698,7 @@ export function RoomDetailDialog({ room, open, onOpenChange, onRoomUpdated, late
                         : notesSaveState === 'saved'
                           ? 'Saved automatically'
                           : notesSaveState === 'error'
-                            ? 'Autosave failed — tap outside to retry'
+                            ? 'Save blocked — refresh to review latest room notes before retrying'
                             : 'Autosaves while you type'}
                     </span>
                   </div>
