@@ -1,7 +1,5 @@
--- A manager's Checkout/Daily correction is the operational source of truth
--- for the Budapest workday. Automatic AND person-initiated PMS refreshes must
--- not silently replace it. On the next workday, the next PMS refresh may
--- return the room to its PMS-derived state. Preserve raw reservation status.
+-- Manager's Checkout/Daily correction remains authoritative throughout the
+-- Budapest workday, across auto and human-triggered PMS synchronizations.
 CREATE OR REPLACE FUNCTION public.enforce_manual_room_type_override()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $function$
 DECLARE
@@ -20,22 +18,33 @@ DECLARE
   marker text;
   key text;
 BEGIN
-  -- Read the local date defensively; malformed legacy timestamps never hold
-  -- a room override indefinitely.
-  IF coalesce(old_stamp, '') ~ '^\d{4}-\d{2}-\d{2}' THEN
-    BEGIN old_day := left(old_stamp, 10)::date;
+  -- Browser timestamps are UTC instants. Convert them to the HOTEL business
+  -- date before comparing; 23:30Z is already tomorrow in Budapest. Date-only
+  -- or local wall-clock stamps retain their explicitly recorded local date.
+  IF coalesce(old_stamp, '') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN
+    BEGIN
+      IF old_stamp ~ '[Tt ][0-9]{2}:[0-9]{2}'
+         AND old_stamp ~ '([zZ]|[+-][0-9]{2}(:?[0-9]{2})?)$' THEN
+        old_day := (old_stamp::timestamptz AT TIME ZONE 'Europe/Budapest')::date;
+      ELSE old_day := left(old_stamp, 10)::date;
+      END IF;
     EXCEPTION WHEN datetime_field_overflow OR invalid_datetime_format THEN old_day := NULL;
     END;
   END IF;
-  IF coalesce(new_stamp, '') ~ '^\d{4}-\d{2}-\d{2}' THEN
-    BEGIN new_day := left(new_stamp, 10)::date;
+  IF coalesce(new_stamp, '') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN
+    BEGIN
+      IF new_stamp ~ '[Tt ][0-9]{2}:[0-9]{2}'
+         AND new_stamp ~ '([zZ]|[+-][0-9]{2}(:?[0-9]{2})?)$' THEN
+        new_day := (new_stamp::timestamptz AT TIME ZONE 'Europe/Budapest')::date;
+      ELSE new_day := left(new_stamp, 10)::date;
+      END IF;
     EXCEPTION WHEN datetime_field_overflow OR invalid_datetime_format THEN new_day := NULL;
     END;
   END IF;
 
-  -- Existing manager UI supplies a new manual_moved_at with a room-type
-  -- change. Also support a simple authenticated flag-only manager edit;
-  -- a PMS refresh normally updates PMS metadata, so cannot mimic that edit.
+  -- A new manual timestamp + changed classification is an explicit user
+  -- action. Also support a flag-only edit by an authenticated user; a PMS
+  -- refresh normally changes metadata as well.
   fresh_manager_move := (
     new_day = today_local AND new_stamp IS DISTINCT FROM old_stamp
     AND NEW.is_checkout_room IS DISTINCT FROM OLD.is_checkout_room
@@ -48,7 +57,8 @@ BEGIN
   IF fresh_manager_move THEN
     chosen_daily := NOT coalesce(NEW.is_checkout_room, false);
     marker := CASE WHEN new_day = today_local AND new_stamp IS DISTINCT FROM old_stamp
-      THEN new_stamp ELSE now()::text END;
+      THEN new_stamp
+      ELSE to_char(now() AT TIME ZONE 'Europe/Budapest', 'YYYY-MM-DD"T"HH24:MI:SS') END;
     actor := coalesce(nullif(new_meta ->> 'manual_moved_by', ''), auth.uid()::text);
     new_meta := jsonb_set(new_meta, '{manual_moved_at}', to_jsonb(marker), true);
     IF actor IS NOT NULL THEN
@@ -68,8 +78,8 @@ BEGIN
       END IF;
     END IF;
   ELSIF old_day = today_local AND (old_daily OR old_checkout) THEN
-    -- PMS may replace the entire metadata document: restore the manager's
-    -- decision and audit markers, even if PMS currently says status 9.
+    -- Restore manager's selection and audit if a PMS sync replaces entire
+    -- pms_metadata, even if PMS currently says reservationStatusId 9.
     chosen_daily := old_daily AND NOT old_checkout;
     NEW.is_checkout_room := NOT chosen_daily;
     FOREACH key IN ARRAY ARRAY[
@@ -78,13 +88,11 @@ BEGIN
     ] LOOP
       IF old_meta ? key THEN
         new_meta := jsonb_set(new_meta, ARRAY[key], old_meta -> key, true);
-      ELSE
-        new_meta := new_meta - key;
+      ELSE new_meta := new_meta - key;
       END IF;
     END LOOP;
   ELSE
-    -- Yesterday's choice expires at the next sync, never at the next sync
-    -- occurring later on the same date. No assumptions about PMS identities.
+    -- Expire stale overrides only on the next day's room update/sync.
     IF old_day IS NOT NULL AND old_day < today_local THEN
       FOREACH key IN ARRAY ARRAY[
         'manual_moved_at','manual_moved_by','manual_daily','manual_daily_at',
@@ -98,8 +106,8 @@ BEGIN
   END IF;
 
   IF chosen_daily THEN
-    -- Operational display hints only. Keep reservationStatusId and all raw
-    -- PMS guest/booking information for audit and subsequent reconciliation.
+    -- Operational display only; leave raw PMS reservationStatusId and guest
+    -- data intact for history/reconciliation.
     new_meta := jsonb_set(new_meta, '{scheduledDepartureToday}', 'false'::jsonb, true);
     new_meta := jsonb_set(new_meta, '{checkedOutToday}', 'false'::jsonb, true);
     new_meta := jsonb_set(new_meta, '{readyToClean}', 'false'::jsonb, true);
@@ -113,9 +121,8 @@ BEGIN
 END;
 $function$;
 
--- BEFORE triggers execute alphabetically. Existing Gozsdu/notes/status
--- triggers run after trg_enforce_manual_room_type_override; this last guard
--- guarantees that none can reset a current-day manager decision afterwards.
+-- PostgreSQL executes same-kind triggers alphabetically. This final guard
+-- runs after existing property-specific, notes and legacy operational guards.
 DROP TRIGGER IF EXISTS zzzzzzzz_hc_final_manual_room_type ON public.rooms;
 CREATE TRIGGER zzzzzzzz_hc_final_manual_room_type
 BEFORE UPDATE OF is_checkout_room, pms_metadata ON public.rooms
