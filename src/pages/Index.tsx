@@ -3,6 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { Dashboard } from '@/components/dashboard/Dashboard';
+import { StayExtensionReviewQueue } from '@/components/dashboard/StayExtensionReviewQueue';
 import { HotelSelectionScreen } from '@/components/dashboard/HotelSelectionScreen';
 import { isReceptionRole } from '@/lib/roleAccess';
 
@@ -120,6 +121,12 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
       <Header />
+      {profile && MANAGER_ROLES.includes(profile.role) && (
+        <StayExtensionReviewQueue
+          hotel={profile.assigned_hotel}
+          organizationSlug={profile.organization_slug || organizationSlug}
+        />
+      )}
       <Dashboard />
     </div>
   );
