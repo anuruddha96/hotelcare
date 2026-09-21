@@ -1,0 +1,51 @@
+name: One-time Memories UI scope adjustment
+
+on:
+  push:
+    branches:
+      - fix/memories-workday-instructions-20260921
+    paths:
+      - .github/workflows/memories-workday-scope-adjust.yml
+
+permissions:
+  contents: write
+
+jobs:
+  scope-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/memories-workday-instructions-20260921
+          fetch-depth: 0
+      - name: Apply narrowly scoped guard
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          code = Path('src/components/dashboard/HotelRoomOverviewLive.tsx')
+          text = code.read_text()
+          old = 'if (!noteText.trim() && previousText) {'
+          new = 'if (isHotelMemoriesBudapest(room.hotel) && !noteText.trim() && previousText) {'
+          assert text.count(old) == 1, 'Note-clear guard not uniquely located'
+          code.write_text(text.replace(old, new))
+          test = Path('src/lib/__tests__/memoriesWorkdayInstructions.test.ts')
+          text = test.read_text()
+          assert text.count(old) == 1, 'Regression test not uniquely located'
+          test.write_text(text.replace(old, new))
+          print('Only Memories receives the until-midnight note-clear rule; other hotels retain explicit clears.')
+          PY
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run test
+      - run: bun run build
+      - name: Commit verified source and remove one-time workflow
+        run: |
+          rm .github/workflows/memories-workday-scope-adjust.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/components/dashboard/HotelRoomOverviewLive.tsx src/lib/__tests__/memoriesWorkdayInstructions.test.ts .github/workflows/memories-workday-scope-adjust.yml
+          git commit -m 'fix(memories): scope midnight note-clear behavior to Memories only'
+          git push origin HEAD:fix/memories-workday-instructions-20260921
