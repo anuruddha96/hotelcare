@@ -26,10 +26,10 @@ export function buildRoomTypeTransition(params: {
   actorId: string;
   actorName: string;
   nowIso: string;
-  gozsduService?: 'towel_change' | 'change_room';
+  gozsduPlan?: { bucket: 'checkout' | 'service' | 'other'; service: 'none' | 'towel_change' | 'change_room' };
   previousRoomNotes: string | null;
 }): { metadata: Record<string, unknown>; note: string; notice: RoomTypeNotice } {
-  const { metadata, target, date, roomNumber, actorId, actorName, nowIso, gozsduService, previousRoomNotes } = params;
+  const { metadata, target, date, roomNumber, actorId, actorName, nowIso, gozsduPlan, previousRoomNotes } = params;
   const old = metadata || {};
   const checkout = target === 'checkout';
   const message = checkout
@@ -50,7 +50,7 @@ export function buildRoomTypeTransition(params: {
       ? { manual_checkout_at: nowIso, manual_checkout_by: actorId, manualReadyToCleanAt: null, manualReadyToCleanBy: null }
       : { manual_daily_at: nowIso, manual_daily_by: actorId, scheduledDepartureToday: false, departureTime: null, checkedOutToday: false }),
   };
-  if (gozsduService) {
+  if (gozsduPlan) {
     const overrides = old[GOZSDU_ROOM_OVERRIDE_KEY];
     const prior = overrides && typeof overrides === 'object' && !Array.isArray(overrides)
       ? overrides as Record<string, unknown> : {};
@@ -58,8 +58,8 @@ export function buildRoomTypeTransition(params: {
       ...prior,
       [date]: {
         date,
-        bucket: checkout ? 'checkout' : 'service',
-        service: checkout ? 'none' : gozsduService,
+        bucket: gozsduPlan.bucket,
+        service: gozsduPlan.service,
         reason: checkout ? 'Manually changed from Daily to Checkout' : 'Possible stay extension; verify with reception',
         changedAt: nowIso,
         changedBy: actorId,
