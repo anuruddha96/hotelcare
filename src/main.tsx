@@ -1,24 +1,14 @@
-// This file deliberately has no static imports. It must execute before React or
-// any optimized dependency so it can recover when one of those module files was
-// replaced while a mobile tab remained open.
+// Keep this entry free of static imports: recovery must run even if React or
+// an optimized dependency cannot be fetched by an already-open mobile tab.
 const RELOAD_FLAG = "chunk_reload_at";
 const RECOVERY_PARAM = "chunk-recovery";
 const isSlntRoute = /^\/slnt(?:\/|$)/.test(window.location.pathname);
 const isModuleLoadFailure = (message: string) =>
   /dynamically imported module|Importing a module script failed|error loading dynamically|Failed to fetch dynamically|module script/i.test(message);
 
-let slntRecoveryNoticeShown = false;
-
-/**
- * A stale JS chunk is not fixed by reloading the same broken document forever.
- * SLNT's mobile revenue route must offer a safe escape after one automatic
- * recovery attempt, without clearing login credentials or another tenant's
- * data. Keep this notice dependency-free so it also works when React fails.
- */
+/** Dependency-free SLNT escape route after one failed cache-busting reload. */
 function showSlntRecoveryNotice() {
-  if (slntRecoveryNoticeShown) return;
-  slntRecoveryNoticeShown = true;
-
+  if (document.getElementById("hotelcare-slnt-recovery")) return;
   const notice = document.createElement("section");
   notice.id = "hotelcare-slnt-recovery";
   notice.setAttribute("role", "alert");
@@ -29,42 +19,37 @@ function showSlntRecoveryNotice() {
   heading.textContent = "This page could not finish loading";
   heading.style.cssText = "margin:0 0 12px;font-size:22px;font-weight:650";
   const explanation = document.createElement("p");
-  explanation.textContent = "The SLNT revenue page encountered another application-file loading error. Automatic refreshing has stopped so you can use the rest of your workspace. Your login has not been cleared.";
+  explanation.textContent = "The SLNT revenue page encountered another application-file loading error. Automatic refreshing has stopped. Your login has not been cleared.";
   explanation.style.cssText = "margin:0 0 20px;color:#cbd5e1";
-
   const workspace = document.createElement("a");
-  workspace.href = "/slnt";
+  // Executives are normally redirected back into revenue by /slnt. The
+  // explicit tab query bypasses that redirect and opens the real dashboard.
+  workspace.href = "/slnt?tab=housekeeping";
   workspace.textContent = "Open SLNT workspace";
   workspace.style.cssText = "display:block;text-align:center;padding:12px;border-radius:8px;background:#2563eb;color:white;text-decoration:none;font-weight:600";
-
   const retry = document.createElement("button");
   retry.type = "button";
   retry.textContent = "Retry revenue page";
   retry.style.cssText = "display:block;width:100%;margin-top:10px;padding:12px;border:1px solid #64748b;border-radius:8px;background:transparent;color:white;font:inherit;cursor:pointer";
   retry.addEventListener("click", () => {
-    try { sessionStorage.removeItem(RELOAD_FLAG); } catch { /* storage unavailable */ }
+    try { sessionStorage.removeItem(RELOAD_FLAG); } catch { /* private mode */ }
     const clean = new URL(window.location.href);
     clean.searchParams.delete(RECOVERY_PARAM);
     window.location.assign(clean.toString());
   });
-
   panel.append(heading, explanation, workspace, retry);
   notice.appendChild(panel);
-  // An app may not have created #root yet, but the document body exists by
-  // the time a module script is evaluated. Never mutate React's root DOM.
+  // Never modify the React root. This works even when React failed to load.
   document.body.appendChild(notice);
 }
 
 const recoverFromStaleChunk = (message: string) => {
   if (!isModuleLoadFailure(message)) return;
-
-  // This is the second failure in an already cache-busted SLNT document.
-  // A new nonce every 30 seconds created an endless reload cycle on Safari.
   if (isSlntRoute && new URL(window.location.href).searchParams.has(RECOVERY_PARAM)) {
+    // An already-recovered document has failed again: do not reload forever.
     showSlntRecoveryNotice();
     return;
   }
-
   try {
     const last = Number(sessionStorage.getItem(RELOAD_FLAG) || 0);
     if (Date.now() - last < 30000) {
@@ -72,11 +57,7 @@ const recoverFromStaleChunk = (message: string) => {
       return;
     }
     sessionStorage.setItem(RELOAD_FLAG, String(Date.now()));
-  } catch { /* storage blocked — still worth one reload */ }
-
-  // A plain reload can reuse the same stale module response on mobile Safari.
-  // A one-time URL nonce forces a fresh document and dependency graph while
-  // preserving the current path, tenant route and all other query parameters.
+  } catch { /* storage blocked — still allow the initial reload */ }
   const next = new URL(window.location.href);
   next.searchParams.set(RECOVERY_PARAM, String(Date.now()));
   window.location.replace(next.toString());
