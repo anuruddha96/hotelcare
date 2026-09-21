@@ -30,4 +30,10 @@ describe('Hotel Memories working-day instructions', () => {
     expect(migration).toContain('r.memories_manual_bed_date < v_today');
     expect(migration).not.toContain('DELETE FROM public.room_assignments');
   });
+  it('keeps intentional note clearing available to other hotels', () => {
+    const editor = overview.split('const savePopoverRoomNotes =')[1].split('const formatPrevDate =')[0];
+    expect(editor).toContain('isHotelMemoriesBudapest(room.hotel) && !noteText.trim() && previousText');
+    expect(migration).toContain("lower(btrim(coalesce(OLD.hotel, ''))) <> 'hotel memories budapest'");
+    expect(migration).toContain("lower(btrim(coalesce(NEW.hotel, ''))) <> 'hotel memories budapest'");
+  });
 });
