@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import "@/lib/pms-reception-translations";
 import "@/lib/pms-unified-reception-translations";
@@ -13,7 +14,16 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { installGlobalErrorReporting } from "@/lib/clientErrorReporter";
 import { installRateCalendarInputPolicy } from "@/lib/rateCalendarInputPolicy";
 import { installRateCalendarMonthNav } from "@/lib/rateCalendarMonthNav";
-import CompetitorPricingGridBridge from "@/components/revenue/CompetitorPricingGridBridge";
+
+// This optional presentation bridge polls and decorates every pricing-grid
+// column every 850 ms. On the unusually large SLNT rate grid, running it while
+// mobile Safari is bootstrapping can exhaust its tab process. The underlying
+// demand data, room rates and pricing tools remain fully available without it.
+// Load the bridge after the app, and omit it ONLY on SLNT's iOS revenue route.
+// RD Hotels and all other tenants retain their existing behavior.
+const CompetitorPricingGridBridge = lazy(() => import("@/components/revenue/CompetitorPricingGridBridge"));
+const isSlntIosRevenue = /^\/slnt\/revenue(?:\/|$)/.test(window.location.pathname)
+  && /iPad|iPhone|iPod/.test(window.navigator.userAgent);
 
 installGlobalErrorReporting();
 // Install before the grid mounts, so a hover cannot start its legacy edge
@@ -36,7 +46,11 @@ createRoot(root).render(
   >
     <>
       <App />
-      <CompetitorPricingGridBridge />
+      {!isSlntIosRevenue && (
+        <Suspense fallback={null}>
+          <CompetitorPricingGridBridge />
+        </Suspense>
+      )}
     </>
   </ErrorBoundary>,
 );
