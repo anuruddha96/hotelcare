@@ -24,13 +24,25 @@ const key = (name: string | null | undefined) => String(name ?? '').normalize('N
 const day = (date: string | null | undefined) => date && /^\d{4}-\d{2}-\d{2}$/.test(date)
   ? Date.parse(`${date}T00:00:00Z`) / 86400000 : NaN;
 
+/** Identify a sparse selected-day feed without equating a missing row to a vacant or unavailable room. */
+export function missingGozsduPmsRooms(registry: RegistryEntry[], snapshots: GozsduPmsRow[]): string[] {
+  const observed = new Set(snapshots.map(row => key(row.room_label)));
+  return registry.filter(entry => !observed.has(key(entry.pms_room_name)))
+    .map(entry => entry.pms_room_name);
+}
+
 /** Read-only, all-or-nothing reconciliation. Never manufacture an operational checkout from a sparse poll. */
 export function reconcileGozsduPmsRoster(
   rooms: LocalRoom[], registry: RegistryEntry[], snapshots: GozsduPmsRow[],
   selectedDate: string, now = Date.now(),
 ): { byRoom: Map<string, GozsduRosterEntry>; capturedAt: string } {
-  if (!rooms.length || registry.length !== rooms.length || snapshots.length !== registry.length) {
+  if (!rooms.length || registry.length !== rooms.length) {
     throw new Error(`Gozsdu PMS room coverage is incomplete (${snapshots.length} snapshot / ${registry.length} registered / ${rooms.length} local).`);
+  }
+  if (snapshots.length !== registry.length) {
+    const missing = missingGozsduPmsRooms(registry, snapshots);
+    const detail = missing.length ? ` Missing from selected-day PMS: ${missing.join(', ')}. Their operating status is unchanged; booking and occupancy are UNKNOWN until verified in Previo.` : '';
+    throw new Error(`Gozsdu PMS room coverage is incomplete (${snapshots.length} snapshot / ${registry.length} registered / ${rooms.length} local).${detail}`);
   }
   const roomsById = new Map(rooms.map(room => [room.id, room]));
   const byName = new Map<string, string>();
