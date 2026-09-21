@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, Clock3, Languages, MessageSquare, RotateCw, User } from 'lucide-react';
 import { isSupportedMaintenanceLanguage, localizedMaintenanceText, maintenanceTranslationCacheKey, type MaintenanceTranslationResponse } from '@/lib/maintenanceTicketLocalization';
@@ -12,17 +13,19 @@ interface TicketContent {
   hold_reason?: string | null;
   updated_at: string;
 }
-interface Props {
-  ticket: TicketContent;
-  language: string;
-  reporterFallback?: string | null;
-  revision?: number;
-}
+interface Props { ticket: TicketContent; language: string; reporterFallback?: string | null; revision?: number }
 
-/** This component is only mounted for tickets already filtered to the assigned worker.
- * The Edge Function independently enforces the assignment through the caller's RLS session.
- */
+// Session-memory only. Never persist confidential maintenance notes to localStorage.
+// Every key includes an authenticated identity and ticket revision; clear on account switch.
+const cache = new Map<string, { response: MaintenanceTranslationResponse; expires: number }>();
+let cacheUser: string | null = null;
+const CACHE_LIMIT = 80;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+/** Only mounted for a worker's assigned tickets. The endpoint independently
+ * authorizes ticket access with the worker's own JWT and database RLS. */
 export function MaintenanceTicketLanguagePanel({ ticket, language, reporterFallback, revision = 0 }: Props) {
+  const { user } = useAuth();
   const host = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
@@ -30,7 +33,7 @@ export function MaintenanceTicketLanguagePanel({ ticket, language, reporterFallb
   const [loadedKey, setLoadedKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [reload, setReload] = useState(0);
-  const key = maintenanceTranslationCacheKey(ticket.id, `${ticket.updated_at}:${revision}`, language);
+  const key = `${user?.id || 'signed-out'}:${maintenanceTranslationCacheKey(ticket.id, `${ticket.updated_at}:${revision}`, language)}`;
 
   useEffect(() => {
     const target = host.current;
@@ -48,7 +51,17 @@ export function MaintenanceTicketLanguagePanel({ ticket, language, reporterFallb
     setResponse(null);
     setLoadedKey('');
     setShowOriginal(false);
-    if (!visible || !isSupportedMaintenanceLanguage(language)) return;
+    if (cacheUser !== (user?.id || null)) { cache.clear(); cacheUser = user?.id || null; }
+    if (!visible || !user?.id || !isSupportedMaintenanceLanguage(language)) return;
+    if (reload > 0) cache.delete(key);
+    const entry = cache.get(key);
+    if (entry && entry.expires > Date.now() && !entry.response.translationUnavailable) {
+      setResponse(entry.response);
+      setLoadedKey(key);
+      setLoading(false);
+      return;
+    }
+    cache.delete(key);
     setLoading(true);
     void (async () => {
       try {
@@ -56,14 +69,22 @@ export function MaintenanceTicketLanguagePanel({ ticket, language, reporterFallb
           body: { ticketId: ticket.id, action: 'translate', language },
         });
         if (error || !data || data.ticketId !== ticket.id || !Array.isArray(data.history)) throw error || new Error('Invalid response');
-        if (!cancelled) { setResponse(data as MaintenanceTranslationResponse); setLoadedKey(key); }
+        if (!cancelled) {
+          const result = data as MaintenanceTranslationResponse;
+          setResponse(result);
+          setLoadedKey(key);
+          if (!result.translationUnavailable) {
+            cache.set(key, { response: result, expires: Date.now() + CACHE_TTL_MS });
+            if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value!);
+          }
+        }
       } catch (error) {
-        // Deliberately preserve the original issue when the service is unavailable.
+        // Keep original issue text readable during outages or missing credentials.
         console.error('Maintenance context unavailable:', error);
       } finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [visible, ticket.id, language, key, reload]);
+  }, [visible, user?.id, ticket.id, language, key, reload]);
 
   const context = loadedKey === key ? response : null;
   const translated = (original: string | null | undefined, field: string) =>
