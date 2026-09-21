@@ -1,7 +1,6 @@
 \set ON_ERROR_STOP on
 
--- The client-supplied shortened/forged label must be replaced by the canonical
--- PMS room name, including codes that contain slashes.
+-- Server always persists the canonical PMS room name, not the browser's label.
 INSERT INTO tickets(department,source,source_room_id,room_number,description,created_by,organization_slug,hotel,title)
 VALUES ('maintenance','housekeeping','00000000-0000-0000-0000-000000000101','fake','Broken lamp',
  '00000000-0000-0000-0000-000000000001','rdhotels','gozsdu-court','Room fake: Broken lamp');
@@ -31,7 +30,36 @@ SELECT assert_rejected('00000000-0000-0000-0000-000000000101','Hotel Memories Bu
 SELECT assert_rejected('00000000-0000-0000-0000-000000000106','Other Hotel','rdhotels','101');
 SELECT assert_rejected('00000000-0000-0000-0000-000000000105','Hotel Memories Budapest','rdhotels','202');
 
--- Normal non-Gozsdu dirty/occupied inventory remains available.
+-- A cached legacy browser submitting room text should continue working when
+-- the room resolves uniquely within that hotel; it gains a canonical UUID.
+INSERT INTO tickets(department,source,source_room_id,room_number,description,created_by,organization_slug,hotel,title)
+VALUES ('maintenance','manual',NULL,'110','Broken socket',
+ '00000000-0000-0000-0000-000000000001','rdhotels','gozsdu-court','Broken socket');
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM tickets WHERE title='Broken socket'
+    AND source_room_id='00000000-0000-0000-0000-000000000101' AND room_number='1B-110') THEN
+    RAISE EXCEPTION 'Legacy room lookup did not resolve canonical UUID/name';
+  END IF;
+END $$;
+
+-- An exact canonical Gozsdu PMS label is also accepted from an older client.
+INSERT INTO tickets(department,source,source_room_id,room_number,description,created_by,organization_slug,hotel,title)
+VALUES ('maintenance','manual',NULL,'1B-110','Broken bed',
+ '00000000-0000-0000-0000-000000000001','rdhotels','Gozsdu Court Budapest','Broken bed');
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM tickets WHERE title='Broken bed'
+    AND source_room_id='00000000-0000-0000-0000-000000000101' AND room_number='1B-110') THEN
+    RAISE EXCEPTION 'Legacy full PMS name was not resolved';
+  END IF;
+END $$;
+
+-- Unknown legacy room, mismatched hotel, inactive room, and missing location fail.
+SELECT assert_rejected(NULL,'gozsdu-court','rdhotels','forged-room');
+SELECT assert_rejected(NULL,'Hotel Memories Budapest','rdhotels','110');
+SELECT assert_rejected(NULL,'gozsdu-court','rdhotels','408');
+SELECT assert_rejected(NULL,'Gozsdu Court Budapest','rdhotels','N/A');
+
+-- Non-Gozsdu occupied/dirty inventory remains eligible.
 INSERT INTO tickets(department,source,source_room_id,room_number,description,created_by,organization_slug,hotel,title)
 VALUES ('maintenance','manual','00000000-0000-0000-0000-000000000104','forged','Broken lamp',
  '00000000-0000-0000-0000-000000000001','rdhotels','Hotel Memories Budapest','Broken lamp');
@@ -41,16 +69,11 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- No free-text room insert, and no unspecified common area.
-SELECT assert_rejected(NULL,'Gozsdu Court Budapest','rdhotels','1B-110');
-SELECT assert_rejected(NULL,'Gozsdu Court Budapest','rdhotels','N/A');
--- The helper above uses a non-location description, so both are rejected.
 INSERT INTO tickets(department,source,source_room_id,room_number,description,created_by,organization_slug,hotel,title)
 VALUES ('maintenance','manual',NULL,'N/A',E'Location: Reception\nBroken door',
  '00000000-0000-0000-0000-000000000001','rdhotels','Gozsdu Court Budapest','Broken door');
 
--- Existing tickets remain mutable even if a room subsequently becomes inactive:
--- this guard must never block valid maintenance completion updates.
+-- Existing tickets stay writable after the room has become inactive.
 UPDATE tickets SET status='completed' WHERE source_room_id='00000000-0000-0000-0000-000000000101';
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM tickets WHERE source_room_id='00000000-0000-0000-0000-000000000101' AND status='completed') THEN
@@ -58,7 +81,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- A different department is outside this narrowly scoped maintenance guard.
+-- Non-maintenance departments remain outside this guard.
 INSERT INTO tickets(department,source,source_room_id,room_number,description,created_by,organization_slug,hotel,title)
 VALUES ('reception','manual',NULL,'N/A','Reception note',
  '00000000-0000-0000-0000-000000000001','rdhotels','Gozsdu Court Budapest','Reception note');
