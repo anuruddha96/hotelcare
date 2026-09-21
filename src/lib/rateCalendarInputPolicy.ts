@@ -1,5 +1,5 @@
 /*
- * Read-only, scoped input enhancements for Rate & Pickup.
+ * Scoped input enhancements for Rate & Pickup.
  * Keep the existing pricing/selection implementation as the single source of
  * truth. No server requests or rate writes take place here.
  */
@@ -14,7 +14,9 @@ export type RateCalendarWheelMode = 'page' | 'rows';
 export type WheelIntent = Pick<WheelEvent,
   'deltaX' | 'deltaY' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey' | 'defaultPrevented'>;
 
-/** Horizontal trackpads, browser/calendar zoom and deliberate row scrolling stay native. */
+/** Determine vertical wheel intent without interfering with zoom or trackpads.
+ * Kept as a pure helper for integrations; native scrolling no longer needs a
+ * document-level, non-passive wheel listener. */
 export function shouldScrollRateCalendarPage(
   wheel: WheelIntent,
   mode: RateCalendarWheelMode,
@@ -35,23 +37,6 @@ function wheelPreference(): RateCalendarWheelMode {
   catch { return 'page'; }
 }
 
-/** Prefer the real dashboard scroller; window.scrollBy does nothing in nested layouts. */
-function scrollPageOutsideGrid(pane: HTMLElement, delta: number): void {
-  let ancestor = pane.parentElement;
-  while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
-    const overflow = getComputedStyle(ancestor).overflowY;
-    if (overflow === 'auto' || overflow === 'scroll' || overflow === 'overlay') {
-      const limit = ancestor.scrollHeight - ancestor.clientHeight;
-      if (limit > 1 && ((delta > 0 && ancestor.scrollTop < limit - 1) || (delta < 0 && ancestor.scrollTop > 1))) {
-        ancestor.scrollBy({ top: delta, behavior: 'auto' });
-        return;
-      }
-    }
-    ancestor = ancestor.parentElement;
-  }
-  window.scrollBy({ top: delta, behavior: 'auto' });
-}
-
 interface EnhancedCalendar {
   pane: HTMLElement;
   button: HTMLButtonElement;
@@ -69,8 +54,8 @@ export function installRateCalendarInputPolicy(): () => void {
       button.textContent = rows ? 'Scroll: rows' : 'Scroll: page';
       button.setAttribute('aria-pressed', String(rows));
       button.title = rows
-        ? 'Mouse wheel moves calendar rows. Click to scroll the page instead. Horizontal scrolling stays available.'
-        : 'Mouse wheel scrolls past the calendar. Click to scroll calendar rows, or hold Alt while scrolling for one gesture.';
+        ? 'The calendar scrolls vertically within its own panel. Click to scroll the page instead.'
+        : 'The page scrolls naturally past the calendar. Click to scroll calendar rows instead.';
     }
   };
 
@@ -87,8 +72,8 @@ export function installRateCalendarInputPolicy(): () => void {
         previous.button.remove();
         calendars.delete(card);
       }
-      // Only long horizons relax the old paint-every-cell rule. Short ranges
-      // keep their original instant back-scroll behavior.
+      // The longer views can use native per-cell paint skipping. Do not use
+      // an expensive DOM scan on ordinary pointer moves or price changes.
       card.dataset.rateCalendarLong = String(card.querySelectorAll('button[data-date]').length > LONG_RANGE_DAYS);
       const existing = calendars.get(card);
       if (existing && existing.button.isConnected) return;
@@ -129,16 +114,12 @@ export function installRateCalendarInputPolicy(): () => void {
     if (changed) scheduleEnhance();
   });
 
-  const onWheel = (event: WheelEvent) => {
-    if (!(event.target instanceof Element)) return;
-    const pane = event.target.closest<HTMLElement>(PANE_SELECTOR);
-    const card = pane?.closest<HTMLElement>(CARD_SELECTOR);
-    if (!pane || !card || !shouldScrollRateCalendarPage(event, mode, card.classList.contains('fixed'))) return;
-    const dy = wheelPixels(event.deltaY, event.deltaMode, pane.clientHeight);
-    if (dy === 0) return;
-    event.preventDefault();
-    scrollPageOutsideGrid(pane, dy);
-  };
+  // Native wheel input is deliberately NOT intercepted. A capture-phase
+  // preventDefault + scrollBy routed every wheel tick through the main thread
+  // and made trackpads stutter on large grids. The page-mode CSS now gives the
+  // calendar its full natural height; only the explicit rows mode caps it.
+  // Browser scroll chaining, kinetic gestures and horizontal wheels are left
+  // to the compositor in both modes. Ctrl/⌘ zoom remains in RateStrategyGrid.
 
   const onPointerMove = (event: PointerEvent) => {
     if (calendars.size === 0 || event.pointerType !== 'mouse' || event.buttons !== 0 || !(event.target instanceof Element)) return;
@@ -159,7 +140,6 @@ export function installRateCalendarInputPolicy(): () => void {
     pane.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
   };
 
-  document.addEventListener('wheel', onWheel, { capture: true, passive: false });
   window.addEventListener('pointermove', onPointerMove, { passive: true });
   document.addEventListener('pointerup', onPointerUp, { passive: true });
   mutationObserver.observe(document.body, { childList: true, subtree: true });
@@ -168,7 +148,6 @@ export function installRateCalendarInputPolicy(): () => void {
   return () => {
     mutationObserver.disconnect();
     if (frame !== null) cancelAnimationFrame(frame);
-    document.removeEventListener('wheel', onWheel, true);
     window.removeEventListener('pointermove', onPointerMove);
     document.removeEventListener('pointerup', onPointerUp);
     for (const [card, { button }] of calendars) {
