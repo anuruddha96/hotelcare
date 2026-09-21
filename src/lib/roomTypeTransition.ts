@@ -10,10 +10,11 @@ export type RoomTypeNotice = {
   message: string;
 };
 
-/** Keep prior housekeeping instructions intact and replace only today's own notice. */
+/** Preserve real housekeeping instructions, but show only the latest type-change notice. */
 export function upsertRoomTypeNote(previous: string | null, date: string, message: string): string {
   const marker = `[ROOM TYPE ${date}]`;
-  const retained = (previous || '').split('\n').filter(line => !line.startsWith(marker)).join('\n').trim();
+  const retained = (previous || '').split('\n')
+    .filter(line => !/^\[ROOM TYPE \d{4}-\d{2}-\d{2}\]/.test(line)).join('\n').trim();
   return [retained, `${marker} ${message}`].filter(Boolean).join('\n');
 }
 
