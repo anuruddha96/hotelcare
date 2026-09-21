@@ -453,7 +453,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         setPopoverNotesSaveState('saved');
         return true;
       }
-      if (!noteText.trim() && previousText) {
+      if (isHotelMemoriesBudapest(room.hotel) && !noteText.trim() && previousText) {
         throw new Error('Today’s manager notes remain active until midnight. Refresh the room if this note is outdated.');
       }
 

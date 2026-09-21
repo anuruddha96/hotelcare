@@ -10,7 +10,7 @@ describe('Hotel Memories working-day instructions', () => {
     expect(editor).toContain("rpc('save_room_note_if_unchanged'");
     expect(editor).toContain('p_expected_notes: room.notes ?? null');
     expect(editor).not.toContain(".update({ notes: newFullNotes || null }");
-    expect(editor).toContain('if (!noteText.trim() && previousText)');
+    expect(editor).toContain('if (isHotelMemoriesBudapest(room.hotel) && !noteText.trim() && previousText)');
   });
   it('guards both service switches against competing instruction edits', () => {
     expect(overview.match(/noteUpdate\.select\('id, notes'\)\.maybeSingle\(\)/g)).toHaveLength(2);
