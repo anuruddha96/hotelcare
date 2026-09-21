@@ -5,6 +5,31 @@
   overscroll-behavior-y: auto !important;
 }
 
+/* The default page mode must not create a second vertical scrolling surface.
+   RateStrategyGrid measures a viewport-sized height inline and the older
+   performance sheet capped the pane to 72dvh. Together they trapped the
+   wheel inside the table and hid the ADR/RevPAR rows below its fold. Allow
+   the document/dashboard to own Y while keeping native X on the table. */
+[data-training="revenue-grid"]:not(.fixed):not(:has(.rate-calendar-wheel-toggle[aria-pressed="true"])) .overscroll-x-contain {
+  height: auto !important;
+  max-height: none !important;
+  min-height: 0 !important;
+  overscroll-behavior-y: auto !important;
+}
+
+/* Users who explicitly choose 'Scroll: rows' get the compact, vertically
+   scrolling table back. Full-screen mode keeps its existing internal scroll. */
+[data-training="revenue-grid"]:not(.fixed):has(.rate-calendar-wheel-toggle[aria-pressed="true"]) .overscroll-x-contain {
+  height: auto !important;
+  max-height: min(72dvh, calc(100dvh - 190px)) !important;
+  overscroll-behavior-y: auto !important;
+}
+@media (max-width: 767px) {
+  [data-training="revenue-grid"]:not(.fixed):has(.rate-calendar-wheel-toggle[aria-pressed="true"]) .overscroll-x-contain {
+    max-height: 68dvh !important;
+  }
+}
+
 /* Large (91-365 day) views should not force Chrome to paint thousands of
    off-screen cells. Keep the sticky dates/metric headers fully painted and
    restore native content-visibility only for the body cells. The original
