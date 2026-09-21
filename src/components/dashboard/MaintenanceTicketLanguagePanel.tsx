@@ -1,0 +1,120 @@
+import { useEffect, useRef, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { Button } from '@/components/ui/button';
+import { AlertTriangle, Clock3, Languages, MessageSquare, RotateCw, User } from 'lucide-react';
+import { isSupportedMaintenanceLanguage, localizedMaintenanceText, maintenanceTranslationCacheKey, type MaintenanceTranslationResponse } from '@/lib/maintenanceTicketLocalization';
+
+interface TicketContent {
+  id: string;
+  title: string;
+  description: string;
+  resolution_text?: string | null;
+  hold_reason?: string | null;
+  updated_at: string;
+}
+interface Props {
+  ticket: TicketContent;
+  language: string;
+  reporterFallback?: string | null;
+  revision?: number;
+}
+
+/** This component is only mounted for tickets already filtered to the assigned worker.
+ * The Edge Function independently enforces the assignment through the caller's RLS session.
+ */
+export function MaintenanceTicketLanguagePanel({ ticket, language, reporterFallback, revision = 0 }: Props) {
+  const host = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  const [showOriginal, setShowOriginal] = useState(false);
+  const [response, setResponse] = useState<MaintenanceTranslationResponse | null>(null);
+  const [loadedKey, setLoadedKey] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [reload, setReload] = useState(0);
+  const key = maintenanceTranslationCacheKey(ticket.id, `${ticket.updated_at}:${revision}`, language);
+
+  useEffect(() => {
+    const target = host.current;
+    if (!target) return;
+    if (typeof IntersectionObserver === 'undefined') { setVisible(true); return; }
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) setVisible(true);
+    }, { rootMargin: '350px' });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setResponse(null);
+    setLoadedKey('');
+    setShowOriginal(false);
+    if (!visible || !isSupportedMaintenanceLanguage(language)) return;
+    setLoading(true);
+    void (async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke('maintenance-ticket-context', {
+          body: { ticketId: ticket.id, action: 'translate', language },
+        });
+        if (error || !data || data.ticketId !== ticket.id || !Array.isArray(data.history)) throw error || new Error('Invalid response');
+        if (!cancelled) { setResponse(data as MaintenanceTranslationResponse); setLoadedKey(key); }
+      } catch (error) {
+        // Deliberately preserve the original issue when the service is unavailable.
+        console.error('Maintenance context unavailable:', error);
+      } finally { if (!cancelled) setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [visible, ticket.id, language, key, reload]);
+
+  const context = loadedKey === key ? response : null;
+  const translated = (original: string | null | undefined, field: string) =>
+    localizedMaintenanceText(original, field, context, showOriginal);
+  const label = language === 'hu' ? {
+    reporter: 'Jelentette', issue: 'Hiba', resolution: 'Elvégzett javítás', history: 'Jegy előzményei',
+    original: 'Eredeti szöveg', translated: 'Fordítás', unavailable: 'A fordítás jelenleg nem érhető el; az eredeti szöveg látható.',
+    retry: 'Újrapróbálás', loading: 'Fordítás…',
+  } : {
+    reporter: 'Reported by', issue: 'Issue', resolution: 'Repair details', history: 'Ticket history',
+    original: 'Show original', translated: 'Show translation', unavailable: 'Translation unavailable; original text shown.',
+    retry: 'Retry', loading: 'Translating…',
+  };
+
+  return (
+    <div ref={host} className="space-y-2">
+      <div className="rounded-lg bg-muted/50 p-2 text-xs">
+        <div className="text-muted-foreground flex items-center gap-1"><User className="h-3 w-3" />{label.reporter}</div>
+        <div className="font-semibold break-words">{context?.reporter || reporterFallback || '—'}</div>
+      </div>
+      <div className="rounded-lg border p-3 space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground font-semibold flex items-center gap-1"><AlertTriangle className="h-3.5 w-3.5" />{label.issue}</span>
+          <div className="flex gap-1">
+            {context && Object.keys(context.translations || {}).length > 0 &&
+              <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setShowOriginal(!showOriginal)}>
+                <Languages className="mr-1 h-3.5 w-3.5" />{showOriginal ? label.translated : label.original}
+              </Button>}
+            {(!context || context.translationUnavailable) && !loading &&
+              <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setReload(n => n + 1)}>
+                <RotateCw className="mr-1 h-3.5 w-3.5" />{label.retry}
+              </Button>}
+          </div>
+        </div>
+        <p className="text-sm whitespace-pre-wrap break-words font-medium">{translated(ticket.title, 'title')}</p>
+        <p className="text-sm whitespace-pre-wrap break-words">{translated(ticket.description, 'description')}</p>
+        {loading && <p className="text-xs text-muted-foreground" role="status">{label.loading}</p>}
+        {context?.translationUnavailable && <p className="text-xs text-amber-700" role="status">{label.unavailable}</p>}
+      </div>
+      {ticket.resolution_text && <div className="rounded-lg bg-green-50 border border-green-200 p-2.5 text-xs text-green-800">
+        <strong>{label.resolution}:</strong> <span className="whitespace-pre-wrap">{translated(ticket.resolution_text, 'resolution')}</span>
+      </div>}
+      {context && context.history.length > 0 && <details className="rounded-lg border p-2.5">
+        <summary className="cursor-pointer text-xs font-semibold flex items-center gap-1"><MessageSquare className="h-3.5 w-3.5" />{label.history} ({context.history.length})</summary>
+        <div className="mt-2 space-y-2">
+          {context.history.map(entry => <div key={entry.id} className="rounded-md bg-muted/50 p-2 text-xs">
+            <div className="flex flex-wrap justify-between gap-1 text-muted-foreground mb-1"><strong>{entry.sender}</strong><span className="flex items-center gap-1"><Clock3 className="h-3 w-3" />{new Date(entry.created_at).toLocaleString()}</span></div>
+            <p className="whitespace-pre-wrap break-words">{translated(entry.content, `comment:${entry.id}`)}</p>
+          </div>)}
+        </div>
+      </details>}
+    </div>
+  );
+}
