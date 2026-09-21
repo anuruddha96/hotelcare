@@ -1,12 +1,91 @@
 // Preserve the portfolio's existing tomorrow planning and persistence logic
-// verbatim. Only Gozsdu's unsupported-snapshot fallback is adapted here.
+// verbatim. Only Gozsdu-specific snapshot verification and unsupported-snapshot
+// fallback are adapted here.
 export * from './nextDayAutoAssignBridgeCore';
 
 import * as core from './nextDayAutoAssignBridgeCore';
+import { supabase } from '@/integrations/supabase/client';
 import { getGozsduHousekeepingCycle, isGozsduCourtHotel } from './gozsdu-housekeeping';
+import { verifyGozsduTomorrowSnapshot, type GozsduTomorrowSnapshotRow } from './gozsduTomorrowSnapshotAuthority';
 import type { RoomForAssignment } from './roomAssignmentAlgorithm';
 
 type TomorrowArgs = Parameters<typeof core.buildTomorrowAutoAssignRooms>[0];
+type SnapshotArgs = Parameters<typeof core.ensureTomorrowPmsSnapshot>[0];
+
+function shiftDate(date: string, days: number): string {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  parsed.setUTCDate(parsed.getUTCDate() + days);
+  return parsed.toISOString().slice(0, 10);
+}
+
+/**
+ * Gozsdu Court only: the exact-date Previo roster determines which rooms exist
+ * for next-day planning. Its size need not equal the static HotelCare registry:
+ * excluded/unavailable units and non-guest stays can change between dates.
+ * A missing, stale or malformed feed still fails closed. Other hotels continue
+ * through their original inventory and coverage checks without any change.
+ */
+export async function ensureTomorrowPmsSnapshot(args: SnapshotArgs):
+  ReturnType<typeof core.ensureTomorrowPmsSnapshot> {
+  if (!isGozsduCourtHotel(args.hotelId)) return core.ensureTomorrowPmsSnapshot(args);
+
+  const readExactDate = async () => {
+    const { data, error } = await (supabase as any)
+      .from('daily_overview_snapshots')
+      .select('business_date,room_label,room_number,captured_at')
+      .eq('organization_slug', args.organizationSlug)
+      .eq('hotel_id', args.hotelId)
+      .eq('business_date', args.selectedDate)
+      .eq('source', 'previo');
+    if (error) throw error;
+    return verifyGozsduTomorrowSnapshot(
+      (data || []) as GozsduTomorrowSnapshotRow[], args.selectedDate,
+    );
+  };
+
+  if (!args.forceFresh) {
+    const current = await readExactDate();
+    if (current) {
+      return {
+        capturedAt: current.capturedAt,
+        rowCount: current.rowCount,
+        roomCount: current.rowCount,
+        reused: true,
+        authoritative: true,
+      };
+    }
+  }
+
+  // Re-fetch the exact business date; a successful today's poll cannot stand
+  // in for tomorrow's overview. Do not mutate today's room/checkout flags.
+  const { data: overview, error: syncError } = await supabase.functions.invoke(
+    'previo-sync-daily-overview', {
+      body: {
+        hotelId: args.hotelId,
+        fromDate: shiftDate(args.selectedDate, -1),
+        toDate: shiftDate(args.selectedDate, 1),
+        days: 2,
+      },
+    },
+  );
+  if (syncError || (overview as any)?.ok === false || (overview as any)?.error) {
+    throw new Error(
+      (overview as any)?.error || syncError?.message || 'Could not load the selected-date Previo room snapshot.',
+    );
+  }
+
+  const current = await readExactDate();
+  if (!current) {
+    throw new Error(`Previo did not provide a valid fresh room snapshot for ${args.selectedDate}. Nothing was assigned.`);
+  }
+  return {
+    capturedAt: current.capturedAt,
+    rowCount: current.rowCount,
+    roomCount: current.rowCount,
+    reused: false,
+    authoritative: true,
+  };
+}
 
 /** An unsupported Previo tomorrow snapshot must not accidentally restore
  * daily service for every Gozsdu apartment. Only the exact property is gated;

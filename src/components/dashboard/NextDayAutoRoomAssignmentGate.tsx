@@ -9,6 +9,7 @@ import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { tomorrowBudapest } from '@/lib/budapestTime';
 import { resolveCanonicalHotelId } from '@/lib/hotelKeys';
+import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { isVerifiedSparseTomorrowSnapshot } from '@/lib/nextDayPmsGateCoverage';
 import { ensureTomorrowPmsSnapshot, type TomorrowSnapshotState } from '@/lib/nextDayAutoAssignBridge';
 import { AutoRoomAssignment as AutoRoomAssignmentImpl } from './AutoRoomAssignmentImpl';
@@ -21,11 +22,12 @@ type PmsDaySummary = {
   date: string;
   checkoutCount: number;
   dailyCount: number;
+  otherCount: number;
   totalRows: number;
   capturedAt: string | null;
 };
 
-function classifyPmsDayRow(row: any, selectedDate: string): 'checkout' | 'daily' | null {
+function classifyPmsDayRow(row: any, selectedDate: string): 'checkout' | 'daily' | 'other' {
   const checkout = row.departure_date === selectedDate
     || row.status === 'departing'
     || String(row.housekeeping_dep || '').toUpperCase() === 'DEP';
@@ -34,13 +36,14 @@ function classifyPmsDayRow(row: any, selectedDate: string): 'checkout' | 'daily'
   const daily = row.status === 'ongoing'
     || (!!row.arrival_date && !!row.departure_date
       && row.arrival_date < selectedDate && row.departure_date > selectedDate);
-  return daily ? 'daily' : null;
+  return daily ? 'daily' : 'other';
 }
 
 async function loadExactPmsDaySummary(args: {
   organizationSlug: string;
   hotelId: string;
   selectedDate: string;
+  allowOtherRows: boolean;
 }): Promise<PmsDaySummary | null> {
   const { data, error } = await (supabase as any)
     .from('daily_overview_snapshots')
@@ -59,17 +62,22 @@ async function loadExactPmsDaySummary(args: {
 
   let checkoutCount = 0;
   let dailyCount = 0;
+  let otherCount = 0;
   let capturedAt: string | null = null;
   for (const row of rows) {
     const kind = classifyPmsDayRow(row, args.selectedDate);
     if (kind === 'checkout') checkoutCount += 1;
     else if (kind === 'daily') dailyCount += 1;
+    else otherCount += 1;
     if (row.captured_at && (!capturedAt || row.captured_at > capturedAt)) capturedAt = row.captured_at;
   }
 
-  if (checkoutCount + dailyCount !== rows.length) {
+  // Only Gozsdu allows other rows in the authoritative feed: these are not
+  // automatically housekeeping work. Its existing property-specific service
+  // cycle and non-operating-room exclusions still decide what gets assigned.
+  if (otherCount > 0 && !args.allowOtherRows) {
     throw new Error(
-      `Previo returned ${rows.length - checkoutCount - dailyCount} unclassified room row(s) for ${args.selectedDate}.`,
+      `Previo returned ${otherCount} unclassified room row(s) for ${args.selectedDate}.`,
     );
   }
 
@@ -77,6 +85,7 @@ async function loadExactPmsDaySummary(args: {
     date: args.selectedDate,
     checkoutCount,
     dailyCount,
+    otherCount,
     totalRows: rows.length,
     capturedAt,
   };
@@ -111,6 +120,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
       if (!canonicalHotelId) {
         throw new Error('The assigned hotel could not be resolved to a PMS property. Nothing was assigned.');
       }
+      const isGozsdu = isGozsduCourtHotel(canonicalHotelId);
 
       const result = await ensureTomorrowPmsSnapshot({
         organizationSlug: profile.organization_slug,
@@ -124,14 +134,16 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
         organizationSlug: profile.organization_slug,
         hotelId: canonicalHotelId,
         selectedDate: expectedTomorrow,
+        allowOtherRows: isGozsdu,
       });
       if (current !== generation.current) return;
 
-      // For Mika/Gozsdu, the data layer can prove a sparse feed is complete by
-      // checking the previous day's departures and uniquely mapping all rooms.
-      // Trust that verified result only if the exact-day rows still match it;
-      // all other hotels retain the full-inventory gate. Never use today's
-      // checkout/daily classifications in place of tomorrow's dated records.
+      // Gozsdu trusts the fresh Previo roster itself, not its static inventory
+      // size. Verify that the rows have not changed since the authority check.
+      // Other hotels keep their original completeness / sparse-feed policy.
+      if (isGozsdu && (!exactDay || result.rowCount !== exactDay.totalRows || !result.authoritative)) {
+        throw new Error(`The verified Previo snapshot for ${expectedTomorrow} changed. Please refresh before assigning.`);
+      }
       if (result.roomCount > 0) {
         if (!exactDay) {
           throw new Error(`The Previo snapshot for ${expectedTomorrow} is missing. Nothing was assigned.`);
@@ -156,7 +168,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
 
       if (exactDay) {
         toast.success(
-          `PMS ${exactDay.date}: ${exactDay.checkoutCount} check-outs · ${exactDay.dailyCount} daily · ${exactDay.totalRows} rooms`,
+          `PMS ${exactDay.date}: ${exactDay.checkoutCount} check-outs · ${exactDay.dailyCount} stay-overs${exactDay.otherCount ? ` · ${exactDay.otherCount} other` : ''} · ${exactDay.totalRows} rooms`,
           { id: `next-day-pms-${canonicalHotelId}-${exactDay.date}` },
         );
       }
@@ -236,7 +248,7 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
                       : `Refreshing Previo for ${props.selectedDate} only…`}
                   </p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Today’s checkout/daily classification is never reused for tomorrow. A complete exact-date snapshot is required.
+                    Today’s checkout/daily classification is never reused for tomorrow. A fresh exact-date snapshot is required.
                   </p>
                 </div>
               </div>
