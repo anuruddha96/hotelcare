@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME } from '@/lib/gozsdu-housekeeping';
 import { canonicalGozsduOverviewName } from '@/lib/gozsduRoomOverviewDisplay';
+import { validateGozsduMaintenanceMap } from '@/lib/gozsduMaintenanceMapGuard';
 
 export type MaintenanceRoomOption = {
   id: string;
@@ -59,7 +60,11 @@ export function eligibleMaintenanceRooms(
       hotel: room.hotel,
       roomNumber: label,
       label,
-      building: (sectionId && sectionById.get(sectionId)) || (isGozsdu ? registered?.building_code : room.wing) || null,
+      // A registry building_code is a PMS grouping, not proof of a physical building.
+      // The Gozsdu loader first verifies one active Team View section per room.
+      building: isGozsdu
+        ? ((sectionId && sectionById.get(sectionId)) || null)
+        : (room.wing || null),
     });
   }
   return result.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }) || a.id.localeCompare(b.id));
@@ -87,24 +92,25 @@ export async function loadMaintenanceRoomOptions(
     .select('room_id,pms_room_name,service_status,building_code')
     .in('room_id', gozsduIds);
   if (registryError) throw registryError; // Never fall back to an unfiltered Gozsdu room list.
-  // Building details are display-only; registry and eligibility remain authoritative.
   const { data: sections, error: sectionError } = await (supabase as any)
     .from('hotel_housekeeping_sections')
     .select('id,name')
     .eq('hotel_name', GOZSDU_COURT_HOTEL_NAME)
     .eq('is_active', true);
   if (sectionError) throw sectionError;
-  const sectionIds = (sections || []).map((section: SectionRow) => section.id);
-  let mappings: MappingRow[] = [];
-  if (sectionIds.length) {
-    const { data: mapped, error: mappingError } = await (supabase as any)
-      .from('hotel_housekeeping_section_rooms')
-      .select('room_id,section_id')
-      .in('section_id', sectionIds);
-    if (mappingError) throw mappingError;
-    mappings = (mapped || []) as MappingRow[];
-  }
-  return eligibleMaintenanceRooms(rooms, (registry || []) as RegistryRow[], (sections || []) as SectionRow[], mappings);
+  const { data: mapped, error: mappingError } = await (supabase as any)
+    .from('hotel_housekeeping_section_rooms')
+    .select('room_id,section_id')
+    .in('room_id', gozsduIds);
+  if (mappingError) throw mappingError;
+  const safeRegistry = (registry || []) as RegistryRow[];
+  const safeSections = (sections || []) as SectionRow[];
+  const safeMappings = (mapped || []) as MappingRow[];
+  validateGozsduMaintenanceMap(
+    rooms.filter(room => gozsduIds.includes(room.id)),
+    safeRegistry, safeSections, safeMappings,
+  );
+  return eligibleMaintenanceRooms(rooms, safeRegistry, safeSections, safeMappings);
 }
 
 /** Repeat lookup immediately before insert: stale selections never pass client validation. */
