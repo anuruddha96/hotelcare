@@ -1,16 +1,19 @@
 // Preserve the portfolio's existing tomorrow planning and persistence logic
-// verbatim. Only Gozsdu-specific snapshot verification and unsupported-snapshot
-// fallback are adapted here.
+// verbatim. Only Gozsdu-specific snapshot verification, save revalidation and
+// unsupported-snapshot fallback are adapted here.
 export * from './nextDayAutoAssignBridgeCore';
 
 import * as core from './nextDayAutoAssignBridgeCore';
 import { supabase } from '@/integrations/supabase/client';
-import { getGozsduHousekeepingCycle, isGozsduCourtHotel } from './gozsdu-housekeeping';
+import { resolveHotelKeys } from './hotelKeys';
+import { GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME, getGozsduHousekeepingCycle, isGozsduCourtHotel } from './gozsdu-housekeeping';
 import { verifyGozsduTomorrowSnapshot, type GozsduTomorrowSnapshotRow } from './gozsduTomorrowSnapshotAuthority';
+import { checkGozsduTomorrowPlanDrift } from './gozsduTomorrowPlanDrift';
 import type { RoomForAssignment } from './roomAssignmentAlgorithm';
 
 type TomorrowArgs = Parameters<typeof core.buildTomorrowAutoAssignRooms>[0];
 type SnapshotArgs = Parameters<typeof core.ensureTomorrowPmsSnapshot>[0];
+type SaveArgs = Parameters<typeof core.saveApprovedNextDayAutoAssignPlan>[0];
 
 function shiftDate(date: string, days: number): string {
   const parsed = new Date(`${date}T00:00:00Z`);
@@ -124,4 +127,58 @@ export async function buildTomorrowAutoAssignRooms(args: TomorrowArgs):
     }];
   });
   return { ...workload, rooms: operatingRooms };
+}
+
+/** Gozsdu only: a preview is not a promise that Previo's reservations will stay
+ * unchanged while a manager allocates staff. Re-fetch the exact date before
+ * approval, recalculate checkout/service from the fresh reservation dates and
+ * refuse a stale or incomplete plan instead of silently publishing it.
+ * Morning release performs its own independent PMS revalidation as well. */
+export async function saveApprovedNextDayAutoAssignPlan(args: SaveArgs):
+  ReturnType<typeof core.saveApprovedNextDayAutoAssignPlan> {
+  if (!isGozsduCourtHotel(args.hotelId)) return core.saveApprovedNextDayAutoAssignPlan(args);
+
+  const source = await ensureTomorrowPmsSnapshot({
+    organizationSlug: args.organizationSlug,
+    hotelId: GOZSDU_COURT_HOTEL_ID,
+    selectedDate: args.selectedDate,
+    forceFresh: true,
+  });
+  const resolvedKeys = await resolveHotelKeys(GOZSDU_COURT_HOTEL_ID);
+  const hotelKeys = [...new Set([...resolvedKeys, GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME])];
+  const { data: roomRows, error: roomError } = await supabase
+    .from('rooms')
+    .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, pms_metadata, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration, notes, checkout_time')
+    .in('hotel', hotelKeys);
+  if (roomError || !roomRows) throw new Error('Could not verify Gozsdu room mappings. The tomorrow plan was not saved.');
+
+  const workload = await buildTomorrowAutoAssignRooms({
+    organizationSlug: args.organizationSlug,
+    hotelId: GOZSDU_COURT_HOTEL_ID,
+    selectedDate: args.selectedDate,
+    roomRows,
+  });
+  if (workload.source !== 'selected-date' || workload.capturedAt !== source.capturedAt) {
+    throw new Error('Previo changed during Gozsdu plan verification. Reopen Auto Assign for a fresh preview. Nothing was saved.');
+  }
+
+  const proposed = args.previews.flatMap(preview => preview.rooms);
+  const drift = checkGozsduTomorrowPlanDrift(
+    workload.rooms,
+    proposed,
+    [...(args.excludedRoomIds || []), ...(args.maintenanceHoldRoomIds || [])],
+  );
+  if (Object.values(drift).some(count => count > 0)) {
+    throw new Error(
+      `Previo's Gozsdu housekeeping workload changed: ${drift.newlyDue} new room(s) due, `
+      + `${drift.noLongerDue} no longer due, ${drift.changedCleaningType} checkout/service change(s), `
+      + `${drift.duplicateAssignments} duplicate(s). Reopen Auto Assign and regenerate the preview; nothing was saved.`,
+    );
+  }
+
+  return core.saveApprovedNextDayAutoAssignPlan({
+    ...args,
+    hotelId: GOZSDU_COURT_HOTEL_ID,
+    pmsSyncedAt: source.capturedAt,
+  });
 }
