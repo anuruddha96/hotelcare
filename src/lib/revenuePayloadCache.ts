@@ -44,6 +44,23 @@ const keyFor = (cacheKey: string) => `${PREFIX}:${cacheKey}`;
 const metaKeyFor = (cacheKey: string) => `${META_PREFIX}:${cacheKey}`;
 const hotKeyFor = (cacheKey: string) => `${HOT_PREFIX}:${cacheKey}`;
 
+/**
+ * SLNT's first revenue window alone contains several MB of data. Serializing
+ * that twice into WebKit sessionStorage on each login/refresh adds a second
+ * copy and can crash a memory-constrained iOS tab. Keep only its in-memory
+ * verified dataset on iOS; desktop SLNT and every other tenant are unchanged.
+ * Storage entries left by older builds are removed without parsing them.
+ */
+function useMemoryOnlyRevenueCache(cacheKey: string): boolean {
+  return cacheKey.startsWith("slnt:")
+    && typeof navigator !== "undefined"
+    && /iPad|iPhone|iPod/.test(navigator.userAgent);
+}
+
+function removeExistingMobileCacheEntry(key: string): void {
+  try { sessionStorage.removeItem(key); } catch { /* storage disabled */ }
+}
+
 function readStoredPayload<T>(storage: Storage, key: string, maxAgeMs: number): StoredRevenuePayload<T> | null {
   try {
     const raw = storage.getItem(key);
@@ -109,6 +126,10 @@ function queueStoredPayload<T>(key: string, maxBytes: number, value: Omit<Stored
 }
 
 export function readCachedRevenuePayload<T>(cacheKey: string): StoredRevenuePayload<T> | null {
+  if (useMemoryOnlyRevenueCache(cacheKey)) {
+    removeExistingMobileCacheEntry(keyFor(cacheKey));
+    return null;
+  }
   return readStoredPayload<T>(sessionStorage, keyFor(cacheKey), MAX_AGE_MS);
 }
 
@@ -116,11 +137,16 @@ export function writeCachedRevenuePayload<T>(
   cacheKey: string,
   value: Omit<StoredRevenuePayload<T>, "savedAt">,
 ): void {
+  if (useMemoryOnlyRevenueCache(cacheKey)) return;
   queueStoredPayload(keyFor(cacheKey), MAX_BYTES, value);
 }
 
 /** Compact near-term fallback used when the full payload is too large to cache. */
 export function readCachedRevenueHotPayload<T>(cacheKey: string): StoredRevenuePayload<T> | null {
+  if (useMemoryOnlyRevenueCache(cacheKey)) {
+    removeExistingMobileCacheEntry(hotKeyFor(cacheKey));
+    return null;
+  }
   return readStoredPayload<T>(sessionStorage, hotKeyFor(cacheKey), HOT_MAX_AGE_MS);
 }
 
@@ -128,6 +154,7 @@ export function writeCachedRevenueHotPayload<T>(
   cacheKey: string,
   value: Omit<StoredRevenuePayload<T>, "savedAt">,
 ): void {
+  if (useMemoryOnlyRevenueCache(cacheKey)) return;
   queueStoredPayload(hotKeyFor(cacheKey), HOT_MAX_BYTES, value);
 }
 
