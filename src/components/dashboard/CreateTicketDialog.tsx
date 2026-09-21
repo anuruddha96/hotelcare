@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { AttachmentUpload, type AttachmentUploadRef } from './AttachmentUpload';
 import { MaintenanceRoomPicker } from './MaintenanceRoomPicker';
+import { MaintenanceTitleAutocomplete } from './MaintenanceTitleAutocomplete';
 import { type MaintenanceRoomOption, loadMaintenanceRoomOptions, validateMaintenanceRoomOption } from '@/lib/maintenanceRoomOptions';
 import { toast } from '@/hooks/use-toast';
 import { AlertTriangle, Building2, CheckCircle2, Clock3, UserCheck, Wrench } from 'lucide-react';
@@ -253,11 +254,11 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
             {!formData.roomId && <div className="space-y-2"><Label htmlFor="ticket-location">{c.location} *</Label>
               <Input id="ticket-location" required value={formData.location} onChange={event => setFormData(previous => ({ ...previous, location: event.target.value }))} placeholder={language === 'hu' ? 'pl. Recepció, 2. emeleti folyosó' : 'e.g. Reception, second-floor corridor'} className="h-11" />
             </div>}
-            <div className="space-y-2"><Label>{c.title} *</Label><Input required value={formData.title} onChange={event => setFormData(previous => ({ ...previous, title: event.target.value }))} placeholder="e.g. Broken curtain rail" className="h-11" /></div>
+            <div className="space-y-2"><Label>{c.title} *</Label>{selectedHotel?.hotel_name === 'Gozsdu Court Budapest' ? <MaintenanceTitleAutocomplete required value={formData.title} onChange={title => setFormData(previous => ({ ...previous, title }))} language={language} /> : <Input required value={formData.title} onChange={event => setFormData(previous => ({ ...previous, title: event.target.value }))} placeholder="e.g. Broken curtain rail" className="h-11" />}</div>
             <div className="space-y-2"><Label>{c.description} *</Label><Textarea required value={formData.description} onChange={event => setFormData(previous => ({ ...previous, description: event.target.value }))} rows={4} className="text-base" /></div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2"><Label>{c.department}</Label><Select value={formData.department} onValueChange={department => { setFormData(previous => ({ ...previous, department })); setSelectedMaintenancePerson('auto'); }}><SelectTrigger className="h-11"><SelectValue /></SelectTrigger><SelectContent>{departments.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
-              <div className="space-y-2"><Label>{c.priority}</Label><Select value={formData.priority} onValueChange={(priority: 'low' | 'medium' | 'high' | 'urgent') => setFormData(previous => ({ ...previous, priority }))}><SelectTrigger className="h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="low">Low</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="high">High</SelectItem><SelectItem value="urgent">Urgent</SelectItem></SelectContent></Select></div>
+              <div className="space-y-2"><Label>{c.priority}</Label><Select value={formData.priority} onValueChange={(priority: 'low' | 'medium' | 'high' | 'urgent') => setFormData(previous => ({ ...previous, priority }))}><SelectTrigger className="h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="low">Low</SelectItem><SelectItem value="medium">Medium</SelectItem><SelectItem value="high">High</SelectItem><SelectItem value="urgent">Urgent</SelectItem></SelectContent></SelectTrigger></Select></div>
             </div>
             {formData.department === 'maintenance' && <Card className="border-primary/20 bg-primary/5"><CardContent className="p-4 space-y-3">
               <div className="flex items-center justify-between gap-2"><div className="flex items-center gap-2"><UserCheck className="h-4 w-4 text-primary" /><Label>{c.assignee}</Label></div><Badge variant="outline">{onDutyCount} {c.onDuty}</Badge></div>
