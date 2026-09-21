@@ -11,14 +11,14 @@ const vertical = {
   shiftKey: false, altKey: false, defaultPrevented: false,
 };
 
-describe('Rate & Pickup wheel policy', () => {
-  it('lets ordinary vertical wheels escape the embedded calendar by default', () => {
+describe('Rate & Pickup wheel intent', () => {
+  it('recognizes ordinary vertical input without mistaking horizontal or zoom gestures', () => {
     expect(shouldScrollRateCalendarPage(vertical, 'page', false)).toBe(true);
     expect(shouldScrollRateCalendarPage({ ...vertical, deltaX: 90 }, 'page', false)).toBe(false);
     expect(shouldScrollRateCalendarPage({ ...vertical, deltaY: 0 }, 'page', false)).toBe(false);
   });
 
-  it('retains native zoom, horizontal, explicit row and full-screen interactions', () => {
+  it('recognizes row and full-screen modes without intercepting browser gestures', () => {
     expect(shouldScrollRateCalendarPage(vertical, 'rows', false)).toBe(false);
     expect(shouldScrollRateCalendarPage(vertical, 'page', true)).toBe(false);
     for (const key of ['ctrlKey', 'metaKey', 'shiftKey', 'altKey', 'defaultPrevented'] as const) {
@@ -66,7 +66,7 @@ describe('Rate & Pickup document integration', () => {
     localStorage.removeItem('rate-calendar-vertical-wheel-mode');
   });
 
-  it('adds a page/rows option and sends wheel movement to the actual page scroller', () => {
+  it('lets browser scrolling stay native in page and rows mode and preserves zoom', () => {
     document.body.innerHTML = `
       <main id="dashboard" style="overflow-y: auto">
         <section data-training="revenue-grid">
@@ -91,11 +91,13 @@ describe('Rate & Pickup document integration', () => {
     const toggle = document.querySelector<HTMLButtonElement>('[data-rate-calendar-input-toggle]')!;
     expect(toggle).not.toBeNull();
     expect(toggle.textContent).toBe('Scroll: page');
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
 
     const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 80 });
     pane.dispatchEvent(wheel);
-    expect(wheel.defaultPrevented).toBe(true);
-    expect(dashboardScroll).toHaveBeenCalledWith({ top: 80, behavior: 'auto' });
+    expect(wheel.defaultPrevented).toBe(false);
+    expect(dashboardScroll).not.toHaveBeenCalled();
+    expect(window.scrollBy).not.toHaveBeenCalled();
 
     toggle.click();
     expect(toggle.textContent).toBe('Scroll: rows');
@@ -103,10 +105,15 @@ describe('Rate & Pickup document integration', () => {
     const rowWheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 70 });
     pane.dispatchEvent(rowWheel);
     expect(rowWheel.defaultPrevented).toBe(false);
-    expect(dashboardScroll).toHaveBeenCalledTimes(1);
+    expect(dashboardScroll).not.toHaveBeenCalled();
 
     const zoomWheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 80, ctrlKey: true });
     pane.dispatchEvent(zoomWheel);
     expect(zoomWheel.defaultPrevented).toBe(false);
+
+    toggle.click();
+    expect(toggle.textContent).toBe('Scroll: page');
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    expect(localStorage.getItem('rate-calendar-vertical-wheel-mode')).toBe('page');
   });
 });
