@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { todayBudapest } from '@/lib/budapestTime';
 import { getSignedPhotoUrls } from '@/lib/storageUrls';
+import { maintenanceStaffLanguageOverrides } from '@/lib/maintenanceStaffLanguageOverrides';
 import { MaintenanceTicketLanguagePanel } from './MaintenanceTicketLanguagePanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -21,7 +22,6 @@ type Ticket = {
   pending_supervisor_approval: boolean | null; on_hold: boolean | null; hold_reason: string | null; resolution_text: string | null;
   created_by_profile?: { full_name: string; role?: string } | null;
 };
-
 type Copy = Record<string, string>;
 const EN: Copy = {
   title: 'My Maintenance Tasks', subtitle: 'Work only on tickets assigned to you for this hotel.', signedIn: 'Signed in', notSignedIn: 'Sign in before starting work',
@@ -62,7 +62,7 @@ const HOLD_REASONS = [
 export function MaintenanceStaffView() {
   const { user } = useAuth();
   const { language } = useTranslation();
-  const c = translations[language] || EN;
+  const c: Copy = { ...(translations[language] || EN), ...(maintenanceStaffLanguageOverrides[language] || {}) };
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [completed, setCompleted] = useState<Ticket[]>([]);
   const [signedIn, setSignedIn] = useState(false);
@@ -70,6 +70,7 @@ export function MaintenanceStaffView() {
   const [activeTab, setActiveTab] = useState<'active' | 'approval' | 'done'>('active');
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string[]>>({});
   const [historyRevision, setHistoryRevision] = useState<Record<string, number>>({});
+  const previouslyAwaiting = useRef<Set<string>>(new Set());
   const [selected, setSelected] = useState<Ticket | null>(null);
   const [dialog, setDialog] = useState<'note' | 'hold' | 'complete' | null>(null);
   const [note, setNote] = useState('');
@@ -117,6 +118,13 @@ export function MaintenanceStaffView() {
       setSignedIn(!!attendance?.length);
       const activeRows = (activeData || []) as Ticket[];
       const completedRows = (completedData || []) as Ticket[];
+      for (const ticket of activeRows) {
+        if (previouslyAwaiting.current.has(ticket.id) && !ticket.pending_supervisor_approval && ticket.status === 'in_progress') {
+          toast.info(language === 'hu' ? `Javítás visszaküldve: ${ticket.ticket_number}. Nézze meg az előzményeket.` : `Repair returned for correction: ${ticket.ticket_number}. Check ticket history.`);
+          setHistoryRevision(prev => ({ ...prev, [ticket.id]: (prev[ticket.id] || 0) + 1 }));
+        }
+      }
+      previouslyAwaiting.current = new Set(activeRows.filter(ticket => ticket.pending_supervisor_approval).map(ticket => ticket.id));
       setTickets(activeRows);
       setCompleted(completedRows);
       void loadAttachmentUrls([...activeRows, ...completedRows]);
@@ -124,7 +132,7 @@ export function MaintenanceStaffView() {
       console.error('Maintenance task load failed:', error);
       toast.error(c.failed);
     } finally { setLoading(false); }
-  }, [user?.id, loadAttachmentUrls, c.failed]);
+  }, [user?.id, loadAttachmentUrls, c.failed, language]);
 
   useEffect(() => {
     void refresh();
@@ -205,7 +213,14 @@ export function MaintenanceStaffView() {
     <div className="space-y-4 px-2 sm:px-0 max-w-4xl mx-auto">
       <div className="flex items-start justify-between gap-3">
         <div><h2 className="text-xl sm:text-2xl font-bold flex items-center gap-2"><Wrench className="h-5 w-5" />{c.title}</h2><p className="text-sm text-muted-foreground">{c.subtitle}</p></div>
-        <Button size="sm" variant="outline" onClick={() => void refresh()}><RefreshCw className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">{c.refresh}</span></Button>
+        <Button size="sm" variant="outline" onClick={() => {
+          setHistoryRevision(prev => {
+            const next = { ...prev };
+            for (const ticket of [...tickets, ...completed]) next[ticket.id] = (next[ticket.id] || 0) + 1;
+            return next;
+          });
+          void refresh();
+        }}><RefreshCw className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">{c.refresh}</span></Button>
       </div>
       <div className={`rounded-lg border p-3 flex items-center gap-2 text-sm ${signedIn ? 'bg-green-50 border-green-200 text-green-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
         {signedIn ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}<strong>{signedIn ? c.signedIn : c.notSignedIn}</strong>
