@@ -3,6 +3,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTenant } from '@/contexts/TenantContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { supabase } from '@/integrations/supabase/client';
+import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { loadGozsduMappedOperatingRooms } from '@/lib/gozsduMappedOperatingRooms';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,7 +26,7 @@ type MaintenanceStaff = {
   checked_in_at: string | null;
 };
 
-type Room = { room_number: string; hotel: string };
+type Room = { room_number: string; hotel: string; label?: string };
 
 interface CreateTicketDialogProps {
   open: boolean;
@@ -40,9 +42,10 @@ const copy: Record<string, Record<string, string>> = {
     noDuty: 'No maintenance member is signed in. Auto-assigned tickets will be picked up when maintenance checks in.',
     cancel: 'Cancel', submit: 'Create ticket', creating: 'Creating…', selectHotel: 'Select hotel', selectRoom: 'Select room', optional: 'Optional', attachments: 'Attachments',
     success: 'Maintenance ticket created', assigned: 'Assigned to', queued: 'Queued — no maintenance staff on duty', error: 'Could not create ticket', required: 'Please complete the required fields',
-    roomsLoading: 'Loading rooms…', roomsEmpty: 'No mapped rooms found for this property. Check room mapping, or leave the room empty for a common-area issue.',
-    roomsError: 'Room list could not be loaded. Retry before creating a room-specific ticket.', retry: 'Retry', invalidRoom: 'Select a room from this property.',
+    roomsLoading: 'Loading rooms…', roomsEmpty: 'No mapped operating rooms found for this property. Check Team View mapping, or leave the room empty for a common-area issue.',
+    roomsError: 'Room list could not be verified. Retry before creating a room-specific ticket.', retry: 'Retry', invalidRoom: 'Select an operating room from this property.',
     permissionError: 'Ticket permissions could not be checked. Please retry.', uploadWarning: 'Ticket saved, but some attachments could not be uploaded.',
+    searchRoom: 'Search room number or building', noRoomMatches: 'No matching operating rooms. Clear the search or choose the common-area option.',
   },
   hu: {
     create: 'Karbantartási jegy létrehozása', intro: 'Jelentse a kiválasztott hotel hibáját. A takarítás és a karbantartás ugyanazt a jegyet használja.',
@@ -51,9 +54,10 @@ const copy: Record<string, Record<string, string>> = {
     noDuty: 'Jelenleg nincs bejelentkezett karbantartó. Az automatikus jegyet a bejelentkezéskor osztjuk ki.',
     cancel: 'Mégse', submit: 'Jegy létrehozása', creating: 'Létrehozás…', selectHotel: 'Hotel kiválasztása', selectRoom: 'Szoba kiválasztása', optional: 'Opcionális', attachments: 'Mellékletek',
     success: 'Karbantartási jegy létrehozva', assigned: 'Hozzárendelve', queued: 'Sorban — nincs szolgálatban karbantartó', error: 'A jegy létrehozása sikertelen', required: 'Kérjük, töltse ki a kötelező mezőket',
-    roomsLoading: 'Szobák betöltése…', roomsEmpty: 'Ehhez a hotelhez nem található hozzárendelt szoba. Ellenőrizze a szobatérképet, vagy közös területi hiba esetén hagyja üresen.',
-    roomsError: 'Nem sikerült betölteni a szobákat. Szobához tartozó jegy előtt próbálja újra.', retry: 'Újra', invalidRoom: 'Válasszon ehhez a hotelhez tartozó szobát.',
+    roomsLoading: 'Szobák betöltése…', roomsEmpty: 'Nem található aktív, hozzárendelt szoba. Ellenőrizze a Team View térképet, vagy közös területi hiba esetén hagyja üresen.',
+    roomsError: 'Nem sikerült ellenőrizni a szobalistát. Szobához tartozó jegy előtt próbálja újra.', retry: 'Újra', invalidRoom: 'Válasszon ehhez a hotelhez tartozó üzemelő szobát.',
     permissionError: 'Nem sikerült ellenőrizni a jegykezelési jogosultságot. Próbálja újra.', uploadWarning: 'A jegy mentve, de néhány melléklet feltöltése sikertelen.',
+    searchRoom: 'Szobaszám vagy épület keresése', noRoomMatches: 'Nincs találat. Törölje a keresést, vagy válassza a közös területet.',
   },
 };
 
@@ -78,6 +82,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
   const [roomsLoading, setRoomsLoading] = useState(false);
   const [roomsError, setRoomsError] = useState(false);
   const [roomRetry, setRoomRetry] = useState(0);
+  const [roomSearch, setRoomSearch] = useState('');
   const [selectedMaintenancePerson, setSelectedMaintenancePerson] = useState('auto');
   const [formData, setFormData] = useState({ title: '', description: '', room_number: '', priority: 'medium' as 'low' | 'medium' | 'high' | 'urgent', department: 'maintenance', hotel: '' });
 
@@ -89,6 +94,11 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
   // Existing rooms/tickets contain a mix of hotel IDs and legacy hotel names.
   // Only aliases from THIS tenant's authorized hotel configuration are used.
   const hotelKeys = selectedHotel ? Array.from(new Set([selectedHotel.hotel_id, selectedHotel.hotel_name].filter(Boolean))) : [];
+  const isGozsdu = isGozsduCourtHotel(selectedHotel?.hotel_id) && isGozsduCourtHotel(selectedHotel?.hotel_name);
+  const filteredRooms = useMemo(() => rooms.filter(room =>
+    `${room.room_number} ${room.label || ''}`.toLowerCase().includes(roomSearch.trim().toLowerCase())
+    || room.room_number === formData.room_number
+  ), [rooms, roomSearch, formData.room_number]);
   const onDutyCount = maintenanceStaff.filter(s => s.is_signed_in).length;
 
   useEffect(() => {
@@ -96,6 +106,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
     const preferred = availableHotels.find(h => h.hotel_id === profile?.assigned_hotel || h.hotel_name === profile?.assigned_hotel);
     setFormData(prev => ({ ...prev, hotel: preferred?.hotel_id || (availableHotels.length === 1 ? availableHotels[0].hotel_id : ''), room_number: '' }));
     setSelectedMaintenancePerson('auto');
+    setRoomSearch('');
   }, [open, profile?.assigned_hotel, availableHotels]);
 
   useEffect(() => {
@@ -117,18 +128,31 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
     setRoomsError(false);
     if (!open || !selectedHotel || !hotelKeys.length) { setRoomsLoading(false); return; }
     setRoomsLoading(true);
-    // Do not use ilike('%hotel%'): a similar hotel name can belong to a different venue.
-    void supabase.from('rooms').select('room_number, hotel').in('hotel', hotelKeys).order('room_number').then(({ data, error }) => {
-      if (cancelled) return;
-      setRoomsLoading(false);
-      setRoomsError(!!error);
-      if (error) { console.error('Maintenance room lookup failed:', error); return; }
-      const unique = new Map<string, Room>();
-      (data || []).forEach(room => { if (room.room_number) unique.set(room.room_number, room); });
-      setRooms(Array.from(unique.values()));
-    });
+    // Gozsdu uses exactly the same manager-maintained Team View map and
+    // operating registry as Hotel Room Overview; never use stale PMS flags.
+    if (isGozsdu) {
+      void loadGozsduMappedOperatingRooms(profile?.organization_slug || '').then(data => {
+        if (!cancelled) setRooms(data.map(room => ({ room_number: room.room_number, hotel: room.hotel, label: room.label })));
+      }).catch(error => {
+        if (cancelled) return;
+        console.error('Gozsdu Team View room lookup failed:', error);
+        setRooms([]);
+        setRoomsError(true);
+      }).finally(() => { if (!cancelled) setRoomsLoading(false); });
+    } else {
+      // Do not use ilike('%hotel%'): a similar hotel name can belong to another venue.
+      void supabase.from('rooms').select('room_number, hotel').in('hotel', hotelKeys).order('room_number').then(({ data, error }) => {
+        if (cancelled) return;
+        setRoomsLoading(false);
+        setRoomsError(!!error);
+        if (error) { console.error('Maintenance room lookup failed:', error); return; }
+        const unique = new Map<string, Room>();
+        (data || []).forEach(room => { if (room.room_number) unique.set(room.room_number, room); });
+        setRooms(Array.from(unique.values()));
+      });
+    }
     return () => { cancelled = true; };
-  }, [open, formData.hotel, roomRetry, tenantHotels]);
+  }, [open, formData.hotel, roomRetry, tenantHotels, profile?.organization_slug, isGozsdu]);
 
   useEffect(() => {
     let cancelled = false;
@@ -148,6 +172,7 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
   const reset = () => {
     setFormData({ title: '', description: '', room_number: '', priority: 'medium', department: 'maintenance', hotel: '' });
     setSelectedMaintenancePerson('auto');
+    setRoomSearch('');
     setRooms([]);
   };
 
@@ -169,6 +194,14 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
     setLoading(true);
     let savedTicket: { id: string; assigned_to: string | null; hotel: string; ticket_number: string } | null = null;
     try {
+      // The UI list is a convenience, not authorization. Revalidate the live
+      // Gozsdu mapping on submission to prevent stale/non-operating selection.
+      if (isGozsdu && formData.room_number) {
+        const current = await loadGozsduMappedOperatingRooms(profile.organization_slug);
+        if (!current.some(room => room.room_number === formData.room_number)) {
+          throw new Error(c.invalidRoom);
+        }
+      }
       const manualAssignee = formData.department === 'maintenance' && selectedMaintenancePerson !== 'auto' ? selectedMaintenancePerson : null;
       const { data, error } = await (supabase as any).from('tickets').insert({
         title: formData.title.trim(), description: formData.description.trim(),
@@ -238,17 +271,19 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>{c.hotel} *</Label>
-                <Select value={formData.hotel} onValueChange={hotel => { setFormData(prev => ({ ...prev, hotel, room_number: '' })); setSelectedMaintenancePerson('auto'); }}>
+                <Select value={formData.hotel} onValueChange={hotel => { setFormData(prev => ({ ...prev, hotel, room_number: '' })); setSelectedMaintenancePerson('auto'); setRoomSearch(''); }}>
                   <SelectTrigger className="h-11"><SelectValue placeholder={c.selectHotel} /></SelectTrigger>
                   <SelectContent>{availableHotels.map(h => <SelectItem key={h.hotel_id} value={h.hotel_id}>{h.hotel_name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
                 <Label>{c.room} <span className="text-muted-foreground text-xs">({c.optional})</span></Label>
+                {isGozsdu && <Input aria-label={c.searchRoom} value={roomSearch} onChange={event => setRoomSearch(event.target.value)} placeholder={c.searchRoom} className="h-10" />}
                 <Select value={formData.room_number || 'none'} disabled={!selectedHotel || roomsLoading || roomsError} onValueChange={value => setFormData(prev => ({ ...prev, room_number: value === 'none' ? '' : value }))}>
                   <SelectTrigger className="h-11"><SelectValue placeholder={roomsLoading ? c.roomsLoading : c.selectRoom} /></SelectTrigger>
-                  <SelectContent><SelectItem value="none">—</SelectItem>{rooms.map(room => <SelectItem key={room.room_number} value={room.room_number}>{room.room_number}</SelectItem>)}</SelectContent>
+                  <SelectContent><SelectItem value="none">—</SelectItem>{filteredRooms.map(room => <SelectItem key={room.room_number} value={room.room_number}>{room.label || room.room_number}</SelectItem>)}</SelectContent>
                 </Select>
+                {isGozsdu && roomSearch && !filteredRooms.length && !roomsLoading && !roomsError && <p className="text-xs text-muted-foreground">{c.noRoomMatches}</p>}
                 {selectedHotel && roomsLoading && <p className="text-xs text-muted-foreground">{c.roomsLoading}</p>}
                 {selectedHotel && !roomsLoading && roomsError && <div className="text-xs text-destructive flex items-center gap-2">{c.roomsError}<Button type="button" variant="outline" size="sm" onClick={() => setRoomRetry(value => value + 1)}><RefreshCw className="h-3 w-3 mr-1" />{c.retry}</Button></div>}
                 {selectedHotel && !roomsLoading && !roomsError && rooms.length === 0 && <p className="text-xs text-amber-700">{c.roomsEmpty}</p>}
