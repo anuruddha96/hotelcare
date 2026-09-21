@@ -1,58 +1,44 @@
-# Gozsdu Phase 1 — 21 September 2026 email investigation
+# Gozsdu Phase 1 — 21 September 2026 investigation and branch-only changes
 
-**Authorization:** Anuruddha approved *Phase 1 only* on 2026-09-21. This is a diagnostic record on an isolated GitHub branch, **not an implemented fix**. No merge, production deployment, SQL migration application, reservation mutation, inventory reclassification, or Phase 2/3 development may occur without the separately required authorization. Tracking issue: #301.
+**Authorization:** Anuruddha approved Phase 1 only. No merge, deployment, production SQL migration, live room/reservation update, or Phase 2/3 implementation without separate explicit approval. GitHub issue #301 tracks all Phase 1 tasks. This document is not proof that production issues are fixed.
 
-## Confirmed read-only production evidence
+## Authoritative operating-room inventory: already mapped
 
-All checks below were SELECT-only against Hotelcare Supabase. Counts and room metadata are point-in-time observations, not proof of the physical guest state. Do not store guest names or identity documents in this report.
+Anuruddha confirmed that Team View > Hotel Room Overview > Map is the completed authoritative physical section mapping. A read-only query of the HotelCare Supabase database verified:
 
-### R4: B16 and C43 missing from No-show/Empty
+- 82 Gozsdu room records and 82 matching `gozsdu_housekeeping_room_registry` entries; each room belongs to exactly one `hotel_housekeeping_section_rooms` section, and none is unmapped or multiply mapped.
+- 66 registry rooms are `operating`, all in ordinary active physical sections. Fifteen nonoperating rooms are in Team View section **Not available**, and one is in **Private Apartment**. Zero mismatches between these section categories and registry operating eligibility.
+- Physical section names are manager-managed, not derivable from Previo prefixes or numeric room numbers. B16 is `1BBALC-B16` / **Kazinczy B**, C43 is `1B-C43` / **Kazinczy C**, and ST-603 is in **Holló 12**. All three are operating inventory.
 
-- `gozsdu_housekeeping_room_registry`: **82** registered rows; **66** marked operating. Local `rooms` for `hotel='gozsdu-court'`: **82**.
-- `daily_overview_snapshots` for 2026-09-21, source Previo: **79** rows, versus 82 registered. The precisely missing PMS room labels are **1BBALC-B16**, **1B-C43**, and **ST-603**. All three are registered operating rooms, not confirmed unserviceable rooms.
-- Previous-day (2026-09-20) snapshot contains B16 and C43 with `departing`, departure date 2026-09-20. Neither has a 2026-09-21 snapshot row. C43 appears in 2026-09-22 snapshot with arrival 2026-09-21 and departure 2026-09-25; this observation is not an authoritative reservation identity.
-- The stored room records for physical room numbers 16 and 43 are operating and clean and currently carry `is_checkout_room=true`, `reservationStatusId=9`, `checkedOutToday=true`, `readyToClean=true`, and `scheduledDepartureToday=true`. Those flags may refer to an earlier guest/departure; **do not infer current vacancy, sellability, or no-show from them**.
-- No matching canonical `reservations` rows were found for those two room IDs in the queried 2026-09-19 to 2026-09-25 date range. Daily snapshots have no stable reservation ID, so absence from canonical rows is not proof that no guest/booking exists in Previo.
-- Code path: `src/components/dashboard/GozsduCourtRoomOverview.tsx` queries the selected business date's snapshot and calls `reconcileGozsduPmsRoster`. `src/lib/gozsduPmsRoster.ts` deliberately throws if snapshot count differs from registry/local count (79 vs 82). The overview then falls back to stored `rooms` checkout/no-show flags and classifies B16 and C43 as checkout, not an explicit 'vacant/unbooked' bucket. **This is a verified code/data mechanism for why their omission cannot be understood as no-show; it does not establish why Previo omitted them or their current occupancy.**
+**Do not request another room list from Maryam.** Use existing mapping and registry; never modify those live records simply to address a picker or booking-report issue. An operating room can nevertheless be occupied, reserved, blocked or not for sale.
 
-**Safe remediation acceptance:** Show an explicit separate `not represented in selected-date PMS snapshot / requires reconciliation` category or reason while preserving existing departure evidence and preventing automatic no-show/resale; distinguish confirmed vacant-unbooked only after authorized PMS/physical verification. Inspect why ST-603 is also absent. Confirm a reliable Previo booking source or a documented manual occupancy confirmation before changing booking classification. Retain completeness gate for assignments and do not silently fill missing rows.
+### Branch-only room picker implementation — code committed, not yet tested
 
-### M1: maintenance reporter missing
+- `src/lib/gozsduMappedOperatingRooms.ts`: shared Gozsdu-only read model loads rooms + registry + active section names + section-room links through existing RLS, verifies completeness and consistency, filters nonoperating units and emits searchable PMS apartment and physical section labels. It rejects missing mappings, role visibility errors or ambiguous local room numbers rather than silently exposing all rooms.
+- `src/components/dashboard/CreateTicketDialog.tsx`: Maintenance tab now uses the shared read model for Gozsdu, offers room/building search, excludes the 16 nonoperating units and revalidates the current map on submission. Explicit no-room common-area reporting remains available. Other hotels retain their existing queries.
+- `src/components/dashboard/MaintenanceIssueDialog.tsx`: Housekeeping maintenance room dropdown uses the same shared read model when the staff user belongs to Gozsdu and no room was preselected, supports search and revalidates selected rooms. An explicit already-known room-card report remains possible when a room is unavailable and requires repair; no room status is changed.
+- `src/lib/gozsduMappedOperatingRooms.test.ts`: unit tests added for mapped room labels, filtering, missing/ambiguous mappings and inconsistent states. **Tests have not been run in CI or on real devices.** The UI check is not a substitute for server-side authorization and full role RLS testing.
 
-- Live `tickets` contains 13 Gozsdu maintenance records at inspection; all 13 have a valid `created_by` pointing to a `profiles` row. No creator foreign key is missing. Eight show supervisor-approved; none was pending approval at the inspection instant.
-- `src/components/dashboard/MaintenanceStaffView.tsx` selects `created_by_profile:profiles!tickets_created_by_fkey(full_name, role)` and renders `created_by_profile?.full_name || 'Unknown'`.
-- Actual `profiles` SELECT policies authorize maintenance users to read their *own* profile only. Broader organization reads include admin/HR/management and, narrowly, housekeeping colleagues; ordinary maintenance is not included. Therefore the joined reporter profile can be hidden by RLS even though its foreign key and row exist. **Likely access-policy cause of reporter being shown as 'Unknown' — requires reproduction under an actual maintenance JWT to prove the exact client response.**
-- For the 13 tickets, reporter roles include manager and housekeeping. Exposing general profile SELECT to all maintenance users would leak unrelated employee details and is **not permitted** as a quick fix.
+## Separate PMS snapshot discrepancy — NOT fixed by room mapping
 
-**Safe remediation acceptance:** Add a narrowly scoped, authenticated, SECURITY DEFINER read-only RPC (or equivalent row-limited projection) returning only reporter display name/role for Gozsdu maintenance tickets assigned to `auth.uid()` with exact organization/hotel/department checks. No broad `profiles` SELECT policy. Use the RPC to hydrate the assigned ticket list while preserving ticket RLS and existing history; test both own assigned and other-hotel/other-worker negatives. Any DB migration remains branch-only until independently reviewed and expressly approved for application.
+- September 21 Previo `daily_overview_snapshots` contains 79 rows for 82 registered rooms. The missing operating units are B16, C43 and ST-603.
+- September 20 snapshot shows B16 and C43 as departing that day; September 22 snapshot shows C43 ongoing for a stay beginning September 21. These rows have no stable external booking identity.
+- B16 and C43 local room metadata has checkout-related flags. Those flags can be stale; neither this metadata nor being absent from a daily snapshot proves no-show, vacancy, sellability or physical occupancy.
+- No canonical `reservations` rows matched B16/C43 IDs in the queried September 19–25 date range. This absence is not proof Previo lacks a booking.
+- `GozsduCourtRoomOverview.tsx` currently invokes `reconcileGozsduPmsRoster`, which rejects incomplete snapshot coverage. The overview's degraded fallback then uses stored room flags. **R4 still requires a distinct `missing from PMS snapshot / requires reconciliation` presentation and verified booking data. Do not auto-cancel, release or label these units no-show.**
 
-### M2: maintenance approvals
+## Maintenance reporter access — diagnosed, still requires repair
 
-- Existing `MaintenanceStaffView.tsx` submits completed work via `pending_supervisor_approval=true` with resolution text/photo.
-- Existing `src/hooks/usePendingApprovals.tsx` counts hotel-scoped pending maintenance tickets. `src/components/dashboard/MaintenanceManagerControls.tsx` provides manual resolve/reopen with comment history; previously merged PR #277 notes that SQL migration must be applied separately. Current production has `manage_maintenance_ticket` function. Inspect supervisor UI and approval/rejection transitions and permissions before coding a competing state machine.
+All 13 Gozsdu maintenance tickets examined had valid reporter creator IDs and matching profile records, while current `MaintenanceStaffView.tsx` joins reporter profile information. Existing `profiles` SELECT RLS only exposes the maintenance user's own profile, not other employees' profiles; this is a likely cause of the reporter being shown as Unknown. Reproduce with actual maintenance credentials, then implement a narrowly scoped ticket-specific read projection. Never broaden all employee profile access.
 
-### M3: room dropdown and Gozsdu service scope
+## Other approved Phase 1 work remains open
 
-- `src/components/dashboard/CreateTicketDialog.tsx` pulls **all** `rooms` by hotel aliases into the room dropdown without filtering operating/service registry rows and without building labels. This explains how non-serviced rooms can be offered; it does not establish which A/B/C units Maryam expects.
-- `gozsdu_housekeeping_room_registry` stores operating/unavailable/non_guest and authoritative room mapping. `src/components/dashboard/GozsduCourtRoomOverview.tsx` already queries it and the manager-maintained `hotel_housekeeping_sections` and section-room mapping.
-- Never confuse Previo `building_code` / room type with physical building A/B/C or infer building solely from room digits. Obtain supervisor-approved complete service list + building labels, compare to registry, then filter the selector and enforce server-side validation. Leave a distinct common-area/no-room ticket option.
+- M2 maintenance manager/supervisor approval comments, rework/rejection and immutable audit: inspect existing `pending_supervisor_approval`, `manage_maintenance_ticket`, merged PR #277 and production migration before changing workflow.
+- R1 reception visibility of actual supervisor approver and timestamp, with hotel/business-date permission scope.
+- R3 distinct pending-arrival verification, audited shift handover, independently confirmed no-show and no implicit Previo cancellation or room release.
+- R4 the separate PMS data/room status discrepancy above, and explicit unverified display.
+- H6 housekeeping rejections with specific written feedback, notification, resubmission and preserved audit; audio transcription/translation excluded as Phase 3.
 
-### R1 and R3; H6
+## Required before any release
 
-- `room_assignments` contains `supervisor_approved` and `supervisor_approved_by`; verify timestamp provenance and correct selected business date before showing an approval identity to reception. Scope all UI and SQL access to current hotel.
-- `src/components/frontdesk/ReceptionDashboard.tsx` already offers an explicit no-show action through `setReservationStatus`; `src/lib/pmsLifecycle.ts` uses status RPC. Its presence is not grounds to automatically change Previo statuses. Distinguish booking status from reception handover/arrival confirmation and room readiness.
-- Inspect existing `SupervisorApprovalView.tsx` and related rejection/reopen RPCs before changing H6. Phase 1 includes *text feedback, notification, rework, resubmission*; voice, transcription, voice translation are Phase 3 and excluded.
-
-## Implementation and testing sequence (all checkboxes open)
-
-- [ ] Reproduce M1 under a real Gozsdu maintenance JWT, implement least-privilege reporter projection and regression tests.
-- [ ] Verify existing M2 approval/rejection and migrations; repair only demonstrated permission/state gaps with audit tests.
-- [ ] Obtain signed serviced-room list and A/B/C mapping; implement M3 selector and database-side validation without changing room statuses.
-- [ ] Implement R1 from true approval actor/timestamp, with reception read-only hotel-scoped access.
-- [ ] Implement R3 manual arrival-verification handover independent of PMS status and prevent implicit release.
-- [ ] Reconcile R4 including third missing operating unit ST-603, add explicit unknown/not-in-snapshot presentation, validate 82/79/76 and physical/PMS states without invented booking rows.
-- [ ] Implement H6 text rejection/rework notifications, preserve audit and safe readiness transitions; leave audio for Phase 3.
-- [ ] Execute tests/build and staging database checks; validate on all four user roles, cross-property regression and production-equivalent data before presenting a diff.
-- [ ] Seek explicit Anuruddha approval **before merge, migration application or deployment**; do not enable auto-merge.
-
-**No operational issue is marked fixed by this diagnostic document.**
+Run tests/build, verify manager/reception/maintenance/housekeeping roles and cross-hotel RLS, confirm source PMS reservation truth, validate the picker on Gozsdu devices, and present diff/results/risks for Anuruddha's **separate explicit approval to merge or deploy**. No production mutation occurred during this investigation or branch code implementation.
