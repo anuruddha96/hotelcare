@@ -8,6 +8,7 @@ import { HistoricalHotelRoomOverviewSaved } from './HistoricalHotelRoomOverviewS
 import { MemoriesHistoricalRoomOverview } from './MemoriesHistoricalRoomOverview';
 import { RoomOperationsQuickHub } from './RoomOperationsQuickHub';
 import { RoomHoverIntentGuard } from './RoomHoverIntentGuard';
+import { RoomTypeDropBoundary } from './RoomTypeDropBoundary';
 import { TomorrowHousekeepingLauncher } from './TomorrowHousekeepingLauncher';
 import './hotel-memories-room-overview.css';
 import './memories-historical-service-colors.css';
@@ -31,9 +32,9 @@ type HotelRoomOverviewProps = React.ComponentProps<typeof LiveHotelRoomOverview>
  * always the rooms.room_number key used by the generic quick hub. Routing its
  * clicks through the generic text lookup caused the false room-not-found error.
  *
- * The live Team View also exposes the next-day planner as a visible manager-only
- * card. Its launcher still routes through AutoRoomAssignment, so tomorrow uses
- * exactly the same NextDayAssignmentPlanner as the existing date-based flow.
+ * A shared capture boundary confirms Checkout/Daily retyping BEFORE either
+ * live overview's old drop handlers run, then broadcasts the saved changes.
+ * Its date-scoped Gozsdu override preserves the property's service cycle.
  */
 export function HotelRoomOverview(props: HotelRoomOverviewProps) {
   if (props.selectedDate < todayBudapest()) {
@@ -66,6 +67,10 @@ export function HotelRoomOverview(props: HotelRoomOverviewProps) {
     React.Fragment,
     null,
     React.createElement(TomorrowHousekeepingLauncher),
-    overview,
+    React.createElement(RoomTypeDropBoundary, {
+      selectedDate: props.selectedDate,
+      hotelName: props.hotelName,
+      isGozsdu,
+    }, overview),
   );
 }
