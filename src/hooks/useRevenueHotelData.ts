@@ -3,7 +3,6 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   addDays,
   budapestToday,
-  buildDayMetrics,
   type BookingNight,
   type CancelledNight,
   type DailySnapshot,
@@ -11,6 +10,7 @@ import {
   type PickupMovement,
   type RoomTypeRate,
 } from "@/lib/revenueAnalytics";
+import { useRevenueMetrics } from "@/lib/revenueMetricsMemo";
 import { DEFAULT_THRESHOLDS, type RevenueThresholds } from "@/lib/revenueThresholds";
 import { retryTransient } from "@/lib/transientRetry";
 import { runWhenRevenueEditorsClosed } from "@/lib/revenueEditGuard";
@@ -77,6 +77,7 @@ type CachedRevenuePayload = {
 
 /** Keep the last verified dataset available during transient reload failures. */
 const revenuePayloadCache = new Map<string, CachedRevenuePayload>();
+const EMPTY_SETTINGS: Record<string, unknown> = {};
 
 /** First paint only needs the dates a manager can immediately act on. */
 const FIRST_WINDOW_DAYS = 45;
@@ -202,7 +203,8 @@ export function useRevenueHotelData(
 
   const payloadRef = useRef<PublishedRevenuePayload | null>(initialCache?.payload ?? null);
   const requestVersionRef = useRef(0);
-  const inFlightRef = useRef<Promise<void> | null>(null);
+  /** Deduplicate only the SAME request; a larger horizon must supersede it. */
+  const inFlightRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
 
   useEffect(() => {
     const onPreferenceChanged = (event: Event) => {
@@ -225,7 +227,8 @@ export function useRevenueHotelData(
 
   const runLoad = useCallback(async () => {
     if (!hotelId || !organizationSlug || !cacheKey) { setLoading(false); return; }
-    if (inFlightRef.current) return inFlightRef.current;
+    const requestKey = `${cacheKey}|${today}|${effectiveHorizonDays}`;
+    if (inFlightRef.current?.key === requestKey) return inFlightRef.current.promise;
     const requestVersion = ++requestVersionRef.current;
 
     const fetchStage = async (windowDays: number) => {
@@ -274,9 +277,8 @@ export function useRevenueHotelData(
         lastSyncBy: nextSyncBy,
       });
 
-      // Always keep a compact verified near-term calendar available across
-      // route changes/reloads. A huge six-month payload may exceed storage,
-      // but this hot slice remains small and useful.
+      // Persist JSON in the cache's idle queue after the visible rate grid
+      // paints. Old snapshots are replaced when a newer verified window lands.
       writeCachedRevenueHotPayload<PublishedRevenuePayload>(cacheKey, {
         payload: compactHotPayload(completedPayload, today),
         lastSyncAt: nextSyncAt,
@@ -308,10 +310,6 @@ export function useRevenueHotelData(
         }
 
         if (!wantsWindow || effectiveHorizonDays > FIRST_WINDOW_DAYS) {
-          // Never let a six-/twelve-month JSON decode interrupt the first
-          // interaction. Cached / first-window prices remain visible while the
-          // browser gets one idle turn before extending only as far as the
-          // calendar the user can actually see or has explicitly requested.
           if (hadData || wantsWindow) {
             setExtending(true);
             await waitForBrowserIdle();
@@ -332,14 +330,18 @@ export function useRevenueHotelData(
       }
     })();
 
-    inFlightRef.current = request;
+    inFlightRef.current = { key: requestKey, promise: request };
     try { await request; } finally {
-      if (inFlightRef.current === request) inFlightRef.current = null;
+      if (inFlightRef.current?.promise === request) inFlightRef.current = null;
     }
   }, [hotelId, organizationSlug, cacheKey, effectiveHorizonDays, today]);
 
-  /** Re-read the currently requested horizon: used after a sync or price push. */
-  const reload = useCallback(async () => { await runLoad(); }, [runLoad]);
+  /** A sync or successful price push requires a fresh read, even during a prior load. */
+  const reload = useCallback(async () => {
+    const current = inFlightRef.current;
+    if (current) await current.promise;
+    await runLoad();
+  }, [runLoad]);
 
   useEffect(() => {
     requestVersionRef.current += 1;
@@ -369,9 +371,6 @@ export function useRevenueHotelData(
     return () => window.removeEventListener(EXECUTIVE_RESUME_EVENT, onResume);
   }, [hotelId, runLoad]);
 
-  // The frozen room rail is structural metadata, not a rate payload. Expose it
-  // immediately when available; current prices then hydrate into the already
-  // stable rows rather than making room types suddenly appear later.
   const roomTypes = payload?.roomTypes?.length ? payload.roomTypes : roomMetadata;
   const nights = useMemo(() => (payload?.nights ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const snapshots = useMemo(() => (payload?.snapshots ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
@@ -379,41 +378,42 @@ export function useRevenueHotelData(
   const cancellations = useMemo(() => (payload?.cancellations ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const movements = useMemo(() => (payload?.movements ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
   const soldOutPrices = useMemo(() => (payload?.soldOutPrices ?? []).filter((row) => row.stay_date <= horizonEnd), [payload, horizonEnd]);
-  const settings = payload?.settings ?? {};
+  const settings = payload?.settings ?? EMPTY_SETTINGS;
 
-  const sellableOverride = (settings.sellable_rooms as number | null) ?? null;
-  const baseCur = String(settings.base_currency ?? "EUR").toUpperCase();
-  const eurRate = Number(settings.eur_conversion_rate) || 0;
-  const scale = baseCur !== "EUR" && eurRate > 0 ? eurRate : 1;
-  const thresholds: RevenueThresholds = {
-    rateWarnBelowEur: Number(settings.rate_warn_below_eur ?? DEFAULT_THRESHOLDS.rateWarnBelowEur) * scale,
-    rateCriticalBelowEur: Number(settings.rate_critical_below_eur ?? DEFAULT_THRESHOLDS.rateCriticalBelowEur) * scale,
-    rateMaxSaneEur: Number(settings.rate_max_sane_eur ?? DEFAULT_THRESHOLDS.rateMaxSaneEur) * scale,
-    occupancyLowPct: Number(settings.occupancy_low_pct ?? DEFAULT_THRESHOLDS.occupancyLowPct),
-    occupancyHighPct: Number(settings.occupancy_high_pct ?? DEFAULT_THRESHOLDS.occupancyHighPct),
-    pickupStrongThreshold: Number(settings.pickup_strong_threshold ?? DEFAULT_THRESHOLDS.pickupStrongThreshold),
-  };
+  const thresholds: RevenueThresholds = useMemo(() => {
+    const baseCur = String(settings.base_currency ?? "EUR").toUpperCase();
+    const eurRate = Number(settings.eur_conversion_rate) || 0;
+    const scale = baseCur !== "EUR" && eurRate > 0 ? eurRate : 1;
+    return {
+      rateWarnBelowEur: Number(settings.rate_warn_below_eur ?? DEFAULT_THRESHOLDS.rateWarnBelowEur) * scale,
+      rateCriticalBelowEur: Number(settings.rate_critical_below_eur ?? DEFAULT_THRESHOLDS.rateCriticalBelowEur) * scale,
+      rateMaxSaneEur: Number(settings.rate_max_sane_eur ?? DEFAULT_THRESHOLDS.rateMaxSaneEur) * scale,
+      occupancyLowPct: Number(settings.occupancy_low_pct ?? DEFAULT_THRESHOLDS.occupancyLowPct),
+      occupancyHighPct: Number(settings.occupancy_high_pct ?? DEFAULT_THRESHOLDS.occupancyHighPct),
+      pickupStrongThreshold: Number(settings.pickup_strong_threshold ?? DEFAULT_THRESHOLDS.pickupStrongThreshold),
+    };
+  }, [settings]);
 
-  const inventoryFromTypes = roomTypes
+  const inventoryFromTypes = useMemo(() => roomTypes
     .filter((r) => r.is_sellable !== false && r.counts_toward_inventory !== false)
-    .reduce((s, r) => s + (r.num_rooms || 0), 0);
+    .reduce((s, r) => s + (r.num_rooms || 0), 0), [roomTypes]);
   const snapshotRooms = snapshots[0]?.rooms_available ?? 0;
   const typesLookInflated = snapshotRooms > 0 && inventoryFromTypes > snapshotRooms * 1.2;
+  const sellableOverride = (settings.sellable_rooms as number | null) ?? null;
   const roomsAvailable = sellableOverride
     || (typesLookInflated ? snapshotRooms : inventoryFromTypes)
     || snapshotRooms;
 
-  const ratedDates = new Set(rates.map((r) => r.stay_date));
-  const metrics = buildDayMetrics({
-    from: today,
-    to: horizonEnd,
+  const metrics = useRevenueMetrics({
+    today,
+    horizonEnd,
     nights,
     snapshots,
     cancellations,
     movements,
+    rates,
     roomsAvailable,
-    windowDays: pickupWindowDays,
-    ratedDates,
+    pickupWindowDays,
   });
 
   return {
