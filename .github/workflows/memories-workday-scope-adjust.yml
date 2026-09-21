@@ -31,8 +31,10 @@ jobs:
           code.write_text(text.replace(old, new))
           test = Path('src/lib/__tests__/memoriesWorkdayInstructions.test.ts')
           text = test.read_text()
-          assert text.count(old) == 1, 'Regression test not uniquely located'
-          test.write_text(text.replace(old, new))
+          old_test = "expect(editor).toContain('if (!noteText.trim() && previousText)');"
+          new_test = "expect(editor).toContain('if (isHotelMemoriesBudapest(room.hotel) && !noteText.trim() && previousText)');"
+          assert text.count(old_test) == 1, 'Regression test not uniquely located'
+          test.write_text(text.replace(old_test, new_test))
           print('Only Memories receives the until-midnight note-clear rule; other hotels retain explicit clears.')
           PY
       - uses: oven-sh/setup-bun@v2
