@@ -1,8 +1,7 @@
 -- Ticket creation must never trust a room label submitted by the browser.
--- Historical tickets are left untouched. This validates NEW inserts only, and
--- intentionally does not prohibit later status changes to an existing room.
--- Deploy together with both new maintenance creation forms (cached old clients
--- that submit a room string without source_room_id will receive an error).
+-- Historical tickets are untouched: this validates NEW inserts only.
+-- Deploy alongside updated frontend forms (old cached clients submitting room
+-- text without source_room_id will receive a validation error).
 CREATE OR REPLACE FUNCTION public.guard_maintenance_ticket_room_eligibility()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -11,8 +10,6 @@ SET search_path = ''
 AS $function$
 DECLARE
   v_room public.rooms%ROWTYPE;
-  v_hotel_id text;
-  v_hotel_name text;
   v_registry_status text;
   v_registry_name text;
   v_caller_org text;
@@ -22,8 +19,8 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- RLS remains active for the original INSERT; this function adds a final
-  -- fail-closed, database-transaction-time ownership and eligibility check.
+  -- RLS still controls the original INSERT; this trigger adds transaction-time
+  -- authorization and operational inventory validation under one room UUID.
   SELECT p.organization_slug INTO v_caller_org
   FROM public.profiles p
   WHERE p.id = auth.uid() AND p.deleted_at IS NULL;
@@ -45,11 +42,9 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  SELECT r.*, h.hotel_id, h.hotel_name
-    INTO v_room, v_hotel_id, v_hotel_name
+  SELECT r.* INTO v_room
   FROM public.rooms r
-  JOIN public.hotel_configurations h
-    ON r.hotel IN (h.hotel_id, h.hotel_name)
+  JOIN public.hotel_configurations h ON r.hotel IN (h.hotel_id, h.hotel_name)
   JOIN public.organizations o ON o.id = h.organization_id
   WHERE r.id = NEW.source_room_id
     AND r.organization_slug = NEW.organization_slug
@@ -57,12 +52,11 @@ BEGIN
     AND h.is_active = true
     AND NEW.hotel IN (h.hotel_id, h.hotel_name)
   LIMIT 1;
-
   IF v_room.id IS NULL THEN
     RAISE EXCEPTION 'The selected room is not available in this hotel and organization' USING ERRCODE = '42501';
   END IF;
 
-  IF v_hotel_id = 'gozsdu-court' THEN
+  IF v_room.hotel IN ('gozsdu-court', 'Gozsdu Court Budapest') THEN
     SELECT g.service_status, nullif(btrim(g.pms_room_name), '')
       INTO v_registry_status, v_registry_name
     FROM public.gozsdu_housekeeping_room_registry g
