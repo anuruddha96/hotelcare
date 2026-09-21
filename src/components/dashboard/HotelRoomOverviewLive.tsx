@@ -446,6 +446,17 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     notify: boolean = false,
   ) => {
     try {
+      const previousText = parseRoomFlags(room.notes).cleanNotes.trim();
+      // A blur from an untouched or re-rendered popover is NOT an instruction
+      // to clear the manager's note. Empty text may expire at local midnight.
+      if (noteText.trim() === previousText) {
+        setPopoverNotesSaveState('saved');
+        return true;
+      }
+      if (isHotelMemoriesBudapest(room.hotel) && !noteText.trim() && previousText) {
+        throw new Error('Today’s manager notes remain active until midnight. Refresh the room if this note is outdated.');
+      }
+
       setPopoverNotesSaveState('saving');
       const currentFlags = parseRoomFlags(room.notes);
       const { buildRoomNotes } = await import('@/lib/room-service-flags');
@@ -458,15 +469,21 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       );
 
       if (newFullNotes !== (room.notes || '')) {
-        const { error } = await supabase
-          .from('rooms')
-          .update({ notes: newFullNotes || null } as any)
-          .eq('id', room.id);
+        // Compare-and-swap is essential: PMS, supervisors, or another open
+        // editor may have updated the note after the chip was rendered.
+        const { data, error } = await (supabase as any).rpc('save_room_note_if_unchanged', {
+          p_room_id: room.id,
+          p_notes: newFullNotes,
+          p_expected_notes: room.notes ?? null,
+        });
         if (error) throw error;
+        const savedRoom = Array.isArray(data) ? data[0] : data;
+        if (!savedRoom?.room_id) throw new Error('Room note was not saved. Refresh and retry.');
 
         setRooms(prev => prev.map(r =>
-          r.id === room.id ? { ...r, notes: newFullNotes || null } : r,
+          r.id === room.id ? { ...r, notes: savedRoom.notes ?? null } : r,
         ));
+        window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
       }
 
       setPopoverNotesSaveState('saved');
@@ -478,7 +495,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     } catch (error) {
       console.error('Failed to save room notes:', error);
       setPopoverNotesSaveState('error');
-      if (notify) toast.error('Failed to save notes');
+      if (notify) toast.error((error as Error)?.message || 'Failed to save notes');
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
       return false;
     }
   }, []);
@@ -548,6 +566,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     if (Date.now() - justDraggedRef.current < 600) return;
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
     hoverTimeoutRef.current = setTimeout(() => {
+      // A pending edit continues using its own captured room and draft; it
+      // must not mutate the next room or auto-clear its note on hover.
       setHoveredRoomId(roomId);
       const flags = parseRoomFlags(room.notes);
       setPopoverNotes(flags.cleanNotes);
@@ -1313,9 +1333,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                         toast.warning(`⚠️ Room ${room.room_number} was already cleaned. Please inform the housekeeper separately.`, { duration: 5000 });
                       }
                       const updatedNotes = toggleFlag(room.notes, 'ROOM_CLEANING', newVal);
-                      const { error } = await supabase.from('rooms').update({ notes: updatedNotes || null } as any).eq('id', room.id);
+                      let noteUpdate = supabase.from('rooms').update({ notes: updatedNotes || null } as any).eq('id', room.id);
+                      noteUpdate = room.notes == null
+                        ? noteUpdate.is('notes', null)
+                        : noteUpdate.eq('notes', room.notes);
+                      const { data: savedRoom, error } = await noteUpdate.select('id, notes').maybeSingle();
                       if (error) throw error;
-                      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: updatedNotes || null } : r));
+                      if (!savedRoom) throw new Error('Room instructions changed. Refresh before retrying.');
+                      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: savedRoom.notes ?? null } : r));
                       toast.success(`Room Cleaning ${newVal ? 'enabled' : 'disabled'} — ${room.room_number}`);
                     } catch { toast.error('Failed'); }
                     finally { setActionLoading(null); }
@@ -1340,9 +1365,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                         toast.warning(`⚠️ Room ${room.room_number} was already cleaned. Please inform the housekeeper separately.`, { duration: 5000 });
                       }
                       const updatedNotes = toggleFlag(room.notes, 'COLLECT_EXTRA_TOWELS', newVal);
-                      const { error } = await supabase.from('rooms').update({ notes: updatedNotes || null } as any).eq('id', room.id);
+                      let noteUpdate = supabase.from('rooms').update({ notes: updatedNotes || null } as any).eq('id', room.id);
+                      noteUpdate = room.notes == null
+                        ? noteUpdate.is('notes', null)
+                        : noteUpdate.eq('notes', room.notes);
+                      const { data: savedRoom, error } = await noteUpdate.select('id, notes').maybeSingle();
                       if (error) throw error;
-                      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: updatedNotes || null } : r));
+                      if (!savedRoom) throw new Error('Room instructions changed. Refresh before retrying.');
+                      setRooms(prev => prev.map(r => r.id === room.id ? { ...r, notes: savedRoom.notes ?? null } : r));
                       toast.success(`Collect Extra Towels ${newVal ? 'enabled' : 'disabled'} — ${room.room_number}`);
                     } catch { toast.error('Failed'); }
                     finally { setActionLoading(null); }
@@ -1472,6 +1502,11 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                         clearTimeout(popoverNotesSaveTimerRef.current);
                         popoverNotesSaveTimerRef.current = null;
                       }
+                      // No stale/blank blur saves. A save already in flight
+                      // must finish before another write may begin.
+                      if (popoverNotesSaveState === 'saving'
+                        || popoverNotes === parseRoomFlags(room.notes).cleanNotes
+                        || !popoverNotes.trim()) return;
                       void savePopoverRoomNotes(room, popoverNotes, assignmentStatus);
                     }}
                   />
