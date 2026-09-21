@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "@/lib/pms-reception-translations";
 import "@/lib/pms-unified-reception-translations";
@@ -15,15 +15,37 @@ import { installGlobalErrorReporting } from "@/lib/clientErrorReporter";
 import { installRateCalendarInputPolicy } from "@/lib/rateCalendarInputPolicy";
 import { installRateCalendarMonthNav } from "@/lib/rateCalendarMonthNav";
 
-// This optional presentation bridge polls and decorates every pricing-grid
-// column every 850 ms. On the unusually large SLNT rate grid, running it while
-// mobile Safari is bootstrapping can exhaust its tab process. The underlying
-// demand data, room rates and pricing tools remain fully available without it.
-// Load the bridge after the app, and omit it ONLY on SLNT's iOS revenue route.
-// RD Hotels and all other tenants retain their existing behavior.
+// Optional presentation-only bridge. Its frequent full-grid DOM inspection is
+// unnecessary on the unusually large SLNT iOS revenue grid. Do not change the
+// core pricing component or behavior for RD Hotels and other organizations.
 const CompetitorPricingGridBridge = lazy(() => import("@/components/revenue/CompetitorPricingGridBridge"));
-const isSlntIosRevenue = /^\/slnt\/revenue(?:\/|$)/.test(window.location.pathname)
-  && /iPad|iPhone|iPod/.test(window.navigator.userAgent);
+const isIos = /iPad|iPhone|iPod/.test(window.navigator.userAgent);
+const isSlntRevenueRoute = () => /^\/slnt\/revenue(?:\/|$)/.test(window.location.pathname);
+
+function OptionalCompetitorBridge() {
+  const [skip, setSkip] = useState(() => isIos && isSlntRevenueRoute());
+
+  useEffect(() => {
+    if (!isIos) return;
+    // Router redirects from /auth to the SLNT workspace without reloading the
+    // document. A one-time location check at startup misses that transition.
+    // Track the URL without altering BrowserRouter or any shared tenant code.
+    const checkRoute = () => setSkip(isSlntRevenueRoute());
+    const id = window.setInterval(checkRoute, 400);
+    window.addEventListener("popstate", checkRoute);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("popstate", checkRoute);
+    };
+  }, []);
+
+  if (skip) return null;
+  return (
+    <Suspense fallback={null}>
+      <CompetitorPricingGridBridge />
+    </Suspense>
+  );
+}
 
 installGlobalErrorReporting();
 // Install before the grid mounts, so a hover cannot start its legacy edge
@@ -46,11 +68,7 @@ createRoot(root).render(
   >
     <>
       <App />
-      {!isSlntIosRevenue && (
-        <Suspense fallback={null}>
-          <CompetitorPricingGridBridge />
-        </Suspense>
-      )}
+      <OptionalCompetitorBridge />
     </>
   </ErrorBoundary>,
 );
