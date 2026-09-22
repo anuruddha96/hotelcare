@@ -62,7 +62,10 @@ const PageLoader = () => (
   </div>
 );
 
-const MIN_WELCOME_DISPLAY_MS = 7000;
+// Previously 7 seconds PER routing gate (RootRedirect and TenantRouter), which
+// guaranteed >5 seconds even with fully cached data. Keep a brief transition
+// but never artificially block a completed authentication/profile request.
+const MIN_WELCOME_DISPLAY_MS = 150;
 
 function useHeldLoading(loading: boolean, minDisplayMs = MIN_WELCOME_DISPLAY_MS): boolean {
   const [held, setHeld] = useState(loading);
