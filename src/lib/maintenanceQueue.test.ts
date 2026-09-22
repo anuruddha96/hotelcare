@@ -22,4 +22,15 @@ describe('shared maintenance queue', () => {
     expect(maintenanceLocation('1B-110', 'Broken door')).toBe('Room 1B-110');
     expect(maintenanceLocation('1B-110', 'Broken door', 'hu')).toBe('Szoba 1B-110');
   });
+  it('reconciles Gozsdu mixed display-name and slug rows without losing completed issues', () => {
+    // Fixture counts reflect the read-only production snapshot as of 2026-09-22;
+    // the tests assert UI bucket semantics, not mutable production totals.
+    const make = (status: 'open' | 'in_progress' | 'completed', count: number, pending = false) =>
+      Array.from({ length: count }, () => ({ status, pending_supervisor_approval: pending }));
+    const legacyNameRows = [ ...make('completed', 7), ...make('in_progress', 2, true), ...make('open', 3) ];
+    const slugRows = [ ...make('completed', 2), ...make('in_progress', 1, true), ...make('in_progress', 1), ...make('open', 1) ];
+    expect(maintenanceQueueCounts([...legacyNameRows, ...slugRows])).toEqual({
+      total: 17, active: 4, progress: 1, hold: 0, approval: 3, done: 9,
+    });
+  });
 });
