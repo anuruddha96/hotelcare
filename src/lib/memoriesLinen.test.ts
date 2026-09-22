@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { query } = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock('@/integrations/supabase/client', () => ({ supabase: { from: query } }));
 
-import { isMemoriesHotel, MEMORIES_LINEN, loadMemoriesLinenCatalogue, memoriesLinenLabel } from './memoriesLinen';
+import {
+  groupMemoriesLegacyRows, isMemoriesHotel, MEMORIES_LEGACY_GROUPS, MEMORIES_LINEN,
+  loadMemoriesLegacyIdMap, loadMemoriesLinenCatalogue, memoriesLinenLabel,
+} from './memoriesLinen';
 
 const rows = MEMORIES_LINEN.map((item, index) => ({
   id: `id-${index}`, name: item.name, display_name: `old-${index}`, sort_order: index + 3,
@@ -51,5 +54,40 @@ describe('Hotel Memories provider linen catalogue', () => {
   it('fails closed if a required item is missing rather than showing the global catalogue', async () => {
     stub(rows.slice(0, 6));
     await expect(loadMemoriesLinenCatalogue()).rejects.toThrow('incomplete');
+  });
+
+  it('maps ONLY the three approved historic item names to canonical column IDs without an active filter', async () => {
+    const chain = stub([
+      { id: 'queen', name: 'bed_sheets_queen_size' },
+      { id: 'small-cover', name: 'small_pillow_cover' },
+      { id: 'big-cover', name: 'big_pillow_cover' },
+    ]);
+    expect(await loadMemoriesLegacyIdMap(rows)).toEqual({
+      queen: 'id-0', 'small-cover': 'id-2', 'big-cover': 'id-3',
+    });
+    expect(chain.is).toHaveBeenCalledWith('hotel_scope', null);
+    expect(chain.eq).not.toHaveBeenCalled();
+    expect(chain.in).toHaveBeenCalledWith('name', Object.keys(MEMORIES_LEGACY_GROUPS));
+  });
+
+  it('includes old sheets/covers in seven-column totals while retaining original record IDs, counts and unknown categories', () => {
+    const originals = [
+      { id: 'r1', linen_item_id: 'id-0', count: 2 },
+      { id: 'r2', linen_item_id: 'queen', count: 3 },
+      { id: 'r3', linen_item_id: 'small-cover', count: 4 },
+      { id: 'r4', linen_item_id: 'big-cover', count: 5 },
+      { id: 'r5', linen_item_id: 'unclassified', count: 7 },
+    ];
+    const normalized = groupMemoriesLegacyRows(originals, {
+      queen: 'id-0', 'small-cover': 'id-2', 'big-cover': 'id-3',
+    });
+    expect(normalized.map(row => row.linen_item_id)).toEqual([
+      'id-0', 'id-0', 'id-2', 'id-3', 'unclassified',
+    ]);
+    expect(normalized.filter(row => row.linen_item_id === 'id-0')
+      .reduce((total, row) => total + row.count, 0)).toBe(5);
+    expect(normalized.map(row => row.source_linen_item_id)).toEqual(originals.map(row => row.linen_item_id));
+    expect(normalized.map(row => row.id)).toEqual(originals.map(row => row.id));
+    expect(originals[1].linen_item_id).toBe('queen');
   });
 });
