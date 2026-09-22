@@ -56,8 +56,8 @@ interface Ticket {
   hotel?: string;
   attachment_urls?: string[] | null;
   completion_photos?: string[] | null;
-  pending_supervisor_approval?: boolean | null;
-  resolution_text?: string | null;
+  pending_supervisor_approval: boolean | null;
+  resolution_text: string | null;
   closed_at?: string | null;
   created_by?: {
     full_name: string;
