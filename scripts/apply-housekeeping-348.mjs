@@ -185,7 +185,7 @@ once("  const removeRoomFromPreview = (roomId: string, fromStaffId: string, mark
 "  const removeRoomFromPreview = (roomId: string, fromStaffId: string, markExcluded: boolean = true) => {\n    pushHistory(assignmentPreviews);\n    setLockedRoomIds(previous => new Set([...previous].filter(id => id !== roomId)));", 'remove excluded lock');
 once("        <span className=\"font-semibold\">{roomDisplayName(room)}</span>",
 `        <span className="font-semibold">{roomDisplayName(room)}</span>
-        {lockedRoomIds.has(room.id) && <button type="button" className="rounded border border-amber-500 px-1 text-[9px]" title="Manual assignment locked; tap to allow auto-regeneration" aria-label={  + '`Unlock room ${roomDisplayName(room)}`' +  } onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); setLockedRoomIds(previous => new Set([...previous].filter(id => id !== room.id))); }}>🔒</button>}`, 'room lock badge');
+        {lockedRoomIds.has(room.id) && <button type="button" className="rounded border border-amber-500 px-1 text-[9px]" title="Manual assignment locked; tap to allow auto-regeneration" aria-label={'Unlock room ' + roomDisplayName(room)} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); setLockedRoomIds(previous => new Set([...previous].filter(id => id !== room.id))); }}>🔒</button>}`, 'room lock badge');
 // The replacement above emits a template string inside TSX after escaping; no
 // runtime interpolation from this script is permitted.
 once("                <div role=\"note\" className=\"flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg border border-sky-200",

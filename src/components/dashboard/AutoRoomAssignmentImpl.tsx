@@ -69,6 +69,8 @@ import {
   type HousekeepingSectionTaskTemplate,
 } from '@/lib/housekeepingSectionTasks';
 import { moveSelectedRooms } from '@/lib/autoAssignmentBulkMove';
+import { generateSmartHousekeepingPlan, type HousekeepingPlanningGoal } from '@/lib/housekeepingSmartPlanner';
+import { sanitizeStaffPreferences } from '@/lib/housekeepingAssignmentLearning';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
 import { isRoomEligibleForAutoAssign } from '@/lib/autoAssignRoomEligibility';
 import { assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
@@ -131,6 +133,7 @@ interface SavedState {
   excludedRoomIds?: string[];
   maintenanceHoldRoomIds?: string[];
   savedAt: number;
+  lockedRoomIds?: string[];
 }
 
 const isCheckoutLike = (room: RoomForAssignment): boolean =>
@@ -142,11 +145,11 @@ const needsTowelChange = (room: RoomForAssignment): boolean =>
 const needsLinenChange = (room: RoomForAssignment): boolean =>
   !!room.linen_change_required && !isCheckoutLike(room);
 
-function getSaveKey(hotel: string | null | undefined, date: string): string {
+function getSaveKey(organization: string | null | undefined, hotel: string | null | undefined, date: string): string {
   // v2 invalidates drafts created by the old dirty-only room filter. Without
   // this, a manager could reopen today's two-room draft after the fix and
   // still not see the full PMS workload until manually regenerating it.
-  return `auto_assignment_v2_${hotel || 'unknown'}_${date}`;
+  return `auto_assignment_v3_${organization || 'unknown'}_${hotel || 'unknown'}_${date}`;
 }
 
 function roomOrdinal(roomNumber: string): number {
@@ -237,6 +240,12 @@ export function AutoRoomAssignment({
   const [sharedByRoom, setSharedByRoom] = useState<Map<string, string>>(new Map());
   const [suggestedByRoom, setSuggestedByRoom] = useState<Map<string, string>>(new Map());
   const [tomorrowSchedules, setTomorrowSchedules] = useState<any[]>([]);
+  const [planningGoal, setPlanningGoal] = useState<HousekeepingPlanningGoal>('rebalance');
+  const [planningExplanation, setPlanningExplanation] = useState('');
+  const [lockedRoomIds, setLockedRoomIds] = useState<Set<string>>(new Set());
+  const [lockHistory, setLockHistory] = useState<Set<string>[]>([]);
+  const [historicalSampleCount, setHistoricalSampleCount] = useState(0);
+  const [historicalPreferences, setHistoricalPreferences] = useState<Record<string, string[]>>({});
 
   const existingAssignmentsRef = useRef<Map<string, ExistingAssignment>>(new Map());
   const hotelKeysRef = useRef<string[]>([]);
@@ -245,7 +254,7 @@ export function AutoRoomAssignment({
   const laundryCommitRef = useRef(laundryDutyCommitRevision);
   const roomSectionsRef = useRef<Map<string, { id: string; name: string }>>(new Map());
 
-  const saveKey = getSaveKey(profile?.assigned_hotel, selectedDate);
+  const saveKey = getSaveKey(profile?.organization_slug, profile?.assigned_hotel, selectedDate);
   // The shared duty bridge is populated before Gozsdu's board mounts. Count
   // only CLEANING staff; selected laundry collectors never enter the preview.
   const cleaningStaffIds = useMemo(
@@ -365,7 +374,8 @@ export function AutoRoomAssignment({
     const { data: roomRows, error: roomErr } = await supabase
       .from('rooms')
       .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, pms_metadata, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration, notes, checkout_time')
-      .in('hotel', keys);
+      .in('hotel', keys)
+      .eq('organization_slug', profile?.organization_slug || '');
     if (roomErr || !roomRows) return;
 
     let currentRooms = roomRows.map(addSectionContext);
@@ -520,7 +530,8 @@ export function AutoRoomAssignment({
       const { data: roomRows, error: roomsErr } = await supabase
         .from('rooms')
         .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, pms_metadata, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration, notes, checkout_time')
-        .in('hotel', hotelKeys);
+        .in('hotel', hotelKeys)
+        .eq('organization_slug', profile.organization_slug);
       if (roomsErr) throw roomsErr;
 
       const { data: sectionRows, error: sectionError } = await (supabase as any)
@@ -596,6 +607,7 @@ export function AutoRoomAssignment({
       let workingRooms: RoomForAssignment[] = [];
       let existingRows: ExistingAssignment[] = [];
       let selectedFromDb = new Set<string>(checked);
+      let savedManagerRoomIds = new Set<string>();
 
       if (isNextDayPlanning) {
         if (!profile.assigned_hotel) throw new Error('Hotel access is missing');
@@ -617,6 +629,7 @@ export function AutoRoomAssignment({
         setAutoRelease(saved.plan?.auto_release ?? true);
         setNextDayPmsSyncedAt(pmsSyncedAt || workload.capturedAt || saved.plan?.pms_synced_at || null);
 
+        savedManagerRoomIds = new Set(saved.items.filter(item => item.recommendation_context?.manager_changed === true).map(item => item.room_id));
         const primaryItems = saved.items.filter(item =>
           item.source !== 'shared' && item.recommendation_context?.assignment_role !== 'shared'
         );
@@ -730,12 +743,16 @@ export function AutoRoomAssignment({
           setAssignmentPreviews(previews);
           setFairnessMetrics(computeFairnessMetrics(previews));
           setPreviewHistory([]);
+          setPlanningExplanation('Existing assignment loaded. Regeneration preserves manager-adjusted rooms.');
+          setLockedRoomIds(new Set(isNextDayPlanning ? [...savedManagerRoomIds] : []));
           setStep('preview');
         } else {
           setEditingExistingAssignments(false);
           setSelectedStaffIds(selectedFromDb);
           setAssignmentPreviews([]);
           setFairnessMetrics(null);
+          setPlanningExplanation('');
+          setLockedRoomIds(new Set());
           setStep('select-staff');
         }
       } else {
@@ -761,10 +778,30 @@ export function AutoRoomAssignment({
 
       const { data: patternData } = await supabase
         .from('assignment_patterns')
-        .select('room_number_a, room_number_b, pair_count')
+        .select('room_number_a, room_number_b, pair_count, last_seen_at')
         .eq('hotel', hotelName)
-        .eq('organization_slug', profile.organization_slug);
-      setRoomAffinity(patternData?.length ? buildAffinityMap(patternData) : undefined);
+        .eq('organization_slug', profile.organization_slug)
+        .order('last_seen_at', { ascending: false })
+        .limit(250);
+      // Keep tenant-specific historical signals bounded, recent and interpretable.
+      const recentPatterns = (patternData || []).flatMap(pattern => {
+        const age = pattern.last_seen_at ? (Date.now() - Date.parse(pattern.last_seen_at)) / 86400000 : 999;
+        if (!Number.isFinite(age) || age < 0 || age > 180 || pattern.pair_count < 2) return [];
+        return [{ ...pattern, pair_count: Math.max(1, Math.round(pattern.pair_count * Math.exp(-age / 90))) }];
+      });
+      setRoomAffinity(recentPatterns.length >= 3 ? buildAffinityMap(recentPatterns) : undefined);
+      const { data: learningProfile } = await (supabase as any)
+        .from('housekeeping_assignment_learning_profiles')
+        .select('sample_count,correction_count,staff_preferences')
+        .eq('organization_slug', profile.organization_slug)
+        .eq('hotel_id', profile.assigned_hotel)
+        .maybeSingle();
+      const samples = Math.max(0, Number(learningProfile?.sample_count) || 0);
+      setHistoricalSampleCount(samples);
+      const validStaffIds = new Set(staffList.map(staff => staff.id));
+      const localPrefs = sanitizeStaffPreferences(learningProfile?.staff_preferences);
+      setHistoricalPreferences(samples >= 5
+        ? Object.fromEntries(Object.entries(localPrefs).filter(([id]) => validStaffIds.has(id))) : {});
     } catch (error) {
       console.error('[AutoRoomAssignment] fetch failed:', error);
       toast.error(isGozsdu && error instanceof Error
@@ -784,6 +821,8 @@ export function AutoRoomAssignment({
     setShowOverAllocationDialog(false);
     setPublicAreaAssignments(new Map());
     setPreviewHistory([]);
+    setLockHistory([]);
+    setPlanningExplanation('');
 
     let restored = false;
     try {
@@ -802,6 +841,7 @@ export function AutoRoomAssignment({
           setExcludedRoomIds(new Set(data.excludedRoomIds || []));
           setMaintenanceHoldRoomIds(new Set(data.maintenanceHoldRoomIds || []));
           setRestoredFromSave(true);
+          setLockedRoomIds(new Set(data.lockedRoomIds || []));
           setStep('preview');
         } else {
           localStorage.removeItem(saveKey);
@@ -829,6 +869,8 @@ export function AutoRoomAssignment({
     setAssignmentPreviews([]);
     setFairnessMetrics(null);
     setPreviewHistory([]);
+    setLockHistory([]);
+    setLockedRoomIds(new Set());
     setSectionTaskOwners(new Map());
     setSharedByRoom(new Map());
     setSuggestedByRoom(new Map());
@@ -847,13 +889,14 @@ export function AutoRoomAssignment({
       excludedRoomIds: Array.from(excludedRoomIds),
       maintenanceHoldRoomIds: Array.from(maintenanceHoldRoomIds),
       savedAt: Date.now(),
+      lockedRoomIds: Array.from(lockedRoomIds),
     };
     try {
       localStorage.setItem(saveKey, JSON.stringify(data));
     } catch {
       // Browser storage is best-effort only.
     }
-  }, [open, saveKey, isGozsdu, selectedStaffIds, assignmentPreviews, excludedRoomIds, maintenanceHoldRoomIds]);
+  }, [open, saveKey, isGozsdu, selectedStaffIds, assignmentPreviews, excludedRoomIds, maintenanceHoldRoomIds, lockedRoomIds]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -866,10 +909,11 @@ export function AutoRoomAssignment({
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [step, previewHistory]);
+  }, [step, previewHistory, lockHistory]);
 
   const pushHistory = (previews: AssignmentPreview[]) => {
     setPreviewHistory(history => [...history.slice(-19), previews]);
+    setLockHistory(history => [...history.slice(-19), new Set(lockedRoomIds)]);
   };
 
   const handleUndo = () => {
@@ -877,6 +921,8 @@ export function AutoRoomAssignment({
     const previous = previewHistory[previewHistory.length - 1];
     const restoredRoomIds = new Set(previous.flatMap(preview => preview.rooms.map(room => room.id)));
     setPreviewHistory(history => history.slice(0, -1));
+    setLockedRoomIds(lockHistory[lockHistory.length - 1] || new Set());
+    setLockHistory(history => history.slice(0, -1));
     setAssignmentPreviews(previous);
     setFairnessMetrics(computeFairnessMetrics(previous));
     setMaintenanceHoldRoomIds(ids => new Set(Array.from(ids).filter(id => !restoredRoomIds.has(id))));
@@ -891,6 +937,7 @@ export function AutoRoomAssignment({
     setRestoredFromSave(false);
     setExcludedRoomIds(new Set());
     setMaintenanceHoldRoomIds(new Set());
+    setLockedRoomIds(new Set());
     setSelectedRoomForMove(null);
     setBulkSelectedRoomIds(new Set());
     setBulkDestinationStaffId('');
@@ -941,14 +988,7 @@ export function AutoRoomAssignment({
       const settings = (configData?.settings as any) || {};
       if (settings.wing_zone_mapping) hotelConfig.wingZoneMapping = settings.wing_zone_mapping;
 
-      const insightsKey = `ai_insights_${hotelName}`;
-      const cached = localStorage.getItem(insightsKey);
-      if (cached) {
-        const insights = JSON.parse(cached);
-        if (Date.now() - (insights.cachedAt || 0) < 7 * 24 * 60 * 60 * 1000) {
-          hotelConfig.staffPreferences = insights.staff_preferences;
-        }
-      }
+      hotelConfig.staffPreferences = historicalPreferences;
     } catch {
       // Smart settings are optional; assignment still works with algorithm defaults.
     }
@@ -959,6 +999,7 @@ export function AutoRoomAssignment({
         .from('hotel_autoassign_profiles')
         .select('floor_grouping_weight, checkout_first')
         .in('hotel_id', searchKeys)
+        .eq('organization_slug', profile?.organization_slug || '')
         .limit(1)
         .maybeSingle();
       if (profileRow?.floor_grouping_weight != null) {
@@ -971,29 +1012,60 @@ export function AutoRoomAssignment({
       // Per-hotel tuning is optional.
     }
 
-    let best: AssignmentPreview[] | null = null;
-    let bestMetrics: FairnessMetrics | null = null;
-    let bestScore = Infinity;
-    for (let i = 0; i < 10; i++) {
-      const candidate = autoAssignRooms(
-        roomsToAssign,
-        selectedStaff,
-        wingProximity,
-        roomAffinity,
-        { ...hotelConfig, randomSeed: Date.now() + i * 7919 },
-      );
-      const metrics = computeFairnessMetrics(candidate);
-      if (metrics.score < bestScore) {
-        best = candidate;
-        bestMetrics = metrics;
-        bestScore = metrics.score;
-      }
+    const scheduleRows = isNextDayPlanning ? tomorrowSchedules : [];
+    const scheduleByStaff = new Map(scheduleRows.map((row: any) => [row.user_id, row]));
+    if (isNextDayPlanning && scheduleRows.length && selectedStaff.some(staff => {
+      const row = scheduleByStaff.get(staff.id) as any;
+      return !row || ['off', 'leave', 'sick', 'absent', 'cancelled'].includes(row.status);
+    })) {
+      toast.error('Some selected employees have no active shift on this date. Update their schedule or remove them before regenerating.');
+      return;
     }
-
-    const previews = best || autoAssignRooms(roomsToAssign, selectedStaff, wingProximity, roomAffinity, hotelConfig);
+    const toMinutes = (value: unknown): number | null => {
+      if (typeof value !== 'string' || !/^\d{2}:\d{2}/.test(value)) return null;
+      const [hours, minutes] = value.split(':').map(Number);
+      return hours * 60 + minutes;
+    };
+    const shiftMinutes = new Map<string, number>();
+    if (isNextDayPlanning) for (const staff of selectedStaff) {
+      const schedule = scheduleByStaff.get(staff.id) as any;
+      if (!schedule) continue;
+      const start = toMinutes(schedule.shift_start);
+      const end = toMinutes(schedule.shift_end);
+      if (start !== null && end !== null) shiftMinutes.set(staff.id, (end - start + 1440) % 1440 || 1440);
+    }
+    const fixedAreaOwners = new Map(sectionTaskOwners);
+    lockedSectionTasks.forEach((value, taskId) => {
+      if (value.status !== 'assigned' && value.assignedTo) fixedAreaOwners.set(taskId, value.assignedTo);
+    });
+    hotelConfig.staffPreferences = historicalPreferences;
+    const result = generateSmartHousekeepingPlan({
+      rooms: roomsToAssign,
+      staff: selectedStaff,
+      organizationSlug: profile?.organization_slug || '',
+      hotelId: profile?.assigned_hotel || '',
+      hotelConfig,
+      goal: planningGoal,
+      previous: assignmentPreviews.length ? assignmentPreviews : undefined,
+      lockedRoomIds,
+      shiftMinutes,
+      publicAreaTemplates: sectionTaskTemplates,
+      fixedAreaOwners,
+      wingProximity,
+      affinity: roomAffinity,
+      historicalSampleCount,
+      gozsdu: isGozsdu,
+      seed: Date.now(),
+    });
+    setPlanningExplanation(result.reason);
+    if (!result.changed || !result.plan) {
+      if (result.plan) toast.info(result.reason);
+      else toast.error(result.reason);
+      return;
+    }
+    const previews = result.plan;
     if (isGozsdu && !gozsduPreviewCoversWork(previews, roomsToAssign.length, cleaningStaffIds, isLaundryner)) {
-      toast.error('Gozsdu allocation is incomplete. Check mapped buildings and select enough cleaning housekeepers for incompatible routes.');
-      setStep('select-staff');
+      toast.error('Allocation incomplete: check building routes, unavailable rooms and staffing.');
       return;
     }
     pushHistory(assignmentPreviews);
@@ -1004,7 +1076,7 @@ export function AutoRoomAssignment({
       )));
       setSharedByRoom(new Map());
     }
-    setFairnessMetrics(bestMetrics || computeFairnessMetrics(previews));
+    setFairnessMetrics(computeFairnessMetrics(previews));
     setSelectedRoomForMove(null);
     setBulkSelectedRoomIds(new Set());
     setBulkDestinationStaffId('');
@@ -1027,6 +1099,7 @@ export function AutoRoomAssignment({
       toast.info('Manager override: this housekeeper now has rooms across mapped buildings. Automatic allocation rules remain unchanged.');
     }
     pushHistory(assignmentPreviews);
+    setLockedRoomIds(previous => new Set([...previous, roomId]));
     setAssignmentPreviews(next);
     if (isNextDayPlanning && sharedByRoom.get(roomId) === toStaffId) {
       setSharedByRoom(previous => {
@@ -1073,6 +1146,7 @@ export function AutoRoomAssignment({
       toast.info('Manager override: the selected rooms cross mapped buildings. Automatic allocation rules remain unchanged.');
     }
     pushHistory(assignmentPreviews); // one Undo restores the whole bulk action
+    setLockedRoomIds(previous => new Set([...previous, ...result.movedRoomIds]));
     setAssignmentPreviews(result.previews);
     setFairnessMetrics(computeFairnessMetrics(result.previews));
     if (isNextDayPlanning) {
@@ -1092,6 +1166,7 @@ export function AutoRoomAssignment({
 
   const removeRoomFromPreview = (roomId: string, fromStaffId: string, markExcluded: boolean = true) => {
     pushHistory(assignmentPreviews);
+    setLockedRoomIds(previous => new Set([...previous].filter(id => id !== roomId)));
     const next = assignmentPreviews.map(preview => {
       if (preview.staffId !== fromStaffId) return preview;
       return buildPreview(preview.staffId, preview.staffName, preview.rooms.filter(room => room.id !== roomId));
@@ -1599,6 +1674,7 @@ export function AutoRoomAssignment({
           className={`mr-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 bg-background/90 ${checkedForBulk ? 'border-sky-600 bg-sky-600 text-white' : 'border-current/50 text-current'} focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
         >{checkedForBulk ? <Check className="h-3 w-3" /> : <span className="h-1 w-1 rounded-full bg-current opacity-30" />}</button>
         <span className="font-semibold">{roomDisplayName(room)}</span>
+        {lockedRoomIds.has(room.id) && <button type="button" className="rounded border border-amber-500 px-1 text-[9px]" title="Manual assignment locked; tap to allow auto-regeneration" aria-label={'Unlock room ' + roomDisplayName(room)} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); setLockedRoomIds(previous => new Set([...previous].filter(id => id !== room.id))); }}>🔒</button>}
         {rtc && <span className="rounded bg-green-600 px-0.5 text-[8px] font-extrabold text-white">RTC</span>}
         {held && <span className="rounded bg-red-600 px-0.5 text-[8px] font-extrabold text-white">HOLD</span>}
         {room.room_category && <span className="text-[9px] opacity-70">{getCategoryShortName(room.room_category)}</span>}
@@ -1753,6 +1829,20 @@ export function AutoRoomAssignment({
                   {fairnessMetrics && <div className="flex flex-wrap gap-2 text-xs"><span>CO±{fairnessMetrics.checkoutDiff}</span><span>Daily±{fairnessMetrics.dailyDiff}</span><span>⏱{fairnessMetrics.timeSpreadMinutes}m</span><span>{isGozsdu ? 'Building' : 'F'}↔{fairnessMetrics.splitFloorCount}</span></div>}
                 </div>
 
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2 text-xs">
+                  <label htmlFor="hk-planning-goal" className="font-semibold">Regeneration goal</label>
+                  <Select value={planningGoal} onValueChange={value => setPlanningGoal(value as HousekeepingPlanningGoal)}>
+                    <SelectTrigger id="hk-planning-goal" aria-label="Regeneration goal" className="h-8 w-full sm:w-[220px]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="rebalance">Rebalance workload</SelectItem>
+                      <SelectItem value="locality">Keep rooms close</SelectItem>
+                      <SelectItem value="checkouts">Balance checkouts</SelectItem>
+                      <SelectItem value="alternative">Try another arrangement</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className="text-muted-foreground">{lockedRoomIds.size} manually locked room(s)</span>
+                  {planningExplanation && <p role="status" className="w-full text-foreground">{planningExplanation}</p>}
+                </div>
                 <div role="note" className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg border border-sky-200 bg-sky-50/70 px-2.5 py-1.5 text-[11px] text-sky-900 dark:border-sky-900 dark:bg-sky-950/30 dark:text-sky-100">
                   <span><strong>One room:</strong> drag its chip or tap it, then tap another staff card.</span>
                   <span><strong>Several rooms:</strong> tap the circles, choose a housekeeper, then tap Done.</span>

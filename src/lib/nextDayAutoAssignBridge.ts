@@ -10,6 +10,7 @@ import { GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME, getGozsduHousekeepingCy
 import { verifyGozsduTomorrowSnapshot, type GozsduTomorrowSnapshotRow } from './gozsduTomorrowSnapshotAuthority';
 import { checkGozsduTomorrowPlanDrift } from './gozsduTomorrowPlanDrift';
 import type { RoomForAssignment } from './roomAssignmentAlgorithm';
+import { validateNextDayPlan } from './nextDayPlanValidation';
 
 type TomorrowArgs = Parameters<typeof core.buildTomorrowAutoAssignRooms>[0];
 type SnapshotArgs = Parameters<typeof core.ensureTomorrowPmsSnapshot>[0];
@@ -129,6 +130,61 @@ export async function buildTomorrowAutoAssignRooms(args: TomorrowArgs):
   return { ...workload, rooms: operatingRooms };
 }
 
+
+/** No plan is modified until authorization, staff eligibility and a fresh exact-
+ * date PMS workload have all been verified. Each query is tenant-scoped AND
+ * enforced by RLS; no client-only hotel-name matching is relied on. */
+async function saveVerifiedPortfolioPlan(args: SaveArgs):
+  ReturnType<typeof core.saveApprovedNextDayAutoAssignPlan> {
+  const { data: allowed, error: accessError } = await supabase.rpc(
+    'can_manage_next_day_housekeeping_plan',
+    { p_organization_slug: args.organizationSlug, p_hotel_id: args.hotelId },
+  );
+  if (accessError || allowed !== true) throw new Error('You do not have permission to approve this property’s housekeeping plan.');
+  const resolved = await resolveHotelKeys(args.hotelId);
+  const keys = [...new Set([args.hotelId, args.hotelName, ...resolved].filter(Boolean))];
+  const [workersResult, schedulesResult, source] = await Promise.all([
+    supabase.from('profiles')
+      .select('id,organization_slug,assigned_hotel,hotel_id,deleted_at,role,acts_as_housekeeper')
+      .eq('organization_slug', args.organizationSlug)
+      .in('id', args.selectedStaffIds),
+    (supabase as any).from('staff_schedules')
+      .select('user_id,status,work_date,shift_start,shift_end')
+      .eq('organization_slug', args.organizationSlug)
+      .eq('hotel_id', args.hotelId)
+      .eq('work_date', args.selectedDate),
+    ensureTomorrowPmsSnapshot({ organizationSlug: args.organizationSlug,
+      hotelId: args.hotelId, selectedDate: args.selectedDate, forceFresh: true }),
+  ]);
+  if (workersResult.error || schedulesResult.error || !source.authoritative)
+    throw new Error('Cannot verify staff availability or a fresh PMS snapshot. Nothing was saved.');
+  if ((workersResult.data || []).some(worker => worker.role !== 'housekeeping' && !worker.acts_as_housekeeper))
+    throw new Error('Only eligible housekeeping employees can receive automatic room assignments.');
+  const { data: roomRows, error: roomError } = await supabase.from('rooms')
+    .select('id,room_number,hotel,floor_number,room_size_sqm,room_capacity,is_checkout_room,pms_metadata,status,towel_change_required,linen_change_required,wing,elevator_proximity,room_category,bed_configuration,notes,checkout_time')
+    .eq('organization_slug', args.organizationSlug)
+    .in('hotel', keys);
+  if (roomError || !roomRows) throw new Error('Could not validate this organization’s room inventory. Nothing was saved.');
+  const workload = await buildTomorrowAutoAssignRooms({ organizationSlug: args.organizationSlug,
+    hotelId: args.hotelId, selectedDate: args.selectedDate, roomRows });
+  if (workload.source !== 'selected-date' || workload.capturedAt !== source.capturedAt)
+    throw new Error('PMS data is stale or changed while verifying the date. Reopen the planner and regenerate.');
+  const result = validateNextDayPlan({
+    expectedRooms: workload.rooms,
+    previews: args.previews,
+    selectedStaffIds: args.selectedStaffIds,
+    workers: workersResult.data || [],
+    schedules: schedulesResult.data || [],
+    organizationSlug: args.organizationSlug,
+    hotelKeys: keys,
+    selectedDate: args.selectedDate,
+    excludedRoomIds: args.excludedRoomIds,
+    maintenanceHoldRoomIds: args.maintenanceHoldRoomIds,
+  });
+  if (!result.valid) throw new Error(result.reason + ' Nothing was saved.');
+  return core.saveApprovedNextDayAutoAssignPlan({ ...args, pmsSyncedAt: source.capturedAt });
+}
+
 /** Gozsdu only: a preview is not a promise that Previo's reservations will stay
  * unchanged while a manager allocates staff. Re-fetch the exact date before
  * approval, recalculate checkout/service from the fresh reservation dates and
@@ -136,7 +192,7 @@ export async function buildTomorrowAutoAssignRooms(args: TomorrowArgs):
  * Morning release performs its own independent PMS revalidation as well. */
 export async function saveApprovedNextDayAutoAssignPlan(args: SaveArgs):
   ReturnType<typeof core.saveApprovedNextDayAutoAssignPlan> {
-  if (!isGozsduCourtHotel(args.hotelId)) return core.saveApprovedNextDayAutoAssignPlan(args);
+  if (!isGozsduCourtHotel(args.hotelId)) return saveVerifiedPortfolioPlan(args);
 
   const source = await ensureTomorrowPmsSnapshot({
     organizationSlug: args.organizationSlug,
@@ -149,7 +205,8 @@ export async function saveApprovedNextDayAutoAssignPlan(args: SaveArgs):
   const { data: roomRows, error: roomError } = await supabase
     .from('rooms')
     .select('id, room_number, hotel, floor_number, room_size_sqm, room_capacity, is_checkout_room, pms_metadata, status, towel_change_required, linen_change_required, wing, elevator_proximity, room_category, bed_configuration, notes, checkout_time')
-    .in('hotel', hotelKeys);
+    .in('hotel', hotelKeys)
+    .eq('organization_slug', args.organizationSlug);
   if (roomError || !roomRows) throw new Error('Could not verify Gozsdu room mappings. The tomorrow plan was not saved.');
 
   const workload = await buildTomorrowAutoAssignRooms({
