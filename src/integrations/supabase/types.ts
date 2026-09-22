@@ -3385,6 +3385,44 @@ export type Database = {
           },
         ]
       }
+      gozsdu_laundry_unallocated_daily: {
+        Row: {
+          created_at: string
+          hotel_id: string
+          item_counts: Json
+          organization_slug: string
+          updated_at: string
+          user_id: string
+          work_date: string
+        }
+        Insert: {
+          created_at?: string
+          hotel_id?: string
+          item_counts?: Json
+          organization_slug: string
+          updated_at?: string
+          user_id: string
+          work_date: string
+        }
+        Update: {
+          created_at?: string
+          hotel_id?: string
+          item_counts?: Json
+          organization_slug?: string
+          updated_at?: string
+          user_id?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gozsdu_laundry_unallocated_daily_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       guest_folios: {
         Row: {
           amount: number
@@ -11566,6 +11604,8 @@ export type Database = {
           last_linen_change: string | null
           last_towel_change: string | null
           linen_change_required: boolean | null
+          memories_manual_bed_date: string | null
+          memories_manual_note_date: string | null
           minibar_qr_token: string | null
           notes: string | null
           organization_slug: string | null
@@ -11604,6 +11644,8 @@ export type Database = {
           last_linen_change?: string | null
           last_towel_change?: string | null
           linen_change_required?: boolean | null
+          memories_manual_bed_date?: string | null
+          memories_manual_note_date?: string | null
           minibar_qr_token?: string | null
           notes?: string | null
           organization_slug?: string | null
@@ -11642,6 +11684,8 @@ export type Database = {
           last_linen_change?: string | null
           last_towel_change?: string | null
           linen_change_required?: boolean | null
+          memories_manual_bed_date?: string | null
+          memories_manual_note_date?: string | null
           minibar_qr_token?: string | null
           notes?: string | null
           organization_slug?: string | null
@@ -12524,6 +12568,110 @@ export type Database = {
         }
         Relationships: []
       }
+      welcome_quote_catalog: {
+        Row: {
+          audiences: string[]
+          author: string
+          created_at: string
+          is_active: boolean
+          practical_takeaway: string
+          provenance: string
+          quality_rank: number
+          quote_key: string
+          quote_text: string
+          source_url: string
+          tone: string
+          verified_at: string
+        }
+        Insert: {
+          audiences: string[]
+          author: string
+          created_at?: string
+          is_active?: boolean
+          practical_takeaway: string
+          provenance?: string
+          quality_rank?: number
+          quote_key: string
+          quote_text: string
+          source_url: string
+          tone?: string
+          verified_at: string
+        }
+        Update: {
+          audiences?: string[]
+          author?: string
+          created_at?: string
+          is_active?: boolean
+          practical_takeaway?: string
+          provenance?: string
+          quality_rank?: number
+          quote_key?: string
+          quote_text?: string
+          source_url?: string
+          tone?: string
+          verified_at?: string
+        }
+        Relationships: []
+      }
+      welcome_quote_impressions: {
+        Row: {
+          quote_key: string
+          shown_at: string
+          user_id: string
+        }
+        Insert: {
+          quote_key: string
+          shown_at?: string
+          user_id: string
+        }
+        Update: {
+          quote_key?: string
+          shown_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "welcome_quote_impressions_quote_key_fkey"
+            columns: ["quote_key"]
+            isOneToOne: false
+            referencedRelation: "welcome_quote_catalog"
+            referencedColumns: ["quote_key"]
+          },
+        ]
+      }
+      welcome_quote_refill_state: {
+        Row: {
+          cooldown_until: string | null
+          generated_total: number
+          id: boolean
+          last_error: string | null
+          last_refill_at: string | null
+          lease_until: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          cooldown_until?: string | null
+          generated_total?: number
+          id?: boolean
+          last_error?: string | null
+          last_refill_at?: string | null
+          lease_until?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          cooldown_until?: string | null
+          generated_total?: number
+          id?: boolean
+          last_error?: string | null
+          last_refill_at?: string | null
+          lease_until?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       yielding_tags: {
         Row: {
           aggressiveness: string
@@ -12885,6 +13033,18 @@ export type Database = {
               status: string
             }[]
           }
+      claim_welcome_quote: {
+        Args: { p_seen_keys?: string[] }
+        Returns: {
+          author: string
+          quote_key: string
+          quote_text: string
+        }[]
+      }
+      claim_welcome_quote_refill_lease: {
+        Args: { p_bootstrap?: boolean }
+        Returns: boolean
+      }
       cleanup_old_photos: { Args: never; Returns: undefined }
       close_empty_revenue_push_runs: { Args: never; Returns: number }
       complete_revenue_sync:
@@ -12989,6 +13149,10 @@ export type Database = {
       finalize_assistant_premium_question: {
         Args: { _success: boolean; _usage_id: string }
         Returns: Json
+      }
+      finish_welcome_quote_refill: {
+        Args: { p_error?: string; p_inserted: number; p_pause?: boolean }
+        Returns: undefined
       }
       generate_ticket_number: { Args: never; Returns: string }
       get_assignable_staff:
@@ -13157,6 +13321,17 @@ export type Database = {
           organization_slug: string
         }[]
       }
+      get_revenue_monthly_kpis: {
+        Args: { _hotel_id: string }
+        Returns: {
+          complete: boolean
+          days: number
+          month_key: string
+          revenue_eur: number
+          rooms_sold: number
+          sync_completed_at: string
+        }[]
+      }
       get_revenue_published_payload: {
         Args: { _hotel_id: string }
         Returns: {
@@ -13242,6 +13417,38 @@ export type Database = {
       has_venue_access: {
         Args: { _user_id: string; _venue_id: string }
         Returns: boolean
+      }
+      hc_expire_memories_workday_instructions: {
+        Args: never
+        Returns: {
+          expired_beds: number
+          expired_notes: number
+        }[]
+      }
+      hc_ottofiori_checkout_decision: {
+        Args: {
+          p_checked_out: boolean
+          p_departing: boolean
+          p_manual_checkout: boolean
+          p_manual_daily: boolean
+          p_new_arrival: boolean
+          p_no_show: boolean
+          p_not_arrived: boolean
+          p_occupied: boolean
+          p_snapshot_fresh: boolean
+          p_stayover: boolean
+        }
+        Returns: string
+      }
+      hc_save_memories_service_cycle: {
+        Args: {
+          p_change_first_night: number
+          p_change_repeat_nights: number
+          p_final_night_towel_only?: boolean
+          p_towel_first_night: number
+          p_towel_repeat_nights: number
+        }
+        Returns: Json
       }
       hotel_belongs_to_user_organization: {
         Args: { _hotel_id: string; _uid: string }
@@ -13366,6 +13573,10 @@ export type Database = {
         Args: never
         Returns: string
       }
+      insert_welcome_original_thoughts: {
+        Args: { p_rows: Json }
+        Returns: number
+      }
       invoke_ottofiori_market_scan: {
         Args: { _force?: boolean }
         Returns: number
@@ -13380,6 +13591,16 @@ export type Database = {
           _ticket_hotel: string
         }
         Returns: boolean
+      }
+      manage_maintenance_ticket: {
+        Args: {
+          p_action: string
+          p_expected_updated_at: string
+          p_note: string
+          p_sla_breach_reason?: string
+          p_ticket_id: string
+        }
+        Returns: undefined
       }
       manager_assignable_role: {
         Args: { _role: Database["public"]["Enums"]["user_role"] }
@@ -14380,6 +14601,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      record_gozsdu_unallocated_daily_linen: {
+        Args: { p_counts: Json }
+        Returns: undefined
+      }
       refresh_housekeeping_assignment_learning_profile: {
         Args: { p_hotel_id: string; p_organization_slug: string }
         Returns: {
@@ -14556,6 +14781,14 @@ export type Database = {
           updated_at: string
         }[]
       }
+      save_room_note_if_unchanged: {
+        Args: { p_expected_notes: string; p_notes: string; p_room_id: string }
+        Returns: {
+          notes: string
+          room_id: string
+          updated_at: string
+        }[]
+      }
       set_gozsdu_laundry_duty: {
         Args: { p_enabled: boolean; p_user_id: string; p_work_date: string }
         Returns: undefined
@@ -14611,6 +14844,11 @@ export type Database = {
       }
       user_can_view_ticket: { Args: { ticket_id: string }; Returns: boolean }
       user_has_venue_scopes: { Args: { _user_id: string }; Returns: boolean }
+      verify_welcome_quote_worker_secret: {
+        Args: { p_secret: string }
+        Returns: boolean
+      }
+      welcome_quote_remaining: { Args: never; Returns: number }
     }
     Enums: {
       assignment_status:
