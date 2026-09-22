@@ -1,0 +1,37 @@
+name: One-shot maintenance counter correction
+on:
+  push:
+    branches: [fix/maintenance-complete-298-20260922]
+    paths: [.github/workflows/maintenance-298-final-check.yml]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/maintenance-complete-298-20260922
+          persist-credentials: true
+      - uses: oven-sh/setup-bun@v2
+      - name: Correct final Done count and verify new code references
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/components/dashboard/Dashboard.tsx')
+          source = p.read_text()
+          assert source.count('counts.completed') == 1, 'Expected exactly one old completed reference'
+          assert 'const counts = maintenanceQueueCounts(tickets)' in source
+          p.write_text(source.replace('counts.completed', 'counts.done'))
+          Path('.github/workflows/maintenance-298-final-check.yml').unlink()
+          print('Fixed Done counter; removed temporary workflow.')
+          PY
+          git diff --check
+          grep -n 'counts.done' src/components/dashboard/Dashboard.tsx
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: use canonical Done count on main maintenance dashboard'
+          git push origin HEAD:fix/maintenance-complete-298-20260922
