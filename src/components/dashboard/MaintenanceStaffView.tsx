@@ -4,15 +4,18 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { todayBudapest } from '@/lib/budapestTime';
 import { getSignedPhotoUrls } from '@/lib/storageUrls';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { mergeCompletionPhotos, validateCompletionFiles, MAX_COMPLETION_PHOTOS } from '@/lib/maintenanceCompletionPhotos';
 import { maintenanceStaffLanguageOverrides } from '@/lib/maintenanceStaffLanguageOverrides';
 import { MaintenanceTicketLanguagePanel } from './MaintenanceTicketLanguagePanel';
+import { MaintenanceIssueEvidence } from './MaintenanceIssueEvidence';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { AlertTriangle, Building2, Camera, CheckCircle2, Clock3, Eye, MessageSquare, PauseCircle, Play, RefreshCw, Wrench } from 'lucide-react';
+import { AlertTriangle, Building2, Camera, CheckCircle2, Clock3, Eye, MessageSquare, PauseCircle, Play, RefreshCw, Wrench, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 type Ticket = {
@@ -30,7 +33,7 @@ const EN: Copy = {
   statusOpen: 'Open', statusProgress: 'In progress', statusHold: 'Pending', statusApproval: 'Awaiting approval', statusDone: 'Done',
   holdReason: 'Why is this pending?', parts: 'Waiting for parts', purchase: 'Purchase in progress', access: 'Waiting for room access', approvalReason: 'Waiting for approval', contractor: 'External contractor needed', other: 'Other',
   pendingDetails: 'Add details so the supervisor knows what is blocking the repair.', saveHold: 'Save pending reason', cancel: 'Cancel', saveNote: 'Save note', notePlaceholder: 'Write an update for the supervisor…',
-  resolutionPlaceholder: 'Describe the repair and what was done…', photoRequired: 'Add one completion photo before submitting.', submitApproval: 'Submit for supervisor approval',
+  resolutionPlaceholder: 'Describe the repair and what was done…', photoRequired: 'Add at least one completion photo before submitting.', submitApproval: 'Submit for supervisor approval',
   workStarted: 'Work started', holdSaved: 'Ticket marked pending', resumed: 'Work resumed', noteSaved: 'Note added', submitted: 'Submitted for supervisor approval', failed: 'Action failed', refresh: 'Refresh',
 };
 const HU: Copy = {
@@ -40,7 +43,7 @@ const HU: Copy = {
   statusOpen: 'Nyitott', statusProgress: 'Folyamatban', statusHold: 'Függőben', statusApproval: 'Jóváhagyásra vár', statusDone: 'Kész',
   holdReason: 'Miért van függőben?', parts: 'Alkatrészre vár', purchase: 'Beszerzés folyamatban', access: 'Szobahozzáférésre vár', approvalReason: 'Jóváhagyásra vár', contractor: 'Külső szakember szükséges', other: 'Egyéb',
   pendingDetails: 'Írjon részleteket, hogy a felügyelő lássa, mi akadályozza a javítást.', saveHold: 'Függő ok mentése', cancel: 'Mégse', saveNote: 'Jegyzet mentése', notePlaceholder: 'Írjon frissítést a felügyelőnek…',
-  resolutionPlaceholder: 'Írja le a javítást és az elvégzett munkát…', photoRequired: 'A beküldés előtt adjon hozzá egy befejezési fotót.', submitApproval: 'Beküldés felügyelői jóváhagyásra',
+  resolutionPlaceholder: 'Írja le a javítást és az elvégzett munkát…', photoRequired: 'A beküldés előtt adjon hozzá legalább egy befejezési fotót.', submitApproval: 'Beküldés felügyelői jóváhagyásra',
   workStarted: 'Munka elkezdve', holdSaved: 'Jegy függőben', resumed: 'Munka folytatva', noteSaved: 'Jegyzet hozzáadva', submitted: 'Jóváhagyásra beküldve', failed: 'A művelet sikertelen', refresh: 'Frissítés',
 };
 const translations: Record<string, Copy> = {
@@ -51,7 +54,7 @@ const translations: Record<string, Copy> = {
   az: { ...EN, title: 'Texniki xidmət tapşırıqlarım', active: 'Aktiv', approval: 'Təsdiq gözləyir', done: 'Tamamlandı', note: 'Qeyd əlavə et' },
   tl: { ...EN, title: 'Mga Maintenance Task Ko', active: 'Aktibo', approval: 'Naghihintay ng approval', done: 'Tapos', note: 'Magdagdag ng note' },
   uk: { ...EN, title: 'Мої завдання з техобслуговування', active: 'Активні', approval: 'Очікує схвалення', done: 'Готово', note: 'Додати нотатку' },
-  ru: { ...EN, title: 'Мои задачи по техобслуживанию', active: 'Активные', approval: 'Ожидает одобрения', done: 'Готово', note: 'Добавить заметку' },
+  ru: { ...EN, title: 'Мои задачи po техобслуживанию', active: 'Активные', approval: 'Ожидает одобрения', done: 'Готово', note: 'Добавить заметку' },
   si: EN,
 };
 const HOLD_REASONS = [
@@ -59,14 +62,22 @@ const HOLD_REASONS = [
   ['waiting_for_approval', 'approvalReason'], ['external_contractor', 'contractor'], ['other', 'other'],
 ] as const;
 
+const PHOTO_PAGE_SIZE = 500;
+const SELECT_FIELDS = `
+  id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at,
+  attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text,
+  created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
+`;
+
 export function MaintenanceStaffView() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { language } = useTranslation();
   const c: Copy = { ...(translations[language] || EN), ...(maintenanceStaffLanguageOverrides[language] || {}) };
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [completed, setCompleted] = useState<Ticket[]>([]);
   const [signedIn, setSignedIn] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'active' | 'approval' | 'done'>('active');
   const [attachmentUrls, setAttachmentUrls] = useState<Record<string, string[]>>({});
   const [historyRevision, setHistoryRevision] = useState<Record<string, number>>({});
@@ -77,9 +88,18 @@ export function MaintenanceStaffView() {
   const [holdReason, setHoldReason] = useState('');
   const [holdDetails, setHoldDetails] = useState('');
   const [resolution, setResolution] = useState('');
-  const [completionFile, setCompletionFile] = useState<File | null>(null);
+  const [completionFiles, setCompletionFiles] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<string[]>([]);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const uploadedPathsRef = useRef<Map<string, string>>(new Map());
   const [isSubmittingCompletion, setIsSubmittingCompletion] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const paths = completionFiles.map(file => URL.createObjectURL(file));
+    setPreviews(paths);
+    return () => paths.forEach(path => URL.revokeObjectURL(path));
+  }, [completionFiles]);
 
   const loadAttachmentUrls = useCallback(async (rows: Ticket[]) => {
     const map: Record<string, string[]> = {};
@@ -97,27 +117,46 @@ export function MaintenanceStaffView() {
   }, []);
 
   const refresh = useCallback(async () => {
-    if (!user?.id) return;
+    if (!user?.id || !profile?.organization_slug || !profile.assigned_hotel) {
+      setTickets([]); setCompleted([]); setLoading(false);
+      setLoadError('Unable to verify your assigned hotel.'); return;
+    }
     setLoading(true);
+    setLoadError(null);
     try {
+      const keys = await resolveHotelKeys(profile.assigned_hotel);
+      if (!keys.length) throw new Error('Your hotel could not be verified.');
+      const ownOrg = profile.organization_slug;
+      const loadPageSet = async (done: boolean): Promise<Ticket[]> => {
+        const rows: Ticket[] = [];
+        for (let offset = 0; offset < 50000; offset += PHOTO_PAGE_SIZE) {
+          let query = (supabase as any).from('tickets').select(SELECT_FIELDS)
+            .eq('assigned_to', user.id).eq('organization_slug', ownOrg)
+            .eq('department', 'maintenance').in('hotel', keys);
+          query = done
+            ? query.eq('status', 'completed').or('pending_supervisor_approval.is.null,pending_supervisor_approval.eq.false')
+            : query.or('status.neq.completed,pending_supervisor_approval.eq.true');
+          const { data, error } = await query.order('created_at', { ascending: false }).range(offset, offset + PHOTO_PAGE_SIZE - 1);
+          if (error) throw error;
+          rows.push(...((data || []) as Ticket[]));
+          if ((data || []).length < PHOTO_PAGE_SIZE) return rows;
+        }
+        throw new Error('Maintenance issue history exceeds the safe page limit. Contact an administrator.');
+      };
       const today = todayBudapest();
-      const [{ data: attendance }, { data: activeData, error: activeError }, { data: completedData, error: completedError }] = await Promise.all([
+      const [attendance, currentDuty, activeRows, completedRows] = await Promise.all([
         supabase.from('staff_attendance').select('id').eq('user_id', user.id).eq('work_date', today).eq('status', 'checked_in').limit(1),
-        (supabase as any).from('tickets').select(`
-          id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at,
-          attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text,
-          created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
-        `).eq('assigned_to', user.id).eq('department', 'maintenance').or('status.neq.completed,pending_supervisor_approval.eq.true').order('priority', { ascending: false }).order('created_at', { ascending: false }),
-        (supabase as any).from('tickets').select(`
-          id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at,
-          attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text,
-          created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
-        `).eq('assigned_to', user.id).eq('department', 'maintenance').eq('status', 'completed').or('pending_supervisor_approval.is.null,pending_supervisor_approval.eq.false').order('closed_at', { ascending: false }).limit(30),
+        (supabase as any).rpc('current_property_duty'),
+        loadPageSet(false), loadPageSet(true),
       ]);
-      if (activeError || completedError) throw activeError || completedError;
-      setSignedIn(!!attendance?.length);
-      const activeRows = (activeData || []) as Ticket[];
-      const completedRows = (completedData || []) as Ticket[];
+      if (attendance.error) throw attendance.error;
+      // An authorized, unexpired server duty session is an explicit clock-in
+      // for the selected duty venue, independently of home-hotel attendance.
+      const activeDuty = !currentDuty.error && currentDuty.data
+        && currentDuty.data.organization_slug === ownOrg
+        && currentDuty.data.expires_at && Date.parse(currentDuty.data.expires_at) > Date.now()
+        && keys.includes(currentDuty.data.hotel_id);
+      setSignedIn(Boolean(attendance.data?.length || activeDuty));
       for (const ticket of activeRows) {
         if (previouslyAwaiting.current.has(ticket.id) && !ticket.pending_supervisor_approval && ticket.status === 'in_progress') {
           toast.info(language === 'hu' ? `Javítás visszaküldve: ${ticket.ticket_number}. Nézze meg az előzményeket.` : `Repair returned for correction: ${ticket.ticket_number}. Check ticket history.`);
@@ -130,9 +169,10 @@ export function MaintenanceStaffView() {
       void loadAttachmentUrls([...activeRows, ...completedRows]);
     } catch (error) {
       console.error('Maintenance task load failed:', error);
-      toast.error(c.failed);
+      setLoadError(error instanceof Error ? error.message : c.failed);
+      setTickets([]); setCompleted([]); setSignedIn(false);
     } finally { setLoading(false); }
-  }, [user?.id, loadAttachmentUrls, c.failed, language]);
+  }, [user?.id, profile?.organization_slug, profile?.assigned_hotel, loadAttachmentUrls, c.failed, language]);
 
   useEffect(() => {
     void refresh();
@@ -184,23 +224,56 @@ export function MaintenanceStaffView() {
 
   const submitCompletion = async () => {
     if (isSubmittingCompletion) return;
-    if (!selected || !resolution.trim() || !completionFile || !user?.id) { toast.error(c.photoRequired); return; }
-    if (!completionFile.type.startsWith('image/')) { toast.error(c.photoRequired); return; }
+    if (!selected || !resolution.trim() || !user?.id || !profile?.organization_slug) { toast.error(c.photoRequired); return; }
+    const invalid = validateCompletionFiles(completionFiles);
+    if (invalid) { toast.error(invalid); return; }
     setIsSubmittingCompletion(true);
+    setUploadProgress(0);
     try {
-      const ext = completionFile.name.split('.').pop() || 'jpg';
-      const path = `${selected.id}/completion-${Date.now()}.${ext}`;
-      const { error: uploadError } = await supabase.storage.from('ticket-attachments').upload(path, completionFile, { upsert: false });
-      if (uploadError) throw uploadError;
-      const { error } = await supabase.from('tickets').update({
-        status: 'in_progress', resolution_text: resolution.trim(), completion_photos: [path], pending_supervisor_approval: true,
+      const uploaded: string[] = [];
+      for (let index = 0; index < completionFiles.length; index++) {
+        const file = completionFiles[index];
+        const signature = `${selected.id}:${file.name}:${file.size}:${file.lastModified}`;
+        let path = uploadedPathsRef.current.get(signature);
+        if (!path) {
+          const ext = file.name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+          path = `${selected.id}/completion-${crypto.randomUUID()}.${ext}`;
+          const { error: uploadError } = await supabase.storage.from('ticket-attachments').upload(path, file, { upsert: false, contentType: file.type });
+          if (uploadError) throw uploadError;
+          uploadedPathsRef.current.set(signature, path);
+        }
+        uploaded.push(path);
+        setUploadProgress(index + 1);
+      }
+      // Read the canonical current record before appending. Never overwrite
+      // photos from a prior repair or another technician's latest update.
+      const { data: latest, error: readError } = await supabase.from('tickets')
+        .select('completion_photos,updated_at')
+        .eq('id', selected.id).eq('assigned_to', user.id)
+        .eq('organization_slug', profile.organization_slug)
+        .eq('department', 'maintenance').single();
+      if (readError || !latest) throw readError || new Error('Maintenance issue was not available.');
+      const { error, data: updated } = await supabase.from('tickets').update({
+        status: 'in_progress', resolution_text: resolution.trim(),
+        completion_photos: mergeCompletionPhotos(latest.completion_photos, uploaded),
+        pending_supervisor_approval: true,
         on_hold: false, hold_reason: null, updated_at: new Date().toISOString(),
-      }).eq('id', selected.id).eq('assigned_to', user.id);
-      if (error) throw error;
-      await addComment(selected.id, `✅ ${c.submitted}: ${resolution.trim()}`);
-      toast.success(c.submitted); setResolution(''); setCompletionFile(null); setDialog(null); void refresh();
-    } catch (error) { console.error(error); toast.error(c.failed); }
-    finally { setIsSubmittingCompletion(false); }
+      }).eq('id', selected.id).eq('assigned_to', user.id)
+        .eq('organization_slug', profile.organization_slug)
+        .eq('updated_at', latest.updated_at)
+        .select('id').single();
+      if (error || !updated) throw error || new Error('The issue changed while uploading. Refresh and retry.');
+      try { await addComment(selected.id, `✅ ${c.submitted}: ${resolution.trim()} (${uploaded.length} photos)`); }
+      catch (commentError) { console.warn('Repair submitted, but the history comment could not be added:', commentError); }
+      toast.success(c.submitted);
+      setResolution(''); setCompletionFiles([]); uploadedPathsRef.current.clear();
+      setDialog(null); void refresh();
+    } catch (error) {
+      console.error(error);
+      toast.error(language === 'hu'
+        ? `Nem sikerült befejezni. ${uploadProgress} fotó feltöltve; ismételje meg a beküldést.`
+        : `Submission incomplete. Uploaded photos are retained for retry. Please retry.`);
+    } finally { setIsSubmittingCompletion(false); }
   };
 
   const filtered = activeTab === 'approval' ? tickets.filter(t => t.pending_supervisor_approval) : activeTab === 'done' ? completed : tickets.filter(t => !t.pending_supervisor_approval);
@@ -225,12 +298,13 @@ export function MaintenanceStaffView() {
       <div className={`rounded-lg border p-3 flex items-center gap-2 text-sm ${signedIn ? 'bg-green-50 border-green-200 text-green-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
         {signedIn ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}<strong>{signedIn ? c.signedIn : c.notSignedIn}</strong>
       </div>
+      {loadError && <div role="alert" className="rounded-md border border-red-300 p-3 text-sm text-red-700">{loadError} <Button variant="outline" size="sm" onClick={() => void refresh()}>Retry</Button></div>}
       <div className="grid grid-cols-3 gap-2">
         <button onClick={() => setActiveTab('active')} className={`rounded-xl border p-3 text-left ${activeTab === 'active' ? 'border-primary bg-primary/5' : ''}`}><div className="text-xs text-muted-foreground">{c.active}</div><div className="text-xl font-bold">{counts.active}</div></button>
         <button onClick={() => setActiveTab('approval')} className={`rounded-xl border p-3 text-left ${activeTab === 'approval' ? 'border-primary bg-primary/5' : ''}`}><div className="text-xs text-muted-foreground">{c.approval}</div><div className="text-xl font-bold">{counts.approval}</div></button>
         <button onClick={() => setActiveTab('done')} className={`rounded-xl border p-3 text-left ${activeTab === 'done' ? 'border-primary bg-primary/5' : ''}`}><div className="text-xs text-muted-foreground">{c.done}</div><div className="text-xl font-bold">{counts.done}</div></button>
       </div>
-      {loading ? <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div> : filtered.length === 0 ? (
+      {loadError ? null : loading ? <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" /></div> : filtered.length === 0 ? (
         <Card><CardContent className="py-12 text-center"><CheckCircle2 className="h-10 w-10 mx-auto mb-3 text-muted-foreground" /><p className="text-muted-foreground">{c.noTasks}</p></CardContent></Card>
       ) : <div className="space-y-3">{filtered.map(ticket => (
         <Card key={ticket.id} className={`overflow-hidden border-l-4 ${ticket.priority === 'urgent' ? 'border-l-red-500' : ticket.priority === 'high' ? 'border-l-orange-500' : 'border-l-primary/60'}`}>
@@ -241,13 +315,14 @@ export function MaintenanceStaffView() {
             <div className="rounded-lg bg-muted/50 p-2 text-xs"><div className="text-muted-foreground flex items-center gap-1"><Building2 className="h-3 w-3" />{c.hotel}</div><div className="font-semibold break-words">{ticket.hotel || '—'}</div></div>
             <MaintenanceTicketLanguagePanel ticket={ticket} language={language} reporterFallback={ticket.created_by_profile?.full_name} revision={historyRevision[ticket.id] || 0} />
             {ticket.on_hold && ticket.hold_reason && <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 p-2.5 text-xs flex gap-2"><PauseCircle className="h-4 w-4 shrink-0" />{c[HOLD_REASONS.find(([v]) => v === ticket.hold_reason)?.[1] || 'other']}</div>}
+            <MaintenanceIssueEvidence originalPhotos={ticket.attachment_urls} completionPhotos={ticket.completion_photos} />
             {!!attachmentUrls[ticket.id]?.length && <div className="space-y-1.5"><div className="text-xs font-semibold text-muted-foreground">{c.attachments} ({attachmentUrls[ticket.id].length})</div><div className="flex gap-2 flex-wrap">{attachmentUrls[ticket.id].map((url, idx) => <Dialog key={idx}><DialogTrigger asChild><Button size="sm" variant="outline"><Eye className="h-3.5 w-3.5 mr-1" />{idx + 1}</Button></DialogTrigger><DialogContent className="max-w-4xl"><img src={url} alt={`Attachment ${idx + 1}`} className="max-h-[80vh] w-auto mx-auto" /></DialogContent></Dialog>)}</div></div>}
             {activeTab !== 'done' && <div className="grid grid-cols-2 sm:flex gap-2">
               {ticket.status === 'open' && !ticket.pending_supervisor_approval && <Button onClick={() => void startWork(ticket)} disabled={!signedIn} className="h-10"><Play className="h-4 w-4 mr-1" />{c.start}</Button>}
               {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => { setSelected(ticket); setDialog('hold'); }}><PauseCircle className="h-4 w-4 mr-1" />{c.hold}</Button>}
               {ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => void resumeWork(ticket)} disabled={!signedIn}><Play className="h-4 w-4 mr-1" />{c.resume}</Button>}
               {!ticket.pending_supervisor_approval && <Button variant="outline" onClick={() => { setSelected(ticket); setDialog('note'); }}><MessageSquare className="h-4 w-4 mr-1" />{c.note}</Button>}
-              {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => { setSelected(ticket); setResolution(ticket.resolution_text || ''); setCompletionFile(null); if (fileRef.current) fileRef.current.value = ''; setDialog('complete'); }} className="bg-green-600 hover:bg-green-700"><CheckCircle2 className="h-4 w-4 mr-1" />{c.complete}</Button>}
+              {ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval && <Button onClick={() => { setSelected(ticket); setResolution(ticket.resolution_text || ''); setCompletionFiles([]); uploadedPathsRef.current.clear(); if (fileRef.current) fileRef.current.value = ''; setDialog('complete'); }} className="bg-green-600 hover:bg-green-700"><CheckCircle2 className="h-4 w-4 mr-1" />{c.complete}</Button>}
             </div>}
             <div className="text-[11px] text-muted-foreground flex items-center gap-1"><Clock3 className="h-3 w-3" />{new Date(ticket.updated_at || ticket.created_at).toLocaleString()}</div>
           </CardContent>
@@ -260,23 +335,31 @@ export function MaintenanceStaffView() {
           <DialogHeader><DialogTitle>{c.complete}</DialogTitle></DialogHeader>
           <Textarea value={resolution} onChange={e => setResolution(e.target.value)} placeholder={c.resolutionPlaceholder} rows={4} disabled={isSubmittingCompletion} />
           <p className="text-xs text-muted-foreground">{language === 'hu'
-            ? 'A hibabejelentés mellékletei nem helyettesítik a javítás utáni fotót. Készítsen képet, vagy válassza ki a galériából.'
-            : 'Issue attachments show the original problem. Add a separate after-repair photo using the camera or gallery.'}</p>
-          <input ref={fileRef} type="file" accept="image/*" className="sr-only" aria-label={c.photoRequired} onChange={e => {
-            const file = e.currentTarget.files?.[0] || null;
-            if (file && !file.type.startsWith('image/')) { toast.error(c.photoRequired); e.currentTarget.value = ''; setCompletionFile(null); return; }
-            setCompletionFile(file);
+            ? 'Az eredeti hibafotókat megtartjuk. Válasszon több javítás utáni fotót vagy készítsen képeket.'
+            : 'Original issue photos are preserved. Take or choose multiple after-repair photos.'}</p>
+          <input ref={fileRef} type="file" accept="image/*" multiple className="sr-only" aria-label={c.photoRequired} onChange={e => {
+            const next = [...completionFiles, ...Array.from(e.currentTarget.files || [])];
+            const invalid = validateCompletionFiles(next);
+            if (invalid) { toast.error(invalid); e.currentTarget.value = ''; return; }
+            setCompletionFiles(next);
+            e.currentTarget.value = '';
           }} />
-          <Button type="button" variant="outline" disabled={isSubmittingCompletion} className="h-auto min-h-11 w-full min-w-0 justify-start whitespace-normal break-all py-2 text-left" onClick={() => fileRef.current?.click()}>
-            <Camera className="mr-2 h-4 w-4 shrink-0" /><span className="min-w-0 flex-1">{completionFile
-              ? `${language === 'hu' ? 'Kiválasztott fotó' : 'Selected photo'}: ${completionFile.name}`
-              : language === 'hu' ? 'Befejezési fotó készítése / kiválasztása' : 'Take or choose completion photo'}</span>
+          <Button type="button" variant="outline" disabled={isSubmittingCompletion} className="h-auto min-h-11 w-full min-w-0 justify-start whitespace-normal py-2 text-left" onClick={() => fileRef.current?.click()}>
+            <Camera className="mr-2 h-4 w-4 shrink-0" /><span>{language === 'hu' ? 'Fotók készítése / kiválasztása' : 'Take or choose photos'} ({completionFiles.length}/{MAX_COMPLETION_PHOTOS})</span>
           </Button>
-          {!completionFile && <p className="text-xs text-amber-700" role="status">{c.photoRequired}</p>}
+          {completionFiles.length ? <div className="grid grid-cols-3 gap-2" aria-label={language === 'hu' ? 'Kiválasztott fotók' : 'Selected photos'}>
+            {completionFiles.map((file, index) => <div key={`${file.name}-${file.lastModified}-${index}`} className="relative rounded border p-1">
+              {previews[index] && <img src={previews[index]} alt={`${language === 'hu' ? 'Befejezési fotó' : 'Completion photo'} ${index + 1}`} className="h-20 w-full object-cover" />}
+              <p className="truncate text-[10px]">{file.name}</p>
+              <Button type="button" variant="outline" size="sm" disabled={isSubmittingCompletion} aria-label={`${language === 'hu' ? 'Fotó eltávolítása' : 'Remove photo'} ${index + 1}`}
+                onClick={() => { setCompletionFiles(files => files.filter((_, i) => i !== index)); }} className="absolute right-1 top-1 h-6 w-6 p-0"><X className="h-3 w-3" /></Button>
+            </div>)}
+          </div> : <p className="text-xs text-amber-700" role="status">{c.photoRequired}</p>}
+          {isSubmittingCompletion && <p role="status" className="text-xs">{language === 'hu' ? 'Fotók feltöltése' : 'Uploading photos'}: {uploadProgress}/{completionFiles.length}</p>}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Button type="button" className="h-auto min-h-11 w-full min-w-0 whitespace-normal py-2" variant="outline" disabled={isSubmittingCompletion} onClick={() => setDialog(null)}>{c.cancel}</Button>
             <Button type="button" className="h-auto min-h-11 w-full min-w-0 whitespace-normal break-words bg-green-600 py-2 text-center leading-snug hover:bg-green-700"
-              onClick={() => void submitCompletion()} disabled={isSubmittingCompletion || !resolution.trim() || !completionFile}>
+              onClick={() => void submitCompletion()} disabled={isSubmittingCompletion || !resolution.trim() || completionFiles.length === 0}>
               <CheckCircle2 className="mr-1 h-4 w-4 shrink-0" />{isSubmittingCompletion ? (language === 'hu' ? 'Beküldés…' : 'Submitting…') : c.submitApproval}
             </Button>
           </div>
