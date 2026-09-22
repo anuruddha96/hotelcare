@@ -4,6 +4,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useTenant } from '@/contexts/TenantContext';
 import { supabase } from '@/integrations/supabase/client';
+import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { MaintenanceIssueAnalytics } from './MaintenanceIssueAnalytics';
 import { TicketCard } from './TicketCard';
 import { CreateTicketDialog } from './CreateTicketDialog';
 import { TicketPermissionDialog } from './TicketPermissionDialog';
@@ -48,6 +50,11 @@ interface Ticket {
   updated_at: string;
   department?: string;
   hotel?: string;
+  attachment_urls?: string[] | null;
+  completion_photos?: string[] | null;
+  pending_supervisor_approval?: boolean | null;
+  resolution_text?: string | null;
+  closed_at?: string | null;
   created_by?: {
     full_name: string;
     role: string;
@@ -68,6 +75,7 @@ export function Dashboard() {
   
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
+  const [ticketLoadError, setTicketLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
@@ -136,84 +144,63 @@ export function Dashboard() {
 
   const fetchTickets = async () => {
     setLoading(true);
-    
-    console.log('fetchTickets called with profile:', profile);
-    console.log('Profile role:', profile?.role);
-    console.log('Profile id:', profile?.id);
-    
-    if (!profile || !profile.id) {
-      console.log('No profile or profile.id, returning empty tickets');
+    setTicketLoadError(null);
+    // Missing venue must never broaden to cross-hotel data.
+    if (!profile?.id || !profile.organization_slug || !profile.assigned_hotel) {
       setTickets([]);
+      setTicketLoadError('Select a hotel to view its maintenance issues.');
       setLoading(false);
       return;
     }
-
     try {
+      const hotelKeys = await resolveHotelKeys(profile.assigned_hotel);
+      if (!hotelKeys.length) throw new Error('The selected hotel could not be resolved.');
       const selectColumns = `
         *,
         created_by_profile:profiles!tickets_created_by_fkey(full_name, role),
         assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, role),
         closed_by_profile:profiles!tickets_closed_by_fkey(full_name, role)
       `;
-      
-      let query = supabase
-        .from('tickets')
-        .select(selectColumns as any)
-        .neq('status', 'completed')
-        .order('created_at', { ascending: false });
-
-      // Filter by assigned hotel if user has one selected
-      if (profile.assigned_hotel) {
-        // Get hotel name from hotel_id if needed
-        const { data: hotelConfig } = await supabase
-          .from('hotel_configurations')
-          .select('hotel_name')
-          .eq('hotel_id', profile.assigned_hotel)
-          .single();
-        
-        const hotelNameToFilter = hotelConfig?.hotel_name || profile.assigned_hotel;
-        query = query.eq('hotel', hotelNameToFilter);
+      // Completed rows were excluded server-side: Done was always zero.
+      // Page every status under the same tenant/hotel/department scope.
+      const pageSize = 1000;
+      const all: any[] = [];
+      for (let offset = 0; ; offset += pageSize) {
+        if (offset >= 50000) throw new Error('Too many maintenance issues to load. Narrow the reporting period.');
+        const { data, error } = await (supabase as any).from('tickets')
+          .select(selectColumns)
+          .eq('organization_slug', profile.organization_slug)
+          .eq('department', 'maintenance')
+          .in('hotel', hotelKeys)
+          .order('created_at', { ascending: false })
+          .range(offset, offset + pageSize - 1);
+        if (error) throw error;
+        all.push(...(data || []));
+        if ((data || []).length < pageSize) break;
       }
-
-      const { data, error } = await query;
-      
-      if (error) throw error;
-      const parsed = (data || []).map((d: any) => ({
-        id: d.id,
-        ticket_number: d.ticket_number,
-        title: d.title,
-        description: d.description,
-        room_number: d.room_number,
-        priority: d.priority,
-        status: d.status,
-        created_at: d.created_at,
-        updated_at: d.updated_at,
-        department: d.department,
-        hotel: d.hotel,
+      const parsed: Ticket[] = all.map((d: any) => ({
+        id: d.id, ticket_number: d.ticket_number, title: d.title,
+        description: d.description, room_number: d.room_number,
+        priority: d.priority, status: d.status, created_at: d.created_at,
+        updated_at: d.updated_at, department: d.department, hotel: d.hotel,
+        attachment_urls: d.attachment_urls, completion_photos: d.completion_photos,
+        resolution_text: d.resolution_text, closed_at: d.closed_at,
+        pending_supervisor_approval: d.pending_supervisor_approval,
         created_by: d.created_by_profile ? {
-          full_name: d.created_by_profile.full_name,
-          role: d.created_by_profile.role,
+          full_name: d.created_by_profile.full_name, role: d.created_by_profile.role,
         } : undefined,
         assigned_to: d.assigned_to_profile ? {
           full_name: d.assigned_to_profile.full_name,
         } : undefined,
-      })) as Ticket[];
-      
-      // Sort by priority: urgent > high > medium > low, then by created_at
+      }));
       const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 };
-      parsed.sort((a, b) => {
-        const priorityDiff = (priorityOrder[a.priority] ?? 4) - (priorityOrder[b.priority] ?? 4);
-        if (priorityDiff !== 0) return priorityDiff;
-        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      });
-      
+      parsed.sort((a, b) => (priorityOrder[a.priority] ?? 4) - (priorityOrder[b.priority] ?? 4)
+        || new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
       setTickets(parsed);
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: 'Failed to fetch tickets',
-        variant: 'destructive',
-      });
+      setTickets([]);
+      setTicketLoadError(error?.message || 'Maintenance issues could not be loaded.');
+      toast({ title: 'Maintenance issues unavailable', description: 'Retry the selected hotel.', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -237,11 +224,30 @@ export function Dashboard() {
     if (!profile?.id) return;
     fetchTickets();
     checkTodayAttendance();
-  }, [profile?.id, profile?.role]);
+  }, [profile?.id, profile?.role, profile?.assigned_hotel, profile?.organization_slug]);
 
   useEffect(() => {
     checkTodayAttendance();
   }, [profile?.id]);
+
+  // A single underlying tickets table feeds both maintenance entry points.
+  useEffect(() => {
+    if (!profile?.id || !profile.organization_slug || !profile.assigned_hotel) return;
+    const refresh = () => void fetchTickets();
+    const channel = supabase.channel(`maintenance-main-${profile.id}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'tickets',
+        filter: `organization_slug=eq.${profile.organization_slug}`,
+      }, (event: any) => {
+        const record = event.new || event.old;
+        if (!record?.department || record.department === 'maintenance') refresh();
+      }).subscribe();
+    window.addEventListener('maintenance-ticket-created', refresh);
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener('maintenance-ticket-created', refresh);
+    };
+  }, [profile?.id, profile?.assigned_hotel, profile?.organization_slug]);
 
   const filteredTickets = tickets
     .filter(ticket => {
@@ -253,14 +259,7 @@ export function Dashboard() {
     const matchesPriority = priorityFilter === 'all' || ticket.priority === priorityFilter;
     const matchesDepartment = departmentFilter === 'all' || ticket.department === departmentFilter;
     
-    const isSearchingSpecific = searchQuery.trim() !== '' && (
-      ticket.ticket_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      ticket.room_number.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-    const showCompleted = statusFilter === 'completed' || isSearchingSpecific;
-    const shouldShow = ticket.status !== 'completed' || showCompleted;
-    
-    return matchesSearch && matchesStatus && matchesPriority && matchesDepartment && shouldShow;
+    return matchesSearch && matchesStatus && matchesPriority && matchesDepartment;
   });
 
   const getTicketCounts = () => {
@@ -339,7 +338,7 @@ export function Dashboard() {
 
   // Build breadcrumb labels
   const mainTabLabels: Record<string, string> = useMemo(() => ({
-    tickets: t('dashboard.tickets'),
+    tickets: 'Maintenance issues',
     rooms: t('dashboard.rooms'),
     housekeeping: t('dashboard.housekeeping'),
     attendance: t('dashboard.workStatus'),
@@ -500,7 +499,7 @@ export function Dashboard() {
               <TabsList className="inline-flex w-auto h-10 sm:h-12 gap-1" data-training="main-tabs">
                 <TabsTrigger value="tickets" className="shrink-0 whitespace-nowrap flex items-center justify-center gap-1 sm:gap-2 text-[11px] sm:text-sm px-2 sm:px-3" data-training="tickets-tab">
                   <Ticket className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
-                  <span>Maintenance</span>
+                  <span>Maintenance issues</span>
                 </TabsTrigger>
                 <button
                   type="button"
@@ -605,7 +604,7 @@ export function Dashboard() {
             <div className="flex flex-col gap-3 sm:gap-4 justify-between items-start">
               <div>
                 <h2 className="text-xl sm:text-2xl font-bold text-foreground">
-                  {profile?.role === 'maintenance' ? t('tickets.myTickets') : t('tickets.allTickets')}
+                  {profile?.role === 'maintenance' ? 'My maintenance issues' : 'Maintenance issues'}
                   {profile?.assigned_hotel && (
                     <span className="block sm:inline text-base sm:text-lg font-normal text-muted-foreground sm:ml-2">
                       {profile.assigned_hotel}
@@ -676,20 +675,26 @@ export function Dashboard() {
                     className="text-xs sm:text-sm"
                   >
                     <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                    <span className="hidden sm:inline">{t('dashboard.newTicket')}</span>
+                    <span className="hidden sm:inline">Report maintenance issue</span>
                     <span className="sm:hidden">New</span>
                   </Button>
                 )}
               </div>
             </div>
 
+            {ticketLoadError && (
+              <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+                {ticketLoadError} <Button variant="outline" size="sm" onClick={() => void fetchTickets()}>Retry</Button>
+              </div>
+            )}
+            {isManager && <MaintenanceIssueAnalytics />}
             <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-xs sm:text-sm font-medium">{t('tickets.total')}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-xl sm:text-2xl font-bold">{counts.total}</div>
+                  <div className="text-xl sm:text-2xl font-bold">{ticketLoadError ? '—' : counts.total}</div>
                 </CardContent>
               </Card>
               <Card>
@@ -697,7 +702,7 @@ export function Dashboard() {
                   <CardTitle className="text-xs sm:text-sm font-medium">{t('tickets.open')}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-xl sm:text-2xl font-bold text-yellow-500">{counts.open}</div>
+                  <div className="text-xl sm:text-2xl font-bold text-yellow-500">{ticketLoadError ? '—' : counts.open}</div>
                 </CardContent>
               </Card>
               <Card>
@@ -705,7 +710,7 @@ export function Dashboard() {
                   <CardTitle className="text-xs sm:text-sm font-medium">{t('tickets.inProgress')}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-xl sm:text-2xl font-bold text-blue-500">{counts.inProgress}</div>
+                  <div className="text-xl sm:text-2xl font-bold text-blue-500">{ticketLoadError ? '—' : counts.inProgress}</div>
                 </CardContent>
               </Card>
               <Card>
@@ -713,7 +718,7 @@ export function Dashboard() {
                   <CardTitle className="text-xs sm:text-sm font-medium">{t('tickets.completed')}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-xl sm:text-2xl font-bold text-green-500">{counts.completed}</div>
+                  <div className="text-xl sm:text-2xl font-bold text-green-500">{ticketLoadError ? '—' : counts.completed}</div>
                 </CardContent>
               </Card>
             </div>
@@ -769,7 +774,7 @@ export function Dashboard() {
               </div>
             </div>
 
-            {loading ? (
+            {ticketLoadError ? null : loading ? (
               <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3" aria-busy="true">
                 {Array.from({ length: 6 }).map((_, i) => (
                   <div key={i} className="rounded-lg border p-4 space-y-3">

@@ -54,6 +54,7 @@ import { ApprovalReviewContext } from './ApprovalReviewContext';
 import { ApprovalHistoryView } from './ApprovalHistoryView';
 import { LateMinibarApprovals } from './LateMinibarApprovals';
 import { ForwardedMaintenanceApprovals } from './ForwardedMaintenanceApprovals';
+import { MaintenanceIssueEvidence } from './MaintenanceIssueEvidence';
 import { BreakRequestApprovalView } from './BreakRequestApprovalView';
 
 interface LinenSummaryItem {
@@ -1796,7 +1797,7 @@ export function SupervisorApprovalView({
                   <div>
                     <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
                       <Wrench className="h-5 w-5 text-blue-600" />
-                      {t('supervisor.maintenanceApprovals') || 'Maintenance Ticket Approvals'}
+                      Maintenance issues awaiting approval
                       <Badge className="bg-blue-100 text-blue-800 border-blue-300">{pendingMaintenanceTickets.length}</Badge>
                     </h3>
                   </div>
@@ -1897,32 +1898,7 @@ export function SupervisorApprovalView({
                             </div>
                           )}
 
-                          {/* Completion Photos */}
-                          {signedPhotoUrls[ticket.id] && signedPhotoUrls[ticket.id].length > 0 && (
-                            <div className="space-y-2">
-                              <h4 className="font-semibold text-foreground flex items-center gap-2 text-sm">
-                                <Camera className="h-3.5 w-3.5" />
-                                Completion Photos
-                              </h4>
-                              <div className="flex flex-wrap gap-2">
-                                {signedPhotoUrls[ticket.id].map((photoUrl: string, idx: number) => (
-                                  <a 
-                                    key={idx} 
-                                    href={photoUrl} 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="block"
-                                  >
-                                    <img 
-                                      src={photoUrl} 
-                                      alt={`Completion ${idx + 1}`}
-                                      className="w-20 h-20 object-cover rounded-lg border hover:opacity-80 transition-opacity"
-                                    />
-                                  </a>
-                                ))}
-                              </div>
-                            </div>
-                          )}
+                          <MaintenanceIssueEvidence originalPhotos={ticket.attachment_urls} completionPhotos={ticket.completion_photos} />
 
                           <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-border">
                             <Button

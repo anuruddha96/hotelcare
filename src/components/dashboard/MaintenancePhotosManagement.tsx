@@ -11,6 +11,8 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { MaintenanceIssueDialog } from './MaintenanceIssueDialog';
+import { MaintenanceIssueEvidence } from './MaintenanceIssueEvidence';
+import { MaintenanceIssueAnalytics } from './MaintenanceIssueAnalytics';
 import { canManageMaintenance, MaintenanceManagerControls, type ManagerMaintenanceTicket } from './MaintenanceManagerControls';
 
 interface MaintenanceTicket extends ManagerMaintenanceTicket {
@@ -31,18 +33,18 @@ interface MaintenanceTicket extends ManagerMaintenanceTicket {
 
 const textByLanguage: Record<string, Record<string, string>> = {
   en: {
-    title: 'Maintenance', subtitle: 'One live maintenance queue shared with Housekeeping and the main Maintenance module.',
+    title: 'Maintenance issues', subtitle: 'One live maintenance queue shared with Housekeeping and the main Maintenance module.',
     report: 'Report issue', active: 'Active', progress: 'In progress', hold: 'Pending / on hold', approval: 'Awaiting approval', done: 'Done', all: 'All',
-    noItems: 'No maintenance tickets in this view.', reportedBy: 'Reported by', assignedTo: 'Assigned to', unassigned: 'Unassigned',
+    noItems: 'No maintenance issues in this view.', reportedBy: 'Reported by', assignedTo: 'Assigned to', unassigned: 'Unassigned',
     noDuty: 'No maintenance staff was signed in when this was reported. Managers can record a manual resolution below.',
     issue: 'Issue', holdReason: 'Pending reason', resolution: 'Resolution', attachments: 'Attachments', refresh: 'Refresh',
     source: 'Source', auto: 'Auto-routed', manual: 'Manual', housekeeping: 'Housekeeping',
     statusOpen: 'Open', statusProgress: 'In progress', statusDone: 'Done',
   },
   hu: {
-    title: 'Karbantartás', subtitle: 'Egy közös, élő karbantartási sor a Takarítás és a fő Karbantartás modul számára.',
+    title: 'Karbantartási hibák', subtitle: 'Egy közös, élő karbantartási sor a Takarítás és a fő Karbantartás modul számára.',
     report: 'Hiba jelentése', active: 'Aktív', progress: 'Folyamatban', hold: 'Függőben / várakozik', approval: 'Jóváhagyásra vár', done: 'Kész', all: 'Összes',
-    noItems: 'Nincs karbantartási jegy ebben a nézetben.', reportedBy: 'Jelentette', assignedTo: 'Hozzárendelve', unassigned: 'Nincs kiosztva',
+    noItems: 'Nincs karbantartási hiba ebben a nézetben.', reportedBy: 'Jelentette', assignedTo: 'Hozzárendelve', unassigned: 'Nincs kiosztva',
     noDuty: 'A jelentéskor nem volt bejelentkezett karbantartó. A vezetők alább rögzíthetik a kézi megoldást.',
     issue: 'Hiba', holdReason: 'Várakozás oka', resolution: 'Megoldás', attachments: 'Mellékletek', refresh: 'Frissítés',
     source: 'Forrás', auto: 'Automatikus', manual: 'Kézi', housekeeping: 'Takarítás',
@@ -121,7 +123,7 @@ export function MaintenancePhotosManagement() {
   const visibleTickets = useMemo(() => tickets.filter((ticket) => {
     if (filter === 'all') return true;
     if (filter === 'done') return ticket.status === 'completed';
-    if (filter === 'approval') return !!ticket.pending_supervisor_approval && ticket.status !== 'completed';
+    if (filter === 'approval') return !!ticket.pending_supervisor_approval;
     if (filter === 'hold') return !!ticket.on_hold && ticket.status !== 'completed';
     if (filter === 'progress') return ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval;
     return ticket.status !== 'completed' && !ticket.on_hold && !ticket.pending_supervisor_approval;
@@ -131,20 +133,20 @@ export function MaintenancePhotosManagement() {
     active: tickets.filter((t) => t.status !== 'completed' && !t.on_hold && !t.pending_supervisor_approval).length,
     progress: tickets.filter((t) => t.status === 'in_progress' && !t.on_hold && !t.pending_supervisor_approval).length,
     hold: tickets.filter((t) => t.status !== 'completed' && t.on_hold).length,
-    approval: tickets.filter((t) => t.status !== 'completed' && t.pending_supervisor_approval).length,
+    approval: tickets.filter((t) => t.pending_supervisor_approval).length,
     done: tickets.filter((t) => t.status === 'completed').length,
   }), [tickets]);
 
   const statusLabel = (ticket: MaintenanceTicket) => {
-    if (ticket.status === 'completed') return c.statusDone;
     if (ticket.pending_supervisor_approval) return c.approval;
+    if (ticket.status === 'completed') return c.statusDone;
     if (ticket.on_hold) return c.hold;
     return ticket.status === 'in_progress' ? c.statusProgress : c.statusOpen;
   };
 
   const statusClass = (ticket: MaintenanceTicket) => {
-    if (ticket.status === 'completed') return 'bg-green-100 text-green-800 border-green-200';
     if (ticket.pending_supervisor_approval) return 'bg-blue-100 text-blue-800 border-blue-200';
+    if (ticket.status === 'completed') return 'bg-green-100 text-green-800 border-green-200';
     if (ticket.on_hold) return 'bg-amber-100 text-amber-800 border-amber-200';
     return ticket.status === 'in_progress'
       ? 'bg-violet-100 text-violet-800 border-violet-200'
@@ -170,6 +172,7 @@ export function MaintenancePhotosManagement() {
         </div>
       </div>
 
+      <MaintenanceIssueAnalytics />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         {([
           ['active', counts.active], ['progress', counts.progress], ['hold', counts.hold],
@@ -225,14 +228,7 @@ export function MaintenancePhotosManagement() {
                 <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800"><PauseCircle className="h-4 w-4 shrink-0" /><span><strong>{c.holdReason}:</strong> {ticket.hold_reason.replace(/_/g, ' ')}</span></div>
               )}
               {ticket.resolution_text && <div className="rounded-lg border border-green-200 bg-green-50 p-2.5 text-xs text-green-800"><strong>{c.resolution}:</strong> {ticket.resolution_text}</div>}
-              {!!ticket.attachment_urls?.length && <div className="space-y-2">
-                <div className="text-xs font-semibold text-muted-foreground">{c.attachments} ({ticket.attachment_urls.length})</div>
-                <div className="flex flex-wrap gap-2">{ticket.attachment_urls.map((url, index) => (
-                  <Dialog key={`${ticket.id}-${index}`}><DialogTrigger asChild><Button variant="outline" size="sm"><Eye className="mr-1 h-3.5 w-3.5" />{index + 1}</Button></DialogTrigger>
-                    <DialogContent className="max-w-4xl">{url.startsWith('http') ? <img src={url} alt={`Maintenance attachment ${index + 1}`} className="mx-auto max-h-[80vh] w-auto" /> : <p className="break-all text-sm">{url}</p>}</DialogContent>
-                  </Dialog>
-                ))}</div>
-              </div>}
+              <MaintenanceIssueEvidence originalPhotos={ticket.attachment_urls} completionPhotos={ticket.completion_photos} />
               {canManage && <MaintenanceManagerControls ticket={ticket} language={language} onUpdated={() => void fetchTickets()} />}
             </CardContent>
           </Card>

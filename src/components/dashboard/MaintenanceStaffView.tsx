@@ -107,12 +107,12 @@ export function MaintenanceStaffView() {
           id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at,
           attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text,
           created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
-        `).eq('assigned_to', user.id).eq('department', 'maintenance').neq('status', 'completed').order('priority', { ascending: false }).order('created_at', { ascending: false }),
+        `).eq('assigned_to', user.id).eq('department', 'maintenance').or('status.neq.completed,pending_supervisor_approval.eq.true').order('priority', { ascending: false }).order('created_at', { ascending: false }),
         (supabase as any).from('tickets').select(`
           id, ticket_number, title, description, room_number, hotel, priority, status, created_at, updated_at,
           attachment_urls, completion_photos, pending_supervisor_approval, on_hold, hold_reason, resolution_text,
           created_by_profile:profiles!tickets_created_by_fkey(full_name, role)
-        `).eq('assigned_to', user.id).eq('department', 'maintenance').eq('status', 'completed').order('closed_at', { ascending: false }).limit(30),
+        `).eq('assigned_to', user.id).eq('department', 'maintenance').eq('status', 'completed').or('pending_supervisor_approval.is.null,pending_supervisor_approval.eq.false').order('closed_at', { ascending: false }).limit(30),
       ]);
       if (activeError || completedError) throw activeError || completedError;
       setSignedIn(!!attendance?.length);
