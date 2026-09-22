@@ -255,6 +255,11 @@ export default function MonthPerformanceHeader({
   const isMonthPending = (key: string) => {
     if (loading) return true;
     if (loadedMonth && key > loadedMonth) return true;
+    // A 30-day rolling window can end partway through the next month.
+    // Never present incomplete monthly totals as a completed month.
+    const [year, month] = key.split("-").map(Number);
+    const lastDay = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+    if (loadedThrough && loadedThrough < lastDay) return true;
     const rows = metrics.filter((m) => monthKey(m.stay_date) === key);
     if (rows.length === 0) return true;
     // No synced evidence for any date in the month: the fetch has not landed,

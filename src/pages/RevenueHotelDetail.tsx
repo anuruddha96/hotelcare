@@ -137,12 +137,11 @@ export default function RevenueHotelDetail() {
   // the purple dots always describe the same stretch of time.
   const [pickupWindow, setPickupWindow] = useState<number>(PICKUP_WINDOW_48H);
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
-  // The calendar tells us how far it is scrolled; data is loaded to match so a
-  // 9- or 12-month view is never blank at the far end. It only ever grows
-  // within a session to avoid re-fetching when scrolling back.
-  const [horizonDays, setHorizonDays] = useState(190);
+  // Only the explicitly selected calendar dates are requested. Changing the
+  // month replaces the request instead of monotonically growing it.
+  const [horizonDays, setHorizonDays] = useState(30);
   const growHorizon = useCallback((days: number) => {
-    setHorizonDays((current) => (days > current ? Math.min(365, days) : current));
+    setHorizonDays(Math.max(30, Math.min(365, Math.ceil(days))));
   }, []);
   const live = useRevenueHotelData(hotelId ?? null, revenueOrgSlug, horizonDays, pickupWindow);
 
@@ -1100,7 +1099,7 @@ export default function RevenueHotelDetail() {
                       : "No successful revenue sync recorded yet."}
             </span>
             {live.extending && (
-              <span className="text-muted-foreground">· loading the rest of the year…</span>
+              <span className="text-muted-foreground">· loading selected calendar dates…</span>
             )}
             <div className="ml-auto flex items-center gap-1.5">
               {isTechnicalAdmin && (
@@ -1148,7 +1147,7 @@ export default function RevenueHotelDetail() {
 
 
           <RateStrategyGrid
-            loading={live.loading}
+            loading={live.loading || live.extending}
             today={live.today}
             hotelId={hotelId ?? null}
             organizationSlug={organizationSlug ?? null}
