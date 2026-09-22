@@ -32,14 +32,6 @@ const MANAGEMENT_ROLES = [
   'top_management_manager',
 ];
 
-const SCHEDULE_MANAGER_ROLES = [
-  ...MANAGEMENT_ROLES, 'hr', 'maintenance_manager', 'reception_manager',
-  'back_office_manager', 'control_manager', 'finance_manager', 'marketing_manager',
-];
-const SCHEDULE_EMPLOYEE_ROLES = [
-  'housekeeping', 'maintenance', 'reception', 'front_office', 'supervisor',
-  'breakfast_staff', 'marketing', 'control_finance',
-];
 const PARKING_ROLES: readonly string[] = PARKING_ISSUER_ROLES;
 
 const PMS_NAV_ITEMS: NavigationItem[] = [
@@ -81,9 +73,9 @@ const PMS_NAV_ITEMS: NavigationItem[] = [
   {
     key: 'work-schedule',
     icon: CalendarDays,
-    label: 'Work schedule / My schedule',
+    label: 'Work schedule',
     href: (basePath) => `${basePath}/work-schedule`,
-    roles: [...SCHEDULE_MANAGER_ROLES, ...SCHEDULE_EMPLOYEE_ROLES],
+    roles: ['top_management_manager', 'admin', 'hr'],
   },
   {
     key: 'revenue',
@@ -115,9 +107,14 @@ export function PMSNavigation() {
   const { t } = useTranslation();
   const basePath = `/${organizationSlug || 'rdhotels'}`;
 
+  // UI discovery only: SQL pilot grants and RLS independently enforce this
+  // account's immutable profile ID. Other RD accounts and SLNT are not enabled.
+  const scheduleVisible = profile?.organization_slug === 'rdhotels' &&
+    profile.nickname?.trim().toLowerCase() === 'anu_000' &&
+    organizationSlug === 'rdhotels';
   const visibleItems = PMS_NAV_ITEMS.filter(
     (item) => profile && item.roles.includes(profile.role) &&
-      (item.key !== 'work-schedule' || profile.organization_slug === 'rdhotels'),
+      (item.key !== 'work-schedule' || scheduleVisible),
   );
 
   if (!profile || visibleItems.length === 0) return null;
@@ -163,7 +160,7 @@ export function PMSNavigation() {
                   )}
                 >
                   <item.icon className="h-4 w-4" />
-                  <span className="hidden sm:inline">{item.key === 'work-schedule' ? (SCHEDULE_MANAGER_ROLES.includes(profile.role) ? 'Work schedule' : 'My schedule') : item.label}</span>
+                  <span className="hidden sm:inline">{item.label}</span>
                 </Button>
               </Link>
             );
