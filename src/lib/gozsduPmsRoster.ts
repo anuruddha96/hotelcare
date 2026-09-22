@@ -11,7 +11,7 @@ export type GozsduPmsRow = {
   captured_at: string | null;
 };
 export type GozsduRosterEntry = {
-  bucket: 'checkout' | 'service' | 'other' | 'noshow';
+  bucket: 'checkout' | 'service' | 'other' | 'noshow' | 'arrival';
   service: GozsduHousekeepingService;
   night: number;
   totalNights: number;
@@ -24,6 +24,17 @@ const key = (name: string | null | undefined) => String(name ?? '').normalize('N
 const day = (date: string | null | undefined) => date && /^\d{4}-\d{2}-\d{2}$/.test(date)
   ? Date.parse(`${date}T00:00:00Z`) / 86400000 : NaN;
 
+/** Only explicit, date-matched Previo arrival fields qualify; not-arrived alone is never a no-show. */
+export function isGozsduAwaitingArrival(room: LocalRoom, selectedDate: string): boolean {
+  const pms = room.pms_metadata;
+  return !!pms && pms.pmsSyncDate === selectedDate
+    && pms.arrivalToday === true && pms.notArrived === true
+    && Number(pms.reservationStatusId) === 2
+    && pms.isNoShow === false && pms.isCancelled === false
+    && pms.occupiedToday === false && pms.checkedOutToday === false
+    && pms.scheduledDepartureToday === false;
+}
+
 /** Identify a sparse selected-day feed without equating a missing row to a vacant or unavailable room. */
 export function missingGozsduPmsRooms(registry: RegistryEntry[], snapshots: GozsduPmsRow[]): string[] {
   const observed = new Set(snapshots.map(row => key(row.room_label)));
@@ -31,18 +42,15 @@ export function missingGozsduPmsRooms(registry: RegistryEntry[], snapshots: Gozs
     .map(entry => entry.pms_room_name);
 }
 
-/** Read-only, all-or-nothing reconciliation. Never manufacture an operational checkout from a sparse poll. */
+/** Read-only reconciliation. Same-day arrivals are absent from an overnight snapshot until tomorrow.
+ * Rehydrate ONLY missing arrivals with explicit date-matched Previo reservation flags.
+ * Unknown gaps, duplicates and stale batches still fail closed. */
 export function reconcileGozsduPmsRoster(
   rooms: LocalRoom[], registry: RegistryEntry[], snapshots: GozsduPmsRow[],
   selectedDate: string, now = Date.now(),
 ): { byRoom: Map<string, GozsduRosterEntry>; capturedAt: string } {
   if (!rooms.length || registry.length !== rooms.length) {
     throw new Error(`Gozsdu PMS room coverage is incomplete (${snapshots.length} snapshot / ${registry.length} registered / ${rooms.length} local).`);
-  }
-  if (snapshots.length !== registry.length) {
-    const missing = missingGozsduPmsRooms(registry, snapshots);
-    const detail = missing.length ? ` Missing from selected-day PMS: ${missing.join(', ')}. Their operating status is unchanged; booking and occupancy are UNKNOWN until verified in Previo.` : '';
-    throw new Error(`Gozsdu PMS room coverage is incomplete (${snapshots.length} snapshot / ${registry.length} registered / ${rooms.length} local).${detail}`);
   }
   const roomsById = new Map(rooms.map(room => [room.id, room]));
   const byName = new Map<string, string>();
@@ -70,24 +78,40 @@ export function reconcileGozsduPmsRoster(
     }
     const isCheckout = row.departure_date === selectedDate || row.status === 'departing'
       || String(row.housekeeping_dep || '').toUpperCase() === 'DEP';
+    const awaitingArrival = !isCheckout && isGozsduAwaitingArrival(room, selectedDate);
     const night = selected - arrival + 1;
     const totalNights = departure - arrival;
     const registryEntry = registry.find(entry => entry.room_id === roomId)!;
-    const noShow = !isCheckout && room.pms_metadata?.isNoShow === true && row.status !== 'ongoing';
-    const computedService = isCheckout || noShow || registryEntry.service_status !== 'operating'
+    const noShow = !isCheckout && !awaitingArrival && room.pms_metadata?.isNoShow === true && row.status !== 'ongoing';
+    const computedService = isCheckout || noShow || awaitingArrival || registryEntry.service_status !== 'operating'
       ? 'none' : getGozsduHousekeepingCycle({ currentNight: night, totalNights, isCheckout }).service;
     // Manual cleaning plans are date-scoped and do not modify PMS stay facts.
-    // Never turn a no-show or unavailable room into an operational task.
-    const override = !noShow && registryEntry.service_status === 'operating'
+    // Never turn a no-show, unarrived guest or unavailable room into an operational task.
+    const override = !noShow && !awaitingArrival && registryEntry.service_status === 'operating'
       ? readGozsduRoomOverride(room.pms_metadata, selectedDate) : null;
     const service = override?.service ?? computedService;
     byRoom.set(roomId, {
-      bucket: override?.bucket ?? (isCheckout ? 'checkout' : noShow ? 'noshow' : service !== 'none' ? 'service' : 'other'),
+      bucket: awaitingArrival ? 'arrival' : override?.bucket ?? (isCheckout ? 'checkout' : noShow ? 'noshow' : service !== 'none' ? 'service' : 'other'),
       service, night, totalNights, leavesTomorrow: row.departure_date === new Date((selected + 1) * 86400000).toISOString().slice(0, 10),
     });
   }
+  // The occupied-night feed intentionally omits rooms whose reservations start
+  // today. Never infer vacancy, no-show or an operational checkout from a gap.
+  for (const entry of registry) {
+    if (byRoom.has(entry.room_id)) continue;
+    const room = roomsById.get(entry.room_id)!;
+    if (!isGozsduAwaitingArrival(room, selectedDate)) {
+      const missing = missingGozsduPmsRooms(registry, snapshots);
+      throw new Error(`Gozsdu PMS room coverage is incomplete (${snapshots.length} snapshot / ${registry.length} registered / ${rooms.length} local). Missing from selected-day PMS: ${missing.join(', ')}. Their operating status is unchanged; booking and occupancy are UNKNOWN until verified in Previo.`);
+    }
+    byRoom.set(entry.room_id, {
+      bucket: 'arrival', service: 'none', night: 1,
+      totalNights: Math.max(1, Number(room.pms_metadata.totalNights) || 1),
+      leavesTomorrow: Number(room.pms_metadata.totalNights) === 1,
+    });
+  }
   if (byRoom.size !== rooms.length) throw new Error('Gozsdu PMS snapshot has unmapped local rooms.');
-  if (now - oldest > 60 * 60 * 1000 || Date.parse(latest) - oldest > 15 * 60 * 1000) {
+  if (!latest || now - oldest > 60 * 60 * 1000 || Date.parse(latest) - oldest > 15 * 60 * 1000) {
     throw new Error('Gozsdu PMS snapshot is stale or mixes sync batches. Refresh the selected day in Previo.');
   }
   return { byRoom, capturedAt: latest };
