@@ -265,3 +265,8 @@ verify_jwt = false
 # a Vault-backed worker secret for database-triggered room type notifications.
 [functions.housekeeping-room-change-email]
 verify_jwt = false
+
+# Called by authenticated employees as stock runs low, or by the database
+# scheduler with a separate Vault-backed secret. Both paths check auth in code.
+[functions.welcome-quote-refill]
+verify_jwt = false
