@@ -6,6 +6,7 @@ on:
     paths:
       - 'supabase/migrations/20260922110000_memories_automatic_service_cycle.sql'
       - 'supabase/migrations/20260922110100_memories_upload_and_manual_service_guards.sql'
+      - 'supabase/migrations/20260922110200_memories_upload_column_safety.sql'
       - 'supabase/tests/memories_service_cycle_*'
       - '.github/workflows/memories-service-cycle-sql-ci.yml'
 
@@ -46,4 +47,6 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20260920150000_stop_false_service_completions.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20260922110000_memories_automatic_service_cycle.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20260922110100_memories_upload_and_manual_service_guards.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20260922110200_memories_upload_column_safety.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/tests/memories_service_cycle_integration.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/memories_service_cycle_upload_integration.sql
