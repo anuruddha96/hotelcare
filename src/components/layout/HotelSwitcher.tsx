@@ -16,8 +16,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { HotelSwitchOverlay } from './HotelSwitchOverlay';
+import { PropertyDutySwitcher } from './PropertyDutySwitcher';
+import { dutyMarkerKey, mayRequestPropertyDuty } from '@/lib/propertyDuty';
 import { setTabHotel } from '@/lib/tabHotel';
 import { canSwitchWithinOrganization } from '@/lib/hotelSwitchScope';
+
+const LEGACY_MANAGER_ROLES = ['admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager'];
 
 export function HotelSwitcher() {
   const { profile, applyAssignedHotel } = useAuth();
@@ -28,26 +32,33 @@ export function HotelSwitcher() {
 
   const [currentHotel, setCurrentHotel] = useState<string | null>(profile?.assigned_hotel || null);
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);
+  const [dutyMode, setDutyMode] = useState(false);
 
   useEffect(() => {
     setCurrentHotel(profile?.assigned_hotel || null);
   }, [profile?.assigned_hotel]);
 
-  // This is the existing manager switcher, NOT the temporary duty feature.
-  // Maintenance/reception must only be added after server-validated duty access exists.
-  if (!profile || !['admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager'].includes(profile.role)) {
-    return null;
-  }
+  useEffect(() => {
+    const syncDuty = () => {
+      if (!profile?.id || !organizationSlug) { setDutyMode(false); return; }
+      try {
+        setDutyMode(sessionStorage.getItem(dutyMarkerKey(profile.id, organizationSlug)) === 'true');
+      } catch { setDutyMode(false); }
+    };
+    syncDuty();
+    window.addEventListener('hotelcare:duty-change', syncDuty);
+    return () => window.removeEventListener('hotelcare:duty-change', syncDuty);
+  }, [profile?.id, organizationSlug]);
 
-  if (!hotels || hotels.length === 0) {
-    return null;
-  }
+  // The permanent manager switcher and the temporary duty workflow are
+  // deliberately separate. An active duty must never overwrite assigned_hotel.
+  const canSwitchPermanent = Boolean(profile && LEGACY_MANAGER_ROLES.includes(profile.role));
+  const canUseDuty = mayRequestPropertyDuty(profile?.role);
+  if (!profile || (!canSwitchPermanent && !canUseDuty)) return null;
 
   const handleSwitchHotel = async (hotelId: string) => {
-    if (!profile || !organizationSlug || hotelId === currentHotel || switchingTo) return;
+    if (!canSwitchPermanent || dutyMode || !profile || !organizationSlug || hotelId === currentHotel || switchingTo) return;
 
-    // A visible dropdown entry (or a forged hotelId) is NOT authorization.
-    // Fail closed if the profile, route organization and destination disagree.
     const selectedHotelData = hotels.find(h => h.hotel_id === hotelId);
     if (!canSwitchWithinOrganization(organizationSlug, organization, selectedHotelData, hotelId)) {
       toast.error('This property is not available for your organization. Please refresh or contact an administrator.');
@@ -57,7 +68,6 @@ export function HotelSwitcher() {
     const hotelName = selectedHotelData!.hotel_name || hotelId;
     setSwitchingTo(hotelName);
 
-    // A slow connection must never leave the property curtain indefinitely.
     const safety = window.setTimeout(() => {
       setSwitchingTo(null);
       toast.error('Switching is taking longer than usual — please try again');
@@ -70,8 +80,7 @@ export function HotelSwitcher() {
         if (refreshError) throw new Error('Your session expired — please sign in again');
       }
 
-      // Retain existing manager behavior pending the separate temporary-duty
-      // backend. Restrict the write to this profile and organization.
+      // Existing permanent manager behavior; this is NOT a duty check-in.
       const { error } = await supabase
         .from('profiles')
         .update({ assigned_hotel: hotelId })
@@ -82,7 +91,6 @@ export function HotelSwitcher() {
 
       if (error) throw error;
 
-      // Only save the selection after the server has confirmed the write.
       setTabHotel(organizationSlug, hotelId);
       setCurrentHotel(hotelId);
       applyAssignedHotel(hotelId);
@@ -98,8 +106,6 @@ export function HotelSwitcher() {
     } catch (error: any) {
       window.clearTimeout(safety);
       setSwitchingTo(null);
-      // The previous selection was not overwritten, so a rollback cannot
-      // accidentally pin a stale property in this tab.
       toast.error(error?.message || 'Failed to switch hotel');
       console.error(error);
     }
@@ -110,40 +116,43 @@ export function HotelSwitcher() {
 
   return (
     <>
-    {switchingTo && <HotelSwitchOverlay hotelName={switchingTo} />}
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          data-tour="hotel-switcher"
-          data-training="hotel-switcher"
-          aria-label={currentHotelName}
-          className="shrink-0 gap-2 h-9 w-9 sm:w-auto sm:px-3 p-0 justify-center"
-        >
-          <Building2 className="h-4 w-4 shrink-0" />
-          <span className="hidden sm:inline truncate max-w-[140px]">{currentHotelName}</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel>Switch Hotel</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {hotels.map((hotel) => (
-          <DropdownMenuItem
-            key={hotel.hotel_id}
-            onClick={() => handleSwitchHotel(hotel.hotel_id)}
-            className="cursor-pointer"
-          >
-            <div className="flex items-center justify-between w-full">
-              <span>{hotel.hotel_name}</span>
-              {currentHotel === hotel.hotel_id && (
-                <Check className="h-4 w-4 text-primary" />
-              )}
-            </div>
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      {canUseDuty && <PropertyDutySwitcher />}
+      {canSwitchPermanent && !dutyMode && hotels.length > 0 && (
+        <>
+          {switchingTo && <HotelSwitchOverlay hotelName={switchingTo} />}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                data-tour="hotel-switcher"
+                data-training="hotel-switcher"
+                aria-label={currentHotelName}
+                className="shrink-0 gap-2 h-9 w-9 sm:w-auto sm:px-3 p-0 justify-center"
+              >
+                <Building2 className="h-4 w-4 shrink-0" />
+                <span className="hidden sm:inline truncate max-w-[140px]">{currentHotelName}</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>Switch Hotel</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {hotels.map((hotel) => (
+                <DropdownMenuItem
+                  key={hotel.hotel_id}
+                  onClick={() => handleSwitchHotel(hotel.hotel_id)}
+                  className="cursor-pointer"
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <span>{hotel.hotel_name}</span>
+                    {currentHotel === hotel.hotel_id && <Check className="h-4 w-4 text-primary" />}
+                  </div>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
+      )}
     </>
   );
 }
