@@ -51,6 +51,9 @@ export default function ExecutiveResumeRefresh() {
       setNeedsRefresh(false);
       return;
     }
+    // A fresh sign-in starts a fresh idle window, even if this tab has been
+    // displaying the login screen for a long time.
+    lastInteractionRef.current = Date.now();
 
     const markAway = () => {
       if (awaySinceRef.current === null) awaySinceRef.current = Date.now();
@@ -81,7 +84,17 @@ export default function ExecutiveResumeRefresh() {
     };
 
     const onActivity = (event: Event) => {
-      if (document.visibilityState === "hidden" || pendingRef.current) return;
+      if (document.visibilityState === "hidden") return;
+      if (pendingRef.current) {
+        // Some browsers emit click even after pointerdown was cancelled. Only
+        // allow input inside the refresh dialog once the prompt is pending.
+        const dialog = document.getElementById("idle-refresh-dialog");
+        if (!dialog || !(event.target instanceof Node) || !dialog.contains(event.target)) {
+          if (event.cancelable) event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+        return;
+      }
       if (promptIfIdle(Date.now())) {
         // The very first click/key after an idle period must not inadvertently
         // submit a form or change a price underneath the newly opened dialog.
@@ -97,7 +110,7 @@ export default function ExecutiveResumeRefresh() {
     window.addEventListener("pageshow", handleReturn);
     window.addEventListener("blur", markAway);
     window.addEventListener("focus", handleReturn);
-    for (const name of ["pointermove", "pointerdown", "keydown", "touchstart", "wheel"]) {
+    for (const name of ["pointermove", "pointerdown", "click", "keydown", "touchstart", "wheel"]) {
       window.addEventListener(name, onActivity, { capture: true, passive: false });
     }
     if (document.visibilityState === "hidden") markAway();
@@ -108,7 +121,7 @@ export default function ExecutiveResumeRefresh() {
       window.removeEventListener("pageshow", handleReturn);
       window.removeEventListener("blur", markAway);
       window.removeEventListener("focus", handleReturn);
-      for (const name of ["pointermove", "pointerdown", "keydown", "touchstart", "wheel"]) {
+      for (const name of ["pointermove", "pointerdown", "click", "keydown", "touchstart", "wheel"]) {
         window.removeEventListener(name, onActivity, true);
       }
     };
@@ -125,6 +138,7 @@ export default function ExecutiveResumeRefresh() {
 
   return (
     <div
+      id="idle-refresh-dialog"
       className="fixed inset-0 z-[2147483646] flex items-center justify-center bg-slate-950/45 p-4 backdrop-blur-md"
       role="dialog"
       aria-modal="true"
