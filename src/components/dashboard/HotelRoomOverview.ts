@@ -4,6 +4,7 @@ import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { HotelRoomOverview as LiveHotelRoomOverview } from './HotelRoomOverviewLive';
 import { GozsduRoomOverviewActions } from './GozsduRoomOverviewActions';
+import { GozsduQuietPmsNotice } from './GozsduQuietPmsNotice';
 import { HistoricalHotelRoomOverviewSaved } from './HistoricalHotelRoomOverviewSaved';
 import { MemoriesHistoricalRoomOverview } from './MemoriesHistoricalRoomOverview';
 import { RoomOperationsQuickHub } from './RoomOperationsQuickHub';
@@ -45,7 +46,10 @@ export function HotelRoomOverview(props: HotelRoomOverviewProps) {
 
   const isGozsdu = isGozsduCourtHotel(props.hotelName);
   const liveOverview = isGozsdu
-    ? React.createElement(GozsduRoomOverviewActions, props)
+    ? React.createElement(GozsduQuietPmsNotice, {
+        selectedDate: props.selectedDate,
+        children: React.createElement(GozsduRoomOverviewActions, props),
+      })
     : React.createElement(LiveHotelRoomOverview, props);
 
   const scopedOverview = isHotelMemoriesBudapest(props.hotelName)
