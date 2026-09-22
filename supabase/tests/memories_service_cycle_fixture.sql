@@ -26,7 +26,11 @@ CREATE TABLE public.rooms(
   linen_change_required boolean DEFAULT false,
   last_towel_change date, last_linen_change date
 );
-CREATE TABLE public.room_assignments (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), status text);
+CREATE TABLE public.room_assignments(
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id uuid NOT NULL REFERENCES public.rooms(id),
+  assignment_date date NOT NULL, status text
+);
 CREATE TABLE public.pms_change_events(
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   hotel_id text NOT NULL, room_id uuid, room_label text,
