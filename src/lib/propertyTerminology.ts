@@ -55,9 +55,9 @@ const PROPERTY_EXTRAS: Record<LangCode, ExtraTerms> = {
 const HOTEL_TERMS: Record<LangCode, PropertyTerms> = {
   en: { singular: 'Hotel', plural: 'Hotels', pickLabel: 'Select hotel', isProperty: false, ...HOTEL_EXTRAS.en },
   hu: { singular: 'Szálloda', plural: 'Szállodák', pickLabel: 'Válassz szállodát', isProperty: false, ...HOTEL_EXTRAS.hu },
-  es: { singular: 'Hotel', plural: 'Hoteles', pickLabel: 'Elegir hotel', isProperty: false, ...HOTEL_EXTRAS.es },
+  es: { singular: 'Hotel', plural: 'Hotels', pickLabel: 'Elegir hotel', isProperty: false, ...HOTEL_EXTRAS.es },
   vi: { singular: 'Khách sạn', plural: 'Khách sạn', pickLabel: 'Chọn khách sạn', isProperty: false, ...HOTEL_EXTRAS.vi },
-  mn: { singular: 'Зочid буудал', plural: 'Зочид буудлууд', pickLabel: 'Буудлаа сонго', isProperty: false, ...HOTEL_EXTRAS.mn },
+  mn: { singular: 'Зочид буудал', plural: 'Зочид буудлууд', pickLabel: 'Буудлаа сонго', isProperty: false, ...HOTEL_EXTRAS.mn },
   uk: { singular: 'Готель', plural: 'Готелі', pickLabel: 'Оберіть готель', isProperty: false, ...HOTEL_EXTRAS.uk },
 };
 
