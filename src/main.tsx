@@ -1,67 +1,64 @@
-// Keep this entry free of static imports: recovery must run even if React or
-// an optimized dependency cannot be fetched by an already-open mobile tab.
-const RELOAD_FLAG = "chunk_reload_at";
+// Keep this entry free of static imports: recovery must work even if React or
+// an optimized dependency cannot be fetched by an already-open browser tab.
 const RECOVERY_PARAM = "chunk-recovery";
 const isSlntRoute = /^\/slnt(?:\/|$)/.test(window.location.pathname);
 const isModuleLoadFailure = (message: string) =>
-  /dynamically imported module|Importing a module script failed|error loading dynamically|Failed to fetch dynamically|module script/i.test(message);
+  /dynamically imported module|Importing a module script failed|error loading dynamically|Failed to fetch dynamically|module script|ChunkLoadError|loading chunk/i.test(message);
 
-/** Dependency-free SLNT escape route after one failed cache-busting reload. */
-function showSlntRecoveryNotice() {
-  if (document.getElementById("hotelcare-slnt-recovery")) return;
-  const notice = document.createElement("section");
-  notice.id = "hotelcare-slnt-recovery";
-  notice.setAttribute("role", "alert");
-  notice.style.cssText = "position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;background:#101827;color:white;font:16px/1.5 system-ui,-apple-system,sans-serif";
-  const panel = document.createElement("div");
-  panel.style.cssText = "max-width:440px;width:100%;padding:24px;border:1px solid #475569;border-radius:16px;background:#1e293b";
-  const heading = document.createElement("h1");
-  heading.textContent = "This page could not finish loading";
-  heading.style.cssText = "margin:0 0 12px;font-size:22px;font-weight:650";
-  const explanation = document.createElement("p");
-  explanation.textContent = "The SLNT revenue page encountered another application-file loading error. Automatic refreshing has stopped. Your login has not been cleared.";
-  explanation.style.cssText = "margin:0 0 20px;color:#cbd5e1";
-  const workspace = document.createElement("a");
-  // Executives are normally redirected back into revenue by /slnt. The
-  // explicit tab query bypasses that redirect and opens the real dashboard.
-  workspace.href = "/slnt?tab=housekeeping";
-  workspace.textContent = "Open SLNT workspace";
-  workspace.style.cssText = "display:block;text-align:center;padding:12px;border-radius:8px;background:#2563eb;color:white;text-decoration:none;font-weight:600";
-  const retry = document.createElement("button");
-  retry.type = "button";
-  retry.textContent = "Retry revenue page";
-  retry.style.cssText = "display:block;width:100%;margin-top:10px;padding:12px;border:1px solid #64748b;border-radius:8px;background:transparent;color:white;font:inherit;cursor:pointer";
-  retry.addEventListener("click", () => {
-    try { sessionStorage.removeItem(RELOAD_FLAG); } catch { /* private mode */ }
-    const clean = new URL(window.location.href);
-    clean.searchParams.delete(RECOVERY_PARAM);
-    window.location.assign(clean.toString());
-  });
-  panel.append(heading, explanation, workspace, retry);
-  notice.appendChild(panel);
-  // Never modify the React root. This works even when React failed to load.
-  document.body.appendChild(notice);
-}
-
-const recoverFromStaleChunk = (message: string) => {
-  if (!isModuleLoadFailure(message)) return;
-  if (isSlntRoute && new URL(window.location.href).searchParams.has(RECOVERY_PARAM)) {
-    // An already-recovered document has failed again: do not reload forever.
-    showSlntRecoveryNotice();
+/** An independent fallback: never turn a failed import into a white screen. */
+function showModuleRecoveryNotice() {
+  if (!document.body) {
+    document.addEventListener("DOMContentLoaded", showModuleRecoveryNotice, { once: true });
     return;
   }
-  try {
-    const last = Number(sessionStorage.getItem(RELOAD_FLAG) || 0);
-    if (Date.now() - last < 30000) {
-      if (isSlntRoute) showSlntRecoveryNotice();
-      return;
-    }
-    sessionStorage.setItem(RELOAD_FLAG, String(Date.now()));
-  } catch { /* storage blocked — still allow the initial reload */ }
-  const next = new URL(window.location.href);
-  next.searchParams.set(RECOVERY_PARAM, String(Date.now()));
-  window.location.replace(next.toString());
-};
+  if (document.getElementById("hotelcare-module-recovery")) return;
+
+  const notice = document.createElement("section");
+  notice.id = "hotelcare-module-recovery";
+  notice.setAttribute("role", "alertdialog");
+  notice.setAttribute("aria-modal", "true");
+  notice.setAttribute("aria-labelledby", "hotelcare-module-recovery-title");
+  notice.style.cssText = "position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(15,23,42,.65);backdrop-filter:blur(8px);color:#f8fafc;font:16px/1.5 system-ui,-apple-system,sans-serif";
+
+  const panel = document.createElement("div");
+  panel.style.cssText = "max-width:440px;width:100%;padding:24px;border:1px solid #475569;border-radius:16px;background:#1e293b;box-shadow:0 20px 50px rgba(0,0,0,.3);text-align:center";
+  const heading = document.createElement("h1");
+  heading.id = "hotelcare-module-recovery-title";
+  heading.textContent = "This page needs a refresh";
+  heading.style.cssText = "margin:0 0 12px;font-size:22px;font-weight:650";
+  const explanation = document.createElement("p");
+  explanation.textContent = "An application file could not load, which can happen when an older tab is reopened. Refresh to load the latest version. Your login has not been cleared; unsaved changes may be lost.";
+  explanation.style.cssText = "margin:0 0 20px;color:#cbd5e1";
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.textContent = "Refresh HotelCare";
+  retry.style.cssText = "display:block;width:100%;padding:12px;border:0;border-radius:8px;background:#2563eb;color:white;font:inherit;font-weight:600;cursor:pointer";
+  retry.addEventListener("click", () => {
+    const next = new URL(window.location.href);
+    // Select a fresh document/module graph without losing the active hotel,
+    // route, search filters or hash. Only a direct user click navigates.
+    next.searchParams.set(RECOVERY_PARAM, String(Date.now()));
+    window.location.replace(next.toString());
+  });
+  panel.append(heading, explanation, retry);
+
+  if (isSlntRoute) {
+    const workspace = document.createElement("a");
+    workspace.href = "/slnt?tab=housekeeping";
+    workspace.textContent = "Open SLNT workspace instead";
+    workspace.style.cssText = "display:block;margin-top:12px;text-align:center;padding:12px;border:1px solid #64748b;border-radius:8px;color:white;text-decoration:none";
+    panel.appendChild(workspace);
+  }
+
+  notice.appendChild(panel);
+  // The React root must remain untouched, even when its JavaScript never ran.
+  document.body.appendChild(notice);
+  retry.focus();
+}
+
+function recoverFromStaleChunk(message: string) {
+  if (isModuleLoadFailure(message)) showModuleRecoveryNotice();
+}
 
 window.addEventListener("vite:preloadError", (event) => {
   event.preventDefault();
@@ -80,7 +77,8 @@ const loadApplication = recoveredDocument
   : import("./app-entry.tsx");
 
 void loadApplication.catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  recoverFromStaleChunk(message);
-  if (!isModuleLoadFailure(message)) throw error;
+  // Even unexpected entrypoint failures must be recoverable without a blank
+  // page or an unbounded sequence of automatic reloads.
+  console.error("HotelCare could not load its application entry", error);
+  showModuleRecoveryNotice();
 });
