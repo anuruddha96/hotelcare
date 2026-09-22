@@ -724,7 +724,7 @@ export function Dashboard() {
                   <CardTitle className="text-xs sm:text-sm font-medium">{t('tickets.completed')}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-xl sm:text-2xl font-bold text-green-500">{ticketLoadError ? '—' : counts.completed}</div>
+                  <div className="text-xl sm:text-2xl font-bold text-green-500">{ticketLoadError ? '—' : counts.done}</div>
                 </CardContent>
               </Card>
             </div>
