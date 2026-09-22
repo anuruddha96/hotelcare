@@ -1,0 +1,51 @@
+name: One-shot maintenance ticket type safety
+on:
+  push:
+    branches: [fix/maintenance-complete-298-20260922]
+    paths: [.github/workflows/maintenance-298-type-safety.yml]
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/maintenance-complete-298-20260922
+          persist-credentials: true
+      - uses: oven-sh/setup-bun@v2
+      - name: Fix required maintenance fields and type-check changed modules
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/components/dashboard/Dashboard.tsx')
+          contents = p.read_text()
+          for old, new in (
+              ('  pending_supervisor_approval?: boolean | null;', '  pending_supervisor_approval: boolean | null;'),
+              ('  resolution_text?: string | null;', '  resolution_text: string | null;'),
+          ):
+              assert contents.count(old) == 1, f'Unexpected ticket interface for {old}'
+              contents = contents.replace(old, new)
+          p.write_text(contents)
+          Path('.github/workflows/maintenance-298-type-safety.yml').unlink()
+          print('Required maintenance fields fixed and temporary workflow removed.')
+          PY
+          bun install --frozen-lockfile
+          set +e
+          bunx tsc --noEmit --pretty false > /tmp/maintenance-type-errors.txt 2>&1
+          tsc_exit=$?
+          set -e
+          echo "Global TypeScript status (may include existing unrelated modules): $tsc_exit"
+          if grep -E '^src/(components/dashboard/(Dashboard|TicketCard|TicketDetailDialog|MaintenancePhotosManagement)|lib/maintenanceQueue)(\.tsx?|/)' /tmp/maintenance-type-errors.txt; then
+            echo 'Changed maintenance modules have TypeScript errors.'
+            exit 1
+          fi
+          echo 'No TypeScript diagnostics in changed maintenance modules.'
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: align required maintenance ticket types with canonical queue'
+          git push origin HEAD:fix/maintenance-complete-298-20260922
