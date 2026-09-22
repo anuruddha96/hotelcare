@@ -42,9 +42,9 @@ export function missingGozsduPmsRooms(registry: RegistryEntry[], snapshots: Gozs
     .map(entry => entry.pms_room_name);
 }
 
-/** Read-only reconciliation. A same-day arrival is absent from an overnight snapshot until tomorrow.
- * Rehydrate ONLY such missing rows from explicit same-day Previo reservation flags. All other
- * gaps, duplicates, mapping errors and stale batches remain hard failures. */
+/** Read-only reconciliation. Same-day arrivals are absent from an overnight snapshot until tomorrow.
+ * Rehydrate ONLY missing arrivals with explicit date-matched Previo reservation flags.
+ * Unknown gaps, duplicates and stale batches still fail closed. */
 export function reconcileGozsduPmsRoster(
   rooms: LocalRoom[], registry: RegistryEntry[], snapshots: GozsduPmsRow[],
   selectedDate: string, now = Date.now(),
@@ -95,15 +95,14 @@ export function reconcileGozsduPmsRoster(
       service, night, totalNights, leavesTomorrow: row.departure_date === new Date((selected + 1) * 86400000).toISOString().slice(0, 10),
     });
   }
-  // The occupied-night feed intentionally has no selected-day row for arrivals
-  // checking in today. An explicit current-date room reservation is sufficient
-  // to fill ONLY that gap; missing unbooked or unknown rooms are not inferred.
+  // The occupied-night feed intentionally omits rooms whose reservations start
+  // today. Never infer vacancy, no-show or an operational checkout from a gap.
   for (const entry of registry) {
     if (byRoom.has(entry.room_id)) continue;
     const room = roomsById.get(entry.room_id)!;
     if (!isGozsduAwaitingArrival(room, selectedDate)) {
       const missing = missingGozsduPmsRooms(registry, snapshots);
-      throw new Error(`Gozsdu PMS room coverage is incomplete (${snapshots.length} snapshot / ${registry.length} registered / ${rooms.length} local). Missing from selected-day PMS: ${missing.join(', ')}. Booking and occupancy are UNKNOWN until verified in Previo.`);
+      throw new Error(`Gozsdu PMS room coverage is incomplete (${snapshots.length} snapshot / ${registry.length} registered / ${rooms.length} local). Missing from selected-day PMS: ${missing.join(', ')}. Their operating status is unchanged; booking and occupancy are UNKNOWN until verified in Previo.`);
     }
     byRoom.set(entry.room_id, {
       bucket: 'arrival', service: 'none', night: 1,
@@ -112,7 +111,7 @@ export function reconcileGozsduPmsRoster(
     });
   }
   if (byRoom.size !== rooms.length) throw new Error('Gozsdu PMS snapshot has unmapped local rooms.');
-  if (now - oldest > 60 * 60 * 1000 || Date.parse(latest) - oldest > 15 * 60 * 1000) {
+  if (!latest || now - oldest > 60 * 60 * 1000 || Date.parse(latest) - oldest > 15 * 60 * 1000) {
     throw new Error('Gozsdu PMS snapshot is stale or mixes sync batches. Refresh the selected day in Previo.');
   }
   return { byRoom, capturedAt: latest };
