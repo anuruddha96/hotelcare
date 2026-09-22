@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { maintenanceQueueBucket, maintenanceQueueCounts, maintenanceLocation } from '@/lib/maintenanceQueue';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -60,6 +61,7 @@ export function MaintenancePhotosManagement() {
   const { profile } = useAuth();
   const [tickets, setTickets] = useState<MaintenanceTicket[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('active');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const canCreate = hasManagerPowers(profile?.role);
@@ -73,13 +75,17 @@ export function MaintenancePhotosManagement() {
       return;
     }
     setLoading(true);
+    setLoadError(null);
     try {
       const hotelKeys = await resolveHotelKeys(profile.assigned_hotel);
       if (!hotelKeys.length) {
         setTickets([]);
         return;
       }
-      const { data, error } = await (supabase as any).from('tickets')
+      const all: MaintenanceTicket[] = [];
+      for (let offset = 0; ; offset += 1000) {
+        if (offset >= 50000) throw new Error('Too many maintenance issues to load.');
+        const { data, error } = await (supabase as any).from('tickets')
         .select(`
           id, ticket_number, title, description, room_number, hotel, priority, status,
           created_at, updated_at, assigned_to, attachment_urls, completion_photos,
@@ -92,11 +98,15 @@ export function MaintenancePhotosManagement() {
         .eq('organization_slug', profile.organization_slug)
         .in('hotel', hotelKeys)
         .order('created_at', { ascending: false })
-        .limit(300);
-      if (error) throw error;
-      setTickets((data || []) as MaintenanceTicket[]);
+        .range(offset, offset + 999);
+        if (error) throw error;
+        all.push(...((data || []) as MaintenanceTicket[]));
+        if ((data || []).length < 1000) break;
+      }
+      setTickets(all);
     } catch (error) {
       console.error('Failed to load maintenance tickets:', error);
+      setLoadError(error instanceof Error ? error.message : 'Could not load maintenance issues');
       setTickets([]);
     } finally {
       setLoading(false);
@@ -120,33 +130,20 @@ export function MaintenancePhotosManagement() {
     };
   }, [fetchTickets, profile?.id]);
 
-  const visibleTickets = useMemo(() => tickets.filter((ticket) => {
-    if (filter === 'all') return true;
-    if (filter === 'done') return ticket.status === 'completed';
-    if (filter === 'approval') return !!ticket.pending_supervisor_approval;
-    if (filter === 'hold') return !!ticket.on_hold && ticket.status !== 'completed';
-    if (filter === 'progress') return ticket.status === 'in_progress' && !ticket.on_hold && !ticket.pending_supervisor_approval;
-    return ticket.status !== 'completed' && !ticket.on_hold && !ticket.pending_supervisor_approval;
-  }), [tickets, filter]);
-
-  const counts = useMemo(() => ({
-    active: tickets.filter((t) => t.status !== 'completed' && !t.on_hold && !t.pending_supervisor_approval).length,
-    progress: tickets.filter((t) => t.status === 'in_progress' && !t.on_hold && !t.pending_supervisor_approval).length,
-    hold: tickets.filter((t) => t.status !== 'completed' && t.on_hold).length,
-    approval: tickets.filter((t) => t.pending_supervisor_approval).length,
-    done: tickets.filter((t) => t.status === 'completed').length,
-  }), [tickets]);
+  const visibleTickets = useMemo(() => tickets.filter(ticket =>
+    filter === 'all' || maintenanceQueueBucket(ticket) === filter), [tickets, filter]);
+  const counts = useMemo(() => maintenanceQueueCounts(tickets), [tickets]);
 
   const statusLabel = (ticket: MaintenanceTicket) => {
-    if (ticket.pending_supervisor_approval) return c.approval;
     if (ticket.status === 'completed') return c.statusDone;
+    if (ticket.pending_supervisor_approval) return c.approval;
     if (ticket.on_hold) return c.hold;
     return ticket.status === 'in_progress' ? c.statusProgress : c.statusOpen;
   };
 
   const statusClass = (ticket: MaintenanceTicket) => {
-    if (ticket.pending_supervisor_approval) return 'bg-blue-100 text-blue-800 border-blue-200';
     if (ticket.status === 'completed') return 'bg-green-100 text-green-800 border-green-200';
+    if (ticket.pending_supervisor_approval) return 'bg-blue-100 text-blue-800 border-blue-200';
     if (ticket.on_hold) return 'bg-amber-100 text-amber-800 border-amber-200';
     return ticket.status === 'in_progress'
       ? 'bg-violet-100 text-violet-800 border-violet-200'
@@ -172,6 +169,7 @@ export function MaintenancePhotosManagement() {
         </div>
       </div>
 
+      {loadError && <div role="alert" className="rounded-md border border-red-300 p-3 text-sm text-red-700">{loadError} <Button type="button" variant="outline" onClick={() => void fetchTickets()}>Retry</Button></div>}
       <MaintenanceIssueAnalytics />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         {([
@@ -190,7 +188,7 @@ export function MaintenancePhotosManagement() {
         </TabsList>
       </Tabs>
 
-      {loading ? <div className="flex justify-center py-12"><div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" /></div>
+      {loadError ? null : loading ? <div className="flex justify-center py-12"><div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary" /></div>
         : visibleTickets.length === 0 ? (
           <Card><CardContent className="py-12 text-center"><CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-muted-foreground" /><p className="text-muted-foreground">{c.noItems}</p></CardContent></Card>
         ) : <div className="grid gap-3">{visibleTickets.map((ticket) => (
@@ -199,7 +197,7 @@ export function MaintenancePhotosManagement() {
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <CardTitle className="text-base sm:text-lg">Room {ticket.room_number} · {ticket.title}</CardTitle>
+                    <CardTitle className="text-base sm:text-lg">{maintenanceLocation(ticket.room_number, ticket.description, language)} · {ticket.title}</CardTitle>
                     <Badge variant="outline" className={priorityClass(ticket.priority)}>{ticket.priority.toUpperCase()}</Badge>
                     <Badge variant="outline" className={statusClass(ticket)}>{statusLabel(ticket)}</Badge>
                   </div>
