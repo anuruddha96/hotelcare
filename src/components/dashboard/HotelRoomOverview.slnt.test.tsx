@@ -54,13 +54,13 @@ import { HotelRoomOverview } from './HotelRoomOverview';
 const renderOverview = (hotelName = 'SLNT Group', selectedDate = '2026-09-22') =>
   render(<HotelRoomOverview selectedDate={selectedDate} hotelName={hotelName} staffMap={{ hk1: 'Housekeeper' }} />);
 
-describe('SLNT Team View property-row isolation', () => {
+describe('SLNT Team View isolation', () => {
   beforeEach(() => {
     tenant.slug = 'slnt';
     tenant.venues = true;
   });
 
-  it.each(['slnt', 'slnt-group'])('wraps the live board for active tenant %s without replacing its props or actions', (slug) => {
+  it.each(['slnt', 'slnt-group'])('wraps the existing live room board for tenant %s without replacing props/actions', slug => {
     tenant.slug = slug;
     const { container } = renderOverview();
     expect(container.querySelector('.slnt-team-property-rows')).toContainElement(screen.getByTestId('live-overview'));
@@ -70,14 +70,14 @@ describe('SLNT Team View property-row isolation', () => {
     expect(screen.getByTestId('drop-boundary')).toBeInTheDocument();
   });
 
-  it.each(['rdhotels', 'other', ''])('does not style another organization (%s)', (slug) => {
+  it.each(['rdhotels', 'other', ''])('does not style another organization (%s)', slug => {
     tenant.slug = slug;
     const { container } = renderOverview('Hotel Ottofiori');
     expect(container.querySelector('.slnt-team-property-rows')).toBeNull();
     expect(screen.getByTestId('live-overview')).toBeInTheDocument();
   });
 
-  it('respects the active tenant feature flag', () => {
+  it('respects the tenant feature flag', () => {
     tenant.venues = false;
     const { container } = renderOverview();
     expect(container.querySelector('.slnt-team-property-rows')).toBeNull();
@@ -103,26 +103,24 @@ describe('SLNT Team View property-row isolation', () => {
   });
 });
 
-describe('SLNT stylesheet safety', () => {
-  // Vitest rewrites import.meta.url to a virtual module URL; use the test
-  // process's repository root to read the real stylesheet on disk.
+describe('SLNT flat-board stylesheet safety', () => {
   const css = readFileSync(resolve(process.cwd(), 'src/components/dashboard/slnt-team-property-rows.css'), 'utf8');
 
-  it('parses as CSS and scopes every rule to SLNT Team View', () => {
+  it('parses CSS and scopes every rule to authenticated SLNT Team View', () => {
     const root = postcss.parse(css);
     let count = 0;
-    root.walkRules((rule) => {
+    root.walkRules(rule => {
       count++;
-      expect(rule.selector).toContain('[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview');
+      rule.selector.split(',').forEach(selector => expect(selector.trim()).toContain('[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview'));
     });
-    expect(count).toBeGreaterThan(5);
+    expect(count).toBeGreaterThan(8);
   });
 
-  it('switches the property rail using available container width, not viewport width', () => {
-    const root = postcss.parse(css);
-    const containerQueries: string[] = [];
-    root.walkAtRules('container', (rule) => { containerQueries.push(rule.params); });
-    expect(containerQueries).toContain('(min-width: 34rem)');
+  it('uses one flat chip board in either saved density mode instead of a property rail', () => {
+    expect(css).toContain('div[class~="columns-1"]');
+    expect(css).toContain('div[class~="space-y-2"]:has(');
+    expect(css).toContain('display: contents');
     expect(css).toContain('div[class~="animate-fade-in"]');
+    expect(css).not.toContain('@container');
   });
 });
