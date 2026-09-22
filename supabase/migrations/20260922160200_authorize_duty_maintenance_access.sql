@@ -25,9 +25,8 @@ $fn$;
 REVOKE ALL ON FUNCTION public.has_active_property_duty(text,text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.has_active_property_duty(text,text) TO authenticated;
 
--- An overriding permissive policy left behind from an earlier migration must
--- not bypass tenant boundaries. Restrictive policies AND with all permissive
--- ticket rules, including historical or future rules, for authenticated users.
+-- Restrictive policies AND with every permissive ticket policy; an old broad
+-- SELECT/UPDATE rule cannot bypass the caller's organization boundary.
 DROP POLICY IF EXISTS property_duty_tenant_boundary ON public.tickets;
 CREATE POLICY property_duty_tenant_boundary ON public.tickets
 AS RESTRICTIVE FOR ALL TO authenticated
@@ -40,8 +39,9 @@ WITH CHECK (
   OR (organization_slug IS NOT NULL AND organization_slug = public.get_user_organization_slug(auth.uid()))
 );
 
--- Preserve the existing role-specific access config; a cross-property duty
--- extends only the hotel_only or assigned_and_created location predicate.
+-- Retain the existing department/access config and exact permanent profile
+-- hotel lookup from the previously installed RLS migration. No unchecked
+-- client-selected hotel ID is consulted.
 DROP POLICY IF EXISTS "Users can view tickets based on access config" ON public.tickets;
 CREATE POLICY "Users can view tickets based on access config" ON public.tickets
 FOR SELECT TO authenticated USING (
@@ -61,7 +61,7 @@ FOR SELECT TO authenticated USING (
             config.access_scope = 'all_hotels'
             OR (config.access_scope = 'hotel_only'
               AND (
-                public.get_hotel_name_from_id(public.get_user_assigned_hotel(auth.uid())) =
+                public.get_hotel_name_from_id((SELECT p.assigned_hotel FROM public.profiles p WHERE p.id = auth.uid())) =
                   public.get_hotel_name_from_id(tickets.hotel)
                 OR public.has_active_property_duty(tickets.organization_slug, tickets.hotel)
               ))
@@ -71,7 +71,7 @@ FOR SELECT TO authenticated USING (
                 OR (
                   config.department = tickets.department
                   AND (
-                    public.get_hotel_name_from_id(public.get_user_assigned_hotel(auth.uid())) =
+                    public.get_hotel_name_from_id((SELECT p.assigned_hotel FROM public.profiles p WHERE p.id = auth.uid())) =
                       public.get_hotel_name_from_id(tickets.hotel)
                     OR public.has_active_property_duty(tickets.organization_slug, tickets.hotel)
                   )
@@ -84,7 +84,8 @@ FOR SELECT TO authenticated USING (
 );
 
 -- Private ticket-attachments signing uses this predicate. Keep both the
--- organization and the configured department permission requirement.
+-- organization and the configured department permission requirement. The
+-- get_user_access_config signature returns a RECORD: declare its columns.
 CREATE OR REPLACE FUNCTION public.user_can_view_ticket(ticket_id uuid)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO '' AS $fn$
   SELECT EXISTS (
@@ -93,7 +94,9 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO '' AS $f
     WHERE t.id = ticket_id
       AND t.organization_slug = p.organization_slug
       AND EXISTS (
-        SELECT 1 FROM public.get_user_access_config(p.role) cfg
+        SELECT 1 FROM public.get_user_access_config(p.role) AS cfg(
+          department, access_scope, can_manage_all
+        )
         WHERE cfg.can_manage_all = true
           OR ((cfg.department = 'all' OR cfg.department = t.department
                 OR (cfg.department = 'front_office' AND t.department = 'reception'))
