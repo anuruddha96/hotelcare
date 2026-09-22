@@ -140,7 +140,6 @@ export default function RevenueHotelDetail() {
   // The six-month outlook needs roughly 210 stay dates on hand, otherwise the
   // later month cards never leave their "loading" state and bookings taken
   // today for far-out stay dates are trimmed away from the counters.
-  const BASE_HORIZON_DAYS = 210;
   const [horizonDays, setHorizonDays] = useState(BASE_HORIZON_DAYS);
   const growHorizon = useCallback((days: number) => {
     setHorizonDays(Math.max(BASE_HORIZON_DAYS, Math.min(365, Math.ceil(days))));
