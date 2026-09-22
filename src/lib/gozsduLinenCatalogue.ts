@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { translateLinenItem } from '@/lib/linen-item-i18n';
+import { isMemoriesHotel, loadMemoriesLinenCatalogue } from '@/lib/memoriesLinen';
 
 export type LinenCatalogueItem = { id: string; name: string; display_name: string; sort_order: number };
 
@@ -30,7 +31,7 @@ const LOCALIZED: Record<Language, readonly string[]> = {
   az: ['YENİ böyük dəsmal', 'YENİ kiçik dəsmal', 'Böyük dəsmal', 'Kiçik dəsmal', 'Yastıq üzü', 'Yorğan üzü', 'Yataq mələfəsi', 'Ayaq dəsmalı', 'Yastıq içliyi', 'Yorğan içliyi', 'Böyük döşək örtüyü', 'Kiçik döşək örtüyü', 'Dekorativ yastıq üzü', 'Dekorativ yastıq içliyi', 'Qalın pərdə'],
   tl: ['BAGONG malaking tuwalya', 'BAGONG maliit na tuwalya', 'Malaking tuwalya', 'Maliit na tuwalya', 'Punda ng unan', 'Punda ng kumot', 'Sapín', 'Tuwalya sa paa', 'Palaman ng unan', 'Palaman ng kumot', 'Malaking takip ng kutson', 'Maliit na takip ng kutson', 'Punda ng pandekorasyong unan', 'Palaman ng pandekorasyong unan', 'Kurtinang harang sa liwanag'],
   uk: ['НОВИЙ великий рушник', 'НОВИЙ малий рушник', 'Великий рушник', 'Малий рушник', 'Наволочка', 'Підковдра', 'Простирадло', 'Рушник для ніг', 'Наповнювач подушки', 'Наповнювач ковдри', 'Великий чохол матраца', 'Малий чохол матраца', 'Наволочка декоративної подушки', 'Наповнювач декоративної подушки', 'Щільна штора'],
-  ru: ['НОВОЕ большое полотенце', 'НОВОЕ маленькое полотенце', 'Большое полотенце', 'Маленькое полотенце', 'Наволочка', 'Пододеяльник', 'Простыня', 'Полотенце для ног', 'Наполнитель подушки', 'Наполнитель одеяла', 'Большой чехол матраса', 'Малый чехол матраса', 'Чехол декоративной подушки', 'Наполнитель декоративной подушки', 'Плотная штора'],
+  ru: ['НОВОЕ большое полотенце', 'НОВОЕ маленькое полотенце', 'Большое полотенце', 'Маленькое полотенце', 'Наволочка', 'Пододеяльник', 'Простыня', 'Полотенце для ног', 'Наполнитель подушки', 'Наполнитель одеяла', 'Большой чехол матраса', 'Малый чехол матraса', 'Чехол декоративной подушки', 'Наполнитель декоративной подушки', 'Плотная штора'],
 };
 
 export function gozsduLinenLabel(item: Pick<LinenCatalogueItem, 'name' | 'display_name'>, language: string, t: (key: string) => string): string {
@@ -40,9 +41,10 @@ export function gozsduLinenLabel(item: Pick<LinenCatalogueItem, 'name' | 'displa
   return LOCALIZED[selected][index] || GOZSDU_LINEN_ENGLISH[index];
 }
 
-/** Use on every user-facing linen input; never change the shared catalogue. */
+/** User-facing linen inputs: separate Gozsdu, Memories, and shared hotel catalogues. */
 export async function loadHotelLinenCatalogue(hotel: string | null | undefined): Promise<LinenCatalogueItem[]> {
   if (!hotel) return [];
+  if (isMemoriesHotel(hotel)) return loadMemoriesLinenCatalogue();
   const gozsdu = isGozsduCourtHotel(hotel);
   let query = (supabase as any).from('dirty_linen_items')
     .select('id,name,display_name,sort_order').eq('is_active', true);
