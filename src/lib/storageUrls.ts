@@ -1,34 +1,32 @@
 import { supabase } from '@/integrations/supabase/client';
 
 /**
- * Generate signed URLs for ticket attachment photos
- * Handles both storage paths and existing public/signed URLs
- * 
+ * Generate signed URLs for ticket attachment photos.
+ * Handles both storage paths and existing public/signed URLs.
+ *
  * @param photos - Array of photo paths or URLs
  * @param bucketName - Storage bucket name (default: 'ticket-attachments')
- * @param expiresIn - Expiration time in seconds (default: 3600 = 1 hour)
+ * @param expiresIn - Expiration in seconds (default: 300 = five minutes).
+ * A signed URL cannot be revoked merely by ending a duty session; keep its
+ * validity short and allow the photo viewer to re-sign when needed.
  */
 export async function getSignedPhotoUrls(
   photos: string[] | null | undefined,
   bucketName: string = 'ticket-attachments',
-  expiresIn: number = 3600
+  expiresIn: number = 300
 ): Promise<string[]> {
   if (!photos || photos.length === 0) return [];
-  
+
   const signedUrls: string[] = [];
-  
+
   for (const photo of photos) {
     try {
-      // If it's already a full URL (starts with http), extract the path and create signed URL
       if (photo.startsWith('http')) {
-        // Check if it's a Supabase storage URL (public or signed)
         const publicPattern = /\/storage\/v1\/object\/public\/([^/]+)\/(.+?)(?:\?|$)/;
         const signedPattern = /\/storage\/v1\/object\/sign\/([^/]+)\/(.+?)(?:\?|$)/;
-        
-        let match = photo.match(publicPattern) || photo.match(signedPattern);
-        
+
+        const match = photo.match(publicPattern) || photo.match(signedPattern);
         if (match) {
-          // Extract bucket and path, create fresh signed URL
           const [, bucket, encodedPath] = match;
           const path = decodeURIComponent(encodedPath);
           const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, expiresIn);
@@ -38,11 +36,10 @@ export async function getSignedPhotoUrls(
             console.warn('Failed to create signed URL for:', path, error);
           }
         } else {
-          // Not a recognizable storage URL, skip or use as-is if it's an external URL
+          // Do not render an unverified external URL as ticket evidence.
           console.warn('Unrecognized URL format:', photo);
         }
       } else {
-        // It's a storage path (e.g., "ticketId/completion-123.jpg"), create signed URL
         const { data, error } = await supabase.storage.from(bucketName).createSignedUrl(photo, expiresIn);
         if (data?.signedUrl && !error) {
           signedUrls.push(data.signedUrl);
@@ -54,19 +51,15 @@ export async function getSignedPhotoUrls(
       console.error('Error generating signed URL for:', photo, error);
     }
   }
-  
+
   return signedUrls;
 }
 
-/**
- * Extract storage path from a full URL or return the path if already a path
- */
+/** Extract storage path from a full URL or return the original storage path. */
 export function extractStoragePath(url: string): string {
   if (!url.startsWith('http')) return url;
-  
-  // Match Supabase storage URL pattern (both public and signed)
+
   const pattern = /\/storage\/v1\/object\/(?:public|sign)\/[^/]+\/(.+?)(?:\?|$)/;
   const match = url.match(pattern);
-  
   return match ? decodeURIComponent(match[1]) : url;
 }
