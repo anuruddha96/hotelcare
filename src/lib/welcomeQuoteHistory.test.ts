@@ -7,7 +7,7 @@ function store(items: Record<string, string>): Storage {
     length: keys.length,
     key(index: number) { return keys[index] ?? null; },
     getItem(key: string) { return items[key] ?? null; },
-  } as Storage;
+  } as unknown as Storage;
 }
 
 describe('legacy quote history migration', () => {

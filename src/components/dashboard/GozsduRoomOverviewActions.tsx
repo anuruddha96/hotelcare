@@ -184,7 +184,7 @@ export function GozsduRoomOverviewActions(props: Props) {
       if (assignmentsResult.error) throw assignmentsResult.error;
       const fresh = freshResult.data;
       if (!fresh || registryResult.data?.service_status !== 'operating') throw new Error('This Gozsdu room is no longer available. Refresh and retry.');
-      if (fresh.pms_metadata?.isNoShow === true) throw new Error('No-show rooms cannot be assigned to cleaning.');
+      if ((fresh.pms_metadata as any)?.isNoShow === true) throw new Error('No-show rooms cannot be assigned to cleaning.');
       assignmentTypes = (assignmentsResult.data || []) as Assignment[];
       if (assignmentTypes.some(row => row.status === 'in_progress' || row.status === 'completed')) {
         throw new Error('Cleaning has started or finished. Resolve the active assignment before changing this room.');

@@ -91,6 +91,7 @@ export function HotelRoomOverview(props: HotelRoomOverviewProps) {
       selectedDate: props.selectedDate,
       hotelName: props.hotelName,
       isGozsdu,
-    }, overview),
+      children: overview,
+    }),
   );
 }

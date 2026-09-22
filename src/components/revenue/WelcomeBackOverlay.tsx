@@ -76,7 +76,7 @@ function claimOnce(userId: string): Promise<QuoteResult> {
 
       // Replenish proactively near the end of this person's role-specific pool.
       // Run outside the UI flow so a slow OpenAI request cannot delay login.
-      void supabase.rpc("welcome_quote_remaining" as never).then(({ data: left, error: countError }) => {
+      void Promise.resolve(supabase.rpc("welcome_quote_remaining" as never)).then(({ data: left, error: countError }) => {
         if (!countError && typeof left === "number" && left <= LOW_STOCK_THRESHOLD) {
           void askForRefill("low_stock");
         }

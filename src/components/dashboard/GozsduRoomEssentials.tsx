@@ -80,7 +80,7 @@ export function GozsduRoomEssentials({ roomId, roomLabel, selectedDate, serviceL
       .select('id,hotel,status,notes,room_size_sqm,towel_change_required,linen_change_required,is_dnd,pms_metadata')
       .eq('id', roomId).in('hotel', HOTEL_KEYS).maybeSingle();
     if (error) throw error;
-    if (!data || data.pms_metadata?.isNoShow === true) throw new Error('This Gozsdu room is unavailable for editing.');
+    if (!data || (data.pms_metadata as any)?.isNoShow === true) throw new Error('This Gozsdu room is unavailable for editing.');
     return data as Room;
   };
   const changeRoom = async (key: 'towel_change_required' | 'linen_change_required' | 'notes', value: boolean | string | null, message: string) => {
