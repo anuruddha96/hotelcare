@@ -17,6 +17,7 @@ import {
 import { toast } from 'sonner';
 import { HotelSwitchOverlay } from './HotelSwitchOverlay';
 import { PropertyDutySwitcher } from './PropertyDutySwitcher';
+import { PropertyDutyRoster } from './PropertyDutyRoster';
 import { dutyMarkerKey, mayRequestPropertyDuty } from '@/lib/propertyDuty';
 import { setTabHotel } from '@/lib/tabHotel';
 import { canSwitchWithinOrganization } from '@/lib/hotelSwitchScope';
@@ -50,8 +51,6 @@ export function HotelSwitcher() {
     return () => window.removeEventListener('hotelcare:duty-change', syncDuty);
   }, [profile?.id, organizationSlug]);
 
-  // The permanent manager switcher and the temporary duty workflow are
-  // deliberately separate. An active duty must never overwrite assigned_hotel.
   const canSwitchPermanent = Boolean(profile && LEGACY_MANAGER_ROLES.includes(profile.role));
   const canUseDuty = mayRequestPropertyDuty(profile?.role);
   if (!profile || (!canSwitchPermanent && !canUseDuty)) return null;
@@ -117,6 +116,7 @@ export function HotelSwitcher() {
   return (
     <>
       {canUseDuty && <PropertyDutySwitcher />}
+      {canSwitchPermanent && <PropertyDutyRoster />}
       {canSwitchPermanent && !dutyMode && hotels.length > 0 && (
         <>
           {switchingTo && <HotelSwitchOverlay hotelName={switchingTo} />}
