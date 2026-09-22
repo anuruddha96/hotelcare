@@ -1038,6 +1038,32 @@ export function AutoRoomAssignment({
     lockedSectionTasks.forEach((value, taskId) => {
       if (value.status !== 'assigned' && value.assignedTo) fixedAreaOwners.set(taskId, value.assignedTo);
     });
+    // A room can enter progress after the board opened. Always reload its
+    // live ownership before suggesting any rearrangement; manager unlocks must
+    // never override an active in-progress or DND retry assignment.
+    const inProgressRoomIds = new Set<string>();
+    if (!isNextDayPlanning && roomsToAssign.length) {
+      const { data: currentWork, error: currentWorkError } = await supabase
+        .from('room_assignments')
+        .select('room_id,assigned_to,status')
+        .eq('assignment_date', selectedDate)
+        .in('room_id', roomsToAssign.map(room => room.id));
+      if (currentWorkError) {
+        toast.error('Cannot verify current room ownership. Refresh before regenerating.');
+        return;
+      }
+      const previewOwners = new Map(assignmentPreviews.flatMap(person =>
+        person.rooms.map(room => [room.id, person.staffId] as const)));
+      for (const row of currentWork || []) {
+        if (row.status !== 'in_progress' && row.status !== 'dnd_pending_retry') continue;
+        if (previewOwners.get(row.room_id) !== row.assigned_to) {
+          toast.error('An in-progress room changed since the preview. Refresh before regenerating.');
+          return;
+        }
+        inProgressRoomIds.add(row.room_id);
+      }
+    }
+    const enforcedLocks = new Set([...lockedRoomIds, ...inProgressRoomIds]);
     hotelConfig.staffPreferences = historicalPreferences;
     const result = generateSmartHousekeepingPlan({
       rooms: roomsToAssign,
@@ -1047,7 +1073,7 @@ export function AutoRoomAssignment({
       hotelConfig,
       goal: planningGoal,
       previous: assignmentPreviews.length ? assignmentPreviews : undefined,
-      lockedRoomIds,
+      lockedRoomIds: enforcedLocks,
       shiftMinutes,
       publicAreaTemplates: sectionTaskTemplates,
       fixedAreaOwners,
