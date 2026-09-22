@@ -1,0 +1,31 @@
+name: Housekeeping source integration (temporary)
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  integrate:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/housekeeping-smart-regeneration-348'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/housekeeping-smart-regeneration-348
+          persist-credentials: true
+      - name: Patch exactly the reviewed large UI source once
+        run: |
+          if ! grep -q 'generateSmartHousekeepingPlan({' src/components/dashboard/AutoRoomAssignmentImpl.tsx; then
+            node scripts/run-housekeeping-348.mjs
+            git diff --check
+            git config user.name 'hotelcare-dev-automation'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add src/components/dashboard/AutoRoomAssignmentImpl.tsx scripts/apply-housekeeping-348.mjs
+            git commit -m 'feat(housekeeping): wire smart planner into tenant-safe board and next-day UI'
+            git push origin HEAD:fix/housekeeping-smart-regeneration-348
+          else
+            echo 'Source integration already applied; no write performed.'
+          fi
