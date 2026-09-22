@@ -27,7 +27,7 @@ export function WorkScheduleAccessGate({ children }: { children: ReactNode }) {
       if (active) setPermission({ key, allowed: false });
     });
     return () => { active = false; };
-  }, [key, loading, user, profile, organizationSlug]);
+  }, [key, loading, organizationSlug]);
 
   if (loading) return <div className="p-8" role="status">Checking schedule access…</div>;
   if (!user || !profile) return <Navigate to={`/${organizationSlug || 'rdhotels'}/auth`} replace />;
