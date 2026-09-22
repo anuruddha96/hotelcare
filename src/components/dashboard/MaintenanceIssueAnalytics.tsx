@@ -44,7 +44,7 @@ export function MaintenanceIssueAnalytics() {
       for (let offset = 0; ; offset += 1000) {
         if (offset >= 20000) throw new Error('More than 20,000 issues found. Reporting requires a narrower date range.');
         const { data, error: queryError } = await (supabase as any).from('tickets')
-          .select('id, ticket_number, title, priority, hotel, assigned_to, status, pending_supervisor_approval, on_hold, room_number, created_at, closed_at, sla_due_date, attachment_urls, completion_photos')
+          .select('id, ticket_number, title, priority, hotel, assigned_to, status, pending_supervisor_approval, supervisor_approved, on_hold, room_number, created_at, closed_at, sla_due_date, attachment_urls, completion_photos')
           .eq('organization_slug', profile.organization_slug).eq('department', 'maintenance')
           .in('hotel', hotels).gte('created_at', since)
           .order('created_at', { ascending: false }).range(offset, offset + 999);
@@ -62,7 +62,7 @@ export function MaintenanceIssueAnalytics() {
   const metrics = useMemo(() => summarizeMaintenanceIssues(rows), [rows]);
   const exportCsv = () => {
     if (!rows.length || error) return;
-    const columns = ['ticket_number','hotel','room_number','title','priority','status','pending_supervisor_approval','on_hold','created_at','closed_at','sla_due_date','assigned_to'] as const;
+    const columns = ['ticket_number','hotel','room_number','title','priority','status','pending_supervisor_approval','supervisor_approved','on_hold','created_at','closed_at','sla_due_date','assigned_to'] as const;
     const csv = [columns.map(csvCell).join(','), ...rows.map(row => columns.map(col => csvCell(row[col])).join(','))].join('\r\n');
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
     const anchor = document.createElement('a');
@@ -85,10 +85,10 @@ export function MaintenanceIssueAnalytics() {
     </div>
     {loading ? <p role="status" className="text-sm">Loading issue analytics…</p> : error ? <p role="alert" className="text-sm text-red-700">{error}</p> : <>
       <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4 lg:grid-cols-8">
-        {([['Created',metrics.total],['Open',metrics.open],['In progress',metrics.inProgress],['On hold',metrics.onHold],['Awaiting approval',metrics.awaitingApproval],['Work done',metrics.completed],['Approved',metrics.approved],['Overdue active',metrics.overdue]] as const).map(([label,number]) =>
+        {([['Created',metrics.total],['Open',metrics.open],['In progress',metrics.inProgress],['On hold',metrics.onHold],['Awaiting approval',metrics.awaitingApproval],['Work done',metrics.completed],['Supervisor approved',metrics.approved],['Overdue active',metrics.overdue]] as const).map(([label,number]) =>
           <div key={label} className="rounded-md border p-2"><div className="text-xs text-muted-foreground">{label}</div><div className="text-xl font-bold">{number}</div></div>)}
       </div>
-      <p className="text-xs text-muted-foreground">Average approved completion time: {metrics.averageHours === null ? 'Not available' : `${metrics.averageHours.toFixed(1)} hours`} · No photo evidence: {metrics.missingEvidence} · Repeated rooms: {metrics.repeatedRooms.slice(0, 5).map(([room,count]) => `${room} (${count})`).join(', ') || 'None'}.</p>
+      <p className="text-xs text-muted-foreground">Average completed-issue time: {metrics.averageHours === null ? 'Not available' : `${metrics.averageHours.toFixed(1)} hours`} · No photo evidence: {metrics.missingEvidence} · Repeated rooms: {metrics.repeatedRooms.slice(0, 5).map(([room,count]) => `${room} (${count})`).join(', ') || 'None'}.</p>
     </>}
   </CardContent></Card>;
 }
