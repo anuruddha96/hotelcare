@@ -1,13 +1,4 @@
-/**
- * SLNT group operates airbnbs / long-term rentals, not hotels, so we relabel
- * "Hotel" as "Property" everywhere in their UI. Every other organization
- * (memories, mika, etc.) keeps the "Hotel" wording unchanged.
- *
- * Usage:
- *   const t = usePropertyTerms(); // { singular: 'Property', plural: 'Properties', pickLabel: 'Select property' }
- *   <Label>{t.singular}</Label>
- */
-
+/** SLNT terminology: property names change only for the SLNT organizations. */
 import { useMemo } from 'react';
 import { useTenant } from '@/contexts/TenantContext';
 import type { LangCode } from '@/components/training/v2/types';
@@ -16,14 +7,11 @@ export type PropertyTerms = {
   singular: string;
   plural: string;
   pickLabel: string;
-  isProperty: boolean; // true for SLNT-like orgs
-  /** "Room" for hotels, "Unit" for rental operators. */
+  isProperty: boolean;
   unit: string;
   unitPlural: string;
-  /** "Hotel"/"Floor" grouping label vs. physical address grouping. */
   venue: string;
   venuePlural: string;
-  /** Team view section headings. */
   checkoutSection: string;
   dailySection: string;
   noShowSection: string;
@@ -31,6 +19,7 @@ export type PropertyTerms = {
 
 type ExtraTerms = Omit<PropertyTerms, 'singular' | 'plural' | 'pickLabel' | 'isProperty'>;
 
+// Keep RD Hotels and all non-SLNT translations and behavior unchanged.
 const HOTEL_EXTRAS: Record<LangCode, ExtraTerms> = {
   en: { unit: 'Room', unitPlural: 'Rooms', venue: 'Hotel', venuePlural: 'Hotels', checkoutSection: 'Checkout Rooms', dailySection: 'Daily Rooms', noShowSection: 'No Show Rooms' },
   hu: { unit: 'Szoba', unitPlural: 'Szobák', venue: 'Szálloda', venuePlural: 'Szállodák', checkoutSection: 'Kijelentkező szobák', dailySection: 'Napi szobák', noShowSection: 'Meg nem jelent szobák' },
@@ -40,13 +29,16 @@ const HOTEL_EXTRAS: Record<LangCode, ExtraTerms> = {
   uk: { unit: 'Номер', unitPlural: 'Номери', venue: 'Готель', venuePlural: 'Готелі', checkoutSection: 'Номери на виїзд', dailySection: 'Щоденні номери', noShowSection: 'Номери без заїзду' },
 };
 
+// Fruzsi named a Daily Cleaning type in the 2026-09-21 email, but did not
+// define its frequency. SLNT label changes must NOT alter the canonical
+// checkout/daily classification, assignment type or service-cycle scheduler.
 const PROPERTY_EXTRAS: Record<LangCode, ExtraTerms> = {
-  en: { unit: 'Unit', unitPlural: 'Units', venue: 'Venue', venuePlural: 'Venues', checkoutSection: 'Checkout Units', dailySection: 'Stayover Units', noShowSection: 'No Show Units' },
-  hu: { unit: 'Egység', unitPlural: 'Egységek', venue: 'Helyszín', venuePlural: 'Helyszínek', checkoutSection: 'Kijelentkező egységek', dailySection: 'Bennmaradó egységek', noShowSection: 'Meg nem jelent egységek' },
-  es: { unit: 'Unidad', unitPlural: 'Unidades', venue: 'Ubicación', venuePlural: 'Ubicaciones', checkoutSection: 'Unidades de salida', dailySection: 'Unidades con estancia', noShowSection: 'Unidades no-show' },
-  vi: { unit: 'Căn hộ', unitPlural: 'Căn hộ', venue: 'Địa điểm', venuePlural: 'Địa điểm', checkoutSection: 'Căn hộ trả', dailySection: 'Căn hộ lưu trú', noShowSection: 'Căn hộ khách không đến' },
-  mn: { unit: 'Байр', unitPlural: 'Байрууд', venue: 'Байршил', venuePlural: 'Байршлууд', checkoutSection: 'Гарах байр', dailySection: 'Үлдэх байр', noShowSection: 'Ирээгүй байр' },
-  uk: { unit: 'Помешкання', unitPlural: 'Помешкання', venue: 'Локація', venuePlural: 'Локації', checkoutSection: 'Помешкання на виїзд', dailySection: 'Помешкання з проживанням', noShowSection: 'Помешкання без заїзду' },
+  en: { unit: 'Unit', unitPlural: 'Units', venue: 'Venue', venuePlural: 'Venues', checkoutSection: 'Checkout Units', dailySection: 'Daily Cleaning', noShowSection: 'No Show Units' },
+  hu: { unit: 'Egység', unitPlural: 'Egységek', venue: 'Helyszín', venuePlural: 'Helyszínek', checkoutSection: 'Kijelentkező egységek', dailySection: 'Napi takarítás', noShowSection: 'Meg nem jelent egységek' },
+  es: { unit: 'Unidad', unitPlural: 'Unidades', venue: 'Ubicación', venuePlural: 'Ubicaciones', checkoutSection: 'Unidades de salida', dailySection: 'Limpieza diaria', noShowSection: 'Unidades no-show' },
+  vi: { unit: 'Căn hộ', unitPlural: 'Căn hộ', venue: 'Địa điểm', venuePlural: 'Địa điểm', checkoutSection: 'Căn hộ trả', dailySection: 'Dọn phòng hàng ngày', noShowSection: 'Căn hộ khách không đến' },
+  mn: { unit: 'Байр', unitPlural: 'Байрууд', venue: 'Байршил', venuePlural: 'Байршлууд', checkoutSection: 'Гарах байр', dailySection: 'Өдөр тутмын цэвэрлэгээ', noShowSection: 'Ирээгүй байр' },
+  uk: { unit: 'Помешкання', unitPlural: 'Помешкання', venue: 'Локація', venuePlural: 'Локації', checkoutSection: 'Помешкання на виїзд', dailySection: 'Щоденне прибирання', noShowSection: 'Помешкання без заїзду' },
 };
 
 const HOTEL_TERMS: Record<LangCode, PropertyTerms> = {
@@ -67,8 +59,6 @@ const PROPERTY_TERMS: Record<LangCode, PropertyTerms> = {
   uk: { singular: 'Об’єкт', plural: 'Об’єкти', pickLabel: 'Оберіть об’єкт', isProperty: true, ...PROPERTY_EXTRAS.uk },
 };
 
-
-/** Orgs that use "Property" terminology. Extend when new rental-style orgs onboard. */
 const PROPERTY_ORG_SLUGS = new Set<string>(['slnt', 'slnt-group']);
 
 export function propertyTermsFor(orgSlug: string | null | undefined, lang: LangCode = 'en'): PropertyTerms {
@@ -79,8 +69,6 @@ export function propertyTermsFor(orgSlug: string | null | undefined, lang: LangC
 }
 
 export function usePropertyTerms(lang: LangCode = 'en'): PropertyTerms {
-  // Safe outside a TenantProvider (e.g. TrainingV2Provider mounts above the
-  // tenant router). Fall back to hotel terminology when no tenant context.
   let slug: string | undefined;
   try {
     slug = useTenant().organization?.slug;
