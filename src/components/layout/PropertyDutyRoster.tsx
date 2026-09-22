@@ -23,6 +23,7 @@ export function PropertyDutyRoster() {
   const [staff, setStaff] = useState<Staff[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
   const authorizedManager = Boolean(profile && MANAGERS.includes(profile.role));
   const companyManager = COMPANY_MANAGERS.includes(profile?.role || '');
   const availableHotels = hotels.filter(h => h.is_active && organization && h.organization_id === organization.id
@@ -56,7 +57,7 @@ export function PropertyDutyRoster() {
     void read();
     const timer = window.setInterval(() => { void read(); }, 60_000);
     return () => { live = false; window.clearInterval(timer); };
-  }, [open, hotelId, profile?.id, profile?.organization_slug, organization?.id]);
+  }, [open, hotelId, revision, profile?.id, profile?.organization_slug, organization?.id]);
 
   if (!authorizedManager || !organization || organization.slug !== profile?.organization_slug || !availableHotels.length) return null;
   return (
@@ -77,7 +78,7 @@ export function PropertyDutyRoster() {
         {staff.map(person => <div key={person.user_id} className="rounded-lg border p-3 text-sm">
           <p className="font-medium">{person.full_name}</p><p className="text-xs text-muted-foreground">{person.role} · {hu ? 'Kezdés' : 'Since'}: {new Date(person.started_at).toLocaleString(hu ? 'hu-HU' : 'en-GB')}</p>
         </div>)}
-        <Button size="sm" variant="outline" onClick={() => { setHotelId(''); setTimeout(() => setHotelId(availableHotels[0]?.id || ''), 0); }}>
+        <Button size="sm" variant="outline" onClick={() => setRevision(value => value + 1)} disabled={loading}>
           <RefreshCw className="mr-1 h-3 w-3" />{hu ? 'Frissítés' : 'Refresh'}
         </Button>
       </DialogContent>
