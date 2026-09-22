@@ -34,6 +34,7 @@ import { usePickupAutomationActions, type AutomationAction } from "@/hooks/usePi
 import { cellKey, formatWhen, logRateChanges, type RateAuditRow } from "@/lib/rateAudit";
 import { cellOriginEvents, distinctOrigins, countByOrigin, fromAuditSource, RECENT_WINDOW_MS, budapestDayStartMs, ORIGIN_DOT_CLASS, ORIGIN_LABEL, type OriginEvent, type ChangeOrigin } from "@/lib/rateOrigin";
 import RateCellHistory from "@/components/revenue/RateCellHistory";
+import { calendarWindow, nextCalendarMonths, requiredCalendarHorizon } from "@/lib/rateCalendarWindow";
 
 import RateActivityPanel from "@/components/revenue/RateActivityPanel";
 import DayChangesSheet from "@/components/revenue/DayChangesSheet";
@@ -43,7 +44,6 @@ import { publishRates, queueNote } from "@/lib/ratePublishing";
 import { pushMinStay } from "@/lib/minStay";
 import { applyKeepingShape, ladderFromEditedLevel } from "@/lib/dayShapePricing";
 
-import { rememberedRange, writeNumberPref } from "@/lib/revenuePrefs";
 
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -89,19 +89,6 @@ interface Props {
   /** Tell the page how far ahead the calendar needs data loaded. */
   onHorizonDaysChange?: (days: number) => void;
 }
-
-
-const RANGE_OPTIONS = [
-  { value: 14, label: "14d" },
-  { value: 30, label: "30d" },
-  { value: 45, label: "1.5m" },
-  { value: 60, label: "60d" },
-  { value: 90, label: "90d" },
-  { value: 120, label: "120d" },
-  { value: 180, label: "6m" },
-  { value: 270, label: "9m" },
-  { value: 365, label: "12m" },
-];
 
 
 const PICKUP_WINDOWS = [
@@ -444,22 +431,11 @@ export default function RateStrategyGrid({
     window.addEventListener("pointerup", onUp);
   }, []);
 
-  // Desktop opens on the full 6-month horizon; a phone stays at a readable
-  // month. Whatever the reader picks is remembered per device.
-  const [days, setDaysState] = useState(() => rememberedRange("grid-range", 30, 180));
-  const setDays = useCallback((next: number | ((d: number) => number)) => {
-    setDaysState((current) => {
-      const value = typeof next === "function" ? next(current) : next;
-      writeNumberPref("grid-range", value);
-      return value;
-    });
-  }, []);
-
-  // Ask the page to keep data loaded a little beyond what the calendar shows,
-  // so scrolling further out never lands on empty columns.
+  // The date window is a view only. Pricing automation and bulk editor retain
+  // their own horizons; no scroll handler expands this calendar.
   useEffect(() => {
-    onHorizonDaysChange?.(Math.min(365, days + 20));
-  }, [days, onHorizonDaysChange]);
+    onHorizonDaysChange?.(requiredCalendarHorizon(today, monthFilter));
+  }, [today, monthFilter, onHorizonDaysChange]);
 
   // Cell dots are on by default, so a purple cell dot and the dot on its date
   // header always appear together. The user can switch them off and we
@@ -702,7 +678,7 @@ export default function RateStrategyGrid({
   }, []);
 
 
-  const allDates = useMemo(() => dateRange(today, addDays(today, days - 1)), [today, days]);
+  const allDates = useMemo(() => calendarWindow(today, monthFilter), [today, monthFilter]);
 
   /**
    * Header dots follow the SAME stretch of time as the pickup row above them.
@@ -1504,11 +1480,7 @@ export default function RateStrategyGrid({
   useEffect(() => () => { if (arrowHintTimer.current) window.clearTimeout(arrowHintTimer.current); }, []);
 
 
-  /**
-   * Sticky month label + auto-extend the horizon when the user scrolls right.
-   * The work is deferred to the next frame so a fast flick never has state
-   * updates running on every scroll event — that is what made it feel stuck.
-   */
+  /** Update visible month and navigation arrows without changing date range. */
   const scrollRaf = useRef<number | null>(null);
   function onScroll() {
     if (scrollRaf.current !== null) return;
@@ -1522,13 +1494,7 @@ export default function RateStrategyGrid({
       const canLeft = el.scrollLeft > 4;
       const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
       setEdges((prev) => (prev.left === canLeft && prev.right === canRight ? prev : { left: canLeft, right: canRight }));
-      // Approaching the right edge: widen the horizon automatically (up to a
-      // full year) so the reader can keep scrolling without touching the
-      // range buttons.
-      const remaining = el.scrollWidth - (el.scrollLeft + el.clientWidth);
-      if (remaining < CELL_W * 10) {
-        setDays((current) => (current >= 365 ? current : Math.min(365, current + 60)));
-      }
+
     });
   }
   useEffect(() => () => { if (scrollRaf.current !== null) cancelAnimationFrame(scrollRaf.current); }, []);
@@ -1964,25 +1930,14 @@ export default function RateStrategyGrid({
     return true;
   }), [allDates, monthFilter, reviewOnly, pickupOnly, flagged.dateKeys, metricByDate]);
 
-  /** Months covered by the loaded horizon, for the quick month chips. */
-  const monthChips = useMemo(() => {
-    const seen = new Map<string, string>();
-    const multiYear = allDates.length
-      ? allDates[0].slice(0, 4) !== allDates[allDates.length - 1].slice(0, 4)
-      : false;
-    for (const d of allDates) {
-      const key = d.slice(0, 7);
-      if (seen.has(key)) continue;
-      const dt = new Date(`${key}-01T00:00:00Z`);
-      const label = dt.toLocaleString("en-US", { month: "short", timeZone: "UTC" })
-        + (multiYear ? ` ${key.slice(2, 4)}` : "");
-      seen.set(key, label);
-    }
-    return Array.from(seen, ([value, label]) => ({ value, label }));
-  }, [allDates]);
+  // Navigation is independent of fetched dates: display twelve future month
+  // choices without eagerly loading their rate data.
+  const monthChips = useMemo(() => nextCalendarMonths(today), [today]);
 
   const selectMonth = useCallback((value: string | null) => {
     setMonthFilter(value);
+    setPickedDates(new Set());
+    setSelDates(new Set());
     requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollLeft = 0; });
   }, []);
 
@@ -2520,20 +2475,6 @@ export default function RateStrategyGrid({
                 <ZoomIn className="h-3.5 w-3.5" />
               </Button>
             </div>
-            <div className="flex rounded-md border overflow-hidden">
-
-              {RANGE_OPTIONS.map((r) => (
-                <Button
-                  key={r.value}
-                  size="sm"
-                  variant={days === r.value ? "default" : "ghost"}
-                  className="h-8 rounded-none px-2 text-xs"
-                  onClick={() => setDays(r.value)}
-                >
-                  {r.label}
-                </Button>
-              ))}
-            </div>
           </div>
         </div>
         {/* Legend — a tidy two-column key on a phone, one line on a desktop. */}
@@ -2622,29 +2563,32 @@ export default function RateStrategyGrid({
           </div>
         ) : (
           <div className="relative">
-          {/* Month chips — jump straight to one month, fitted to the screen. */}
-          {monthChips.length > 1 && (
-            <div className="flex flex-wrap items-center gap-1 border-b px-2 py-1.5">
+          {/* Explicit navigation: no infinite load, no hidden extra columns. */}
+          <div className="flex items-center gap-1 overflow-x-auto border-b px-2 py-1.5" aria-label="Rate calendar date navigation">
+            <Button
+              size="sm"
+              variant={monthFilter ? "ghost" : "default"}
+              className="h-7 shrink-0 px-2 text-[11px]"
+              onClick={() => selectMonth(null)}
+            >
+              Next 30 days
+            </Button>
+            {monthChips.map((m) => (
               <Button
+                key={m.value}
                 size="sm"
-                variant={monthFilter ? "ghost" : "secondary"}
-                className="h-7 px-2 text-[11px]"
-                onClick={() => selectMonth(null)}
+                variant={monthFilter === m.value ? "default" : "ghost"}
+                className="h-7 shrink-0 px-2 text-[11px]"
+                title={`Show ${m.label} only`}
+                onClick={() => selectMonth(m.value)}
               >
-                All
+                {m.label}
               </Button>
-              {monthChips.map((m) => (
-                <Button
-                  key={m.value}
-                  size="sm"
-                  variant={monthFilter === m.value ? "default" : "ghost"}
-                  className="h-7 px-2 text-[11px]"
-                  title={`Show only ${m.label}`}
-                  onClick={() => selectMonth(monthFilter === m.value ? null : m.value)}
-                >
-                  {m.label}
-                </Button>
-              ))}
+            ))}
+          </div>
+          {loading && (
+            <div role="status" className="flex items-center gap-1.5 border-b px-3 py-1 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" /> Loading selected calendar dates…
             </div>
           )}
 

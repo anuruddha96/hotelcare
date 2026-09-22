@@ -15,7 +15,6 @@ vi.mock("@/integrations/supabase/client", () => ({
 import { useRevenueHotelData } from "@/hooks/useRevenueHotelData";
 import { EXECUTIVE_RESUME_EVENT } from "@/components/system/ExecutiveResumeRefresh";
 import { beginRevenueEdit, __resetRevenueEditGuard } from "@/lib/revenueEditGuard";
-import { REVENUE_PREF_CHANGED_EVENT } from "@/lib/revenuePrefs";
 
 const payloadRow = {
   payload: { roomTypes: [], nights: [], snapshots: [], rates: [], cancellations: [], movements: [], settings: {} },
@@ -74,24 +73,22 @@ describe("useRevenueHotelData — executive resume", () => {
 
     const last = rpc.mock.calls[rpc.mock.calls.length - 1];
     expect(last[0]).toBe("get_revenue_published_payload_window");
-    // Desktop opens on the 45-day grid plus a 20-day prefetch buffer instead
-    // of silently decoding the full year on every resume.
-    expect(last[1]).toEqual({ _hotel_id: "hotel-resume-selection", _horizon_days: 65 });
+    // The date window defaults to precisely thirty days on every opening.
+    expect(last[1]).toEqual({ _hotel_id: "hotel-resume-selection", _horizon_days: 30 });
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
   });
 
-  it("expands the payload when the user asks the grid for a wider range", async () => {
-    const { result } = renderHook(() => useRevenueHotelData("hotel-range-expansion", "org-1"));
+  it("fetches a wider horizon only when the calendar explicitly selects it", async () => {
+    const { result, rerender } = renderHook(
+      ({ horizonDays }) => useRevenueHotelData("hotel-range-expansion", "org-1", horizonDays),
+      { initialProps: { horizonDays: 30 } },
+    );
     await waitFor(() => expect(result.current.loading).toBe(false));
     await waitFor(() => expect(result.current.extending).toBe(false));
     const initial = rpc.mock.calls.length;
 
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent(REVENUE_PREF_CHANGED_EVENT, {
-        detail: { name: "grid-range", value: 90 },
-      }));
-    });
+    rerender({ horizonDays: 110 });
 
     await waitFor(() => expect(rpc.mock.calls.length).toBeGreaterThan(initial));
     await waitFor(() => expect(result.current.extending).toBe(false));

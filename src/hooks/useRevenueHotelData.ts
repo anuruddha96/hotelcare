@@ -16,11 +16,6 @@ import { retryTransient } from "@/lib/transientRetry";
 import { runWhenRevenueEditorsClosed } from "@/lib/revenueEditGuard";
 import { EXECUTIVE_RESUME_EVENT } from "@/components/system/ExecutiveResumeRefresh";
 import {
-  defaultRangeDays,
-  readNumberPref,
-  REVENUE_PREF_CHANGED_EVENT,
-} from "@/lib/revenuePrefs";
-import {
   readCachedRevenueHotPayload,
   readCachedRevenuePayload,
   readCachedRevenueRoomMetadata,
@@ -79,17 +74,10 @@ type CachedRevenuePayload = {
 const revenuePayloadCache = new Map<string, CachedRevenuePayload>();
 const EMPTY_SETTINGS: Record<string, unknown> = {};
 
-/** First paint only needs the dates a manager can immediately act on. */
-const FIRST_WINDOW_DAYS = 45;
-/** Compact local hot cache used for instant revisit / reload paint. */
-const HOT_WINDOW_DAYS = 60;
-/** A small safety buffer keeps the next scroll screen ready without loading months invisibly. */
-const GRID_HORIZON_BUFFER_DAYS = 20;
-
-function preferredGridHorizonDays(): number {
-  const visibleDays = readNumberPref("grid-range", defaultRangeDays(30, 45));
-  return Math.min(365, Math.max(FIRST_WINDOW_DAYS, Math.ceil(visibleDays) + GRID_HORIZON_BUFFER_DAYS));
-}
+/** The calendar opens on precisely thirty dates; future months load on selection. */
+const FIRST_WINDOW_DAYS = 30;
+/** Cache the loaded window, not a future year of unseen prices. */
+const HOT_WINDOW_DAYS = 30;
 
 function readAnyCache(cacheKey: string): CachedRevenuePayload | undefined {
   const memory = revenuePayloadCache.get(cacheKey);
@@ -181,7 +169,7 @@ export interface RevenueHotelData {
 export function useRevenueHotelData(
   hotelId: string | null,
   organizationSlug: string | null,
-  horizonDays = 365,
+  horizonDays = 30,
   pickupWindowDays = 1,
 ): RevenueHotelData {
   const cacheKey = hotelId && organizationSlug ? `${organizationSlug}:${hotelId}` : null;
@@ -199,31 +187,15 @@ export function useRevenueHotelData(
   );
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(initialCache?.lastSyncAt ?? null);
   const [lastSyncBy, setLastSyncBy] = useState<string | null>(initialCache?.lastSyncBy ?? null);
-  const [gridHorizonDays, setGridHorizonDays] = useState(preferredGridHorizonDays);
 
   const payloadRef = useRef<PublishedRevenuePayload | null>(initialCache?.payload ?? null);
   const requestVersionRef = useRef(0);
   /** Deduplicate only the SAME request; a larger horizon must supersede it. */
   const inFlightRef = useRef<{ key: string; promise: Promise<void> } | null>(null);
 
-  useEffect(() => {
-    const onPreferenceChanged = (event: Event) => {
-      const detail = (event as CustomEvent<{ name?: string; value?: number }>).detail;
-      if (detail?.name !== "grid-range") return;
-      const value = Number(detail.value);
-      if (!Number.isFinite(value) || value <= 0) return;
-      setGridHorizonDays(Math.min(
-        365,
-        Math.max(FIRST_WINDOW_DAYS, Math.ceil(value) + GRID_HORIZON_BUFFER_DAYS),
-      ));
-    };
-    window.addEventListener(REVENUE_PREF_CHANGED_EVENT, onPreferenceChanged);
-    return () => window.removeEventListener(REVENUE_PREF_CHANGED_EVENT, onPreferenceChanged);
-  }, []);
-
-  const effectiveHorizonDays = Math.max(1, Math.min(365, horizonDays, gridHorizonDays));
+  const effectiveHorizonDays = Math.max(1, Math.min(365, horizonDays));
   const today = budapestToday();
-  const horizonEnd = addDays(today, effectiveHorizonDays);
+  const horizonEnd = addDays(today, effectiveHorizonDays - 1);
 
   const runLoad = useCallback(async () => {
     if (!hotelId || !organizationSlug || !cacheKey) { setLoading(false); return; }
