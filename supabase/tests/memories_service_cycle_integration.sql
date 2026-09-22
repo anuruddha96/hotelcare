@@ -51,23 +51,34 @@ DO $$ BEGIN
  IF EXISTS(SELECT 1 FROM rooms WHERE organization_slug='rdhotels' AND room_number IN ('034','147','308','004','216')
     AND (last_towel_change <> '2026-09-17'::date OR last_linen_change <> '2026-09-16'::date)) THEN
    RAISE EXCEPTION 'Schedule fabricated an actual service completion'; END IF;
+ IF EXISTS(SELECT 1 FROM rooms WHERE pms_metadata ? 'memoriesPmsColumnPresent') THEN
+   RAISE EXCEPTION 'Ephemeral internal PMS marker leaked into saved metadata'; END IF;
 END $$;
--- Supervisor/staff edits survive repeated same-date live refreshes without a stay change.
+-- Direct room-chip override survives a repeated same-date PMS update, including extensions.
 UPDATE rooms SET towel_change_required=false WHERE room_number='034' AND organization_slug='rdhotels';
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM rooms WHERE room_number='034' AND organization_slug='rdhotels'
+   AND pms_metadata ->> 'memoriesServiceManualOverrideDate' = (now() AT TIME ZONE 'Europe/Budapest')::date::text)
+ THEN RAISE EXCEPTION 'Direct flag edit did not stamp dated override'; END IF;
+END $$;
 UPDATE rooms SET pms_metadata=pms_metadata||'{"noteOta":"changed note only"}'::jsonb
 WHERE room_number='034' AND organization_slug='rdhotels';
-DO $$ BEGIN
- IF EXISTS(SELECT 1 FROM rooms WHERE room_number='034' AND organization_slug='rdhotels' AND towel_change_required) THEN
-  RAISE EXCEPTION 'Repeated PMS sync overwrote a same-day manual request'; END IF;
-END $$;
--- Changing actual stay length must recalculate automatically; other hotel unaffected.
 UPDATE rooms SET pms_metadata=pms_metadata||'{"currentNight":5,"totalNights":7,"scheduledDepartureTomorrow":false}'::jsonb
 WHERE room_number='034' AND organization_slug='rdhotels';
 DO $$ BEGIN
- IF NOT EXISTS(SELECT 1 FROM rooms WHERE room_number='034' AND organization_slug='rdhotels' AND linen_change_required) THEN
-  RAISE EXCEPTION 'Extension/stay change failed to recalculate'; END IF;
+ IF EXISTS(SELECT 1 FROM rooms WHERE room_number='034' AND organization_slug='rdhotels' AND towel_change_required) THEN
+  RAISE EXCEPTION 'PMS sync overrode a same-day supervisor change'; END IF;
+ IF EXISTS(SELECT 1 FROM rooms WHERE room_number='034' AND organization_slug='rdhotels' AND linen_change_required) THEN
+  RAISE EXCEPTION 'Extension overrode a dated manual instruction'; END IF;
 END $$;
--- Manager-only RPC: allowed manager, then forbidden user; no whole-config writes from browser.
+-- A room without a manual override must recalculate automatically on extension.
+UPDATE rooms SET pms_metadata=pms_metadata||'{"totalNights":7,"scheduledDepartureTomorrow":false}'::jsonb
+WHERE room_number='308' AND organization_slug='rdhotels';
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM rooms WHERE room_number='308' AND organization_slug='rdhotels' AND linen_change_required AND NOT towel_change_required) THEN
+  RAISE EXCEPTION 'Extension without override failed to recalculate'; END IF;
+END $$;
+-- Manager-only RPC: allowed manager, then forbidden user.
 SET app.test_user_id='11111111-1111-4111-8111-111111111111';
 SET ROLE authenticated;
 SELECT public.hc_save_memories_service_cycle(3,4,5,5,true);
