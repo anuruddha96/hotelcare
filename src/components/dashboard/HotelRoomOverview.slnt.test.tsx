@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { render, screen } from '@testing-library/react';
 import postcss from 'postcss';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -103,7 +104,9 @@ describe('SLNT Team View property-row isolation', () => {
 });
 
 describe('SLNT stylesheet safety', () => {
-  const css = readFileSync(new URL('./slnt-team-property-rows.css', import.meta.url), 'utf8');
+  // Vitest rewrites import.meta.url to a virtual module URL; use the test
+  // process's repository root to read the real stylesheet on disk.
+  const css = readFileSync(resolve(process.cwd(), 'src/components/dashboard/slnt-team-property-rows.css'), 'utf8');
 
   it('parses as CSS and scopes every rule to SLNT Team View', () => {
     const root = postcss.parse(css);
