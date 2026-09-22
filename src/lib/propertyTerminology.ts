@@ -36,17 +36,20 @@ const HOTEL_EXTRAS: Record<LangCode, ExtraTerms> = {
   hu: { unit: 'Szoba', unitPlural: 'Szobák', venue: 'Szálloda', venuePlural: 'Szállodák', checkoutSection: 'Kijelentkező szobák', dailySection: 'Napi szobák', noShowSection: 'Meg nem jelent szobák' },
   es: { unit: 'Habitación', unitPlural: 'Habitaciones', venue: 'Hotel', venuePlural: 'Hoteles', checkoutSection: 'Habitaciones de salida', dailySection: 'Habitaciones diarias', noShowSection: 'Habitaciones no-show' },
   vi: { unit: 'Phòng', unitPlural: 'Phòng', venue: 'Khách sạn', venuePlural: 'Khách sạn', checkoutSection: 'Phòng trả', dailySection: 'Phòng hàng ngày', noShowSection: 'Phòng khách không đến' },
-  mn: { unit: 'Өрөө', unitPlural: 'Өрөөнүүд', venue: 'Зочид буудал', venuePlural: 'Зочид буудлууд', checkoutSection: 'Гарах өрөө', dailySection: 'Өдөр тутмын өрөө', noShowSection: 'Ирээгүй өрөө' },
+  mn: { unit: 'Өрөө', unitPlural: 'Өрөөнүүд', venue: 'Зочид буудал', venuePlural: 'Зочид буудал', checkoutSection: 'Гарах өрөө', dailySection: 'Өдөр тутмын өрөө', noShowSection: 'Ирээгүй өрөө' },
   uk: { unit: 'Номер', unitPlural: 'Номери', venue: 'Готель', venuePlural: 'Готелі', checkoutSection: 'Номери на виїзд', dailySection: 'Щоденні номери', noShowSection: 'Номери без заїзду' },
 };
 
+// Fruzsi requested a separate Daily Cleaning type, not the former "Stayover
+// Units" wording. This changes SLNT labels only: it does NOT introduce a new
+// service cadence or change the shared checkout/daily task classifications.
 const PROPERTY_EXTRAS: Record<LangCode, ExtraTerms> = {
-  en: { unit: 'Unit', unitPlural: 'Units', venue: 'Venue', venuePlural: 'Venues', checkoutSection: 'Checkout Units', dailySection: 'Stayover Units', noShowSection: 'No Show Units' },
-  hu: { unit: 'Egység', unitPlural: 'Egységek', venue: 'Helyszín', venuePlural: 'Helyszínek', checkoutSection: 'Kijelentkező egységek', dailySection: 'Bennmaradó egységek', noShowSection: 'Meg nem jelent egységek' },
-  es: { unit: 'Unidad', unitPlural: 'Unidades', venue: 'Ubicación', venuePlural: 'Ubicaciones', checkoutSection: 'Unidades de salida', dailySection: 'Unidades con estancia', noShowSection: 'Unidades no-show' },
-  vi: { unit: 'Căn hộ', unitPlural: 'Căn hộ', venue: 'Địa điểm', venuePlural: 'Địa điểm', checkoutSection: 'Căn hộ trả', dailySection: 'Căn hộ lưu trú', noShowSection: 'Căn hộ khách không đến' },
-  mn: { unit: 'Байр', unitPlural: 'Байрууд', venue: 'Байршил', venuePlural: 'Байршлууд', checkoutSection: 'Гарах байр', dailySection: 'Үлдэх байр', noShowSection: 'Ирээгүй байр' },
-  uk: { unit: 'Помешкання', unitPlural: 'Помешкання', venue: 'Локація', venuePlural: 'Локації', checkoutSection: 'Помешкання на виїзд', dailySection: 'Помешкання з проживанням', noShowSection: 'Помешкання без заїзду' },
+  en: { unit: 'Unit', unitPlural: 'Units', venue: 'Venue', venuePlural: 'Venues', checkoutSection: 'Checkout Units', dailySection: 'Daily Cleaning', noShowSection: 'No Show Units' },
+  hu: { unit: 'Egység', unitPlural: 'Egységek', venue: 'Helyszín', venuePlural: 'Helyszínek', checkoutSection: 'Kijelentkező egységek', dailySection: 'Napi takarítás', noShowSection: 'Meg nem jelent egységek' },
+  es: { unit: 'Unidad', unitPlural: 'Unidades', venue: 'Ubicación', venuePlural: 'Ubicaciones', checkoutSection: 'Unidades de salida', dailySection: 'Limpieza diaria', noShowSection: 'Unidades no-show' },
+  vi: { unit: 'Căn hộ', unitPlural: 'Căn hộ', venue: 'Địa điểm', venuePlural: 'Địa điểm', checkoutSection: 'Căn hộ trả', dailySection: 'Dọn phòng hàng ngày', noShowSection: 'Căn hộ khách không đến' },
+  mn: { unit: 'Байр', unitPlural: 'Байрууд', venue: 'Байршил', venuePlural: 'Байршлууд', checkoutSection: 'Гарах байр', dailySection: 'Өдөр тутмын цэвэрлэгээ', noShowSection: 'Ирээгүй байр' },
+  uk: { unit: 'Помешкання', unitPlural: 'Помешкання', venue: 'Локація', venuePlural: 'Локації', checkoutSection: 'Помешкання на виїзд', dailySection: 'Щоденне прибирання', noShowSection: 'Помешкання без заїзду' },
 };
 
 const HOTEL_TERMS: Record<LangCode, PropertyTerms> = {
@@ -54,7 +57,7 @@ const HOTEL_TERMS: Record<LangCode, PropertyTerms> = {
   hu: { singular: 'Szálloda', plural: 'Szállodák', pickLabel: 'Válassz szállodát', isProperty: false, ...HOTEL_EXTRAS.hu },
   es: { singular: 'Hotel', plural: 'Hoteles', pickLabel: 'Elegir hotel', isProperty: false, ...HOTEL_EXTRAS.es },
   vi: { singular: 'Khách sạn', plural: 'Khách sạn', pickLabel: 'Chọn khách sạn', isProperty: false, ...HOTEL_EXTRAS.vi },
-  mn: { singular: 'Зочид буудал', plural: 'Зочид буудлууд', pickLabel: 'Буудлаа сонго', isProperty: false, ...HOTEL_EXTRAS.mn },
+  mn: { singular: 'Зочid буудал', plural: 'Зочид буудлууд', pickLabel: 'Буудлаа сонго', isProperty: false, ...HOTEL_EXTRAS.mn },
   uk: { singular: 'Готель', plural: 'Готелі', pickLabel: 'Оберіть готель', isProperty: false, ...HOTEL_EXTRAS.uk },
 };
 
@@ -66,7 +69,6 @@ const PROPERTY_TERMS: Record<LangCode, PropertyTerms> = {
   mn: { singular: 'Байр', plural: 'Байрууд', pickLabel: 'Байраа сонго', isProperty: true, ...PROPERTY_EXTRAS.mn },
   uk: { singular: 'Об’єкт', plural: 'Об’єкти', pickLabel: 'Оберіть об’єкт', isProperty: true, ...PROPERTY_EXTRAS.uk },
 };
-
 
 /** Orgs that use "Property" terminology. Extend when new rental-style orgs onboard. */
 const PROPERTY_ORG_SLUGS = new Set<string>(['slnt', 'slnt-group']);
