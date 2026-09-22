@@ -58,7 +58,7 @@ UPDATE rooms SET pms_metadata=pms_metadata||'{"noteOta":"changed note only"}'::j
 WHERE room_number='034' AND organization_slug='rdhotels';
 DO $$ BEGIN
  IF EXISTS(SELECT 1 FROM rooms WHERE room_number='034' AND organization_slug='rdhotels' AND towel_change_required) THEN
-  RAISE EXCEPTION 'Repeated PMS sync overwrote today's manual request'; END IF;
+  RAISE EXCEPTION 'Repeated PMS sync overwrote a same-day manual request'; END IF;
 END $$;
 -- Changing actual stay length must recalculate automatically; other hotel unaffected.
 UPDATE rooms SET pms_metadata=pms_metadata||'{"currentNight":5,"totalNights":7,"scheduledDepartureTomorrow":false}'::jsonb
