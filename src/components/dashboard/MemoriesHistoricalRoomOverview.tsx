@@ -194,7 +194,7 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
       const a = room.assignment;
       const start = a?.started_at || room.snapshot.assignment_started_at;
       const end = a?.completed_at || room.snapshot.assignment_completed_at;
-      if (!start || !end) continue;
+      if (!start || !end) return [];
       const duration = (Date.parse(end) - Date.parse(start)) / 60000;
       return duration > 0 && duration < 720 ? [duration] : [];
     });
