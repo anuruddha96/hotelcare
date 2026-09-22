@@ -19,6 +19,12 @@ export const autoAssignRooms: typeof original.autoAssignRooms = (
   const onlyGozsdu = rooms.length > 0
     && rooms.every(room => isGozsduCourtHotel(room.hotel))
     && (!hotelConfig?.hotelName || isGozsduCourtHotel(hotelConfig.hotelName));
+  // A mixed-hotel list is not a safe source for local optimization. Preserve the
+  // historical fallback here; the caller's organization/hotel scope still needs
+  // independent server-side validation before any plan may be saved.
+  if (!onlyGozsdu && new Set(rooms.map(room => room.hotel)).size > 1) {
+    return original.autoAssignRooms(rooms, staff, wingProximityMap, affinityMap, hotelConfig);
+  }
   const preliminary = onlyGozsdu
     ? planGozsduBuildingAssignments(
       rooms, staff.filter(person => !isActiveGozsduLaundryner(person.id)), hotelConfig,
