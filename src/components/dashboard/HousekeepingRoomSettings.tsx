@@ -10,6 +10,7 @@ import { Settings2 } from 'lucide-react';
 import { CHECKOUT_DURATION_EXAMPLES, HOUSEKEEPING_ROOM_SIZES, ROOM_SIZE_LABELS, type HousekeepingRoomSize } from '@/lib/housekeepingRoomSizing';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { buildGozsduRoomRegistryIndex, type GozsduRoomRegistryEntry } from '@/lib/gozsduRoomRegistryDisplay';
+import { MemoriesServiceCycleSettings } from './MemoriesServiceCycleSettings';
 
 type Room = { id: string; room_number: string; cleaning_size: HousekeepingRoomSize | null; verified_bed_count: number | null; service_status?: string | null };
 type Target = { cleaning_size: HousekeepingRoomSize; assignment_type: string; duration_minutes: number };
@@ -18,7 +19,7 @@ const cleaningTypes = [
   ['checkout_cleaning', 'Checkout'], ['daily_cleaning', 'Daily / stayover'], ['deep_cleaning', 'Deep cleaning'],
 ] as const;
 
-/** A compact, opt-in panel; no existing task, room, PMS or timer is mutated on mount. */
+/** Hotel-specific settings; mounting the panel never mutates existing work. */
 export function HousekeepingRoomSettings() {
   const { profile } = useAuth();
   const { organization, hotels } = useTenant();
@@ -69,7 +70,6 @@ export function HousekeepingRoomSettings() {
           const sourceRooms = (roomsResult.data || []) as Room[];
           if (isGozsdu) {
             const registry = buildGozsduRoomRegistryIndex(sourceRooms, (registryResult.data || []) as GozsduRoomRegistryEntry[]);
-            // Display-only projection: keep real DB room numbers and all stable room IDs unchanged.
             setRooms(sourceRooms.map(room => ({ ...room,
               room_number: registry.get(room.id)!.pms_room_name,
               service_status: registry.get(room.id)!.service_status,
@@ -132,6 +132,7 @@ export function HousekeepingRoomSettings() {
         <SelectContent>{choices.map(h => <SelectItem key={h.id} value={h.id}>{h.hotel_name}</SelectItem>)}</SelectContent>
       </Select>}
       {loading ? <p role="status">Loading hotel mapping…</p> : selected ? <>
+        {selected.hotel_id === 'memories-budapest' && <MemoriesServiceCycleSettings hotelConfigurationId={selected.id} hotelId={selected.hotel_id} />}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">{cleaningTypes.map(([type, label]) => <div key={type} className="rounded-lg border p-3 space-y-2">
           <h3 className="font-semibold text-sm">{label} · minutes</h3>
           {HOUSEKEEPING_ROOM_SIZES.map(size => <TargetRow key={`${size}-${type}`} size={size} type={type}
