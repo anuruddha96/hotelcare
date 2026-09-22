@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
@@ -13,6 +14,7 @@ import { RoomTypeDropBoundary } from './RoomTypeDropBoundary';
 import { TomorrowHousekeepingLauncher } from './TomorrowHousekeepingLauncher';
 import './hotel-memories-room-overview.css';
 import './memories-historical-service-colors.css';
+import './slnt-team-property-rows.css';
 
 export type { SignedInHousekeeper } from './HotelRoomOverviewLive';
 
@@ -36,8 +38,18 @@ type HotelRoomOverviewProps = React.ComponentProps<typeof LiveHotelRoomOverview>
  * A shared capture boundary confirms Checkout/Daily retyping BEFORE either
  * live overview's old drop handlers run, then broadcasts the saved changes.
  * Its date-scoped Gozsdu override preserves the property's service cycle.
+ *
+ * Only the active SLNT tenant receives the property-row presentation wrapper;
+ * CSS additionally requires the Team View ancestor. Room data, statuses,
+ * assignments and actions remain in the existing shared components.
  */
 export function HotelRoomOverview(props: HotelRoomOverviewProps) {
+  // The active tenant can differ from the profile's default organization when
+  // switching contexts. Match the same resolved tenant used by venue grouping.
+  const { orgSlug, venuesEnabled } = useTenantFeatures();
+  const slug = orgSlug?.toLowerCase();
+  const showSlntPropertyRows = venuesEnabled && (slug === 'slnt' || slug === 'slnt-group');
+
   if (props.selectedDate < todayBudapest()) {
     return isHotelMemoriesBudapest(props.hotelName)
       ? React.createElement(MemoriesHistoricalRoomOverview, props)
@@ -56,14 +68,18 @@ export function HotelRoomOverview(props: HotelRoomOverviewProps) {
     ? React.createElement('div', { className: 'hotel-memories-room-overview' }, liveOverview)
     : liveOverview;
 
+  const tenantOverview = showSlntPropertyRows && !isGozsdu
+    ? React.createElement('div', { className: 'slnt-team-property-rows' }, scopedOverview)
+    : scopedOverview;
+
   const overview = React.createElement(
     RoomHoverIntentGuard,
     null,
-    isGozsdu ? scopedOverview : React.createElement(RoomOperationsQuickHub, {
+    isGozsdu ? tenantOverview : React.createElement(RoomOperationsQuickHub, {
       selectedDate: props.selectedDate,
       hotelName: props.hotelName,
       staffMap: props.staffMap,
-      children: scopedOverview,
+      children: tenantOverview,
     }),
   );
 
