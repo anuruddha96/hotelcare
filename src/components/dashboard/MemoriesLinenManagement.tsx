@@ -9,26 +9,31 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { getLocalDateString } from '@/lib/utils';
-import { isMemoriesHotel, loadMemoriesLinenCatalogue, memoriesLinenLabel, type MemoriesLinenItem } from '@/lib/memoriesLinen';
+import {
+  groupMemoriesLegacyRows, isMemoriesHotel, loadMemoriesLegacyIdMap,
+  loadMemoriesLinenCatalogue, memoriesLinenLabel, type MemoriesLinenItem,
+} from '@/lib/memoriesLinen';
 
 const editableRoles = ['admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager'];
 type Room = { id: string; room_number: string };
 type Count = { id: string; room_id: string; housekeeper_id: string; assignment_id: string | null; linen_item_id: string; count: number; work_date: string };
 type PublicCount = { linen_item_id: string; count: number };
+type MappedCount = Count & { source_linen_item_id: string };
 type Person = { id: string; nickname: string | null; full_name: string };
-type Session = { key: string; roomId: string; roomNumber: string; personId: string; personName: string; assignmentId: string | null; records: Count[] };
+type Session = { key: string; roomId: string; roomNumber: string; personId: string; personName: string; assignmentId: string | null; records: MappedCount[] };
 type VendorRow = { key: string; label: string; values: number[]; total: number };
 
 function sum(values: number[]): number { return values.reduce((total, value) => total + value, 0); }
 
-/** Property-specific view. Never change the global linen catalogue or other hotel reports. */
+/** Memories-only report. Existing historic item IDs are never overwritten by mapping. */
 export function MemoriesLinenManagement() {
   const { profile } = useAuth();
   const [workDate, setWorkDate] = useState(() => getLocalDateString(new Date()));
   const [items, setItems] = useState<MemoriesLinenItem[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [counts, setCounts] = useState<Count[]>([]);
-  const [publicCounts, setPublicCounts] = useState<PublicCount[]>([]);
+  const [rawCounts, setRawCounts] = useState<Count[]>([]);
+  const [rawPublicCounts, setRawPublicCounts] = useState<PublicCount[]>([]);
+  const [legacyIds, setLegacyIds] = useState<Record<string, string>>({});
   const [people, setPeople] = useState<Person[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,8 +56,11 @@ export function MemoriesLinenManagement() {
           .in('hotel', keys).eq('organization_slug', organization),
       ]);
       if (roomResult.error) throw roomResult.error;
-      const hotelRooms = ((roomResult.data || []) as Room[])
-        .sort((a, b) => a.room_number.localeCompare(b.room_number, undefined, { numeric: true }));
+      const [aliases, hotelRooms] = await Promise.all([
+        loadMemoriesLegacyIdMap(catalogue),
+        Promise.resolve(((roomResult.data || []) as Room[])
+          .sort((a, b) => a.room_number.localeCompare(b.room_number, undefined, { numeric: true }))),
+      ]);
       const roomIds = hotelRooms.map(room => room.id);
       let roomCounts: Count[] = [];
       if (roomIds.length) {
@@ -74,12 +82,13 @@ export function MemoriesLinenManagement() {
       }
       setItems(catalogue);
       setRooms(hotelRooms);
-      setCounts(roomCounts);
-      setPublicCounts((publicResult.data || []) as PublicCount[]);
+      setLegacyIds(aliases);
+      setRawCounts(roomCounts);
+      setRawPublicCounts((publicResult.data || []) as PublicCount[]);
       setPeople(profiles);
     } catch (caught: any) {
       console.error('[MemoriesLinen] report failed', caught);
-      setItems([]); setRooms([]); setCounts([]); setPublicCounts([]); setPeople([]);
+      setItems([]); setRooms([]); setRawCounts([]); setRawPublicCounts([]); setLegacyIds({}); setPeople([]);
       setError(caught?.message || 'Could not load Hotel Memories dirty linen.');
       toast.error('Could not load Hotel Memories dirty linen.');
     } finally { setLoading(false); }
@@ -95,8 +104,11 @@ export function MemoriesLinenManagement() {
     return () => { void supabase.removeChannel(channel); };
   }, [hotel, profile?.id, load]);
 
+  // Transform only the report's read model. The database always retains the source item IDs.
+  const counts = useMemo(() => groupMemoriesLegacyRows(rawCounts, legacyIds), [rawCounts, legacyIds]);
+  const publicCounts = useMemo(() => groupMemoriesLegacyRows(rawPublicCounts, legacyIds), [rawPublicCounts, legacyIds]);
   const allowedIds = useMemo(() => new Set(items.map(item => item.id)), [items]);
-  const legacyTotal = useMemo(() => counts.filter(row => !allowedIds.has(row.linen_item_id))
+  const unclassifiedTotal = useMemo(() => counts.filter(row => !allowedIds.has(row.linen_item_id))
     .reduce((total, row) => total + row.count, 0)
     + publicCounts.filter(row => !allowedIds.has(row.linen_item_id))
       .reduce((total, row) => total + row.count, 0), [counts, publicCounts, allowedIds]);
@@ -149,6 +161,9 @@ export function MemoriesLinenManagement() {
     { key: 'total', label: 'TOTAL / ÖSSZESEN', values: totals, total: grandTotal },
   ], [vendorRows, blankCount, items, publicRow, totals, grandTotal]);
 
+  const fixedLegacyCount = (session: Session, itemId: string): number => session.records
+    .filter(row => row.linen_item_id === itemId && row.source_linen_item_id !== itemId)
+    .reduce((total, row) => total + row.count, 0);
   const openEditor = (session: Session) => {
     setEditor(session);
     setDraft(Object.fromEntries(items.map(item => [item.id, session.records
@@ -157,12 +172,19 @@ export function MemoriesLinenManagement() {
 
   const saveEditor = async () => {
     if (!editor || !canCorrect || !organization || saving) return;
+    // Never delete, merge or silently reclassify historic records. Managers may only
+    // correct the currently active canonical record above the preserved legacy baseline.
+    const belowLegacy = items.find(item => (draft[item.id] || 0) < fixedLegacyCount(editor, item.id));
+    if (belowLegacy) {
+      toast.error(`Cannot set ${memoriesLinenLabel(belowLegacy)} below its preserved historical count. Review original records separately.`);
+      return;
+    }
     setSaving(true);
     try {
       for (const item of items) {
-        const records = editor.records.filter(record => record.linen_item_id === item.id);
+        const records = editor.records.filter(record => record.linen_item_id === item.id && record.source_linen_item_id === item.id);
         const original = records.reduce((n, row) => n + row.count, 0);
-        const next = draft[item.id] || 0;
+        const next = (draft[item.id] || 0) - fixedLegacyCount(editor, item.id);
         if (original === next) continue;
         if (next === 0 && records.length) {
           const result = await supabase.from('dirty_linen_counts').delete().in('id', records.map(row => row.id));
@@ -184,7 +206,7 @@ export function MemoriesLinenManagement() {
       }
       setEditor(null);
       await load();
-      toast.success('Room linen counts updated.');
+      toast.success('Room linen counts updated. Historical records preserved.');
     } catch (caught: any) {
       console.error('[MemoriesLinen] correction failed', caught);
       toast.error(caught?.message || 'Could not save linen correction.');
@@ -242,9 +264,9 @@ export function MemoriesLinenManagement() {
       <Input aria-label="Collection date" type="date" value={workDate} onChange={event => setWorkDate(event.target.value)} className="w-48" />
     </label>
     {error && <Card role="alert" className="p-3 text-destructive">{error}</Card>}
-    {!!legacyTotal && <Card role="alert" className="p-3 text-amber-700 text-sm">
-      {legacyTotal} items were recorded under older categories and are not included in the seven-column provider sheet.
-      They are retained in the database; review them before sending the collection. No records were deleted or converted.
+    {!!unclassifiedTotal && <Card role="alert" className="p-3 text-amber-700 text-sm">
+      {unclassifiedTotal} items were recorded under other historical categories and are not included in the seven-column provider sheet.
+      Queen-size sheets and small/big pillow covers ARE included in their approved columns; remaining unclassified items are preserved. Review before sending.
     </Card>}
     <Card id="memories-linen-print" className="p-4 overflow-x-auto">
       <h3 className="font-bold text-lg mb-1">Hotel Memories Budapest — Dirty linen / Szennyes textília</h3>
@@ -262,11 +284,11 @@ export function MemoriesLinenManagement() {
         </tr>)}</tbody>
       </table>
       <p className="mt-3 text-sm font-semibold">Total pieces / Összes darab: {grandTotal}</p>
-      {!!legacyTotal && <p className="text-xs mt-1">Attention: {legacyTotal} historical non-sheet items excluded. Review before dispatch.</p>}
+      {!!unclassifiedTotal && <p className="text-xs mt-1">Attention: {unclassifiedTotal} unclassified historical items excluded. Review before dispatch.</p>}
     </Card>
     <Card className="p-4 space-y-3">
       <h3 className="font-bold flex items-center gap-2"><FileText className="h-4 w-4" />Room-level collection and manager corrections</h3>
-      <p className="text-sm text-muted-foreground">Choose a room to correct recorded quantities. Only this hotel's seven categories can be edited here.</p>
+      <p className="text-sm text-muted-foreground">Choose a room to correct active-category quantities. Approved historical sheets and pillow covers are included in totals but retained separately in the database.</p>
       {!sessions.length ? <p className="text-sm text-muted-foreground">{loading ? 'Loading…' : 'No recorded room linen for this date.'}</p> :
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{sessions.map(session => <Button
           key={session.key} variant="outline" className="h-auto py-3 justify-between text-left"
@@ -278,8 +300,9 @@ export function MemoriesLinenManagement() {
     <Dialog open={!!editor} onOpenChange={open => { if (!open && !saving) setEditor(null); }}>
       <DialogContent className="max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Correct linen: {editor?.personName} · Room {editor?.roomNumber}</DialogTitle></DialogHeader>
         <div className="space-y-3">{items.map(item => <label key={item.id} className="flex items-center justify-between gap-2 text-sm">
-          <span>{memoriesLinenLabel(item, true)}</span>
-          <Input type="number" min={0} step={1} inputMode="numeric" aria-label={memoriesLinenLabel(item, true)}
+          <span>{memoriesLinenLabel(item, true)}{editor && fixedLegacyCount(editor, item.id) > 0 &&
+            <small className="block text-muted-foreground">Includes {fixedLegacyCount(editor, item.id)} preserved historical pieces (minimum editable total).</small>}</span>
+          <Input type="number" min={editor ? fixedLegacyCount(editor, item.id) : 0} step={1} inputMode="numeric" aria-label={memoriesLinenLabel(item, true)}
             className="w-20 text-center" disabled={!canCorrect || saving} value={draft[item.id] || 0}
             onChange={event => setDraft(old => ({ ...old, [item.id]: Math.max(0, Math.floor(Number(event.target.value) || 0)) }))} />
         </label>)}
