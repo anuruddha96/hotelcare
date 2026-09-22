@@ -3,6 +3,7 @@ export type MaintenanceMetricRow = {
   id: string;
   status: string;
   pending_supervisor_approval: boolean | null;
+  supervisor_approved: boolean | null;
   on_hold: boolean | null;
   room_number: string | null;
   created_at: string;
@@ -15,8 +16,8 @@ export type MaintenanceMetricRow = {
 export function summarizeMaintenanceIssues(rows: MaintenanceMetricRow[], now = Date.now()) {
   const completed = rows.filter(t => t.status === 'completed');
   const awaitingApproval = rows.filter(t => t.pending_supervisor_approval === true);
-  const approved = completed.filter(t => !t.pending_supervisor_approval);
-  const elapsed = approved
+  const approved = completed.filter(t => t.supervisor_approved === true && !t.pending_supervisor_approval);
+  const elapsed = completed
     .filter(t => t.closed_at && Number.isFinite(Date.parse(t.closed_at)) && Number.isFinite(Date.parse(t.created_at)))
     .map(t => (Date.parse(t.closed_at!) - Date.parse(t.created_at)) / 3600000)
     .filter(h => h >= 0);
