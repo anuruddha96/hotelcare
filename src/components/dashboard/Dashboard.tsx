@@ -210,6 +210,33 @@ export function Dashboard() {
     }
   };
 
+  // Open by immutable UUID rather than relying on a stale visible list or hotel label.
+  // Tenant and hotel authorization remain enforced by the tickets RLS policy.
+  const openCreatedMaintenanceIssue = async (ticketId: string) => {
+    if (!profile?.organization_slug) return;
+    const { data, error } = await (supabase as any).from('tickets')
+      .select(`*, created_by_profile:profiles!tickets_created_by_fkey(full_name, role), assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name, role), closed_by_profile:profiles!tickets_closed_by_fkey(full_name, role)`)
+      .eq('id', ticketId).eq('organization_slug', profile.organization_slug)
+      .eq('department', 'maintenance').maybeSingle();
+    if (error || !data) {
+      toast({ title: language === 'hu' ? 'Nem sikerült megnyitni a hibát' : 'Could not open issue',
+        description: error?.message || 'Check hotel permissions and refresh the issue list.', variant: 'destructive' });
+      return;
+    }
+    setSelectedTicket({
+      id: data.id, ticket_number: data.ticket_number, title: data.title,
+      description: data.description, room_number: data.room_number,
+      priority: data.priority, status: data.status, on_hold: data.on_hold,
+      hold_reason: data.hold_reason, sla_due_date: data.sla_due_date,
+      created_at: data.created_at, updated_at: data.updated_at,
+      department: data.department, hotel: data.hotel, attachment_urls: data.attachment_urls,
+      completion_photos: data.completion_photos, resolution_text: data.resolution_text,
+      closed_at: data.closed_at, pending_supervisor_approval: data.pending_supervisor_approval,
+      created_by: data.created_by_profile ? { full_name: data.created_by_profile.full_name, role: data.created_by_profile.role } : undefined,
+      assigned_to: data.assigned_to_profile ? { full_name: data.assigned_to_profile.full_name } : undefined,
+    });
+  };
+
   const searchClosedTickets = async (searchTerm: string) => {
     try {
       const { data, error } = await supabase.rpc('search_closed_tickets' as any, {
@@ -883,6 +910,7 @@ export function Dashboard() {
           open={createDialogOpen}
           onOpenChange={setCreateDialogOpen}
           onTicketCreated={fetchTickets}
+          onOpenTicket={id => void openCreatedMaintenanceIssue(id)}
         />
         
         {selectedTicket && (

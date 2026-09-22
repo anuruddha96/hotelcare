@@ -16,10 +16,11 @@ import { MaintenanceRoomPicker } from './MaintenanceRoomPicker';
 import { MaintenanceTitleAutocomplete } from './MaintenanceTitleAutocomplete';
 import { type MaintenanceRoomOption, loadMaintenanceRoomOptions, validateMaintenanceRoomOption } from '@/lib/maintenanceRoomOptions';
 import { toast } from '@/hooks/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 import { AlertTriangle, Building2, CheckCircle2, Clock3, UserCheck, Wrench } from 'lucide-react';
 
 type MaintenanceStaff = { id: string; full_name: string; role: string; assigned_hotel: string | null; is_signed_in: boolean; checked_in_at: string | null };
-interface CreateTicketDialogProps { open: boolean; onOpenChange: (open: boolean) => void; onTicketCreated: () => void }
+interface CreateTicketDialogProps { open: boolean; onOpenChange: (open: boolean) => void; onTicketCreated: () => void; onOpenTicket?: (id: string) => void }
 const copy = {
   en: {
     create: 'Report maintenance issue', intro: 'Report one issue for the selected property. Housekeeping and maintenance share the same ticket.',
@@ -47,7 +48,7 @@ const copy = {
 const departments = [ ['maintenance', 'Maintenance'], ['housekeeping', 'Housekeeping'], ['reception', 'Reception'], ['marketing', 'Marketing'], ['back_office', 'Back Office'], ['control', 'Control'], ['finance', 'Finance'], ['top_management', 'Top Management'] ] as const;
 const initialForm = () => ({ title: '', description: '', location: '', roomId: null as string | null, priority: 'medium' as 'low' | 'medium' | 'high' | 'urgent', department: 'maintenance', hotel: '' });
 
-export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: CreateTicketDialogProps) {
+export function CreateTicketDialog({ open, onOpenChange, onTicketCreated, onOpenTicket }: CreateTicketDialogProps) {
   const { profile } = useAuth();
   const { hotels: tenantHotels } = useTenant();
   const { language } = useTranslation();
@@ -161,13 +162,17 @@ export function CreateTicketDialog({ open, onOpenChange, onTicketCreated }: Crea
         } catch (notificationError) { console.warn('Ticket saved; notification failed:', notificationError); }
       }
       const assigneeName = maintenanceStaff.find(person => person.id === data.assigned_to)?.full_name;
-      toast({ title: `${c.success} · ${data.ticket_number}`, description: data.assigned_to ? `${c.assigned}: ${assigneeName || 'Maintenance'}` : c.queued });
+      toast({ title: `${c.success} · ${data.ticket_number}`, description: data.assigned_to ? `${c.assigned}: ${assigneeName || 'Maintenance'}` : c.queued,
+        action: onOpenTicket && formData.department === 'maintenance' ? <ToastAction altText="Open issue" onClick={() => onOpenTicket(data.id)}>{language === 'hu' ? 'Hiba megnyitása' : 'Open issue'}</ToastAction> : undefined,
+      });
       window.dispatchEvent(new CustomEvent('maintenance-ticket-created', { detail: data }));
       onTicketCreated(); reset(); onOpenChange(false);
     } catch (error: any) {
       console.error('Ticket creation failed:', error);
       if (savedTicket) {
-        onTicketCreated(); reset(); onOpenChange(false); toast({ title: `${c.success} · ${savedTicket.ticket_number}` });
+        onTicketCreated(); reset(); onOpenChange(false); toast({ title: `${c.success} · ${savedTicket.ticket_number}`,
+          action: onOpenTicket ? <ToastAction altText="Open issue" onClick={() => onOpenTicket(savedTicket!.id)}>{language === 'hu' ? 'Hiba megnyitása' : 'Open issue'}</ToastAction> : undefined,
+        });
       } else { toast({ title: c.error, description: error?.message || c.error, variant: 'destructive' }); }
     } finally { submittingRef.current = false; setLoading(false); }
   };
