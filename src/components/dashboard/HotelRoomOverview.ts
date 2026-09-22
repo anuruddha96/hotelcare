@@ -1,5 +1,5 @@
 import React from 'react';
-import { useAuth } from '@/hooks/useAuth';
+import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
@@ -39,14 +39,16 @@ type HotelRoomOverviewProps = React.ComponentProps<typeof LiveHotelRoomOverview>
  * live overview's old drop handlers run, then broadcasts the saved changes.
  * Its date-scoped Gozsdu override preserves the property's service cycle.
  *
- * Only an authenticated SLNT organization receives the visual property-row
- * wrapper. The stylesheet also requires the Team View ancestor, so even other
- * SLNT screens are untouched. Room data, status logic and actions are shared.
+ * Only the active SLNT tenant receives the property-row presentation wrapper;
+ * CSS additionally requires the Team View ancestor. Room data, statuses,
+ * assignments and actions remain in the existing shared components.
  */
 export function HotelRoomOverview(props: HotelRoomOverviewProps) {
-  const { profile } = useAuth();
-  const organizationSlug = profile?.organization_slug?.toLowerCase();
-  const isSlnt = organizationSlug === 'slnt' || organizationSlug === 'slnt-group';
+  // The active tenant can differ from the profile's default organization when
+  // switching contexts. Match the same resolved tenant used by venue grouping.
+  const { orgSlug, venuesEnabled } = useTenantFeatures();
+  const slug = orgSlug?.toLowerCase();
+  const showSlntPropertyRows = venuesEnabled && (slug === 'slnt' || slug === 'slnt-group');
 
   if (props.selectedDate < todayBudapest()) {
     return isHotelMemoriesBudapest(props.hotelName)
@@ -66,7 +68,7 @@ export function HotelRoomOverview(props: HotelRoomOverviewProps) {
     ? React.createElement('div', { className: 'hotel-memories-room-overview' }, liveOverview)
     : liveOverview;
 
-  const tenantOverview = isSlnt && !isGozsdu
+  const tenantOverview = showSlntPropertyRows && !isGozsdu
     ? React.createElement('div', { className: 'slnt-team-property-rows' }, scopedOverview)
     : scopedOverview;
 
