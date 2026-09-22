@@ -6,6 +6,7 @@ on:
       - feat/revenue-calendar-30-day-month-navigation
     paths:
       - scripts/apply_revenue_calendar_349.py
+      - scripts/fix_revenue_calendar_349.py
       - .github/workflows/revenue-calendar-349.yml
 
 permissions:
@@ -21,6 +22,8 @@ jobs:
           persist-credentials: true
       - name: Apply source changes with strict anchors
         run: python3 scripts/apply_revenue_calendar_349.py
+      - name: Align default data horizon and regression tests
+        run: python3 scripts/fix_revenue_calendar_349.py
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -34,7 +37,7 @@ jobs:
         run: bun run build
       - name: Commit tested implementation to feature branch only
         run: |
-          git rm -- .github/workflows/revenue-calendar-349.yml scripts/apply_revenue_calendar_349.py
-          git add src/components/revenue/RateStrategyGrid.tsx src/pages/RevenueHotelDetail.tsx src/hooks/useRevenueHotelData.ts src/components/revenue/MonthPerformanceHeader.tsx
+          git rm -- .github/workflows/revenue-calendar-349.yml scripts/apply_revenue_calendar_349.py scripts/fix_revenue_calendar_349.py
+          git add src/components/revenue/RateStrategyGrid.tsx src/pages/RevenueHotelDetail.tsx src/hooks/useRevenueHotelData.ts src/hooks/__tests__/useRevenueHotelData.resume.test.tsx src/components/revenue/MonthPerformanceHeader.tsx
           git -c user.name='hotelcare-calendar-ci' -c user.email='hotelcare-calendar-ci@users.noreply.github.com' commit -m 'feat(revenue): default to thirty dates and explicitly selected calendar months'
           git push origin HEAD:feat/revenue-calendar-30-day-month-navigation
