@@ -25,7 +25,7 @@ const HOTEL_EXTRAS: Record<LangCode, ExtraTerms> = {
   hu: { unit: 'Szoba', unitPlural: 'Szobák', venue: 'Szálloda', venuePlural: 'Szállodák', checkoutSection: 'Kijelentkező szobák', dailySection: 'Napi szobák', noShowSection: 'Meg nem jelent szobák' },
   es: { unit: 'Habitación', unitPlural: 'Habitaciones', venue: 'Hotel', venuePlural: 'Hoteles', checkoutSection: 'Habitaciones de salida', dailySection: 'Habitaciones diarias', noShowSection: 'Habitaciones no-show' },
   vi: { unit: 'Phòng', unitPlural: 'Phòng', venue: 'Khách sạn', venuePlural: 'Khách sạn', checkoutSection: 'Phòng trả', dailySection: 'Phòng hàng ngày', noShowSection: 'Phòng khách không đến' },
-  mn: { unit: 'Өрөө', unitPlural: 'Өрөөнүүд', venue: 'Зочид буудал', venuePlural: 'Зочид буудал', checkoutSection: 'Гарах өрөө', dailySection: 'Өдөр тутмын өрөө', noShowSection: 'Ирээгүй өрөө' },
+  mn: { unit: 'Өрөө', unitPlural: 'Өрөөнүүд', venue: 'Зочид буудал', venuePlural: 'Зочид буудлууд', checkoutSection: 'Гарах өрөө', dailySection: 'Өдөр тутмын өрөө', noShowSection: 'Ирээгүй өрөө' },
   uk: { unit: 'Номер', unitPlural: 'Номери', venue: 'Готель', venuePlural: 'Готелі', checkoutSection: 'Номери на виїзд', dailySection: 'Щоденні номери', noShowSection: 'Номери без заїзду' },
 };
 
