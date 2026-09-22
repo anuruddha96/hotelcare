@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'supabase/migrations/20260922110000_memories_automatic_service_cycle.sql'
+      - 'supabase/migrations/20260922110100_memories_upload_and_manual_service_guards.sql'
       - 'supabase/tests/memories_service_cycle_*'
       - '.github/workflows/memories-service-cycle-sql-ci.yml'
 
@@ -38,10 +39,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install PostgreSQL client
         run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
-      - name: Test Memories backend cycle and isolation in a disposable database
+      - name: Test Memories backend cycle, uploads and tenant isolation
         run: |
           set -euo pipefail
           psql -X -v ON_ERROR_STOP=1 -f supabase/tests/memories_service_cycle_fixture.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20260920150000_stop_false_service_completions.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20260922110000_memories_automatic_service_cycle.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20260922110100_memories_upload_and_manual_service_guards.sql
           psql -X -v ON_ERROR_STOP=1 -f supabase/tests/memories_service_cycle_integration.sql
