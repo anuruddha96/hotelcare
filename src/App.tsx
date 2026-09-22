@@ -50,7 +50,11 @@ const TrainingOverlay = lazy(() => import("@/components/training").then(m => ({ 
 const TrainingWelcomePrompt = lazy(() => import("@/components/training").then(m => ({ default: m.TrainingWelcomePrompt })));
 const BrowserLocationHelpRoot = lazy(() => import("@/components/dashboard/BrowserLocationHelpDialog").then(m => ({ default: m.BrowserLocationHelpRoot })));
 
-const queryClient = new QueryClient();
+// Changing tabs must not silently replace what a manager was reading. Live
+// subscriptions, polling and explicit invalidations still update their data.
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { refetchOnWindowFocus: false } },
+});
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-background/50 backdrop-blur-sm">
