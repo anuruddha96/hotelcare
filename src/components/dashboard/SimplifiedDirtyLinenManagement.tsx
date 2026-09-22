@@ -5,11 +5,12 @@ import { DirtyLinenManagementV2 } from './DirtyLinenManagementV2';
 import { GozsduLinenManagement } from './GozsduLinenManagement';
 import { GozsduLinenCollectionBreakdown } from './GozsduLinenCollectionBreakdown';
 import { MemoriesLinenManagement } from './MemoriesLinenManagement';
+import { MemoriesLinenItemsConfiguration } from './MemoriesLinenItemsConfiguration';
 
 /** Isolate vendor-specific collection sheets by exact property ID, never tenant-wide. */
 export function SimplifiedDirtyLinenManagement() {
   const { profile } = useAuth();
-  if (isMemoriesHotel(profile?.assigned_hotel)) return <MemoriesLinenManagement />;
+  if (isMemoriesHotel(profile?.assigned_hotel)) return <><MemoriesLinenManagement /><MemoriesLinenItemsConfiguration /></>;
   return isGozsduCourtHotel(profile?.assigned_hotel)
     ? <><GozsduLinenManagement /><GozsduLinenCollectionBreakdown mode="manager" /></>
     : <DirtyLinenManagementV2 />;
