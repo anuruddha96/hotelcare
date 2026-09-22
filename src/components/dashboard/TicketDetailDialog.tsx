@@ -27,7 +27,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { FileUpload } from './FileUpload';
-import { AttachmentViewer } from './AttachmentViewer';
+import { MaintenanceIssueEvidence } from './MaintenanceIssueEvidence';
 import { AttachmentUpload } from './AttachmentUpload';
 import { Calendar, MapPin, User, Clock, MessageSquare, AlertTriangle, CheckCircle, Paperclip, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -46,7 +46,8 @@ interface Ticket {
   resolution_text?: string;
   closed_at?: string;
   hotel?: string;
-  attachment_urls?: string[];
+  attachment_urls?: string[] | null;
+  completion_photos?: string[] | null;
   closed_by?: {
     full_name: string;
   };
@@ -492,16 +493,8 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               </div>
             )}
 
-            {/* Attachments */}
-            {ticket.attachment_urls && ticket.attachment_urls.length > 0 && (
-              <div className="mt-4" data-training="ticket-photos">
-                <h4 className="font-semibold mb-3 flex items-center gap-2">
-                  <Paperclip className="h-4 w-4" />
-                  {t('ticketDetail.attachments')}
-                </h4>
-                <AttachmentViewer attachments={ticket.attachment_urls} />
-              </div>
-            )}
+            {/* Both original and repair evidence belong to the same maintenance issue. */}
+            <MaintenanceIssueEvidence originalPhotos={ticket.attachment_urls} completionPhotos={ticket.completion_photos} />
           </div>
 
           {/* Actions */}
