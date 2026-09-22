@@ -36,7 +36,7 @@ describe('legacy quote history migration', () => {
 
   it('does not guess a user or crash if storage is unavailable', () => {
     expect(readLegacyQuoteHistory('', store({}))).toEqual([]);
-    const broken = { get length() { throw new Error('private mode'); } } as Storage;
+    const broken = { get length() { throw new Error('private mode'); } } as unknown as Storage;
     expect(readLegacyQuoteHistory('staff-1', broken)).toEqual([]);
   });
 });
