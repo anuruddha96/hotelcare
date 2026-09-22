@@ -28,6 +28,10 @@ import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer
 import { computeSuggestedRate, type PricingMultipliers, type EngineSettings, leadTimeBucket, DOW_NAMES, MONTH_NAMES, LEAD_LABELS } from "@/lib/revenuePricing";
 import { setRevenueCurrency, useRevenueCurrency, money, getRevenueCurrency } from "@/lib/revenueCurrency";
 import { PICKUP_WINDOW_48H } from "@/lib/revenueAnalytics";
+
+// Six months of stay dates must be on hand or the later month cards never
+// leave their loading state and far-out bookings taken today are trimmed away.
+const BASE_HORIZON_DAYS = 210;
 import RoomsSetupTab from "@/components/revenue/settings/RoomsSetupTab";
 import PercentAdjustmentTab from "@/components/revenue/settings/PercentAdjustmentTab";
 import { CalendarYearView, CalendarQuarterView } from "@/components/revenue/CalendarYearView";
