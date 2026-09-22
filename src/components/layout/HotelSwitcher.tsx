@@ -18,10 +18,9 @@ import { toast } from 'sonner';
 import { HotelSwitchOverlay } from './HotelSwitchOverlay';
 import { setTabHotel } from '@/lib/tabHotel';
 
-
 export function HotelSwitcher() {
   const { profile, applyAssignedHotel } = useAuth();
-  const { hotels } = useTenant();
+  const { organization, hotels } = useTenant();
   const navigate = useNavigate();
   const location = useLocation();
   const organizationSlug = profile?.organization_slug ?? null;
@@ -33,78 +32,86 @@ export function HotelSwitcher() {
     setCurrentHotel(profile?.assigned_hotel || null);
   }, [profile?.assigned_hotel]);
 
-  // Only show for admin and manager roles
+  // This is the existing manager switcher, NOT the temporary duty feature.
+  // Maintenance/reception must only be added after server-validated duty access exists.
   if (!profile || !['admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager'].includes(profile.role)) {
     return null;
   }
 
-  // Show if there are hotels (even just 1, so user can see which hotel they're in)
-  // Hide only if no hotels exist
   if (!hotels || hotels.length === 0) {
     return null;
   }
 
   const handleSwitchHotel = async (hotelId: string) => {
-    if (!organizationSlug || hotelId === currentHotel || switchingTo) return;
-    const selectedHotelData = hotels.find(h => h.hotel_id === hotelId);
-    const hotelName = selectedHotelData?.hotel_name || hotelId;
+    if (!profile || !organizationSlug || hotelId === currentHotel || switchingTo) return;
+
+    // Fail closed if an organization lookup has fallen back or the active route,
+    // authenticated profile and selected hotel don't independently agree.
+    // A visible dropdown entry (or a forged hotelId) is NOT an authorization check.
+    const selectedHotelData = hotels.find(h => h.hotel_id === hotelId && h.is_active);
+    if (
+      !organization ||
+      !selectedHotelData ||
+      organization.slug !== organizationSlug ||
+      selectedHotelData.organization_id !== organization.id
+    ) {
+      toast.error('This property is not available for your organization. Please refresh or contact an administrator.');
+      return;
+    }
+
+    const hotelName = selectedHotelData.hotel_name || hotelId;
 
     // Curtain first: the visible numbers belong to the previous property and
     // must disappear before anything else happens.
     setSwitchingTo(hotelName);
 
-    // Never let the curtain outlive the switch. A slow phone connection used
-    // to leave people staring at "Loading this property's data…" forever.
     const safety = window.setTimeout(() => {
       setSwitchingTo(null);
       toast.error('Switching is taking longer than usual — please try again');
     }, 8000);
 
-    // Remember the choice for THIS tab only, so a second window can stay on a
-    // different property.
-    setTabHotel(organizationSlug, hotelId);
-
     try {
-      // A tab that was backgrounded may be holding an expired token; refresh
-      // it first so the write fails loudly as re-auth instead of silently.
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session) {
         const { error: refreshError } = await supabase.auth.refreshSession();
         if (refreshError) throw new Error('Your session expired — please sign in again');
       }
 
+      // Retain the existing manager behavior pending the separate temporary-duty
+      // backend. Restrict the write to the profile's organization and require a row.
       const { error } = await supabase
         .from('profiles')
         .update({ assigned_hotel: hotelId })
-        .eq('id', profile.id);
+        .eq('id', profile.id)
+        .eq('organization_slug', organizationSlug)
+        .select('id')
+        .single();
 
       if (error) throw error;
 
+      // Never save an unverified choice in sessionStorage before the server has
+      // confirmed the write: profile refreshes must not apply a failed switch.
+      setTabHotel(organizationSlug, hotelId);
       setCurrentHotel(hotelId);
       applyAssignedHotel(hotelId);
       toast.success(`Switched to ${hotelName}`);
 
-      // A hotel-scoped revenue detail route still points at the OLD property,
-      // so move the URL to the same route for the new one. Everything else
-      // re-reads from the profile in place — no page reload.
       const revenueDetail = location.pathname.match(/^\/([^/]+)\/revenue\/[^/]+/);
       if (revenueDetail) {
         navigate(`/${revenueDetail[1]}/revenue/${hotelId}${location.search}`, { replace: true });
       }
 
       window.clearTimeout(safety);
-      // Short, fixed curtain: long enough to hide the swap, never open-ended.
       window.setTimeout(() => setSwitchingTo(null), 600);
     } catch (error: any) {
       window.clearTimeout(safety);
       setSwitchingTo(null);
-      setTabHotel(organizationSlug, currentHotel);
+      // The previous selection was not overwritten, so no rollback can
+      // accidentally write a stale property into this tab.
       toast.error(error?.message || 'Failed to switch hotel');
       console.error(error);
     }
   };
-
-
 
   const currentHotelData = hotels.find(h => h.hotel_id === currentHotel);
   const currentHotelName = currentHotelData?.hotel_name || currentHotel || 'All Hotels';
@@ -113,7 +120,6 @@ export function HotelSwitcher() {
     <>
     {switchingTo && <HotelSwitchOverlay hotelName={switchingTo} />}
     <DropdownMenu>
-
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
@@ -148,5 +154,4 @@ export function HotelSwitcher() {
     </DropdownMenu>
     </>
   );
-
 }
