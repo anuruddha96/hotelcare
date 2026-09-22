@@ -42,7 +42,7 @@ export function MaintenanceTicketTranslation({ ticketId, title, description }: P
     // flight, so Hungarian/English technicians cannot see a stale translation
     // labelled as the newly selected language.
     requestSequence.current += 1;
-    setTargetLanguage(value);
+    setTargetLanguage(value as typeof targetLanguage);
     setResult(null);
     setError(false);
     setBusy(false);

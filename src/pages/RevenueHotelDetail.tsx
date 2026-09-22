@@ -28,6 +28,10 @@ import { LineChart, Line, XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer
 import { computeSuggestedRate, type PricingMultipliers, type EngineSettings, leadTimeBucket, DOW_NAMES, MONTH_NAMES, LEAD_LABELS } from "@/lib/revenuePricing";
 import { setRevenueCurrency, useRevenueCurrency, money, getRevenueCurrency } from "@/lib/revenueCurrency";
 import { PICKUP_WINDOW_48H } from "@/lib/revenueAnalytics";
+
+// Six months of stay dates must be on hand or the later month cards never
+// leave their loading state and far-out bookings taken today are trimmed away.
+const BASE_HORIZON_DAYS = 210;
 import RoomsSetupTab from "@/components/revenue/settings/RoomsSetupTab";
 import PercentAdjustmentTab from "@/components/revenue/settings/PercentAdjustmentTab";
 import { CalendarYearView, CalendarQuarterView } from "@/components/revenue/CalendarYearView";
@@ -137,12 +141,14 @@ export default function RevenueHotelDetail() {
   // the purple dots always describe the same stretch of time.
   const [pickupWindow, setPickupWindow] = useState<number>(PICKUP_WINDOW_48H);
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
-  // Only the explicitly selected calendar dates are requested. Changing the
-  // month replaces the request instead of monotonically growing it.
-  const [horizonDays, setHorizonDays] = useState(30);
+  // The six-month outlook needs roughly 210 stay dates on hand, otherwise the
+  // later month cards never leave their "loading" state and bookings taken
+  // today for far-out stay dates are trimmed away from the counters.
+  const [horizonDays, setHorizonDays] = useState(BASE_HORIZON_DAYS);
   const growHorizon = useCallback((days: number) => {
-    setHorizonDays(Math.max(30, Math.min(365, Math.ceil(days))));
+    setHorizonDays(Math.max(BASE_HORIZON_DAYS, Math.min(365, Math.ceil(days))));
   }, []);
+
   const live = useRevenueHotelData(hotelId ?? null, revenueOrgSlug, horizonDays, pickupWindow);
 
   // Internal demand grade per date (booking pace, pickup, pressure, lead time).

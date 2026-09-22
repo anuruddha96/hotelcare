@@ -197,7 +197,7 @@ export function RoomTypeDropBoundary({ children, selectedDate, hotelName, isGozs
             notes: upsertRoomTypeNote(assignment.notes, selectedDate, transition.notice.message),
           } as any)
           .eq('id', assignment.id).eq('room_id', room.id)
-          .eq('assignment_date', selectedDate).eq('status', assignment.status).select('id');
+          .eq('assignment_date', selectedDate).eq('status', assignment.status as never).select('id');
         if (assignmentError) throw assignmentError;
         if (saved?.length !== 1) throw new Error('Assignment changed during update. Refresh and retry.');
         changedAssignments.push(assignment);

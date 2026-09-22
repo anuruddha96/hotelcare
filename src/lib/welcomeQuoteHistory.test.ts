@@ -7,7 +7,7 @@ function store(items: Record<string, string>): Storage {
     length: keys.length,
     key(index: number) { return keys[index] ?? null; },
     getItem(key: string) { return items[key] ?? null; },
-  } as Storage;
+  } as unknown as Storage;
 }
 
 describe('legacy quote history migration', () => {
@@ -36,7 +36,7 @@ describe('legacy quote history migration', () => {
 
   it('does not guess a user or crash if storage is unavailable', () => {
     expect(readLegacyQuoteHistory('', store({}))).toEqual([]);
-    const broken = { get length() { throw new Error('private mode'); } } as Storage;
+    const broken = { get length() { throw new Error('private mode'); } } as unknown as Storage;
     expect(readLegacyQuoteHistory('staff-1', broken)).toEqual([]);
   });
 });
