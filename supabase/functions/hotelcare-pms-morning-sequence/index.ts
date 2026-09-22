@@ -115,8 +115,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     }
     usedRoomIds.add(roomId);
     if (snapshot) usedSnapshots.add(String(snapshot.id));
-    // A no-show can disappear from TODAY's Previo snapshot while the NEXT
-    // reservation is still visible on tomorrow's. Never abort all 21 rooms.
+    // No-show may disappear from today's snapshot while next arrival exists.
     pairs.push({ id: roomId, snapshot: snapshot || null, incoming: ottofiori ? (nextArrivals.get(key) || null) : null });
   }
   const { data: rooms, error: roomsError } = await admin.from("rooms")
@@ -143,10 +142,10 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     metadata.lastServerMorningSyncSource = "portfolio_morning_10min";
 
     if (ottofiori && !s) {
-      // No current-stay reservation: this is not proof of a checkout.
-      // A verified checkout still needs full cleaning for the new arrival.
+      // No present reservation is not proof of checkout. Preserve a confirmed
+      // checkout's full cleaning, or a manager's explicit same-day override.
       const confirmedCheckout = previousDate === date && old.checkedOutToday === true;
-      if (manual && old.manual_checkout === true || confirmedCheckout) {
+      if ((manual && old.manual_checkout === true) || confirmedCheckout) {
         checkout++; if (manual) overridden++; skippedUnknown++; continue;
       }
       if (manual && (old.manual_daily === true || old.manual_checkout === false)) overridden++;
@@ -156,7 +155,7 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
       if (!incoming && !noShowOrNotArrived && !manual) {
         skippedUnknown++;
         if (room.is_checkout_room) checkout++; else daily++;
-        continue; // unknown physical status: never fabricate a reservation
+        continue;
       }
       metadata.scheduledDepartureToday = false;
       metadata.scheduledDepartureTomorrow = incoming?.departure_date === nextDate;
@@ -197,10 +196,9 @@ async function syncStandardHotel(admin: any, url: string, service: string, secre
     metadata.scheduledDepartureTomorrow = s.departure_date > date && s.departure_date <= nextDate;
     metadata.arrivalDate = s.arrival_date;
     metadata.departureDate = s.departure_date;
-    // Non-Ottofiori hotels retain their existing occupancy behaviour. For
-    // Ottofiori, a booking being on the manifest is NOT evidence of check-in.
+    // A reservation on the manifest alone is not evidence of check-in.
     metadata.occupiedToday = ottofiori ? old.occupiedToday === true : true;
-    metadata.stayThroughToday = !effectiveCheckout;
+    metadata.stayThroughToday = ottofiori ? !effectiveCheckout : !departing;
     if (ottofiori && s.arrival_date !== old.arrivalDate && old.manual_no_show !== true) {
       metadata.isNoShow = false;
       metadata.notArrived = s.arrival_date === date && old.occupiedToday !== true;
@@ -282,6 +280,10 @@ Deno.serve(async req => {
     console.error(`[PMS morning sequence] ${target.key}: ${failure}`);
     await admin.from("pms_morning_sync_runs").update({
       status: "failed", completed_at: new Date().toISOString(), error_message: failure,
+    }).eq("business_date", clock.date).eq("target_key", target.key);
+    await admin.from("pms_sync_history").insert({
+      hotel_id: target.hotel_id, sync_type: "rooms_refresh", direction: "from_previo",
+      sync_status: "failed", error_message: failure,
       data: { trigger: "portfolio_morning_10min", business_date: clock.date,
         account_id: target.account_id, scheduled_slot: slot },
     });
