@@ -17,6 +17,7 @@ import {
 import { toast } from 'sonner';
 import { HotelSwitchOverlay } from './HotelSwitchOverlay';
 import { setTabHotel } from '@/lib/tabHotel';
+import { canSwitchWithinOrganization } from '@/lib/hotelSwitchScope';
 
 export function HotelSwitcher() {
   const { profile, applyAssignedHotel } = useAuth();
@@ -45,26 +46,18 @@ export function HotelSwitcher() {
   const handleSwitchHotel = async (hotelId: string) => {
     if (!profile || !organizationSlug || hotelId === currentHotel || switchingTo) return;
 
-    // Fail closed if an organization lookup has fallen back or the active route,
-    // authenticated profile and selected hotel don't independently agree.
-    // A visible dropdown entry (or a forged hotelId) is NOT an authorization check.
-    const selectedHotelData = hotels.find(h => h.hotel_id === hotelId && h.is_active);
-    if (
-      !organization ||
-      !selectedHotelData ||
-      organization.slug !== organizationSlug ||
-      selectedHotelData.organization_id !== organization.id
-    ) {
+    // A visible dropdown entry (or a forged hotelId) is NOT authorization.
+    // Fail closed if the profile, route organization and destination disagree.
+    const selectedHotelData = hotels.find(h => h.hotel_id === hotelId);
+    if (!canSwitchWithinOrganization(organizationSlug, organization, selectedHotelData, hotelId)) {
       toast.error('This property is not available for your organization. Please refresh or contact an administrator.');
       return;
     }
 
-    const hotelName = selectedHotelData.hotel_name || hotelId;
-
-    // Curtain first: the visible numbers belong to the previous property and
-    // must disappear before anything else happens.
+    const hotelName = selectedHotelData!.hotel_name || hotelId;
     setSwitchingTo(hotelName);
 
+    // A slow connection must never leave the property curtain indefinitely.
     const safety = window.setTimeout(() => {
       setSwitchingTo(null);
       toast.error('Switching is taking longer than usual — please try again');
@@ -77,8 +70,8 @@ export function HotelSwitcher() {
         if (refreshError) throw new Error('Your session expired — please sign in again');
       }
 
-      // Retain the existing manager behavior pending the separate temporary-duty
-      // backend. Restrict the write to the profile's organization and require a row.
+      // Retain existing manager behavior pending the separate temporary-duty
+      // backend. Restrict the write to this profile and organization.
       const { error } = await supabase
         .from('profiles')
         .update({ assigned_hotel: hotelId })
@@ -89,8 +82,7 @@ export function HotelSwitcher() {
 
       if (error) throw error;
 
-      // Never save an unverified choice in sessionStorage before the server has
-      // confirmed the write: profile refreshes must not apply a failed switch.
+      // Only save the selection after the server has confirmed the write.
       setTabHotel(organizationSlug, hotelId);
       setCurrentHotel(hotelId);
       applyAssignedHotel(hotelId);
@@ -106,8 +98,8 @@ export function HotelSwitcher() {
     } catch (error: any) {
       window.clearTimeout(safety);
       setSwitchingTo(null);
-      // The previous selection was not overwritten, so no rollback can
-      // accidentally write a stale property into this tab.
+      // The previous selection was not overwritten, so a rollback cannot
+      // accidentally pin a stale property in this tab.
       toast.error(error?.message || 'Failed to switch hotel');
       console.error(error);
     }
