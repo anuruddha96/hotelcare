@@ -1,6 +1,8 @@
 -- Monthly KPI cards must not wait for the rate calendar's lazy 30-day window.
 -- Aggregate the SAME atomically published Previo booking-night payload as the
 -- calendar; do not use independently timed snapshots or historical forecasts.
+-- Always require the user's own organization (even a super-admin flag must
+-- never cause an SLNT account to receive RD Hotels financial metrics).
 CREATE OR REPLACE FUNCTION public.get_revenue_monthly_kpis(_hotel_id text)
 RETURNS TABLE (
   month_key text,
@@ -23,8 +25,7 @@ AS $function$
       AND EXISTS (
         SELECT 1 FROM public.profiles profile
         WHERE profile.id = auth.uid()
-          AND (COALESCE(profile.is_super_admin, false)
-               OR profile.organization_slug = p.organization_slug)
+          AND profile.organization_slug = p.organization_slug
       )
   ),
   bounds AS (
@@ -65,4 +66,4 @@ REVOKE ALL ON FUNCTION public.get_revenue_monthly_kpis(text) FROM anon;
 GRANT EXECUTE ON FUNCTION public.get_revenue_monthly_kpis(text) TO authenticated;
 
 COMMENT ON FUNCTION public.get_revenue_monthly_kpis(text) IS
-  'Six compact, Budapest-local monthly KPI totals from one authorized, completed Previo revenue publication; the caller must calculate capacity from its verified sellable-room inventory.';
+  'Six compact, Budapest-local monthly KPI totals from the caller''s own organization and a completed Previo revenue publication.';
