@@ -8,6 +8,7 @@ import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { assigneeLabel } from '@/lib/staffNames';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { historicalDndState, isBudapestBusinessDate, selectSavedSnapshot, type HistoricalDndState } from '@/lib/historicalDndStatus';
+import { hasMemoriesHistoricalRoomTypeConflict, isMemoriesHistoricalCheckout } from '@/lib/memoriesHistoricalRoomType';
 import { useTranslation } from '@/hooks/useTranslation';
 
 type RoomSnapshot = {
@@ -50,8 +51,7 @@ const COLORS: Record<string, string> = {
   pending: 'bg-violet-200 text-violet-900 border-violet-500 dark:bg-violet-900/50 dark:text-violet-200',
   out_of_order: 'bg-red-200 text-red-900 border-red-500 dark:bg-red-900/50 dark:text-red-200',
 };
-const isCheckout = (row: RoomSnapshot) => row.pms_metadata?.manual_daily !== true &&
-  (row.is_checkout_room === true || row.pms_metadata?.scheduledDepartureToday === true || row.assignment_type === 'checkout_cleaning');
+const isCheckout = isMemoriesHistoricalCheckout;
 const isNoShow = (row: RoomSnapshot) => {
   const m = row.pms_metadata || {};
   const status = String(m.reservationStatus ?? m.reservation_status ?? m.pmsStatus ?? m.pms_status
@@ -194,7 +194,7 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
       const a = room.assignment;
       const start = a?.started_at || room.snapshot.assignment_started_at;
       const end = a?.completed_at || room.snapshot.assignment_completed_at;
-      if (!start || !end) return [];
+      if (!start || !end) continue;
       const duration = (Date.parse(end) - Date.parse(start)) / 60000;
       return duration > 0 && duration < 720 ? [duration] : [];
     });
@@ -309,8 +309,7 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
           {evidenceWarning && <div role="alert" className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">{evidenceWarning}</div>}
           <div>
             <button type="button" onClick={() => setShowLegend(previous => !previous)} className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground">
-              <ChevronDown className={`h-3 w-3 ${showLegend ? '' : '-rotate-90'}`} />{showLegend ? t('legend.hideLegend') : t('legend.showLegend')}
-            </button>
+              <ChevronDown className={`h-3 w-3 ${showLegend ? '' : '-rotate-90'}`} />{showLegend ? t('legend.hideLegend') : t('legend.showLegend')}</button>
             {showLegend && <div className="flex flex-wrap gap-x-3 gap-y-1.5 mt-2 p-2 rounded-md bg-muted/30 border border-border/50 text-[10px] text-muted-foreground">
               <span>🟩 Approved / Clean</span><span>🟨 Dirty / Assigned</span><span>🟦 In progress</span><span>🟪 Pending approval</span>
               <span>🚫 Active DND</span><span>DND* Recorded on this day, not active</span><span>⚠️ Inconsistent saved DND</span>
@@ -340,6 +339,8 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
           {selectedRoom && <>
             <DialogHeader><DialogTitle>Room {selectedRoom.snapshot.room_number} — {selectedDate} (read-only)</DialogTitle></DialogHeader>
             <div className="space-y-2 text-sm">
+              <p><strong>Saved room category:</strong> {selectedRoom.checkout ? 'Checkout' : 'Daily'}.</p>
+              {hasMemoriesHistoricalRoomTypeConflict(selectedRoom.snapshot) && <p className="rounded border border-amber-200 bg-amber-50 p-2 text-amber-900">A {selectedRoom.snapshot.assignment_type === 'checkout_cleaning' ? 'checkout' : 'daily'} cleaning assignment was recorded for this date, but the final saved room category is {selectedRoom.checkout ? 'checkout' : 'daily'}. The room is grouped by the saved category; the original work record is preserved for audit.</p>}
               <p><strong>Saved status:</strong> {selectedRoom.snapshot.assignment_status || selectedRoom.snapshot.room_status || 'Not recorded'}; supervisor approved: {selectedRoom.approved ? 'Yes' : 'No'}.</p>
               <p><strong>DND verification:</strong> {selectedRoom.dnd === 'none'
                 ? 'No DND event verified for this date.' : selectedRoom.dnd === 'earlier'
