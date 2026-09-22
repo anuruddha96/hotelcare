@@ -3,6 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { Header } from '@/components/layout/Header';
 import { Dashboard } from '@/components/dashboard/Dashboard';
+import { MaintenanceIssueDeepLink } from '@/components/dashboard/MaintenanceIssueDeepLink';
 import { StayExtensionReviewQueue } from '@/components/dashboard/StayExtensionReviewQueue';
 import { StayServicePolicySettings } from '@/components/dashboard/StayServicePolicySettings';
 import { HotelSelectionScreen } from '@/components/dashboard/HotelSelectionScreen';
@@ -135,6 +136,7 @@ const Index = () => {
         </>
       )}
       <Dashboard />
+      <MaintenanceIssueDeepLink />
     </div>
   );
 };
