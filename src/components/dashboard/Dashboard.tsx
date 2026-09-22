@@ -5,6 +5,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useTenant } from '@/contexts/TenantContext';
 import { supabase } from '@/integrations/supabase/client';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { maintenanceQueueBucket, maintenanceQueueCounts } from '@/lib/maintenanceQueue';
 import { MaintenanceIssueAnalytics } from './MaintenanceIssueAnalytics';
 import { TicketCard } from './TicketCard';
 import { CreateTicketDialog } from './CreateTicketDialog';
@@ -46,14 +47,17 @@ interface Ticket {
   room_number: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
   status: 'open' | 'in_progress' | 'completed';
+  on_hold: boolean | null;
+  hold_reason: string | null;
+  sla_due_date: string | null;
   created_at: string;
   updated_at: string;
   department?: string;
   hotel?: string;
   attachment_urls?: string[] | null;
   completion_photos?: string[] | null;
-  pending_supervisor_approval?: boolean | null;
-  resolution_text?: string | null;
+  pending_supervisor_approval: boolean | null;
+  resolution_text: string | null;
   closed_at?: string | null;
   created_by?: {
     full_name: string;
@@ -67,7 +71,7 @@ interface Ticket {
 export function Dashboard() {
   const { profile } = useAuth();
   const noMinibar = isGozsduCourtHotel(profile?.assigned_hotel);
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const { organization, hotels } = useTenant();
   const navigate = useNavigate();
   const { organizationSlug } = useParams<{ organizationSlug: string }>();
@@ -79,7 +83,6 @@ export function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
-  const [departmentFilter, setDepartmentFilter] = useState('all');
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [ticketPermissionDialogOpen, setTicketPermissionDialogOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
@@ -181,7 +184,8 @@ export function Dashboard() {
       const parsed: Ticket[] = all.map((d: any) => ({
         id: d.id, ticket_number: d.ticket_number, title: d.title,
         description: d.description, room_number: d.room_number,
-        priority: d.priority, status: d.status, created_at: d.created_at,
+        priority: d.priority, status: d.status, on_hold: d.on_hold, hold_reason: d.hold_reason,
+        sla_due_date: d.sla_due_date, created_at: d.created_at,
         updated_at: d.updated_at, department: d.department, hotel: d.hotel,
         attachment_urls: d.attachment_urls, completion_photos: d.completion_photos,
         resolution_text: d.resolution_text, closed_at: d.closed_at,
@@ -255,23 +259,13 @@ export function Dashboard() {
                          ticket.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          ticket.room_number.toLowerCase().includes(searchQuery.toLowerCase());
     
-    const matchesStatus = statusFilter === 'all' || ticket.status === statusFilter;
+    const matchesStatus = statusFilter === 'all' || maintenanceQueueBucket(ticket) === statusFilter;
     const matchesPriority = priorityFilter === 'all' || ticket.priority === priorityFilter;
-    const matchesDepartment = departmentFilter === 'all' || ticket.department === departmentFilter;
-    
-    return matchesSearch && matchesStatus && matchesPriority && matchesDepartment;
+    return matchesSearch && matchesStatus && matchesPriority;
   });
 
-  const getTicketCounts = () => {
-    return {
-      total: tickets.length,
-      open: tickets.filter(t => t.status === 'open').length,
-      inProgress: tickets.filter(t => t.status === 'in_progress').length,
-      completed: tickets.filter(t => t.status === 'completed').length,
-    };
-  };
-
-  const counts = getTicketCounts();
+  // The same mutually exclusive state mapping powers Housekeeping and main Maintenance.
+  const counts = maintenanceQueueCounts(tickets);
 
   const checkTodayAttendance = async () => {
     if (!profile?.id) return;
@@ -688,10 +682,10 @@ export function Dashboard() {
               </div>
             )}
             {isManager && <MaintenanceIssueAnalytics />}
-            <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
+            <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-xs sm:text-sm font-medium">{t('tickets.total')}</CardTitle>
+                  <CardTitle className="text-xs sm:text-sm font-medium">{language === 'hu' ? 'Összes karbantartási hiba' : 'Total maintenance issues'}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-xl sm:text-2xl font-bold">{ticketLoadError ? '—' : counts.total}</div>
@@ -699,26 +693,38 @@ export function Dashboard() {
               </Card>
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-xs sm:text-sm font-medium">{t('tickets.open')}</CardTitle>
+                  <CardTitle className="text-xs sm:text-sm font-medium">{language === 'hu' ? 'Aktív' : 'Active'}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-xl sm:text-2xl font-bold text-yellow-500">{ticketLoadError ? '—' : counts.open}</div>
+                  <div className="text-xl sm:text-2xl font-bold text-yellow-500">{ticketLoadError ? '—' : counts.active}</div>
                 </CardContent>
               </Card>
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-xs sm:text-sm font-medium">{t('tickets.inProgress')}</CardTitle>
+                  <CardTitle className="text-xs sm:text-sm font-medium">{language === 'hu' ? 'Folyamatban' : 'In progress'}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-xl sm:text-2xl font-bold text-blue-500">{ticketLoadError ? '—' : counts.inProgress}</div>
+                  <div className="text-xl sm:text-2xl font-bold text-blue-500">{ticketLoadError ? '—' : counts.progress}</div>
                 </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs sm:text-sm font-medium">{language === 'hu' ? 'Várakozik' : 'On hold'}</CardTitle>
+                </CardHeader>
+                <CardContent><div className="text-xl sm:text-2xl font-bold">{ticketLoadError ? '—' : counts.hold}</div></CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs sm:text-sm font-medium">{language === 'hu' ? 'Jóváhagyásra vár' : 'Awaiting approval'}</CardTitle>
+                </CardHeader>
+                <CardContent><div className="text-xl sm:text-2xl font-bold">{ticketLoadError ? '—' : counts.approval}</div></CardContent>
               </Card>
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-xs sm:text-sm font-medium">{t('tickets.completed')}</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-xl sm:text-2xl font-bold text-green-500">{ticketLoadError ? '—' : counts.completed}</div>
+                  <div className="text-xl sm:text-2xl font-bold text-green-500">{ticketLoadError ? '—' : counts.done}</div>
                 </CardContent>
               </Card>
             </div>
@@ -741,9 +747,11 @@ export function Dashboard() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">{t('tickets.allStatus')}</SelectItem>
-                      <SelectItem value="open">{t('tickets.open')}</SelectItem>
-                      <SelectItem value="in_progress">{t('tickets.inProgress')}</SelectItem>
-                      <SelectItem value="completed">{t('tickets.completed')}</SelectItem>
+                      <SelectItem value="active">{language === 'hu' ? 'Aktív' : 'Active'}</SelectItem>
+                      <SelectItem value="progress">{t('tickets.inProgress')}</SelectItem>
+                      <SelectItem value="hold">{language === 'hu' ? 'Várakozik' : 'On hold'}</SelectItem>
+                      <SelectItem value="approval">{language === 'hu' ? 'Jóváhagyásra vár' : 'Awaiting approval'}</SelectItem>
+                      <SelectItem value="done">{t('tickets.completed')}</SelectItem>
                     </SelectContent>
                   </Select>
                   <Select value={priorityFilter} onValueChange={setPriorityFilter}>
@@ -758,18 +766,7 @@ export function Dashboard() {
                       <SelectItem value="urgent">{t('tickets.priority.urgent')}</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
-                    <SelectTrigger className="w-full sm:w-[160px] truncate">
-                      <SelectValue placeholder={t('tickets.department') || 'Department'} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">{t('tickets.allDepartments') || 'All Departments'}</SelectItem>
-                      <SelectItem value="maintenance">{t('rooms.maintenance')}</SelectItem>
-                      <SelectItem value="housekeeping">{t('dashboard.housekeeping')}</SelectItem>
-                      <SelectItem value="reception">{t('tickets.reception') || 'Reception'}</SelectItem>
-                      <SelectItem value="front_office">{t('tickets.frontOffice') || 'Front Office'}</SelectItem>
-                    </SelectContent>
-                  </Select>
+
                 </div>
               </div>
             </div>
@@ -794,7 +791,7 @@ export function Dashboard() {
             ) : filteredTickets.length === 0 ? (
 
               <div className="text-center py-8 text-muted-foreground">
-                {searchQuery || statusFilter !== 'all' || priorityFilter !== 'all' || departmentFilter !== 'all'
+                {searchQuery || statusFilter !== 'all' || priorityFilter !== 'all'
                   ? (t('tickets.noMatchFilters') || 'No tickets match your filters')
                   : t('tickets.noResults')}
               </div>
@@ -805,6 +802,7 @@ export function Dashboard() {
                     <TicketCard
                       ticket={ticket}
                       onClick={() => setSelectedTicket(ticket)}
+                      onUpdated={() => void fetchTickets()}
                     />
                   </div>
                 ))}

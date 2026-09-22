@@ -1,4 +1,9 @@
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { useAuth } from '@/hooks/useAuth';
+import { canManageMaintenance, MaintenanceManagerControls } from './MaintenanceManagerControls';
+import { maintenanceLocation, maintenanceQueueBucket } from '@/lib/maintenanceQueue';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Calendar, User, MapPin, AlertCircle, PauseCircle } from 'lucide-react';
 import { format } from 'date-fns';
@@ -13,8 +18,13 @@ interface Ticket {
   description: string;
   room_number: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
-  status: MaintenanceTicketStatus;
-  hold_reason?: string | null;
+  status: 'open' | 'in_progress' | 'completed';
+  updated_at: string;
+  on_hold: boolean | null;
+  pending_supervisor_approval: boolean | null;
+  hold_reason: string | null;
+  sla_due_date: string | null;
+  resolution_text: string | null;
   created_at: string;
   department?: string;
   hotel?: string;
@@ -25,10 +35,19 @@ interface Ticket {
 interface TicketCardProps {
   ticket: Ticket;
   onClick: () => void;
+  onUpdated?: () => void;
 }
 
-export function TicketCard({ ticket, onClick }: TicketCardProps) {
+export function TicketCard({ ticket, onClick, onUpdated }: TicketCardProps) {
   const { t, language } = useTranslation();
+  const { profile } = useAuth();
+  const [showActions, setShowActions] = useState(false);
+  const canManage = ticket.department === 'maintenance' && canManageMaintenance(profile?.role);
+  const bucket = maintenanceQueueBucket(ticket);
+  const effectiveStatus: MaintenanceTicketStatus = bucket === 'hold' ? 'on_hold'
+    : bucket === 'approval' ? 'pending_supervisor_approval' : ticket.status;
+  const overdue = ticket.status !== 'completed' && !!ticket.sla_due_date
+    && new Date(ticket.sla_due_date).getTime() < Date.now();
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -94,13 +113,13 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
           <div className="flex flex-col gap-1 shrink-0 items-end">
             <Badge className={getPriorityColor(ticket.priority)} variant="secondary">{getTranslatedPriority(ticket.priority)}</Badge>
             {ticket.department && <Badge className={getDepartmentColor(ticket.department)}>{ticket.department.replace('_', ' ').toUpperCase()}</Badge>}
-            <Badge className={maintenanceTicketStatusClass(ticket.status)} variant="outline">{getTranslatedStatus(ticket.status)}</Badge>
+            <Badge className={maintenanceTicketStatusClass(effectiveStatus)} variant="outline">{getTranslatedStatus(effectiveStatus)}</Badge>
           </div>
         </div>
       </CardHeader>
       <CardContent className="pt-0 space-y-2">
         <p className="text-sm text-muted-foreground line-clamp-2">{ticket.description}</p>
-        {ticket.status === 'on_hold' && (
+        {ticket.on_hold && ticket.status !== 'completed' && !ticket.pending_supervisor_approval && (
           <div className="flex items-start gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2 py-1.5 text-xs text-orange-900" role="note">
             <PauseCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span><strong>{maintenanceHoldReasonLabel(language)}</strong> {ticket.hold_reason?.trim() || maintenanceMissingHoldReasonLabel(language)}</span>
@@ -108,14 +127,22 @@ export function TicketCard({ ticket, onClick }: TicketCardProps) {
         )}
         {ticket.department === 'maintenance' && <MaintenanceTicketTranslation ticketId={ticket.id} title={ticket.title} description={ticket.description} />}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          <div className="flex items-center gap-1"><MapPin className="h-3 w-3" />{t('ticketCard.room')} {ticket.room_number}</div>
+          <div className="flex items-center gap-1"><MapPin className="h-3 w-3" />{maintenanceLocation(ticket.room_number, ticket.description, language)}</div>
           <div className="flex items-center gap-1"><Calendar className="h-3 w-3" />{format(new Date(ticket.created_at), 'MMM dd')}</div>
         </div>
         <div className="space-y-1">
           <div className="flex items-center gap-1 text-xs text-muted-foreground"><User className="h-3 w-3" />{ticket.created_by?.full_name ?? t('ticketCard.unknown')}</div>
           {ticket.hotel && <div className="flex items-center gap-1 text-xs text-muted-foreground"><span className="text-xs">🏨</span><span>{ticket.hotel.replace('-', ' ').replace(/\b\w/g, letter => letter.toUpperCase())}</span></div>}
           {ticket.assigned_to && <div className="flex items-center gap-1 text-xs text-muted-foreground"><AlertCircle className="h-3 w-3" />{t('ticketCard.assignedTo')} {ticket.assigned_to.full_name}</div>}
+          {overdue && <p role="status" className="text-xs font-medium text-red-700">{language === 'hu' ? 'Lejárt határidő' : 'Overdue SLA'}</p>}
         </div>
+        {canManage && <div className="border-t pt-2" onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
+          <Button type="button" size="sm" variant="outline" onClick={() => setShowActions(value => !value)}>{language === 'hu' ? 'Hiba kezelése' : 'Manage issue'}</Button>
+          {showActions && <MaintenanceManagerControls ticket={ticket} language={language} onUpdated={() => {
+            setShowActions(false); onUpdated?.();
+            window.dispatchEvent(new CustomEvent('maintenance-ticket-created'));
+          }} />}
+        </div>}
       </CardContent>
     </Card>
   );

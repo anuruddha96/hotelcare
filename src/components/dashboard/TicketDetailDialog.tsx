@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useTranslation } from '@/hooks/useTranslation';
+import { canManageMaintenance, MaintenanceManagerControls } from './MaintenanceManagerControls';
+import { maintenanceLocation } from '@/lib/maintenanceQueue';
 import { supabase } from '@/integrations/supabase/client';
 import {
   Dialog,
@@ -41,6 +43,10 @@ interface Ticket {
   room_number: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
   status: 'open' | 'in_progress' | 'completed';
+  department?: string;
+  on_hold: boolean | null;
+  pending_supervisor_approval: boolean | null;
+  sla_due_date: string | null;
   created_at: string;
   updated_at: string;
   resolution_text?: string;
@@ -86,7 +92,7 @@ interface TicketDetailDialogProps {
 
 export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated }: TicketDetailDialogProps) {
   const { profile } = useAuth();
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [maintenanceStaff, setMaintenanceStaff] = useState<Profile[]>([]);
@@ -459,7 +465,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
             <div className="grid grid-cols-2 gap-4 text-sm text-muted-foreground">
               <div className="flex items-center gap-2">
                 <MapPin className="h-4 w-4" />
-                Room {ticket.room_number}
+                {maintenanceLocation(ticket.room_number, ticket.description, language)}
               </div>
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
@@ -499,8 +505,12 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
 
           {/* Actions */}
           <div className="space-y-4">
+            {ticket.department === 'maintenance' && canManageMaintenance(profile?.role) && (
+              <MaintenanceManagerControls ticket={{ ...ticket, resolution_text: ticket.resolution_text || null }}
+                language={language} onUpdated={() => { onTicketUpdated(); onOpenChange(false); }} />
+            )}
             <div className="flex flex-wrap gap-2">
-              {canUpdateStatus && (
+              {canUpdateStatus && ticket.department !== 'maintenance' && (
                 <Select 
                   value={ticket.status} 
                   onValueChange={(value: 'open' | 'in_progress' | 'completed') => 
@@ -539,7 +549,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
               )}
 
               {/* Delete Ticket - Admin Only */}
-              {canDelete && (
+              {canDelete && ticket.department !== 'maintenance' && (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button 
@@ -576,7 +586,7 @@ export function TicketDetailDialog({ ticket, open, onOpenChange, onTicketUpdated
             </div>
 
             {/* Close Ticket Section */}
-            {canClose && ticket.status !== 'completed' && (
+            {canClose && ticket.department !== 'maintenance' && ticket.status !== 'completed' && (
               <div className="p-4 border rounded-lg bg-slate-50">
                 <h4 className="font-semibold mb-3 flex items-center gap-2">
                   <CheckCircle className="h-4 w-4" />
