@@ -1,9 +1,10 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { clearTabHotels, getTabHotel, setTabHotel, withTabHotel } from '@/lib/tabHotel';
 import { clearCachedRevenuePayloads } from '@/lib/revenuePayloadCache';
 import { retryTransient } from '@/lib/transientRetry';
+import { dutyMarkerKey } from '@/lib/propertyDuty';
 
 interface Profile {
   id: string;
@@ -37,7 +38,6 @@ interface AuthContextType {
   /** Apply a newly picked property to the in-memory profile (no page reload). */
   applyAssignedHotel: (hotelId: string) => void;
 }
-
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
@@ -150,24 +150,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let isMounted = true;
 
-    // Listen for auth changes FIRST (following Supabase best practices)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         if (!isMounted) return;
-        
+
         console.log('Auth state changed:', event, session?.user?.email);
         setSession(session);
         setUser(session?.user ?? null);
         const previousUserId = activeUserIdRef.current;
         activeUserIdRef.current = session?.user?.id ?? null;
-        
+
         if (session?.user) {
           if (previousUserId && previousUserId !== session.user.id) setProfile(null);
           advanceBootstrap(28);
           setTimeout(() => {
-            if (isMounted) {
-              void fetchProfile(session.user.id);
-            }
+            if (isMounted) void fetchProfile(session.user.id);
           }, 0);
         } else {
           clearReconnectTimer();
@@ -178,9 +175,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
-    // THEN check for an existing session. Bound this call too: an expired
-    // token may trigger a network refresh, and that must never hold the app's
-    // initial loading screen indefinitely.
     void retryTransient(async () => {
       const result = await supabase.auth.getSession();
       if (result.error) throw result.error;
@@ -206,9 +200,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (isMounted) setLoading(false);
     });
 
-    // Re-validate an old session when the tab returns, but do not refetch the
-    // full profile on every app switch. Auth change events already refresh the
-    // profile when identity/claims actually change.
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && isMounted) {
         if (activeUserIdRef.current && profileStatusRef.current !== 'ready') {
@@ -261,14 +252,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (emailOrUsername: string, password: string) => {
     console.log('Attempting login with:', emailOrUsername);
-    
-    // First try with email - attempt case-insensitive email lookup
+
     let { error } = await supabase.auth.signInWithPassword({
       email: emailOrUsername,
       password,
     });
-    
-    // If direct email fails, try case-insensitive email lookup
+
     if (error && emailOrUsername.includes('@')) {
       console.log('Direct email login failed, trying case-insensitive email lookup');
       try {
@@ -276,7 +265,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           p_email: emailOrUsername,
         });
         console.log('Case-insensitive email RPC lookup:', emailData, rpcError);
-        
+
         if (emailData) {
           console.log('Found email with case-insensitive lookup, attempting login with:', emailData);
           const result = await supabase.auth.signInWithPassword({
@@ -290,17 +279,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.error('Case-insensitive email lookup failed:', lookupError);
       }
     }
-    
-    // If email login fails and input doesn't contain @, try username lookup
+
     if (error && !emailOrUsername.includes('@')) {
       console.log('Email login failed, trying username lookup for:', emailOrUsername);
       try {
-        // Resolve email via secure RPC to bypass RLS during pre-auth
         const { data: emailData, error: rpcError } = await supabase.rpc('get_email_by_nickname', {
           p_nickname: emailOrUsername,
         });
         console.log('Username RPC lookup result:', { emailData, rpcError });
-        
+
         if (emailData && !rpcError) {
           console.log('Found email for username, attempting login');
           const result = await supabase.auth.signInWithPassword({
@@ -308,9 +295,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             password,
           });
           error = result.error;
-          console.log('Username-based login result:', result.error ? 'failed' : 'success');
-          
-          // If password is wrong after finding username, provide clearer error
+          console.log('Username-based login result:', result.error ? 'failed' : 'failed' === '' ? 'failed' : 'success');
+
           if (error && error.message === 'Invalid login credentials') {
             error.message = 'Invalid password for username: ' + emailOrUsername;
           }
@@ -325,13 +311,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         error.message = 'Username not found: ' + emailOrUsername;
       }
     }
-    
+
     return { error };
   };
 
   const signUp = async (email: string, password: string, fullName: string) => {
     const redirectUrl = `${window.location.origin}/`;
-    
+
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -346,6 +332,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    // Best effort: close the server-owned duty before invalidating the token.
+    // Network failure must not trap an employee on the sign-out screen;
+    // the expiring server session is independently checked by every RPC.
+    try {
+      await Promise.race([
+        (supabase as any).rpc('end_property_duty').then(() => undefined),
+        new Promise<void>(resolve => window.setTimeout(resolve, 1500)),
+      ]);
+    } catch (error) {
+      console.warn('Could not end temporary duty during sign-out:', error);
+    }
+    if (profile?.id && profile.organization_slug) {
+      try { sessionStorage.removeItem(dutyMarkerKey(profile.id, profile.organization_slug)); }
+      catch { /* storage unavailable */ }
+    }
     clearReconnectTimer();
     activeUserIdRef.current = null;
     profileRequestRef.current = null;
@@ -358,18 +359,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem('hotel_selected_date');
     } catch { /* storage unavailable */ }
     try {
-      // Use 'local' scope to ensure complete sign out
       const { error } = await supabase.auth.signOut({ scope: 'local' });
       if (error) {
         console.error('Sign out error:', error);
-        // Force clear local state even if API call fails
         setUser(null);
         setSession(null);
         setProfile(null);
       }
     } catch (error) {
       console.error('Unexpected sign out error:', error);
-      // Force clear local state
       setUser(null);
       setSession(null);
       setProfile(null);
@@ -377,11 +375,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.location.replace('/');
   };
 
-  // Switching property is a client-state change: move the in-memory profile so
-  // every hook refetches for the new hotel without rebooting the whole app.
-  const applyAssignedHotel = (hotelId: string) => {
-    setProfile((p) => (p ? ({ ...p, assigned_hotel: hotelId } as any) : p));
-  };
+  // A stable callback prevents a duty refresh from becoming a render/refetch
+  // loop. This is an in-memory view change, never an authorization grant.
+  const applyAssignedHotel = useCallback((hotelId: string) => {
+    setProfile(p => p && p.assigned_hotel !== hotelId ? { ...p, assigned_hotel: hotelId } : p);
+  }, []);
 
   return (
     <AuthContext.Provider value={{
@@ -397,7 +395,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signOut,
       applyAssignedHotel,
     }}>
-
       {children}
     </AuthContext.Provider>
   );
