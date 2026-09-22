@@ -11,8 +11,9 @@
   gap: 0.375rem;
 }
 
-/* Both the existing compact (columns) and roomy (space-y) modes use these
- * venue cards. Always give each property a complete, distinguishable row. */
+/* Both existing venue-density modes use these same cards. Give each property
+ * its own row; a container query adapts the label rail to the actual available
+ * width, including the narrower Today panel seen by admins. */
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] {
   width: 100%;
   margin-bottom: 0 !important;
@@ -21,13 +22,14 @@
   border-radius: 0.5rem;
   background: hsl(var(--card));
   break-inside: avoid;
+  container-type: inline-size;
 }
 
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"]:nth-child(even) {
   background: hsl(var(--muted) / 0.25);
 }
 
-/* Mobile: keep the name above its rooms rather than squeezing either side. */
+/* Narrow cards: property title first and room chips below it. */
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] > div[class~="flex"][class~="flex-wrap"] {
   display: flex;
   flex-wrap: wrap;
@@ -47,8 +49,8 @@
   background: hsl(var(--muted) / 0.65);
 }
 
-/* Do not truncate important room-status badges. Only the property name may
- * ellipsize; its existing title attribute preserves the complete name. */
+/* Never truncate room-status badges. The existing title attribute retains
+ * the full property name when its left-hand label needs ellipsis. */
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] > div > span[class~="rounded-full"] > span[class~="truncate"] {
   flex: 1 1 auto;
   min-width: 0;
@@ -71,8 +73,8 @@
   max-width: 100%;
 }
 
-/* Retain the complete room number and all RTC/C/O+1/T/NA indicators. Reduce
- * only padding and font size, leaving interaction and DnD handlers untouched. */
+/* Show the complete room identifier, RTC/C/O+1/T/NA flags and staff labels;
+ * only the chip's padding and base font size become denser. */
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] div[class~="animate-fade-in"] div[class~="relative"][class~="text-center"] {
   min-width: 1.9rem;
   padding: 0.2rem 0.4rem;
@@ -80,10 +82,10 @@
   line-height: 1rem;
 }
 
-/* Desktop/tablet: left property rail + flexible right-hand room chips.
- * An indent on the flex container guarantees wrapped chips never drift into
- * the property-name column (unlike a simple flex-wrap or CSS grid). */
-@media (min-width: 768px) {
+/* Wide cards: the property label sits in a fixed rail on the left, and room
+ * chips wrap exclusively within the indented area to its right. Use the card's
+ * width, not viewport width: admins have a narrower Today column. */
+@container (min-width: 34rem) {
   [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] > div[class~="flex"][class~="flex-wrap"] {
     position: relative;
     min-height: 2rem;
