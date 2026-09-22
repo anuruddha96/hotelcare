@@ -1,7 +1,6 @@
-// All other properties still use the existing portfolio algorithm verbatim.
-// Gozsdu alone applies the manager's actual mapped building-sharing constraints
-// for AUTOMATIC suggestions. A manager may explicitly override them by moving
-// a room in the preview; no automatic generation ever opts into that exception.
+// All hotels use the shared fairness/locality algorithm and bounded candidate
+// diversification. Gozsdu additionally keeps its strict mapped-building rules.
+// Only an explicit manager drag/tap can override those rules, never Auto Assign.
 export * from './roomAssignmentAlgorithmGozsduLegacy';
 
 import * as original from './roomAssignmentAlgorithmGozsduLegacy';
@@ -12,6 +11,7 @@ import {
   planGozsduBuildingAssignments,
 } from './gozsduBuildingAssignment';
 import { rebalanceGozsduAssignments } from './gozsduAssignmentBalance';
+import { diversifyHousekeepingCandidate } from './housekeepingCandidateDiversification';
 
 export const autoAssignRooms: typeof original.autoAssignRooms = (
   rooms, staff, wingProximityMap, affinityMap, hotelConfig,
@@ -19,12 +19,27 @@ export const autoAssignRooms: typeof original.autoAssignRooms = (
   const onlyGozsdu = rooms.length > 0
     && rooms.every(room => isGozsduCourtHotel(room.hotel))
     && (!hotelConfig?.hotelName || isGozsduCourtHotel(hotelConfig.hotelName));
-  if (!onlyGozsdu) {
+  // A mixed-hotel list is not a safe source for local optimization. Preserve the
+  // historical fallback here; the caller's organization/hotel scope still needs
+  // independent server-side validation before any plan may be saved.
+  if (!onlyGozsdu && new Set(rooms.map(room => room.hotel)).size > 1) {
     return original.autoAssignRooms(rooms, staff, wingProximityMap, affinityMap, hotelConfig);
   }
-  const eligibleStaff = staff.filter(person => !isActiveGozsduLaundryner(person.id));
-  const preliminary = planGozsduBuildingAssignments(rooms, eligibleStaff, hotelConfig);
-  return preliminary.length ? rebalanceGozsduAssignments(preliminary) : preliminary;
+  const preliminary = onlyGozsdu
+    ? planGozsduBuildingAssignments(
+      rooms, staff.filter(person => !isActiveGozsduLaundryner(person.id)), hotelConfig,
+    )
+    : original.autoAssignRooms(rooms, staff, wingProximityMap, affinityMap, hotelConfig);
+  if (!preliminary.length) return preliminary;
+  const balanced = onlyGozsdu ? rebalanceGozsduAssignments(preliminary) : preliminary;
+  // The existing UI generates ten seeded options and chooses the fairest.
+  // Instead of rotating identical whole room bundles, offer it valid real-room
+  // exchanges. The pass preserves coverage, shift safety and Gozsdu routes.
+  return diversifyHousekeepingCandidate(balanced, {
+    randomSeed: hotelConfig?.randomSeed,
+    affinityMap,
+    enforceGozsduRoutes: onlyGozsdu,
+  });
 };
 
 /**
