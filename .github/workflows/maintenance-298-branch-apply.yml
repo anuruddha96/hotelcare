@@ -1,0 +1,28 @@
+name: Apply maintenance 298 branch patch once
+on:
+  push:
+    branches: [fix/maintenance-complete-298-20260922]
+    paths:
+      - 'scripts/maintenance_complete_298.py'
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          ref: fix/maintenance-complete-298-20260922
+      - name: Apply checked exact-match changes and remove temporary tooling
+        run: |
+          set -euo pipefail
+          python3 scripts/maintenance_complete_298.py
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --quiet && { echo 'No changes applied'; exit 1; }
+          git commit -m 'fix: unify maintenance queue, status actions, and historical visibility (#298)'
+          git push origin HEAD:fix/maintenance-complete-298-20260922
