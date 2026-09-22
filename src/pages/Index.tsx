@@ -8,7 +8,6 @@ import { HotelSelectionScreen } from '@/components/dashboard/HotelSelectionScree
 import { isReceptionRole } from '@/lib/roleAccess';
 
 const MANAGER_ROLES = ['admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager'];
-const SCHEDULE_MANAGER_ROLES = [...MANAGER_ROLES, 'hr', 'maintenance_manager', 'reception_manager', 'marketing_manager', 'back_office_manager', 'control_manager', 'finance_manager'];
 
 // Local (not UTC) date key so the "once per day" gate follows the manager's
 // wall clock and doesn't re-trigger when UTC rolls over hours before local
@@ -122,13 +121,13 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
       <Header />
-      {profile?.organization_slug === 'rdhotels' && (
+      {profile?.organization_slug === 'rdhotels' &&
+        profile.nickname?.trim().toLowerCase() === 'anu_000' && (
         <nav aria-label="Work schedule" className="container mx-auto px-4 pt-3">
           <Link to={`/${organizationSlug || profile.organization_slug}/work-schedule`}
             className="inline-flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10">
             <CalendarDays className="h-4 w-4" />
-            {SCHEDULE_MANAGER_ROLES.includes(profile.role) ? 'Work schedule' : 'My schedule'}
-            <span className="text-xs font-normal">(pilot)</span>
+            Work schedule <span className="text-xs font-normal">(restricted pilot)</span>
           </Link>
         </nav>
       )}
