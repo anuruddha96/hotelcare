@@ -1,26 +1,23 @@
-# SLNT property-row Team View: release QA
+# SLNT Team View property clusters: release QA
 
 ## Scope
 
-Only the active `slnt` / `slnt-group` tenant, with venue grouping enabled, inside the Team View tab. The change adds a presentation wrapper and scoped CSS; the live room board keeps the existing room queries, service classification, click/drop handlers, staff indicators and assignment operations. Historical snapshots and Gozsdu's specialized live view are unaffected.
+Only the active `slnt` / `slnt-group` tenant, with venue grouping enabled, inside the Team View tab. The existing Compact/Roomy control now toggles **compact multi-column venue clusters** (default) versus the previous **full-width property rows**. The existing room queries, cleaning classification, approval states, badges, room interactions and drag/drop handlers remain unchanged. Historical snapshots and Gozsdu's specialized view are unaffected.
 
 ## Automated gate
 
-- `npm ci`
-- `npm run build`
-- `npm test -- --run src/components/dashboard/HotelRoomOverview.slnt.test.tsx`
-- `npm test` (full regression suite)
-- `npm run lint` (review any existing unrelated warnings separately)
+- `bun install --frozen-lockfile`
+- `bun run build`
+- `bun run test` (full suite, including `HotelRoomOverview.slnt.test.tsx` and `slntPropertyClusters.test.ts`)
 
-The unit tests cover both SLNT slugs, tenant feature-flag override, RD Hotels and other tenant isolation, the historic view, Gozsdu route and stylesheet selector scoping. The CSS test checks that the layout breakpoint uses the property card's container width.
+## Browser acceptance (requires deployed preview and authenticated test accounts)
 
-## Browser acceptance (requires a running deployment and authenticated test accounts)
+1. Open SLNT Team View in **Compact view**. In Checkout and Stayover, distinct property cards should appear side by side wherever width permits. Each card must show its property title, count, every room chip and all its badges; confirm long room names never disappear or cause horizontal overflow.
+2. Verify Silver Rooms and St King (multi-room clusters), plus a one-unit property. Check the count against the displayed chips and verify rooms never appear under the wrong property.
+3. Test phone widths 320/375/390 px, tablet 768 px and desktops 1280/1440 px. Check admin's narrower Today panel beside Yesterday: the cluster columns should respond to actual panel width and not overflow.
+4. Click **Roomy view** and confirm previous full-width property rows remain available. Click **Compact view** to restore clusters. Refresh and confirm the pre-existing density preference persists.
+5. Verify room click/quick actions, drag room to housekeeper, drop housekeeper onto room, venue bulk selection, staged Apply/unassign, RTC and status indicators, PMS refresh, and access scoping. Confirm all rooms remain keyboard-accessible in original DOM order.
+6. Log in as RD Hotels managers for Ottofiori, Memories, Mika and Gozsdu. Check their layout, actions and historical dates remain unchanged. Also check non-Team-View SLNT screens retain their own layout.
+7. Confirm no new browser console errors, no horizontal overflow, and no clipped action/status badges on mobile and desktop.
 
-1. At SLNT Team View, verify each venue/address is one row in Checkout and Daily, with property name/count and all room identifiers/status badges intact. Resize the available board (including the narrower Today column for managers with Yesterday/Today split).
-2. Check phone, tablet and desktop widths, plus both Compact and Roomy density modes. On narrow cards the property label is above its unit chips; wide cards show the label on the left, chips on the right.
-3. Assign by dragging a room chip onto a housekeeper; assign a housekeeper chip onto a room; verify selection/staged Apply and unassign. Confirm room actions, service status and RTC/PMS refresh behave unchanged.
-4. Check SLNT supervisors can see only authorized venues and housekeepers only assigned work (RLS unchanged by this change).
-5. Log in to RD Hotels (e.g. Ottofiori, Memories and Mika) and Gozsdu; verify their Team View and room actions are unchanged. Check historical dates remain read-only.
-6. Confirm the console shows no new errors and there is no horizontal overflow on mobile.
-
-This checklist documents required live/browser validation; committing it does not imply those checks have been run.
+Live/browser acceptance must be performed after a preview or production build is available. CI success alone does not establish visual or interaction acceptance; merging alone does not prove production deployment.
