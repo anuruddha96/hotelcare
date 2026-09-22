@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { isTransientBackendError, retryTransient } from '@/lib/transientRetry';
-import { isOwnOrganizationRoute, restrictHotelsToOrganization, validateRpcHotelScope } from '@/lib/tenantRouteScope';
+import { isOwnOrganizationRoute, restrictHotelsToOrganization } from '@/lib/tenantRouteScope';
 
 interface Organization {
   id: string;
@@ -74,25 +74,34 @@ export const TenantProvider: React.FC<{
       if (!isCurrent()) return;
 
       if (orgError || !orgData) {
-        // Preserve the existing fallback for managers, but only after the
-        // authenticated user's profile has been checked against the route.
-        // Never accept an RPC payload mixing RD Hotels and SLNT hotel rows.
-        const { data: rpcHotels, error: rpcError } = await retryTransient(async () => {
-          const result = await supabase.rpc('get_user_organization_hotels');
+        // Only a SECURITY DEFINER RPC which derives the organization from
+        // auth.uid() can recover a manager whose direct organization SELECT
+        // is hidden by RLS. A hotel-only RPC cannot prove caller ownership.
+        const { data: verifiedContext, error: contextError } = await retryTransient(async () => {
+          const result = await supabase.rpc('get_authenticated_tenant_context' as any,
+            { _organization_slug: organizationSlug } as any);
           if (result.error) throw result.error;
           return result;
         }, { attempts: 4 });
         if (!isCurrent()) return;
-        if (rpcError) throw rpcError;
+        if (contextError) throw contextError;
 
-        const fallbackHotels = validateRpcHotelScope((rpcHotels ?? []) as HotelConfig[]);
-        if (rpcHotels?.length && fallbackHotels.length === 0) {
-          setError('Organization hotel access could not be verified. Please contact an administrator.');
-        } else {
-          setHotels(fallbackHotels);
+        const payload = verifiedContext as unknown as {
+          organization?: Organization;
+          hotels?: HotelConfig[];
+        } | null;
+        const verifiedOrg = payload?.organization;
+        if (!verifiedOrg?.id || !verifiedOrg.is_active ||
+            !isOwnOrganizationRoute(profile.organization_slug, verifiedOrg.slug) ||
+            verifiedOrg.slug !== organizationSlug || !Array.isArray(payload?.hotels)) {
+          setError('Organization access could not be verified. Please contact an administrator.');
+          setLoading(false);
+          return;
         }
-        // No organization record was verified: do not manufacture one for
-        // property switching. Server-authorized duty access is separate.
+        // The server verifies the caller; this extra filter guards against a
+        // future malformed response without granting any new permissions.
+        setOrganization(verifiedOrg);
+        setHotels(restrictHotelsToOrganization(payload.hotels, verifiedOrg.id));
         setLoading(false);
         return;
       }
