@@ -4,8 +4,13 @@
  *
  * The account default lives in profiles.assigned_hotel. Tab-specific choices
  * allow an authorized manager to keep separate hotels open in separate tabs.
+ * Temporary staff duty is rehydrated ONLY after current_property_duty verifies
+ * the signed-in caller and an unexpired server-side grant.
  */
 const KEY_PREFIX = 'hotelcare.tabHotel';
+const LEGACY_MANAGER_ROLES = [
+  'admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager',
+];
 
 function keyFor(organizationSlug: string): string {
   return `${KEY_PREFIX}:${organizationSlug.trim().toLowerCase()}`;
@@ -34,11 +39,13 @@ export function setTabHotel(organizationSlug: string, hotelId: string | null): v
 }
 
 /**
- * Pin the selection to both an organization AND its authenticated user.
- * Browser tabs can survive a logout/login; never inherit another employee's
- * selected hotel, even when both employees belong to the same organization.
+ * Pin legacy manager selection to both organization and authenticated user.
+ * A staff member (especially a housekeeper) must never regain a different
+ * venue merely by editing sessionStorage or reusing a previous login's tab.
  */
-export function withTabHotel<T extends { id?: string; assigned_hotel?: string | null; organization_slug?: string | null }>(profile: T): T {
+export function withTabHotel<T extends {
+  id?: string; role?: string; assigned_hotel?: string | null; organization_slug?: string | null;
+}>(profile: T): T {
   if (!profile.organization_slug || !profile.id) return profile;
 
   try {
@@ -48,7 +55,12 @@ export function withTabHotel<T extends { id?: string; assigned_hotel?: string | 
       sessionStorage.setItem(ownerKey, profile.id);
     }
   } catch {
-    // Without storage we must not apply an unverified previous account's tab.
+    return profile;
+  }
+
+  // Non-managers only change their visible hotel after an authenticated duty
+  // RPC succeeds; their cached tab selection is not an access token.
+  if (!profile.role || !LEGACY_MANAGER_ROLES.includes(profile.role)) {
     return profile;
   }
 
