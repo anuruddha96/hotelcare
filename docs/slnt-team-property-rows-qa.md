@@ -1,23 +1,31 @@
-# SLNT Team View — full-name compact room-board QA
+# SLNT flat room-chip Team View — release QA
 
-## User-facing fix
-The previous full-width one-property-per-row view wasted most of the screen on one-unit venues, still truncated long names in the live screenshot and left the expanded legend taking valuable room. This release uses responsive property **cards** within each existing Checkout / Daily Cleaning / Arrival section. One/two-unit venues share rows (two above a 48rem board, three above 68rem); 3+ unit venues remain full-width so a Silver Rooms or K4 group has one unmistakable header and its own visible chips.
+## Scope and intent
+The manager rejected the earlier property-row and multi-card layouts because 40+ daily units required excessive scrolling and each one-unit apartment repeated its full venue name above a generic "Unit" chip.
 
-Every property name is a real, wrapping line of text in the card; even when the separate stylesheet fails to load, the new JSX has readable mobile-first base classes rather than the old 7.5/11rem truncating rail. Status flags, property-colored bars, room selection, click/tap, both drag directions, bulk selection and unchanged checkout/daily logic are retained. There are no database, API, migration or Previo changes. Only authenticated SLNT Group live Team View receives this layout; Hotel Memories and all RD Hotels retain their existing interfaces.
+The **v4** layout retains the shared HotelCare room-chip component and the familiar Hotel Memories-style continuous board. Changes apply ONLY when the authenticated tenant is SLNT (`slnt` or `slnt-group`), venue grouping is enabled, the date is live (not historical) and the current tab is Team View. No changes to RD Hotels, Previo, housekeeping business states, drag/drop handlers, approvals, assignments, historical snapshots or server authorization.
 
-The new tiny **v3** marker next to **Property Overview** is a deployment diagnostic. If it does not appear, the live app is not showing this code, regardless of whether GitHub `main` has the merge. Managers get the legend collapsed on first render, with the same full legend a click away; other tenants retain the previously expanded default.
+## Expected SLNT presentation
+- Checkout and Daily Cleaning remain independent sections with their original, unfiltered totals and original operational colours/status flags.
+- Each single-unit property appears as **one** fully named actionable room chip. If PMS specifies a distinctive room name, append the meaningful suffix (for example: `Elisabeth Downtown · One Bedroom`). Do not render the repeated property heading, a fake `Unit` second chip or a decorative card.
+- Multi-unit properties (Silver Rooms, St King 11, K4) appear as compact inline **clusters**. Full venue heading and count appear exactly once next to the original numbered room chips. Their heading retains whole-group selection and drag-to-housekeeper.
+- All groups remain sorted by their configured property name, then room number. Distinct venues with duplicate room numbers must remain identifiable.
+- The SLNT-only compact toolbar shows Checkout, Daily and the global count of rooms with no current assigned housekeeper. Search matches both room identifier and full venue name. The optional Unassigned toggle and search both filter **only Today's visible board**; original section counts and yesterday's snapshot remain unchanged. Select all applies to today's visible units when filtered.
+- The existing full legend remains available behind Show Legend; no icon/status warning is deleted. The tiny `v4` marker beside Property Overview is a **deployment diagnostic** only.
 
-## Automated release gate
-- Run the production build and full test suite, including `slntPropertyClusters.test.ts`, `HotelRoomOverview.slnt.test.tsx` and unit-label regressions.
-- CSS scoping must require both the tenant wrapper and the `team-view` ancestor. Tests cover true full-name wrapping, fallback layout, 48/68rem container breakpoints, multi-room spanning, preserved actions and the v3 diagnostic.
+## CI
+- Production build succeeds.
+- Full Vitest suite succeeds, including `slntFlatRoomBoard.test.ts`, `slntPropertyClusters.test.ts`, `HotelRoomOverview.slnt.test.tsx` and `venueUnitLabel.test.ts`.
+- Confirm every stylesheet selector requires the SLNT wrapper AND Team View ancestor; preserve the non-SLNT venue row code path and the Hotel Memories floor board.
 
-## Manual browser acceptance — authenticated SLNT preview required
-1. Confirm the **v3** marker is visible next to **Property Overview** on the active SLNT Team View. If not, stop and verify production deployment SHA rather than diagnosing room grouping.
-2. With the actual SLNT portfolio, check Be Local Budapest Apartment, DobNest Charming New Central Flat, Downtown Terrace Passion, Castle Garden Residence and long apartment names. They must appear **fully**, with natural wrapping, without a tooltip or ellipsis.
-3. Checkout and Daily Cleaning must retain independent counts, PMS flags and actions. At ~1100px of actual board width expect three *small* venue cards per row, while Silver Rooms, K4, St King 11 and other 3+ unit venues each take the full width.
-4. Check mobile 320/375px, tablet and the admin's narrow Today pane alongside Yesterday. Narrow board widths should stack every property card, and no property or chip may clip or overflow horizontally.
-5. Test tap/click, long-press, whole-property bulk select/drag, housekeeper-to-room drop, room-to-housekeeper drag, staged assignment apply/unassign and confirmation on manual checkout/daily moves.
-6. Confirm room numbers duplicated across two Previo accounts remain inside clearly labelled properties. Verify room total per section, RTC, DND, no-show, arrival, departure tomorrow, notes, cleaner names and pending approval badges.
-7. Check unrelated RD Hotels (Memories, Mika, Ottofiori, Gozsdu) and SLNT outside Team View. None should show the v3 badge, change room layout or inherit the collapsed legend. Verify tenant/venue permissions with authenticated accounts.
+## Authenticated manual browser acceptance (not established by CI)
+1. With SLNT's real portfolio, compare Checkout and Daily totals to the original v3 board and current Previo data. The compact board must show every room, every badge and no duplicates.
+2. Check Be Local Budapest Apartment, Dorothilux Apartment, CityNest, Downtown Terrace Passion, DobNest Charming New Central Flat and other one-unit venues. Each is one legible, full-name chip with its live status, never an additional "Unit" card.
+3. Silver Rooms, St King 11, K4 and other groups must have **one** full venue header plus numbered room chips. Check group drag/select all, individual chip actions, housekeeper-to-room inverse drag/drop, staged changes, room-to-room reclassification confirmation and approval statuses.
+4. Use Find property or room and the Unassigned filter together; the unfiltered Checkout/Daily counts must remain correct, visible select-all must not silently select hidden rooms, and Clear restores all chips.
+5. Confirm RTC, clean, towel, dirty linen, C/O+1, notes, DND, No Service, early checkout, no-show, pending approval and assigned housekeeper labels remain accurate. These are display-only changes, not changes to the PMS sync engine.
+6. Inspect 320/375px phones, 768px tablet, 1280px/1440px desktops and the narrower admin Today pane with Yesterday alongside. Full names may wrap; no horizontal overflow, clipped badge or hidden action is acceptable.
+7. Check SLNT manager, restricted supervisor and housekeeper accounts, plus RD Hotels' Hotel Memories, Gozsdu, Mika and Ottofiori. Non-SLNT should retain prior layout and initial legend behavior. Verify no cross-tenant records are revealed.
 
-Passing CI establishes only the code-build and automated checks, not live visual QA or production deployment.
+## Gate
+Passing CI is not proof of a successful live deployment or authenticated visual acceptance. No merge or production deployment is authorized by the approval to **develop** this change.

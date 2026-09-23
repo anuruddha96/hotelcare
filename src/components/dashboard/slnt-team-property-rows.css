@@ -1,22 +1,19 @@
 /*
- * SLNT Team View only. Actual JSX contains all the accessibility and
- * housekeeping interactions; this stylesheet changes only presentation.
- * Scope every rule to the authenticated SLNT wrapper AND the Team View tab.
- *
- * The former 7.5/11rem property rail made names unreadable and wasted a whole
- * row on one-unit venues. Full labels now lead compact, self-contained cards.
+ * SLNT Team View only — Memories-inspired continuous room-chip board.
+ * The authenticated tenant wrapper and Team View ancestor are both required.
+ * The shared HotelCare room chip retains its own handlers, status colours,
+ * selection, bulk drag and drop and supervisor approval semantics.
  */
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview {
-  container-name: slnt-room-board;
   container-type: inline-size;
 }
 
-/* A portfolio manager should see the work immediately, not a duplicate stats
- * ribbon or an expanded, multi-row status legend. All section totals remain. */
+/* Section totals and the search bar supersede the duplicate four-tile stats. */
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview > div:first-child > div[class~="grid-cols-4"] {
   display: none;
 }
 
+/* Managers can expand the complete original legend at any time. */
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview [data-training="room-legend"] {
   display: flex !important;
   flex-wrap: nowrap !important;
@@ -34,106 +31,107 @@
   white-space: nowrap;
 }
 
-/* Mobile and narrow manager panes: cards stack. Utility-class fallback in JSX
- * retains this readable layout even when the extra CSS hasn't loaded. */
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-venue-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  gap: 0.45rem;
-  min-width: 0;
-}
-
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-venue-row {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.35rem;
-  min-width: 0;
-  padding: 0.55rem 0.65rem;
-  border: 1px solid hsl(var(--border) / 0.8);
-  border-radius: 0.55rem;
-  background: hsl(var(--card));
-}
-
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-venue-row:nth-child(even) {
-  background: hsl(var(--muted) / 0.2);
-}
-
-/* The complete PMS/venue name is never ellipsized or hover-only. Natural
- * wrapping is preferable to shrinking the font or truncating important names. */
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-venue-label {
-  min-width: 0;
-  min-height: 1.65rem;
-  white-space: normal;
-  align-items: flex-start;
-}
-
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-venue-name {
-  display: block;
-  flex: 1 1 auto;
-  min-width: 0;
-  width: auto;
-  max-width: none;
-  overflow: visible;
-  text-overflow: clip;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  font-size: 0.8125rem;
-  font-weight: 650;
-  line-height: 1.18rem;
-}
-
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-venue-unit-list {
+/* The board no longer forces one whole row or a blank card for every address.
+ * Groups stay together in sorted venue order; chip groups wrap naturally. */
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-flat-board {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   align-content: flex-start;
-  gap: 0.4rem 0.5rem;
+  gap: 0.45rem 0.6rem;
   min-width: 0;
-  padding: 0.3rem 0.4rem;
-  border-radius: 0.4rem;
-  background: hsl(var(--muted) / 0.22);
 }
 
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-venue-unit-list > div[class~="animate-fade-in"] {
+/* One-unit apartments are already represented by their full actionable room
+ * chip, so there is no separate title, count, "Unit" repetition or card body. */
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-single-unit {
   display: inline-flex;
+  flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
 }
 
-/* Larger, readable targets without changing the room's badges/labels or any
- * parent click, selection, inverse drag and drop handlers. */
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-venue-unit-list div[class~="relative"][class~="text-center"] {
-  max-width: min(19rem, 100%);
-  min-height: 1.75rem;
-  padding: 0.34rem 0.55rem;
-  overflow-wrap: anywhere;
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-single-unit .slnt-solo-chip {
+  display: block;
+  width: fit-content;
+  max-width: min(18rem, 100%);
+  min-height: 2rem;
+  padding: 0.4rem 0.55rem;
+  border-width: 2px;
+  border-radius: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.12rem;
+  text-align: left;
   white-space: normal;
-  font-size: 0.77rem;
-  line-height: 1.08rem;
+  overflow-wrap: anywhere;
 }
 
-/* At typical desktop board widths, two one/two-room cards share one row.
- * Cards of 3+ rooms always get the full width to keep chips together. */
-@container slnt-room-board (min-width: 48rem) {
-  [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-venue-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-venue-row[data-multiunit="true"] {
-    grid-column: 1 / -1;
-    display: grid;
-    grid-template-columns: minmax(13rem, min(28%, 19rem)) minmax(0, 1fr);
-    align-items: center;
-    gap: 0.5rem;
-  }
+/* Multiroom addresses are short labelled groups rather than tall individual
+ * cards. Their original group button still selects or drags all units. */
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-room-cluster {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: flex-start;
+  gap: 0.35rem 0.45rem;
+  padding: 0.24rem 0.4rem;
+  border: 1px solid hsl(var(--border) / 0.85);
+  border-radius: 0.5rem;
+  background: hsl(var(--muted) / 0.23);
 }
 
-/* Extra-wide boards fit three *small* properties across, not one long list.
- * Responsive sizing uses available board width, including admin's Today pane. */
-@container slnt-room-board (min-width: 68rem) {
-  [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-venue-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-cluster-label {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 0.73rem;
+  line-height: 1rem;
+}
+
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-cluster-chips {
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: 100%;
+  gap: 0.35rem;
+}
+
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-cluster-chips div[class~="relative"][class~="text-center"] {
+  min-height: 1.55rem;
+  padding: 0.25rem 0.42rem;
+  font-size: 0.75rem;
+  line-height: 1.05rem;
+}
+
+/* Unassigned is a thin dashed outline, not a replacement for the actual PMS
+ * / housekeeping status colour. Existing DND and selection rings survive. */
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview [data-slnt-unassigned="true"].relative {
+  outline: 1px dashed hsl(var(--amber-500, 39 92% 50%) / 0.85);
+  outline-offset: 1px;
+}
+
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-board-toolbar {
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* Keep long chip text readable without making the entire mobile page wide. */
+@container (max-width: 34rem) {
+  [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-single-unit {
+    max-width: 100%;
+  }
+
+  [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-single-unit .slnt-solo-chip {
+    max-width: min(18rem, 100%);
+    line-height: 1.15rem;
+  }
+
+  [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-room-cluster {
+    max-width: 100%;
   }
 }

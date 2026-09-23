@@ -18,8 +18,8 @@ const declarationsFor = (suffix: string) => {
   return properties;
 };
 
-describe('SLNT Team View: readable, compact, full-name property cards', () => {
-  it('scopes all visual rules to authenticated SLNT Team View', () => {
+describe('SLNT Memories-inspired flat room-chip board', () => {
+  it('limits all CSS and the new live presentation to SLNT Team View', () => {
     let count = 0;
     root.walkRules(rule => {
       count++;
@@ -27,49 +27,52 @@ describe('SLNT Team View: readable, compact, full-name property cards', () => {
     });
     expect(count).toBeGreaterThan(10);
     expect(board).toContain("const isSlntTenant = venuesEnabled && ['slnt', 'slnt-group'].includes");
-    expect(board).toContain("'slnt-venue-grid grid grid-cols-1 gap-2 min-w-0'");
+    expect(board).toContain('if (isSlntTenant) {');
+    expect(board).toContain("'slnt-flat-board flex flex-wrap items-start gap-2 min-w-0'");
+    expect(board).toContain("'divide-y divide-border/60 rounded-md border border-border/50'");
   });
 
-  it('uses resilient default markup; long names are not dependent on loading CSS', () => {
-    expect(board).toContain("slnt-venue-row flex flex-col gap-2 min-w-0 p-2 rounded-lg");
-    expect(board).toContain('slnt-venue-name min-w-0 flex-1 whitespace-normal break-words');
-    expect(board).toContain("data-slnt-venue-name={isSlntTenant ? group.name : undefined}");
-    expect(declarationsFor('.slnt-venue-name').get('white-space')).toBe('normal');
-    expect(declarationsFor('.slnt-venue-name').get('text-overflow')).toBe('clip');
-    expect(declarationsFor('.slnt-venue-name').get('overflow-wrap')).toBe('anywhere');
-    expect(css).not.toContain('display: contents');
+  it('makes one-unit properties one real chip with their full name, not a card labelled Unit', () => {
+    expect(board).toContain("group.rooms.length === 1 && group.key !== '__none__'");
+    expect(board).toContain('slntSingleRoomLabel(room.room_number, group.name)');
+    expect(board).toContain('renderRoomChip(room, fullLabel, true)');
+    expect(board).toContain('slnt-single-unit animate-fade-in min-w-0 max-w-full');
+    expect(board).toContain('slnt-solo-chip text-left whitespace-normal break-words');
+    expect(declarationsFor('.slnt-single-unit .slnt-solo-chip').get('overflow-wrap')).toBe('anywhere');
+    expect(declarationsFor('.slnt-single-unit .slnt-solo-chip').get('max-width')).toBe('min(18rem, 100%)');
   });
 
-  it('reduces vertical scrolling with small-property cards and full-width large venue rows', () => {
-    const queries: string[] = [];
-    root.walkAtRules('container', rule => queries.push(rule.params));
-    expect(queries).toContain('slnt-room-board (min-width: 48rem)');
-    expect(queries).toContain('slnt-room-board (min-width: 68rem)');
-    expect(declarationsFor('').get('container-type')).toBe('inline-size');
-    expect(declarationsFor('').get('container-name')).toBe('slnt-room-board');
-    expect(css).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
-    expect(css).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
-    expect(css).toContain('.slnt-venue-row[data-multiunit="true"]');
-    expect(css).toContain('grid-column: 1 / -1');
-    expect(board).toContain("group.rooms.length > 2 || group.key === '__none__'");
-  });
-
-  it('makes room chips legible while preserving individual room actions and grouping', () => {
-    expect(board).toContain('slnt-venue-unit-list flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1.5');
+  it('keeps multiroom venues adjacent with one compact selectable and draggable label', () => {
+    expect(board).toContain('slnt-room-cluster inline-flex flex-wrap items-center gap-1.5 min-w-0 max-w-full');
+    expect(board).toContain('slnt-cluster-label inline-flex max-w-full items-center');
+    expect(board).toContain('slnt-cluster-chips flex min-w-0 flex-wrap items-center gap-1');
     expect(board).toContain('renderRoomChip(room, shortUnitLabel(room.room_number, group.name, terms.unit))');
     expect(board).toContain('{...dragProps}');
     expect(board).toContain('onClick={onPillClick}');
     expect(board).toContain('toggleUnitGroupSelection');
-    expect(css).toContain('min-height: 1.75rem');
-    expect(css).toContain('max-width: min(19rem, 100%)');
+    expect(declarationsFor('.slnt-room-cluster').get('flex-wrap')).toBe('wrap');
+    expect(css).not.toContain('display: contents');
   });
 
-  it('clears initial noise for SLNT, preserves the full optional legend and shows a deployment marker', () => {
+  it('preserves original section counts and historical snapshots when managers filter Today', () => {
+    expect(board).toContain('slntFilterIsActive ? roomList.filter(slntMatchesRoomFilter) : roomList');
+    expect(board).toContain('const slntUnassignedCount = rooms.filter(slntIsUnassigned).length');
+    expect(board).toContain('toggleUnitGroupSelection(todayRooms.map(');
+    expect(board).toContain('todayRooms.every(r => selectedUnitIds.has(r.id))');
+    expect(board).toContain('const previousEntries: Array<');
+    expect(board).toContain('slntRoomSearch');
+    expect(board).toContain('slntOnlyUnassigned');
+    expect(board).toContain('aria-label="Find property or room"');
+    expect(board).toContain("aria-pressed={slntOnlyUnassigned}");
+    expect(board).toContain('roomList.length}</Badge>');
+  });
+
+  it('retains the complete optional legend, section actions and a release-verification marker', () => {
     expect(board).toContain('const [showLegend, setShowLegend] = useState(!isSlntTenant)');
-    expect(board).toContain("data-slnt-board-version={isSlntTenant ? '2026-09-23-v3' : undefined}");
-    expect(board).toContain("isSlntTenant ? 'Property Overview' : t('team.hotelRoomOverview')");
+    expect(board).toContain("data-slnt-board-version={isSlntTenant ? '2026-09-23-v4' : undefined}");
     expect(declarationsFor('> div:first-child > div[class~="grid-cols-4"]').get('display')).toBe('none');
     expect(declarationsFor('[data-training="room-legend"]').get('overflow-x')).toBe('auto');
     expect(board).toContain('team.noRooms');
+    expect(board).toContain("if (venuesEnabled) return renderTodayVenueRows(roomsForColumn)");
   });
 });
