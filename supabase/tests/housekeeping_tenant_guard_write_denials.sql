@@ -57,4 +57,32 @@ BEGIN
 END $$;
 ROLLBACK;
 
+-- RLS alone is not enough: a manager may legitimately insert rows for their own
+-- organization, so the integrity guard must also reject a foreign room hidden
+-- behind the caller's organization_slug.
+BEGIN;
+SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000013'; -- SLNT manager
+DO $$
+DECLARE inserted boolean := false;
+BEGIN
+  BEGIN
+    INSERT INTO public.room_assignments(room_id, assigned_to, organization_slug, status)
+    VALUES (
+      '00000000-0000-4000-8000-000000000021', -- RD Hotels / Mika room
+      '00000000-0000-4000-8000-000000000015', -- SLNT housekeeper
+      'slnt',
+      'assigned'
+    );
+    inserted := true;
+  EXCEPTION
+    WHEN insufficient_privilege OR check_violation OR raise_exception THEN NULL;
+  END;
+
+  IF inserted THEN
+    RAISE EXCEPTION 'SLNT manager inserted an SLNT assignment referencing an RD room';
+  END IF;
+END $$;
+ROLLBACK;
+
 SELECT 'cross-tenant live assignment write denials passed' AS result;
