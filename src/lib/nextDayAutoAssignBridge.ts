@@ -73,6 +73,26 @@ export async function ensureTomorrowPmsSnapshot(args: SnapshotArgs):
 
   const current = await readExactDate();
   if (!current) {
+    // A successful zero-row reservation snapshot means every operating room is
+    // currently unbooked for the selected date. Keep it authoritative so the
+    // planner can expose those rooms as provisional potential checkouts.
+    if (Number((overview as any)?.rowsInserted || 0) === 0) {
+      const resolvedKeys = await resolveHotelKeys(GOZSDU_COURT_HOTEL_ID);
+      const hotelKeys = [...new Set([...resolvedKeys, GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME])];
+      const { count, error: countError } = await supabase
+        .from('rooms')
+        .select('id', { count: 'exact', head: true })
+        .eq('organization_slug', args.organizationSlug)
+        .in('hotel', hotelKeys);
+      if (countError || !count) throw new Error('Could not verify Gozsdu room inventory after the empty Previo snapshot.');
+      return {
+        capturedAt: new Date().toISOString(),
+        rowCount: 0,
+        roomCount: Number(count),
+        reused: false,
+        authoritative: true,
+      };
+    }
     throw new Error(`Previo did not provide a valid fresh room snapshot for ${args.selectedDate}. Nothing was assigned.`);
   }
   return {
@@ -185,6 +205,7 @@ async function saveVerifiedPortfolioPlan(args: SaveArgs):
     hotelId: args.hotelId,
     selectedDate: args.selectedDate,
     roomRows,
+    pmsSyncedAt: source.capturedAt,
   });
   if (workload.source !== 'selected-date'
     || !compatibleHousekeepingSnapshotTime(source.capturedAt, workload.capturedAt))
@@ -232,6 +253,7 @@ export async function saveApprovedNextDayAutoAssignPlan(args: SaveArgs):
     hotelId: GOZSDU_COURT_HOTEL_ID,
     selectedDate: args.selectedDate,
     roomRows,
+    pmsSyncedAt: source.capturedAt,
   });
   if (workload.source !== 'selected-date'
     || !compatibleHousekeepingSnapshotTime(source.capturedAt, workload.capturedAt)) {
