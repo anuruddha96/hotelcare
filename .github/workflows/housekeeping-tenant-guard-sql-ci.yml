@@ -51,4 +51,5 @@ jobs:
             -f supabase/migrations/20260922170000_housekeeping_assignment_tenant_isolation.sql \
             -f supabase/migrations/20260922170100_housekeeping_plan_policy_refinements.sql \
             -f supabase/migrations/20260922170200_room_assignment_tenant_write_guard.sql \
-            -f supabase/tests/housekeeping_tenant_guard_integration.sql
+            -f supabase/tests/housekeeping_tenant_guard_integration.sql \
+            -f supabase/tests/housekeeping_tenant_guard_write_denials.sql
