@@ -798,6 +798,13 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     return raw;
   })();
   const hasManagerNotes = !!managerVisibleNote;
+  // In SLNT, Previo and managers may both have instructions for one unit.
+  // Show both without writing the Previo copy over a human note.
+  const slntPrevioNote = assignment.rooms?.hotel === 'slnt-group'
+    ? String(assignment.rooms?.pms_metadata?.slntPrevioHousekeepingNote || '').trim()
+    : '';
+  const pmsOwnsVisibleNote = !!slntPrevioNote && slntPrevioNote === managerVisibleNote;
+  const hasSeparatePrevioNote = !!slntPrevioNote && !pmsOwnsVisibleNote;
 
   // A supervisor reassigning a completed room means the previous completion was
   // not approved. Store only the supervisor's reason in a tagged assignment note,
@@ -869,12 +876,13 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     : null;
   
   // Count special instructions
-  const hasSpecialInstructions = showTowelChange || showLinenChange || !!bedInstruction || hasManagerNotes || assignment.notes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
-  const instructionCount = [showTowelChange, showLinenChange, !!bedInstruction, hasManagerNotes, assignment.notes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
+  const hasSpecialInstructions = showTowelChange || showLinenChange || !!bedInstruction || hasManagerNotes || hasSeparatePrevioNote || assignment.notes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
+  const instructionCount = [showTowelChange, showLinenChange, !!bedInstruction, hasManagerNotes, hasSeparatePrevioNote, assignment.notes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
 
   // AI translation state
   const [translating, setTranslating] = useState(false);
   const [translatedManagerNote, setTranslatedManagerNote] = useState<string | null>(null);
+  const [translatedPrevioNote, setTranslatedPrevioNote] = useState<string | null>(null);
   const [translatedAssignmentNote, setTranslatedAssignmentNote] = useState<string | null>(null);
 
   const handleTranslateNote = async (noteText: string, setter: (val: string) => void) => {
@@ -1070,7 +1078,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               <div className="flex items-start gap-2">
                 <Info className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
                 <div className="flex-1">
-                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide">{t('roomCard.managerNotes') || 'Manager Notes'}</p>
+                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide">{pmsOwnsVisibleNote ? 'Previo housekeeping note' : (t('roomCard.managerNotes') || 'Manager Notes')}</p>
                   <p className="text-sm text-amber-800 dark:text-amber-200 mt-0.5">
                     {translatedManagerNote || managerVisibleNote}
                   </p>
@@ -1086,6 +1094,19 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                   )}
                 </div>
               </div>
+            </div>
+          )}
+          {hasSeparatePrevioNote && (
+            <div className="p-3 bg-sky-50 dark:bg-sky-950/30 border-2 border-sky-400 dark:border-sky-600 rounded-lg">
+              <p className="text-xs font-semibold text-sky-700 dark:text-sky-300 uppercase tracking-wide">Previo housekeeping note</p>
+              <p className="text-sm text-sky-900 dark:text-sky-100 mt-1">{translatedPrevioNote || slntPrevioNote}</p>
+              {!translatedPrevioNote && (
+                <button className="mt-1.5 flex items-center gap-1 text-xs text-sky-700 hover:text-sky-900 font-medium"
+                  onClick={() => handleTranslateNote(slntPrevioNote, setTranslatedPrevioNote)} disabled={translating}>
+                  {translating ? <LucideLoader className="h-3 w-3 animate-spin" /> : <Globe className="h-3 w-3" />}
+                  {t('roomCard.translateNote') || 'Translate'}
+                </button>
+              )}
             </div>
           )}
           {assignment.notes && (
@@ -1849,6 +1870,12 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                 <li className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-md">
                   <span>📝</span>
                   <span>{translatedManagerNote || managerVisibleNote}</span>
+                </li>
+              )}
+              {hasSeparatePrevioNote && (
+                <li className="flex items-start gap-2 p-2 bg-sky-50 dark:bg-sky-950/30 rounded-md">
+                  <span>📝</span>
+                  <span>Previo: {translatedPrevioNote || slntPrevioNote}</span>
                 </li>
               )}
               {assignment.notes && (

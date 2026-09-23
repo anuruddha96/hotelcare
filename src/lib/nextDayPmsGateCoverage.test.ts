@@ -18,9 +18,9 @@ describe('tomorrow PMS UI gate coverage', () => {
     expect(isVerifiedSparseTomorrowSnapshot({ ...verified, hotelId: 'gozsdu-court' })).toBe(true);
   });
 
-  it('does not allow another hotel to bypass the full inventory requirement', () => {
-    expect(isVerifiedSparseTomorrowSnapshot({ ...verified, hotelId: 'ottofiori' })).toBe(false);
-    expect(isVerifiedSparseTomorrowSnapshot({ ...verified, hotelId: 'memories-budapest' })).toBe(false);
+  it('accepts verified sparse reservation snapshots for other Previo properties', () => {
+    expect(isVerifiedSparseTomorrowSnapshot({ ...verified, hotelId: 'ottofiori' })).toBe(true);
+    expect(isVerifiedSparseTomorrowSnapshot({ ...verified, hotelId: 'memories-budapest' })).toBe(true);
   });
 
   it('rejects an unverified, changed or empty exact-day dataset', () => {

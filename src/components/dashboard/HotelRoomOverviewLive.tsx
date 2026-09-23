@@ -38,6 +38,7 @@ import { assigneeLabel, cleanName } from '@/lib/staffNames';
 import { useVenues } from '@/hooks/useVenues';
 import { venueColor, venueEdgeStyle } from '@/lib/venueColors';
 import { shortUnitLabel } from '@/lib/venueUnitLabel';
+import { matchesSlntBoardFilter, slntSingleRoomLabel } from '@/lib/slntFlatRoomBoard';
 
 
 
@@ -181,7 +182,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const { profile } = useAuth();
   const { t } = useTranslation();
   const terms = usePropertyTerms();
-  const { venuesEnabled } = useTenantFeatures();
+  const { orgSlug, venuesEnabled } = useTenantFeatures();
+  // Use the active tenant, never the profile's default organization, to scope
+  // presentation changes to SLNT's Team View only.
+  const isSlntTenant = venuesEnabled && ['slnt', 'slnt-group'].includes(orgSlug?.toLowerCase() ?? '');
   const { venues } = useVenues();
   const isMobile = useIsMobile();
   const [rooms, setRooms] = useState<RoomData[]>([]);
@@ -196,7 +200,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [savingSize, setSavingSize] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [showLegend, setShowLegend] = useState(true);
+  // SLNT's high-density portfolio needs the room board visible immediately;
+  // every legend item stays available on demand, and other hotels keep their
+  // existing expanded-by-default legend.
+  const [showLegend, setShowLegend] = useState(!isSlntTenant);
+  // SLNT portfolio managers can narrow TODAY's room board without changing
+  // PMS data, historical snapshots, assignment types or the section totals.
+  const [slntRoomSearch, setSlntRoomSearch] = useState('');
+  const [slntOnlyUnassigned, setSlntOnlyUnassigned] = useState(false);
   const [hoveredRoomId, setHoveredRoomId] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -833,6 +844,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
 
 
+  const slntIsUnassigned = (room: RoomData) => !assignmentMap.get(room.id)?.assigned_to;
+  const slntSearchTerm = slntRoomSearch.trim().toLocaleLowerCase();
+  const slntFilterIsActive = isSlntTenant && (slntSearchTerm.length > 0 || slntOnlyUnassigned);
+  const slntMatchesRoomFilter = (room: RoomData) => {
+    const venueName = venues.find(v => v.id === room.venue_id)?.name ?? '';
+    return matchesSlntBoardFilter(room.room_number, venueName, slntSearchTerm, slntOnlyUnassigned, slntIsUnassigned(room));
+  };
+  const slntUnassignedCount = rooms.filter(slntIsUnassigned).length;
+
   const getStaffName = (roomId: string): string | null => {
     const assignment = assignmentMap.get(roomId);
     if (!assignment) return null;
@@ -902,13 +922,17 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     return assignmentMap.get(roomId)?.status || null;
   };
 
-  const renderRoomChip = (room: RoomData, displayLabel?: string) => {
+  const renderRoomChip = (room: RoomData, displayLabel?: string, slntSolo = false) => {
     const assignment = assignmentMap.get(room.id);
     const assignmentStatus = assignment?.status || null;
     const noServiceOutcome = memoriesOverview
       ? isCurrentNoServiceOutcome(assignment)
       : !!assignment?.notes?.includes('[NO_SERVICE]');
     const roomFlags = parseRoomFlags(room.notes);
+    const slntPrevioNote = isSlntTenant
+      ? String(room.pms_metadata?.slntPrevioHousekeepingNote || '').trim()
+      : '';
+    const hasSeparatePrevioNote = !!slntPrevioNote && slntPrevioNote !== roomFlags.cleanNotes;
     const isPendingApproval = assignmentStatus === 'completed' && assignment?.supervisor_approved === false;
     const roomOverdue = isOverdue(assignment, assignment?.started_at || undefined);
     
@@ -1015,6 +1039,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         <div
           className={`
             relative rounded border transition-all text-center
+            ${slntSolo ? 'slnt-solo-chip text-left whitespace-normal break-words' : ''}
             ${compactChips ? 'px-1.5 py-0.5 text-[11px] font-semibold leading-tight min-w-[34px]' : 'px-2 py-1 text-xs font-bold border-2 min-w-[40px]'}
             ${colorClass}
             ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
@@ -1030,6 +1055,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           `}
           style={venuesEnabled ? venueEdgeStyle(room.venue_id) : undefined}
           title={displayLabel && displayLabel !== room.room_number ? room.room_number : undefined}
+          data-slnt-unassigned={isSlntTenant && slntIsUnassigned(room) ? 'true' : undefined}
         >
           {isSelected && (
             <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[9px] font-bold shadow">
@@ -1128,6 +1154,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           )}
           {roomFlags.cleanNotes && (
             <span className="text-[8px]" title={summarizePmsNote(roomFlags.cleanNotes) || roomFlags.cleanNotes}>📝</span>
+          )}
+          {hasSeparatePrevioNote && (
+            <span className="text-[8px]" title={`Previo housekeeping: ${slntPrevioNote}`}>📋</span>
           )}
           {staffName && (
             <span className="text-[9px] text-muted-foreground font-medium leading-tight text-center max-w-[76px] break-words" title={staffMap[assignment?.assigned_to ?? ''] || staffName || undefined}>
@@ -1482,6 +1511,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   {room.notes && profile?.role === 'admin' && (
                     <StructuredRoomNote notes={room.notes} />
                   )}
+                  {hasSeparatePrevioNote && (
+                    <div className="rounded-md border border-sky-300 bg-sky-50 p-2 text-xs text-sky-900 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-100">
+                      <p className="font-semibold mb-1">Previo housekeeping note</p>
+                      <p className="whitespace-pre-wrap">{slntPrevioNote}</p>
+                    </div>
+                  )}
                   <textarea
                     className="w-full text-xs p-1.5 rounded border border-input bg-background min-h-[36px] resize-none placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                     placeholder={t('roomOverview.managerNotes')}
@@ -1776,8 +1811,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   };
 
   const renderSection = (title: string, roomList: RoomData[], icon: React.ReactNode, sectionType: 'checkout' | 'daily' | 'noshow' | 'arrival') => {
-    // Right column: live today rooms for this section (unchanged).
-    const todayRooms = roomList;
+    // The SLNT search/unassigned filter applies only to the current Today
+    // board. Retain original section totals and yesterday's saved snapshot.
+    const todayRooms = slntFilterIsActive ? roomList.filter(slntMatchesRoomFilter) : roomList;
 
     // Left column: read-only snapshot of yesterday's rooms that belonged to
     // this same section (checkout vs daily) — sourced from previousAssignments,
@@ -1798,9 +1834,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const isDragOver = dragOverSection === sectionType;
 
     /**
-     * Portfolio board (SLNT): one aligned row per property. The property label
-     * sits in a fixed left column and its units stay inside the row's right
-     * cell, so a unit can never appear to belong to the property above it.
+     * Portfolio board: preserve property grouping and existing assignment
+     * handlers. SLNT's responsive row layout gives full names room to wrap;
+     * smaller properties share space only when the actual board is wide enough.
      * Unit labels drop the repeated property name for display only.
      */
     const renderTodayVenueRows = (roomsForColumn: RoomData[]) => {
@@ -1809,7 +1845,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         return <p className="text-xs text-muted-foreground pl-1">{t('team.noRooms')}</p>;
       }
       return (
-        <div className="divide-y divide-border/60 rounded-md border border-border/50">
+        <div className={isSlntTenant
+          ? 'slnt-flat-board flex flex-wrap items-start gap-2 min-w-0'
+          : 'divide-y divide-border/60 rounded-md border border-border/50'}>
           {groups.map(group => {
             const color = venueColor(group.key === '__none__' ? null : group.key);
             const allSelected = selectionEnabled && group.rooms.every(r => selectedUnitIds.has(r.id));
@@ -1852,10 +1890,66 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               })));
             } : undefined;
 
+            if (isSlntTenant) {
+              // A one-unit property IS the actionable chip: remove the repeated
+              // venue header, counter and generic "Unit" label.
+              if (group.rooms.length === 1 && group.key !== '__none__') {
+                const room = group.rooms[0];
+                const fullLabel = slntSingleRoomLabel(room.room_number, group.name);
+                return (
+                  <div
+                    key={group.key}
+                    className="slnt-single-unit animate-fade-in min-w-0 max-w-full"
+                    data-slnt-venue={group.name}
+                    data-slnt-unassigned={slntIsUnassigned(room) ? 'true' : undefined}
+                  >
+                    {renderRoomChip(room, fullLabel, true)}
+                  </div>
+                );
+              }
+
+              // Multi-unit addresses keep a small named cluster, rather than a
+              // full-width property card; all original room handlers survive.
+              return (
+                <div
+                  key={group.key}
+                  className="slnt-room-cluster inline-flex flex-wrap items-center gap-1.5 min-w-0 max-w-full"
+                  data-slnt-venue={group.name}
+                >
+                  <button
+                    type="button"
+                    {...dragProps}
+                    onClick={onPillClick}
+                    title={canDragAssign
+                      ? `${group.name} — select all ${group.rooms.length} ${terms.unitPlural.toLowerCase()} or drag the group`
+                      : group.name}
+                    className="slnt-cluster-label inline-flex max-w-full items-center gap-1 rounded-md px-1.5 py-1 text-left font-semibold text-xs hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                    style={{ cursor: canDragAssign || selectionEnabled ? 'pointer' : 'default' }}
+                  >
+                    <span className="h-4 w-1 shrink-0 rounded-full" style={color ? { backgroundColor: color } : undefined} />
+                    <span className="min-w-0 whitespace-normal break-words">{group.name}</span>
+                    <span className="shrink-0 rounded bg-background px-1 text-[10px] text-muted-foreground">{group.rooms.length}</span>
+                    {selectionEnabled && <span className="text-primary text-[10px]">{allSelected ? '−' : '+'}</span>}
+                  </button>
+                  <div className="slnt-cluster-chips flex min-w-0 flex-wrap items-center gap-1">
+                    {group.rooms.map(room => (
+                      <div key={room.id} className="animate-fade-in">
+                        {renderRoomChip(room, shortUnitLabel(room.room_number, group.name, terms.unit))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <div
                 key={group.key}
-                className="grid grid-cols-[7.5rem_minmax(0,1fr)] sm:grid-cols-[11rem_minmax(0,1fr)] items-start gap-2 px-1.5 py-1 odd:bg-muted/20"
+                data-multiunit={isSlntTenant ? group.rooms.length > 2 || group.key === '__none__' : undefined}
+                data-slnt-venue-name={isSlntTenant ? group.name : undefined}
+                className={isSlntTenant
+                  ? 'slnt-venue-row flex flex-col gap-2 min-w-0 p-2 rounded-lg border border-border/70 bg-card'
+                  : 'grid grid-cols-[7.5rem_minmax(0,1fr)] sm:grid-cols-[11rem_minmax(0,1fr)] items-start gap-2 px-1.5 py-1 odd:bg-muted/20'}
               >
                 <button
                   type="button"
@@ -1865,13 +1959,17 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     ? `${group.name} — tap to select all ${group.rooms.length} ${terms.unitPlural.toLowerCase()} (or drag)`
                     : group.name}
                   style={{ cursor: canDragAssign || selectionEnabled ? 'pointer' : 'default' }}
-                  className="flex w-full min-w-0 items-center gap-1.5 self-stretch rounded px-1 py-1 text-left hover:bg-background/70"
+                  className={isSlntTenant
+                    ? 'slnt-venue-label flex w-full min-w-0 items-start gap-1.5 rounded px-1 py-1 text-left hover:bg-muted/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary'
+                    : 'flex w-full min-w-0 items-center gap-1.5 self-stretch rounded px-1 py-1 text-left hover:bg-background/70'}
                 >
                   <span
                     className="h-6 w-1 shrink-0 rounded-full"
                     style={color ? { backgroundColor: color } : undefined}
                   />
-                  <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-foreground">
+                  <span className={isSlntTenant
+                    ? 'slnt-venue-name min-w-0 flex-1 whitespace-normal break-words text-[13px] font-semibold leading-snug text-foreground'
+                    : 'min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-foreground'}>
                     {group.name}
                   </span>
                   <span className="shrink-0 rounded bg-muted px-1 text-[10px] font-bold text-muted-foreground">
@@ -1884,7 +1982,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   )}
                 </button>
 
-                <div className="flex min-w-0 flex-wrap items-center gap-1">
+                <div className={isSlntTenant
+                  ? 'slnt-venue-unit-list flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1.5'
+                  : 'flex min-w-0 flex-wrap items-center gap-1'}>
                   {group.rooms.map(room => (
                     <div key={room.id} className="animate-fade-in">
                       {renderRoomChip(room, shortUnitLabel(room.room_number, group.name, terms.unit))}
@@ -1977,6 +2077,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             {icon}
             <span className="text-sm font-semibold">{title}</span>
             <Badge variant="secondary" className="text-xs">{roomList.length}</Badge>
+            {slntFilterIsActive && <span className="text-[10px] text-muted-foreground">{todayRooms.length} shown</span>}
             {sectionType === 'checkout' && roomList.length > 0 && (() => {
               const manualCount = roomList.filter(r => r.pms_metadata?.manual_checkout === true).length;
               const pmsCount = roomList.filter(r => r.is_checkout_room && !r.pms_metadata?.manual_checkout).length;
@@ -1997,12 +2098,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               </span>
             )}
             {isDragOver && <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30 animate-pulse">{t('roomOverview.dropHere')}</Badge>}
-            {selectionEnabled && roomList.length > 0 && (
+            {selectionEnabled && todayRooms.length > 0 && (
               <Button
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-[10px]"
-                onClick={() => toggleUnitGroupSelection(roomList.map(r => {
+                onClick={() => toggleUnitGroupSelection(todayRooms.map(r => {
                   const a = assignmentMap.get(r.id);
                   return {
                     roomId: r.id,
@@ -2013,7 +2114,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   };
                 }))}
               >
-                {roomList.every(r => selectedUnitIds.has(r.id)) ? 'Deselect all' : 'Select all'}
+                {todayRooms.every(r => selectedUnitIds.has(r.id)) ? 'Deselect all' : 'Select all'}
               </Button>
             )}
           </div>
@@ -2130,13 +2231,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   return (
     <>
-      <Card id="hotel-room-overview" className={`border-primary/20 transition-shadow duration-500 ${syncFlash ? 'ring-2 ring-emerald-400 ring-offset-2 shadow-[0_0_0_6px_hsl(142_71%_45%/0.15)]' : ''}`}>
+      <Card id="hotel-room-overview" data-slnt-board-version={isSlntTenant ? '2026-09-23-v4' : undefined} className={`border-primary/20 transition-shadow duration-500 ${syncFlash ? 'ring-2 ring-emerald-400 ring-offset-2 shadow-[0_0_0_6px_hsl(142_71%_45%/0.15)]' : ''}`}>
         <CardHeader className="pb-2 pt-3 px-3 sm:px-4 space-y-3">
           {/* Row 1: Title + actions */}
           <div className="flex items-center justify-between gap-2">
             <CardTitle className="text-sm sm:text-base font-semibold flex items-center gap-1.5 min-w-0">
               <Hotel className="h-4 w-4 text-primary shrink-0" />
-              <span className="truncate">{t('team.hotelRoomOverview')}</span>
+              <span className="truncate">{isSlntTenant ? 'Property Overview' : t('team.hotelRoomOverview')}</span>
+              {isSlntTenant && (
+                <span className="shrink-0 rounded border border-border/60 bg-muted/50 px-1 py-0.5 text-[9px] font-medium text-muted-foreground" title="SLNT flat room-chip board — September 2026">v4</span>
+              )}
             </CardTitle>
             <div className="flex items-center gap-1 shrink-0">
               {canViewFullOverview && (
@@ -2245,6 +2349,43 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               </div>
             )}
           </div>
+          {isSlntTenant && viewMode === 'list' && (
+            <div className="slnt-board-toolbar flex flex-wrap items-center gap-2 rounded-md border border-border/60 bg-muted/15 px-2 py-1.5">
+              <span className="text-[11px] font-semibold text-foreground">Checkout {checkoutRooms.length}</span>
+              <span className="text-muted-foreground/60">·</span>
+              <span className="text-[11px] font-semibold text-foreground">Daily {dailyRooms.length}</span>
+              <span className="text-muted-foreground/60">·</span>
+              <Button
+                type="button"
+                variant={slntOnlyUnassigned ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 px-2 text-[11px]"
+                aria-pressed={slntOnlyUnassigned}
+                onClick={() => setSlntOnlyUnassigned(value => !value)}
+              >
+                Unassigned {slntUnassignedCount}
+              </Button>
+              <input
+                type="search"
+                aria-label="Find property or room"
+                placeholder="Find property or room…"
+                value={slntRoomSearch}
+                onChange={e => setSlntRoomSearch(e.target.value)}
+                className="h-7 min-w-0 flex-1 basis-[11rem] rounded-md border border-input bg-background px-2 text-xs text-foreground outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+              />
+              {slntFilterIsActive && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[11px]"
+                  onClick={() => { setSlntRoomSearch(''); setSlntOnlyUnassigned(false); }}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+          )}
         </CardHeader>
         <CardContent className="px-4 pb-3 space-y-3">
           {/* Signed-in housekeeper tray — drag a person onto a room to assign. */}

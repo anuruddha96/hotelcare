@@ -1,18 +1,19 @@
 /*
- * SLNT Team View ONLY.
- *
- * The property-row board itself is now real markup in the room overview
- * component. Only two presentation details remain here, and both require the
- * authenticated SLNT wrapper plus the Team View ancestor, so no other
- * organization is affected.
+ * SLNT Team View only — Memories-inspired continuous room-chip board.
+ * The authenticated tenant wrapper and Team View ancestor are both required.
+ * The shared HotelCare room chip retains its own handlers, status colours,
+ * selection, bulk drag and drop and supervisor approval semantics.
  */
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview {
+  container-type: inline-size;
+}
 
-/* The duplicate four-tile ribbon repeats the section counts below it. */
+/* Section totals and the search bar supersede the duplicate four-tile stats. */
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview > div:first-child > div[class~="grid-cols-4"] {
   display: none;
 }
 
-/* Keep the full legend available, but on one scrollable line. */
+/* Managers can expand the complete original legend at any time. */
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview [data-training="room-legend"] {
   display: flex !important;
   flex-wrap: nowrap !important;
@@ -28,4 +29,109 @@
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview [data-training="room-legend"] > * {
   flex: 0 0 auto;
   white-space: nowrap;
+}
+
+/* The board no longer forces one whole row or a blank card for every address.
+ * Groups stay together in sorted venue order; chip groups wrap naturally. */
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-flat-board {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  align-content: flex-start;
+  gap: 0.45rem 0.6rem;
+  min-width: 0;
+}
+
+/* One-unit apartments are already represented by their full actionable room
+ * chip, so there is no separate title, count, "Unit" repetition or card body. */
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-single-unit {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-single-unit .slnt-solo-chip {
+  display: block;
+  width: fit-content;
+  max-width: min(18rem, 100%);
+  min-height: 2rem;
+  padding: 0.4rem 0.55rem;
+  border-width: 2px;
+  border-radius: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.12rem;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Multiroom addresses are short labelled groups rather than tall individual
+ * cards. Their original group button still selects or drags all units. */
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-room-cluster {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: flex-start;
+  gap: 0.35rem 0.45rem;
+  padding: 0.24rem 0.4rem;
+  border: 1px solid hsl(var(--border) / 0.85);
+  border-radius: 0.5rem;
+  background: hsl(var(--muted) / 0.23);
+}
+
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-cluster-label {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 0.73rem;
+  line-height: 1rem;
+}
+
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-cluster-chips {
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: 100%;
+  gap: 0.35rem;
+}
+
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-cluster-chips div[class~="relative"][class~="text-center"] {
+  min-height: 1.55rem;
+  padding: 0.25rem 0.42rem;
+  font-size: 0.75rem;
+  line-height: 1.05rem;
+}
+
+/* Unassigned is a thin dashed outline, not a replacement for the actual PMS
+ * / housekeeping status colour. Existing DND and selection rings survive. */
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview [data-slnt-unassigned="true"].relative {
+  outline: 1px dashed hsl(var(--amber-500, 39 92% 50%) / 0.85);
+  outline-offset: 1px;
+}
+
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-board-toolbar {
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* Keep long chip text readable without making the entire mobile page wide. */
+@container (max-width: 34rem) {
+  [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-single-unit {
+    max-width: 100%;
+  }
+
+  [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-single-unit .slnt-solo-chip {
+    max-width: min(18rem, 100%);
+    line-height: 1.15rem;
+  }
+
+  [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview .slnt-room-cluster {
+    max-width: 100%;
+  }
 }

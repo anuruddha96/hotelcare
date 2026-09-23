@@ -8,6 +8,7 @@ import { Calendar, Clock, CheckCircle, AlertCircle, CalendarDays, MapPin, Ban, B
 import { AssignedRoomCard } from './AssignedRoomCard';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { MobileHousekeepingView } from './MobileHousekeepingView';
+import { UpcomingShiftCard } from './UpcomingShiftCard';
 import { PublicAreaTaskCard } from './PublicAreaTaskCard';
 import { HousekeeperWorkloadFilters, WorkloadFilter } from './HousekeeperWorkloadFilters';
 import { toast } from 'sonner';
@@ -52,7 +53,8 @@ interface Summary {
 }
 
 export function HousekeepingStaffView() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
+  const isSlntStaff = profile?.organization_slug === 'slnt';
   const isMobile = useIsMobile();
   const { t } = useTranslation();
   const { showNotification } = useNotifications();
@@ -352,6 +354,7 @@ export function HousekeepingStaffView() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
+      {isSlntStaff && <UpcomingShiftCard />}
       {/* Date Selector - Mobile Optimized */}
       <Card className="bg-gradient-to-r from-primary/5 to-accent/10 border-primary/20">
         <CardHeader className="pb-3">

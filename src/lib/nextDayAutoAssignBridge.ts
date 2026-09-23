@@ -37,18 +37,20 @@ export async function ensureTomorrowPmsSnapshot(args: SnapshotArgs):
       .eq('business_date', args.selectedDate)
       .eq('source', 'previo');
     if (error) throw error;
-    return verifyGozsduTomorrowSnapshot(
-      (data || []) as GozsduTomorrowSnapshotRow[], args.selectedDate,
-    );
+    const rows = (data || []) as GozsduTomorrowSnapshotRow[];
+    return {
+      rows,
+      verified: verifyGozsduTomorrowSnapshot(rows, args.selectedDate),
+    };
   };
 
   if (!args.forceFresh) {
     const current = await readExactDate();
-    if (current) {
+    if (current.verified) {
       return {
-        capturedAt: current.capturedAt,
-        rowCount: current.rowCount,
-        roomCount: current.rowCount,
+        capturedAt: current.verified.capturedAt,
+        rowCount: current.verified.rowCount,
+        roomCount: current.verified.rowCount,
         reused: true,
         authoritative: true,
       };
@@ -72,13 +74,32 @@ export async function ensureTomorrowPmsSnapshot(args: SnapshotArgs):
   }
 
   const current = await readExactDate();
-  if (!current) {
+  if (!current.verified) {
+    // A non-empty malformed/stale roster still fails closed. Only a genuinely
+    // empty exact-date result after the successful sync means "all vacant".
+    if (current.rows.length === 0) {
+      const resolvedKeys = await resolveHotelKeys(GOZSDU_COURT_HOTEL_ID);
+      const hotelKeys = [...new Set([...resolvedKeys, GOZSDU_COURT_HOTEL_ID, GOZSDU_COURT_HOTEL_NAME])];
+      const { count, error: countError } = await supabase
+        .from('rooms')
+        .select('id', { count: 'exact', head: true })
+        .eq('organization_slug', args.organizationSlug)
+        .in('hotel', hotelKeys);
+      if (countError || !count) throw new Error('Could not verify Gozsdu room inventory after the empty Previo snapshot.');
+      return {
+        capturedAt: new Date().toISOString(),
+        rowCount: 0,
+        roomCount: Number(count),
+        reused: false,
+        authoritative: true,
+      };
+    }
     throw new Error(`Previo did not provide a valid fresh room snapshot for ${args.selectedDate}. Nothing was assigned.`);
   }
   return {
-    capturedAt: current.capturedAt,
-    rowCount: current.rowCount,
-    roomCount: current.rowCount,
+    capturedAt: current.verified.capturedAt,
+    rowCount: current.verified.rowCount,
+    roomCount: current.verified.rowCount,
     reused: false,
     authoritative: true,
   };
@@ -185,6 +206,7 @@ async function saveVerifiedPortfolioPlan(args: SaveArgs):
     hotelId: args.hotelId,
     selectedDate: args.selectedDate,
     roomRows,
+    pmsSyncedAt: source.capturedAt,
   });
   if (workload.source !== 'selected-date'
     || !compatibleHousekeepingSnapshotTime(source.capturedAt, workload.capturedAt))
@@ -232,6 +254,7 @@ export async function saveApprovedNextDayAutoAssignPlan(args: SaveArgs):
     hotelId: GOZSDU_COURT_HOTEL_ID,
     selectedDate: args.selectedDate,
     roomRows,
+    pmsSyncedAt: source.capturedAt,
   });
   if (workload.source !== 'selected-date'
     || !compatibleHousekeepingSnapshotTime(source.capturedAt, workload.capturedAt)) {

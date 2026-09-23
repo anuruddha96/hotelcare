@@ -103,7 +103,7 @@ describe('SLNT Team View isolation', () => {
   });
 });
 
-describe('SLNT property-row stylesheet safety', () => {
+describe('SLNT flat-room stylesheet safety', () => {
   const css = readFileSync(resolve(process.cwd(), 'src/components/dashboard/slnt-team-property-rows.css'), 'utf8');
 
   it('parses CSS and scopes every rule to authenticated SLNT Team View', () => {
@@ -116,9 +116,10 @@ describe('SLNT property-row stylesheet safety', () => {
     expect(count).toBeGreaterThan(2);
   });
 
-  it('leaves the row layout to the component and keeps the legend readable', () => {
+  it('keeps the legend readable and scopes chip spacing inside SLNT property groups', () => {
     expect(css).toContain('[data-training="room-legend"]');
-    expect(css).not.toContain('div[class~="animate-fade-in"]');
+    expect(css).toContain('.slnt-single-unit .slnt-solo-chip');
+    expect(css).toContain('.slnt-room-cluster');
     expect(css).not.toContain('columns-1');
   });
 
