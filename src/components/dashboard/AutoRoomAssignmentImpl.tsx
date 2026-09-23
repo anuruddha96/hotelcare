@@ -1590,7 +1590,7 @@ export function AutoRoomAssignment({
           <tr><th style="border:1px solid #ddd;padding:6px">Room</th><th style="border:1px solid #ddd;padding:6px">Type</th><th style="border:1px solid #ddd;padding:6px">${isGozsdu ? 'Building' : 'Floor'}</th><th style="border:1px solid #ddd;padding:6px">Special</th></tr>
           ${sortPreviewRooms(preview.rooms).map(room => {
             const special = [
-              room.ready_to_clean || isPmsRtcToday(room.pms_metadata as any) ? 'RTC' : '',
+              !isPotentialCheckoutRoom(room) && (room.ready_to_clean || isPmsRtcToday(room.pms_metadata as any)) ? 'RTC' : '',
               isPotentialCheckoutRoom(room) ? 'Currently unbooked' : '',
               needsTowelChange(room) ? 'Towel' : '',
               needsLinenChange(room) ? 'Clean Room' : '',
@@ -1971,6 +1971,11 @@ export function AutoRoomAssignment({
                 <Check className="mx-auto h-14 w-14 text-green-600" />
                 <h3 className="text-xl font-semibold">{editingExistingAssignments ? 'Save assignment changes' : t('autoAssign.readyToAssign')}</h3>
                 <p className="text-muted-foreground">{assignmentPreviews.reduce((sum, preview) => sum + preview.rooms.length, 0)} {t('autoAssign.roomsWillBeAssigned')} {staffIdsWithWork.size} {t('autoAssign.housekeepers')}. {sectionTasks.length} mapped area tasks will follow their nearest section owner.</p>
+                {isNextDayPlanning && assignmentPreviews.some(preview => preview.rooms.some(isPotentialCheckoutRoom)) && (
+                  <p className="mx-auto max-w-xl rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-900 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-100">
+                    <strong>{assignmentPreviews.reduce((sum, preview) => sum + preview.rooms.filter(isPotentialCheckoutRoom).length, 0)} potential checkout room(s)</strong> are currently unbooked. They are included for workload planning and will be revalidated against fresh PMS data before morning release.
+                  </p>
+                )}
                 {editingExistingAssignments && <p className="mx-auto max-w-xl rounded-lg bg-blue-50 p-3 text-sm text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">Only changed rooms will be written. Untouched assignments, ready-to-clean flags, progress, notes and PMS hold data stay unchanged.</p>}
                 {maintenanceHoldRoomIds.size > 0 && <p className="mx-auto max-w-xl rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950/30 dark:text-red-200">{maintenanceHoldRoomIds.size} selected room{maintenanceHoldRoomIds.size === 1 ? '' : 's'} will be marked Out of Order / Maintenance and removed from housekeeping assignment.</p>}
                 <div className="space-y-2 text-left">
