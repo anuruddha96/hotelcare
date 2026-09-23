@@ -22,9 +22,16 @@ counts**, and may overlap across the two categories.
    identifiers to this **public** repository. Record a pre-release row count,
    counts by status and both mismatch categories; compare to the historical
    counts above without assuming they are unchanged.
-2. Run the read-only queries below in an authorized database console. Store
-   resulting row-level reports in a secure internal location accessible only
-   to authorized property managers and administrators.
+2. Run the read-only queries below in an authorized database console. Also run
+   `supabase/tests/housekeeping_tenant_guard_release_preflight.sql` using
+   `psql -X -v ON_ERROR_STOP=1 -f ...` against an authorized, production-equivalent
+   snapshot; it must emit `HK_TENANT_PREFLIGHT_OK` before rollout. It fails closed
+   when ANY active assignment still links a foreign/missing room or worker, or
+   when a next-day plan has duplicate primary owners. No employee identifiers
+   are printed by the preflight. Its GitHub CI tests deliberately fail on
+   unresolved synthetic active links and pass after synthetic reconciliation.
+   Store any row-level audit reports in a secure internal location accessible
+   only to authorized property managers and administrators.
 3. For **in-progress and assigned** mismatches, confirm the owning hotel,
    legitimate working organization, real employee identity and intended
    assigned person *with the relevant property manager*. This project models
