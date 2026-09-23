@@ -21,6 +21,7 @@ import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
 import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { budapestBusinessDate } from "../_shared/budapestBusinessDate.ts";
 import { verifiedGozsduCheckouts } from "../_shared/previoExplicitCheckoutEvidence.ts";
+import { verifiedGozsduRestCheckouts } from "../_shared/previoRestCheckoutEvidence.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -428,6 +429,76 @@ async function pollOneHotel(
           reason: "explicit checkout verification failed",
           error: String(error?.message ?? error).slice(0, 150),
         });
+      }
+      // The Previo Cleaning screen can display a departure and a new same-day
+      // arrival while REST /rooms omits its reservation and XML's checkout
+      // feed has not recorded a completed checkout. Query a second READ-ONLY
+      // REST reservation source before declaring the pending room unresolved.
+      // Never release from expected departure times, room dirtiness or the
+      // presence of the next booking. All evidence stays property + ID scoped.
+      const stillPending = pendingLocal.filter((local: any) =>
+        !checkedOutByObjId.has(Number(local.pms_metadata?.roomId)));
+      if (stillPending.length > 0) {
+        const targetIds = new Set<number>(
+          stillPending.map((local: any) => Number(local.pms_metadata.roomId)));
+        const restPaths = [
+          `/rest/reservations?departureDateFrom=${today}&departureDateTo=${addDays(today, 1)}`,
+          `/rest/reservations?from=${today}&to=${addDays(today, 1)}`,
+        ];
+        const targetStatusById = new Map<number, string>();
+        for (const path of restPaths) {
+          try {
+            const { response } = await fetchPrevioWithAuth({
+              credentialsSecretName: cfg.credentials_secret_name,
+              pmsHotelId: String(cfg.pms_hotel_id || ""),
+              path,
+            });
+            if (!response.ok) {
+              result.diagnostics.push({
+                source: "gozsdu-rest-checkout", path: path.split("?")[0],
+                httpStatus: response.status, accepted: false,
+                reason: "REST reservation lookup unavailable",
+              });
+              continue;
+            }
+            const payload: unknown = await response.json().catch(() => null);
+            const parsed = verifiedGozsduRestCheckouts(
+              payload, today, rosterById, targetIds, stillInHouseByObjId,
+            );
+            for (const audit of parsed.audits) {
+              if (targetIds.has(audit.roomId)) targetStatusById.set(audit.roomId, audit.status);
+            }
+            for (const signal of parsed.checkouts) {
+              if (checkedOutByObjId.has(signal.objId)) continue;
+              addCheckoutSignal(signal.roomName, signal.objId, signal.reservationId, "gozsdu-rest-explicit-checkout");
+            }
+            result.diagnostics.push({
+              source: "gozsdu-rest-checkout", accepted: parsed.checkouts.length > 0,
+              recordsReturned: parsed.total,
+              matchedExplicitCheckouts: parsed.checkouts.length,
+            });
+            if (stillPending.every((r: any) =>
+                checkedOutByObjId.has(Number(r.pms_metadata.roomId)))) break;
+          } catch (e: any) {
+            result.diagnostics.push({
+              source: "gozsdu-rest-checkout", accepted: false,
+              reason: "REST reservation lookup failed",
+              error: String(e?.message ?? e).slice(0, 160),
+            });
+          }
+        }
+        for (const local of stillPending) {
+          const objId = Number(local.pms_metadata.roomId);
+          result.diagnostics.push({
+            source: "gozsdu-rest-checkout-room", roomId: objId,
+            localRoom: local.room_number,
+            returnedReservationStatus: targetStatusById.get(objId) ?? null,
+            accepted: checkedOutByObjId.has(objId),
+            reason: checkedOutByObjId.has(objId)
+              ? "verified physical checkout returned by Previo"
+              : "Previo REST did not confirm physical checkout; RTC held",
+          });
+        }
       }
     }
   }
