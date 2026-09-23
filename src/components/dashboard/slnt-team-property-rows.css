@@ -1,119 +1,18 @@
 /*
- * SLNT Team View ONLY. One compact row per property, mirroring the
- * Hotel Memories floor rows: a fixed-width property label on the left and
- * the property's room chips wrapping to its right.
- * Presentation only: every DOM node, badge, drag/drop and selection handler,
- * PMS field and checkout/daily bucket stays exactly as the shared board
- * renders it. The authenticated tenant wrapper and Team View ancestor are
- * both required, so no other organization is affected.
+ * SLNT Team View ONLY.
+ *
+ * The property-row board itself is now real markup in the room overview
+ * component. Only two presentation details remain here, and both require the
+ * authenticated SLNT wrapper plus the Team View ancestor, so no other
+ * organization is affected.
  */
 
-/* Both saved density preferences converge on the same single-column rows. */
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="columns-1"],
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="space-y-2"]:has(> div[class~="bg-muted/20"][class~="p-1.5"]) {
-  column-count: initial !important;
-  display: flex !important;
-  flex-direction: column;
-  gap: 0.25rem;
-  min-width: 0;
-}
-
-/* Each property becomes a light, borderless row instead of a boxed card. */
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] {
-  margin: 0 !important;
-  padding: 0.18rem 0.1rem !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-/* Alternating tint keeps long portfolios readable while scanning. */
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"]:nth-child(odd) {
-  background: hsl(var(--muted) / 0.28) !important;
-  border-radius: 0.35rem !important;
-}
-
-/* Label left, chips wrapping right — the Hotel Memories floor-row shape. */
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] > div[class~="flex"][class~="flex-wrap"] {
-  display: flex !important;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.26rem 0.3rem;
-  min-width: 0;
-}
-
-/* Fixed-width property label so every row starts on the same vertical line. */
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] > div > span[class~="rounded-full"] {
-  flex: 0 0 auto;
-  width: 8.5rem;
-  max-width: 45vw;
-  justify-content: flex-start;
-  gap: 0.28rem;
-  margin-right: 0.15rem;
-  padding: 0.16rem 0.36rem;
-  border-radius: 0.3rem;
-  background: hsl(var(--background) / 0.85);
-  white-space: nowrap;
-}
-
-@media (min-width: 640px) {
-  [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] > div > span[class~="rounded-full"] {
-    width: 10.5rem;
-    max-width: 10.5rem;
-  }
-}
-
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] > div > span[class~="rounded-full"] > span[class~="truncate"] {
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: none;
-  font-size: 0.6875rem;
-  font-weight: 650;
-  line-height: 0.95rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] > div > span[class~="rounded-full"] > span[class~="text-[9px]"] {
-  flex: 0 0 auto;
-  padding: 0 0.2rem;
-  border-radius: 0.2rem;
-  background: hsl(var(--muted) / 0.9);
-  font-size: 0.625rem;
-  font-weight: 700;
-}
-
-/* Chips keep their own size, colors, badges and handlers; only spacing is set. */
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] > div > div[class~="animate-fade-in"] {
-  display: inline-flex;
-  flex: 0 0 auto;
-  min-width: 0;
-  max-width: 100%;
-}
-
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] div[class~="animate-fade-in"] div[class~="relative"][class~="text-center"] {
-  min-width: 1.9rem;
-  max-width: min(12.5rem, 100%);
-  padding: 0.16rem 0.32rem;
-  font-size: 0.6875rem;
-  line-height: 0.95rem;
-  overflow-wrap: anywhere;
-}
-
-/* The old Compact/Roomy control no longer changes this presentation. */
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div:has(> div[class~="columns-1"]) > div[class~="mb-1"][class~="justify-end"],
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div:has(> div[class~="space-y-2"] > div[class~="bg-muted/20"][class~="p-1.5"]) > div[class~="mb-1"][class~="justify-end"] {
-  display: none;
-}
-
-/* Checkout/Daily headers already show actionable totals. Remove only the
- * duplicate four-tile overview ribbon, never any section or exception count. */
+/* The duplicate four-tile ribbon repeats the section counts below it. */
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview > div:first-child > div[class~="grid-cols-4"] {
   display: none;
 }
 
-/* Preserve the complete optional legend, but keep it to one scrollable line. */
+/* Keep the full legend available, but on one scrollable line. */
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview [data-training="room-legend"] {
   display: flex !important;
   flex-wrap: nowrap !important;
