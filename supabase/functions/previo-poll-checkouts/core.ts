@@ -20,6 +20,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
 import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { budapestBusinessDate } from "../_shared/budapestBusinessDate.ts";
+import { verifiedGozsduCheckouts } from "../_shared/previoExplicitCheckoutEvidence.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -367,6 +368,68 @@ async function pollOneHotel(
       accepted: false,
       reason: e?.message || String(e),
     });
+  }
+
+  // Gozsdu fallback: query the explicit check-out feed independently of the
+  // configured response adapter when an assigned departure is still awaiting
+  // RTC. If the adapter could not initialize, an overlap-only response may
+  // omit an already-departed guest. This call is READ-ONLY in Previo and the
+  // same room-state guard still filters rebookings/extensions upstream.
+  // Never infer RTC from a dirty room or a missing reservation.
+  if (hotelId === "gozsdu-court") {
+    const pendingLocal = localScheduledRooms.filter((r: any) =>
+      pendingCheckoutRoomIds.has(r.id)
+      && Number.isFinite(Number(r.pms_metadata?.roomId))
+      && Number(r.pms_metadata?.roomId) > 0
+      && !checkedOutByObjId.has(Number(r.pms_metadata?.roomId))
+    );
+    if (pendingLocal.length > 0) {
+      const rosterById = new Map(rooms.map((r) => [Number(r.roomId), String(r.name ?? "").trim()]));
+      const mappedIds = new Set(localScheduledRooms.map((r: any) => Number(r.pms_metadata?.roomId)));
+      try {
+        const explicit = await callPrevioXml({
+          method: "searchReservations",
+          creds: loadPrevioCredentials(cfg.credentials_secret_name),
+          pmsHotelId: String(cfg.pms_hotel_id || ""),
+          extraXml: `<term><termType>check-out</termType><from>${today}</from><to>${addDays(today, 1)}</to></term>`,
+        });
+        if (!explicit.ok) {
+          result.diagnostics.push({
+            source: "gozsdu-independent-checkout",
+            accepted: false,
+            reason: "explicit Previo check-out feed unavailable",
+            status: explicit.status,
+          });
+        } else {
+          const verified = verifiedGozsduCheckouts(
+            explicit.text, today, rosterById, mappedIds, stillInHouseByObjId,
+          );
+          for (const signal of verified) {
+            addCheckoutSignal(signal.roomName, signal.objId, signal.reservationId, "gozsdu-explicit-checkout");
+          }
+          for (const local of pendingLocal) {
+            const objId = Number(local.pms_metadata.roomId);
+            const confirmed = checkedOutByObjId.has(objId);
+            result.diagnostics.push({
+              source: "gozsdu-independent-checkout",
+              room: rosterById.get(objId) ?? null,
+              roomId: objId,
+              localRoom: local.room_number,
+              confirmed,
+              accepted: confirmed,
+              reason: confirmed ? "explicit checkout verified" : "Previo API did not confirm checkout; RTC intentionally held",
+            });
+          }
+        }
+      } catch (error: any) {
+        result.diagnostics.push({
+          source: "gozsdu-independent-checkout",
+          accepted: false,
+          reason: "explicit checkout verification failed",
+          error: String(error?.message ?? error).slice(0, 150),
+        });
+      }
+    }
   }
 
   const trueCheckoutRoomIds = new Set<string>();
