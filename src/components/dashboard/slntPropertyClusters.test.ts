@@ -11,7 +11,8 @@ const scope = '[data-training="team-view"] .slnt-team-property-rows #hotel-room-
 const declarationsFor = (suffix: string) => {
   const properties = new Map<string, string>();
   root.walkRules(rule => {
-    if (!rule.selector.split(',').some(selector => selector.trim() === `${scope} ${suffix}`)) return;
+    const expected = suffix ? `${scope} ${suffix}` : scope;
+    if (!rule.selector.split(',').some(selector => selector.trim() === expected)) return;
     rule.walkDecls(decl => { properties.set(decl.prop, decl.value); });
   });
   return properties;
