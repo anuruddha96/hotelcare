@@ -56,7 +56,7 @@ describe('SLNT Memories-inspired flat room-chip board', () => {
 
   it('preserves original section counts and historical snapshots when managers filter Today', () => {
     expect(board).toContain('slntFilterIsActive ? roomList.filter(slntMatchesRoomFilter) : roomList');
-    expect(board).toContain('const slntUnassignedCount = [...checkoutRooms, ...dailyRooms].filter(slntIsUnassigned).length');
+    expect(board).toContain('const slntUnassignedCount = rooms.filter(slntIsUnassigned).length');
     expect(board).toContain('toggleUnitGroupSelection(todayRooms.map(');
     expect(board).toContain('todayRooms.every(r => selectedUnitIds.has(r.id))');
     expect(board).toContain('const previousEntries: Array<');
