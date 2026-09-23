@@ -1,7 +1,6 @@
 import { supabase } from '@/integrations/supabase/client';
 import { GOZSDU_COURT_HOTEL_ID } from '@/lib/gozsdu-housekeeping';
 import { verifyGozsduTomorrowCoverage } from '@/lib/gozsduPmsRoster';
-import { verifyMikaTomorrowCoverage } from '@/lib/mikaTomorrowSnapshotCoverage';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { runPmsRefresh } from '@/lib/pmsRefresh';
 import {
@@ -18,7 +17,6 @@ import {
 import { splitSharedDuration } from '@/lib/nextDayHousekeepingShared';
 
 export const TOMORROW_PMS_REUSE_MS = 15 * 60 * 1000;
-const MIKA_DOWNTOWN_HOTEL_ID = 'mika-downtown';
 
 export type NextDayPlanItem = {
   id: string;
@@ -172,24 +170,6 @@ async function findReusableSnapshot(args: {
     const todayTimes = (todayResult.data || []).map((row: any) => Date.parse(row.captured_at));
     if (todayTimes.length !== roomCount || todayTimes.some((time: number) => !Number.isFinite(time))
       || Date.now() - Math.min(...todayTimes) > TOMORROW_PMS_REUSE_MS) return null;
-  } else if (args.hotelId === MIKA_DOWNTOWN_HOTEL_ID) {
-    const [todayResult, inventoryResult] = await Promise.all([
-      (supabase as any).from('daily_overview_snapshots')
-        .select('room_label,room_number,arrival_date,departure_date,status,housekeeping_dep,housekeeping_stay,captured_at')
-        .eq('organization_slug', args.organizationSlug).eq('hotel_id', args.hotelId)
-        .eq('business_date', addIsoDays(args.selectedDate, -1)).eq('source', 'previo'),
-      supabase.from('rooms').select('id,room_number').in('hotel', hotelKeys),
-    ]);
-    if (todayResult.error || inventoryResult.error) return null;
-    const todayRows = (todayResult.data || []) as DailyOverviewWorkRow[];
-    const inventory = inventoryResult.data || [];
-    if (inventory.length !== roomCount || !verifyMikaTomorrowCoverage(
-      inventory, todayRows, snapshotRows, addIsoDays(args.selectedDate, -1), args.selectedDate,
-    )) return null;
-    const todayTimes = todayRows.map(row => row.captured_at ? Date.parse(row.captured_at) : Number.NaN);
-    if (todayTimes.length !== roomCount || todayTimes.some(time => !Number.isFinite(time))
-      || Math.min(...todayTimes) > Date.now() + 60_000
-      || Date.now() - Math.min(...todayTimes) > TOMORROW_PMS_REUSE_MS) return null;
   }
 
   const oldest = Math.min(...capturedTimes);
@@ -227,7 +207,7 @@ export async function ensureTomorrowPmsSnapshot(args: {
     }
   }
 
-  const includePreviousDay = args.hotelId === GOZSDU_COURT_HOTEL_ID || args.hotelId === MIKA_DOWNTOWN_HOTEL_ID;
+  const includePreviousDay = args.hotelId === GOZSDU_COURT_HOTEL_ID;
   const { data: overviewData, error: overviewError } = await supabase.functions.invoke(
     'previo-sync-daily-overview',
     {
@@ -250,25 +230,36 @@ export async function ensureTomorrowPmsSnapshot(args: {
   const reusable = await findReusableSnapshot(args);
   if (reusable) return { ...reusable, reused: false };
 
-  // A successful exact-date reservation sync can legitimately insert zero rows
-  // when every room is currently vacant. There is no row timestamp to reuse in
-  // that case, so the successful sync response itself becomes the authority.
-  if ((overviewData as any)?.supported !== false && Number((overviewData as any)?.rowsInserted || 0) === 0) {
-    const resolvedKeys = await resolveHotelKeys(args.hotelId);
-    const hotelKeys = Array.from(new Set([args.hotelId, ...resolvedKeys].filter(Boolean)));
-    const { count, error: countError } = await supabase
-      .from('rooms')
-      .select('id', { count: 'exact', head: true })
+  // A successful sync can contain rows for adjacent dates, so rowsInserted is
+  // not a safe test for an all-vacant selected date. Re-read the exact date:
+  // zero rows after a successful supported sync means every room is unbooked.
+  if ((overviewData as any)?.supported !== false) {
+    const { count: exactDateRows, error: exactDateError } = await (supabase as any)
+      .from('daily_overview_snapshots')
+      .select('room_label', { count: 'exact', head: true })
       .eq('organization_slug', args.organizationSlug)
-      .in('hotel', hotelKeys);
-    if (countError || !count) throw new Error('Could not verify the hotel room inventory after the empty Previo snapshot.');
-    return {
-      capturedAt: new Date().toISOString(),
-      rowCount: 0,
-      roomCount: Number(count),
-      reused: false,
-      authoritative: true,
-    };
+      .eq('hotel_id', args.hotelId)
+      .eq('business_date', args.selectedDate)
+      .eq('source', 'previo');
+    if (exactDateError) throw exactDateError;
+
+    if (Number(exactDateRows || 0) === 0) {
+      const resolvedKeys = await resolveHotelKeys(args.hotelId);
+      const hotelKeys = Array.from(new Set([args.hotelId, ...resolvedKeys].filter(Boolean)));
+      const { count, error: countError } = await supabase
+        .from('rooms')
+        .select('id', { count: 'exact', head: true })
+        .eq('organization_slug', args.organizationSlug)
+        .in('hotel', hotelKeys);
+      if (countError || !count) throw new Error('Could not verify the hotel room inventory after the empty Previo snapshot.');
+      return {
+        capturedAt: new Date().toISOString(),
+        rowCount: 0,
+        roomCount: Number(count),
+        reused: false,
+        authoritative: true,
+      };
+    }
   }
 
   // Some portfolio PMS configurations do not expose the selected-date feed.
