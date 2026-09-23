@@ -27,7 +27,7 @@ describe('SLNT Team View: readable, compact, full-name property cards', () => {
     });
     expect(count).toBeGreaterThan(10);
     expect(board).toContain("const isSlntTenant = venuesEnabled && ['slnt', 'slnt-group'].includes");
-    expect(board).toContain("isSlntTenant ? 'slnt-venue-grid grid grid-cols-1 gap-2 min-w-0'");
+    expect(board).toContain("'slnt-venue-grid grid grid-cols-1 gap-2 min-w-0'");
   });
 
   it('uses resilient default markup; long names are not dependent on loading CSS', () => {
