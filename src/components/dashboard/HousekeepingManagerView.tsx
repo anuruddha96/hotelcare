@@ -25,7 +25,7 @@ import { PmsRefreshButton } from './PmsRefreshButton';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { resolveHotelKeys } from '@/lib/hotelKeys';
+import { resolveCanonicalHotelId, resolveHotelKeys } from '@/lib/hotelKeys';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { selectCurrentHousekeepingAssignments } from '@/lib/currentHousekeepingAssignments';
 import { hasManagerPowers } from '@/lib/roleAccess';
@@ -177,6 +177,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [doneRoomsDialogOpen, setDoneRoomsDialogOpen] = useState(false);
   const [staffAttendance, setStaffAttendance] = useState<Record<string, any>>({});
   const [staffSchedules, setStaffSchedules] = useState<Record<string, ScheduledShift>>({});
+  const [slntScheduleError, setSlntScheduleError] = useState<string | null>(null);
+  const scheduleRequestId = useRef(0);
+  const isSlntTenant = profile?.organization_slug === 'slnt' || profile?.organization_slug === 'slnt-group';
   const [selectedStaff, setSelectedStaff] = useState<{ id: string; name: string } | null>(null);
   const [managerHotelName, setManagerHotelName] = useState<string>('');
   const [overviewRefreshKey, setOverviewRefreshKey] = useState(0);
@@ -216,6 +219,10 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const selectedUnits = useUnitSelection();
   const assignSelectionTo = (staff: { id: string; full_name: string } | null) => {
     if (selectedUnits.length === 0) return;
+    if (staff && isSlntTenant && slntScheduleError) {
+      toast.error('Verify the published SLNT roster before assigning rooms.');
+      return;
+    }
     if (staff && venuesEnabled) {
       const shift = staffSchedules[staff.id];
       const allowedVenues = new Set(shift?.staff_schedule_venues?.map((row) => row.venue_id) ?? []);
@@ -273,6 +280,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     setDragActive(false);
     const payload = readRoomDragPayload(e);
     if (!payload) return;
+    if (isSlntTenant && slntScheduleError) { toast.error('SLNT roster unavailable. Please retry.'); return; }
     if (payload.bulk && payload.bulk.length > 0 && stagedEnabled) {
       let staged = 0;
       payload.bulk.forEach(item => {
@@ -339,6 +347,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
   const applyStagedMoves = async () => {
     if (!user?.id || stagedMoves.length === 0) return;
+    if (isSlntTenant && slntScheduleError) { toast.error('Verify SLNT roster before applying room moves.'); return; }
     setApplying(true);
     const applied: string[] = [];
     const failed: string[] = [];
@@ -709,10 +718,47 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   };
 
   const fetchStaffSchedules = async () => {
-    if (!venuesEnabled || !profile?.assigned_hotel) { setStaffSchedules({}); return; }
+    const requestId = ++scheduleRequestId.current;
+    if (!venuesEnabled || !profile?.assigned_hotel) {
+      setStaffSchedules({});
+      setSlntScheduleError(null);
+      return;
+    }
+    if (isSlntTenant) {
+      // The SLNT Housekeeping consumer exposes published, minimum roster fields
+      // via server-side tenant, hotel and venue authorization. No draft or notes.
+      setStaffSchedules({});
+      try {
+        const hotelId = await resolveCanonicalHotelId(profile.assigned_hotel);
+        if (!hotelId) throw new Error('SLNT hotel not configured');
+        const { data, error } = await (supabase as any).rpc('slnt_housekeeping_published_roster', {
+          _hotel: hotelId, _day: selectedDate,
+        });
+        if (error) throw error;
+        if (requestId !== scheduleRequestId.current) return;
+        const published: Record<string, ScheduledShift> = {};
+        for (const row of data ?? []) {
+          published[row.user_id] = {
+            status: 'published', shift_start: row.shift_start, shift_end: row.shift_end,
+            staff_schedule_venues: (row.venue_ids ?? []).map((id: string) => ({ venue_id: id })),
+          };
+        }
+        setStaffSchedules(published);
+        setSlntScheduleError(null);
+      } catch (error) {
+        if (requestId !== scheduleRequestId.current) return;
+        console.error('[SLNT HK roster] failed verification', error);
+        setStaffSchedules({});
+        setSlntScheduleError('Cannot verify the published SLNT roster. Retry before assigning rooms.');
+      }
+      return;
+    }
+    // Existing RD and other tenant schedule behaviour remains unchanged.
+    setSlntScheduleError(null);
     const { data } = await (supabase as any).from('staff_schedules')
       .select('user_id,status,shift_start,shift_end,staff_schedule_venues(venue_id)')
       .eq('hotel_id', profile.assigned_hotel).eq('work_date', selectedDate).in('status', ['published', 'off']);
+    if (requestId !== scheduleRequestId.current) return;
     const scheduleMap: Record<string, ScheduledShift> = {};
     for (const row of data ?? []) scheduleMap[row.user_id] = row as ScheduledShift;
     setStaffSchedules(scheduleMap);
@@ -822,6 +868,10 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       )}
 
       <TabsContent value="team" className="space-y-6" data-training="team-view">
+      {isSlntTenant && slntScheduleError && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-destructive p-3 text-sm text-destructive">
+        <span>{slntScheduleError}</span>
+        <Button variant="outline" size="sm" onClick={() => void fetchStaffSchedules()}>Retry roster</Button>
+      </div>}
       {/* Header with Actions */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -1027,7 +1077,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                     )}
                     {venuesEnabled && (() => {
                       const shift = staffSchedules[staff.id];
-                      if (!shift) return <Badge variant="outline" className="mt-2 text-[10px]">Not scheduled</Badge>;
+                      if (!shift) return <Badge variant="outline" className="mt-2 text-[10px]">{isSlntTenant && slntScheduleError ? "Roster unavailable" : "Not scheduled"}</Badge>;
                       if (shift.status === 'off') return <Badge variant="secondary" className="mt-2 text-[10px]">Scheduled off</Badge>;
                       const names = shift.staff_schedule_venues?.map((row) => venueName(row.venue_id)).filter(Boolean).join(', ');
                       return <div className="mt-2 text-[10px] text-muted-foreground"><span className="font-medium text-foreground">{shift.shift_start.slice(0,5)}–{shift.shift_end.slice(0,5)}</span>{names ? ` · ${names}` : ''}</div>;
