@@ -1,33 +1,55 @@
 -- #348: assignment_patterns previously permitted every manager to read/write
 -- every tenant's history. Enforce organization AND authorized property at RLS.
 -- The historic data is not deleted; only its visibility changes.
+-- Preserve authorized top management and explicit super-admin access, while
+-- reusing the established organization/property authorization helper.
 DROP POLICY IF EXISTS "Managers and admins can view assignment patterns" ON public.assignment_patterns;
 DROP POLICY IF EXISTS "Managers and admins can insert assignment patterns" ON public.assignment_patterns;
 DROP POLICY IF EXISTS "Managers and admins can update assignment patterns" ON public.assignment_patterns;
 
 CREATE POLICY "Assignment patterns scoped read" ON public.assignment_patterns
 FOR SELECT TO authenticated USING (
-  public.get_user_role((SELECT auth.uid())) IN ('manager'::public.user_role, 'housekeeping_manager'::public.user_role, 'admin'::public.user_role)
-  AND (public.is_super_admin((SELECT auth.uid())) OR organization_slug = public.get_user_organization_slug((SELECT auth.uid())))
-  AND public.user_can_access_hotel((SELECT auth.uid()), hotel)
+  (public.is_super_admin((SELECT auth.uid())) OR (
+    public.get_user_role((SELECT auth.uid())) IN (
+      'manager'::public.user_role, 'housekeeping_manager'::public.user_role,
+      'admin'::public.user_role, 'top_management'::public.user_role,
+      'top_management_manager'::public.user_role
+    )
+    AND public.can_manage_next_day_housekeeping_plan(organization_slug, hotel)
+  ))
 );
 CREATE POLICY "Assignment patterns scoped insert" ON public.assignment_patterns
 FOR INSERT TO authenticated WITH CHECK (
-  public.get_user_role((SELECT auth.uid())) IN ('manager'::public.user_role, 'housekeeping_manager'::public.user_role, 'admin'::public.user_role)
-  AND (public.is_super_admin((SELECT auth.uid())) OR organization_slug = public.get_user_organization_slug((SELECT auth.uid())))
-  AND public.user_can_access_hotel((SELECT auth.uid()), hotel)
+  (public.is_super_admin((SELECT auth.uid())) OR (
+    public.get_user_role((SELECT auth.uid())) IN (
+      'manager'::public.user_role, 'housekeeping_manager'::public.user_role,
+      'admin'::public.user_role, 'top_management'::public.user_role,
+      'top_management_manager'::public.user_role
+    )
+    AND public.can_manage_next_day_housekeeping_plan(organization_slug, hotel)
+  ))
 );
 CREATE POLICY "Assignment patterns scoped update" ON public.assignment_patterns
 FOR UPDATE TO authenticated
 USING (
-  public.get_user_role((SELECT auth.uid())) IN ('manager'::public.user_role, 'housekeeping_manager'::public.user_role, 'admin'::public.user_role)
-  AND (public.is_super_admin((SELECT auth.uid())) OR organization_slug = public.get_user_organization_slug((SELECT auth.uid())))
-  AND public.user_can_access_hotel((SELECT auth.uid()), hotel)
+  (public.is_super_admin((SELECT auth.uid())) OR (
+    public.get_user_role((SELECT auth.uid())) IN (
+      'manager'::public.user_role, 'housekeeping_manager'::public.user_role,
+      'admin'::public.user_role, 'top_management'::public.user_role,
+      'top_management_manager'::public.user_role
+    )
+    AND public.can_manage_next_day_housekeeping_plan(organization_slug, hotel)
+  ))
 )
 WITH CHECK (
-  public.get_user_role((SELECT auth.uid())) IN ('manager'::public.user_role, 'housekeeping_manager'::public.user_role, 'admin'::public.user_role)
-  AND (public.is_super_admin((SELECT auth.uid())) OR organization_slug = public.get_user_organization_slug((SELECT auth.uid())))
-  AND public.user_can_access_hotel((SELECT auth.uid()), hotel)
+  (public.is_super_admin((SELECT auth.uid())) OR (
+    public.get_user_role((SELECT auth.uid())) IN (
+      'manager'::public.user_role, 'housekeeping_manager'::public.user_role,
+      'admin'::public.user_role, 'top_management'::public.user_role,
+      'top_management_manager'::public.user_role
+    )
+    AND public.can_manage_next_day_housekeeping_plan(organization_slug, hotel)
+  ))
 );
 
 -- Existing plan-item UPDATE policy validated organization but not the hotel's
