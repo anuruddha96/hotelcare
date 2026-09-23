@@ -30,6 +30,22 @@ describe('Gozsdu tomorrow plan reconciliation before approval', () => {
     expect(checkGozsduTomorrowPlanDrift([room('a', true), room('b', false, false, true)],
       [room('a'), room('b')])).toEqual({ ...clean, changedCleaningType: 2 });
   });
+  it('rejects a potential checkout that became a confirmed checkout', () => {
+    const potential = room('a', true);
+    potential.pms_metadata = {
+      ...potential.pms_metadata,
+      potentialCheckout: true,
+      selectedDateSnapshotKind: 'potential_checkout',
+    };
+    const confirmed = room('a', true);
+    confirmed.pms_metadata = {
+      ...confirmed.pms_metadata,
+      potentialCheckout: false,
+      selectedDateSnapshotKind: 'checkout',
+    };
+    expect(checkGozsduTomorrowPlanDrift([confirmed], [potential]))
+      .toEqual({ ...clean, changedCleaningType: 1 });
+  });
 
   it('rejects a room no longer in the verified due-work roster', () => {
     expect(checkGozsduTomorrowPlanDrift([room('a', true)], [room('a', true), room('b')])).toEqual({
