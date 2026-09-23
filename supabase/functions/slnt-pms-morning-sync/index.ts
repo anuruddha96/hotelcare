@@ -257,7 +257,7 @@ async function syncAccount(admin:any, account:any, source="manual") {
 
     // SLNT uses two Previo accounts. Never attach another unit's note merely
     // because marketing labels happen to resemble one another.
-    const matchingPmsRoom = !res.objId || !ext || String(res.objId)===ext;
+    const matchingPmsRoom = !!m.external_room_id && res.objId != null && String(res.objId) === String(m.external_room_id);
     const noteText = matchingPmsRoom && !no_show
       ? pickPrevioHousekeepingNote({Note:res.note,NoteInternal:res.internalNote})
       : null;
