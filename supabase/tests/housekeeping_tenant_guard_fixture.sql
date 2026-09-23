@@ -8,7 +8,8 @@ CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
   SELECT NULLIF(current_setting('request.jwt.claim.sub', true),'')::uuid
 $$;
 CREATE TYPE public.user_role AS ENUM
-  ('housekeeping','housekeeping_manager','manager','admin','top_management','supervisor');
+  ('housekeeping','housekeeping_manager','manager','admin','top_management',
+   'top_management_manager','supervisor');
 CREATE TABLE public.organizations (id uuid PRIMARY KEY, slug text UNIQUE NOT NULL);
 CREATE TABLE public.hotel_configurations (
   organization_id uuid NOT NULL REFERENCES public.organizations(id),
@@ -82,8 +83,10 @@ CREATE FUNCTION public.can_manage_next_day_housekeeping_plan(p_org text,p_hotel 
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
  SELECT public.is_super_admin(auth.uid()) OR
    (p_org=public.get_user_organization_slug(auth.uid()) AND
-     public.get_user_role(auth.uid()) IN ('manager','housekeeping_manager','admin')
-     AND public.user_can_access_hotel(auth.uid(),p_hotel))
+    (public.get_user_role(auth.uid()) IN
+       ('admin','top_management','top_management_manager') OR
+     (public.get_user_role(auth.uid()) IN ('manager','housekeeping_manager')
+       AND public.user_can_access_hotel(auth.uid(),p_hotel))))
 $$;
 GRANT USAGE ON SCHEMA public,auth TO authenticated;
 GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
@@ -146,7 +149,11 @@ INSERT INTO public.profiles(id,organization_slug,role,assigned_hotel) VALUES
  ('00000000-0000-4000-8000-000000000014','rdhotels','housekeeping','mika'),
  ('00000000-0000-4000-8000-000000000015','slnt','housekeeping','slnt-one'),
  ('00000000-0000-4000-8000-000000000016','test','housekeeping','test-one'),
- ('00000000-0000-4000-8000-000000000017','rdhotels','housekeeping','mika');
+ ('00000000-0000-4000-8000-000000000017','rdhotels','housekeeping','mika'),
+ ('00000000-0000-4000-8000-000000000018','rdhotels','top_management',NULL),
+ ('00000000-0000-4000-8000-000000000019','rdhotels','housekeeping',NULL);
+UPDATE public.profiles SET is_super_admin = true
+ WHERE id='00000000-0000-4000-8000-000000000019';
 UPDATE public.profiles SET deleted_at=now()
  WHERE id='00000000-0000-4000-8000-000000000017';
 INSERT INTO public.rooms(id,organization_slug,hotel) VALUES
