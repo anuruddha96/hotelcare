@@ -1891,7 +1891,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 <div className="flex min-w-0 flex-wrap items-center gap-1">
                   {group.rooms.map(room => (
                     <div key={room.id} className="animate-fade-in">
-                      {renderRoomChip(room, shortUnitLabel(room.room_number, group.name, terms.unitSingular))}
+                      {renderRoomChip(room, shortUnitLabel(room.room_number, group.name, terms.unit))}
                     </div>
                   ))}
                 </div>
