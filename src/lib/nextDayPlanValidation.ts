@@ -1,5 +1,6 @@
 import { calculateRoomTime, type AssignmentPreview, type RoomForAssignment } from './roomAssignmentAlgorithm';
 import { BREAK_TIME_MINUTES } from './roomAssignmentAlgorithmCore';
+import { isPotentialCheckoutRoom } from './nextDayHousekeepingSnapshot';
 
 export type ScheduledWorker = { id: string; organization_slug: string; assigned_hotel: string | null; hotel_id?: string | null; deleted_at?: string | null };
 export type WorkSchedule = { user_id: string; status: string; work_date: string; shift_start?: string | null; shift_end?: string | null };
@@ -62,6 +63,7 @@ export function validateNextDayPlan(args: {
   for (const entry of planned) {
     const authoritative = expected.get(entry.room.id);
     if (!authoritative || !selected.has(entry.owner) || checkout(authoritative) !== checkout(entry.room)
+      || isPotentialCheckoutRoom(authoritative) !== isPotentialCheckoutRoom(entry.room)
       || !!authoritative.towel_change_required !== !!entry.room.towel_change_required
       || !!authoritative.linen_change_required !== !!entry.room.linen_change_required)
       return reject('The plan is stale, has an unauthorized owner, or a room cleaning type changed. Regenerate.');
