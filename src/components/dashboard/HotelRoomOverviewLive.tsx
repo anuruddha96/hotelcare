@@ -904,7 +904,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     return assignmentMap.get(roomId)?.status || null;
   };
 
-  const renderRoomChip = (room: RoomData) => {
+  const renderRoomChip = (room: RoomData, displayLabel?: string) => {
     const assignment = assignmentMap.get(room.id);
     const assignmentStatus = assignment?.status || null;
     const noServiceOutcome = memoriesOverview
@@ -1031,6 +1031,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             ${hkSuccessRoomId === room.id ? 'ring-2 ring-emerald-500 ring-offset-1' : ''}
           `}
           style={venuesEnabled ? venueEdgeStyle(room.venue_id) : undefined}
+          title={displayLabel && displayLabel !== room.room_number ? room.room_number : undefined}
         >
           {isSelected && (
             <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground text-[9px] font-bold shadow">
@@ -1039,7 +1040,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           )}
 
 
-          {room.room_number}
+          {displayLabel ?? room.room_number}
+
           {(room.pms_metadata as any)?.isNoShow === true && (
             <span
               className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white"
