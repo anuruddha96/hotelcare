@@ -295,7 +295,7 @@ export async function runPmsRefresh(
   try {
     const { data: unitMaps } = await supabase
       .from("pms_unit_mappings")
-      .select("id, normalized_name, source_name, canonical_room_name, external_room_id, pms_account_id, room_id")
+      .select("id, normalized_name, source_name, canonical_room_name, external_room_id, pms_account_id, organization_slug, status, room_id")
       .in("hotel_id", hotelKeys)
       .not("room_id", "is", null);
     for (const m of (unitMaps ?? []) as any[]) {
@@ -305,7 +305,9 @@ export async function runPmsRefresh(
       }
       if (m.external_room_id) {
         externalIdToRoomId.set(String(m.external_room_id), roomId);
-        if (m.pms_account_id) slntAccountRoomIds.set(`${m.pms_account_id}:${m.external_room_id}`, roomId);
+        if (m.pms_account_id && m.status === "applied" && m.organization_slug === "slnt") {
+          slntAccountRoomIds.set(`${m.pms_account_id}:${m.external_room_id}`, roomId);
+        }
       }
       if (m.id && !mappingIdByRoomId.has(roomId)) mappingIdByRoomId.set(roomId, m.id as string);
       resolverEntries.push({
