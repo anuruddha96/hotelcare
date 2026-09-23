@@ -1,11 +1,11 @@
 import { supabase } from '@/integrations/supabase/client';
 import { GOZSDU_COURT_HOTEL_ID } from '@/lib/gozsdu-housekeeping';
 import { verifyGozsduTomorrowCoverage } from '@/lib/gozsduPmsRoster';
-import { verifyMikaTomorrowCoverage } from '@/lib/mikaTomorrowSnapshotCoverage';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { runPmsRefresh } from '@/lib/pmsRefresh';
 import {
   buildSelectedDateHousekeepingWorkload,
+  isPotentialCheckoutRoom,
   type DailyOverviewWorkRow,
 } from '@/lib/nextDayHousekeepingSnapshot';
 import {
@@ -17,7 +17,6 @@ import {
 import { splitSharedDuration } from '@/lib/nextDayHousekeepingShared';
 
 export const TOMORROW_PMS_REUSE_MS = 15 * 60 * 1000;
-const MIKA_DOWNTOWN_HOTEL_ID = 'mika-downtown';
 
 export type NextDayPlanItem = {
   id: string;
@@ -140,6 +139,7 @@ async function findReusableSnapshot(args: {
     supabase
       .from('rooms')
       .select('id', { count: 'exact', head: true })
+      .eq('organization_slug', args.organizationSlug)
       .in('hotel', hotelKeys),
   ]);
 
@@ -149,12 +149,12 @@ async function findReusableSnapshot(args: {
     .map(row => row.captured_at ? Date.parse(row.captured_at) : Number.NaN)
     .filter(Number.isFinite);
   const roomCount = Number(roomCountResult.count || 0);
-  // Non-Mika hotels retain their existing count-based or Gozsdu-specific rules.
-  // For Mika, missing rows can only be accepted after verifying yesterday's
-  // complete PMS roster and explicit same-day departures for every omission.
-  if (!roomCount || (args.hotelId === GOZSDU_COURT_HOTEL_ID || args.hotelId === MIKA_DOWNTOWN_HOTEL_ID
-    ? capturedTimes.length !== snapshotRows.length
-    : capturedTimes.length < roomCount)) return null;
+  // Previo daily overview contains reservation rows, not one row per physical
+  // room. A fresh sparse snapshot is therefore expected whenever the hotel has
+  // vacant inventory. Validate the synchronization batch itself instead of
+  // incorrectly requiring snapshotRows.length === roomCount.
+  if (!roomCount || snapshotRows.length === 0 || capturedTimes.length !== snapshotRows.length
+    || snapshotRows.length > roomCount) return null;
   if (args.hotelId === GOZSDU_COURT_HOTEL_ID) {
     const [todayResult, registryResult] = await Promise.all([
       (supabase as any).from('daily_overview_snapshots').select('room_label,departure_date,captured_at')
@@ -170,30 +170,12 @@ async function findReusableSnapshot(args: {
     const todayTimes = (todayResult.data || []).map((row: any) => Date.parse(row.captured_at));
     if (todayTimes.length !== roomCount || todayTimes.some((time: number) => !Number.isFinite(time))
       || Date.now() - Math.min(...todayTimes) > TOMORROW_PMS_REUSE_MS) return null;
-  } else if (args.hotelId === MIKA_DOWNTOWN_HOTEL_ID) {
-    const [todayResult, inventoryResult] = await Promise.all([
-      (supabase as any).from('daily_overview_snapshots')
-        .select('room_label,room_number,arrival_date,departure_date,status,housekeeping_dep,housekeeping_stay,captured_at')
-        .eq('organization_slug', args.organizationSlug).eq('hotel_id', args.hotelId)
-        .eq('business_date', addIsoDays(args.selectedDate, -1)).eq('source', 'previo'),
-      supabase.from('rooms').select('id,room_number').in('hotel', hotelKeys),
-    ]);
-    if (todayResult.error || inventoryResult.error) return null;
-    const todayRows = (todayResult.data || []) as DailyOverviewWorkRow[];
-    const inventory = inventoryResult.data || [];
-    if (inventory.length !== roomCount || !verifyMikaTomorrowCoverage(
-      inventory, todayRows, snapshotRows, addIsoDays(args.selectedDate, -1), args.selectedDate,
-    )) return null;
-    const todayTimes = todayRows.map(row => row.captured_at ? Date.parse(row.captured_at) : Number.NaN);
-    if (todayTimes.length !== roomCount || todayTimes.some(time => !Number.isFinite(time))
-      || Math.min(...todayTimes) > Date.now() + 60_000
-      || Date.now() - Math.min(...todayTimes) > TOMORROW_PMS_REUSE_MS) return null;
-  } else if (snapshotRows.length < roomCount) return null;
+  }
 
   const oldest = Math.min(...capturedTimes);
   const newest = Math.max(...capturedTimes);
   const now = Date.now();
-  if (oldest > now + 60_000 || now - oldest > TOMORROW_PMS_REUSE_MS) return null;
+  if (oldest > now + 60_000 || now - oldest > TOMORROW_PMS_REUSE_MS || newest - oldest > 60_000) return null;
 
   return {
     capturedAt: new Date(newest).toISOString(),
@@ -225,7 +207,7 @@ export async function ensureTomorrowPmsSnapshot(args: {
     }
   }
 
-  const includePreviousDay = args.hotelId === GOZSDU_COURT_HOTEL_ID || args.hotelId === MIKA_DOWNTOWN_HOTEL_ID;
+  const includePreviousDay = args.hotelId === GOZSDU_COURT_HOTEL_ID;
   const { data: overviewData, error: overviewError } = await supabase.functions.invoke(
     'previo-sync-daily-overview',
     {
@@ -248,6 +230,38 @@ export async function ensureTomorrowPmsSnapshot(args: {
   const reusable = await findReusableSnapshot(args);
   if (reusable) return { ...reusable, reused: false };
 
+  // A successful sync can contain rows for adjacent dates, so rowsInserted is
+  // not a safe test for an all-vacant selected date. Re-read the exact date:
+  // zero rows after a successful supported sync means every room is unbooked.
+  if ((overviewData as any)?.supported !== false) {
+    const { count: exactDateRows, error: exactDateError } = await (supabase as any)
+      .from('daily_overview_snapshots')
+      .select('room_label', { count: 'exact', head: true })
+      .eq('organization_slug', args.organizationSlug)
+      .eq('hotel_id', args.hotelId)
+      .eq('business_date', args.selectedDate)
+      .eq('source', 'previo');
+    if (exactDateError) throw exactDateError;
+
+    if (Number(exactDateRows || 0) === 0) {
+      const resolvedKeys = await resolveHotelKeys(args.hotelId);
+      const hotelKeys = Array.from(new Set([args.hotelId, ...resolvedKeys].filter(Boolean)));
+      const { count, error: countError } = await supabase
+        .from('rooms')
+        .select('id', { count: 'exact', head: true })
+        .eq('organization_slug', args.organizationSlug)
+        .in('hotel', hotelKeys);
+      if (countError || !count) throw new Error('Could not verify the hotel room inventory after the empty Previo snapshot.');
+      return {
+        capturedAt: new Date().toISOString(),
+        rowCount: 0,
+        roomCount: Number(count),
+        reused: false,
+        authoritative: true,
+      };
+    }
+  }
+
   // Some portfolio PMS configurations do not expose the selected-date feed.
   // They keep using the safe metadata fallback, while standard Previo hotels
   // fail loudly if a complete selected-date snapshot was expected but missing.
@@ -269,12 +283,15 @@ export async function buildTomorrowAutoAssignRooms(args: {
   hotelId: string;
   selectedDate: string;
   roomRows: any[];
+  pmsSyncedAt?: string | null;
 }): Promise<{ rooms: RoomForAssignment[]; capturedAt: string | null; source: 'selected-date' | 'metadata-fallback' }> {
+  const resolvedKeys = await resolveHotelKeys(args.hotelId);
+  const hotelKeys = Array.from(new Set([args.hotelId, ...resolvedKeys].filter(Boolean)));
   const { data, error } = await (supabase as any)
     .from('daily_overview_snapshots')
     .select('room_label,room_number,arrival_date,departure_date,status,housekeeping_dep,housekeeping_stay,captured_at')
     .eq('organization_slug', args.organizationSlug)
-    .eq('hotel_id', args.hotelId)
+    .in('hotel_id', hotelKeys)
     .eq('business_date', args.selectedDate)
     .eq('source', 'previo');
   if (error) throw error;
@@ -287,6 +304,29 @@ export async function buildTomorrowAutoAssignRooms(args: {
       capturedAt: workload.capturedAt,
       source: 'selected-date',
     };
+  }
+
+  // Zero reservation rows means "all currently vacant" only when this hotel is
+  // an active standard Previo property and the caller just verified the exact
+  // date. Unsupported portfolio feeds retain their existing metadata fallback.
+  if (args.pmsSyncedAt) {
+    const { data: activePrevio, error: configError } = await (supabase as any)
+      .from('pms_configurations')
+      .select('hotel_id')
+      .in('hotel_id', hotelKeys)
+      .eq('pms_type', 'previo')
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle();
+    if (configError) throw configError;
+    if (activePrevio) {
+      const workload = buildSelectedDateHousekeepingWorkload(args.roomRows, [], args.selectedDate);
+      return {
+        rooms: workload.rooms,
+        capturedAt: args.pmsSyncedAt,
+        source: 'selected-date',
+      };
+    }
   }
 
   return {
@@ -426,6 +466,9 @@ export async function saveApprovedNextDayAutoAssignPlan(args: {
         room_count: primaryEntries.length,
         assignment_count: primaryEntries.length + sharedEntries.length,
         checkout_count: primaryEntries.filter(entry => entry.room.is_checkout_room).length,
+        confirmed_checkout_count: primaryEntries.filter(entry =>
+          entry.room.is_checkout_room && !isPotentialCheckoutRoom(entry.room)).length,
+        potential_checkout_count: primaryEntries.filter(entry => isPotentialCheckoutRoom(entry.room)).length,
         daily_count: primaryEntries.filter(entry => !entry.room.is_checkout_room).length,
         selected_staff_ids: args.selectedStaffIds,
         shared_room_count: sharedEntries.length,
@@ -498,6 +541,8 @@ export async function saveApprovedNextDayAutoAssignPlan(args: {
           shared_helper_staff_id: helperId,
           room_number: room.room_number,
           room_kind: room.is_checkout_room ? 'checkout' : 'daily',
+          planning_status: isPotentialCheckoutRoom(room) ? 'potential_checkout' : 'confirmed',
+          potential_checkout: isPotentialCheckoutRoom(room),
           floor_number: room.floor_number ?? getFloorFromRoomNumber(room.room_number),
           housekeeping_section_id: room.housekeeping_section_id || null,
           housekeeping_section_name: room.housekeeping_section_name || null,
@@ -523,6 +568,8 @@ export async function saveApprovedNextDayAutoAssignPlan(args: {
         shared_primary_staff_id: primaryStaffId,
         shared_helper_staff_id: staffId,
         room_number: room.room_number,
+        planning_status: isPotentialCheckoutRoom(room) ? 'potential_checkout' : 'confirmed',
+        potential_checkout: isPotentialCheckoutRoom(room),
       },
     })),
   ];

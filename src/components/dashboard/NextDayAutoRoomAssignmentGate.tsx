@@ -138,13 +138,19 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
       });
       if (current !== generation.current) return;
 
+      const verifiedEmpty = result.authoritative === true
+        && result.roomCount > 0
+        && result.rowCount === 0
+        && exactDay === null;
+
       // Gozsdu trusts the fresh Previo roster itself, not its static inventory
-      // size. Verify that the rows have not changed since the authority check.
-      // Other hotels keep their original completeness / sparse-feed policy.
-      if (isGozsdu && (!exactDay || result.rowCount !== exactDay.totalRows || !result.authoritative)) {
+      // size. A successful zero-row reservation sync is also authoritative:
+      // every operating room is currently unbooked and becomes provisional.
+      if (isGozsdu && !verifiedEmpty
+        && (!exactDay || result.rowCount !== exactDay.totalRows || !result.authoritative)) {
         throw new Error(`The verified Previo snapshot for ${expectedTomorrow} changed. Please refresh before assigning.`);
       }
-      if (result.roomCount > 0) {
+      if (result.roomCount > 0 && !verifiedEmpty) {
         if (!exactDay) {
           throw new Error(`The Previo snapshot for ${expectedTomorrow} is missing. Nothing was assigned.`);
         }
@@ -162,14 +168,23 @@ export function NextDayAutoRoomAssignmentGate(props: Props) {
         }
       }
 
-      setSummary(exactDay);
+      const resolvedSummary: PmsDaySummary | null = exactDay || (verifiedEmpty ? {
+        date: expectedTomorrow,
+        checkoutCount: 0,
+        dailyCount: 0,
+        otherCount: 0,
+        totalRows: 0,
+        capturedAt: result.capturedAt,
+      } : null);
+
+      setSummary(resolvedSummary);
       setSnapshot(result);
       setStage('ready');
 
-      if (exactDay) {
+      if (resolvedSummary) {
         toast.success(
-          `PMS ${exactDay.date}: ${exactDay.checkoutCount} check-outs · ${exactDay.dailyCount} stay-overs${exactDay.otherCount ? ` · ${exactDay.otherCount} other` : ''} · ${exactDay.totalRows} rooms`,
-          { id: `next-day-pms-${canonicalHotelId}-${exactDay.date}` },
+          `PMS ${resolvedSummary.date}: ${resolvedSummary.checkoutCount} check-outs · ${resolvedSummary.dailyCount} stay-overs${resolvedSummary.otherCount ? ` · ${resolvedSummary.otherCount} other` : ''} · ${resolvedSummary.totalRows} booked rooms`,
+          { id: `next-day-pms-${canonicalHotelId}-${resolvedSummary.date}` },
         );
       }
     } catch (cause) {

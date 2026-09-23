@@ -48,6 +48,20 @@ describe('Next-day plan approval rejects invalid or cross-tenant data before wri
   it('rejects a checkout changed to daily after PMS refresh', () => {
     expect(valid({ expectedRooms: [{ ...first, is_checkout_room: false }, second] }).valid).toBe(false);
   });
+  it('rejects a potential checkout that became confirmed after PMS refresh', () => {
+    const potential = {
+      ...first,
+      pms_metadata: { potentialCheckout: true, selectedDateSnapshotKind: 'potential_checkout' },
+    };
+    const confirmed = {
+      ...first,
+      pms_metadata: { potentialCheckout: false, selectedDateSnapshotKind: 'checkout' },
+    };
+    expect(valid({
+      expectedRooms: [confirmed, second],
+      previews: [{ ...validPreview, rooms: [potential, second] }],
+    }).valid).toBe(false);
+  });
   it('rejects an absent or unscheduled employee when the roster is configured', () => {
     expect(valid({ schedules: [{ user_id: 'cleaner', status: 'off', work_date: '2026-09-23' }] }).valid).toBe(false);
     expect(valid({ schedules: [{ user_id: 'other', status: 'published', work_date: '2026-09-23' }] }).valid).toBe(false);

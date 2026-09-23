@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildSelectedDateHousekeepingWorkload,
+  isPotentialCheckoutRoom,
   nextDayRoomMatchTokens,
   type DailyOverviewWorkRow,
 } from './nextDayHousekeepingSnapshot';
@@ -71,6 +72,53 @@ describe('next-day housekeeping selected-date snapshot', () => {
     expect([tomorrow.checkoutCount, tomorrow.dailyCount]).toEqual([11, 22]);
     expect(tomorrow.rooms.every(room => room.pms_metadata?.plannedHousekeepingDate === '2026-09-11')).toBe(true);
   });
+  it('adds rooms missing from the reservation snapshot as assignable potential checkouts', () => {
+    const rooms = [baseRoom('booked', '101'), baseRoom('vacant', '102')];
+    const workload = buildSelectedDateHousekeepingWorkload(
+      rooms,
+      [snapshot('101', 'ongoing', '2026-09-08', '2026-09-12')],
+      '2026-09-10',
+    );
+
+    expect(workload.rooms.map(room => room.id)).toEqual(['booked', 'vacant']);
+    expect(workload.dailyCount).toBe(1);
+    expect(workload.checkoutCount).toBe(1);
+    expect(workload.potentialCheckoutCount).toBe(1);
+
+    const vacant = workload.rooms.find(room => room.id === 'vacant')!;
+    expect(vacant.is_checkout_room).toBe(true);
+    expect(vacant.ready_to_clean).toBe(false);
+    expect(vacant.pms_metadata?.scheduledDepartureToday).toBe(false);
+    expect(vacant.pms_metadata?.selectedDateSnapshotKind).toBe('potential_checkout');
+    expect(isPotentialCheckoutRoom(vacant)).toBe(true);
+  });
+
+  it('does not create potential checkout work for held, out-of-order or no-show rooms', () => {
+    const rooms = [
+      { ...baseRoom('open', '101') },
+      { ...baseRoom('ooo', '102'), status: 'out_of_order' },
+      { ...baseRoom('held', '103'), pms_metadata: { manualHousekeepingHold: true } },
+      { ...baseRoom('noshow', '104'), pms_metadata: { isNoShow: true } },
+    ];
+    const workload = buildSelectedDateHousekeepingWorkload(rooms, [], '2026-09-10');
+    expect(workload.rooms.map(room => room.id)).toEqual(['open']);
+    expect(workload.potentialCheckoutCount).toBe(1);
+  });
+
+  it('only adds operating Gozsdu inventory as potential checkout work', () => {
+    const make = (id: string, short: string, full: string, status: string) => ({
+      ...baseRoom(id, short), hotel: 'gozsdu-court',
+      pms_metadata: { gozsduAvailability: { status, pmsRoomName: full } },
+    });
+    const workload = buildSelectedDateHousekeepingWorkload([
+      make('operating', '6', '2B-3/T/6', 'operating'),
+      make('inactive', '201', '2B-201', 'unavailable'),
+      make('office', '115', 'ST-115', 'non_guest'),
+    ], [], '2026-09-10');
+    expect(workload.rooms.map(room => room.id)).toEqual(['operating']);
+    expect(workload.potentialCheckoutCount).toBe(1);
+  });
+
   it('fails closed when a selected-date Previo room cannot be mapped', () => {
     expect(() => buildSelectedDateHousekeepingWorkload(
       [baseRoom('r101', '101')], [snapshot('999', 'departing', '2026-09-09', '2026-09-10')], '2026-09-10',

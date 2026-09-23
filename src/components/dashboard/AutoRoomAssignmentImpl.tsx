@@ -75,6 +75,7 @@ import { isPmsRtcToday } from '@/lib/pmsReadiness';
 import { isRoomEligibleForAutoAssign } from '@/lib/autoAssignRoomEligibility';
 import { assignRoomToStaff, unassignRoom } from '@/lib/hkAssignmentDnd';
 import { getLocalDateString } from '@/lib/utils';
+import { isPotentialCheckoutRoom } from '@/lib/nextDayHousekeepingSnapshot';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { hasManagerPowers } from '@/lib/roleAccess';
 import { isActiveGozsduLaundryner } from '@/lib/gozsduLaundryDutySession';
@@ -159,9 +160,9 @@ function roomOrdinal(roomNumber: string): number {
 
 function sortPreviewRooms(rooms: RoomForAssignment[]): RoomForAssignment[] {
   return [...rooms].sort((a, b) => {
-    const aCheckout = isCheckoutLike(a);
-    const bCheckout = isCheckoutLike(b);
-    if (aCheckout !== bCheckout) return aCheckout ? -1 : 1;
+    const rank = (room: RoomForAssignment) => isPotentialCheckoutRoom(room) ? 1 : isCheckoutLike(room) ? 0 : 2;
+    const rankDiff = rank(a) - rank(b);
+    if (rankDiff !== 0) return rankDiff;
     const floorA = a.floor_number ?? getFloorFromRoomNumber(a.room_number);
     const floorB = b.floor_number ?? getFloorFromRoomNumber(b.room_number);
     if (floorA !== floorB) return floorA - floorB;
@@ -617,6 +618,7 @@ export function AutoRoomAssignment({
             hotelId: profile.assigned_hotel,
             selectedDate,
             roomRows: allHotelRooms,
+            pmsSyncedAt,
           }),
           loadExistingNextDayPlan({
             organizationSlug: profile.organization_slug,
@@ -1588,12 +1590,14 @@ export function AutoRoomAssignment({
           <tr><th style="border:1px solid #ddd;padding:6px">Room</th><th style="border:1px solid #ddd;padding:6px">Type</th><th style="border:1px solid #ddd;padding:6px">${isGozsdu ? 'Building' : 'Floor'}</th><th style="border:1px solid #ddd;padding:6px">Special</th></tr>
           ${sortPreviewRooms(preview.rooms).map(room => {
             const special = [
-              room.ready_to_clean || isPmsRtcToday(room.pms_metadata as any) ? 'RTC' : '',
+              !isPotentialCheckoutRoom(room) && (room.ready_to_clean || isPmsRtcToday(room.pms_metadata as any)) ? 'RTC' : '',
+              isPotentialCheckoutRoom(room) ? 'Currently unbooked' : '',
               needsTowelChange(room) ? 'Towel' : '',
               needsLinenChange(room) ? 'Clean Room' : '',
               room.bed_configuration ? `Bed: ${room.bed_configuration}` : '',
             ].filter(Boolean).join(', ');
-            return `<tr><td style="border:1px solid #ddd;padding:6px"><b>${roomDisplayName(room)}</b></td><td style="border:1px solid #ddd;padding:6px">${isCheckoutLike(room) ? 'Checkout' : 'Daily'}</td><td style="border:1px solid #ddd;padding:6px">${isGozsdu ? room.housekeeping_section_name || 'Unmapped building' : `F${room.floor_number ?? getFloorFromRoomNumber(room.room_number)}`}</td><td style="border:1px solid #ddd;padding:6px">${special || '—'}</td></tr>`;
+            const type = isPotentialCheckoutRoom(room) ? 'Potential checkout' : isCheckoutLike(room) ? 'Checkout' : 'Daily';
+            return `<tr><td style="border:1px solid #ddd;padding:6px"><b>${roomDisplayName(room)}</b></td><td style="border:1px solid #ddd;padding:6px">${type}</td><td style="border:1px solid #ddd;padding:6px">${isGozsdu ? room.housekeeping_section_name || 'Unmapped building' : `F${room.floor_number ?? getFloorFromRoomNumber(room.room_number)}`}</td><td style="border:1px solid #ddd;padding:6px">${special || '—'}</td></tr>`;
           }).join('')}
         </table>
         ${mappedTasks.length ? `<h3 style="margin-top:20px">Mapped area work</h3><ul>${mappedTasks.map(task => `<li>${task.icon} <b>${task.task_name}</b> — ${task.section_name} (${task.estimated_duration} min)</li>`).join('')}</ul>` : ''}
@@ -1648,14 +1652,17 @@ export function AutoRoomAssignment({
   const renderRoomChip = (room: RoomForAssignment, preview: AssignmentPreview) => {
     const selected = selectedRoomForMove?.roomId === room.id;
     const checkedForBulk = bulkSelectedRoomIds.has(room.id);
+    const potentialCheckout = isPotentialCheckoutRoom(room);
     const checkout = isCheckoutLike(room);
-    const rtc = checkout && (room.ready_to_clean === true || isPmsRtcToday(room.pms_metadata as any));
+    const rtc = !potentialCheckout && checkout && (room.ready_to_clean === true || isPmsRtcToday(room.pms_metadata as any));
     const held = room.status === 'out_of_order';
     const color = held
       ? 'bg-red-100 text-red-900 hover:bg-red-200 dark:bg-red-900/40 dark:text-red-200'
-      : checkout
-        ? 'bg-amber-100 text-amber-900 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300'
-        : 'bg-blue-100 text-blue-900 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300';
+      : potentialCheckout
+        ? 'bg-violet-100 text-violet-900 hover:bg-violet-200 dark:bg-violet-900/35 dark:text-violet-200'
+        : checkout
+          ? 'bg-amber-100 text-amber-900 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-300'
+          : 'bg-blue-100 text-blue-900 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300';
 
     return (
       <motion.div
@@ -1688,7 +1695,7 @@ export function AutoRoomAssignment({
         className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] leading-tight font-medium select-none touch-none cursor-grab active:cursor-grabbing ${color} ${
           selected ? 'ring-2 ring-primary ring-offset-1 scale-105' : checkedForBulk ? 'ring-2 ring-sky-500 ring-offset-1' : ''
         } ${draggingRoomId === room.id ? 'opacity-75' : ''} ${justDroppedRoomId === room.id ? 'ring-2 ring-green-500' : ''}`}
-        title={`Room ${roomDisplayName(room)}${rtc ? ' · Ready to clean' : ''}${held ? ' · Maintenance hold' : ''}`}
+        title={`Room ${roomDisplayName(room)}${potentialCheckout ? ' · Potential checkout · currently unbooked' : ''}${rtc ? ' · Ready to clean' : ''}${held ? ' · Maintenance hold' : ''}`}
       >
         <button
           type="button"
@@ -1700,6 +1707,7 @@ export function AutoRoomAssignment({
           className={`mr-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 bg-background/90 ${checkedForBulk ? 'border-sky-600 bg-sky-600 text-white' : 'border-current/50 text-current'} focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
         >{checkedForBulk ? <Check className="h-3 w-3" /> : <span className="h-1 w-1 rounded-full bg-current opacity-30" />}</button>
         <span className="font-semibold">{roomDisplayName(room)}</span>
+        {potentialCheckout && <span className="rounded bg-violet-700 px-1 text-[8px] font-extrabold text-white" title="Potential checkout · currently unbooked">POT</span>}
         {lockedRoomIds.has(room.id) && <button type="button" className="rounded border border-amber-500 px-1 text-[9px]" title="Manual assignment locked; tap to allow auto-regeneration" aria-label={'Unlock room ' + roomDisplayName(room)} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); setLockedRoomIds(previous => new Set([...previous].filter(id => id !== room.id))); }}>🔒</button>}
         {rtc && <span className="rounded bg-green-600 px-0.5 text-[8px] font-extrabold text-white">RTC</span>}
         {held && <span className="rounded bg-red-600 px-0.5 text-[8px] font-extrabold text-white">HOLD</span>}
@@ -1797,9 +1805,10 @@ export function AutoRoomAssignment({
             ) : step === 'select-staff' ? (
               <div className="space-y-4">
                 {isGozsdu && <div data-gozsdu-laundryner-slot className="min-w-0" />}
-                <div className="grid grid-cols-3 gap-3 rounded-lg bg-muted p-3">
+                <div className={`grid ${isNextDayPlanning ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'} gap-3 rounded-lg bg-muted p-3`}>
                   <div className="text-center"><p className="text-2xl font-bold">{effectiveRooms.length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.totalRooms')}</p></div>
-                  <div className="text-center"><p className="text-2xl font-bold text-amber-600">{effectiveRooms.filter(isCheckoutLike).length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.checkouts')}</p></div>
+                  <div className="text-center"><p className="text-2xl font-bold text-amber-600">{effectiveRooms.filter(room => isCheckoutLike(room) && !isPotentialCheckoutRoom(room)).length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.checkouts')}</p></div>
+                  {isNextDayPlanning && <div className="text-center"><p className="text-2xl font-bold text-violet-600">{effectiveRooms.filter(isPotentialCheckoutRoom).length}</p><p className="text-xs text-muted-foreground">Potential</p></div>}
                   <div className="text-center"><p className="text-2xl font-bold text-blue-600">{effectiveRooms.filter(room => !isCheckoutLike(room)).length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.daily')}</p></div>
                 </div>
 
@@ -1838,7 +1847,7 @@ export function AutoRoomAssignment({
                       <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
                         {dirtyRooms.map(room => {
                           const excluded = excludedRoomIds.has(room.id);
-                          return <button key={room.id} type="button" onClick={() => toggleRoomExclusion(room.id)} className={`rounded border px-2 py-1 text-xs font-medium ${excluded ? 'border-red-400 bg-red-100 text-red-800 line-through' : 'bg-muted'}`}>{roomDisplayName(room)}{excluded ? ' ✕' : ''}</button>;
+                          return <button key={room.id} type="button" onClick={() => toggleRoomExclusion(room.id)} className={`rounded border px-2 py-1 text-xs font-medium ${excluded ? 'border-red-400 bg-red-100 text-red-800 line-through' : isPotentialCheckoutRoom(room) ? 'border-violet-300 bg-violet-50 text-violet-800 dark:bg-violet-950/30 dark:text-violet-200' : 'bg-muted'}`}>{roomDisplayName(room)}{isPotentialCheckoutRoom(room) ? ' · POT' : ''}{excluded ? ' ✕' : ''}</button>;
                         })}
                       </div>
                     </div>
@@ -1850,7 +1859,7 @@ export function AutoRoomAssignment({
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm">
                   <p><strong>{assignmentPreviews.reduce((sum, preview) => sum + preview.rooms.length, 0)}</strong> {t('autoAssign.rooms')} + <strong>{sectionTasks.length}</strong> mapped area tasks → <strong>{staffIdsWithWork.size}</strong> {t('autoAssign.staff')}</p>
                   <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                    <span>🟨 {t('autoAssign.checkout')}</span><span>🟦 {t('autoAssign.daily')}</span><span>🧹 mapped area</span><span className="font-bold text-green-600">RTC</span><span className="font-bold text-red-600">HOLD</span><span className="font-bold text-blue-600">T</span><span className="font-bold text-orange-600">C</span>
+                    <span>🟨 {t('autoAssign.checkout')}</span>{isNextDayPlanning && <span>🟪 Potential checkout</span>}<span>🟦 {t('autoAssign.daily')}</span><span>🧹 mapped area</span><span className="font-bold text-green-600">RTC</span><span className="font-bold text-red-600">HOLD</span><span className="font-bold text-blue-600">T</span><span className="font-bold text-orange-600">C</span>
                   </div>
                   {fairnessMetrics && <div className="flex flex-wrap gap-2 text-xs"><span>CO±{fairnessMetrics.checkoutDiff}</span><span>Daily±{fairnessMetrics.dailyDiff}</span><span>⏱{fairnessMetrics.timeSpreadMinutes}m</span><span>{isGozsdu ? 'Building' : 'F'}↔{fairnessMetrics.splitFloorCount}</span></div>}
                 </div>
@@ -1962,6 +1971,11 @@ export function AutoRoomAssignment({
                 <Check className="mx-auto h-14 w-14 text-green-600" />
                 <h3 className="text-xl font-semibold">{editingExistingAssignments ? 'Save assignment changes' : t('autoAssign.readyToAssign')}</h3>
                 <p className="text-muted-foreground">{assignmentPreviews.reduce((sum, preview) => sum + preview.rooms.length, 0)} {t('autoAssign.roomsWillBeAssigned')} {staffIdsWithWork.size} {t('autoAssign.housekeepers')}. {sectionTasks.length} mapped area tasks will follow their nearest section owner.</p>
+                {isNextDayPlanning && assignmentPreviews.some(preview => preview.rooms.some(isPotentialCheckoutRoom)) && (
+                  <p className="mx-auto max-w-xl rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-900 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-100">
+                    <strong>{assignmentPreviews.reduce((sum, preview) => sum + preview.rooms.filter(isPotentialCheckoutRoom).length, 0)} potential checkout room(s)</strong> are currently unbooked. They are included for workload planning and will be revalidated against fresh PMS data before morning release.
+                  </p>
+                )}
                 {editingExistingAssignments && <p className="mx-auto max-w-xl rounded-lg bg-blue-50 p-3 text-sm text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">Only changed rooms will be written. Untouched assignments, ready-to-clean flags, progress, notes and PMS hold data stay unchanged.</p>}
                 {maintenanceHoldRoomIds.size > 0 && <p className="mx-auto max-w-xl rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-950/30 dark:text-red-200">{maintenanceHoldRoomIds.size} selected room{maintenanceHoldRoomIds.size === 1 ? '' : 's'} will be marked Out of Order / Maintenance and removed from housekeeping assignment.</p>}
                 <div className="space-y-2 text-left">

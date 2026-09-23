@@ -1,4 +1,5 @@
 import type { RoomForAssignment } from './roomAssignmentAlgorithm';
+import { isPotentialCheckoutRoom } from './nextDayHousekeepingSnapshot';
 
 type PlanRoom = Pick<RoomForAssignment, 'id' | 'is_checkout_room' | 'towel_change_required' | 'linen_change_required' | 'pms_metadata'>;
 
@@ -35,6 +36,7 @@ export function checkGozsduTomorrowPlanDrift(
     const checkout = (value: PlanRoom) => value.is_checkout_room === true
       || value.pms_metadata?.scheduledDepartureToday === true;
     if (checkout(room) !== checkout(fresh)
+      || isPotentialCheckoutRoom(room) !== isPotentialCheckoutRoom(fresh)
       || Boolean(room.towel_change_required) !== Boolean(fresh.towel_change_required)
       || Boolean(room.linen_change_required) !== Boolean(fresh.linen_change_required)) {
       changedCleaningType += 1;
