@@ -9,7 +9,7 @@ const block = (id: number, name: string, status: number, to = today) =>
 const xml = (...items: string[]) => `<?xml version="1.0"?><reservations>${items.join('')}</reservations>`;
 
 describe('Gozsdu independent explicit Previo checkout evidence', () => {
-  it('recovers 1BBALC-3002 when Previo explicitly returns today's completed checkout', () => {
+  it("recovers 1BBALC-3002 when Previo explicitly returns today's completed checkout", () => {
     expect(verifiedGozsduCheckouts(xml(block(1856755, '1BBALC-3002', 6)), today, roster, mapped, new Set()))
       .toEqual([{ objId: 1856755, roomName: '1BBALC-3002', reservationId: 'r1856755' }]);
   });
