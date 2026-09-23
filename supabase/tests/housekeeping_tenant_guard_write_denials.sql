@@ -85,4 +85,31 @@ BEGIN
 END $$;
 ROLLBACK;
 
+-- Symmetric integrity case: even with an SLNT room and SLNT organization_slug,
+-- the assignment must not smuggle in a worker owned by RD Hotels.
+BEGIN;
+SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000013'; -- SLNT manager
+DO $$
+DECLARE inserted boolean := false;
+BEGIN
+  BEGIN
+    INSERT INTO public.room_assignments(room_id, assigned_to, organization_slug, status)
+    VALUES (
+      '00000000-0000-4000-8000-000000000023', -- SLNT One room
+      '00000000-0000-4000-8000-000000000014', -- RD Hotels housekeeper
+      'slnt',
+      'assigned'
+    );
+    inserted := true;
+  EXCEPTION
+    WHEN insufficient_privilege OR check_violation OR raise_exception THEN NULL;
+  END;
+
+  IF inserted THEN
+    RAISE EXCEPTION 'SLNT manager inserted an SLNT assignment referencing an RD worker';
+  END IF;
+END $$;
+ROLLBACK;
+
 SELECT 'cross-tenant live assignment write denials passed' AS result;
