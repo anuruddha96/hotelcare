@@ -51,6 +51,19 @@ export function SlntSecureStaffSchedulePlanner() {
   const [notes, setNotes] = useState('');
   const generation = useRef(0);
   const org = profile?.organization_slug;
+  // Team View's "Open Staff schedule" CTA preserves the chosen working day.
+  useEffect(() => {
+    if (!profile?.assigned_hotel || !['slnt', 'slnt-group'].includes(org ?? '')) return;
+    const key = `slnt-roster-target:${profile.assigned_hotel}`;
+    let target: string | null = null;
+    try { target = window.sessionStorage.getItem(key); window.sessionStorage.removeItem(key); }
+    catch { return; }
+    if (target && /^\d{4}-\d{2}-\d{2}$/.test(target)) {
+      setWeek(monday(target));
+      setMobileDay(target);
+    }
+  }, [org, profile?.assigned_hotel]);
+
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => iso(addDays(localDate(week), i))), [week]);
   const venues = useMemo(() => visibleVenues.filter((v) => v.hotel_id === hotel && v.organization_slug === 'slnt'), [visibleVenues, hotel]);
   const venueIds = useMemo(() => new Set(venues.map((v) => v.id)), [venues]);
