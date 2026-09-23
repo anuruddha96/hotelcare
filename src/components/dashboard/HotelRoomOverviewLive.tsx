@@ -199,7 +199,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const [savingSize, setSavingSize] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [showLegend, setShowLegend] = useState(true);
+  // SLNT's high-density portfolio needs the room board visible immediately;
+  // every legend item stays available on demand, and other hotels keep their
+  // existing expanded-by-default legend.
+  const [showLegend, setShowLegend] = useState(!isSlntTenant);
   const [hoveredRoomId, setHoveredRoomId] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -1812,7 +1815,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         return <p className="text-xs text-muted-foreground pl-1">{t('team.noRooms')}</p>;
       }
       return (
-        <div className={isSlntTenant ? 'slnt-venue-grid' : 'divide-y divide-border/60 rounded-md border border-border/50'}>
+        <div className={isSlntTenant
+          ? 'slnt-venue-grid grid grid-cols-1 gap-2 min-w-0'
+          : 'divide-y divide-border/60 rounded-md border border-border/50'}>
           {groups.map(group => {
             const color = venueColor(group.key === '__none__' ? null : group.key);
             const allSelected = selectionEnabled && group.rooms.every(r => selectedUnitIds.has(r.id));
@@ -1859,8 +1864,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               <div
                 key={group.key}
                 data-multiunit={isSlntTenant ? group.rooms.length > 2 || group.key === '__none__' : undefined}
+                data-slnt-venue-name={isSlntTenant ? group.name : undefined}
                 className={isSlntTenant
-                  ? 'slnt-venue-row'
+                  ? 'slnt-venue-row flex flex-col gap-2 min-w-0 p-2 rounded-lg border border-border/70 bg-card'
                   : 'grid grid-cols-[7.5rem_minmax(0,1fr)] sm:grid-cols-[11rem_minmax(0,1fr)] items-start gap-2 px-1.5 py-1 odd:bg-muted/20'}
               >
                 <button
@@ -1880,7 +1886,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     style={color ? { backgroundColor: color } : undefined}
                   />
                   <span className={isSlntTenant
-                    ? 'slnt-venue-name min-w-0 flex-1 whitespace-normal break-words text-xs font-semibold leading-snug text-foreground'
+                    ? 'slnt-venue-name min-w-0 flex-1 whitespace-normal break-words text-[13px] font-semibold leading-snug text-foreground'
                     : 'min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-foreground'}>
                     {group.name}
                   </span>
@@ -2142,13 +2148,16 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   return (
     <>
-      <Card id="hotel-room-overview" className={`border-primary/20 transition-shadow duration-500 ${syncFlash ? 'ring-2 ring-emerald-400 ring-offset-2 shadow-[0_0_0_6px_hsl(142_71%_45%/0.15)]' : ''}`}>
+      <Card id="hotel-room-overview" data-slnt-board-version={isSlntTenant ? '2026-09-23-v3' : undefined} className={`border-primary/20 transition-shadow duration-500 ${syncFlash ? 'ring-2 ring-emerald-400 ring-offset-2 shadow-[0_0_0_6px_hsl(142_71%_45%/0.15)]' : ''}`}>
         <CardHeader className="pb-2 pt-3 px-3 sm:px-4 space-y-3">
           {/* Row 1: Title + actions */}
           <div className="flex items-center justify-between gap-2">
             <CardTitle className="text-sm sm:text-base font-semibold flex items-center gap-1.5 min-w-0">
               <Hotel className="h-4 w-4 text-primary shrink-0" />
-              <span className="truncate">{t('team.hotelRoomOverview')}</span>
+              <span className="truncate">{isSlntTenant ? 'Property Overview' : t('team.hotelRoomOverview')}</span>
+              {isSlntTenant && (
+                <span className="shrink-0 rounded border border-border/60 bg-muted/50 px-1 py-0.5 text-[9px] font-medium text-muted-foreground" title="SLNT compact room board — September 2026">v3</span>
+              )}
             </CardTitle>
             <div className="flex items-center gap-1 shrink-0">
               {canViewFullOverview && (
