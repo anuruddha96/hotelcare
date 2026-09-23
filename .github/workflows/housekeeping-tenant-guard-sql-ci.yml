@@ -1,0 +1,54 @@
+name: Housekeeping tenant security SQL CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20260922170000_housekeeping_assignment_tenant_isolation.sql'
+      - 'supabase/migrations/20260922170100_housekeeping_plan_policy_refinements.sql'
+      - 'supabase/migrations/20260922170200_room_assignment_tenant_write_guard.sql'
+      - 'supabase/tests/housekeeping_tenant_guard_*.sql'
+      - '.github/workflows/housekeeping-tenant-guard-sql-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  tenant-security-sql:
+    name: Disposable PostgreSQL RLS checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_hk_tenant_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_hk_tenant_ci
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Apply three PR migrations and exercise tenant-negative assertions
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 \
+            -f supabase/tests/housekeeping_tenant_guard_fixture.sql \
+            -f supabase/migrations/20260922170000_housekeeping_assignment_tenant_isolation.sql \
+            -f supabase/migrations/20260922170100_housekeeping_plan_policy_refinements.sql \
+            -f supabase/migrations/20260922170200_room_assignment_tenant_write_guard.sql \
+            -f supabase/tests/housekeeping_tenant_guard_integration.sql
