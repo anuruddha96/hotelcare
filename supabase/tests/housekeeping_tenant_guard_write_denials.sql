@@ -112,4 +112,38 @@ BEGIN
 END $$;
 ROLLBACK;
 
+-- UPDATE must enforce the same relationship integrity as INSERT. An SLNT manager
+-- may edit an SLNT assignment, but must not be able to re-point it to an RD room.
+BEGIN;
+SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000013'; -- SLNT manager
+DO $$
+DECLARE candidate_count integer;
+DECLARE changed boolean := false;
+BEGIN
+  SELECT count(*) INTO candidate_count
+    FROM public.room_assignments
+   WHERE organization_slug = 'slnt'
+     AND room_id = '00000000-0000-4000-8000-000000000023';
+
+  IF candidate_count = 0 THEN
+    RAISE EXCEPTION 'fixture missing SLNT assignment required for foreign-room UPDATE test';
+  END IF;
+
+  BEGIN
+    UPDATE public.room_assignments
+       SET room_id = '00000000-0000-4000-8000-000000000021' -- RD Hotels / Mika room
+     WHERE organization_slug = 'slnt'
+       AND room_id = '00000000-0000-4000-8000-000000000023';
+    changed := FOUND;
+  EXCEPTION
+    WHEN insufficient_privilege OR check_violation OR raise_exception THEN NULL;
+  END;
+
+  IF changed THEN
+    RAISE EXCEPTION 'SLNT manager repointed an SLNT assignment to an RD room';
+  END IF;
+END $$;
+ROLLBACK;
+
 SELECT 'cross-tenant live assignment write denials passed' AS result;
