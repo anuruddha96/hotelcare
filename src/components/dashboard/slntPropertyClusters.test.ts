@@ -10,49 +10,59 @@ const scope = '[data-training="team-view"] .slnt-team-property-rows #hotel-room-
 
 const declarationsFor = (suffix: string) => {
   const properties = new Map<string, string>();
-  root.walkRules((rule) => {
-    if (!rule.selector.split(',').some(selector => selector.trim() === `${scope} ${suffix}`)) return;
+  root.walkRules(rule => {
+    const expected = suffix ? `${scope} ${suffix}` : scope;
+    if (!rule.selector.split(',').some(selector => selector.trim() === expected)) return;
     rule.walkDecls(decl => { properties.set(decl.prop, decl.value); });
   });
   return properties;
 };
 
-describe('SLNT property rows, inspired by the Memories floor board', () => {
-  it('scopes every remaining visual rule to authenticated SLNT Team View', () => {
+describe('SLNT property names and responsive room-chip grouping', () => {
+  it('scopes every visual rule to authenticated SLNT Team View only', () => {
     let count = 0;
     root.walkRules(rule => {
       count++;
       rule.selector.split(',').forEach(selector => expect(selector.trim()).toContain(scope));
     });
-    expect(count).toBeGreaterThan(1);
+    expect(count).toBeGreaterThan(10);
+    expect(board).toContain("const isSlntTenant = venuesEnabled && ['slnt', 'slnt-group'].includes");
   });
 
-  it('renders one aligned property row per venue in the component, not in CSS overrides', () => {
-    expect(board).toContain('grid grid-cols-[7.5rem_minmax(0,1fr)] sm:grid-cols-[11rem_minmax(0,1fr)]');
+  it('keeps the real venue row markup rather than a display:contents CSS overlay', () => {
+    expect(board).toContain("isSlntTenant ? 'slnt-venue-grid'");
+    expect(board).toContain("? 'slnt-venue-row'");
     expect(css).not.toContain('display: contents');
     expect(css).not.toContain('columns-1');
   });
 
-  it('keeps each property\'s units inside that property\'s own row cell', () => {
-    expect(board).toContain('<div className="flex min-w-0 flex-wrap items-center gap-1">');
+  it('displays the entire property name without ellipsis and retains every room chip', () => {
+    expect(board).toContain('slnt-venue-name min-w-0 flex-1 whitespace-normal break-words');
+    expect(board).toContain('slnt-venue-unit-list flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1.5');
     expect(board).toContain('renderRoomChip(room, shortUnitLabel(room.room_number, group.name, terms.unit))');
+    expect(declarationsFor('.slnt-venue-name').get('overflow-wrap')).toBe('anywhere');
+    expect(declarationsFor('.slnt-venue-name').get('text-overflow')).toBe('clip');
+    expect(declarationsFor('.slnt-venue-name').get('white-space')).toBe('normal');
   });
 
-  it('retains bulk selection and whole-property drag on the row label', () => {
+  it('uses actual board width, pairing small venues only with sufficient room', () => {
+    const queries: string[] = [];
+    root.walkAtRules('container', rule => queries.push(rule.params));
+    expect(queries).toContain('(min-width: 42rem)');
+    expect(queries).toContain('(min-width: 76rem)');
+    expect(declarationsFor('').get('container-type')).toBe('inline-size');
+    expect(board).toContain("group.rooms.length > 2 || group.key === '__none__'");
+    expect(css).toContain('.slnt-venue-row[data-multiunit="true"]');
+    expect(css).toContain('grid-column: 1 / -1');
+  });
+
+  it('retains selection/drag controls, warning sections, and room data unchanged', () => {
     expect(board).toContain('{...dragProps}');
     expect(board).toContain('onClick={onPillClick}');
     expect(board).toContain('toggleUnitGroupSelection');
-  });
-
-  it('drops the single density toggle rather than any room section', () => {
-    expect(board).not.toContain('denseVenues');
     expect(board).toContain('team.noRooms');
-  });
-
-  it('reduces only redundant controls, not room sections or warnings', () => {
+    expect(board).toContain('room_assignments');
     expect(declarationsFor('> div:first-child > div[class~="grid-cols-4"]').get('display')).toBe('none');
     expect(declarationsFor('[data-training="room-legend"]').get('overflow-x')).toBe('auto');
-    expect(css).not.toContain('sectionType');
-    expect(css).not.toContain('room_assignments');
   });
 });

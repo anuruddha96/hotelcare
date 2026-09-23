@@ -181,7 +181,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const { profile } = useAuth();
   const { t } = useTranslation();
   const terms = usePropertyTerms();
-  const { venuesEnabled } = useTenantFeatures();
+  const { orgSlug, venuesEnabled } = useTenantFeatures();
+  // Use the active tenant, never the profile's default organization, to scope
+  // presentation changes to SLNT's Team View only.
+  const isSlntTenant = venuesEnabled && ['slnt', 'slnt-group'].includes(orgSlug?.toLowerCase() ?? '');
   const { venues } = useVenues();
   const isMobile = useIsMobile();
   const [rooms, setRooms] = useState<RoomData[]>([]);
@@ -1798,9 +1801,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const isDragOver = dragOverSection === sectionType;
 
     /**
-     * Portfolio board (SLNT): one aligned row per property. The property label
-     * sits in a fixed left column and its units stay inside the row's right
-     * cell, so a unit can never appear to belong to the property above it.
+     * Portfolio board: preserve property grouping and existing assignment
+     * handlers. SLNT's responsive row layout gives full names room to wrap;
+     * smaller properties share space only when the actual board is wide enough.
      * Unit labels drop the repeated property name for display only.
      */
     const renderTodayVenueRows = (roomsForColumn: RoomData[]) => {
@@ -1809,7 +1812,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         return <p className="text-xs text-muted-foreground pl-1">{t('team.noRooms')}</p>;
       }
       return (
-        <div className="divide-y divide-border/60 rounded-md border border-border/50">
+        <div className={isSlntTenant ? 'slnt-venue-grid' : 'divide-y divide-border/60 rounded-md border border-border/50'}>
           {groups.map(group => {
             const color = venueColor(group.key === '__none__' ? null : group.key);
             const allSelected = selectionEnabled && group.rooms.every(r => selectedUnitIds.has(r.id));
@@ -1855,7 +1858,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             return (
               <div
                 key={group.key}
-                className="grid grid-cols-[7.5rem_minmax(0,1fr)] sm:grid-cols-[11rem_minmax(0,1fr)] items-start gap-2 px-1.5 py-1 odd:bg-muted/20"
+                data-multiunit={isSlntTenant ? group.rooms.length > 2 || group.key === '__none__' : undefined}
+                className={isSlntTenant
+                  ? 'slnt-venue-row'
+                  : 'grid grid-cols-[7.5rem_minmax(0,1fr)] sm:grid-cols-[11rem_minmax(0,1fr)] items-start gap-2 px-1.5 py-1 odd:bg-muted/20'}
               >
                 <button
                   type="button"
@@ -1865,13 +1871,17 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                     ? `${group.name} — tap to select all ${group.rooms.length} ${terms.unitPlural.toLowerCase()} (or drag)`
                     : group.name}
                   style={{ cursor: canDragAssign || selectionEnabled ? 'pointer' : 'default' }}
-                  className="flex w-full min-w-0 items-center gap-1.5 self-stretch rounded px-1 py-1 text-left hover:bg-background/70"
+                  className={isSlntTenant
+                    ? 'slnt-venue-label flex w-full min-w-0 items-start gap-1.5 rounded px-1 py-1 text-left hover:bg-muted/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary'
+                    : 'flex w-full min-w-0 items-center gap-1.5 self-stretch rounded px-1 py-1 text-left hover:bg-background/70'}
                 >
                   <span
                     className="h-6 w-1 shrink-0 rounded-full"
                     style={color ? { backgroundColor: color } : undefined}
                   />
-                  <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-foreground">
+                  <span className={isSlntTenant
+                    ? 'slnt-venue-name min-w-0 flex-1 whitespace-normal break-words text-xs font-semibold leading-snug text-foreground'
+                    : 'min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-foreground'}>
                     {group.name}
                   </span>
                   <span className="shrink-0 rounded bg-muted px-1 text-[10px] font-bold text-muted-foreground">
@@ -1884,7 +1894,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                   )}
                 </button>
 
-                <div className="flex min-w-0 flex-wrap items-center gap-1">
+                <div className={isSlntTenant
+                  ? 'slnt-venue-unit-list flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1.5'
+                  : 'flex min-w-0 flex-wrap items-center gap-1'}>
                   {group.rooms.map(room => (
                     <div key={room.id} className="animate-fade-in">
                       {renderRoomChip(room, shortUnitLabel(room.room_number, group.name, terms.unit))}
