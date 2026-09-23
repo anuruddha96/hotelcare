@@ -37,6 +37,8 @@ import { isPmsRtcToday } from '@/lib/pmsReadiness';
 import { assigneeLabel, cleanName } from '@/lib/staffNames';
 import { useVenues } from '@/hooks/useVenues';
 import { venueColor, venueEdgeStyle } from '@/lib/venueColors';
+import { shortUnitLabel } from '@/lib/venueUnitLabel';
+
 
 
 interface RoomData {
