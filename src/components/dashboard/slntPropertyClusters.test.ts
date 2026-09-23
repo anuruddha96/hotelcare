@@ -18,8 +18,8 @@ const declarationsFor = (suffix: string) => {
   return properties;
 };
 
-describe('SLNT property names and responsive room-chip grouping', () => {
-  it('scopes every visual rule to authenticated SLNT Team View only', () => {
+describe('SLNT Team View: readable, compact, full-name property cards', () => {
+  it('scopes all visual rules to authenticated SLNT Team View', () => {
     let count = 0;
     root.walkRules(rule => {
       count++;
@@ -27,42 +27,49 @@ describe('SLNT property names and responsive room-chip grouping', () => {
     });
     expect(count).toBeGreaterThan(10);
     expect(board).toContain("const isSlntTenant = venuesEnabled && ['slnt', 'slnt-group'].includes");
+    expect(board).toContain("'slnt-venue-grid grid grid-cols-1 gap-2 min-w-0'");
   });
 
-  it('keeps the real venue row markup rather than a display:contents CSS overlay', () => {
-    expect(board).toContain("isSlntTenant ? 'slnt-venue-grid'");
-    expect(board).toContain("? 'slnt-venue-row'");
-    expect(css).not.toContain('display: contents');
-    expect(css).not.toContain('columns-1');
-  });
-
-  it('displays the entire property name without ellipsis and retains every room chip', () => {
+  it('uses resilient default markup; long names are not dependent on loading CSS', () => {
+    expect(board).toContain("slnt-venue-row flex flex-col gap-2 min-w-0 p-2 rounded-lg");
     expect(board).toContain('slnt-venue-name min-w-0 flex-1 whitespace-normal break-words');
-    expect(board).toContain('slnt-venue-unit-list flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1.5');
-    expect(board).toContain('renderRoomChip(room, shortUnitLabel(room.room_number, group.name, terms.unit))');
-    expect(declarationsFor('.slnt-venue-name').get('overflow-wrap')).toBe('anywhere');
-    expect(declarationsFor('.slnt-venue-name').get('text-overflow')).toBe('clip');
+    expect(board).toContain("data-slnt-venue-name={isSlntTenant ? group.name : undefined}");
     expect(declarationsFor('.slnt-venue-name').get('white-space')).toBe('normal');
+    expect(declarationsFor('.slnt-venue-name').get('text-overflow')).toBe('clip');
+    expect(declarationsFor('.slnt-venue-name').get('overflow-wrap')).toBe('anywhere');
+    expect(css).not.toContain('display: contents');
   });
 
-  it('uses actual board width, pairing small venues only with sufficient room', () => {
+  it('reduces vertical scrolling with small-property cards and full-width large venue rows', () => {
     const queries: string[] = [];
     root.walkAtRules('container', rule => queries.push(rule.params));
-    expect(queries).toContain('(min-width: 42rem)');
-    expect(queries).toContain('(min-width: 76rem)');
+    expect(queries).toContain('slnt-room-board (min-width: 48rem)');
+    expect(queries).toContain('slnt-room-board (min-width: 68rem)');
     expect(declarationsFor('').get('container-type')).toBe('inline-size');
-    expect(board).toContain("group.rooms.length > 2 || group.key === '__none__'");
+    expect(declarationsFor('').get('container-name')).toBe('slnt-room-board');
+    expect(css).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))');
+    expect(css).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))');
     expect(css).toContain('.slnt-venue-row[data-multiunit="true"]');
     expect(css).toContain('grid-column: 1 / -1');
+    expect(board).toContain("group.rooms.length > 2 || group.key === '__none__'");
   });
 
-  it('retains selection/drag controls, warning sections, and room data unchanged', () => {
+  it('makes room chips legible while preserving individual room actions and grouping', () => {
+    expect(board).toContain('slnt-venue-unit-list flex min-w-0 flex-wrap items-start gap-x-2 gap-y-1.5');
+    expect(board).toContain('renderRoomChip(room, shortUnitLabel(room.room_number, group.name, terms.unit))');
     expect(board).toContain('{...dragProps}');
     expect(board).toContain('onClick={onPillClick}');
     expect(board).toContain('toggleUnitGroupSelection');
-    expect(board).toContain('team.noRooms');
-    expect(board).toContain('room_assignments');
+    expect(css).toContain('min-height: 1.75rem');
+    expect(css).toContain('max-width: min(19rem, 100%)');
+  });
+
+  it('clears initial noise for SLNT, preserves the full optional legend and shows a deployment marker', () => {
+    expect(board).toContain('const [showLegend, setShowLegend] = useState(!isSlntTenant)');
+    expect(board).toContain("data-slnt-board-version={isSlntTenant ? '2026-09-23-v3' : undefined}");
+    expect(board).toContain("isSlntTenant ? 'Property Overview' : t('team.hotelRoomOverview')");
     expect(declarationsFor('> div:first-child > div[class~="grid-cols-4"]').get('display')).toBe('none');
     expect(declarationsFor('[data-training="room-legend"]').get('overflow-x')).toBe('auto');
+    expect(board).toContain('team.noRooms');
   });
 });
