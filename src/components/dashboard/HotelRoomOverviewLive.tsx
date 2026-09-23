@@ -1799,103 +1799,107 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const dndCount = roomList.filter(r => r.is_dnd).length;
     const isDragOver = dragOverSection === sectionType;
 
+    /**
+     * Portfolio board (SLNT): one aligned row per property. The property label
+     * sits in a fixed left column and its units stay inside the row's right
+     * cell, so a unit can never appear to belong to the property above it.
+     * Unit labels drop the repeated property name for display only.
+     */
     const renderTodayVenueRows = (roomsForColumn: RoomData[]) => {
       const groups = groupByVenue(roomsForColumn);
       if (groups.length === 0) {
         return <p className="text-xs text-muted-foreground pl-1">{t('team.noRooms')}</p>;
       }
       return (
-        <div>
-          <div className="mb-1 flex justify-end">
-            <button
-              type="button"
-              className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2"
-              onClick={() => setDenseVenues(v => !v)}
-            >
-              {denseVenues ? 'Roomy view' : 'Compact view'}
-            </button>
-          </div>
-          <div className={denseVenues ? 'columns-1 sm:columns-2 xl:columns-3 gap-2' : 'space-y-2'}>
-            {groups.map(group => {
-              const color = venueColor(group.key === '__none__' ? null : group.key);
-              const dragProps = canDragAssign ? {
-                draggable: true,
-                onDragStart: (e: React.DragEvent) => {
-                  const first = group.rooms[0];
-                  if (!first) return;
-                  const nameFor = (roomId: string) => {
-                    const a = assignmentMap.get(roomId);
-                    return a ? staffMap[a.assigned_to] ?? null : null;
-                  };
-                  setRoomDragPayload(e, {
-                    roomId: first.id,
-                    roomNumber: first.room_number,
+        <div className="divide-y divide-border/60 rounded-md border border-border/50">
+          {groups.map(group => {
+            const color = venueColor(group.key === '__none__' ? null : group.key);
+            const allSelected = selectionEnabled && group.rooms.every(r => selectedUnitIds.has(r.id));
+            const dragProps = canDragAssign ? {
+              draggable: true,
+              onDragStart: (e: React.DragEvent) => {
+                const first = group.rooms[0];
+                if (!first) return;
+                const nameFor = (roomId: string) => {
+                  const a = assignmentMap.get(roomId);
+                  return a ? staffMap[a.assigned_to] ?? null : null;
+                };
+                setRoomDragPayload(e, {
+                  roomId: first.id,
+                  roomNumber: first.room_number,
+                  sourceType: sectionType,
+                  origin: 'overview' as const,
+                  assignedTo: assignmentMap.get(first.id)?.assigned_to ?? null,
+                  assignedToName: nameFor(first.id),
+                  bulk: group.rooms.map(r => ({
+                    roomId: r.id,
+                    roomNumber: r.room_number,
                     sourceType: sectionType,
-                    origin: 'overview' as const,
-                    assignedTo: assignmentMap.get(first.id)?.assigned_to ?? null,
-                    assignedToName: nameFor(first.id),
-                    bulk: group.rooms.map(r => ({
-                      roomId: r.id,
-                      roomNumber: r.room_number,
-                      sourceType: sectionType,
-                      assignedTo: assignmentMap.get(r.id)?.assigned_to ?? null,
-                      assignedToName: nameFor(r.id),
-                    })),
-                  });
+                    assignedTo: assignmentMap.get(r.id)?.assigned_to ?? null,
+                    assignedToName: nameFor(r.id),
+                  })),
+                });
+              },
+            } : {};
+            const onPillClick = selectionEnabled ? () => {
+              toggleUnitGroupSelection(group.rooms.map(r => ({
+                roomId: r.id,
+                roomNumber: r.room_number,
+                sourceType: sectionType === 'checkout' ? 'checkout' : 'daily',
+                assignedTo: assignmentMap.get(r.id)?.assigned_to ?? null,
+                assignedToName: (() => {
+                  const a = assignmentMap.get(r.id);
+                  return a ? staffMap[a.assigned_to] ?? null : null;
+                })(),
+              })));
+            } : undefined;
 
-                },
-              } : {};
-              const onPillClick = selectionEnabled ? () => {
-                toggleUnitGroupSelection(group.rooms.map(r => ({
-                  roomId: r.id,
-                  roomNumber: r.room_number,
-                  sourceType: sectionType === 'checkout' ? 'checkout' : 'daily',
-                  assignedTo: assignmentMap.get(r.id)?.assigned_to ?? null,
-                  assignedToName: (() => {
-                    const a = assignmentMap.get(r.id);
-                    return a ? staffMap[a.assigned_to] ?? null : null;
-                  })(),
-                })));
-              } : undefined;
-
-              return (
-                <div
-                  key={group.key}
-                  className={`rounded-md border border-border/50 bg-muted/20 p-1.5 ${denseVenues ? 'mb-2 break-inside-avoid' : ''}`}
+            return (
+              <div
+                key={group.key}
+                className="grid grid-cols-[7.5rem_minmax(0,1fr)] sm:grid-cols-[11rem_minmax(0,1fr)] items-start gap-2 px-1.5 py-1 odd:bg-muted/20"
+              >
+                <button
+                  type="button"
+                  {...dragProps}
+                  onClick={onPillClick}
+                  title={canDragAssign
+                    ? `${group.name} — tap to select all ${group.rooms.length} ${terms.unitPlural.toLowerCase()} (or drag)`
+                    : group.name}
+                  style={{ cursor: canDragAssign || selectionEnabled ? 'pointer' : 'default' }}
+                  className="flex w-full min-w-0 items-center gap-1.5 self-stretch rounded px-1 py-1 text-left hover:bg-background/70"
                 >
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span
-                      {...dragProps}
-                      onClick={onPillClick}
-                      title={canDragAssign
-                        ? `Tap to select all ${group.rooms.length} ${terms.unitPlural.toLowerCase()} of ${group.name} (or drag)`
-                        : group.name}
-                      style={{ cursor: canDragAssign || selectionEnabled ? 'pointer' : 'default' }}
-                      className="inline-flex items-center gap-1 rounded-full bg-background/70 border border-border/60 px-1.5 py-0.5 shrink-0"
-                    >
-                      <span className="h-2.5 w-1.5 rounded-full shrink-0" style={color ? { backgroundColor: color } : undefined} />
-                      <span className="text-[10px] font-semibold text-foreground max-w-[130px] truncate">{group.name}</span>
-                      <span className="text-[9px] text-muted-foreground">{group.rooms.length}</span>
-                      {selectionEnabled && (
-                        <span className="text-[9px] text-primary font-medium">
-                          {group.rooms.every(r => selectedUnitIds.has(r.id)) ? '−' : '+'}
-                        </span>
-                      )}
+                  <span
+                    className="h-6 w-1 shrink-0 rounded-full"
+                    style={color ? { backgroundColor: color } : undefined}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-foreground">
+                    {group.name}
+                  </span>
+                  <span className="shrink-0 rounded bg-muted px-1 text-[10px] font-bold text-muted-foreground">
+                    {group.rooms.length}
+                  </span>
+                  {selectionEnabled && (
+                    <span className="shrink-0 text-[10px] font-bold text-primary">
+                      {allSelected ? '−' : '+'}
                     </span>
+                  )}
+                </button>
 
-                    {group.rooms.map(room => (
-                      <div key={room.id} className="animate-fade-in">
-                        {renderRoomChip(room)}
-                      </div>
-                    ))}
-                  </div>
+                <div className="flex min-w-0 flex-wrap items-center gap-1">
+                  {group.rooms.map(room => (
+                    <div key={room.id} className="animate-fade-in">
+                      {renderRoomChip(room, shortUnitLabel(room.room_number, group.name, terms.unitSingular))}
+                    </div>
+                  ))}
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            );
+          })}
         </div>
       );
     };
+
 
     const renderTodayFloorRows = (roomsForColumn: RoomData[]) => {
       if (venuesEnabled) return renderTodayVenueRows(roomsForColumn);
