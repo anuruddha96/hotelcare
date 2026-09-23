@@ -513,10 +513,17 @@ export async function runPmsRefresh(
       };
 
       // Confirmed unit mapping wins when present (portfolio tenants only).
+      // For portfolio tenants the numeric Previo room id is only unique
+      // within its owning PMS account. Never use the global numeric-id lookup
+      // to choose an SLNT room; that can attach a reservation to another venue.
+      const accountMappedRoomId = isSlntRoom && previoRoomId && row.PmsAccountId
+        ? slntAccountRoomIds.get(`${row.PmsAccountId}:${previoRoomId}`)
+        : null;
       const mappedRoomId =
-        (previoRoomId && externalIdToRoomId.get(previoRoomId)) ||
+        accountMappedRoomId ||
+        (!isSlntRoom && previoRoomId && externalIdToRoomId.get(previoRoomId)) ||
         aliasToRoomId.get(normalizeUnitName(rawRoomName)) ||
-        (unitResolver ? unitResolver.resolve(rawRoomName, previoRoomId || null) : null) ||
+        (unitResolver ? unitResolver.resolve(rawRoomName, isSlntRoom ? null : previoRoomId || null) : null) ||
         null;
 
       let roomsFound: any[] | null = null;
