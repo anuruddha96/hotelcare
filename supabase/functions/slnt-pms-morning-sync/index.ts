@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
+import { pickPrevioHousekeepingNote, reconcileSlntPrevioRoomNote } from "../_shared/previoHousekeepingNote.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -112,7 +113,7 @@ async function xmlSearch(creds: Credentials, hotId: string, extraXml: string) {
   throw new Error(`Previo reservation search failed${last ? `: ${last}` : ""}`);
 }
 
-type Reservation = { objId:number|null; roomName:string; arrivalDate:string; departureDate:string; departureTime:string|null; statusId:number; guests:number; note:string|null };
+type Reservation = { objId:number|null; roomName:string; arrivalDate:string; departureDate:string; departureTime:string|null; statusId:number; guests:number; note:string|null; internalNote:string|null; resId:string|null };
 function parseReservations(xml: string): Reservation[] {
   const blocks = xml.match(/<reservation>[\s\S]*?<\/reservation>/gi) || [];
   const out: Reservation[] = [];
@@ -123,7 +124,8 @@ function parseReservations(xml: string): Reservation[] {
     const statusId = Number(grab(block,"statusId") || grab(block,"cosId") || 0);
     const guests = (block.match(/<guest>/gi)||[]).length || Number(grab(block,"numOfGuests") || grab(block,"persons") || grab(block,"pax") || 0) || 0;
     const time = to.match(/[T\s](\d{2}:\d{2})/)?.[1] || null;
-    out.push({ objId:obj?Number(obj[1]):null, roomName:obj?obj[2].replace(/<[^>]+>/g," ").trim():"", arrivalDate:from.slice(0,10), departureDate:to.slice(0,10), departureTime:time, statusId, guests, note:grab(block,"note")||null });
+    const internalNote = ["noteInternal","internalNote","noteHousekeeping","housekeepingNote","housekeepingNotes","noteHotel","hotelNote"].map(tag=>grab(block,tag)).find(Boolean)||null;
+    out.push({ objId:obj?Number(obj[1]):null, roomName:obj?obj[2].replace(/<[^>]+>/g," ").trim():"", arrivalDate:from.slice(0,10), departureDate:to.slice(0,10), departureTime:time, statusId, guests, note:grab(block,"note")||null, internalNote, resId:grab(block,"resId")||null });
   }
   return out;
 }
@@ -143,7 +145,7 @@ async function syncAccount(admin:any, account:any, source="manual") {
   if (mappingsRes.error) throw new Error(`Mapping lookup failed: ${mappingsRes.error.message}`);
   const mappings = mappingsRes.data || []; if (!mappings.length) throw new Error(`No applied SLNT mappings for ${account.label}.`);
   const roomIds = mappings.map((m:any)=>m.room_id);
-  const roomsRes = await admin.from("rooms").select("id,hotel,room_number,status,is_checkout_room,checkout_time,guest_count,guest_nights_stayed,last_cleaned_at,pms_metadata,updated_at").in("id",roomIds).eq("organization_slug",ORG).eq("hotel",HOTEL);
+  const roomsRes = await admin.from("rooms").select("id,hotel,room_number,status,is_checkout_room,checkout_time,guest_count,guest_nights_stayed,last_cleaned_at,notes,pms_metadata,updated_at").in("id",roomIds).eq("organization_slug",ORG).eq("hotel",HOTEL);
   if (roomsRes.error) throw new Error(`Room lookup failed: ${roomsRes.error.message}`);
   const roomById = new Map((roomsRes.data||[]).map((r:any)=>[String(r.id),r]));
   if (roomById.size !== mappings.length) throw new Error(`Mapped room integrity check failed (${roomById.size}/${mappings.length}).`);
@@ -164,13 +166,31 @@ async function syncAccount(admin:any, account:any, source="manual") {
     `<term><from>${today}</from><to>${tomorrow}</to><termType>check-in</termType></term>`,
     `<term><from>${start}</from><to>${end}</to></term>`,
   ];
-  let xmlSuccess=0, parsed=0, lastXmlError="";
-  for (const extra of attempts) { try { const xml=await xmlSearch(creds,String(account.pms_hotel_id),extra); xmlSuccess++; const rows=parseReservations(xml); parsed+=rows.length; rows.forEach(index); } catch(e){ lastXmlError=errText(e); } }
+  let xmlSuccess=0, parsed=0, lastXmlError="", authoritativeOverlapSuccess=false;
+  for (const [attemptIndex,extra] of attempts.entries()) { try { const xml=await xmlSearch(creds,String(account.pms_hotel_id),extra); xmlSuccess++; if(attemptIndex===0) authoritativeOverlapSuccess=true; const rows=parseReservations(xml); parsed+=rows.length; rows.forEach(index); } catch(e){ lastXmlError=errText(e); } }
   if (xmlSuccess===0 || reservationMap.size===0) throw new Error(`Authoritative Previo reservation sync unavailable for ${account.label}${lastXmlError?`: ${lastXmlError}`:""}`);
 
   const inProgressRes = await admin.from("room_assignments").select("room_id,assignment_type,status").in("room_id",roomIds).eq("assignment_date",today).eq("status","in_progress");
   const inProgress = new Set((inProgressRes.data||[]).map((x:any)=>String(x.room_id)));
-  let updated=0, checkout=0, daily=0, noShow=0, arrivals=0, unmatched=0, assignmentCorrections=0;
+  let updated=0, checkout=0, daily=0, noShow=0, arrivals=0, unmatched=0, assignmentCorrections=0, syncedNotes=0, protectedManagerNotes=0;
+
+  // Prevent a Previo refresh from overwriting a concurrent manager note edit.
+  const saveSyncedRoom = async (room:any, patch:Record<string,unknown>) => {
+    let query = admin.from("rooms").update(patch).eq("id",room.id).eq("hotel",HOTEL).eq("organization_slug",ORG);
+    if (Object.prototype.hasOwnProperty.call(patch,"notes")) {
+      query = room.notes == null ? query.is("notes",null) : query.eq("notes",room.notes);
+    }
+    const result = await query.select("id").maybeSingle();
+    if (result.error) throw new Error(`${room.room_number}: ${result.error.message}`);
+    if (!result.data && Object.prototype.hasOwnProperty.call(patch,"notes")) {
+      const statusOnly={...patch}; delete statusOnly.notes;
+      const retry=await admin.from("rooms").update(statusOnly).eq("id",room.id).eq("hotel",HOTEL).eq("organization_slug",ORG);
+      if(retry.error) throw new Error(`${room.room_number}: ${retry.error.message}`);
+      protectedManagerNotes++;
+    } else if (Object.prototype.hasOwnProperty.call(patch,"notes")) {
+      syncedNotes++;
+    }
+  };
 
   for (const m of mappings) {
     const room:any = roomById.get(String(m.room_id)); if (!room) continue;
@@ -187,8 +207,17 @@ async function syncAccount(admin:any, account:any, source="manual") {
       // A mapped room without a live reservation is not a no-show. Reset stale stay metadata but preserve housekeeping work/status.
       const metadata = { ...oldMeta, pms_account_id:account.id, pms_hotel_id:String(account.pms_hotel_id), pmsSyncDate:today, lastPmsRefreshDate:today, occupiedToday:false, scheduledDepartureToday:false, scheduledDepartureTomorrow:false, checkedOutToday:false, notArrived:false, stayThroughToday:false, isNoShow:false, noShowSource:null, currentNight:null, totalNights:null };
       if (lastRefresh && lastRefresh < today) { metadata.manual_checkout=false; metadata.manual_daily=false; }
-      const { error } = await admin.from("rooms").update({ pms_metadata:metadata, guest_count:0, guest_nights_stayed:0, updated_at:new Date().toISOString() }).eq("id",room.id);
-      if (error) throw new Error(`${room.room_number}: ${error.message}`); updated++; continue;
+      // Do not clear old notes on a partial reservation snapshot.
+      const patch:any={pms_metadata:metadata,guest_count:0,guest_nights_stayed:0,updated_at:new Date().toISOString()};
+      if(authoritativeOverlapSuccess){
+        const note=reconcileSlntPrevioRoomNote(room.notes,oldMeta.slntPrevioHousekeepingNote,null);
+        metadata.slntPrevioHousekeepingNote=null;
+        metadata.slntPrevioNoteReservationKey=null;
+        metadata.noteInternal=null;
+        if(note.changed) patch.notes=note.notes;
+        if(note.managerNotePreserved) protectedManagerNotes++;
+      }
+      await saveSyncedRoom(room,patch); updated++; continue;
     }
 
     const cancelled = res.statusId===7; const no_show = res.statusId===8 && !(res.arrivalDate<today && res.departureDate>today);
@@ -226,11 +255,28 @@ async function syncAccount(admin:any, account:any, source="manual") {
     };
     if (lastRefresh && lastRefresh < today) { metadata.manual_checkout=false; metadata.manual_daily=false; }
 
+    // SLNT uses two Previo accounts. Never attach another unit's note merely
+    // because marketing labels happen to resemble one another.
+    const matchingPmsRoom = !!m.external_room_id && res.objId != null && String(res.objId) === String(m.external_room_id);
+    const noteText = matchingPmsRoom && !no_show
+      ? pickPrevioHousekeepingNote({Note:res.note,NoteInternal:res.internalNote})
+      : null;
+    const reconciled = matchingPmsRoom
+      ? reconcileSlntPrevioRoomNote(room.notes,oldMeta.slntPrevioHousekeepingNote,noteText)
+      : null;
+    if(matchingPmsRoom){
+      metadata.slntPrevioHousekeepingNote=noteText;
+      metadata.noteInternal=noteText;
+      metadata.slntPrevioNoteReservationKey=[account.id,res.resId??res.objId??res.roomName,res.arrivalDate].join(":");
+      metadata.slntPrevioNoteSyncedAt=new Date().toISOString();
+      if(reconciled?.managerNotePreserved) protectedManagerNotes++;
+    }
+
     const patch:any = { status, is_checkout_room:effectiveCheckout, checkout_time:checkedOut?new Date().toISOString():null,
       guest_count:no_show||notArrived?0:res.guests, guest_nights_stayed:no_show||notArrived?0:currentNight,
       pms_metadata:metadata, updated_at:new Date().toISOString() };
-    const { error } = await admin.from("rooms").update(patch).eq("id",room.id);
-    if (error) throw new Error(`${room.room_number}: ${error.message}`);
+    if (reconciled?.changed) patch.notes=reconciled.notes;
+    await saveSyncedRoom(room,patch);
     updated++; if (effectiveCheckout) checkout++; else if (occupied) daily++; if(no_show) noShow++; if(notArrived) arrivals++;
 
     // Align untouched assignments with the freshly synced PMS bucket, but never rewrite in-progress work.
@@ -251,7 +297,7 @@ async function syncAccount(admin:any, account:any, source="manual") {
 
   const finishedAt = new Date().toISOString();
   await admin.from("pms_accounts").update({ last_sync_at:finishedAt,last_sync_success_at:finishedAt,last_sync_status:"success",last_sync_error:null,consecutive_failures:0,updated_at:finishedAt }).eq("id",account.id);
-  await admin.from("pms_sync_history").insert({ sync_type:"rooms_refresh",direction:"from_previo",hotel_id:HOTEL,sync_status:"success",synced_by_name:"System — SLNT 07:00 PMS sync",data:{ trigger:"slnt_server_morning_sync",source,account_id:account.id,account_label:account.label,pms_hotel_id:account.pms_hotel_id,started_at:startedAt,finished_at:finishedAt,mapped_rooms:mappings.length,rooms_updated:updated,checkout_rooms:checkout,daily_rooms:daily,no_show_rooms:noShow,not_arrived_rooms:arrivals,rooms_without_live_reservation:unmatched,assignment_corrections:assignmentCorrections,rest_roster_rows:roster.length,xml_reservation_rows:parsed } });
+  await admin.from("pms_sync_history").insert({ sync_type:"rooms_refresh",direction:"from_previo",hotel_id:HOTEL,sync_status:"success",synced_by_name:"System — SLNT 07:00 PMS sync",data:{ trigger:"slnt_server_morning_sync",source,account_id:account.id,account_label:account.label,pms_hotel_id:account.pms_hotel_id,started_at:startedAt,finished_at:finishedAt,mapped_rooms:mappings.length,rooms_updated:updated,checkout_rooms:checkout,daily_rooms:daily,no_show_rooms:noShow,not_arrived_rooms:arrivals,rooms_without_live_reservation:unmatched,assignment_corrections:assignmentCorrections,rest_roster_rows:roster.length,xml_reservation_rows:parsed,previo_notes_written:syncedNotes,manager_notes_preserved:protectedManagerNotes } });
   return { ok:true, account_id:account.id, account_label:account.label, mapped_rooms:mappings.length, rooms_updated:updated, checkout_rooms:checkout,daily_rooms:daily,no_show_rooms:noShow,not_arrived_rooms:arrivals,rooms_without_live_reservation:unmatched,assignment_corrections:assignmentCorrections,rest_roster_rows:roster.length,xml_reservation_rows:parsed };
 }
 

@@ -62,6 +62,11 @@ export function MobileHousekeepingCard({
   // Parse room flags from notes
   const roomFlags = parseRoomFlags(assignment.rooms?.notes || null);
   const hasManagerNotes = !!roomFlags.cleanNotes;
+  const slntPrevioNote = assignment.rooms?.hotel === 'slnt-group'
+    ? String(assignment.rooms?.pms_metadata?.slntPrevioHousekeepingNote || '').trim()
+    : '';
+  const pmsOwnsVisibleNote = !!slntPrevioNote && slntPrevioNote === roomFlags.cleanNotes;
+  const hasSeparatePrevioNote = !!slntPrevioNote && !pmsOwnsVisibleNote;
 
   // Check for special instructions
   // Checkout cleans always include a full towel change — never show the
@@ -74,12 +79,13 @@ export function MobileHousekeepingCard({
   const assignmentNotes = assignment.notes;
   const guestNights = assignment.rooms?.guest_nights_stayed;
 
-  const hasSpecialInstructions = towelChangeRequired || linenChangeRequired || bedConfiguration || hasManagerNotes || assignmentNotes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
-  const instructionCount = [towelChangeRequired, linenChangeRequired, bedConfiguration, hasManagerNotes, assignmentNotes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
+  const hasSpecialInstructions = towelChangeRequired || linenChangeRequired || bedConfiguration || hasManagerNotes || hasSeparatePrevioNote || assignmentNotes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
+  const instructionCount = [towelChangeRequired, linenChangeRequired, bedConfiguration, hasManagerNotes, hasSeparatePrevioNote, assignmentNotes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
 
   // AI translation state
   const [translating, setTranslating] = useState(false);
   const [translatedManagerNote, setTranslatedManagerNote] = useState<string | null>(null);
+  const [translatedPrevioNote, setTranslatedPrevioNote] = useState<string | null>(null);
   const [translatedAssignmentNote, setTranslatedAssignmentNote] = useState<string | null>(null);
 
   const handleTranslateNote = async (noteText: string, setter: (val: string) => void) => {
@@ -204,7 +210,7 @@ export function MobileHousekeepingCard({
                   <Info className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
                   <div className="flex-1">
                     <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide">
-                      {t('roomCard.managerNotes') || 'Manager Notes'}
+                      {pmsOwnsVisibleNote ? 'Previo housekeeping note' : (t('roomCard.managerNotes') || 'Manager Notes')}
                     </p>
                     <p className="text-sm text-amber-800 dark:text-amber-200 mt-0.5">
                       {translatedManagerNote || roomFlags.cleanNotes}
@@ -224,6 +230,19 @@ export function MobileHousekeepingCard({
               </div>
             )}
 
+            {hasSeparatePrevioNote && (
+              <div className="p-3 bg-sky-50 dark:bg-sky-950/30 border-2 border-sky-400 dark:border-sky-600 rounded-lg">
+                <p className="text-xs font-semibold text-sky-700 dark:text-sky-300 uppercase tracking-wide">Previo housekeeping note</p>
+                <p className="text-sm text-sky-900 dark:text-sky-100 mt-1">{translatedPrevioNote || slntPrevioNote}</p>
+                {!translatedPrevioNote && (
+                  <button className="mt-1.5 flex items-center gap-1 text-xs text-sky-700 hover:text-sky-900 font-medium"
+                    onClick={() => handleTranslateNote(slntPrevioNote, setTranslatedPrevioNote)} disabled={translating}>
+                    {translating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Globe className="h-3 w-3" />}
+                    {t('roomCard.translateNote') || 'Translate'}
+                  </button>
+                )}
+              </div>
+            )}
             {assignmentNotes && (
               <div className="p-3 bg-gradient-to-r from-amber-50 via-yellow-50 to-orange-50 dark:from-amber-950/30 dark:via-yellow-950/30 dark:to-orange-950/30 border-2 border-amber-300 dark:border-amber-600 rounded-lg shadow-sm">
                 <div className="flex items-start gap-2">
