@@ -38,6 +38,7 @@ import { assigneeLabel, cleanName } from '@/lib/staffNames';
 import { useVenues } from '@/hooks/useVenues';
 import { venueColor, venueEdgeStyle } from '@/lib/venueColors';
 import { shortUnitLabel } from '@/lib/venueUnitLabel';
+import { matchesSlntBoardFilter, slntSingleRoomLabel } from '@/lib/slntFlatRoomBoard';
 
 
 
@@ -847,10 +848,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   const slntSearchTerm = slntRoomSearch.trim().toLocaleLowerCase();
   const slntFilterIsActive = isSlntTenant && (slntSearchTerm.length > 0 || slntOnlyUnassigned);
   const slntMatchesRoomFilter = (room: RoomData) => {
-    if (slntOnlyUnassigned && !slntIsUnassigned(room)) return false;
-    if (!slntSearchTerm) return true;
     const venueName = venues.find(v => v.id === room.venue_id)?.name ?? '';
-    return `${venueName} ${room.room_number}`.toLocaleLowerCase().includes(slntSearchTerm);
+    return matchesSlntBoardFilter(room.room_number, venueName, slntSearchTerm, slntOnlyUnassigned, slntIsUnassigned(room));
   };
   const slntUnassignedCount = [...checkoutRooms, ...dailyRooms].filter(slntIsUnassigned).length;
 
@@ -1896,10 +1895,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               // venue header, counter and generic "Unit" label.
               if (group.rooms.length === 1 && group.key !== '__none__') {
                 const room = group.rooms[0];
-                const suffix = shortUnitLabel(room.room_number, group.name, '');
-                const fullLabel = suffix && !/^(unit|room|apartment)$/i.test(suffix)
-                  ? `${group.name} · ${suffix}`
-                  : group.name;
+                const fullLabel = slntSingleRoomLabel(room.room_number, group.name);
                 return (
                   <div
                     key={group.key}
