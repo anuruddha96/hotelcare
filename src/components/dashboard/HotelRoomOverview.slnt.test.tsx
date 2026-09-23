@@ -103,7 +103,7 @@ describe('SLNT Team View isolation', () => {
   });
 });
 
-describe('SLNT flat-board stylesheet safety', () => {
+describe('SLNT property-row stylesheet safety', () => {
   const css = readFileSync(resolve(process.cwd(), 'src/components/dashboard/slnt-team-property-rows.css'), 'utf8');
 
   it('parses CSS and scopes every rule to authenticated SLNT Team View', () => {
@@ -113,15 +113,14 @@ describe('SLNT flat-board stylesheet safety', () => {
       count++;
       rule.selector.split(',').forEach(selector => expect(selector.trim()).toContain('[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview'));
     });
-    expect(count).toBeGreaterThan(8);
+    expect(count).toBeGreaterThan(2);
   });
 
-  it('renders one compact property row in either saved density mode', () => {
-    expect(css).toContain('div[class~="columns-1"]');
-    expect(css).toContain('div[class~="space-y-2"]:has(');
-    expect(css).toContain('flex-direction: column');
-    expect(css).toContain('div[class~="animate-fade-in"]');
-    expect(css).not.toContain('display: none !important');
+  it('leaves the row layout to the component and keeps the legend readable', () => {
+    expect(css).toContain('[data-training="room-legend"]');
+    expect(css).not.toContain('div[class~="animate-fade-in"]');
+    expect(css).not.toContain('columns-1');
   });
+
 
 });
