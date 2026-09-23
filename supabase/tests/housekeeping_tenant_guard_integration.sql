@@ -159,6 +159,43 @@ BEGIN
 END $$;
 ROLLBACK;
 
+-- Top management may read/manage authorized properties across its own
+-- organization even without an assigned_hotel. It must not access SLNT.
+BEGIN;
+SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000018';
+DO $
+DECLARE denied boolean := false;
+BEGIN
+  IF (SELECT count(*) FROM public.assignment_patterns) <> 2 THEN
+    RAISE EXCEPTION 'RD top management lost authorized two-property access';
+  END IF;
+  INSERT INTO public.assignment_patterns(organization_slug,hotel)
+    VALUES('rdhotels','memories');
+  BEGIN
+    INSERT INTO public.assignment_patterns(organization_slug,hotel)
+      VALUES('slnt','slnt-one');
+  EXCEPTION WHEN insufficient_privilege THEN denied := true;
+  END;
+  IF NOT denied THEN RAISE EXCEPTION 'Top management wrote another tenant pattern'; END IF;
+END $;
+ROLLBACK;
+
+-- Explicit super-admin can administer across organizations regardless
+-- of their ordinary employee role or assigned hotel.
+BEGIN;
+SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000019';
+DO $
+BEGIN
+  IF (SELECT count(*) FROM public.assignment_patterns) <> 3 THEN
+    RAISE EXCEPTION 'Explicit super admin lost global pattern read access';
+  END IF;
+  INSERT INTO public.assignment_patterns(organization_slug,hotel)
+    VALUES('slnt','slnt-one');
+END $;
+ROLLBACK;
+
 -- NOTE: Two historic RD-labeled records above deliberately include a foreign
 -- worker and a foreign room. The tested migration preserves them but does NOT
 -- correct the latter row's organization/room mismatch. Reconcile #353 before
