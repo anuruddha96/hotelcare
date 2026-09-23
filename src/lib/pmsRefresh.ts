@@ -8,7 +8,7 @@ import { todayBudapest } from "@/lib/budapestTime";
 import { classifyPmsHousekeepingRow } from "@/lib/pmsClassification";
 import { inferBedConfigFromNote } from "@/lib/bedConfigInference";
 import { buildRoomNotes, parseRoomFlags } from "@/lib/room-service-flags";
-import { extractHousekeepingSectionsFromRawNote, pickPrevioHousekeepingNote } from "@/lib/previoHousekeepingNote";
+import { extractHousekeepingSectionsFromRawNote, pickPrevioHousekeepingNote, reconcileSlntPrevioRoomNote } from "@/lib/previoHousekeepingNote";
 import { normalizeUnitName, isTechnicalRow, buildUnitResolver } from "@/lib/slntUnitMapping";
 
 const STALE_NOTE_PREFIXES = /^\s*(early checkout[^—-]*[-—]?\s*|no show\s*[-—]?\s*)/i;
@@ -274,6 +274,7 @@ export async function runPmsRefresh(
   const keys = await resolveHotelKeys(hotelId);
   const hotelKeys = keys.length ? keys : [hotelId];
   const canonicalHotelKey = hotelKeys.find((key) => key !== hotelId) ?? hotelId;
+  const isSlntRoom = hotelKeys.includes("slnt-group") || hotelId === "slnt-group";
 
   // Portfolio tenants (SLNT) receive long Previo marketing names ("CityNest -
   // City center …") while `rooms.room_number` holds the canonical unit name.
@@ -281,6 +282,9 @@ export async function runPmsRefresh(
   // XLSX upload does. Other tenants have no rows here, so nothing changes.
   const aliasToRoomId = new Map<string, string>();
   const externalIdToRoomId = new Map<string, string>();
+  // For SLNT notes the external id must be qualified by its owning PMS account.
+  // A bare numeric room id is not unique across SLNT’s two Previo accounts.
+  const slntAccountRoomIds = new Map<string, string>();
   const resolverEntries: Array<{ roomId: string; names: Array<string | null | undefined>; externalIds?: Array<string | null | undefined> }> = [];
   const mappingIdByRoomId = new Map<string, string>();
   let portfolioMode = false;
@@ -291,7 +295,7 @@ export async function runPmsRefresh(
   try {
     const { data: unitMaps } = await supabase
       .from("pms_unit_mappings")
-      .select("id, normalized_name, source_name, canonical_room_name, external_room_id, room_id")
+      .select("id, normalized_name, source_name, canonical_room_name, external_room_id, pms_account_id, room_id")
       .in("hotel_id", hotelKeys)
       .not("room_id", "is", null);
     for (const m of (unitMaps ?? []) as any[]) {
@@ -299,7 +303,10 @@ export async function runPmsRefresh(
       for (const name of [m.normalized_name, m.source_name, m.canonical_room_name]) {
         if (name) aliasToRoomId.set(normalizeUnitName(String(name)), roomId);
       }
-      if (m.external_room_id) externalIdToRoomId.set(String(m.external_room_id), roomId);
+      if (m.external_room_id) {
+        externalIdToRoomId.set(String(m.external_room_id), roomId);
+        if (m.pms_account_id) slntAccountRoomIds.set(`${m.pms_account_id}:${m.external_room_id}`, roomId);
+      }
       if (m.id && !mappingIdByRoomId.has(roomId)) mappingIdByRoomId.set(roomId, m.id as string);
       resolverEntries.push({
         roomId,
@@ -556,6 +563,8 @@ export async function runPmsRefresh(
         return score(b) - score(a);
       })[0];
       matchedRoomIds.add(room.id);
+      const verifiedSlntNoteTarget = !isSlntRoom || (!!previoRoomId && !!row.PmsAccountId
+        && slntAccountRoomIds.get(`${row.PmsAccountId}:${previoRoomId}`) === room.id);
       if (portfolioMode && previoRoomId && !externalIdToRoomId.has(previoRoomId)) {
         learnedExternalIds.set(room.id, previoRoomId);
       }
@@ -690,7 +699,7 @@ export async function runPmsRefresh(
           category: "checkout",
         });
       }
-      const housekeepingNote = reservationDataAuthoritative ? cleanSyncedHousekeepingNote(row) : null;
+      const housekeepingNote = reservationDataAuthoritative && verifiedSlntNoteTarget ? cleanSyncedHousekeepingNote(row) : null;
       if (reservationDataAuthoritative && housekeepingNote) {
         changeFields.push({ field: "Housekeeping note", before: "-", after: housekeepingNote, category: "note" });
       }
@@ -789,8 +798,17 @@ export async function runPmsRefresh(
           && !updateData.pms_metadata.isNoShow
           && classification.isNotArrived;
         updateData.pms_metadata.stayThroughToday = classification.isStayThrough;
-        updateData.pms_metadata.noteOta = row.NoteOta ?? null;
-        updateData.pms_metadata.noteInternal = housekeepingNote ?? null;
+        if (verifiedSlntNoteTarget) {
+          updateData.pms_metadata.noteOta = row.NoteOta ?? null;
+          updateData.pms_metadata.noteInternal = housekeepingNote ?? null;
+        }
+        if (isSlntRoom && verifiedSlntNoteTarget) {
+          updateData.pms_metadata.slntPrevioHousekeepingNote = housekeepingNote;
+          updateData.pms_metadata.slntPrevioNoteReservationKey = [
+            row.PmsAccountId, row.ArrivalDate ?? row.Arrival ?? "", row.RoomId
+          ].join(":");
+          updateData.pms_metadata.slntPrevioNoteSyncedAt = new Date().toISOString();
+        }
 
 
         if (!inferredBed) {
@@ -836,14 +854,25 @@ export async function runPmsRefresh(
       // confirms the guest has checked out.
       if (reservationDataAuthoritative) {
         updateData.checkout_time = isCheckedOut ? new Date().toISOString() : null;
-        const currentFlags = parseRoomFlags((room as any).notes ?? null);
-        updateData.notes = buildRoomNotes(
-          {
-            collectExtraTowels: currentFlags.collectExtraTowels,
-            roomCleaning: currentFlags.roomCleaning,
-          },
-          housekeepingNote ?? "",
-        ) || null;
+        if (isSlntRoom) {
+          // Only the account-qualified mapped room may receive a Previo note.
+          // Never clear/overwrite a manager's own free-text instructions.
+          if (verifiedSlntNoteTarget) {
+            const reconciled = reconcileSlntPrevioRoomNote(
+              room.notes, existingMetadata?.slntPrevioHousekeepingNote, housekeepingNote,
+            );
+            if (reconciled.changed) updateData.notes = reconciled.notes;
+          }
+        } else {
+          const currentFlags = parseRoomFlags((room as any).notes ?? null);
+          updateData.notes = buildRoomNotes(
+            {
+              collectExtraTowels: currentFlags.collectExtraTowels,
+              roomCleaning: currentFlags.roomCleaning,
+            },
+            housekeepingNote ?? "",
+          ) || null;
+        }
       }
       if (shouldSetBedConfig && inferredBed) {
         updateData.bed_configuration = inferredBed.value;
@@ -900,10 +929,25 @@ export async function runPmsRefresh(
         );
       }
 
-      const { error: updErr } = await supabase
-        .from("rooms")
-        .update(updateData)
-        .eq("id", room.id);
+      let saveQuery = supabase.from("rooms").update(updateData).eq("id", room.id);
+      if (isSlntRoom && Object.prototype.hasOwnProperty.call(updateData, "notes")) {
+        saveQuery = room.notes == null
+          ? saveQuery.is("notes", null)
+          : saveQuery.eq("notes", room.notes);
+      }
+      const { data: saved, error: updErr } = isSlntRoom && Object.prototype.hasOwnProperty.call(updateData, "notes")
+        ? await saveQuery.select("id").maybeSingle()
+        : { data: null, error: (await saveQuery).error };
+      if (!updErr && isSlntRoom && Object.prototype.hasOwnProperty.call(updateData, "notes") && !saved) {
+        // Concurrent manager edit: retain the human note and still apply
+        // fresh PMS state. The note also remains available in metadata.
+        delete updateData.notes;
+        const fallback = await supabase.from("rooms").update(updateData).eq("id",room.id);
+        if (fallback.error) {
+          errors.push(`Room ${rawRoomName}: ${fallback.error.message}`);
+          continue;
+        }
+      }
       if (updErr) {
         errors.push(`Room ${rawRoomName}: ${updErr.message}`);
         continue;
