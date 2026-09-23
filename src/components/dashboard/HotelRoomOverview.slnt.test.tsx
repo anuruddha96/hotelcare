@@ -116,9 +116,9 @@ describe('SLNT property-row stylesheet safety', () => {
     expect(count).toBeGreaterThan(2);
   });
 
-  it('leaves the row layout to the component and keeps the legend readable', () => {
+  it('keeps the legend readable and scopes chip spacing inside SLNT property groups', () => {
     expect(css).toContain('[data-training="room-legend"]');
-    expect(css).not.toContain('div[class~="animate-fade-in"]');
+    expect(css).toContain('.slnt-venue-unit-list > div[class~="animate-fade-in"]');
     expect(css).not.toContain('columns-1');
   });
 
