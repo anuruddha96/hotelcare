@@ -285,11 +285,13 @@ export async function buildTomorrowAutoAssignRooms(args: {
   roomRows: any[];
   pmsSyncedAt?: string | null;
 }): Promise<{ rooms: RoomForAssignment[]; capturedAt: string | null; source: 'selected-date' | 'metadata-fallback' }> {
+  const resolvedKeys = await resolveHotelKeys(args.hotelId);
+  const hotelKeys = Array.from(new Set([args.hotelId, ...resolvedKeys].filter(Boolean)));
   const { data, error } = await (supabase as any)
     .from('daily_overview_snapshots')
     .select('room_label,room_number,arrival_date,departure_date,status,housekeeping_dep,housekeeping_stay,captured_at')
     .eq('organization_slug', args.organizationSlug)
-    .eq('hotel_id', args.hotelId)
+    .in('hotel_id', hotelKeys)
     .eq('business_date', args.selectedDate)
     .eq('source', 'previo');
   if (error) throw error;
@@ -311,9 +313,10 @@ export async function buildTomorrowAutoAssignRooms(args: {
     const { data: activePrevio, error: configError } = await (supabase as any)
       .from('pms_configurations')
       .select('hotel_id')
-      .eq('hotel_id', args.hotelId)
+      .in('hotel_id', hotelKeys)
       .eq('pms_type', 'previo')
       .eq('is_active', true)
+      .limit(1)
       .maybeSingle();
     if (configError) throw configError;
     if (activePrevio) {
