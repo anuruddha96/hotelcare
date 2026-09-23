@@ -15,11 +15,25 @@ export type SelectedDateWorkload = {
   rooms: RoomForAssignment[];
   checkoutCount: number;
   dailyCount: number;
+  potentialCheckoutCount: number;
   capturedAt: string | null;
   sourceRows: number;
 };
 function compact(value: unknown): string {
   return String(value ?? '').normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+/**
+ * A potential checkout is an operating room with no active reservation in the
+ * selected-date Previo snapshot. It is budgeted like a checkout while managers
+ * prepare tomorrow, but remains explicitly provisional until morning PMS
+ * revalidation confirms that a guest actually stayed in the room.
+ */
+export function isPotentialCheckoutRoom(
+  room: Pick<RoomForAssignment, 'pms_metadata'>,
+): boolean {
+  return room.pms_metadata?.potentialCheckout === true
+    || room.pms_metadata?.selectedDateSnapshotKind === 'potential_checkout';
 }
 /** Preserve full slash codes, numeric labels and full PMS names as distinct aliases. */
 export function nextDayRoomMatchTokens(value: unknown): string[] {
@@ -93,14 +107,22 @@ export function buildSelectedDateHousekeepingWorkload(
 ): SelectedDateWorkload {
   const roomIndex = buildRoomIndex(roomRows);
   const mappedRoomIds = new Set<string>();
+  const representedRoomIds = new Set<string>();
   const rooms: RoomForAssignment[] = [];
   const unmapped: string[] = [];
   let capturedAt: string | null = null;
 
   for (const snapshot of snapshotRows) {
+    if (snapshot.captured_at && (!capturedAt || snapshot.captured_at > capturedAt)) capturedAt = snapshot.captured_at;
+
     const kind = classifySnapshotRow(snapshot, selectedDate);
-    if (!kind) continue;
     const room = resolveRoom(roomIndex, snapshot);
+    if (room) representedRoomIds.add(room.id);
+
+    // A reservation row can be relevant to occupancy without being a cleaning
+    // task (for example an arrival-day row). Such a room is booked, so it must
+    // not be misclassified below as a vacant potential checkout.
+    if (!kind) continue;
     if (!room) { unmapped.push(snapshot.room_number || snapshot.room_label || 'unknown room'); continue; }
     if (mappedRoomIds.has(room.id)) throw new Error(`Previo returned more than one selected-date row for HotelCare room ${room.room_number}.`);
     mappedRoomIds.add(room.id);
@@ -127,7 +149,6 @@ export function buildSelectedDateHousekeepingWorkload(
         linenChange = cycle === 2;
       }
     }
-    if (snapshot.captured_at && (!capturedAt || snapshot.captured_at > capturedAt)) capturedAt = snapshot.captured_at;
     rooms.push({ ...room,
       is_checkout_room: isCheckout, ready_to_clean: !isCheckout,
       towel_change_required: towelChange, linen_change_required: linenChange,
@@ -136,6 +157,39 @@ export function buildSelectedDateHousekeepingWorkload(
         selectedDateSnapshotKind: kind, selectedDateArrival: snapshot.arrival_date,
         selectedDateDeparture: snapshot.departure_date,
         selectedDateSnapshotCapturedAt: snapshot.captured_at,
+        potentialCheckout: false,
+      },
+    } as RoomForAssignment);
+  }
+
+  // Previo's daily-overview feed is reservation-based, not an inventory list.
+  // Therefore an operating HotelCare room absent from the exact-date snapshot
+  // is genuinely unbooked at capture time. Include it in advance planning as a
+  // provisional worst-case checkout. The morning release worker independently
+  // revalidates reservations and skips it if it is still vacant.
+  for (const room of roomRows) {
+    if (representedRoomIds.has(room.id) || mappedRoomIds.has(room.id)) continue;
+    const metadata = (room.pms_metadata || {}) as Record<string, any>;
+    if (room.status === 'out_of_order' || metadata.manualHousekeepingHold === true || metadata.isNoShow === true) continue;
+    if (isGozsduCourtHotel(room.hotel) && metadata.gozsduAvailability?.status !== 'operating') continue;
+
+    rooms.push({
+      ...room,
+      is_checkout_room: true,
+      ready_to_clean: false,
+      towel_change_required: false,
+      linen_change_required: false,
+      pms_metadata: {
+        ...metadata,
+        scheduledDepartureToday: false,
+        plannedHousekeepingDate: selectedDate,
+        plannedFromDailyOverview: true,
+        selectedDateSnapshotKind: 'potential_checkout',
+        selectedDateArrival: null,
+        selectedDateDeparture: null,
+        selectedDateSnapshotCapturedAt: capturedAt,
+        potentialCheckout: true,
+        potentialCheckoutReason: 'unbooked_for_selected_date',
       },
     } as RoomForAssignment);
   }
@@ -145,5 +199,13 @@ export function buildSelectedDateHousekeepingWorkload(
       + (unique.length > 8 ? ` +${unique.length - 8} more` : ''));
   }
   const checkoutCount = rooms.filter(room => room.is_checkout_room).length;
-  return { rooms, checkoutCount, dailyCount: rooms.length - checkoutCount, capturedAt, sourceRows: snapshotRows.length };
+  const potentialCheckoutCount = rooms.filter(isPotentialCheckoutRoom).length;
+  return {
+    rooms,
+    checkoutCount,
+    dailyCount: rooms.length - checkoutCount,
+    potentialCheckoutCount,
+    capturedAt,
+    sourceRows: snapshotRows.length,
+  };
 }
