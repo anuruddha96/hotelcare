@@ -851,7 +851,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const venueName = venues.find(v => v.id === room.venue_id)?.name ?? '';
     return matchesSlntBoardFilter(room.room_number, venueName, slntSearchTerm, slntOnlyUnassigned, slntIsUnassigned(room));
   };
-  const slntUnassignedCount = [...checkoutRooms, ...dailyRooms].filter(slntIsUnassigned).length;
+  const slntUnassignedCount = rooms.filter(slntIsUnassigned).length;
 
   const getStaffName = (roomId: string): string | null => {
     const assignment = assignmentMap.get(roomId);
