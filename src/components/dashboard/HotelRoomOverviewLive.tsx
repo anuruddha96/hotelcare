@@ -915,6 +915,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       ? isCurrentNoServiceOutcome(assignment)
       : !!assignment?.notes?.includes('[NO_SERVICE]');
     const roomFlags = parseRoomFlags(room.notes);
+    const slntPrevioNote = isSlntTenant
+      ? String(room.pms_metadata?.slntPrevioHousekeepingNote || '').trim()
+      : '';
+    const hasSeparatePrevioNote = !!slntPrevioNote && slntPrevioNote !== roomFlags.cleanNotes;
     const isPendingApproval = assignmentStatus === 'completed' && assignment?.supervisor_approved === false;
     const roomOverdue = isOverdue(assignment, assignment?.started_at || undefined);
     
@@ -1134,6 +1138,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           )}
           {roomFlags.cleanNotes && (
             <span className="text-[8px]" title={summarizePmsNote(roomFlags.cleanNotes) || roomFlags.cleanNotes}>📝</span>
+          )}
+          {hasSeparatePrevioNote && (
+            <span className="text-[8px]" title={`Previo housekeeping: ${slntPrevioNote}`}>📋</span>
           )}
           {staffName && (
             <span className="text-[9px] text-muted-foreground font-medium leading-tight text-center max-w-[76px] break-words" title={staffMap[assignment?.assigned_to ?? ''] || staffName || undefined}>
@@ -1487,6 +1494,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                 <div className="border-t border-border pt-1.5 space-y-1.5">
                   {room.notes && profile?.role === 'admin' && (
                     <StructuredRoomNote notes={room.notes} />
+                  )}
+                  {hasSeparatePrevioNote && (
+                    <div className="rounded-md border border-sky-300 bg-sky-50 p-2 text-xs text-sky-900 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-100">
+                      <p className="font-semibold mb-1">Previo housekeeping note</p>
+                      <p className="whitespace-pre-wrap">{slntPrevioNote}</p>
+                    </div>
                   )}
                   <textarea
                     className="w-full text-xs p-1.5 rounded border border-input bg-background min-h-[36px] resize-none placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
