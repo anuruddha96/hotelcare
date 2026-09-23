@@ -116,11 +116,12 @@ describe('SLNT flat-board stylesheet safety', () => {
     expect(count).toBeGreaterThan(8);
   });
 
-  it('uses one flat chip board in either saved density mode instead of a property rail', () => {
+  it('renders one compact property row in either saved density mode', () => {
     expect(css).toContain('div[class~="columns-1"]');
     expect(css).toContain('div[class~="space-y-2"]:has(');
-    expect(css).toContain('display: contents');
+    expect(css).toContain('flex-direction: column');
     expect(css).toContain('div[class~="animate-fade-in"]');
-    expect(css).not.toContain('@container');
+    expect(css).not.toContain('display: none !important');
   });
+
 });

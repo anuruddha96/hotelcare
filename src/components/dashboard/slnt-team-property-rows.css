@@ -1,74 +1,90 @@
 /*
- * SLNT Team View ONLY. The existing venue grouping already sorts similar
- * apartments together; use that order inside a single Hotel Memories-style
- * wrapping room board rather than rendering a card for every building.
- * This is presentation only: all DOM nodes, status badges, drag/drop and
- * selection handlers, PMS data and checkout/daily buckets remain intact.
- * The authenticated tenant wrapper and Team View ancestor are both required.
+ * SLNT Team View ONLY. One compact row per property, mirroring the
+ * Hotel Memories floor rows: a fixed-width property label on the left and
+ * the property's room chips wrapping to its right.
+ * Presentation only: every DOM node, badge, drag/drop and selection handler,
+ * PMS field and checkout/daily bucket stays exactly as the shared board
+ * renders it. The authenticated tenant wrapper and Team View ancestor are
+ * both required, so no other organization is affected.
  */
 
-/* Both saved density preferences must lead to the same, simplified flat board.
- * The :has() guard prevents matching unrelated space-y-2 layout containers. */
+/* Both saved density preferences converge on the same single-column rows. */
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="columns-1"],
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="space-y-2"]:has(> div[class~="bg-muted/20"][class~="p-1.5"]) {
   column-count: initial !important;
   display: flex !important;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+/* Each property becomes a light, borderless row instead of a boxed card. */
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] {
+  margin: 0 !important;
+  padding: 0.18rem 0.1rem !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Alternating tint keeps long portfolios readable while scanning. */
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"]:nth-child(odd) {
+  background: hsl(var(--muted) / 0.28) !important;
+  border-radius: 0.35rem !important;
+}
+
+/* Label left, chips wrapping right — the Hotel Memories floor-row shape. */
+[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] > div[class~="flex"][class~="flex-wrap"] {
+  display: flex !important;
   flex-wrap: wrap;
   align-items: center;
-  align-content: start;
-  gap: 0.32rem 0.4rem;
+  gap: 0.26rem 0.3rem;
   min-width: 0;
 }
 
-/* Venue cards no longer occupy a building-by-building row or grid cell.
- * display:contents retains children, keyboard order, events and drop payloads. */
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] {
-  display: contents !important;
-  container-type: normal;
-}
-
-[data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] > div[class~="flex"][class~="flex-wrap"] {
-  display: contents !important;
-}
-
-/* A tiny inline address marker separates adjacent sets of chips without
- * duplicating large headings. Full property name remains in its title. */
+/* Fixed-width property label so every row starts on the same vertical line. */
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] > div > span[class~="rounded-full"] {
-  position: static;
-  display: inline-flex;
-  align-items: center;
   flex: 0 0 auto;
-  width: auto;
-  max-width: min(11.5rem, 100%);
-  min-width: 0;
-  margin: 0 0.05rem 0 0.3rem;
-  padding: 0.15rem 0.32rem;
-  border-left-width: 2px;
-  border-radius: 0.25rem;
-  background: hsl(var(--muted) / 0.65);
+  width: 8.5rem;
+  max-width: 45vw;
+  justify-content: flex-start;
+  gap: 0.28rem;
+  margin-right: 0.15rem;
+  padding: 0.16rem 0.36rem;
+  border-radius: 0.3rem;
+  background: hsl(var(--background) / 0.85);
   white-space: nowrap;
 }
 
+@media (min-width: 640px) {
+  [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] > div > span[class~="rounded-full"] {
+    width: 10.5rem;
+    max-width: 10.5rem;
+  }
+}
+
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] > div > span[class~="rounded-full"] > span[class~="truncate"] {
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: 8.3rem;
-  font-size: 0.625rem;
+  max-width: none;
+  font-size: 0.6875rem;
   font-weight: 650;
-  line-height: 0.9rem;
+  line-height: 0.95rem;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] > div > span[class~="rounded-full"] > span[class~="text-[9px]"] {
   flex: 0 0 auto;
-  padding: 0 0.15rem;
+  padding: 0 0.2rem;
+  border-radius: 0.2rem;
+  background: hsl(var(--muted) / 0.9);
   font-size: 0.625rem;
   font-weight: 700;
 }
 
-/* Individual interactive chips now wrap next to chips from adjacent venues.
- * Do not clamp height, hide room numbers, truncate status markers or remove
- * the assignee label/drag target. */
+/* Chips keep their own size, colors, badges and handlers; only spacing is set. */
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div[class~="bg-muted/20"][class~="p-1.5"] > div > div[class~="animate-fade-in"] {
   display: inline-flex;
   flex: 0 0 auto;
@@ -85,8 +101,7 @@
   overflow-wrap: anywhere;
 }
 
-/* The old Compact/Roomy control no longer changes the SLNT presentation.
- * Hide only that redundant switch, not the section's selection/actions. */
+/* The old Compact/Roomy control no longer changes this presentation. */
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div:has(> div[class~="columns-1"]) > div[class~="mb-1"][class~="justify-end"],
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview div:has(> div[class~="space-y-2"] > div[class~="bg-muted/20"][class~="p-1.5"]) > div[class~="mb-1"][class~="justify-end"] {
   display: none;
@@ -98,8 +113,7 @@
   display: none;
 }
 
-/* Preserve the complete optional legend for anyone who needs it, but make
- * the expanded reference one line instead of a tall wall of 18+ indicators. */
+/* Preserve the complete optional legend, but keep it to one scrollable line. */
 [data-training="team-view"] .slnt-team-property-rows #hotel-room-overview [data-training="room-legend"] {
   display: flex !important;
   flex-wrap: nowrap !important;
