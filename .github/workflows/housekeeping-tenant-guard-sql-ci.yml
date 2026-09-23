@@ -53,3 +53,22 @@ jobs:
             -f supabase/migrations/20260922170200_room_assignment_tenant_write_guard.sql \
             -f supabase/tests/housekeeping_tenant_guard_integration.sql \
             -f supabase/tests/housekeeping_tenant_guard_write_denials.sql
+      - name: Check release gate refuses unresolved synthetic active work
+        run: |
+          set -euo pipefail
+          if psql -X -v ON_ERROR_STOP=1 -f supabase/tests/housekeeping_tenant_guard_release_preflight.sql > /tmp/housekeeping-tenant-gate.log 2>&1; then
+            echo "::error::Expected the release gate to reject unresolved synthetic active cross-tenant rows"
+            exit 1
+          fi
+          if ! grep -q 'HK_TENANT_PREFLIGHT_BLOCKED' /tmp/housekeeping-tenant-gate.log; then
+            echo "::error::Unexpected SQL error; release gate did not return its expected block"
+            cat /tmp/housekeeping-tenant-gate.log
+            exit 1
+          fi
+      - name: Confirm release gate passes after correcting synthetic active links
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 \
+            -c "UPDATE public.room_assignments SET assigned_to='00000000-0000-4000-8000-000000000014' WHERE room_id='00000000-0000-4000-8000-000000000021' AND status='in_progress';" \
+            -c "UPDATE public.room_assignments SET organization_slug='test', assigned_to='00000000-0000-4000-8000-000000000016' WHERE room_id='00000000-0000-4000-8000-000000000024' AND status='assigned';" \
+            -f supabase/tests/housekeeping_tenant_guard_release_preflight.sql
