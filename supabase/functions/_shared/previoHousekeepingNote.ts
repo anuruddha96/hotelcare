@@ -151,7 +151,7 @@ export function reconcileSlntPrevioRoomNote(
 ): { notes: string | null; changed: boolean; managerNotePreserved: boolean } {
   const current = String(currentNotes ?? "").trim();
   const flags = ["[COLLECT_EXTRA_TOWELS]", "[ROOM_CLEANING]"].filter(flag => current.includes(flag));
-  const freeText = current.replace(/\\[COLLECT_EXTRA_TOWELS\\]|\\[ROOM_CLEANING\\]/g, "").trim();
+  const freeText = current.replace(/\[COLLECT_EXTRA_TOWELS\]|\[ROOM_CLEANING\]/g, "").trim();
   const previous = String(previousPmsNote ?? "").trim();
   const incoming = String(incomingPmsNote ?? "").trim();
   // An empty editor, or a note still identical to the last Previo value, is
