@@ -639,9 +639,9 @@ Deno.serve(async (req) => {
         eligibleItemIds.add(item.id);
         eligibleRoomIds.add(item.room_id);
         if (currentAssignmentType !== item.assignment_type) {
-          // The release RPC indexes overrides by room id (shared helpers for the
-          // same room must receive exactly the same reclassified task type).
-          assignmentTypeOverrides[item.room_id] = currentAssignmentType;
+          // Overrides stay item-scoped so shared-room helpers can be validated
+          // independently without changing the other plan item.
+          assignmentTypeOverrides[item.id] = currentAssignmentType;
           typeChanges.push({
             plan_item_id: item.id,
             room_id: item.room_id,
