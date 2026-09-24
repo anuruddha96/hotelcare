@@ -175,4 +175,28 @@ BEGIN
 END $$;
 ROLLBACK;
 
+-- The write guard must also preserve normal same-tenant assignment creation.
+-- Use a fresh id so this checks INSERT policy/trigger behavior without colliding
+-- with the fixture's existing legitimate SLNT assignment.
+BEGIN;
+SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000013'; -- SLNT manager
+DO $$
+DECLARE affected integer;
+BEGIN
+  INSERT INTO public.room_assignments(id, room_id, assigned_to, organization_slug, status)
+  VALUES (
+    '00000000-0000-4000-8000-000000000099',
+    '00000000-0000-4000-8000-000000000023',
+    '00000000-0000-4000-8000-000000000015',
+    'slnt',
+    'assigned'
+  );
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  IF affected <> 1 THEN
+    RAISE EXCEPTION 'Tenant guard blocked legitimate SLNT assignment insert; affected=%', affected;
+  END IF;
+END $$;
+ROLLBACK;
+
 SELECT 'cross-tenant live assignment write denials passed' AS result;
