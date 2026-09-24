@@ -14,14 +14,14 @@ import {
 } from '@/components/ui/dialog';
 import {
   ArrowLeft, User, CalendarDays, BedDouble, CreditCard, FileText, Edit,
-  History, Lock, Receipt, Plus, Banknote, AlertTriangle, Hash,
+  History, Lock, AlertTriangle, Hash,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from '@/hooks/useTranslation';
 import { CheckInDialog } from '@/components/frontdesk/CheckInDialog';
 import { CheckOutDialog } from '@/components/frontdesk/CheckOutDialog';
 import { EditReservationDialog } from '@/components/reservations/EditReservationDialog';
-import { FolioItemDialog } from '@/components/reservations/FolioItemDialog';
+import { ReservationAccountPanel } from '@/components/reservations/ReservationAccountPanel';
 import { LifecycleError, setReservationStatus } from '@/lib/pmsLifecycle';
 import {
   formatMoney, isPmsManaged, reservationGuestLabel, RESERVATION_STATUS_COLORS,
@@ -40,13 +40,11 @@ const ReservationDetail = () => {
   const { organizationSlug, id } = useParams<{ organizationSlug: string; id: string }>();
   const { t } = useTranslation();
   const [reservation, setReservation] = useState<any>(null);
-  const [folioItems, setFolioItems] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
   const [checkInOpen, setCheckInOpen] = useState(false);
   const [checkOutOpen, setCheckOutOpen] = useState(false);
-  const [folioMode, setFolioMode] = useState<'charge' | 'payment' | null>(null);
   const [statusAction, setStatusAction] = useState<StatusAction>(null);
   const [statusReason, setStatusReason] = useState('');
   const [statusBusy, setStatusBusy] = useState(false);
@@ -55,9 +53,8 @@ const ReservationDetail = () => {
   const fetchData = useCallback(async () => {
     if (!id) return;
     setLoadingData(true);
-    const [resResult, folioResult, eventResult] = await Promise.all([
+    const [resResult, eventResult] = await Promise.all([
       supabase.from('reservations').select(RES_SELECT).eq('id', id).single(),
-      supabase.from('guest_folios').select('*').eq('reservation_id', id).order('charge_date', { ascending: false }),
       supabase.from('reservation_events').select('*').eq('reservation_id', id).order('created_at', { ascending: false }).limit(100),
     ]);
 
@@ -66,7 +63,6 @@ const ReservationDetail = () => {
     } else {
       setReservation(resResult.data);
     }
-    setFolioItems(folioResult.data ?? []);
     setEvents(eventResult.data ?? []);
     setLoadingData(false);
   }, [id]);
@@ -293,41 +289,8 @@ const ReservationDetail = () => {
           </Card>
         )}
 
-        <div className="grid xl:grid-cols-2 gap-4">
-          <Card data-training="res-folio">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle className="text-sm flex items-center gap-2"><Receipt className="h-4 w-4" /> {t('pms.reservationDetail.guestFolio')}</CardTitle>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" className="gap-1" onClick={() => setFolioMode('charge')} data-training="res-folio-add-charge">
-                    <Plus className="h-3.5 w-3.5" /> {t('pms.res.addCharge')}
-                  </Button>
-                  <Button size="sm" className="gap-1" onClick={() => setFolioMode('payment')} data-training="res-folio-add-payment">
-                    <Banknote className="h-3.5 w-3.5" /> {t('pms.res.addPayment')}
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {folioItems.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">{t('pms.reservationDetail.noCharges')}</p>
-              ) : (
-                <div className="divide-y">
-                  {folioItems.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between py-2 gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{item.description}</p>
-                        <p className="text-xs text-muted-foreground capitalize">{item.charge_type?.replaceAll('_', ' ')} · {item.charge_date}</p>
-                      </div>
-                      <span className={`text-sm font-semibold ${item.charge_type === 'payment' ? 'text-green-600' : ''}`}>
-                        {item.charge_type === 'payment' ? '−' : '+'}{formatMoney(Math.abs(Number(item.amount || 0)), reservation.currency)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+        <div className="grid xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)] gap-4 items-start">
+          <ReservationAccountPanel reservation={reservation} onFinancialChanged={fetchData} />
 
           <Card>
             <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><History className="h-4 w-4" /> {t('pms.res.auditTimeline')}</CardTitle></CardHeader>
@@ -380,17 +343,6 @@ const ReservationDetail = () => {
         onOpenChange={setCheckOutOpen}
         onSuccess={() => { setCheckOutOpen(false); fetchData(); }}
       />
-      {folioMode && (
-        <FolioItemDialog
-          reservationId={reservation.id}
-          currency={reservation.currency}
-          mode={folioMode}
-          open={!!folioMode}
-          onOpenChange={(open) => !open && setFolioMode(null)}
-          onSuccess={fetchData}
-        />
-      )}
-
       <Dialog open={!!statusAction} onOpenChange={(open) => { if (!open) { setStatusAction(null); setStatusReason(''); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
