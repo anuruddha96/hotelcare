@@ -9,6 +9,7 @@ import {
   Eye,
   Loader2,
   PauseCircle,
+  UserRound,
   X,
 } from 'lucide-react';
 import { AutoRoomAssignment } from './AutoRoomAssignment';
@@ -49,6 +50,8 @@ type TomorrowPlanRow = {
   release_result: Record<string, unknown> | null;
   last_error: string | null;
   released_at: string | null;
+  created_by: string | null;
+  approved_by: string | null;
 };
 
 type StatusPresentation = {
@@ -63,6 +66,21 @@ type StatusPresentation = {
 function numberFrom(value: unknown): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function preparedByLabel(language: HousekeepingAutomationLanguage): string {
+  const labels: Record<HousekeepingAutomationLanguage, string> = {
+    en: 'Prepared by',
+    hu: 'Készítette',
+    es: 'Preparado por',
+    vi: 'Được chuẩn bị bởi',
+    mn: 'Бэлтгэсэн',
+    az: 'Hazırlayan',
+    tl: 'Inihanda ni',
+    ru: 'Подготовил(а)',
+    uk: 'Підготував(ла)',
+  };
+  return labels[language] || labels.en;
 }
 
 function getStatusPresentation(
@@ -242,6 +260,7 @@ export function TomorrowHousekeepingLauncher() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [todayPlan, setTodayPlan] = useState<TomorrowPlanRow | null>(null);
   const [tomorrowPlan, setTomorrowPlan] = useState<TomorrowPlanRow | null>(null);
+  const [planPreparedByNames, setPlanPreparedByNames] = useState<Record<string, string>>({});
   const [statusLoading, setStatusLoading] = useState(true);
   const [statusUnavailable, setStatusUnavailable] = useState(false);
   const [budapestDate, setBudapestDate] = useState(todayBudapest());
@@ -288,6 +307,7 @@ export function TomorrowHousekeepingLauncher() {
     if (!canManage || !profile?.assigned_hotel || !profile.organization_slug) {
       setTodayPlan(null);
       setTomorrowPlan(null);
+      setPlanPreparedByNames({});
       setStatusUnavailable(false);
       setStatusLoading(false);
       return;
@@ -302,7 +322,7 @@ export function TomorrowHousekeepingLauncher() {
 
       const { data, error } = await (supabase as any)
         .from('next_day_housekeeping_plans')
-        .select('id,plan_date,status,auto_release,release_time,scheduled_release_at,release_revalidation_status,release_revalidation_attempt_count,release_result,last_error,released_at')
+        .select('id,plan_date,status,auto_release,release_time,scheduled_release_at,release_revalidation_status,release_revalidation_attempt_count,release_result,last_error,released_at,created_by,approved_by')
         .eq('organization_slug', profile.organization_slug)
         .eq('hotel_id', hotelId)
         .in('plan_date', [budapestDate, tomorrowDate]);
@@ -311,14 +331,46 @@ export function TomorrowHousekeepingLauncher() {
       if (requestGeneration.current !== generation) return;
 
       const rows = (data || []) as TomorrowPlanRow[];
+      const authorIds = Array.from(new Set(
+        rows
+          .map(row => row.approved_by || row.created_by)
+          .filter((id): id is string => !!id),
+      ));
+      const preparedByNames: Record<string, string> = {};
+      if (authorIds.length > 0) {
+        const { data: authors, error: authorError } = await supabase
+          .from('profiles')
+          .select('id,full_name')
+          .eq('organization_slug', profile.organization_slug)
+          .in('id', authorIds);
+        if (authorError) {
+          console.warn('[TomorrowHousekeepingLauncher] plan author names unavailable:', authorError);
+        } else {
+          const nameById = new Map(
+            (authors || []).map(author => [
+              author.id,
+              String(author.full_name || '').trim(),
+            ]),
+          );
+          for (const row of rows) {
+            const authorId = row.approved_by || row.created_by;
+            const name = authorId ? nameById.get(authorId) : '';
+            if (name) preparedByNames[row.id] = name;
+          }
+        }
+      }
+      if (requestGeneration.current !== generation) return;
+
       setTodayPlan(findCurrentDayHousekeepingReviewPlan(rows, budapestDate));
       setTomorrowPlan(findTomorrowHousekeepingPlan(rows, tomorrowDate));
+      setPlanPreparedByNames(preparedByNames);
       setStatusUnavailable(false);
     } catch (error) {
       if (requestGeneration.current !== generation) return;
       console.warn('[TomorrowHousekeepingLauncher] plan status unavailable:', error);
       setTodayPlan(null);
       setTomorrowPlan(null);
+      setPlanPreparedByNames({});
       setStatusUnavailable(true);
     } finally {
       if (requestGeneration.current === generation) setStatusLoading(false);
@@ -375,12 +427,14 @@ export function TomorrowHousekeepingLauncher() {
   const todayReleaseTime = normalizeNextDayReleaseTime(todayPlan?.release_time);
   const todayStatusHint = tomorrowHousekeepingStatusText(todayPresentation.hintKey, language)
     .replace('08:00', todayReleaseTime);
+  const todayPreparedByName = todayPlan ? planPreparedByNames[todayPlan.id] : null;
 
   const tomorrowPresentation = getStatusPresentation(tomorrowPlan, statusLoading, statusUnavailable);
   const TomorrowStatusIcon = tomorrowPresentation.Icon;
   const tomorrowReleaseTime = normalizeNextDayReleaseTime(tomorrowPlan?.release_time);
   const tomorrowStatusHint = tomorrowHousekeepingStatusText(tomorrowPresentation.hintKey, language)
     .replace('08:00', tomorrowReleaseTime);
+  const tomorrowPreparedByName = tomorrowPlan ? planPreparedByNames[tomorrowPlan.id] : null;
   const tomorrowActionLabel = tomorrowHousekeepingStatusText(tomorrowPresentation.actionKey, language);
   const dismissLabel = housekeepingAutomationText('dismissCard', language);
 
@@ -422,6 +476,12 @@ export function TomorrowHousekeepingLauncher() {
                       <Badge variant="secondary">{todayPlan.plan_date}</Badge>
                     </div>
                     <p className="max-w-3xl text-sm text-muted-foreground">{todayStatusHint}</p>
+                    {todayPreparedByName ? (
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <UserRound className="h-3.5 w-3.5" />
+                        <span>{preparedByLabel(language)} <strong className="font-medium text-foreground">{todayPreparedByName}</strong></span>
+                      </div>
+                    ) : null}
                     <ReleaseSummary plan={todayPlan} language={language} />
                   </div>
                 </div>
@@ -476,6 +536,12 @@ export function TomorrowHousekeepingLauncher() {
                     </div>
 
                     <p className="max-w-3xl text-sm text-muted-foreground">{tomorrowStatusHint}</p>
+                    {tomorrowPreparedByName ? (
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <UserRound className="h-3.5 w-3.5" />
+                        <span>{preparedByLabel(language)} <strong className="font-medium text-foreground">{tomorrowPreparedByName}</strong></span>
+                      </div>
+                    ) : null}
                     {tomorrowPlan ? (
                       <ReleaseSummary plan={tomorrowPlan} language={language} />
                     ) : (
