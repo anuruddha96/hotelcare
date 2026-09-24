@@ -24,16 +24,30 @@ function compact(value: unknown): string {
 }
 
 /**
- * A potential checkout is an operating room with no active reservation in the
- * selected-date Previo snapshot. It is budgeted like a checkout while managers
- * prepare tomorrow, but remains explicitly provisional until morning PMS
- * revalidation confirms that a guest actually stayed in the room.
+ * An unsold planning room is an operating room with no active reservation in
+ * the selected-date PMS snapshot at the time tomorrow's plan is prepared.
+ *
+ * It is included only as provisional workload so a manager may pre-assign a
+ * cleaner. It is NOT a checkout yet. Morning PMS revalidation decides whether
+ * the room becomes a checkout, a stay-over service, or no housekeeping task.
+ *
+ * Keep the legacy potentialCheckout markers readable because approved plans
+ * created before this rollout may still be waiting for morning release.
  */
+export function isUnsoldPlanningRoom(
+  room: Pick<RoomForAssignment, 'pms_metadata'>,
+): boolean {
+  return room.pms_metadata?.unsoldAtPlanning === true
+    || room.pms_metadata?.planningStatus === 'unsold_now'
+    || room.pms_metadata?.potentialCheckout === true
+    || room.pms_metadata?.selectedDateSnapshotKind === 'potential_checkout';
+}
+
+/** Backward-compatible alias used by existing planner/revalidation code. */
 export function isPotentialCheckoutRoom(
   room: Pick<RoomForAssignment, 'pms_metadata'>,
 ): boolean {
-  return room.pms_metadata?.potentialCheckout === true
-    || room.pms_metadata?.selectedDateSnapshotKind === 'potential_checkout';
+  return isUnsoldPlanningRoom(room);
 }
 /** Preserve full slash codes, numeric labels and full PMS names as distinct aliases. */
 export function nextDayRoomMatchTokens(value: unknown): string[] {
@@ -188,6 +202,11 @@ export function buildSelectedDateHousekeepingWorkload(
         selectedDateArrival: null,
         selectedDateDeparture: null,
         selectedDateSnapshotCapturedAt: capturedAt,
+        // New neutral planning semantics. Legacy potentialCheckout fields are
+        // retained for plans created by older frontends and release workers.
+        planningStatus: 'unsold_now',
+        unsoldAtPlanning: true,
+        unsoldReason: 'no_reservation_at_planning_sync',
         potentialCheckout: true,
         potentialCheckoutReason: 'unbooked_for_selected_date',
       },
