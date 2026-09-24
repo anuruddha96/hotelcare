@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSelectedDateHousekeepingWorkload,
   isPotentialCheckoutRoom,
+  isUnsoldPlanningRoom,
   nextDayRoomMatchTokens,
   type DailyOverviewWorkRow,
 } from './nextDayHousekeepingSnapshot';
@@ -92,6 +93,7 @@ describe('next-day housekeeping selected-date snapshot', () => {
     expect(vacant.pms_metadata?.selectedDateSnapshotKind).toBe('potential_checkout');
     expect(vacant.pms_metadata?.planningStatus).toBe('unsold_now');
     expect(vacant.pms_metadata?.unsoldAtPlanning).toBe(true);
+    expect(isUnsoldPlanningRoom(vacant)).toBe(true);
     expect(isPotentialCheckoutRoom(vacant)).toBe(true);
   });
 
