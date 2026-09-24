@@ -6,6 +6,9 @@
 DROP POLICY IF EXISTS "Managers and admins can view assignment patterns" ON public.assignment_patterns;
 DROP POLICY IF EXISTS "Managers and admins can insert assignment patterns" ON public.assignment_patterns;
 DROP POLICY IF EXISTS "Managers and admins can update assignment patterns" ON public.assignment_patterns;
+DROP POLICY IF EXISTS "Assignment patterns scoped read" ON public.assignment_patterns;
+DROP POLICY IF EXISTS "Assignment patterns scoped insert" ON public.assignment_patterns;
+DROP POLICY IF EXISTS "Assignment patterns scoped update" ON public.assignment_patterns;
 
 CREATE POLICY "Assignment patterns scoped read" ON public.assignment_patterns
 FOR SELECT TO authenticated USING (
@@ -51,6 +54,11 @@ WITH CHECK (
     AND public.can_manage_next_day_housekeeping_plan(organization_slug, hotel)
   ))
 );
+
+DROP POLICY IF EXISTS "Plan item updates require same organization and property"
+ON public.next_day_housekeeping_plan_items;
+DROP POLICY IF EXISTS "Plan staff writes require same organization"
+ON public.next_day_housekeeping_plan_staff;
 
 -- Existing plan-item UPDATE policy validated organization but not the hotel's
 -- room ownership. Restrictive policy is AND-ed with all permissive policies.
