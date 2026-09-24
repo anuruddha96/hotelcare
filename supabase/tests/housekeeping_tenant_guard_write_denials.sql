@@ -146,4 +146,40 @@ BEGIN
 END $$;
 ROLLBACK;
 
+-- Symmetric UPDATE integrity case: keeping the SLNT room and organization must
+-- not permit replacing its legitimate worker with one owned by RD Hotels.
+BEGIN;
+SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000013'; -- SLNT manager
+DO $$
+DECLARE candidate_count integer;
+DECLARE changed boolean := false;
+BEGIN
+  SELECT count(*) INTO candidate_count
+    FROM public.room_assignments
+   WHERE organization_slug = 'slnt'
+     AND room_id = '00000000-0000-4000-8000-000000000023'
+     AND assigned_to = '00000000-0000-4000-8000-000000000015';
+
+  IF candidate_count = 0 THEN
+    RAISE EXCEPTION 'fixture missing SLNT assignment required for foreign-worker UPDATE test';
+  END IF;
+
+  BEGIN
+    UPDATE public.room_assignments
+       SET assigned_to = '00000000-0000-4000-8000-000000000014' -- RD Hotels housekeeper
+     WHERE organization_slug = 'slnt'
+       AND room_id = '00000000-0000-4000-8000-000000000023'
+       AND assigned_to = '00000000-0000-4000-8000-000000000015';
+    changed := FOUND;
+  EXCEPTION
+    WHEN insufficient_privilege OR check_violation OR raise_exception THEN NULL;
+  END;
+
+  IF changed THEN
+    RAISE EXCEPTION 'SLNT manager repointed an SLNT assignment to an RD worker';
+  END IF;
+END $$;
+ROLLBACK;
+
 SELECT 'cross-tenant live assignment write denials passed' AS result;
