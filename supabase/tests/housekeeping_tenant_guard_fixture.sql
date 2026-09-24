@@ -44,7 +44,8 @@ CREATE TABLE public.room_assignments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   room_id uuid NOT NULL REFERENCES public.rooms(id),
   assigned_to uuid NOT NULL REFERENCES public.profiles(id),
-  organization_slug text NOT NULL, status text NOT NULL DEFAULT 'assigned'
+  organization_slug text NOT NULL, status text NOT NULL DEFAULT 'assigned',
+  assignment_date date NOT NULL DEFAULT (current_date - 300)
 );
 CREATE FUNCTION public.get_user_role(p_user uuid)
 RETURNS public.user_role LANGUAGE sql STABLE SECURITY DEFINER
