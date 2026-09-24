@@ -6,6 +6,9 @@
 -- SECURITY DEFINER and a pinned search_path make the trigger see the actual
 -- organization of the target room/worker, rather than depending on caller RLS.
 
+DROP POLICY IF EXISTS "Room assignments universally restricted to caller organization"
+ON public.room_assignments;
+
 CREATE POLICY "Room assignments universally restricted to caller organization"
 ON public.room_assignments AS RESTRICTIVE
 FOR ALL TO authenticated
