@@ -21,7 +21,7 @@ import { parseRoomFlags, toggleFlag } from '@/lib/room-service-flags';
 import { housekeepingBedShortCode } from '@/lib/housekeepingBedSetup';
 import { usePropertyTerms } from '@/lib/propertyTerminology';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
-import { setRoomDragPayload, readRoomDragPayload, unassignRoom, assignRoomToStaff, setHousekeeperDragPayload, readHousekeeperDragPayload, isAssignmentInProgressError } from '@/lib/hkAssignmentDnd';
+import { setRoomDragPayload, readRoomDragPayload, unassignRoom, assignRoomToStaff, setHousekeeperDragPayload, readHousekeeperDragPayload, isAssignmentInProgressError, isRoomOutOfServiceError } from '@/lib/hkAssignmentDnd';
 import { useUnitSelection, toggleUnitSelection, toggleUnitGroupSelection, type SelectedUnit } from '@/lib/unitSelection';
 
 import { Textarea } from '@/components/ui/textarea';
@@ -40,6 +40,7 @@ import { venueColor, venueEdgeStyle } from '@/lib/venueColors';
 import { shortUnitLabel } from '@/lib/venueUnitLabel';
 import { matchesSlntBoardFilter, slntSingleRoomLabel } from '@/lib/slntFlatRoomBoard';
 import { isDndForBusinessDate, isNoShowForBusinessDate } from '@/lib/currentRoomTransientFlags';
+import { canAssignSlntRoom, getSlntRoomChipMode } from '@/lib/slntRoomChipBehavior';
 
 
 
@@ -847,7 +848,8 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
 
 
-  const slntIsUnassigned = (room: RoomData) => !assignmentMap.get(room.id)?.assigned_to;
+  const slntIsUnassigned = (room: RoomData) =>
+    !assignmentMap.get(room.id)?.assigned_to && canAssignSlntRoom(isSlntTenant, room.status);
   const slntSearchTerm = slntRoomSearch.trim().toLocaleLowerCase();
   const slntFilterIsActive = isSlntTenant && (slntSearchTerm.length > 0 || slntOnlyUnassigned);
   const slntMatchesRoomFilter = (room: RoomData) => {
@@ -899,6 +901,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         assignedBy: profile?.id ?? '',
         organizationSlug: (profile as any)?.organization_slug ?? null,
         isCheckoutRoom: isCheckoutBucket(room),
+        preventOutOfOrder: isSlntTenant,
       });
       setHkSuccessRoomId(room.id);
       setTimeout(() => setHkSuccessRoomId((id) => (id === room.id ? null : id)), 1200);
@@ -913,6 +916,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           `This assignment cannot be changed while cleaning is in progress. Please contact ${name || 'them'} directly.`,
           { duration: 8000 },
         );
+        return;
+      }
+      if (isRoomOutOfServiceError(err)) {
+        toast.warning(`Room ${room.room_number} is Out of Service. Release it before assigning housekeeping.`);
         return;
       }
       console.error('Housekeeper drop assignment failed', err);
@@ -940,7 +947,10 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const roomOverdue = isOverdue(assignment, assignment?.started_at || undefined);
     
     let statusKey: string;
-    if (roomOverdue) statusKey = 'overdue';
+    // SLNT Out of Service is a hard operational state and must remain visible
+    // even if an older assignment row still exists while realtime catches up.
+    if (isSlntTenant && room.status === 'out_of_order') statusKey = 'out_of_order';
+    else if (roomOverdue) statusKey = 'overdue';
     else if (isPendingApproval) statusKey = 'pending_approval';
     else if (assignmentStatus === 'in_progress') statusKey = 'in_progress';
     else if (assignmentStatus === 'completed' && assignment?.supervisor_approved) statusKey = 'clean';
@@ -968,6 +978,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const sizeLabel = getSizeLabel(room.room_size_sqm);
     const isCheckout = isCheckoutBucket(room);
     const canMarkReadyToClean = isCheckout && assignment?.assignment_type === 'checkout_cleaning' && assignment?.pms_hold !== true;
+    const slntChipMode = getSlntRoomChipMode({
+      isSlntTenant,
+      assignedTo: assignment?.assigned_to ?? null,
+      roomStatus: room.status,
+    });
+    const slntManageOnClick = isSlntTenant && slntChipMode === 'manage';
+    const roomAssignable = canAssignSlntRoom(isSlntTenant, room.status);
+    const roomSelectionEnabled = selectionEnabled && !slntManageOnClick && roomAssignable;
+    const roomCanDragAssign = canDragAssign && roomAssignable;
     const isPopoverOpen = hoveredRoomId === room.id && !isMobile && canInteractWithRooms && !selectionEnabled;
     const isSelected = selectedUnitIds.has(room.id);
     const asSelectedUnit = (): SelectedUnit => ({
@@ -978,18 +997,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       assignedToName: assignment ? staffMap[assignment.assigned_to] ?? null : null,
     });
 
-    const hkDropTarget = !!hkDrag && canDragAssign;
+    const hkDropTarget = !!hkDrag && roomCanDragAssign;
     const hkHovered = hkDropTarget && hkHoverRoomId === room.id;
 
     const chipContent = (
       <div 
         className={`flex flex-col items-center gap-0.5 select-none transition-transform ${hkHovered ? 'scale-110' : ''}`}
+        data-room-id={room.id}
+        data-room-assigned={assignment?.assigned_to ? 'true' : 'false'}
+        data-room-manageable={slntManageOnClick ? 'true' : 'false'}
+        data-room-out-of-service={room.status === 'out_of_order' ? 'true' : 'false'}
         onDragOver={hkDropTarget ? (e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'move'; setHkHoverRoomId(room.id); } : undefined}
         onDragEnter={hkDropTarget ? (e) => { e.preventDefault(); e.stopPropagation(); setHkHoverRoomId(room.id); } : undefined}
         onDragLeave={hkDropTarget ? () => setHkHoverRoomId((id) => (id === room.id ? null : id)) : undefined}
         onDrop={hkDropTarget ? (e) => { void handleHousekeeperDropOnRoom(e, room); } : undefined}
-        draggable={canDragAssign ? true : undefined}
-        onDragStart={canDragAssign ? (e) => {
+        draggable={roomCanDragAssign ? true : undefined}
+        onDragStart={roomCanDragAssign ? (e) => {
           setRoomDragPayload(e, {
             roomId: room.id,
             roomNumber: room.room_number,
@@ -1003,7 +1026,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           setHoveredRoomId(null);
           if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
         } : undefined}
-        onDragEnd={canDragAssign ? (e) => {
+        onDragEnd={roomCanDragAssign ? (e) => {
           (e.currentTarget as HTMLElement).style.opacity = '1';
           setDragOverSection(null);
           justDraggedRef.current = Date.now();
@@ -1011,7 +1034,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
         } : undefined}
         // Selection mode: a plain tap/click picks the unit, a long press (or
         // right click) still opens the unit detail dialog.
-        onTouchStart={selectionEnabled ? () => {
+        onTouchStart={roomSelectionEnabled ? () => {
           longPressFiredRef.current = false;
           if (longPressRef.current) clearTimeout(longPressRef.current);
           longPressRef.current = setTimeout(() => {
@@ -1019,25 +1042,28 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             openSettingsDialog(room);
           }, 550);
         } : undefined}
-        onTouchEnd={selectionEnabled ? () => {
+        onTouchEnd={roomSelectionEnabled ? () => {
           if (longPressRef.current) clearTimeout(longPressRef.current);
         } : undefined}
-        onTouchMove={selectionEnabled ? () => {
+        onTouchMove={roomSelectionEnabled ? () => {
           if (longPressRef.current) clearTimeout(longPressRef.current);
         } : undefined}
-        onContextMenu={selectionEnabled ? (e) => { e.preventDefault(); openSettingsDialog(room); } : undefined}
+        onContextMenu={roomSelectionEnabled ? (e) => { e.preventDefault(); openSettingsDialog(room); } : undefined}
         onClick={() => {
-          if (selectionEnabled) {
+          if (roomSelectionEnabled) {
             if (longPressFiredRef.current) { longPressFiredRef.current = false; return; }
             if (Date.now() - justDraggedRef.current < 600) return;
             toggleUnitSelection(asSelectedUnit());
             return;
           }
+          // Assigned/OOS SLNT chips are captured by RoomOperationsQuickHub.
+          // Keeping this fallback preserves the existing mobile settings path
+          // if the hub is not mounted for a role.
           handleRoomClick(room);
         }}
         onMouseEnter={() => handleHoverEnter(room.id, room)}
         onMouseLeave={handleHoverLeave}
-        style={{ cursor: canDragAssign ? 'pointer' : canInteractWithRooms ? 'pointer' : 'default' }}
+        style={{ cursor: roomCanDragAssign || slntManageOnClick ? 'pointer' : canInteractWithRooms ? 'pointer' : 'default' }}
       >
         <div
           className={`
@@ -1068,6 +1094,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
 
           {displayLabel ?? room.room_number}
+          {isSlntTenant && room.status === 'out_of_order' && (
+            <span
+              className="ml-1 rounded bg-red-700 px-1 py-0.5 text-[8px] font-extrabold text-white"
+              title="Out of Service — release before assigning housekeeping"
+            >
+              OOS
+            </span>
+          )}
 
           {noShow && (
             <span
