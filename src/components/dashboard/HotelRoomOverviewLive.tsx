@@ -39,6 +39,7 @@ import { useVenues } from '@/hooks/useVenues';
 import { venueColor, venueEdgeStyle } from '@/lib/venueColors';
 import { shortUnitLabel } from '@/lib/venueUnitLabel';
 import { matchesSlntBoardFilter, slntSingleRoomLabel } from '@/lib/slntFlatRoomBoard';
+import { isDndForBusinessDate, isNoShowForBusinessDate } from '@/lib/currentRoomTransientFlags';
 
 
 
@@ -53,6 +54,7 @@ interface RoomData {
   last_cleaned_at: string | null;
   is_checkout_room: boolean | null;
   is_dnd: boolean | null;
+  dnd_marked_at?: string | null;
   notes: string | null;
   room_size_sqm: number | null;
   wing: string | null;
@@ -84,6 +86,9 @@ interface AssignmentData {
   notes: string | null;
   created_at?: string | null;
   service_result?: string | null;
+  is_dnd?: boolean | null;
+  dnd_attempt_count?: number | null;
+  dnd_marked_at?: string | null;
 }
 
 interface PublicAreaTask {
@@ -349,12 +354,12 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
       const [roomsRes, assignmentsRes, tasksRes, completedRes] = await Promise.all([
         supabase
           .from('rooms')
-          .select('id, hotel, room_number, floor_number, venue_id, status, last_cleaned_at, is_checkout_room, is_dnd, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, bed_configuration, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, updated_at, pms_metadata')
+          .select('id, hotel, room_number, floor_number, venue_id, status, last_cleaned_at, is_checkout_room, is_dnd, dnd_marked_at, notes, room_size_sqm, wing, room_category, elevator_proximity, room_type, bed_type, bed_configuration, room_name, guest_nights_stayed, towel_change_required, linen_change_required, created_at, updated_at, pms_metadata')
           .in('hotel', keys)
           .order('room_number'),
         supabase
           .from('room_assignments')
-          .select('id, room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes, created_at, service_result')
+          .select('id, room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes, created_at, service_result, is_dnd, dnd_attempt_count, dnd_marked_at')
           .eq('assignment_date', selectedDate),
         supabase
           .from('general_tasks')
@@ -399,7 +404,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           if (prevDate) {
             const { data: prevAssignRows } = await supabase
               .from('room_assignments')
-              .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes, completed_at, assignment_date')
+              .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes, completed_at, assignment_date, is_dnd, dnd_attempt_count, dnd_marked_at')
               .in('room_id', roomIdList)
               .eq('assignment_date', prevDate);
             const map = new Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>();
@@ -667,24 +672,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     (room.pms_metadata as any)?.occupiedToday !== true;
 
   const checkoutRooms = rooms.filter(isCheckoutBucket);
-  const arrivalRooms = rooms.filter(r => isArrivalOnly(r) && (r.pms_metadata as any)?.isNoShow !== true);
+  const isPmsNoShow = (room: RoomData) =>
+    isNoShowForBusinessDate(room, selectedDate);
+
+  // No-show is a current-business-day reservation state. Never infer it from
+  // sticky room notes, because notes can legitimately remain after midnight.
+  const isNoShow = (room: RoomData) => isPmsNoShow(room);
+
+  const arrivalRooms = rooms.filter(r => isArrivalOnly(r) && !isNoShow(r));
   const dailyRooms = rooms.filter(r => {
     if (isCheckoutBucket(r)) return false;
     // No-show rooms surface in their own section below.
-    if ((r.pms_metadata as any)?.isNoShow === true) return false;
+    if (isNoShow(r)) return false;
     // Arrivals get their own section (vacant room, guest expected today).
     if (isArrivalOnly(r)) return false;
     return true;
   });
-
-
-  const isPmsNoShow = (room: RoomData) =>
-    (room.pms_metadata as any)?.isNoShow === true;
-
-  const isNoShow = (room: RoomData) => {
-    if (isPmsNoShow(room)) return true;
-    return room.notes?.toLowerCase().includes('no show') || false;
-  };
 
   const isEarlyCheckout = (room: RoomData) => {
     // Only surface the Early Checkout badge on real checkout rooms. A daily
@@ -958,7 +961,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     }
     
     const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
-    const isDND = room.is_dnd;
+    const isDND = isDndForBusinessDate(room, selectedDate, assignment?.status);
     const noShow = isNoShow(room) && !isEarlyCheckout(room);
     const earlyCheckout = isEarlyCheckout(room);
     const staffName = getStaffName(room.id);
@@ -1066,13 +1069,13 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
           {displayLabel ?? room.room_number}
 
-          {(room.pms_metadata as any)?.isNoShow === true && (
+          {noShow && (
             <span
               className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-red-600 text-white"
               title="PMS reports no reservation — guest did not arrive"
             >NS</span>
           )}
-          {(room.pms_metadata as any)?.notArrived === true && (room.pms_metadata as any)?.isNoShow !== true && (
+          {(room.pms_metadata as any)?.notArrived === true && !noShow && (
             <span
               className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-slate-500 text-white"
               title="Arrival expected today — guest has not checked in yet"
@@ -1740,9 +1743,14 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     else statusKey = 'dirty';
     const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
     const roomFlags = parseRoomFlags(room.notes);
-    const isDND = room.is_dnd;
-    const noShow = isNoShow(room) && !isEarlyCheckout(room);
-    const earlyCheckout = isEarlyCheckout(room);
+    // Yesterday is read-only and must be rendered from yesterday's dated
+    // assignment, never from today's mutable room flags.
+    const isDND =
+      prev.status === 'dnd_pending_retry' ||
+      prev.is_dnd === true ||
+      (prev.dnd_attempt_count ?? 0) > 0;
+    const noShow = false;
+    const earlyCheckout = false;
     const sizeLabel = getSizeLabel(room.room_size_sqm);
     const staffName = assigneeLabel(staffMap, prev.assigned_to);
     return (
@@ -1830,7 +1838,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     });
 
     const floors = groupByFloor(roomList);
-    const dndCount = roomList.filter(r => r.is_dnd).length;
+    const dndCount = roomList.filter(r => isDndForBusinessDate(r, selectedDate, assignmentMap.get(r.id)?.status)).length;
     const isDragOver = dragOverSection === sectionType;
 
     /**
