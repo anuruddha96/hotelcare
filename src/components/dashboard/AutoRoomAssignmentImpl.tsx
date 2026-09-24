@@ -83,6 +83,11 @@ import { gozsduCanReviewAssignment, gozsduPreviewCoversWork } from '@/lib/gozsdu
 import { gozsduAllocationRespectsBuildings } from '@/lib/gozsduBuildingAssignment';
 import { fetchVerifiedGozsduAutoAssignRooms } from '@/lib/gozsduVerifiedAutoAssign';
 import {
+  activeWorkOwnedByExcludedStaff,
+  hasAutoAssignStaffPoolChanged,
+  selectedOwnerOverrides,
+} from '@/lib/autoAssignStaffAvailability';
+import {
   buildTomorrowAutoAssignRooms,
   loadExistingNextDayPlan,
   saveApprovedNextDayAutoAssignPlan,
@@ -971,6 +976,11 @@ export function AutoRoomAssignment({
   const handleGeneratePreview = async () => {
     const selectedStaff = allStaff.filter(staff => cleaningStaffIds.has(staff.id));
     const roomsToAssign = effectiveRooms;
+    // Attendance/schedule decides the default selection only. A manager can
+    // deliberately remove a checked-in cleaner (for training, another duty,
+    // sickness, etc.) and the remaining workload must be replanned around the
+    // cleaners that are still selected.
+    const staffPoolChanged = hasAutoAssignStaffPoolChanged(assignmentPreviews, cleaningStaffIds);
     if (selectedStaff.length === 0 || roomsToAssign.length === 0) {
       if (isGozsdu) toast.warning(selectedStaff.length === 0
         ? 'Select at least one cleaning housekeeper. Laundryners cannot receive rooms.'
@@ -1036,14 +1046,18 @@ export function AutoRoomAssignment({
       const end = toMinutes(schedule.shift_end);
       if (start !== null && end !== null) shiftMinutes.set(staff.id, (end - start + 1440) % 1440 || 1440);
     }
-    const fixedAreaOwners = new Map(sectionTaskOwners);
+    // Movable area overrides owned by a cleaner the manager just excluded are
+    // released back to the planner. Already-started area work remains fixed.
+    const nextSectionTaskOwners = selectedOwnerOverrides(sectionTaskOwners, cleaningStaffIds);
+    const fixedAreaOwners = new Map(nextSectionTaskOwners);
     lockedSectionTasks.forEach((value, taskId) => {
       if (value.status !== 'assigned' && value.assignedTo) fixedAreaOwners.set(taskId, value.assignedTo);
     });
     // A room can enter progress after the board opened. Always reload its
-    // live ownership before suggesting any rearrangement; manager unlocks must
-    // never override an active in-progress or DND retry assignment.
+    // live ownership before suggesting any rearrangement; manager availability
+    // changes may redistribute assigned rooms, but never work already started.
     const inProgressRoomIds = new Set<string>();
+    let currentWorkRows: Array<{ room_id: string; assigned_to: string; status: string }> = [];
     if (!isNextDayPlanning && roomsToAssign.length) {
       const { data: currentWork, error: currentWorkError } = await supabase
         .from('room_assignments')
@@ -1054,9 +1068,24 @@ export function AutoRoomAssignment({
         toast.error('Cannot verify current room ownership. Refresh before regenerating.');
         return;
       }
+      currentWorkRows = (currentWork || []) as Array<{ room_id: string; assigned_to: string; status: string }>;
+      const excludedActiveWork = activeWorkOwnedByExcludedStaff(currentWorkRows, cleaningStaffIds);
+      if (excludedActiveWork.length > 0) {
+        const roomNameById = new Map(roomsToAssign.map(room => [room.id, room.room_number]));
+        const excludedIds = new Set(excludedActiveWork.map(row => row.assigned_to));
+        const excludedNames = allStaff
+          .filter(staff => excludedIds.has(staff.id))
+          .map(staff => staff.nickname || staff.full_name);
+        const roomNames = excludedActiveWork
+          .map(row => roomNameById.get(row.room_id) || row.room_id)
+          .slice(0, 5)
+          .join(', ');
+        toast.error(`${excludedNames.join(', ') || 'A deselected housekeeper'} already has work in progress${roomNames ? ` in room(s) ${roomNames}` : ''}. Finish or manually reassign that active work first; assigned-but-not-started rooms can be redistributed automatically.`);
+        return;
+      }
       const previewOwners = new Map(assignmentPreviews.flatMap(person =>
         person.rooms.map(room => [room.id, person.staffId] as const)));
-      for (const row of currentWork || []) {
+      for (const row of currentWorkRows) {
         if (row.status !== 'in_progress' && row.status !== 'dnd_pending_retry') continue;
         if (previewOwners.get(row.room_id) !== row.assigned_to) {
           toast.error('An in-progress room changed since the preview. Refresh before regenerating.');
@@ -1065,7 +1094,24 @@ export function AutoRoomAssignment({
         inProgressRoomIds.add(row.room_id);
       }
     }
-    const enforcedLocks = new Set([...lockedRoomIds, ...inProgressRoomIds]);
+
+    // Preserve manual room locks only while their owner is still selected.
+    // Deselecting a cleaner is an explicit instruction to release that
+    // cleaner's not-started rooms back into the automatic distribution.
+    const previousOwners = new Map(assignmentPreviews.flatMap(person =>
+      person.rooms.map(room => [room.id, person.staffId] as const)));
+    const fixedRoomOwners = new Map<string, string>();
+    for (const roomId of lockedRoomIds) {
+      const ownerId = previousOwners.get(roomId);
+      if (ownerId && cleaningStaffIds.has(ownerId)) fixedRoomOwners.set(roomId, ownerId);
+    }
+    for (const row of currentWorkRows) {
+      if ((row.status === 'in_progress' || row.status === 'dnd_pending_retry')
+        && cleaningStaffIds.has(row.assigned_to)) {
+        fixedRoomOwners.set(row.room_id, row.assigned_to);
+      }
+    }
+    const enforcedLocks = new Set(fixedRoomOwners.keys());
     hotelConfig.staffPreferences = historicalPreferences;
     const result = generateSmartHousekeepingPlan({
       rooms: roomsToAssign,
@@ -1074,8 +1120,9 @@ export function AutoRoomAssignment({
       hotelId: profile?.assigned_hotel || '',
       hotelConfig,
       goal: planningGoal,
-      previous: assignmentPreviews.length ? assignmentPreviews : undefined,
+      previous: staffPoolChanged ? undefined : assignmentPreviews.length ? assignmentPreviews : undefined,
       lockedRoomIds: enforcedLocks,
+      fixedRoomOwners,
       shiftMinutes,
       publicAreaTemplates: sectionTaskTemplates,
       fixedAreaOwners,
@@ -1085,7 +1132,9 @@ export function AutoRoomAssignment({
       gozsdu: isGozsdu,
       seed: Date.now(),
     });
-    setPlanningExplanation(result.reason);
+    setPlanningExplanation(staffPoolChanged
+      ? `Staff availability changed. ${result.reason}`
+      : result.reason);
     if (!result.changed || !result.plan) {
       if (result.plan) toast.info(result.reason);
       else toast.error(result.reason);
@@ -1098,6 +1147,23 @@ export function AutoRoomAssignment({
     }
     pushHistory(assignmentPreviews);
     setAssignmentPreviews(previews);
+    if (staffPoolChanged) {
+      // The new staff pool is authoritative for all not-started cleaning work.
+      // Keep only locks that still belong to selected cleaners and release any
+      // movable area/manual-extra assignments owned by excluded cleaners.
+      setLockedRoomIds(new Set(enforcedLocks));
+      setSectionTaskOwners(nextSectionTaskOwners);
+      setPublicAreaAssignments(previous => new Map(
+        [...previous].filter(([, staffId]) => cleaningStaffIds.has(staffId)),
+      ));
+      const previousStaff = new Set(assignmentPreviews.map(preview => preview.staffId));
+      const excludedNames = allStaff
+        .filter(staff => previousStaff.has(staff.id) && !cleaningStaffIds.has(staff.id))
+        .map(staff => staff.nickname || staff.full_name);
+      if (excludedNames.length) {
+        toast.success(`${excludedNames.join(', ')} skipped. Eligible rooms were redistributed across ${selectedStaff.length} selected cleaner${selectedStaff.length === 1 ? '' : 's'}.`);
+      }
+    }
     if (isNextDayPlanning) {
       setSuggestedByRoom(new Map(previews.flatMap(preview =>
         preview.rooms.map(room => [room.id, preview.staffId] as [string, string]),
@@ -1821,7 +1887,14 @@ export function AutoRoomAssignment({
                   <div className="py-8 text-center text-muted-foreground"><AlertCircle className="mx-auto mb-3 h-10 w-10 opacity-50" /><p>{t('autoAssign.noDirtyRooms')}</p></div>
                 ) : (
                   <>
-                    <h3 className="flex items-center gap-2 font-medium"><Users className="h-4 w-4" />{t('autoAssign.selectHousekeepers')} ({cleaningStaffIds.size} {t('autoAssign.selected')})</h3>
+                    <div className="space-y-1">
+                      <h3 className="flex items-center gap-2 font-medium"><Users className="h-4 w-4" />{t('autoAssign.selectHousekeepers')} ({cleaningStaffIds.size} {t('autoAssign.selected')})</h3>
+                      <p className="text-xs text-muted-foreground">
+                        {isNextDayPlanning
+                          ? 'Scheduled cleaners are preselected for convenience. Untick anyone who will do another duty; rooms will be redistributed across the cleaners you keep selected.'
+                          : 'Checked-in cleaners are preselected for convenience, not required. Untick anyone doing another duty; Auto Assign will redistribute all not-started rooms across the cleaners you keep selected.'}
+                      </p>
+                    </div>
                     <div className="grid max-h-[38vh] grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
                       {allStaff.map(staff => {
                         const laundryner = isLaundryner(staff.id);
