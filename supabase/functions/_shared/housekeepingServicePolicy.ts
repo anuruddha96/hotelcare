@@ -157,14 +157,18 @@ export function classifyUnsoldRoomAfterMorningPms(
     }
   }
 
-  // Commercial/default behavior: a multi-night occupied room remains a normal
-  // daily task. Existing property-side/manual service flags are not cleared.
+  // Existing HotelCare default used by Mika, Ottofiori, SLNT and properties
+  // without a custom policy: normal daily work, with the same 3/7/11... towel
+  // and 5/9/13... linen cadence already used by next-day planning.
+  const genericCycle = currentNight >= 3 ? (currentNight - 3) % 4 : -1;
+  const genericTowel = genericCycle === 0;
+  const genericLinen = genericCycle === 2;
   return {
     eligible: true,
     assignmentType: "daily_cleaning",
-    towelChangeRequired: false,
-    linenChangeRequired: false,
-    service: "daily",
-    reason: "standard_daily",
+    towelChangeRequired: genericTowel,
+    linenChangeRequired: genericLinen,
+    service: genericLinen ? "change_room" : genericTowel ? "towel_change" : "daily",
+    reason: "standard_daily_cycle",
   };
 }
