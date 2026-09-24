@@ -10,6 +10,10 @@ BEGIN
       LEFT JOIN public.rooms r ON r.id = a.room_id
       LEFT JOIN public.profiles p ON p.id = a.assigned_to
      WHERE a.status IN ('assigned', 'in_progress')
+       -- Operational safety gate: today/future work plus yesterday carry-over.
+       -- Older mismatches are preserved as historical evidence; the write
+       -- trigger prevents new cross-tenant links from recurring.
+       AND a.assignment_date >= current_date - 1
        AND (
          a.organization_slug IS DISTINCT FROM r.organization_slug
          OR a.organization_slug IS DISTINCT FROM p.organization_slug
