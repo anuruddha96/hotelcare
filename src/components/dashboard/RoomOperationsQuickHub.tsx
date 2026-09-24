@@ -42,6 +42,7 @@ type RoomSelection = {
   roomId: string | null;
   roomStatus: string | null;
   roomNotes: string | null;
+  pmsMetadata: Record<string, any> | null;
   roomType: string | null;
   roomCategory: string | null;
   roomSizeSqm: number | null;
@@ -108,6 +109,7 @@ function statusLabel(status: string | null) {
   if (status === 'completed') return 'Cleaning completed';
   if (status === 'pending_approval') return 'Supervisor approval pending';
   if (status === 'clean') return 'Clean room';
+  if (status === 'out_of_order') return 'Out of Service';
   if (status === 'dirty' || status === 'assigned') return 'Dirty room';
   return status.replaceAll('_', ' ');
 }
@@ -167,6 +169,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       roomId: null,
       roomStatus: null,
       roomNotes: null,
+      pmsMetadata: null,
       roomType: null,
       roomCategory: null,
       roomSizeSqm: null,
@@ -198,7 +201,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       const hotelKeys = resolvedKeys.length ? resolvedKeys : [hotelName];
       let roomQuery = supabase
         .from('rooms')
-        .select('id, hotel, room_number, status, notes, room_type, room_category, room_size_sqm, floor_number, bed_configuration, is_checkout_room, towel_change_required, linen_change_required, last_cleaned_at')
+        .select('id, hotel, room_number, status, notes, pms_metadata, room_type, room_category, room_size_sqm, floor_number, bed_configuration, is_checkout_room, towel_change_required, linen_change_required, last_cleaned_at')
         .in('hotel', hotelKeys);
       roomQuery = roomId
         ? roomQuery.eq('id', roomId)
@@ -241,6 +244,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         roomId: room.id,
         roomStatus: room.status || null,
         roomNotes: room.notes || null,
+        pmsMetadata: (room.pms_metadata as Record<string, any> | null) || null,
         roomType: room.room_type || null,
         roomCategory: room.room_category || null,
         roomSizeSqm: room.room_size_sqm || null,
@@ -559,9 +563,26 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     setActionLoading(blocked ? 'block-oos' : 'release-oos');
 
     try {
+      const now = new Date().toISOString();
+      const nextMetadata = {
+        ...(selection.pmsMetadata || {}),
+        slntManualOutOfService: blocked,
+        ...(blocked
+          ? {
+              slntManualOutOfServiceAt: now,
+              slntManualOutOfServiceBy: profile?.id || null,
+            }
+          : {
+              slntManualOutOfServiceReleasedAt: now,
+              slntManualOutOfServiceReleasedBy: profile?.id || null,
+            }),
+      };
       const { error: roomError } = await supabase
         .from('rooms')
-        .update({ status: blocked ? 'out_of_order' : 'dirty' } as any)
+        .update({
+          status: blocked ? 'out_of_order' : 'dirty',
+          pms_metadata: nextMetadata,
+        } as any)
         .eq('id', roomId);
       if (roomError) throw roomError;
 
@@ -577,6 +598,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       setSelection((current) => current ? {
         ...current,
         roomStatus: blocked ? 'out_of_order' : 'dirty',
+        pmsMetadata: nextMetadata,
         ...(blocked && activeAssignment ? {
           assignmentId: null,
           assignedTo: null,
@@ -613,12 +635,20 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     || !!selection.assignmentNotes?.includes('[NO_SERVICE]')
     || !!selection.assignmentNotes?.includes('[TOWEL_CHANGE_ONLY]')
   );
-  const visibleStatusLabel = hasNonCleaningOutcome
-    ? 'No Service / DND outcome'
-    : statusLabel(selection?.assignmentStatus || selection?.roomStatus || null);
-  const visibleStatusTone = hasNonCleaningOutcome
-    ? 'border-rose-200 bg-rose-50 text-rose-900'
-    : statusTone(selection?.assignmentStatus || selection?.roomStatus || null);
+  const isSlntOutOfService = isSlntTenant && selection?.roomStatus === 'out_of_order';
+  const effectiveStatus = isSlntOutOfService
+    ? 'out_of_order'
+    : selection?.assignmentStatus || selection?.roomStatus || null;
+  const visibleStatusLabel = isSlntOutOfService
+    ? 'Out of Service'
+    : hasNonCleaningOutcome
+      ? 'No Service / DND outcome'
+      : statusLabel(effectiveStatus);
+  const visibleStatusTone = isSlntOutOfService
+    ? statusTone('out_of_order')
+    : hasNonCleaningOutcome
+      ? 'border-rose-200 bg-rose-50 text-rose-900'
+      : statusTone(effectiveStatus);
 
   const mainView = !selection ? null : (
     <div className="space-y-4">
