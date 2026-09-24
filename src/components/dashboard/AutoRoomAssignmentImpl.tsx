@@ -1056,7 +1056,6 @@ export function AutoRoomAssignment({
     // A room can enter progress after the board opened. Always reload its
     // live ownership before suggesting any rearrangement; manager availability
     // changes may redistribute assigned rooms, but never work already started.
-    const inProgressRoomIds = new Set<string>();
     let currentWorkRows: Array<{ room_id: string; assigned_to: string; status: string }> = [];
     if (!isNextDayPlanning && roomsToAssign.length) {
       const { data: currentWork, error: currentWorkError } = await supabase
@@ -1091,7 +1090,6 @@ export function AutoRoomAssignment({
           toast.error('An in-progress room changed since the preview. Refresh before regenerating.');
           return;
         }
-        inProgressRoomIds.add(row.room_id);
       }
     }
 
