@@ -26,8 +26,10 @@ counts**, and may overlap across the two categories.
    `supabase/tests/housekeeping_tenant_guard_release_preflight.sql` using
    `psql -X -v ON_ERROR_STOP=1 -f ...` against an authorized, production-equivalent
    snapshot; it must emit `HK_TENANT_PREFLIGHT_OK` before rollout. It fails closed
-   when ANY active assignment still links a foreign/missing room or worker, or
-   when a next-day plan has duplicate primary owners. No employee identifiers
+   when any `assigned`/`in_progress` mismatch falls inside the operational
+   window (today, future work, or yesterday carry-over), or when a next-day plan
+   has duplicate primary owners. Older mismatch rows are retained as historical
+   evidence rather than silently rewritten; the write trigger prevents recurrence. No employee identifiers
    are printed by the preflight. Its GitHub CI tests deliberately fail on
    unresolved synthetic active links and pass after synthetic reconciliation.
    Store any row-level audit reports in a secure internal location accessible
@@ -126,3 +128,15 @@ missing room. Pause rollout, identify the specific mismatch with authorized
 personnel, restore the prior state using a reviewed migration and verified
 backup only if necessary, and log the incident. A rollback must not silently
 reintroduce general cross-organization reads or delete historical work.
+
+
+## 24 Sep 2026 live read-only re-audit
+
+A fresh aggregate audit confirmed the same 724 worker mismatches and four room
+mismatches, but none are dated today or in the future; the latest mismatch date
+is 28 May 2026. All 724 worker mismatches point to one currently-SLNT admin
+profile, with no same-organization assignment rows for that profile. The foreign
+rows span old RD Hotels and test-tenant assignments. Preserve these rows as
+historical evidence rather than guessing replacement workers. The release gate
+continues to block any mismatch in the operational window (today/future plus
+yesterday carry-over).
