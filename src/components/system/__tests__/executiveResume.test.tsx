@@ -51,22 +51,27 @@ afterEach(() => {
   else Reflect.deleteProperty(document, "visibilityState");
 });
 
-describe("executive idle return — scope", () => {
-  it("includes executive accounts and super admins", () => {
+describe("authenticated user idle return — scope", () => {
+  it("includes every authenticated HotelCare profile", () => {
     expect(isResumeRefreshEligible({ role: "admin" })).toBe(true);
     expect(isResumeRefreshEligible({ role: "top_management" })).toBe(true);
     expect(isResumeRefreshEligible({ role: "top_management_manager" })).toBe(true);
+    expect(isResumeRefreshEligible({ role: "housekeeping" })).toBe(true);
+    expect(isResumeRefreshEligible({ role: "maintenance" })).toBe(true);
+    expect(isResumeRefreshEligible({ role: "reception" })).toBe(true);
+    expect(isResumeRefreshEligible({ role: "manager" })).toBe(true);
+    expect(isResumeRefreshEligible({ role: "finance" })).toBe(true);
     expect(isResumeRefreshEligible({ role: "housekeeping", is_super_admin: true })).toBe(true);
     expect(isResumeRefreshEligible(null)).toBe(false);
   });
 
   it.each(["housekeeping", "maintenance", "reception", "manager", "finance"])(
-    "does not interrupt operational role %s",
+    "shows the same refresh prompt for operational role %s after one hour",
     (role) => {
       auth(role);
       render(<ExecutiveResumeRefresh />);
-      returnFromHidden(30 * 60_000);
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      returnFromHidden(RESUME_REFRESH_AFTER_MS);
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
     },
   );
 
@@ -78,17 +83,17 @@ describe("executive idle return — scope", () => {
   });
 });
 
-describe("executive idle return — manual refresh", () => {
+describe("authenticated user idle return — manual refresh", () => {
   it("does nothing on a short absence and never forces a reload", () => {
     render(<ExecutiveResumeRefresh />);
     returnFromHidden(RESUME_REFRESH_AFTER_MS - 1);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("shows an accessible blurred-background prompt after exactly 15 minutes", () => {
+  it("shows an accessible blurred-background prompt after exactly one hour", () => {
     render(<ExecutiveResumeRefresh />);
     returnFromHidden(RESUME_REFRESH_AFTER_MS);
-    expect(RESUME_REFRESH_AFTER_MS).toBe(15 * 60_000);
+    expect(RESUME_REFRESH_AFTER_MS).toBe(60 * 60_000);
     expect(screen.getByRole("dialog")).toHaveAttribute("aria-modal", "true");
     expect(screen.getByRole("heading", { name: "Welcome back" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh now" })).toBeInTheDocument();
@@ -97,7 +102,7 @@ describe("executive idle return — manual refresh", () => {
 
   it("handles repeated visibilitychange, focus and pageshow without multiple prompts", () => {
     render(<ExecutiveResumeRefresh />);
-    returnFromHidden(20 * 60_000);
+    returnFromHidden(RESUME_REFRESH_AFTER_MS + 1);
     act(() => {
       window.dispatchEvent(new Event("focus"));
       window.dispatchEvent(new Event("pageshow"));
@@ -105,7 +110,7 @@ describe("executive idle return — manual refresh", () => {
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
   });
 
-  it("blocks the first click after 15 minutes of foreground inactivity", () => {
+  it("blocks the first click after one hour of foreground inactivity", () => {
     render(<ExecutiveResumeRefresh />);
     const underlyingAction = vi.fn();
     const button = document.createElement("button");
@@ -120,7 +125,7 @@ describe("executive idle return — manual refresh", () => {
     button.remove();
   });
 
-  it("clears an open prompt when the executive signs out", () => {
+  it("clears an open prompt when the user signs out", () => {
     const view = render(<ExecutiveResumeRefresh />);
     returnFromHidden(RESUME_REFRESH_AFTER_MS + 1);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
