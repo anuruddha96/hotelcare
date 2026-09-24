@@ -423,7 +423,7 @@ EXECUTE FUNCTION public.hc_preserve_portfolio_same_day_room_notes();
 -- deployed a day later, then freeze the immediately previous business date.
 -- Both operations write historical snapshots only; today's rooms/assignments
 -- remain untouched.
-DO $
+DO $finalize$
 DECLARE v_today date := (now() AT TIME ZONE 'Europe/Budapest')::date;
 BEGIN
   IF DATE '2026-09-23' < v_today THEN
@@ -431,4 +431,4 @@ BEGIN
   END IF;
   PERFORM public.finalize_housekeeping_business_date(v_today - 1);
 END
-$;
+$finalize$;
