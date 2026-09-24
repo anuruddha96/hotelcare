@@ -56,6 +56,9 @@ type RoomSelection = {
   assignmentId: string | null;
   assignedTo: string | null;
   assignmentStatus: string | null;
+  assignmentType: string | null;
+  readyToClean: boolean;
+  pmsHold: boolean;
   assignmentNotes: string | null;
   assignmentServiceResult: string | null;
   priority: number;
@@ -143,6 +146,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   const { venuesEnabled, orgSlug } = useTenantFeatures();
   const activeSlug = orgSlug?.toLowerCase() ?? '';
   const isSlntTenant = venuesEnabled && (activeSlug === 'slnt' || activeSlug === 'slnt-group');
+  const isGozsdu = isGozsduCourtHotel(hotelName);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const requestRef = useRef(0);
   const [open, setOpen] = useState(false);
@@ -157,8 +161,10 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
 
   const role = String(profile?.role || '').toLowerCase();
   const canManage = hasManagerPowers(profile?.role) || role === 'supervisor';
-  const canOpen = canManage || role === 'reception';
-  const canWriteNotes = canManage || role === 'reception';
+  const isReception = role === 'reception';
+  const canOpen = canManage || isReception;
+  const canWriteNotes = canManage || isReception;
+  const canManualGozsduRtc = isGozsdu && (canManage || isReception);
   const readOnlyForPast = selectedDate !== todayBudapest();
   const textileChangeLabel = isGozsduCourtHotel(hotelName) ? 'Complete Textile Change' : 'Change Room';
 
@@ -183,6 +189,9 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       assignmentId: null,
       assignedTo: null,
       assignmentStatus: null,
+      assignmentType: null,
+      readyToClean: false,
+      pmsHold: false,
       assignmentNotes: null,
       assignmentServiceResult: null,
       priority: 1,
@@ -216,7 +225,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       const [{ data: assignmentRows, error: assignmentError }, { data: minibarRows }] = await Promise.all([
         supabase
           .from('room_assignments')
-          .select('id, assigned_to, status, priority, assignment_type, supervisor_approved, notes, service_result')
+          .select('id, assigned_to, status, priority, assignment_type, supervisor_approved, ready_to_clean, pms_hold, notes, service_result')
           .eq('room_id', room.id)
           .eq('assignment_date', selectedDate)
           .order('created_at', { ascending: false })
@@ -258,6 +267,9 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         assignmentId: assignment?.id || null,
         assignedTo: assignment?.assigned_to || null,
         assignmentStatus: assignment?.status || null,
+        assignmentType: assignment?.assignment_type || null,
+        readyToClean: !!assignment?.ready_to_clean,
+        pmsHold: !!assignment?.pms_hold,
         assignmentNotes: assignment?.notes || null,
         assignmentServiceResult: assignment?.service_result || null,
         priority: Number(assignment?.priority) >= 3 ? 3 : Number(assignment?.priority) === 2 ? 2 : 1,
@@ -282,7 +294,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     // Venue-enabled boards normally reserve tap/click for assignment. SLNT is
     // the exception once the unit is already assigned or blocked OOS: those
     // chips open the same manager operations used by RD Hotels.
-    if (venuesEnabled && (!isSlntTenant || !chip.manageable)) return;
+    if (venuesEnabled && !isGozsdu && (!isSlntTenant || !chip.manageable)) return;
 
     event.preventDefault();
     event.stopPropagation();
@@ -290,7 +302,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     setMoreOpen(false);
     setOpen(true);
     void loadRoom({ roomNumber: chip.roomNumber, roomId: chip.roomId });
-  }, [canOpen, isSlntTenant, loadRoom, venuesEnabled]);
+  }, [canOpen, isGozsdu, isSlntTenant, loadRoom, venuesEnabled]);
 
   const refresh = async () => {
     if (!selection?.roomNumber) return;
@@ -317,6 +329,113 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     } catch (error) {
       console.error(success, error);
       toast.error('Could not update this room.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const markReadyToClean = async () => {
+    if (!canManualGozsduRtc || readOnlyForPast || !selection?.roomId || !selection.assignmentId) return;
+    if (selection.assignmentType !== 'checkout_cleaning' || !selection.isCheckout) {
+      toast.warning('RTC can only be released for an active checkout-cleaning assignment.');
+      return;
+    }
+    if (selection.assignmentStatus === 'completed') {
+      toast.info(`Room ${selection.roomNumber} cleaning is already completed.`);
+      return;
+    }
+    if (selection.readyToClean) {
+      toast.info(`Room ${selection.roomNumber} is already Ready to Clean.`);
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Confirm the guest has physically checked out from room ${selection.roomNumber}.\n\nThis will manually release the room to housekeeping as Ready to Clean (RTC). It will not change or fake the checkout status in Previo.`,
+    );
+    if (!confirmed) return;
+
+    const roomId = selection.roomId;
+    const assignmentId = selection.assignmentId;
+    const roomNumber = selection.roomNumber;
+    const now = new Date().toISOString();
+    const source = isReception ? 'reception_ui' : 'manager_ui';
+    setActionLoading('mark-rtc');
+
+    try {
+      const { data: updatedAssignment, error: assignmentError } = await supabase
+        .from('room_assignments')
+        .update({
+          ready_to_clean: true,
+          pms_hold: false,
+          pms_hold_reason: null,
+        } as any)
+        .eq('id', assignmentId)
+        .eq('assignment_date', selectedDate)
+        .eq('assignment_type', 'checkout_cleaning')
+        .neq('status', 'completed')
+        .select('id, ready_to_clean, pms_hold')
+        .maybeSingle();
+      if (assignmentError) throw assignmentError;
+      if (!updatedAssignment?.id) {
+        throw new Error('The checkout assignment changed. Refresh the room and try again.');
+      }
+
+      // Preserve the PMS payload exactly as received and add a HotelCare-only
+      // operational override marker. This records who released the room without
+      // pretending that Previo confirmed the checkout.
+      const { data: freshRoom, error: roomReadError } = await supabase
+        .from('rooms')
+        .select('pms_metadata')
+        .eq('id', roomId)
+        .maybeSingle();
+      if (roomReadError) throw roomReadError;
+
+      const nextMetadata = {
+        ...(((freshRoom as any)?.pms_metadata as Record<string, any> | null) || selection.pmsMetadata || {}),
+        manualReadyToCleanAt: now,
+        manualReadyToCleanBy: profile?.id || null,
+        manualReadyToCleanSource: source,
+      };
+      const { error: roomError } = await supabase
+        .from('rooms')
+        .update({ pms_metadata: nextMetadata } as any)
+        .eq('id', roomId);
+      if (roomError) throw roomError;
+
+      // Best-effort audit event. RTC remains released even if the audit table
+      // is temporarily unavailable; the metadata marker above is also durable.
+      const { error: auditError } = await supabase.from('pms_change_events').insert({
+        hotel_id: hotelName,
+        room_id: roomId,
+        room_label: roomNumber,
+        event_type: 'rtc_released_manual',
+        source,
+        before: {
+          ready_to_clean: false,
+          pms_hold: selection.pmsHold,
+          previo_checked_out_today: selection.pmsMetadata?.checkedOutToday === true,
+        },
+        after: {
+          ready_to_clean: true,
+          pms_hold: false,
+          previo_checked_out_today: selection.pmsMetadata?.checkedOutToday === true,
+        },
+        is_conflict: selection.pmsMetadata?.checkedOutToday !== true,
+      } as any);
+      if (auditError) console.warn('Manual RTC audit event could not be written', auditError);
+
+      setSelection((current) => current ? {
+        ...current,
+        readyToClean: true,
+        pmsHold: false,
+        pmsMetadata: nextMetadata,
+      } : current);
+      toast.success(`Room ${roomNumber} manually released as Ready to Clean (RTC)`);
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } catch (error) {
+      console.error('Failed to manually release RTC', error);
+      toast.error((error as any)?.message || 'Could not mark this room Ready to Clean.');
+      await loadRoom({ roomNumber, roomId });
     } finally {
       setActionLoading(null);
     }
@@ -543,6 +662,9 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         assignmentId: null,
         assignedTo: null,
         assignmentStatus: null,
+        assignmentType: null,
+        readyToClean: false,
+        pmsHold: false,
         assignmentNotes: null,
         assignmentServiceResult: null,
         supervisorApproved: false,
@@ -719,6 +841,37 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
           <span className="flex items-center gap-2"><ArrowLeftRight className="h-4 w-4" /> Switch to {selection.isCheckout ? 'Daily' : 'Checkout'}</span>
           <span className="text-xs opacity-90">Current: {selection.isCheckout ? 'Checkout' : 'Daily'}</span>
         </Button>
+
+        {canManualGozsduRtc && selection.isCheckout && selection.assignmentId && selection.assignmentType === 'checkout_cleaning' && (
+          <div className="mb-3 rounded-xl border border-teal-200 bg-teal-50 p-2.5">
+            {selection.readyToClean ? (
+              <div className="flex items-center justify-center gap-2 rounded-lg border border-teal-200 bg-white/80 px-3 py-2.5 text-sm font-bold text-teal-800">
+                <CheckCircle2 className="h-4 w-4" />
+                Ready to Clean (RTC)
+              </div>
+            ) : (
+              <Button
+                type="button"
+                className="w-full bg-teal-600 font-bold hover:bg-teal-700"
+                disabled={readOnlyForPast || !!actionLoading || selection.assignmentStatus === 'completed'}
+                onClick={() => void markReadyToClean()}
+              >
+                {actionLoading === 'mark-rtc'
+                  ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                Mark Ready to Clean (RTC)
+              </Button>
+            )}
+            <p className="mt-1.5 text-[10px] leading-snug text-teal-900/75">
+              Gozsdu reception override. Use only after confirming the guest has physically checked out. This releases HotelCare housekeeping only and does not alter the checkout status received from Previo.
+            </p>
+            {selection.pmsHold && !selection.readyToClean && (
+              <p className="mt-1 text-[10px] font-semibold text-amber-800">
+                PMS is currently holding this room. Manual RTC will explicitly release that HotelCare hold after your confirmation.
+              </p>
+            )}
+          </div>
+        )}
 
         {canManage && (
           <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 p-2.5">
