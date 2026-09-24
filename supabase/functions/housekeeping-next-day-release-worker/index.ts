@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.7.1";
 import { fetchPrevioWithAuth, safePrevioJson } from "../_shared/previoAuth.ts";
 import { callPrevioXml, loadPrevioCredentials } from "../_shared/previoCredentials.ts";
 import { sendEmail } from "../_shared/emailSender.ts";
+import { classifyUnsoldRoomAfterMorningPms } from "../_shared/housekeepingServicePolicy.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -85,6 +86,8 @@ type FreshRoom = {
   roomName: string;
   externalRoomId?: string | null;
   accountId?: string | null;
+  arrivalDate?: string | null;
+  departureDate?: string | null;
   source: string;
 };
 
@@ -93,11 +96,14 @@ type PlanItem = {
   room_id: string;
   assigned_to: string;
   assignment_type: string;
+  recommendation_context?: Record<string, any> | null;
   rooms: {
     id: string;
     room_number: string;
     status: string | null;
     pms_metadata: Record<string, any> | null;
+    towel_change_required?: boolean | null;
+    linen_change_required?: boolean | null;
   } | null;
 };
 
@@ -135,6 +141,8 @@ function parseXmlReservations(xml: string, planDate: string, accountId: string |
       roomName,
       externalRoomId,
       accountId,
+      arrivalDate: arrival,
+      departureDate: departure,
       source: "previo_xml_searchReservations",
     });
   }
@@ -192,6 +200,8 @@ async function fetchAccountFreshRooms(account: any, planDate: string): Promise<F
       roomName: String(room.name ?? "").trim(),
       externalRoomId: room.roomId != null ? String(room.roomId) : null,
       accountId: account.id,
+      arrivalDate: arrival,
+      departureDate: departure,
       source: "previo_rest_rooms_embedded_reservation",
     });
   }
@@ -224,7 +234,7 @@ async function validateStandardHotel(admin: any, supabaseUrl: string, serviceRol
 
   const { data, error } = await admin
     .from("daily_overview_snapshots")
-    .select("room_label,room_number,status,housekeeping_dep,housekeeping_stay,captured_at")
+    .select("room_label,room_number,arrival_date,departure_date,status,housekeeping_dep,housekeeping_stay,captured_at")
     .eq("hotel_id", hotelId)
     .eq("business_date", planDate)
     .eq("source", "previo");
@@ -242,6 +252,8 @@ async function validateStandardHotel(admin: any, supabaseUrl: string, serviceRol
       kind,
       roomName: row.room_number || row.room_label,
       accountId: null,
+      arrivalDate: row.arrival_date || null,
+      departureDate: row.departure_date || null,
       source: "previo_daily_overview",
     };
     for (const key of [...aliases(row.room_number), ...aliases(row.room_label)]) {
@@ -468,7 +480,7 @@ Deno.serve(async (req) => {
     try {
       const { data: itemRows, error: itemError } = await admin
         .from("next_day_housekeeping_plan_items")
-        .select("id,room_id,assigned_to,assignment_type,rooms!inner(id,room_number,status,pms_metadata)")
+        .select("id,room_id,assigned_to,assignment_type,recommendation_context,rooms!inner(id,room_number,status,pms_metadata,towel_change_required,linen_change_required)")
         .eq("plan_id", plan.id);
       if (itemError) throw itemError;
       const items = (itemRows || []) as PlanItem[];
@@ -511,11 +523,20 @@ Deno.serve(async (req) => {
         validationSource = portfolio.source;
       }
 
+      const { data: hotelConfig, error: hotelConfigError } = await admin
+        .from("hotel_configurations")
+        .select("hotel_id,hotel_name,settings")
+        .eq("hotel_id", plan.hotel_id)
+        .maybeSingle();
+      if (hotelConfigError) throw hotelConfigError;
+
       const eligibleItemIds = new Set<string>();
       const eligibleRoomIds = new Set<string>();
       const assignmentTypeOverrides: Record<string, string> = {};
+      const serviceFlagOverrides: Record<string, { towel_change_required?: boolean; linen_change_required?: boolean }> = {};
       const skippedItems: Array<Record<string, unknown>> = [];
       const typeChanges: Array<Record<string, unknown>> = [];
+      const serviceChanges: Array<Record<string, unknown>> = [];
 
       for (const item of items) {
         const room = item.rooms;
@@ -568,11 +589,59 @@ Deno.serve(async (req) => {
         }
 
         const plannedKind: FreshKind = item.assignment_type === "checkout_cleaning" ? "checkout" : "daily";
-        const currentAssignmentType = fresh.kind === "checkout" ? "checkout_cleaning" : "daily_cleaning";
+        const context = item.recommendation_context || {};
+        const wasUnsoldAtPlanning = context.unsold_at_planning === true
+          || context.potential_checkout === true
+          || context.planning_status === "unsold_now"
+          || context.planning_status === "potential_checkout";
+
+        let currentAssignmentType = fresh.kind === "checkout" ? "checkout_cleaning" : "daily_cleaning";
+        if (wasUnsoldAtPlanning) {
+          const service = classifyUnsoldRoomAfterMorningPms({
+            hotelId: plan.hotel_id,
+            hotelName: hotelConfig?.hotel_name || plan.hotel_id,
+            planDate: plan.plan_date,
+            kind: fresh.kind,
+            arrivalDate: fresh.arrivalDate || null,
+            departureDate: fresh.departureDate || null,
+            settings: hotelConfig?.settings || null,
+          });
+          currentAssignmentType = service.assignmentType;
+
+          if (!service.eligible) {
+            skippedItems.push({
+              plan_item_id: item.id,
+              room_id: item.room_id,
+              room_number: room.room_number,
+              assigned_to: item.assigned_to,
+              reason: "no_housekeeping_service_due",
+              policy_reason: service.reason,
+            });
+            continue;
+          }
+
+          if (service.towelChangeRequired || service.linenChangeRequired) {
+            serviceFlagOverrides[item.room_id] = {
+              ...(service.towelChangeRequired ? { towel_change_required: true } : {}),
+              ...(service.linenChangeRequired ? { linen_change_required: true } : {}),
+            };
+          }
+          serviceChanges.push({
+            plan_item_id: item.id,
+            room_id: item.room_id,
+            room_number: room.room_number,
+            from: "unsold_now",
+            to: service.service,
+            reason: service.reason,
+          });
+        }
+
         eligibleItemIds.add(item.id);
         eligibleRoomIds.add(item.room_id);
-        if (fresh.kind !== plannedKind) {
-          assignmentTypeOverrides[item.id] = currentAssignmentType;
+        if (currentAssignmentType !== item.assignment_type) {
+          // The release RPC indexes overrides by room id (shared helpers for the
+          // same room must receive exactly the same reclassified task type).
+          assignmentTypeOverrides[item.room_id] = currentAssignmentType;
           typeChanges.push({
             plan_item_id: item.id,
             room_id: item.room_id,
@@ -598,7 +667,9 @@ Deno.serve(async (req) => {
         staff_marked_off: [...offStaffIds],
         skipped_items: skippedItems,
         assignment_type_overrides: assignmentTypeOverrides,
+        service_flag_overrides: serviceFlagOverrides,
         type_changes: typeChanges,
+        service_changes: serviceChanges,
       };
 
       const { error: passError } = await admin
