@@ -5,10 +5,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { freshApplicationUrl } from "@/lib/lazyModuleRecovery";
 
 /**
- * Managers often leave several HotelCare tabs open. Never mutate or replace
- * their current view merely because a tab regained focus: after a long absence
- * put the choice in the user's hands, including when the tab stayed visible but
- * received no input. Operational staff retain their existing uninterrupted UX.
+ * HotelCare users often leave tabs open while working around the property.
+ * Never mutate or replace their current view merely because a tab regained
+ * focus: after one hour of inactivity, put the choice in the user's hands,
+ * including when the tab stayed visible but received no input.
  */
 export const RESUME_REFRESH_ROLES = new Set([
   "admin",
@@ -16,7 +16,7 @@ export const RESUME_REFRESH_ROLES = new Set([
   "top_management_manager",
 ]);
 
-export const RESUME_REFRESH_AFTER_MS = 15 * 60 * 1000;
+export const RESUME_REFRESH_AFTER_MS = 60 * 60 * 1000;
 // Kept as compatibility exports for older listeners/tests. Neither threshold
 // triggers a background refresh or a synthetic resume event anymore.
 export const EXTENDED_RESUME_AFTER_MS = RESUME_REFRESH_AFTER_MS;
@@ -32,8 +32,9 @@ export function isResumeRefreshEligible(
   profile: { role?: string | null; is_super_admin?: boolean | null } | null | undefined,
 ): boolean {
   if (!profile) return false;
-  if (profile.is_super_admin === true) return true;
-  return !!profile.role && RESUME_REFRESH_ROLES.has(profile.role);
+  // Every authenticated HotelCare profile uses the same stale-session guard,
+  // including housekeeping, maintenance, reception and other operational roles.
+  return true;
 }
 
 export default function ExecutiveResumeRefresh() {
