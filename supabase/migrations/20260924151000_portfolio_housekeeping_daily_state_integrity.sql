@@ -419,9 +419,16 @@ ON public.rooms
 FOR EACH ROW
 EXECUTE FUNCTION public.hc_preserve_portfolio_same_day_room_notes();
 
--- Finalize yesterday only. This writes historical snapshots, never today's
--- rooms/assignments, and gives the 2026-09-23 read-only view a stable source
--- once this migration is deployed.
-SELECT public.finalize_housekeeping_business_date(
-  (now() AT TIME ZONE 'Europe/Budapest')::date - 1
-);
+-- Freeze the reported 2026-09-23 incident date even if this migration is
+-- deployed a day later, then freeze the immediately previous business date.
+-- Both operations write historical snapshots only; today's rooms/assignments
+-- remain untouched.
+DO $
+DECLARE v_today date := (now() AT TIME ZONE 'Europe/Budapest')::date;
+BEGIN
+  IF DATE '2026-09-23' < v_today THEN
+    PERFORM public.finalize_housekeeping_business_date(DATE '2026-09-23');
+  END IF;
+  PERFORM public.finalize_housekeeping_business_date(v_today - 1);
+END
+$;
