@@ -9,6 +9,7 @@ import { parseRoomFlags } from '@/lib/room-service-flags';
 import { summarizePmsNote } from '@/lib/pmsNoteParser';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { useTranslation } from '@/hooks/useTranslation';
+import { resolveHistoricalHousekeepingState } from '@/lib/housekeepingHistoricalFinalState';
 
 interface HistoricalHotelRoomOverviewProps {
   selectedDate: string;
@@ -63,6 +64,8 @@ interface RoomSnapshot {
   source: string | null;
   captured_at: string | null;
   updated_at: string | null;
+  final_state: Record<string, unknown> | null;
+  finalized_at: string | null;
 }
 
 interface HistoricalTask {
@@ -200,7 +203,7 @@ export function HistoricalHotelRoomOverviewSaved({
         const [historyRes, tasksRes] = await Promise.all([
           (supabase as any)
             .from('housekeeping_room_snapshots')
-            .select('business_date, room_id, hotel, room_number, floor_number, venue_id, room_size_sqm, bed_type, bed_configuration, room_status, is_checkout_room, is_dnd, towel_change_required, linen_change_required, room_notes, pms_metadata, guest_nights_stayed, had_dnd, had_towel_change, had_linen_change, had_room_cleaning_request, had_extra_towels_request, had_ready_to_clean, had_no_service, had_no_show, assignment_id, assigned_to, assignment_type, assignment_status, assignment_started_at, assignment_completed_at, supervisor_approved, ready_to_clean, pms_hold, assignment_notes, dnd_attempt_count, source, captured_at, updated_at')
+            .select('business_date, room_id, hotel, room_number, floor_number, venue_id, room_size_sqm, bed_type, bed_configuration, room_status, is_checkout_room, is_dnd, towel_change_required, linen_change_required, room_notes, pms_metadata, guest_nights_stayed, had_dnd, had_towel_change, had_linen_change, had_room_cleaning_request, had_extra_towels_request, had_ready_to_clean, had_no_service, had_no_show, assignment_id, assigned_to, assignment_type, assignment_status, assignment_started_at, assignment_completed_at, supervisor_approved, ready_to_clean, pms_hold, assignment_notes, dnd_attempt_count, source, captured_at, updated_at, final_state, finalized_at')
             .in('hotel', hotelKeys)
             .eq('business_date', selectedDate)
             .order('room_number'),
@@ -258,25 +261,29 @@ export function HistoricalHotelRoomOverviewSaved({
   }, [rows]);
 
   const renderRoomChip = (room: RoomSnapshot) => {
-    const checkout = isCheckout(room);
+    const saved = resolveHistoricalHousekeepingState(room);
+    const finalState = room.final_state || {};
+    const checkout = typeof finalState.is_checkout_room_at_close === 'boolean'
+      ? finalState.is_checkout_room_at_close
+      : isCheckout(room);
     const status = statusKey(room);
     const colorClass = STATUS_COLORS[status] || DEFAULT_COLOR;
-    const flags = parseRoomFlags(room.room_notes);
-    const dnd = Boolean(room.had_dnd || room.is_dnd || (room.dnd_attempt_count || 0) > 0 || room.assignment_status === 'dnd_pending_retry');
+    const flags = parseRoomFlags(saved.roomNotes);
+    const dnd = Boolean(saved.hadDnd || (room.dnd_attempt_count || 0) > 0 || room.assignment_status === 'dnd_pending_retry');
     const noShow = isNoShow(room) && !isEarlyCheckout(room);
     const earlyCheckout = isEarlyCheckout(room);
-    const towel = Boolean(room.had_towel_change || room.towel_change_required) && !checkout;
-    const linen = Boolean(room.had_linen_change || room.linen_change_required) && !checkout;
+    const towel = saved.towel && !checkout;
+    const linen = saved.changeRoom && !checkout;
     const cleanRequest = Boolean(room.had_room_cleaning_request || flags.roomCleaning);
     const extraTowels = Boolean(room.had_extra_towels_request || flags.collectExtraTowels);
-    const noService = Boolean(room.had_no_service || room.assignment_notes?.includes('[NO_SERVICE]'));
+    const noService = saved.hadNoService;
     const approved = room.assignment_status === 'completed' && room.supervisor_approved === true;
     const pending = room.assignment_status === 'completed' && room.supervisor_approved !== true;
     const ready = checkout && Boolean(room.had_ready_to_clean || room.ready_to_clean) && !approved;
     const size = getSizeLabel(room.room_size_sqm);
     const staffName = assigneeLabel(staffMap, room.assigned_to);
     const config = bedLabel(room.bed_configuration);
-    const meta = room.pms_metadata || {};
+    const meta = (finalState.pms_metadata_at_close as any) || room.pms_metadata || {};
     const currentNight = Number(meta.currentNight ?? meta.current_night ?? room.guest_nights_stayed);
     const totalNights = Number(meta.totalNights ?? meta.total_nights);
     const showCheckoutTomorrow = !hideMemoriesTransientBadges
@@ -345,7 +352,7 @@ export function HistoricalHotelRoomOverviewSaved({
       grouped.get(floor)!.push(room);
     }
     const floors = [...grouped.entries()].sort((a, b) => a[0] - b[0]);
-    const dndCount = roomList.filter(r => Boolean(r.had_dnd || r.is_dnd || (r.dnd_attempt_count || 0) > 0)).length;
+    const dndCount = roomList.filter(r => resolveHistoricalHousekeepingState(r).hadDnd || (r.dnd_attempt_count || 0) > 0).length;
 
     return (
       <div className="space-y-2 rounded-lg">

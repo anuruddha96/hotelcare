@@ -1,0 +1,49 @@
+name: Housekeeping daily state SQL CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20260924151000_portfolio_housekeeping_daily_state_integrity.sql'
+      - 'supabase/tests/housekeeping_daily_state_*.sql'
+      - 'src/lib/housekeepingHistoricalFinalState*'
+      - '.github/workflows/housekeeping-daily-state-sql-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  daily-state-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_hk_daily_state_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_hk_daily_state_ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Run portfolio daily-state migration in disposable PostgreSQL
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 \
+            -f supabase/tests/housekeeping_daily_state_fixture.sql \
+            -f supabase/migrations/20260924151000_portfolio_housekeeping_daily_state_integrity.sql \
+            -f supabase/tests/housekeeping_daily_state_integration.sql

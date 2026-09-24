@@ -7,6 +7,7 @@ import { BedDouble, ChevronDown, EyeOff, Hotel, Loader2, MapPin, AlertTriangle }
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { assigneeLabel } from '@/lib/staffNames';
 import { parseRoomFlags } from '@/lib/room-service-flags';
+import { resolveHistoricalHousekeepingState } from '@/lib/housekeepingHistoricalFinalState';
 import { historicalDndState, isBudapestBusinessDate, selectSavedSnapshot, type HistoricalDndState } from '@/lib/historicalDndStatus';
 import { hasMemoriesHistoricalRoomTypeConflict, isMemoriesHistoricalCheckout } from '@/lib/memoriesHistoricalRoomType';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -26,6 +27,7 @@ type RoomSnapshot = {
   assignment_status: string | null; assignment_started_at: string | null;
   assignment_completed_at: string | null; supervisor_approved: boolean | null;
   ready_to_clean: boolean | null; assignment_notes: string | null;
+  final_state: Record<string, unknown> | null; finalized_at: string | null;
   source: string | null; captured_at: string | null; updated_at: string | null;
   status_history: Array<Record<string, any>> | null;
 };
@@ -103,7 +105,7 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
         const hotelKeys = keys.length ? keys : [hotelName];
         const [historyRes, tasksRes] = await Promise.all([
           (supabase as any).from('housekeeping_room_snapshots')
-            .select('business_date,hotel,room_id,room_number,floor_number,venue_id,room_size_sqm,bed_type,bed_configuration,room_status,is_checkout_room,is_dnd,had_dnd,dnd_attempt_count,towel_change_required,linen_change_required,had_towel_change,had_linen_change,had_room_cleaning_request,had_extra_towels_request,had_ready_to_clean,had_no_service,had_no_show,room_notes,pms_metadata,guest_nights_stayed,assignment_id,assigned_to,assignment_type,assignment_status,assignment_started_at,assignment_completed_at,supervisor_approved,ready_to_clean,assignment_notes,source,captured_at,updated_at,status_history')
+            .select('business_date,hotel,room_id,room_number,floor_number,venue_id,room_size_sqm,bed_type,bed_configuration,room_status,is_checkout_room,is_dnd,had_dnd,dnd_attempt_count,towel_change_required,linen_change_required,had_towel_change,had_linen_change,had_room_cleaning_request,had_extra_towels_request,had_ready_to_clean,had_no_service,had_no_show,room_notes,pms_metadata,guest_nights_stayed,assignment_id,assigned_to,assignment_type,assignment_status,assignment_started_at,assignment_completed_at,supervisor_approved,ready_to_clean,assignment_notes,source,captured_at,updated_at,status_history,final_state,finalized_at')
             .in('hotel', hotelKeys).eq('business_date', selectedDate).order('room_number'),
           supabase.from('general_tasks').select('id,task_name,task_type,assigned_to,status')
             .in('hotel', hotelKeys).eq('assigned_date', selectedDate),
@@ -208,10 +210,11 @@ export function MemoriesHistoricalRoomOverview({ selectedDate, hotelName, staffM
         : row.assignment_status === 'in_progress' || row.room_status === 'in_progress' ? 'in_progress'
           : row.room_status === 'out_of_order' ? 'out_of_order'
             : row.room_status === 'clean' ? 'approved' : 'dirty';
-    const flags = parseRoomFlags(row.room_notes);
-    const noService = Boolean(row.had_no_service || row.assignment_notes?.includes('[NO_SERVICE]'));
-    const towel = !room.checkout && Boolean(row.had_towel_change || row.towel_change_required);
-    const linen = !room.checkout && Boolean(row.had_linen_change || row.linen_change_required);
+    const saved = resolveHistoricalHousekeepingState(row);
+    const flags = parseRoomFlags(saved.roomNotes);
+    const noService = saved.hadNoService;
+    const towel = !room.checkout && saved.towel;
+    const linen = !room.checkout && saved.changeRoom;
     const name = assigneeLabel(staffMap, row.assigned_to);
     const size = sizeLabel(row.room_size_sqm);
     const config = bedLabel(row.bed_configuration);
