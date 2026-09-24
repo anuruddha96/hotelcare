@@ -32,6 +32,7 @@ import { RoomCommunicationPanel } from './RoomCommunicationPanel';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
 import { isCurrentNoServiceOutcome, selectCurrentHousekeepingAssignments } from '@/lib/currentHousekeepingAssignments';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
 import { assigneeLabel, cleanName } from '@/lib/staffNames';
