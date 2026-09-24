@@ -156,6 +156,25 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
 
   // Full management access: admin, top_management, top_management_manager, manager, housekeeping_manager, marketing, control_finance, hr, front_office
   const hasManagerAccess = ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager', 'marketing', 'control_finance', 'hr', 'front_office'].includes(userRole);
+  // SLNT-only: a missing published roster on Team View links directly to the
+  // actual shift planner, keeping the selected hotel and date.
+  useEffect(() => {
+    const openSchedule = (event: Event) => {
+      const detail = (event as CustomEvent<{ hotel?: string; date?: string }>).detail;
+      if (!hasManagerAccess || !['slnt', 'slnt-group'].includes(profile?.organization_slug ?? '')
+        || !detail?.hotel || detail.hotel !== profile?.assigned_hotel) return;
+      if (detail.date && /^\d{4}-\d{2}-\d{2}$/.test(detail.date)) {
+        try { window.sessionStorage.setItem(`slnt-roster-target:${detail.hotel}`, detail.date); }
+        catch { /* Still open the planner if session storage is unavailable. */ }
+      }
+      setActiveTab('staff-schedule');
+      onActiveSubTabChange?.('staff-schedule');
+      window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    };
+    window.addEventListener('hotelcare:open-slnt-staff-schedule', openSchedule);
+    return () => window.removeEventListener('hotelcare:open-slnt-staff-schedule', openSchedule);
+  }, [hasManagerAccess, profile?.organization_slug, profile?.assigned_hotel, onActiveSubTabChange]);
+
   const isAdmin = userRole === 'admin';
   const noMinibar = isGozsduCourtHotel(profile?.assigned_hotel || assignedHotel);
   // Top Management now has the exact same Housekeeping powers as a manager
@@ -373,6 +392,11 @@ export function HousekeepingTab({ onActiveSubTabChange, onActiveInnerTabChange }
     ];
 
     let order = orderedTabs.length > 0 ? orderedTabs : defaultOrder;
+    // The SLNT scheduler must remain reachable even if a saved tab order
+    // predates its introduction.
+    if (['slnt', 'slnt-group'].includes(profile?.organization_slug ?? '') && !order.includes('staff-schedule')) {
+      order = [...order, 'staff-schedule'];
+    }
     if (hidePmsUploadTab) order = order.filter((id) => id !== 'pms-upload');
     if (noMinibar) order = order.filter((id) => id !== 'minibar');
     // Hide operational/admin tabs for read-only executives

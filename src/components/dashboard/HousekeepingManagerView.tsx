@@ -36,6 +36,7 @@ import { venueEdgeStyle } from '@/lib/venueColors';
 import { addDays } from 'date-fns';
 import { todayBudapest, rollForwardSelectedBusinessDate } from '@/lib/budapestTime';
 import { useVenues } from '@/hooks/useVenues';
+import { getSlntRosterNotice, type SlntRosterNotice } from '@/lib/slntRosterNotice';
 import {
   initStagedScope,
   stageMove,
@@ -177,9 +178,17 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [doneRoomsDialogOpen, setDoneRoomsDialogOpen] = useState(false);
   const [staffAttendance, setStaffAttendance] = useState<Record<string, any>>({});
   const [staffSchedules, setStaffSchedules] = useState<Record<string, ScheduledShift>>({});
-  const [slntScheduleError, setSlntScheduleError] = useState<string | null>(null);
+  const [slntRosterNotice, setSlntRosterNotice] = useState<SlntRosterNotice | null>(null);
+  const [slntVerifiedKey, setSlntVerifiedKey] = useState<string | null>(null);
   const scheduleRequestId = useRef(0);
   const isSlntTenant = profile?.organization_slug === 'slnt' || profile?.organization_slug === 'slnt-group';
+  const slntRosterReady = !isSlntTenant || (slntVerifiedKey === `${profile?.assigned_hotel}|${selectedDate}` && !slntRosterNotice);
+  const openSlntStaffSchedule = () => {
+    if (!profile?.assigned_hotel) return;
+    window.dispatchEvent(new CustomEvent('hotelcare:open-slnt-staff-schedule', {
+      detail: { hotel: profile.assigned_hotel, date: selectedDate },
+    }));
+  };
   const [selectedStaff, setSelectedStaff] = useState<{ id: string; name: string } | null>(null);
   const [managerHotelName, setManagerHotelName] = useState<string>('');
   const [overviewRefreshKey, setOverviewRefreshKey] = useState(0);
@@ -219,8 +228,8 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const selectedUnits = useUnitSelection();
   const assignSelectionTo = (staff: { id: string; full_name: string } | null) => {
     if (selectedUnits.length === 0) return;
-    if (staff && isSlntTenant && slntScheduleError) {
-      toast.error('Verify the published SLNT roster before assigning rooms.');
+    if (staff && !slntRosterReady) {
+      toast.error(slntRosterNotice?.message ?? 'Checking the published SLNT roster. Please wait.');
       return;
     }
     if (staff && venuesEnabled) {
@@ -280,7 +289,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     setDragActive(false);
     const payload = readRoomDragPayload(e);
     if (!payload) return;
-    if (isSlntTenant && slntScheduleError) { toast.error('SLNT roster unavailable. Please retry.'); return; }
+    if (!slntRosterReady) { toast.error(slntRosterNotice?.message ?? 'Checking the published SLNT roster. Please wait.'); return; }
     if (payload.bulk && payload.bulk.length > 0 && stagedEnabled) {
       let staged = 0;
       payload.bulk.forEach(item => {
@@ -347,7 +356,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
 
   const applyStagedMoves = async () => {
     if (!user?.id || stagedMoves.length === 0) return;
-    if (isSlntTenant && slntScheduleError) { toast.error('Verify SLNT roster before applying room moves.'); return; }
+    if (!slntRosterReady) { toast.error(slntRosterNotice?.message ?? 'Checking the published SLNT roster. Please wait.'); return; }
     setApplying(true);
     const applied: string[] = [];
     const failed: string[] = [];
@@ -386,7 +395,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     fetchStaffAttendance();
     fetchStaffSchedules();
     fetchManagerHotelName();
-  }, [selectedDate, profile?.assigned_hotel]);
+  }, [selectedDate, profile?.assigned_hotel, venuesEnabled]);
 
   // Keep the cards in sync when the unit board unassigns something.
   useEffect(() => {
@@ -721,40 +730,62 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
     const requestId = ++scheduleRequestId.current;
     if (!venuesEnabled || !profile?.assigned_hotel) {
       setStaffSchedules({});
-      setSlntScheduleError(null);
+      setSlntVerifiedKey(null);
+      setSlntRosterNotice(isSlntTenant ? {
+        kind: 'setup',
+        message: 'Select an SLNT property with venue scheduling enabled to load its published roster.',
+        action: 'retry',
+      } : null);
       return;
     }
     if (isSlntTenant) {
-      // The SLNT Housekeeping consumer exposes published, minimum roster fields
-      // via server-side tenant, hotel and venue authorization. No draft or notes.
+      // Only a successful published-roster RPC can establish that no shifts exist.
+      // Failed RPCs (including a missing migration) must never be called "no roster".
       setStaffSchedules({});
+      setSlntVerifiedKey(null);
+      setSlntRosterNotice(null);
       try {
         const hotelId = await resolveCanonicalHotelId(profile.assigned_hotel);
-        if (!hotelId) throw new Error('SLNT hotel not configured');
+        if (!hotelId) {
+          if (requestId === scheduleRequestId.current) {
+            setSlntRosterNotice({
+              kind: 'setup', message: 'The selected SLNT hotel could not be resolved. Ask your HotelCare administrator to check its configuration.',
+              action: 'retry',
+            });
+          }
+          return;
+        }
         const { data, error } = await (supabase as any).rpc('slnt_housekeeping_published_roster', {
           _hotel: hotelId, _day: selectedDate,
         });
         if (error) throw error;
         if (requestId !== scheduleRequestId.current) return;
+        const rows = data ?? [];
         const published: Record<string, ScheduledShift> = {};
-        for (const row of data ?? []) {
+        for (const row of rows) {
           published[row.user_id] = {
             status: 'published', shift_start: row.shift_start, shift_end: row.shift_end,
             staff_schedule_venues: (row.venue_ids ?? []).map((id: string) => ({ venue_id: id })),
           };
         }
         setStaffSchedules(published);
-        setSlntScheduleError(null);
-      } catch (error) {
+        setSlntRosterNotice(getSlntRosterNotice(rows.length, selectedDate));
+        setSlntVerifiedKey(rows.length > 0 ? `${profile.assigned_hotel}|${selectedDate}` : null);
+      } catch (cause) {
         if (requestId !== scheduleRequestId.current) return;
-        console.error('[SLNT HK roster] failed verification', error);
+        console.error('[SLNT HK roster] failed verification', cause);
         setStaffSchedules({});
-        setSlntScheduleError('Cannot verify the published SLNT roster. Retry before assigning rooms.');
+        setSlntVerifiedKey(null);
+        const error = cause as { code?: string; message?: string };
+        setSlntRosterNotice(getSlntRosterNotice(0, selectedDate, {
+          code: error?.code, message: error?.message,
+        }));
       }
       return;
     }
     // Existing RD and other tenant schedule behaviour remains unchanged.
-    setSlntScheduleError(null);
+    setSlntRosterNotice(null);
+    setSlntVerifiedKey(null);
     const { data } = await (supabase as any).from('staff_schedules')
       .select('user_id,status,shift_start,shift_end,staff_schedule_venues(venue_id)')
       .eq('hotel_id', profile.assigned_hotel).eq('work_date', selectedDate).in('status', ['published', 'off']);
@@ -868,10 +899,24 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
       )}
 
       <TabsContent value="team" className="space-y-6" data-training="team-view">
-      {isSlntTenant && slntScheduleError && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-destructive p-3 text-sm text-destructive">
-        <span>{slntScheduleError}</span>
-        <Button variant="outline" size="sm" onClick={() => void fetchStaffSchedules()}>Retry roster</Button>
-      </div>}
+      {isSlntTenant && slntRosterNotice && (
+        <div role="alert" className={`flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm ${slntRosterNotice.kind === 'missing' ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-destructive/60 bg-destructive/5 text-destructive'}`}>
+          <p className="flex-1 min-w-52">{slntRosterNotice.message}</p>
+          <div className="flex flex-wrap gap-2">
+            {slntRosterNotice.action === 'schedule' && (
+              <Button size="sm" onClick={openSlntStaffSchedule}>Open Staff schedule</Button>
+            )}
+            <Button variant="outline" size="sm" onClick={() => void fetchStaffSchedules()}>
+              {slntRosterNotice.action === 'schedule' ? 'Check roster again' : 'Retry roster'}
+            </Button>
+          </div>
+        </div>
+      )}
+      {isSlntTenant && !slntRosterNotice && !slntRosterReady && (
+        <div role="status" className="rounded-md border p-3 text-sm text-muted-foreground">
+          Checking the published SLNT roster for {selectedDate}…
+        </div>
+      )}
       {/* Header with Actions */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -922,6 +967,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                 data-tour="auto-assign-btn"
                 data-training="auto-assign-btn"
                 onClick={() => setAutoAssignDialogOpen(true)}
+                disabled={!slntRosterReady}
                 className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 <Wand2 className="h-4 w-4" />
@@ -931,6 +977,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                <Button
                  variant="outline"
                  onClick={() => setPublicAreaDialogOpen(true)}
+                 disabled={!slntRosterReady}
                  className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
                >
                  <MapPin className="h-4 w-4" />
@@ -941,6 +988,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                  variant="outline"
                  className="flex items-center gap-2 w-full sm:w-auto touch-manipulation relative z-10 pointer-events-auto"
                  onClick={() => setAssignmentDialogOpen(true)}
+                 disabled={!slntRosterReady}
                >
                  <Plus className="h-4 w-4" />
                  {t('team.assignRoom')}
@@ -1077,7 +1125,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                     )}
                     {venuesEnabled && (() => {
                       const shift = staffSchedules[staff.id];
-                      if (!shift) return <Badge variant="outline" className="mt-2 text-[10px]">{isSlntTenant && slntScheduleError ? "Roster unavailable" : "Not scheduled"}</Badge>;
+                      if (!shift) return <Badge variant="outline" className="mt-2 text-[10px]">{isSlntTenant && !slntRosterReady && slntRosterNotice?.kind !== 'missing' ? "Roster unavailable" : "Not scheduled"}</Badge>;
                       if (shift.status === 'off') return <Badge variant="secondary" className="mt-2 text-[10px]">Scheduled off</Badge>;
                       const names = shift.staff_schedule_venues?.map((row) => venueName(row.venue_id)).filter(Boolean).join(', ');
                       return <div className="mt-2 text-[10px] text-muted-foreground"><span className="font-medium text-foreground">{shift.shift_start.slice(0,5)}–{shift.shift_end.slice(0,5)}</span>{names ? ` · ${names}` : ''}</div>;

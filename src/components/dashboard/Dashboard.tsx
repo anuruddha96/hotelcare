@@ -381,6 +381,7 @@ export function Dashboard() {
     'lost-and-found': t('housekeeping.tabs.lostFound'),
     'dirty-linen': t('housekeeping.tabs.dirtyLinen'),
     'attendance': t('housekeeping.tabs.hrManagement'),
+    'staff-schedule': 'Staff schedule',
     'minibar': t('housekeeping.tabs.minibarTracking'),
     'tab-order': t('housekeeping.tabs.tabSettings'),
     'assignments': t('housekeeping.myTasks'),
