@@ -1075,7 +1075,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               title="PMS reports no reservation — guest did not arrive"
             >NS</span>
           )}
-          {(room.pms_metadata as any)?.notArrived === true && (room.pms_metadata as any)?.isNoShow !== true && (
+          {(room.pms_metadata as any)?.notArrived === true && !noShow && (
             <span
               className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-slate-500 text-white"
               title="Arrival expected today — guest has not checked in yet"
