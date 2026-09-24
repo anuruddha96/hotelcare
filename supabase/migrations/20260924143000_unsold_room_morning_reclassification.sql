@@ -1,17 +1,14 @@
 -- Neutral "Unsold now" next-day planning and morning PMS reconciliation.
 --
 -- Safety invariants:
---  * This migration does not alter any current assignment or room row.
+--  * This migration itself does not alter any current assignment or room row.
 --  * At release time, a planned room is skipped when ANY non-cancelled live
 --    assignment already exists for the same business date.
 --  * Existing assigned / in-progress / completed / DND / manager-created work
 --    is therefore never overwritten by the next-day plan.
---  * Property service flags are only promoted on rooms that were actually
---    inserted by this release transaction; no flag is cleared here.
---
--- The release worker supplies room-id keyed type/service overrides after fresh
--- PMS revalidation. This also fixes the previous item-id vs room-id override
--- mismatch while preserving the manager-selected housekeeper.
+--  * Item-level validation remains intact for shared-room assignments.
+--  * Property service flags are only promoted on rooms whose planned assignment
+--    was actually inserted by this release transaction; no flag is cleared here.
 
 create or replace function public.release_next_day_housekeeping_plan(p_plan_id uuid)
 returns jsonb
@@ -22,10 +19,10 @@ as $$
 declare
   v_plan public.next_day_housekeeping_plans%rowtype;
   v_planned_count integer := 0;
-  v_validated_room_count integer := 0;
+  v_validated_item_count integer := 0;
   v_inserted_count integer := 0;
   v_conflict_room_count integer := 0;
-  v_pms_skipped_room_count integer := 0;
+  v_pms_skipped_count integer := 0;
   v_type_change_count integer := 0;
   v_service_flag_room_count integer := 0;
   v_result jsonb;
@@ -58,8 +55,8 @@ begin
     raise exception 'A fresh server-side PMS revalidation is required before release';
   end if;
 
-  if jsonb_typeof(v_plan.release_revalidation_result -> 'eligible_room_ids') <> 'array' then
-    raise exception 'PMS revalidation result is missing eligible_room_ids';
+  if jsonb_typeof(v_plan.release_revalidation_result -> 'eligible_plan_item_ids') <> 'array' then
+    raise exception 'PMS revalidation result is missing eligible_plan_item_ids';
   end if;
 
   update public.next_day_housekeeping_plans
@@ -70,23 +67,21 @@ begin
   from public.next_day_housekeeping_plan_items
   where plan_id = p_plan_id;
 
-  select count(*) into v_validated_room_count
-  from jsonb_array_elements_text(v_plan.release_revalidation_result -> 'eligible_room_ids');
+  select count(*) into v_validated_item_count
+  from jsonb_array_elements_text(v_plan.release_revalidation_result -> 'eligible_plan_item_ids');
 
-  v_pms_skipped_room_count := greatest(0, v_planned_count - v_validated_room_count);
+  v_pms_skipped_count := greatest(0, v_planned_count - v_validated_item_count);
   v_type_change_count := coalesce(
     jsonb_array_length(v_plan.release_revalidation_result -> 'type_changes'),
     0
   );
 
-  -- Any already-existing live work wins. Do not edit, cancel, reassign or
-  -- otherwise mutate that work; the planned row for the room is simply skipped.
   select count(distinct i.room_id) into v_conflict_room_count
   from public.next_day_housekeeping_plan_items i
   where i.plan_id = p_plan_id
-    and i.room_id in (
+    and i.id in (
       select value::uuid
-      from jsonb_array_elements_text(v_plan.release_revalidation_result -> 'eligible_room_ids') value
+      from jsonb_array_elements_text(v_plan.release_revalidation_result -> 'eligible_plan_item_ids') value
     )
     and exists (
       select 1 from public.room_assignments ra
@@ -95,13 +90,13 @@ begin
         and ra.status <> 'cancelled'::public.assignment_status
     );
 
-  with validated_rooms as materialized (
-    select value::uuid as room_id
-    from jsonb_array_elements_text(v_plan.release_revalidation_result -> 'eligible_room_ids') value
-  ), eligible_rooms as materialized (
-    select distinct i.room_id
+  with validated_items as materialized (
+    select value::uuid as plan_item_id
+    from jsonb_array_elements_text(v_plan.release_revalidation_result -> 'eligible_plan_item_ids') value
+  ), eligible_items as materialized (
+    select i.*
     from public.next_day_housekeeping_plan_items i
-    join validated_rooms vr on vr.room_id = i.room_id
+    join validated_items vi on vi.plan_item_id = i.id
     where i.plan_id = p_plan_id
       and not exists (
         select 1 from public.room_assignments ra
@@ -131,7 +126,7 @@ begin
         nullif(
           v_plan.release_revalidation_result
             -> 'assignment_type_overrides'
-            ->> i.room_id::text,
+            ->> i.id::text,
           ''
         )::public.assignment_type,
         i.assignment_type
@@ -141,10 +136,8 @@ begin
       i.estimated_duration,
       i.notes,
       v_plan.organization_slug
-    from public.next_day_housekeeping_plan_items i
-    join eligible_rooms er on er.room_id = i.room_id
-    where i.plan_id = p_plan_id
-    returning room_id
+    from eligible_items i
+    returning id, room_id
   ), promoted_service_flags as (
     update public.rooms r
     set
@@ -206,8 +199,8 @@ begin
     'plan_id', p_plan_id,
     'plan_date', v_plan.plan_date,
     'planned_assignments', v_planned_count,
-    'pms_validated_rooms', v_validated_room_count,
-    'pms_skipped_rooms', v_pms_skipped_room_count,
+    'validated_assignments', v_validated_item_count,
+    'pms_or_staff_skipped_assignments', v_pms_skipped_count,
     'overnight_type_changes', v_type_change_count,
     'service_flag_rooms_promoted', v_service_flag_room_count,
     'released_assignments', v_inserted_count,
