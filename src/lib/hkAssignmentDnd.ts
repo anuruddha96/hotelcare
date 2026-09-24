@@ -98,6 +98,22 @@ export function isAssignmentInProgressError(err: unknown): err is AssignmentInPr
   return !!err && typeof err === 'object' && (err as { code?: string }).code === 'assignment_in_progress';
 }
 
+/** Raised when SLNT tries to assign a unit that a manager blocked from service. */
+export class RoomOutOfServiceError extends Error {
+  readonly code = 'room_out_of_service' as const;
+  readonly roomId: string;
+
+  constructor(roomId: string) {
+    super('Room is Out of Service and cannot be assigned');
+    this.name = 'RoomOutOfServiceError';
+    this.roomId = roomId;
+  }
+}
+
+export function isRoomOutOfServiceError(err: unknown): err is RoomOutOfServiceError {
+  return !!err && typeof err === 'object' && (err as { code?: string }).code === 'room_out_of_service';
+}
+
 /**
  * Assign (or reassign) a unit to a housekeeper for a given date.
  * Existing assignment metadata (type, ready-to-clean, PMS hold, notes) is
@@ -114,6 +130,8 @@ export async function assignRoomToStaff(params: {
   isCheckoutRoom?: boolean;
   readyToClean?: boolean;
   priority?: number;
+  /** SLNT-only safety: refuse assignment while rooms.status is out_of_order. */
+  preventOutOfOrder?: boolean;
 }): Promise<void> {
   const {
     roomId,
@@ -124,7 +142,18 @@ export async function assignRoomToStaff(params: {
     isCheckoutRoom,
     readyToClean,
     priority,
+    preventOutOfOrder = false,
   } = params;
+
+  if (preventOutOfOrder) {
+    const { data: room, error: roomError } = await supabase
+      .from('rooms')
+      .select('status')
+      .eq('id', roomId)
+      .maybeSingle();
+    if (roomError) throw roomError;
+    if (room?.status === 'out_of_order') throw new RoomOutOfServiceError(roomId);
+  }
 
   const { data: existing, error: findErr } = await supabase
     .from('room_assignments')

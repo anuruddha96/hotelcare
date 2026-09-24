@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowLeftRight,
   BedDouble,
@@ -16,6 +16,7 @@ import {
   Wine,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { unassignRoom } from '@/lib/hkAssignmentDnd';
 import { useAuth } from '@/hooks/useAuth';
 import { useTenantFeatures } from '@/hooks/useTenantFeatures';
 import { hasManagerPowers } from '@/lib/roleAccess';
@@ -41,6 +42,7 @@ type RoomSelection = {
   roomId: string | null;
   roomStatus: string | null;
   roomNotes: string | null;
+  pmsMetadata: Record<string, any> | null;
   roomType: string | null;
   roomCategory: string | null;
   roomSizeSqm: number | null;
@@ -86,7 +88,15 @@ function roomChipFromTarget(target: EventTarget | null, root: HTMLElement | null
         (child) => child.nodeType === Node.TEXT_NODE && !!child.textContent?.trim(),
       );
       const roomNumber = roomTextNode?.textContent?.trim();
-      if (roomNumber) return { roomNumber, element: node };
+      if (roomNumber) {
+        return {
+          roomNumber,
+          roomId: node.dataset.roomId || null,
+          manageable: node.dataset.roomManageable === 'true',
+          outOfService: node.dataset.roomOutOfService === 'true',
+          element: node,
+        };
+      }
     }
     node = node.parentElement;
   }
@@ -99,6 +109,7 @@ function statusLabel(status: string | null) {
   if (status === 'completed') return 'Cleaning completed';
   if (status === 'pending_approval') return 'Supervisor approval pending';
   if (status === 'clean') return 'Clean room';
+  if (status === 'out_of_order') return 'Out of Service';
   if (status === 'dirty' || status === 'assigned') return 'Dirty room';
   return status.replaceAll('_', ' ');
 }
@@ -107,6 +118,7 @@ function statusTone(status: string | null) {
   if (status === 'clean' || status === 'completed') return 'border-emerald-200 bg-emerald-50 text-emerald-900';
   if (status === 'in_progress') return 'border-sky-200 bg-sky-50 text-sky-900';
   if (status === 'pending_approval') return 'border-violet-200 bg-violet-50 text-violet-900';
+  if (status === 'out_of_order') return 'border-rose-300 bg-rose-100 text-rose-950';
   return 'border-amber-200 bg-amber-50 text-amber-900';
 }
 
@@ -128,7 +140,9 @@ function markNonCleaningOutcomeOverridden(notes: string | null | undefined) {
 
 export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, children }: RoomOperationsQuickHubProps) {
   const { profile } = useAuth();
-  const { venuesEnabled } = useTenantFeatures();
+  const { venuesEnabled, orgSlug } = useTenantFeatures();
+  const activeSlug = orgSlug?.toLowerCase() ?? '';
+  const isSlntTenant = venuesEnabled && (activeSlug === 'slnt' || activeSlug === 'slnt-group');
   const rootRef = useRef<HTMLDivElement | null>(null);
   const requestRef = useRef(0);
   const [open, setOpen] = useState(false);
@@ -136,6 +150,8 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   const [selection, setSelection] = useState<RoomSelection | null>(null);
   const [notesDraft, setNotesDraft] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
+  const [noteSaveState, setNoteSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const notesSavedDraftRef = useRef('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -146,13 +162,14 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   const readOnlyForPast = selectedDate !== todayBudapest();
   const textileChangeLabel = isGozsduCourtHotel(hotelName) ? 'Complete Textile Change' : 'Change Room';
 
-  const loadRoom = useCallback(async (roomNumber: string) => {
+  const loadRoom = useCallback(async ({ roomNumber, roomId }: { roomNumber: string; roomId?: string | null }) => {
     const requestId = ++requestRef.current;
     setSelection({
       roomNumber,
       roomId: null,
       roomStatus: null,
       roomNotes: null,
+      pmsMetadata: null,
       roomType: null,
       roomCategory: null,
       roomSizeSqm: null,
@@ -175,16 +192,21 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       loading: true,
       error: null,
     });
+    notesSavedDraftRef.current = '';
     setNotesDraft('');
+    setNoteSaveState('idle');
 
     try {
       const resolvedKeys = await resolveHotelKeys(hotelName);
       const hotelKeys = resolvedKeys.length ? resolvedKeys : [hotelName];
-      const { data: roomRows, error: roomError } = await supabase
+      let roomQuery = supabase
         .from('rooms')
-        .select('id, hotel, room_number, status, notes, room_type, room_category, room_size_sqm, floor_number, bed_configuration, is_checkout_room, towel_change_required, linen_change_required, last_cleaned_at')
-        .in('hotel', hotelKeys)
-        .eq('room_number', roomNumber);
+        .select('id, hotel, room_number, status, notes, pms_metadata, room_type, room_category, room_size_sqm, floor_number, bed_configuration, is_checkout_room, towel_change_required, linen_change_required, last_cleaned_at')
+        .in('hotel', hotelKeys);
+      roomQuery = roomId
+        ? roomQuery.eq('id', roomId)
+        : roomQuery.eq('room_number', roomNumber);
+      const { data: roomRows, error: roomError } = await roomQuery;
       if (roomError) throw roomError;
       if (requestRef.current !== requestId) return;
 
@@ -214,12 +236,15 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         .filter((row) => !row.is_cleared)
         .reduce((sum, row) => sum + Number(row.quantity_used || 0), 0);
 
+      notesSavedDraftRef.current = flags.cleanNotes;
       setNotesDraft(flags.cleanNotes);
+      setNoteSaveState('idle');
       setSelection({
-        roomNumber,
+        roomNumber: room.room_number,
         roomId: room.id,
         roomStatus: room.status || null,
         roomNotes: room.notes || null,
+        pmsMetadata: (room.pms_metadata as Record<string, any> | null) || null,
         roomType: room.room_type || null,
         roomCategory: room.room_category || null,
         roomSizeSqm: room.room_size_sqm || null,
@@ -250,20 +275,26 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   }, [hotelName, selectedDate]);
 
   const handleClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (!canOpen || venuesEnabled) return;
+    if (!canOpen) return;
     const chip = roomChipFromTarget(event.target, rootRef.current);
     if (!chip) return;
+
+    // Venue-enabled boards normally reserve tap/click for assignment. SLNT is
+    // the exception once the unit is already assigned or blocked OOS: those
+    // chips open the same manager operations used by RD Hotels.
+    if (venuesEnabled && (!isSlntTenant || !chip.manageable)) return;
+
     event.preventDefault();
     event.stopPropagation();
     setPanel('main');
     setMoreOpen(false);
     setOpen(true);
-    void loadRoom(chip.roomNumber);
-  }, [canOpen, loadRoom, venuesEnabled]);
+    void loadRoom({ roomNumber: chip.roomNumber, roomId: chip.roomId });
+  }, [canOpen, isSlntTenant, loadRoom, venuesEnabled]);
 
   const refresh = async () => {
     if (!selection?.roomNumber) return;
-    await loadRoom(selection.roomNumber);
+    await loadRoom({ roomNumber: selection.roomNumber, roomId: selection.roomId });
   };
 
   const patchRoom = async (patch: Record<string, any>, localPatch: Partial<RoomSelection>, success: string) => {
@@ -293,6 +324,10 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
 
   const markRoomClean = async () => {
     if (!canManage || readOnlyForPast || !selection?.roomId) return;
+    if (isSlntTenant && selection.roomStatus === 'out_of_order') {
+      toast.warning('Release this room from Out of Service before changing its housekeeping status.');
+      return;
+    }
     const roomId = selection.roomId;
     const assignmentId = selection.assignmentId;
     const roomNumber = selection.roomNumber;
@@ -379,11 +414,11 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       }
 
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
-      await loadRoom(roomNumber);
+      await loadRoom({ roomNumber, roomId });
     } catch (error) {
       console.error('Failed to manually mark room clean', error);
       toast.error('Could not mark this room clean.');
-      await loadRoom(roomNumber);
+      await loadRoom({ roomNumber, roomId });
     } finally {
       setActionLoading(null);
     }
@@ -445,9 +480,10 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     );
   };
 
-  const saveNotes = async () => {
+  const saveNotes = useCallback(async (silent = false) => {
     if (!selection?.roomId || !profile?.id || !canWriteNotes) return;
     setSavingNotes(true);
+    setNoteSaveState('saving');
     try {
       const nextNotes = buildRoomNotes(
         { roomCleaning: selection.roomCleaning, collectExtraTowels: selection.collectExtraTowels },
@@ -463,20 +499,142 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       if (!savedRow?.room_id) throw new Error('Room note update was not applied');
 
       // The database note-history trigger records this edit atomically.
+      notesSavedDraftRef.current = notesDraft;
       setSelection((current) => current ? { ...current, roomNotes: savedRow.notes ?? null } : current);
-      toast.success(`Note saved for room ${selection.roomNumber}`);
+      setNoteSaveState('saved');
+      if (!silent) toast.success(`Note saved for room ${selection.roomNumber}`);
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
     } catch (error) {
       console.error('Failed to save note', error);
-      toast.error((error as any)?.message || 'Could not save the note.');
+      // Stop automatic retry loops on a conflict/network error. A new edit
+      // will schedule auto-save again; the explicit Save note button can retry
+      // the current draft immediately.
+      notesSavedDraftRef.current = notesDraft;
+      setNoteSaveState('error');
+      if (!silent) toast.error((error as any)?.message || 'Could not save the note.');
     } finally {
       setSavingNotes(false);
     }
-  };
+  }, [canWriteNotes, notesDraft, profile?.id, selection]);
+
+  useEffect(() => {
+    if (!isSlntTenant || !open || panel !== 'main' || !selection?.roomId || selection.loading || !canWriteNotes || savingNotes) return;
+    if (notesDraft === notesSavedDraftRef.current) return;
+
+    setNoteSaveState('saving');
+    const timer = window.setTimeout(() => {
+      void saveNotes(true);
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [canWriteNotes, isSlntTenant, notesDraft, open, panel, saveNotes, savingNotes, selection?.loading, selection?.roomId]);
 
   const assigneeName = selection?.assignedTo
     ? cleanName(staffMap[selection.assignedTo]) || staffMap[selection.assignedTo] || 'Assigned housekeeper'
     : 'Unassigned';
+
+  const takeBackFromHousekeeper = async () => {
+    if (!isSlntTenant || !canManage || readOnlyForPast || !selection?.roomId || !selection.assignmentId) return;
+    if (selection.assignmentStatus === 'completed') return;
+    setActionLoading('take-back');
+    try {
+      await unassignRoom(selection.roomId, selectedDate);
+      setSelection((current) => current ? {
+        ...current,
+        assignmentId: null,
+        assignedTo: null,
+        assignmentStatus: null,
+        assignmentNotes: null,
+        assignmentServiceResult: null,
+        supervisorApproved: false,
+        priority: 1,
+      } : current);
+      toast.success(`Room ${selection.roomNumber} returned to the unassigned board`);
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } catch (error) {
+      console.error('Failed to take room back from housekeeper', error);
+      toast.error('Could not take this room back.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const setOutOfService = async (blocked: boolean) => {
+    if (!isSlntTenant || !canManage || readOnlyForPast || !selection?.roomId) return;
+    const roomId = selection.roomId;
+    const roomNumber = selection.roomNumber;
+    const previousStatus = selection.roomStatus || 'dirty';
+    const activeAssignment = !!selection.assignmentId && selection.assignmentStatus !== 'completed';
+    setActionLoading(blocked ? 'block-oos' : 'release-oos');
+
+    try {
+      const now = new Date().toISOString();
+      const nextMetadata = {
+        ...(selection.pmsMetadata || {}),
+        slntManualOutOfService: blocked,
+        ...(blocked
+          ? {
+              slntManualOutOfServiceAt: now,
+              slntManualOutOfServiceBy: profile?.id || null,
+            }
+          : {
+              slntManualOutOfServiceReleasedAt: now,
+              slntManualOutOfServiceReleasedBy: profile?.id || null,
+            }),
+      };
+      const { error: roomError } = await supabase
+        .from('rooms')
+        .update({
+          status: blocked ? 'out_of_order' : 'dirty',
+          pms_metadata: nextMetadata,
+        } as any)
+        .eq('id', roomId);
+      if (roomError) throw roomError;
+
+      if (blocked && activeAssignment) {
+        try {
+          await unassignRoom(roomId, selectedDate);
+        } catch (unassignError) {
+          await supabase.from('rooms').update({
+            status: previousStatus,
+            pms_metadata: {
+              ...nextMetadata,
+              slntManualOutOfService: false,
+              slntManualOutOfServiceReleasedAt: new Date().toISOString(),
+              slntManualOutOfServiceReleasedBy: profile?.id || null,
+            },
+          } as any).eq('id', roomId);
+          throw unassignError;
+        }
+      }
+
+      setSelection((current) => current ? {
+        ...current,
+        roomStatus: blocked ? 'out_of_order' : 'dirty',
+        pmsMetadata: nextMetadata,
+        ...(blocked && activeAssignment ? {
+          assignmentId: null,
+          assignedTo: null,
+          assignmentStatus: null,
+          assignmentNotes: null,
+          assignmentServiceResult: null,
+          supervisorApproved: false,
+          priority: 1,
+        } : {}),
+      } : current);
+
+      toast.success(
+        blocked
+          ? `Room ${roomNumber} blocked Out of Service`
+          : `Room ${roomNumber} released from Out of Service`,
+      );
+      window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
+    } catch (error) {
+      console.error('Failed to change Out of Service status', error);
+      toast.error(blocked ? 'Could not block this room.' : 'Could not release this room.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   const priorityMeta = useMemo(() => {
     if (selection?.priority === 3) return { label: 'High', className: 'border-rose-300 bg-rose-100 text-rose-800' };
@@ -489,12 +647,20 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     || !!selection.assignmentNotes?.includes('[NO_SERVICE]')
     || !!selection.assignmentNotes?.includes('[TOWEL_CHANGE_ONLY]')
   );
-  const visibleStatusLabel = hasNonCleaningOutcome
-    ? 'No Service / DND outcome'
-    : statusLabel(selection?.assignmentStatus || selection?.roomStatus || null);
-  const visibleStatusTone = hasNonCleaningOutcome
-    ? 'border-rose-200 bg-rose-50 text-rose-900'
-    : statusTone(selection?.assignmentStatus || selection?.roomStatus || null);
+  const isSlntOutOfService = isSlntTenant && selection?.roomStatus === 'out_of_order';
+  const effectiveStatus = isSlntOutOfService
+    ? 'out_of_order'
+    : selection?.assignmentStatus || selection?.roomStatus || null;
+  const visibleStatusLabel = isSlntOutOfService
+    ? 'Out of Service'
+    : hasNonCleaningOutcome
+      ? 'No Service / DND outcome'
+      : statusLabel(effectiveStatus);
+  const visibleStatusTone = isSlntOutOfService
+    ? statusTone('out_of_order')
+    : hasNonCleaningOutcome
+      ? 'border-rose-200 bg-rose-50 text-rose-900'
+      : statusTone(effectiveStatus);
 
   const mainView = !selection ? null : (
     <div className="space-y-4">
@@ -559,7 +725,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
             <Button
               type="button"
               className="w-full bg-emerald-600 font-bold hover:bg-emerald-700"
-              disabled={readOnlyForPast || !!actionLoading}
+              disabled={readOnlyForPast || !!actionLoading || (isSlntTenant && selection.roomStatus === 'out_of_order')}
               onClick={() => void markRoomClean()}
             >
               {actionLoading === 'mark-clean'
@@ -625,7 +791,17 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
           disabled={!canWriteNotes}
         />
         <div className="mt-2 flex items-center justify-between gap-2">
-          <p className="text-[10px] text-indigo-700/80">Visible to the operational team. Saved with user/time history.</p>
+          <p className="text-[10px] text-indigo-700/80">
+            {isSlntTenant
+              ? noteSaveState === 'saving'
+                ? 'Saving…'
+                : noteSaveState === 'saved'
+                  ? '✓ Saved automatically'
+                  : noteSaveState === 'error'
+                    ? 'Auto-save failed — use Save note to retry'
+                    : 'Auto-saves while typing. Saved with user/time history.'
+              : 'Visible to the operational team. Saved with user/time history.'}
+          </p>
           {canWriteNotes && (
             <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" disabled={savingNotes} onClick={() => void saveNotes()}>
               {savingNotes ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1 h-3.5 w-3.5" />} Save note
@@ -643,6 +819,77 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
             dateLabel={selectedDate}
             readOnly={readOnlyForPast}
           />
+        </section>
+      )}
+
+      {isSlntTenant && canManage && (
+        <section className={`rounded-2xl border p-3 sm:p-4 ${
+          selection.roomStatus === 'out_of_order'
+            ? 'border-rose-300 bg-rose-50'
+            : 'border-slate-200 bg-slate-50/70'
+        }`}>
+          <div className="mb-3">
+            <p className="text-sm font-bold">SLNT room control</p>
+            <p className="text-[11px] text-muted-foreground">
+              Take back assigned work or block the unit from housekeeping assignment until it is released.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {selection.assignmentId && selection.assignedTo && selection.assignmentStatus !== 'completed' && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={readOnlyForPast || !!actionLoading}
+                onClick={() => void takeBackFromHousekeeper()}
+              >
+                {actionLoading === 'take-back' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Take back from {assigneeName}
+              </Button>
+            )}
+
+            {selection.roomStatus === 'out_of_order' ? (
+              <Button
+                type="button"
+                className="bg-emerald-600 hover:bg-emerald-700"
+                disabled={readOnlyForPast || !!actionLoading}
+                onClick={() => void setOutOfService(false)}
+              >
+                {actionLoading === 'release-oos' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Release Out of Service
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={readOnlyForPast || !!actionLoading}
+                onClick={() => void setOutOfService(true)}
+              >
+                {actionLoading === 'block-oos' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Block Out of Service
+              </Button>
+            )}
+
+            {selection.roomStatus !== 'out_of_order' && (
+              <Button
+                type="button"
+                variant="outline"
+                className="border-amber-300 text-amber-800"
+                disabled={readOnlyForPast || !!actionLoading}
+                onClick={() => void patchRoom(
+                  { status: 'dirty' },
+                  { roomStatus: 'dirty' },
+                  `Room ${selection.roomNumber} marked dirty`,
+                )}
+              >
+                Mark Dirty
+              </Button>
+            )}
+          </div>
+          {selection.roomStatus === 'out_of_order' && (
+            <p className="mt-2 rounded-lg border border-rose-200 bg-white/70 p-2 text-[11px] font-medium text-rose-800">
+              Out of Service is locked: this room cannot be assigned to housekeeping until a manager releases it.
+            </p>
+          )}
         </section>
       )}
 
@@ -679,7 +926,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
               <div className="rounded-lg bg-white p-2"><p className="text-[9px] uppercase text-muted-foreground">Floor</p><p className="font-semibold">{selection.floorNumber ?? '—'}</p></div>
               <div className="rounded-lg bg-white p-2"><p className="text-[9px] uppercase text-muted-foreground">Last cleaned</p><p className="font-semibold">{selection.lastCleanedAt ? new Date(selection.lastCleanedAt).toLocaleString() : 'Not recorded'}</p></div>
             </div>
-            {canManage && (
+            {canManage && selection.roomStatus !== 'out_of_order' && (
               <Button variant="outline" className="w-full border-amber-300 text-amber-800" disabled={!!actionLoading} onClick={() => void patchRoom({ status: 'dirty' }, { roomStatus: 'dirty' }, `Room ${selection.roomNumber} marked dirty`)}>Mark Dirty</Button>
             )}
           </div>
@@ -692,7 +939,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
     <>
       <div ref={rootRef} onClickCapture={handleClickCapture}>{children}</div>
 
-      {!venuesEnabled && canOpen && (
+      {(!venuesEnabled || isSlntTenant) && canOpen && (
         <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) { setPanel('main'); setMoreOpen(false); } }}>
           <DialogContent className="flex max-h-[94vh] w-[calc(100vw-1.25rem)] max-w-3xl flex-col overflow-hidden p-0">
             <DialogHeader className="shrink-0 border-b bg-gradient-to-r from-slate-50 via-white to-sky-50 px-4 py-4 sm:px-5">

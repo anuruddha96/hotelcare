@@ -150,7 +150,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const { user, profile } = useAuth();
   const { t } = useTranslation();
   const terms = usePropertyTerms();
-  const { venuesEnabled } = useTenantFeatures();
+  const { venuesEnabled, orgSlug } = useTenantFeatures();
+  const activeOrganizationSlug = orgSlug || profile?.organization_slug || null;
+  const isSlntTenant = venuesEnabled && ['slnt', 'slnt-group'].includes((activeOrganizationSlug || '').toLowerCase());
   const { venueName } = useVenues();
   // Managers/supervisors may move work between housekeepers by drag & drop.
   const canDragAssign = !!profile?.role && ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager', 'supervisor'].includes(profile.role);
@@ -181,7 +183,6 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const [slntRosterNotice, setSlntRosterNotice] = useState<SlntRosterNotice | null>(null);
   const [slntVerifiedKey, setSlntVerifiedKey] = useState<string | null>(null);
   const scheduleRequestId = useRef(0);
-  const isSlntTenant = profile?.organization_slug === 'slnt' || profile?.organization_slug === 'slnt-group';
   const slntRosterReady = !isSlntTenant || (slntVerifiedKey === `${profile?.assigned_hotel}|${selectedDate}` && !slntRosterNotice);
   const openSlntStaffSchedule = () => {
     if (!profile?.assigned_hotel) return;
@@ -368,8 +369,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
             staffId: move.toStaffId,
             assignmentDate: selectedDate,
             assignedBy: user.id,
-            organizationSlug: profile?.organization_slug ?? null,
+            organizationSlug: activeOrganizationSlug,
             isCheckoutRoom: move.sourceType === 'checkout',
+            preventOutOfOrder: isSlntTenant,
           });
         } else {
           await unassignRoom(move.roomId, selectedDate);
@@ -1543,8 +1545,9 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
                   staffId: pendingAssign.staffId,
                   assignmentDate: selectedDate,
                   assignedBy: user.id,
-                  organizationSlug: profile?.organization_slug ?? null,
+                  organizationSlug: activeOrganizationSlug,
                   isCheckoutRoom: pendingAssign.sourceType === 'checkout',
+                  preventOutOfOrder: isSlntTenant,
                 });
                 toast.success(`${pendingAssign.roomNumber} → ${pendingAssign.staffName}`);
                 setPendingAssign(null);
