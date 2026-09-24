@@ -52,6 +52,25 @@ describe('Smart housekeeping regeneration', () => {
       .toBe(previous[0].staffId);
   });
 
+  it('rebalances across a smaller cleaner pool while preserving explicit active-room ownership', () => {
+    const previous = autoAssignRooms(rooms, staff, undefined, undefined,
+      { hotelName: 'Hotel Mika Downtown', randomSeed: 5 });
+    const fixedRoom = previous.find(person => person.staffId === 'a')!.rooms[0].id;
+    const result = generateSmartHousekeepingPlan(basic({
+      staff: staff.slice(0, 1),
+      previous,
+      lockedRoomIds: new Set([fixedRoom]),
+      fixedRoomOwners: new Map([[fixedRoom, 'a']]),
+      seed: 44,
+    }));
+    expect(result.changed).toBe(true);
+    expect(result.plan).not.toBeNull();
+    expect(result.plan).toHaveLength(1);
+    expect(result.plan![0].staffId).toBe('a');
+    expect(result.plan![0].rooms).toHaveLength(rooms.length);
+    expect(result.plan![0].rooms.some(item => item.id === fixedRoom)).toBe(true);
+  });
+
   it('rejects infeasible short shifts, including public-area workload', () => {
     const tiny = [room('201')];
     expect(generateSmartHousekeepingPlan(basic({ rooms: tiny, staff: staff.slice(0, 1),
