@@ -59,7 +59,10 @@ BEGIN
 
   RETURN NEW;
 END;
-$$;
+$;
+
+-- Trigger-only SECURITY DEFINER helper; never expose as an RPC.
+REVOKE ALL ON FUNCTION public.enforce_room_assignment_tenant_integrity() FROM PUBLIC;
 
 DROP TRIGGER IF EXISTS enforce_room_assignment_tenant_integrity_trigger
   ON public.room_assignments;
