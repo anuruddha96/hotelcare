@@ -269,6 +269,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
   const isExecViewer = profile?.role && ['top_management', 'top_management_manager'].includes(profile.role);
   const isReception = profile?.role === 'reception';
+  const canManualGozsduRtc = isGozsduCourtHotel(hotelName) && (isManagerOrAdmin || isReception);
   const canViewFullOverview = isManagerOrAdmin || isExecViewer || isReception;
   const [refreshing, setRefreshing] = useState(false);
 
@@ -717,18 +718,48 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
   // Manual release of a checkout room. Stamped in pms_metadata so the next PMS
   // refresh does not re-block the room as "guest still in house".
   const releaseReadyToClean = async (room: RoomData) => {
-    const { error } = await supabase
+    const assignment = assignmentMap.get(room.id);
+    const now = new Date().toISOString();
+    const source = isReception && isGozsduCourtHotel(hotelName) ? 'reception_ui' : 'manager_ui';
+    const { data: updated, error } = await supabase
       .from('room_assignments')
       .update({ ready_to_clean: true, pms_hold: false, pms_hold_reason: null } as any)
       .eq('room_id', room.id)
       .eq('assignment_date', selectedDate)
-      .eq('assignment_type', 'checkout_cleaning');
+      .eq('assignment_type', 'checkout_cleaning')
+      .neq('status', 'completed')
+      .select('id')
+      .maybeSingle();
     if (error) throw error;
+    if (!updated?.id) throw new Error('The checkout assignment changed. Refresh and try again.');
+
     await mergeRoomMetadata(room, {
-      manualReadyToCleanAt: new Date().toISOString(),
-      manualReadyToCleanBy: profile?.full_name || profile?.id || null,
+      manualReadyToCleanAt: now,
+      manualReadyToCleanBy: profile?.id || profile?.full_name || null,
+      manualReadyToCleanSource: source,
     });
-    setAssignments(prev => prev.map(a => a.room_id === room.id ? { ...a, ready_to_clean: true } : a));
+
+    const { error: auditError } = await supabase.from('pms_change_events').insert({
+      hotel_id: room.hotel,
+      room_id: room.id,
+      room_label: room.room_number,
+      event_type: 'rtc_released_manual',
+      source,
+      before: {
+        ready_to_clean: !!assignment?.ready_to_clean,
+        pms_hold: !!assignment?.pms_hold,
+        previo_checked_out_today: room.pms_metadata?.checkedOutToday === true,
+      },
+      after: {
+        ready_to_clean: true,
+        pms_hold: false,
+        previo_checked_out_today: room.pms_metadata?.checkedOutToday === true,
+      },
+      is_conflict: room.pms_metadata?.checkedOutToday !== true,
+    } as any);
+    if (auditError) console.warn('Manual RTC audit event could not be written', auditError);
+
+    setAssignments(prev => prev.map(a => a.room_id === room.id ? { ...a, ready_to_clean: true, pms_hold: false } : a));
   };
 
   // Switch a room between the Checkout and Daily buckets. The manual decision
@@ -1235,17 +1266,26 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
               </div>
 
               {/* Ready to Clean - PROMINENT for checkout rooms */}
-              {canMarkReadyToClean && assignment && !assignment.ready_to_clean && isManagerOrAdmin && (
+              {canMarkReadyToClean && assignment && !assignment.ready_to_clean && (isManagerOrAdmin || canManualGozsduRtc) && (
                 <button
                   className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-bold bg-emerald-500 text-white hover:bg-emerald-600 transition-colors shadow-sm"
                   disabled={actionLoading === `ready-${room.id}`}
                   onClick={async (e) => {
                     e.stopPropagation();
+                    if (isReception && isGozsduCourtHotel(hotelName)) {
+                      const confirmed = window.confirm(
+                        `Confirm the guest has physically checked out from room ${room.room_number}.\n\nThis will manually release the room to housekeeping as Ready to Clean (RTC). It will not change or fake the checkout status in Previo.`,
+                      );
+                      if (!confirmed) return;
+                    }
                     setActionLoading(`ready-${room.id}`);
                     try {
                       await releaseReadyToClean(room);
-                      toast.success(`Room ${room.room_number} ready to clean`);
-                    } catch { toast.error('Failed'); }
+                      toast.success(`Room ${room.room_number} manually released as Ready to Clean (RTC)`);
+                    } catch (error) {
+                      console.error('Failed to release RTC', error);
+                      toast.error((error as Error)?.message || 'Failed to release RTC');
+                    }
                     finally { setActionLoading(null); }
                   }}
 
