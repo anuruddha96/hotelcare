@@ -28,6 +28,8 @@ export async function ensureTomorrowPmsSnapshot(args: SnapshotArgs):
   ReturnType<typeof core.ensureTomorrowPmsSnapshot> {
   if (!isGozsduCourtHotel(args.hotelId)) return core.ensureTomorrowPmsSnapshot(args);
 
+  args.onProgress?.({ phase: 'checking-cache', attempt: 1, maxAttempts: 3 });
+
   const readExactDate = async () => {
     const { data, error } = await (supabase as any)
       .from('daily_overview_snapshots')
@@ -57,22 +59,14 @@ export async function ensureTomorrowPmsSnapshot(args: SnapshotArgs):
     }
   }
 
-  const { data: overview, error: syncError } = await supabase.functions.invoke(
-    'previo-sync-daily-overview', {
-      body: {
-        hotelId: args.hotelId,
-        fromDate: shiftDate(args.selectedDate, -1),
-        toDate: shiftDate(args.selectedDate, 1),
-        days: 2,
-      },
-    },
-  );
-  if (syncError || (overview as any)?.ok === false || (overview as any)?.error) {
-    throw new Error(
-      (overview as any)?.error || syncError?.message || 'Could not load the selected-date Previo room snapshot.',
-    );
-  }
+  await core.invokeTomorrowDailyOverviewWithRetry({
+    ...args,
+    fromDate: shiftDate(args.selectedDate, -1),
+    toDate: shiftDate(args.selectedDate, 1),
+    days: 2,
+  });
 
+  args.onProgress?.({ phase: 'validating-snapshot', attempt: 1, maxAttempts: 3 });
   const current = await readExactDate();
   if (!current.verified) {
     // A non-empty malformed/stale roster still fails closed. Only a genuinely
