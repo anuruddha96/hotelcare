@@ -1,0 +1,76 @@
+CREATE SCHEMA IF NOT EXISTS auth;
+CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$;
+
+CREATE TABLE public.rooms (
+  id uuid PRIMARY KEY,
+  hotel text,
+  organization_slug text,
+  room_number text,
+  status text,
+  is_checkout_room boolean,
+  towel_change_required boolean,
+  linen_change_required boolean,
+  is_dnd boolean,
+  dnd_marked_at timestamptz,
+  notes text,
+  operational_note_date date,
+  pms_metadata jsonb default '{}'::jsonb
+);
+
+CREATE TABLE public.housekeeping_notes (
+  id uuid PRIMARY KEY,
+  room_id uuid,
+  note_type text,
+  created_at timestamptz
+);
+
+CREATE TABLE public.room_assignments (
+  id uuid PRIMARY KEY,
+  room_id uuid NOT NULL,
+  assignment_date date NOT NULL,
+  status text,
+  supervisor_approved boolean,
+  updated_at timestamptz,
+  is_dnd boolean,
+  dnd_attempt_count integer,
+  notes text,
+  manager_instruction_text text,
+  instruction_snapshot jsonb,
+  service_result text
+);
+
+CREATE TABLE public.housekeeping_room_snapshots (
+  id uuid PRIMARY KEY,
+  business_date date NOT NULL,
+  room_id uuid NOT NULL,
+  hotel text,
+  organization_slug text,
+  room_number text,
+  room_status text,
+  is_checkout_room boolean,
+  is_dnd boolean,
+  towel_change_required boolean,
+  linen_change_required boolean,
+  room_notes text,
+  pms_metadata jsonb,
+  had_dnd boolean,
+  had_no_service boolean,
+  had_room_cleaning_request boolean,
+  had_extra_towels_request boolean,
+  had_ready_to_clean boolean,
+  assignment_notes text,
+  source text
+);
+
+CREATE SCHEMA IF NOT EXISTS cron;
+CREATE TABLE cron.job(jobid serial primary key, jobname text unique);
+CREATE OR REPLACE FUNCTION cron.schedule(text,text,text) RETURNS bigint LANGUAGE plpgsql AS $$
+DECLARE v_id bigint;
+BEGIN
+  INSERT INTO cron.job(jobname) VALUES ($1)
+  ON CONFLICT(jobname) DO UPDATE SET jobname=excluded.jobname
+  RETURNING jobid INTO v_id;
+  RETURN v_id;
+END $$;
+
+CREATE TABLE public._extensions(name text);
