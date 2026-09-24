@@ -590,7 +590,15 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
         try {
           await unassignRoom(roomId, selectedDate);
         } catch (unassignError) {
-          await supabase.from('rooms').update({ status: previousStatus } as any).eq('id', roomId);
+          await supabase.from('rooms').update({
+            status: previousStatus,
+            pms_metadata: {
+              ...nextMetadata,
+              slntManualOutOfService: false,
+              slntManualOutOfServiceReleasedAt: new Date().toISOString(),
+              slntManualOutOfServiceReleasedBy: profile?.id || null,
+            },
+          } as any).eq('id', roomId);
           throw unassignError;
         }
       }
