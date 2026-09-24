@@ -104,7 +104,7 @@ begin
           and ra.assignment_date = v_plan.plan_date
           and ra.status <> 'cancelled'::public.assignment_status
       )
-  ), inserted as materialized (
+  ), inserted as (
     insert into public.room_assignments (
       room_id,
       assigned_to,
