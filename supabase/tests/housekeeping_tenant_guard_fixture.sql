@@ -172,6 +172,9 @@ INSERT INTO public.next_day_housekeeping_plan_items(plan_id,room_id,assigned_to)
 INSERT INTO public.assignment_patterns(organization_slug,hotel) VALUES
  ('rdhotels','mika'),('rdhotels','memories'),('slnt','slnt-one');
 -- Legacy mislinked work, inserted BEFORE migration and preserved for audit.
+-- Include one valid SLNT assignment so UPDATE integrity tests exercise a row the
+-- SLNT manager is legitimately allowed to edit before attempting a foreign link.
 INSERT INTO public.room_assignments(room_id,assigned_to,organization_slug,status) VALUES
  ('00000000-0000-4000-8000-000000000021','00000000-0000-4000-8000-000000000015','rdhotels','in_progress'),
- ('00000000-0000-4000-8000-000000000024','00000000-0000-4000-8000-000000000014','rdhotels','assigned');
+ ('00000000-0000-4000-8000-000000000024','00000000-0000-4000-8000-000000000014','rdhotels','assigned'),
+ ('00000000-0000-4000-8000-000000000023','00000000-0000-4000-8000-000000000015','slnt','assigned');
