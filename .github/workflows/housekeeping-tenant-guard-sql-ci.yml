@@ -8,6 +8,7 @@ on:
       - 'supabase/migrations/20260924072338_housekeeping_plan_policy_refinements_20260924.sql'
       - 'supabase/migrations/20260924072405_room_assignment_tenant_write_guard_20260924.sql'
       - 'supabase/migrations/20260924073025_harden_room_assignment_tenant_integrity_execute_20260924.sql'
+      - 'supabase/migrations/20260924073124_lock_down_room_assignment_tenant_integrity_execute_20260924.sql'
       - 'supabase/tests/housekeeping_tenant_guard_*.sql'
       - '.github/workflows/housekeeping-tenant-guard-sql-ci.yml'
 
@@ -53,6 +54,7 @@ jobs:
             -f supabase/migrations/20260924072338_housekeeping_plan_policy_refinements_20260924.sql \
             -f supabase/migrations/20260924072405_room_assignment_tenant_write_guard_20260924.sql \
             -f supabase/migrations/20260924073025_harden_room_assignment_tenant_integrity_execute_20260924.sql \
+            -f supabase/migrations/20260924073124_lock_down_room_assignment_tenant_integrity_execute_20260924.sql \
             -f supabase/tests/housekeeping_tenant_guard_integration.sql \
             -f supabase/tests/housekeeping_tenant_guard_write_denials.sql
       - name: Check release gate refuses unresolved synthetic operational work
