@@ -469,6 +469,7 @@ export async function saveApprovedNextDayAutoAssignPlan(args: {
         confirmed_checkout_count: primaryEntries.filter(entry =>
           entry.room.is_checkout_room && !isPotentialCheckoutRoom(entry.room)).length,
         potential_checkout_count: primaryEntries.filter(entry => isPotentialCheckoutRoom(entry.room)).length,
+        unsold_now_count: primaryEntries.filter(entry => isPotentialCheckoutRoom(entry.room)).length,
         daily_count: primaryEntries.filter(entry => !entry.room.is_checkout_room).length,
         selected_staff_ids: args.selectedStaffIds,
         shared_room_count: sharedEntries.length,
@@ -541,7 +542,8 @@ export async function saveApprovedNextDayAutoAssignPlan(args: {
           shared_helper_staff_id: helperId,
           room_number: room.room_number,
           room_kind: room.is_checkout_room ? 'checkout' : 'daily',
-          planning_status: isPotentialCheckoutRoom(room) ? 'potential_checkout' : 'confirmed',
+          planning_status: isPotentialCheckoutRoom(room) ? 'unsold_now' : 'confirmed',
+          unsold_at_planning: isPotentialCheckoutRoom(room),
           potential_checkout: isPotentialCheckoutRoom(room),
           floor_number: room.floor_number ?? getFloorFromRoomNumber(room.room_number),
           housekeeping_section_id: room.housekeeping_section_id || null,

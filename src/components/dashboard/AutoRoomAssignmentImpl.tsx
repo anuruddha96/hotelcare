@@ -1655,12 +1655,12 @@ export function AutoRoomAssignment({
           ${sortPreviewRooms(preview.rooms).map(room => {
             const special = [
               !isPotentialCheckoutRoom(room) && (room.ready_to_clean || isPmsRtcToday(room.pms_metadata as any)) ? 'RTC' : '',
-              isPotentialCheckoutRoom(room) ? 'Currently unbooked' : '',
+              isPotentialCheckoutRoom(room) ? 'Unsold now' : '',
               needsTowelChange(room) ? 'Towel' : '',
               needsLinenChange(room) ? 'Clean Room' : '',
               room.bed_configuration ? `Bed: ${room.bed_configuration}` : '',
             ].filter(Boolean).join(', ');
-            const type = isPotentialCheckoutRoom(room) ? 'Potential checkout' : isCheckoutLike(room) ? 'Checkout' : 'Daily';
+            const type = isPotentialCheckoutRoom(room) ? 'Unsold now' : isCheckoutLike(room) ? 'Checkout' : 'Daily';
             return `<tr><td style="border:1px solid #ddd;padding:6px"><b>${roomDisplayName(room)}</b></td><td style="border:1px solid #ddd;padding:6px">${type}</td><td style="border:1px solid #ddd;padding:6px">${isGozsdu ? room.housekeeping_section_name || 'Unmapped building' : `F${room.floor_number ?? getFloorFromRoomNumber(room.room_number)}`}</td><td style="border:1px solid #ddd;padding:6px">${special || '—'}</td></tr>`;
           }).join('')}
         </table>
@@ -1759,7 +1759,7 @@ export function AutoRoomAssignment({
         className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] leading-tight font-medium select-none touch-none cursor-grab active:cursor-grabbing ${color} ${
           selected ? 'ring-2 ring-primary ring-offset-1 scale-105' : checkedForBulk ? 'ring-2 ring-sky-500 ring-offset-1' : ''
         } ${draggingRoomId === room.id ? 'opacity-75' : ''} ${justDroppedRoomId === room.id ? 'ring-2 ring-green-500' : ''}`}
-        title={`Room ${roomDisplayName(room)}${potentialCheckout ? ' · Potential checkout · currently unbooked' : ''}${rtc ? ' · Ready to clean' : ''}${held ? ' · Maintenance hold' : ''}`}
+        title={`Room ${roomDisplayName(room)}${potentialCheckout ? ' · Unsold now · final cleaning type set after morning PMS sync' : ''}${rtc ? ' · Ready to clean' : ''}${held ? ' · Maintenance hold' : ''}`}
       >
         <button
           type="button"
@@ -1771,7 +1771,7 @@ export function AutoRoomAssignment({
           className={`mr-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 bg-background/90 ${checkedForBulk ? 'border-sky-600 bg-sky-600 text-white' : 'border-current/50 text-current'} focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary`}
         >{checkedForBulk ? <Check className="h-3 w-3" /> : <span className="h-1 w-1 rounded-full bg-current opacity-30" />}</button>
         <span className="font-semibold">{roomDisplayName(room)}</span>
-        {potentialCheckout && <span className="rounded bg-violet-700 px-1 text-[8px] font-extrabold text-white" title="Potential checkout · currently unbooked">POT</span>}
+        {potentialCheckout && <span className="rounded bg-violet-700 px-1 text-[8px] font-extrabold text-white" title="Unsold now · final cleaning type set after morning PMS sync">UNSOLD</span>}
         {lockedRoomIds.has(room.id) && <button type="button" className="rounded border border-amber-500 px-1 text-[9px]" title="Manual assignment locked; tap to allow auto-regeneration" aria-label={'Unlock room ' + roomDisplayName(room)} onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); setLockedRoomIds(previous => new Set([...previous].filter(id => id !== room.id))); }}>🔒</button>}
         {rtc && <span className="rounded bg-green-600 px-0.5 text-[8px] font-extrabold text-white">RTC</span>}
         {held && <span className="rounded bg-red-600 px-0.5 text-[8px] font-extrabold text-white">HOLD</span>}
@@ -1872,7 +1872,7 @@ export function AutoRoomAssignment({
                 <div className={`grid ${isNextDayPlanning ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'} gap-3 rounded-lg bg-muted p-3`}>
                   <div className="text-center"><p className="text-2xl font-bold">{effectiveRooms.length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.totalRooms')}</p></div>
                   <div className="text-center"><p className="text-2xl font-bold text-amber-600">{effectiveRooms.filter(room => isCheckoutLike(room) && !isPotentialCheckoutRoom(room)).length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.checkouts')}</p></div>
-                  {isNextDayPlanning && <div className="text-center"><p className="text-2xl font-bold text-violet-600">{effectiveRooms.filter(isPotentialCheckoutRoom).length}</p><p className="text-xs text-muted-foreground">Potential</p></div>}
+                  {isNextDayPlanning && <div className="text-center"><p className="text-2xl font-bold text-violet-600">{effectiveRooms.filter(isPotentialCheckoutRoom).length}</p><p className="text-xs text-muted-foreground">Unsold now</p></div>}
                   <div className="text-center"><p className="text-2xl font-bold text-blue-600">{effectiveRooms.filter(room => !isCheckoutLike(room)).length}</p><p className="text-xs text-muted-foreground">{t('autoAssign.daily')}</p></div>
                 </div>
 
@@ -1918,7 +1918,7 @@ export function AutoRoomAssignment({
                       <div className="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
                         {dirtyRooms.map(room => {
                           const excluded = excludedRoomIds.has(room.id);
-                          return <button key={room.id} type="button" onClick={() => toggleRoomExclusion(room.id)} className={`rounded border px-2 py-1 text-xs font-medium ${excluded ? 'border-red-400 bg-red-100 text-red-800 line-through' : isPotentialCheckoutRoom(room) ? 'border-violet-300 bg-violet-50 text-violet-800 dark:bg-violet-950/30 dark:text-violet-200' : 'bg-muted'}`}>{roomDisplayName(room)}{isPotentialCheckoutRoom(room) ? ' · POT' : ''}{excluded ? ' ✕' : ''}</button>;
+                          return <button key={room.id} type="button" onClick={() => toggleRoomExclusion(room.id)} className={`rounded border px-2 py-1 text-xs font-medium ${excluded ? 'border-red-400 bg-red-100 text-red-800 line-through' : isPotentialCheckoutRoom(room) ? 'border-violet-300 bg-violet-50 text-violet-800 dark:bg-violet-950/30 dark:text-violet-200' : 'bg-muted'}`}>{roomDisplayName(room)}{isPotentialCheckoutRoom(room) ? ' · UNSOLD' : ''}{excluded ? ' ✕' : ''}</button>;
                         })}
                       </div>
                     </div>
@@ -1930,7 +1930,7 @@ export function AutoRoomAssignment({
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm">
                   <p><strong>{assignmentPreviews.reduce((sum, preview) => sum + preview.rooms.length, 0)}</strong> {t('autoAssign.rooms')} + <strong>{sectionTasks.length}</strong> mapped area tasks → <strong>{staffIdsWithWork.size}</strong> {t('autoAssign.staff')}</p>
                   <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                    <span>🟨 {t('autoAssign.checkout')}</span>{isNextDayPlanning && <span>🟪 Potential checkout</span>}<span>🟦 {t('autoAssign.daily')}</span><span>🧹 mapped area</span><span className="font-bold text-green-600">RTC</span><span className="font-bold text-red-600">HOLD</span><span className="font-bold text-blue-600">T</span><span className="font-bold text-orange-600">C</span>
+                    <span>🟨 {t('autoAssign.checkout')}</span>{isNextDayPlanning && <span>🟪 Unsold now</span>}<span>🟦 {t('autoAssign.daily')}</span><span>🧹 mapped area</span><span className="font-bold text-green-600">RTC</span><span className="font-bold text-red-600">HOLD</span><span className="font-bold text-blue-600">T</span><span className="font-bold text-orange-600">C</span>
                   </div>
                   {fairnessMetrics && <div className="flex flex-wrap gap-2 text-xs"><span>CO±{fairnessMetrics.checkoutDiff}</span><span>Daily±{fairnessMetrics.dailyDiff}</span><span>⏱{fairnessMetrics.timeSpreadMinutes}m</span><span>{isGozsdu ? 'Building' : 'F'}↔{fairnessMetrics.splitFloorCount}</span></div>}
                 </div>
@@ -1957,7 +1957,8 @@ export function AutoRoomAssignment({
 
                 <div className={isMobile && assignmentPreviews.length >= 3 ? (isGozsdu ? 'grid grid-cols-1 min-[520px]:grid-cols-2 gap-2' : 'grid grid-cols-2 gap-2 overflow-y-auto') : 'flex gap-2 overflow-x-auto'}>
                   {assignmentPreviews.map(preview => {
-                    const checkouts = preview.rooms.filter(isCheckoutLike);
+                    const checkouts = preview.rooms.filter(room => isCheckoutLike(room) && !isPotentialCheckoutRoom(room));
+                    const unsold = preview.rooms.filter(isPotentialCheckoutRoom);
                     const daily = preview.rooms.filter(room => !isCheckoutLike(room));
                     const isDropTarget = selectedRoomForMove && selectedRoomForMove.fromStaffId !== preview.staffId;
                     const isDragOver = dragOverStaffId === preview.staffId;
@@ -1978,11 +1979,12 @@ export function AutoRoomAssignment({
                       >
                         <div className="border-b bg-muted/40 px-2 py-1.5">
                           <div className="flex items-center justify-between gap-1"><span className="min-w-0 truncate text-xs font-semibold">{preview.staffName}</span><Button type="button" size="sm" variant={bulkDestinationStaffId === preview.staffId ? 'default' : 'outline'} aria-pressed={bulkDestinationStaffId === preview.staffId} className="h-6 shrink-0 px-1 text-[9px]" onClick={event => { event.stopPropagation(); setBulkDestinationStaffId(preview.staffId); }}>{bulkDestinationStaffId === preview.staffId ? '✓ Target' : 'Assign here'}</Button>{exceedsShift && <AlertTriangle className="h-3 w-3 shrink-0 text-destructive" />}</div>
-                          <div className="mt-0.5 flex items-center justify-between text-[10px] text-muted-foreground"><span>{checkouts.length}co · {daily.length}d · {mappedTasks.length} areas</span><span>{formatMinutesToTime(totalWithAreas)}</span></div>
+                          <div className="mt-0.5 flex items-center justify-between text-[10px] text-muted-foreground"><span>{checkouts.length}co · {unsold.length}u · {daily.length}d · {mappedTasks.length} areas</span><span>{formatMinutesToTime(totalWithAreas)}</span></div>
                           <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted"><div className={`h-full ${exceedsShift ? 'bg-destructive' : workload > 80 ? 'bg-amber-500' : 'bg-green-500'}`} style={{ width: `${workload}%` }} /></div>
                         </div>
                         <div className="flex-1 space-y-1.5 overflow-y-auto p-1.5">
                           {checkouts.length > 0 && <div><div className="mb-0.5 flex flex-wrap items-center justify-between gap-1"><p className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('autoAssign.checkouts')}</p><button type="button" className="text-[9px] text-sky-700 underline dark:text-sky-300" onClick={event => { event.stopPropagation(); toggleBulkRooms(checkouts.map(room => room.id)); }}>{checkouts.every(room => bulkSelectedRoomIds.has(room.id)) ? 'Deselect all' : 'Select all'}</button></div>{groupByFloor(checkouts).map(group => <div key={`co-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">{isGozsdu ? group.floor : `F${group.floor}`}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
+                          {unsold.length > 0 && <div><div className="mb-0.5 flex flex-wrap items-center justify-between gap-1"><p className="text-[9px] uppercase tracking-wide text-violet-700 dark:text-violet-300">Unsold now</p><button type="button" className="text-[9px] text-sky-700 underline dark:text-sky-300" onClick={event => { event.stopPropagation(); toggleBulkRooms(unsold.map(room => room.id)); }}>{unsold.every(room => bulkSelectedRoomIds.has(room.id)) ? 'Deselect all' : 'Select all'}</button></div>{groupByFloor(unsold).map(group => <div key={`unsold-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">{isGozsdu ? group.floor : `F${group.floor}`}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
                           {daily.length > 0 && <div><div className="mb-0.5 flex flex-wrap items-center justify-between gap-1"><p className="text-[9px] uppercase tracking-wide text-muted-foreground">{t('autoAssign.daily')}</p><button type="button" className="text-[9px] text-sky-700 underline dark:text-sky-300" onClick={event => { event.stopPropagation(); toggleBulkRooms(daily.map(room => room.id)); }}>{daily.every(room => bulkSelectedRoomIds.has(room.id)) ? 'Deselect all' : 'Select all'}</button></div>{groupByFloor(daily).map(group => <div key={`d-${group.floor}`} className="mb-1 flex items-start gap-1"><span className="mt-0.5 rounded bg-muted px-0.5 text-[8px] text-muted-foreground">{isGozsdu ? group.floor : `F${group.floor}`}</span><div className="flex flex-wrap gap-1">{group.rooms.map(room => renderRoomChip(room, preview))}</div></div>)}</div>}
                           {mappedTasks.length > 0 && <div><p className="mb-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">Public areas · drag to reassign</p><div className="flex flex-wrap gap-1">{mappedTasks.map(task => renderPublicAreaChip(task, preview.staffId))}</div></div>}
                           {preview.rooms.length === 0 && mappedTasks.length === 0 && <div className={`rounded border border-dashed p-3 text-center text-[10px] text-muted-foreground ${isDragOver ? 'border-primary bg-primary/5' : ''}`}>Drop a room or public area here</div>}
@@ -2044,7 +2046,7 @@ export function AutoRoomAssignment({
                 <p className="text-muted-foreground">{assignmentPreviews.reduce((sum, preview) => sum + preview.rooms.length, 0)} {t('autoAssign.roomsWillBeAssigned')} {staffIdsWithWork.size} {t('autoAssign.housekeepers')}. {sectionTasks.length} mapped area tasks will follow their nearest section owner.</p>
                 {isNextDayPlanning && assignmentPreviews.some(preview => preview.rooms.some(isPotentialCheckoutRoom)) && (
                   <p className="mx-auto max-w-xl rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-900 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-100">
-                    <strong>{assignmentPreviews.reduce((sum, preview) => sum + preview.rooms.filter(isPotentialCheckoutRoom).length, 0)} potential checkout room(s)</strong> are currently unbooked. They are included for workload planning and will be revalidated against fresh PMS data before morning release.
+                    <strong>{assignmentPreviews.reduce((sum, preview) => sum + preview.rooms.filter(isPotentialCheckoutRoom).length, 0)} room(s) are unsold now.</strong> They are provisional planning rooms only. Fresh morning PMS data will decide whether each becomes a checkout, a property-specific stay-over service, or no housekeeping task.
                   </p>
                 )}
                 {editingExistingAssignments && <p className="mx-auto max-w-xl rounded-lg bg-blue-50 p-3 text-sm text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">Only changed rooms will be written. Untouched assignments, ready-to-clean flags, progress, notes and PMS hold data stay unchanged.</p>}

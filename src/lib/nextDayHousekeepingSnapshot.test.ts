@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSelectedDateHousekeepingWorkload,
   isPotentialCheckoutRoom,
+  isUnsoldPlanningRoom,
   nextDayRoomMatchTokens,
   type DailyOverviewWorkRow,
 } from './nextDayHousekeepingSnapshot';
@@ -72,7 +73,7 @@ describe('next-day housekeeping selected-date snapshot', () => {
     expect([tomorrow.checkoutCount, tomorrow.dailyCount]).toEqual([11, 22]);
     expect(tomorrow.rooms.every(room => room.pms_metadata?.plannedHousekeepingDate === '2026-09-11')).toBe(true);
   });
-  it('adds rooms missing from the reservation snapshot as assignable potential checkouts', () => {
+  it('adds rooms missing from the reservation snapshot as assignable unsold planning rooms', () => {
     const rooms = [baseRoom('booked', '101'), baseRoom('vacant', '102')];
     const workload = buildSelectedDateHousekeepingWorkload(
       rooms,
@@ -90,10 +91,13 @@ describe('next-day housekeeping selected-date snapshot', () => {
     expect(vacant.ready_to_clean).toBe(false);
     expect(vacant.pms_metadata?.scheduledDepartureToday).toBe(false);
     expect(vacant.pms_metadata?.selectedDateSnapshotKind).toBe('potential_checkout');
+    expect(vacant.pms_metadata?.planningStatus).toBe('unsold_now');
+    expect(vacant.pms_metadata?.unsoldAtPlanning).toBe(true);
+    expect(isUnsoldPlanningRoom(vacant)).toBe(true);
     expect(isPotentialCheckoutRoom(vacant)).toBe(true);
   });
 
-  it('does not create potential checkout work for held, out-of-order or no-show rooms', () => {
+  it('does not create unsold planning work for held, out-of-order or no-show rooms', () => {
     const rooms = [
       { ...baseRoom('open', '101') },
       { ...baseRoom('ooo', '102'), status: 'out_of_order' },
@@ -105,7 +109,7 @@ describe('next-day housekeeping selected-date snapshot', () => {
     expect(workload.potentialCheckoutCount).toBe(1);
   });
 
-  it('only adds operating Gozsdu inventory as potential checkout work', () => {
+  it('only adds operating Gozsdu inventory as unsold planning work', () => {
     const make = (id: string, short: string, full: string, status: string) => ({
       ...baseRoom(id, short), hotel: 'gozsdu-court',
       pms_metadata: { gozsduAvailability: { status, pmsRoomName: full } },
