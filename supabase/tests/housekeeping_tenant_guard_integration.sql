@@ -3,8 +3,8 @@
 -- work. Production schema, existing permissions and data still require review.
 DO $$
 BEGIN
-  IF (SELECT count(*) FROM public.room_assignments) <> 2 THEN
-    RAISE EXCEPTION 'Migration changed or deleted historical assignment rows';
+  IF (SELECT count(*) FROM public.room_assignments) <> 3 THEN
+    RAISE EXCEPTION 'Migration changed or deleted assignment fixture rows';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public'
     AND indexname='next_day_hk_one_primary_per_room_idx') THEN
