@@ -2,7 +2,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { GOZSDU_COURT_HOTEL_ID } from '@/lib/gozsdu-housekeeping';
 import { verifyGozsduTomorrowCoverage } from '@/lib/gozsduPmsRoster';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
-import { runPmsRefresh } from '@/lib/pmsRefresh';
+import { ensureFreshSupabaseSession, runPmsRefresh } from '@/lib/pmsRefresh';
 import {
   buildSelectedDateHousekeepingWorkload,
   isPotentialCheckoutRoom,
@@ -64,6 +64,99 @@ export type TomorrowSnapshotState = {
   reused: boolean;
   authoritative: boolean;
 };
+
+export type TomorrowPmsProgressPhase =
+  | 'checking-cache'
+  | 'refreshing-session'
+  | 'refreshing-live-room-state'
+  | 'contacting-previo'
+  | 'retrying'
+  | 'validating-snapshot';
+
+export type TomorrowPmsProgressEvent = {
+  phase: TomorrowPmsProgressPhase;
+  attempt: number;
+  maxAttempts: number;
+  message?: string;
+};
+
+export type TomorrowPmsSnapshotArgs = {
+  organizationSlug: string;
+  hotelId: string;
+  selectedDate: string;
+  forceFresh?: boolean;
+  onProgress?: (event: TomorrowPmsProgressEvent) => void;
+};
+
+const TOMORROW_PMS_MAX_ATTEMPTS = 3;
+
+function emitTomorrowPmsProgress(
+  callback: TomorrowPmsSnapshotArgs['onProgress'],
+  phase: TomorrowPmsProgressPhase,
+  attempt = 1,
+  maxAttempts = TOMORROW_PMS_MAX_ATTEMPTS,
+  message?: string,
+) {
+  callback?.({ phase, attempt, maxAttempts, message });
+}
+
+function isTransientTomorrowPmsTransportError(message: string): boolean {
+  return /failed to send a request to the edge function|failed to fetch|network(?:\s+error)?|load failed|fetcherror|connection (?:reset|closed)|timeout|timed out/i
+    .test(message);
+}
+
+function waitForTomorrowPmsRetry(ms: number): Promise<void> {
+  return new Promise(resolve => window.setTimeout(resolve, ms));
+}
+
+export async function invokeTomorrowDailyOverviewWithRetry(args: TomorrowPmsSnapshotArgs & {
+  fromDate: string;
+  toDate: string;
+  days: number;
+}): Promise<any> {
+  emitTomorrowPmsProgress(args.onProgress, 'refreshing-session');
+  await ensureFreshSupabaseSession();
+
+  let lastMessage = 'Could not load the selected-date Previo reservation snapshot.';
+  for (let attempt = 1; attempt <= TOMORROW_PMS_MAX_ATTEMPTS; attempt += 1) {
+    emitTomorrowPmsProgress(args.onProgress, 'contacting-previo', attempt);
+    const { data, error } = await supabase.functions.invoke(
+      'previo-sync-daily-overview',
+      {
+        body: {
+          hotelId: args.hotelId,
+          fromDate: args.fromDate,
+          toDate: args.toDate,
+          days: args.days,
+        },
+      },
+    );
+
+    const responseError = (data as any)?.error;
+    if (!error && (data as any)?.ok !== false && !responseError) return data;
+
+    lastMessage = responseError
+      || error?.message
+      || 'Could not load the selected-date Previo reservation snapshot.';
+
+    if (attempt < TOMORROW_PMS_MAX_ATTEMPTS && isTransientTomorrowPmsTransportError(lastMessage)) {
+      const nextAttempt = attempt + 1;
+      emitTomorrowPmsProgress(
+        args.onProgress,
+        'retrying',
+        nextAttempt,
+        TOMORROW_PMS_MAX_ATTEMPTS,
+        lastMessage,
+      );
+      await waitForTomorrowPmsRetry(650 * attempt);
+      continue;
+    }
+
+    throw new Error(lastMessage);
+  }
+
+  throw new Error(lastMessage);
+}
 
 function addIsoDays(value: string, days: number) {
   const date = new Date(`${value}T00:00:00Z`);
@@ -186,12 +279,10 @@ async function findReusableSnapshot(args: {
   };
 }
 
-export async function ensureTomorrowPmsSnapshot(args: {
-  organizationSlug: string;
-  hotelId: string;
-  selectedDate: string;
-  forceFresh?: boolean;
-}): Promise<TomorrowSnapshotState> {
+export async function ensureTomorrowPmsSnapshot(
+  args: TomorrowPmsSnapshotArgs,
+): Promise<TomorrowSnapshotState> {
+  emitTomorrowPmsProgress(args.onProgress, 'checking-cache');
   if (!args.forceFresh) {
     const reusable = await findReusableSnapshot(args);
     if (reusable) return reusable;
@@ -200,6 +291,7 @@ export async function ensureTomorrowPmsSnapshot(args: {
   // Gozsdu relies on its selected-date overview, not sparse checked-out poll events.
   // Do not mutate today's live room flags just to open tomorrow's planner.
   if (args.hotelId !== GOZSDU_COURT_HOTEL_ID) {
+    emitTomorrowPmsProgress(args.onProgress, 'refreshing-live-room-state');
     const result = await runPmsRefresh(args.hotelId, { trigger: 'manual' });
     if (result.status === 'error' || result.reservationDataAuthoritative === false) {
       throw new Error(result.managerMessage || result.errors?.join(' · ')
@@ -208,25 +300,14 @@ export async function ensureTomorrowPmsSnapshot(args: {
   }
 
   const includePreviousDay = args.hotelId === GOZSDU_COURT_HOTEL_ID;
-  const { data: overviewData, error: overviewError } = await supabase.functions.invoke(
-    'previo-sync-daily-overview',
-    {
-      body: {
-        hotelId: args.hotelId,
-        fromDate: includePreviousDay ? addIsoDays(args.selectedDate, -1) : args.selectedDate,
-        toDate: addIsoDays(args.selectedDate, 1),
-        days: includePreviousDay ? 2 : 1,
-      },
-    },
-  );
-  if (overviewError || (overviewData as any)?.ok === false || (overviewData as any)?.error) {
-    throw new Error(
-      (overviewData as any)?.error
-      || overviewError?.message
-      || 'Could not load the selected-date Previo reservation snapshot.',
-    );
-  }
+  const overviewData = await invokeTomorrowDailyOverviewWithRetry({
+    ...args,
+    fromDate: includePreviousDay ? addIsoDays(args.selectedDate, -1) : args.selectedDate,
+    toDate: addIsoDays(args.selectedDate, 1),
+    days: includePreviousDay ? 2 : 1,
+  });
 
+  emitTomorrowPmsProgress(args.onProgress, 'validating-snapshot');
   const reusable = await findReusableSnapshot(args);
   if (reusable) return { ...reusable, reused: false };
 
