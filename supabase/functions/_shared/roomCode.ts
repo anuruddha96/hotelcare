@@ -20,8 +20,9 @@ export function parseRoomCode(raw: unknown, hotelId: string): ParsedRoomCode | n
   const s = String(raw).trim();
   if (!s) return null;
   if (FILLER.has(s.toLowerCase())) return null;
-  // Pure short numeric/text with no '-' is filler (e.g. "15", "43", "82", "35")
-  if (!s.includes("-")) return null;
+  // Do not reject dash-less values globally: Hotel Memories has valid
+  // Previo room codes such as "66EC.QRP216". Each hotel parser below decides
+  // whether a dash-less value is a physical room or a non-room/filler object.
 
   const stripSh = (val: string): { num: string; suffix: string | null } => {
     const m = val.match(/^(.*?)(SH)$/i);
