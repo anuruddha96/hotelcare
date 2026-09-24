@@ -224,10 +224,14 @@ serve(async (req) => {
     const rowByKey = new Map<string, any>();
     for (const r of reservations) {
       const parsed = parseRoomCode(r.roomName, hotelId);
+      // searchReservations can also return bookable meeting/event objects.
+      // They are valid Previo reservations, but not HotelCare housekeeping rooms.
+      // Never let them inflate the exact-date room snapshot used by tomorrow planning.
+      if (!parsed) continue;
       const room_label = r.roomName;
-      const room_number = parsed?.room_number ?? null;
-      const room_type_code = parsed?.room_type_code ?? null;
-      const room_suffix = parsed?.room_suffix ?? null;
+      const room_number = parsed.room_number;
+      const room_type_code = parsed.room_type_code;
+      const room_suffix = parsed.room_suffix;
 
       let night = r.arrivalDate;
       while (night < r.departureDate) {
