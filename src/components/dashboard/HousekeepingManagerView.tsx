@@ -152,7 +152,7 @@ export function HousekeepingManagerView({ onActiveInnerTabChange }: Housekeeping
   const terms = usePropertyTerms();
   const { venuesEnabled, orgSlug } = useTenantFeatures();
   const activeOrganizationSlug = orgSlug || profile?.organization_slug || null;
-  const isSlntTenant = venuesEnabled && ['slnt', 'slnt-group'].includes((orgSlug || '').toLowerCase());
+  const isSlntTenant = venuesEnabled && ['slnt', 'slnt-group'].includes((activeOrganizationSlug || '').toLowerCase());
   const { venueName } = useVenues();
   // Managers/supervisors may move work between housekeepers by drag & drop.
   const canDragAssign = !!profile?.role && ['admin', 'top_management', 'top_management_manager', 'manager', 'housekeeping_manager', 'supervisor'].includes(profile.role);
