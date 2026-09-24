@@ -506,6 +506,10 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       window.dispatchEvent(new CustomEvent('hk-assignments-changed'));
     } catch (error) {
       console.error('Failed to save note', error);
+      // Stop automatic retry loops on a conflict/network error. A new edit
+      // will schedule auto-save again; the explicit Save note button can retry
+      // the current draft immediately.
+      notesSavedDraftRef.current = notesDraft;
       setNoteSaveState('error');
       if (!silent) toast.error((error as any)?.message || 'Could not save the note.');
     } finally {
@@ -514,7 +518,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
   }, [canWriteNotes, notesDraft, profile?.id, selection]);
 
   useEffect(() => {
-    if (!isSlntTenant || !open || panel !== 'main' || !selection?.roomId || selection.loading || !canWriteNotes) return;
+    if (!isSlntTenant || !open || panel !== 'main' || !selection?.roomId || selection.loading || !canWriteNotes || savingNotes) return;
     if (notesDraft === notesSavedDraftRef.current) return;
 
     setNoteSaveState('saving');
@@ -522,7 +526,7 @@ export function RoomOperationsQuickHub({ selectedDate, hotelName, staffMap, chil
       void saveNotes(true);
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [canWriteNotes, isSlntTenant, notesDraft, open, panel, saveNotes, selection?.loading, selection?.roomId]);
+  }, [canWriteNotes, isSlntTenant, notesDraft, open, panel, saveNotes, savingNotes, selection?.loading, selection?.roomId]);
 
   const assigneeName = selection?.assignedTo
     ? cleanName(staffMap[selection.assignedTo]) || staffMap[selection.assignedTo] || 'Assigned housekeeper'
