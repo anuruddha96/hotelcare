@@ -63,6 +63,9 @@ $;
 
 -- Trigger-only SECURITY DEFINER helper; never expose as an RPC.
 REVOKE ALL ON FUNCTION public.enforce_room_assignment_tenant_integrity() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.enforce_room_assignment_tenant_integrity() FROM anon;
+REVOKE ALL ON FUNCTION public.enforce_room_assignment_tenant_integrity() FROM authenticated;
+REVOKE ALL ON FUNCTION public.enforce_room_assignment_tenant_integrity() FROM service_role;
 
 DROP TRIGGER IF EXISTS enforce_room_assignment_tenant_integrity_trigger
   ON public.room_assignments;
