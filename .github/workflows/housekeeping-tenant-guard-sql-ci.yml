@@ -4,9 +4,9 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'supabase/migrations/20260922170000_housekeeping_assignment_tenant_isolation.sql'
-      - 'supabase/migrations/20260922170100_housekeeping_plan_policy_refinements.sql'
-      - 'supabase/migrations/20260922170200_room_assignment_tenant_write_guard.sql'
+      - 'supabase/migrations/20260924072320_housekeeping_assignment_tenant_isolation_20260924.sql'
+      - 'supabase/migrations/20260924072338_housekeeping_plan_policy_refinements_20260924.sql'
+      - 'supabase/migrations/20260924072405_room_assignment_tenant_write_guard_20260924.sql'
       - 'supabase/tests/housekeeping_tenant_guard_*.sql'
       - '.github/workflows/housekeeping-tenant-guard-sql-ci.yml'
 
@@ -48,9 +48,9 @@ jobs:
           set -euo pipefail
           psql -X -v ON_ERROR_STOP=1 \
             -f supabase/tests/housekeeping_tenant_guard_fixture.sql \
-            -f supabase/migrations/20260922170000_housekeeping_assignment_tenant_isolation.sql \
-            -f supabase/migrations/20260922170100_housekeeping_plan_policy_refinements.sql \
-            -f supabase/migrations/20260922170200_room_assignment_tenant_write_guard.sql \
+            -f supabase/migrations/20260924072320_housekeeping_assignment_tenant_isolation_20260924.sql \
+            -f supabase/migrations/20260924072338_housekeeping_plan_policy_refinements_20260924.sql \
+            -f supabase/migrations/20260924072405_room_assignment_tenant_write_guard_20260924.sql \
             -f supabase/tests/housekeeping_tenant_guard_integration.sql \
             -f supabase/tests/housekeeping_tenant_guard_write_denials.sql
       - name: Check release gate refuses unresolved synthetic operational work
