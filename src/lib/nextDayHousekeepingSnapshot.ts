@@ -135,7 +135,7 @@ export function buildSelectedDateHousekeepingWorkload(
 
     // A reservation row can be relevant to occupancy without being a cleaning
     // task (for example an arrival-day row). Such a room is booked, so it must
-    // not be misclassified below as a vacant potential checkout.
+    // not be misclassified below as a unsold planning room.
     if (!kind) continue;
     if (!room) { unmapped.push(snapshot.room_number || snapshot.room_label || 'unknown room'); continue; }
     if (mappedRoomIds.has(room.id)) throw new Error(`Previo returned more than one selected-date row for HotelCare room ${room.room_number}.`);
