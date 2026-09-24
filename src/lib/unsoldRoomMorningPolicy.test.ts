@@ -107,6 +107,24 @@ describe("unsold room morning housekeeping policy", () => {
     });
   });
 
+  it("uses the same default towel cadence for SLNT and other standard properties", () => {
+    const result = classifyUnsoldRoomAfterMorningPms({
+      hotelId: "slnt-group",
+      planDate: "2026-09-26",
+      kind: "daily",
+      arrivalDate: "2026-09-24",
+      departureDate: "2026-09-30",
+      settings: {},
+    });
+    expect(result).toMatchObject({
+      eligible: true,
+      service: "towel_change",
+      towelChangeRequired: true,
+      linenChangeRequired: false,
+      reason: "standard_daily_cycle",
+    });
+  });
+
   it("supports a future commercial property service-cycle configuration without hard-coding the hotel", () => {
     const result = classifyUnsoldRoomAfterMorningPms({
       hotelId: "future-hotel",
