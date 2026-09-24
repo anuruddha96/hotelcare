@@ -1,6 +1,7 @@
 -- Disposable PostgreSQL 16 fixture for #352's three migrations. Never use against
 -- Supabase production: tables/functions here intentionally model only dependencies.
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticated NOLOGIN;
 CREATE ROLE service_role NOLOGIN BYPASSRLS;
 CREATE SCHEMA auth;
