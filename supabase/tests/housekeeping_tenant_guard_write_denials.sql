@@ -41,8 +41,8 @@ BEGIN
   BEGIN
     INSERT INTO public.room_assignments(room_id, assigned_to, organization_slug, status)
     VALUES (
-      '00000000-0000-4000-8000-000000000021', -- RD Hotels / Mika room
-      '00000000-0000-4000-8000-000000000014', -- RD Hotels housekeeper
+      '00000000-0000-4000-8000-000000000021',
+      '00000000-0000-4000-8000-000000000014',
       'rdhotels',
       'assigned'
     );
@@ -50,171 +50,127 @@ BEGIN
   EXCEPTION
     WHEN insufficient_privilege THEN NULL;
   END;
-
-  IF inserted THEN
-    RAISE EXCEPTION 'SLNT manager inserted an RD assignment row';
-  END IF;
+  IF inserted THEN RAISE EXCEPTION 'SLNT manager inserted an RD assignment row'; END IF;
 END $$;
 ROLLBACK;
 
--- RLS alone is not enough: a manager may legitimately insert rows for their own
--- organization, so the integrity guard must also reject a foreign room hidden
--- behind the caller's organization_slug.
+-- RLS alone is not enough: own-organization writes must still reject a foreign room.
 BEGIN;
 SET LOCAL ROLE authenticated;
-SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000013'; -- SLNT manager
+SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000013';
 DO $$
 DECLARE inserted boolean := false;
 BEGIN
   BEGIN
     INSERT INTO public.room_assignments(room_id, assigned_to, organization_slug, status)
-    VALUES (
-      '00000000-0000-4000-8000-000000000021', -- RD Hotels / Mika room
-      '00000000-0000-4000-8000-000000000015', -- SLNT housekeeper
-      'slnt',
-      'assigned'
-    );
+    VALUES ('00000000-0000-4000-8000-000000000021','00000000-0000-4000-8000-000000000015','slnt','assigned');
     inserted := true;
-  EXCEPTION
-    WHEN insufficient_privilege OR check_violation OR raise_exception THEN NULL;
+  EXCEPTION WHEN insufficient_privilege OR check_violation OR raise_exception THEN NULL;
   END;
-
-  IF inserted THEN
-    RAISE EXCEPTION 'SLNT manager inserted an SLNT assignment referencing an RD room';
-  END IF;
+  IF inserted THEN RAISE EXCEPTION 'SLNT manager inserted an SLNT assignment referencing an RD room'; END IF;
 END $$;
 ROLLBACK;
 
--- Symmetric integrity case: even with an SLNT room and SLNT organization_slug,
--- the assignment must not smuggle in a worker owned by RD Hotels.
+-- Symmetric INSERT integrity case: an SLNT room cannot reference an RD worker.
 BEGIN;
 SET LOCAL ROLE authenticated;
-SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000013'; -- SLNT manager
+SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000013';
 DO $$
 DECLARE inserted boolean := false;
 BEGIN
   BEGIN
     INSERT INTO public.room_assignments(room_id, assigned_to, organization_slug, status)
-    VALUES (
-      '00000000-0000-4000-8000-000000000023', -- SLNT One room
-      '00000000-0000-4000-8000-000000000014', -- RD Hotels housekeeper
-      'slnt',
-      'assigned'
-    );
+    VALUES ('00000000-0000-4000-8000-000000000023','00000000-0000-4000-8000-000000000014','slnt','assigned');
     inserted := true;
-  EXCEPTION
-    WHEN insufficient_privilege OR check_violation OR raise_exception THEN NULL;
+  EXCEPTION WHEN insufficient_privilege OR check_violation OR raise_exception THEN NULL;
   END;
-
-  IF inserted THEN
-    RAISE EXCEPTION 'SLNT manager inserted an SLNT assignment referencing an RD worker';
-  END IF;
+  IF inserted THEN RAISE EXCEPTION 'SLNT manager inserted an SLNT assignment referencing an RD worker'; END IF;
 END $$;
 ROLLBACK;
 
--- UPDATE must enforce the same relationship integrity as INSERT. An SLNT manager
--- may edit an SLNT assignment, but must not be able to re-point it to an RD room.
+-- UPDATE must not re-point a legitimate SLNT assignment to an RD room.
 BEGIN;
 SET LOCAL ROLE authenticated;
-SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000013'; -- SLNT manager
+SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000013';
 DO $$
 DECLARE candidate_count integer;
 DECLARE changed boolean := false;
 BEGIN
-  SELECT count(*) INTO candidate_count
-    FROM public.room_assignments
-   WHERE organization_slug = 'slnt'
-     AND room_id = '00000000-0000-4000-8000-000000000023';
-
-  IF candidate_count = 0 THEN
-    RAISE EXCEPTION 'fixture missing SLNT assignment required for foreign-room UPDATE test';
-  END IF;
-
+  SELECT count(*) INTO candidate_count FROM public.room_assignments
+   WHERE organization_slug='slnt' AND room_id='00000000-0000-4000-8000-000000000023';
+  IF candidate_count = 0 THEN RAISE EXCEPTION 'fixture missing SLNT assignment required for foreign-room UPDATE test'; END IF;
   BEGIN
-    UPDATE public.room_assignments
-       SET room_id = '00000000-0000-4000-8000-000000000021' -- RD Hotels / Mika room
-     WHERE organization_slug = 'slnt'
-       AND room_id = '00000000-0000-4000-8000-000000000023';
+    UPDATE public.room_assignments SET room_id='00000000-0000-4000-8000-000000000021'
+     WHERE organization_slug='slnt' AND room_id='00000000-0000-4000-8000-000000000023';
     changed := FOUND;
-  EXCEPTION
-    WHEN insufficient_privilege OR check_violation OR raise_exception THEN NULL;
+  EXCEPTION WHEN insufficient_privilege OR check_violation OR raise_exception THEN NULL;
   END;
-
-  IF changed THEN
-    RAISE EXCEPTION 'SLNT manager repointed an SLNT assignment to an RD room';
-  END IF;
+  IF changed THEN RAISE EXCEPTION 'SLNT manager repointed an SLNT assignment to an RD room'; END IF;
 END $$;
 ROLLBACK;
 
--- Symmetric UPDATE integrity case: keeping the SLNT room and organization must
--- not permit replacing its legitimate worker with one owned by RD Hotels.
+-- Symmetric UPDATE integrity case: an SLNT assignment cannot switch to an RD worker.
 BEGIN;
 SET LOCAL ROLE authenticated;
-SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000013'; -- SLNT manager
+SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000013';
 DO $$
 DECLARE candidate_count integer;
 DECLARE changed boolean := false;
 BEGIN
-  SELECT count(*) INTO candidate_count
-    FROM public.room_assignments
-   WHERE organization_slug = 'slnt'
-     AND room_id = '00000000-0000-4000-8000-000000000023'
-     AND assigned_to = '00000000-0000-4000-8000-000000000015';
-
-  IF candidate_count = 0 THEN
-    RAISE EXCEPTION 'fixture missing SLNT assignment required for foreign-worker UPDATE test';
-  END IF;
-
+  SELECT count(*) INTO candidate_count FROM public.room_assignments
+   WHERE organization_slug='slnt' AND room_id='00000000-0000-4000-8000-000000000023'
+     AND assigned_to='00000000-0000-4000-8000-000000000015';
+  IF candidate_count = 0 THEN RAISE EXCEPTION 'fixture missing SLNT assignment required for foreign-worker UPDATE test'; END IF;
   BEGIN
-    UPDATE public.room_assignments
-       SET assigned_to = '00000000-0000-4000-8000-000000000014' -- RD Hotels housekeeper
-     WHERE organization_slug = 'slnt'
-       AND room_id = '00000000-0000-4000-8000-000000000023'
-       AND assigned_to = '00000000-0000-4000-8000-000000000015';
+    UPDATE public.room_assignments SET assigned_to='00000000-0000-4000-8000-000000000014'
+     WHERE organization_slug='slnt' AND room_id='00000000-0000-4000-8000-000000000023'
+       AND assigned_to='00000000-0000-4000-8000-000000000015';
     changed := FOUND;
-  EXCEPTION
-    WHEN insufficient_privilege OR check_violation OR raise_exception THEN NULL;
+  EXCEPTION WHEN insufficient_privilege OR check_violation OR raise_exception THEN NULL;
   END;
-
-  IF changed THEN
-    RAISE EXCEPTION 'SLNT manager repointed an SLNT assignment to an RD worker';
-  END IF;
+  IF changed THEN RAISE EXCEPTION 'SLNT manager repointed an SLNT assignment to an RD worker'; END IF;
 END $$;
 ROLLBACK;
 
--- The tenant key itself is immutable across organizations. A manager who can
--- legitimately edit an SLNT assignment must not be able to relabel that row as
--- RD Hotels while leaving the SLNT room and worker attached.
+-- The tenant key itself cannot be relabeled across organizations.
 BEGIN;
 SET LOCAL ROLE authenticated;
-SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000013'; -- SLNT manager
+SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000013';
 DO $$
 DECLARE candidate_count integer;
 DECLARE changed boolean := false;
 BEGIN
-  SELECT count(*) INTO candidate_count
-    FROM public.room_assignments
+  SELECT count(*) INTO candidate_count FROM public.room_assignments
+   WHERE organization_slug='slnt' AND room_id='00000000-0000-4000-8000-000000000023'
+     AND assigned_to='00000000-0000-4000-8000-000000000015';
+  IF candidate_count = 0 THEN RAISE EXCEPTION 'fixture missing SLNT assignment required for tenant-slug UPDATE test'; END IF;
+  BEGIN
+    UPDATE public.room_assignments SET organization_slug='rdhotels'
+     WHERE organization_slug='slnt' AND room_id='00000000-0000-4000-8000-000000000023'
+       AND assigned_to='00000000-0000-4000-8000-000000000015';
+    changed := FOUND;
+  EXCEPTION WHEN insufficient_privilege OR check_violation OR raise_exception THEN NULL;
+  END;
+  IF changed THEN RAISE EXCEPTION 'SLNT manager relabeled an SLNT assignment as RD Hotels'; END IF;
+END $$;
+ROLLBACK;
+
+-- Safety must not become over-restriction: a manager must still be able to update
+-- ordinary fields on a legitimate assignment owned entirely by their tenant.
+BEGIN;
+SET LOCAL ROLE authenticated;
+SET LOCAL request.jwt.claim.sub = '00000000-0000-4000-8000-000000000013'; -- SLNT manager
+DO $$
+DECLARE affected integer;
+BEGIN
+  UPDATE public.room_assignments
+     SET status = 'completed'
    WHERE organization_slug = 'slnt'
      AND room_id = '00000000-0000-4000-8000-000000000023'
      AND assigned_to = '00000000-0000-4000-8000-000000000015';
-
-  IF candidate_count = 0 THEN
-    RAISE EXCEPTION 'fixture missing SLNT assignment required for tenant-slug UPDATE test';
-  END IF;
-
-  BEGIN
-    UPDATE public.room_assignments
-       SET organization_slug = 'rdhotels'
-     WHERE organization_slug = 'slnt'
-       AND room_id = '00000000-0000-4000-8000-000000000023'
-       AND assigned_to = '00000000-0000-4000-8000-000000000015';
-    changed := FOUND;
-  EXCEPTION
-    WHEN insufficient_privilege OR check_violation OR raise_exception THEN NULL;
-  END;
-
-  IF changed THEN
-    RAISE EXCEPTION 'SLNT manager relabeled an SLNT assignment as RD Hotels';
+  GET DIAGNOSTICS affected = ROW_COUNT;
+  IF affected <> 1 THEN
+    RAISE EXCEPTION 'Tenant guard blocked legitimate SLNT assignment status update; affected=%', affected;
   END IF;
 END $$;
 ROLLBACK;
