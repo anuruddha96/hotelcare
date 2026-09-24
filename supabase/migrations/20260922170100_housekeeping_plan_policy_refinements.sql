@@ -3,6 +3,10 @@
 -- employee has subsequently been deleted.
 DROP POLICY IF EXISTS "Plan staff writes require same organization"
 ON public.next_day_housekeeping_plan_staff;
+DROP POLICY IF EXISTS "Plan staff inserts require same organization"
+ON public.next_day_housekeeping_plan_staff;
+DROP POLICY IF EXISTS "Plan staff updates require same organization"
+ON public.next_day_housekeeping_plan_staff;
 
 CREATE POLICY "Plan staff inserts require same organization"
 ON public.next_day_housekeeping_plan_staff AS RESTRICTIVE
