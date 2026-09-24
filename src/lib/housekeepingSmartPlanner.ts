@@ -20,6 +20,8 @@ export interface SmartPlanningOptions {
   goal: HousekeepingPlanningGoal;
   previous?: AssignmentPreview[];
   lockedRoomIds?: ReadonlySet<string>;
+  /** Explicit immutable owners, used when the available cleaner pool changes. */
+  fixedRoomOwners?: ReadonlyMap<string, string>;
   shiftMinutes?: ReadonlyMap<string, number>;
   publicAreaTemplates?: HousekeepingSectionTaskTemplate[];
   fixedAreaOwners?: ReadonlyMap<string, string>;
@@ -57,6 +59,7 @@ function areaMinutesFor(plan: AssignmentPreview[], options: SmartPlanningOptions
 }
 function withinLimits(plan: AssignmentPreview[], options: SmartPlanningOptions): boolean {
   const previousOwners = ownerOf(options.previous || []);
+  const lockedOwners = options.fixedRoomOwners || previousOwners;
   const area = areaMinutesFor(plan, options);
   return plan.every(person => {
     const shift = options.shiftMinutes?.get(person.staffId);
@@ -64,7 +67,7 @@ function withinLimits(plan: AssignmentPreview[], options: SmartPlanningOptions):
     const roomAllowance = shift === undefined ? AVAILABLE_WORK_MINUTES : Math.max(0, shift - BREAK_TIME_MINUTES);
     return person.estimatedMinutes + (area.get(person.staffId) || 0) <= roomAllowance
       && person.rooms.every(room => !options.lockedRoomIds?.has(room.id)
-        || previousOwners.get(room.id) === person.staffId);
+        || lockedOwners.get(room.id) === person.staffId);
   });
 }
 function score(plan: AssignmentPreview[], options: SmartPlanningOptions): number {
@@ -94,6 +97,23 @@ function valid(plan: AssignmentPreview[], options: SmartPlanningOptions): boolea
     && (!options.gozsdu || gozsduAllocationRespectsBuildings(plan))
     && withinLimits(plan, options);
 }
+function applyFixedRoomOwners(
+  plan: AssignmentPreview[],
+  fixedOwners: ReadonlyMap<string, string> | undefined,
+): AssignmentPreview[] | null {
+  if (!fixedOwners?.size) return plan;
+  let next = plan;
+  for (const [roomId, ownerId] of fixedOwners) {
+    const source = next.find(person => person.rooms.some(room => room.id === roomId));
+    if (!source) return null;
+    if (source.staffId === ownerId) continue;
+    if (!next.some(person => person.staffId === ownerId)) return null;
+    const moved = moveRoom(next, roomId, source.staffId, ownerId);
+    if (moved === next) return null;
+    next = moved;
+  }
+  return next;
+}
 function roomMoves(before: AssignmentPreview[], after: AssignmentPreview[]): number {
   const owners = ownerOf(before);
   return after.reduce((sum, person) => sum + person.rooms.filter(room =>
@@ -117,15 +137,26 @@ export function generateSmartHousekeepingPlan(options: SmartPlanningOptions): Sm
     || new Set(options.rooms.map(room => room.hotel)).size > 1) return fail('Mixed-property or duplicate inventory is not safe to assign. Refresh PMS.');
   if (!options.rooms.length || !options.staff.length) return fail('No eligible rooms or scheduled staff are available.');
   const previousValid = !!options.previous?.length && distinctRooms(options.previous, options.rooms, options.staff);
-  if (options.lockedRoomIds?.size && !previousValid) return fail('A locked room is no longer available. Refresh the plan and review the manual changes.');
+  if (options.lockedRoomIds?.size) {
+    const owners = options.fixedRoomOwners || ownerOf(options.previous || []);
+    const roomIds = new Set(options.rooms.map(room => room.id));
+    const staffIds = new Set(options.staff.map(person => person.id));
+    for (const roomId of options.lockedRoomIds) {
+      const ownerId = owners.get(roomId);
+      if (!roomIds.has(roomId) || !ownerId || !staffIds.has(ownerId)) {
+        return fail('A locked room is no longer available to the selected cleaner pool. Review the staffing selection.');
+      }
+    }
+  }
   const candidatePlans: AssignmentPreview[][] = [];
   const seen = new Set<string>();
   const add = (plan: AssignmentPreview[]) => {
-    if (!valid(plan, options)) return;
-    const key = plan.map(person => `${person.staffId}:${person.rooms.map(room => room.id).sort().join(',')}`).sort().join('|');
+    const fixed = applyFixedRoomOwners(plan, options.fixedRoomOwners);
+    if (!fixed || !valid(fixed, options)) return;
+    const key = fixed.map(person => `${person.staffId}:${person.rooms.map(room => room.id).sort().join(',')}`).sort().join('|');
     if (seen.has(key)) return;
     seen.add(key);
-    candidatePlans.push(plan);
+    candidatePlans.push(fixed);
   };
   if (previousValid && options.previous) add(options.previous);
   const startSeed = options.seed || 1109;
