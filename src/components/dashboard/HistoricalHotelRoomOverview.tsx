@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { resolveHistoricalHousekeepingState } from '@/lib/housekeepingHistoricalFinalState';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -203,7 +204,7 @@ export function HistoricalHotelRoomOverview({
             .eq('assignment_date', selectedDate),
           (supabase as any)
             .from('housekeeping_room_snapshots')
-            .select('business_date, room_id, hotel, room_number, room_status, is_checkout_room, is_dnd, towel_change_required, linen_change_required, had_dnd, had_towel_change, had_linen_change, had_room_cleaning_request, had_extra_towels_request, had_ready_to_clean, had_no_service, assignment_id, assigned_to, assignment_type, assignment_status, supervisor_approved, ready_to_clean, pms_hold, assignment_notes, dnd_attempt_count, pms_metadata, source, captured_at, updated_at')
+            .select('business_date, room_id, hotel, room_number, room_status, is_checkout_room, is_dnd, towel_change_required, linen_change_required, had_dnd, had_towel_change, had_linen_change, had_room_cleaning_request, had_extra_towels_request, had_ready_to_clean, had_no_service, assignment_id, assigned_to, assignment_type, assignment_status, supervisor_approved, ready_to_clean, pms_hold, assignment_notes, dnd_attempt_count, pms_metadata, source, captured_at, updated_at, final_state, finalized_at')
             .in('hotel', hotelKeys)
             .eq('business_date', selectedDate)
             .order('updated_at', { ascending: false }),
@@ -304,8 +305,8 @@ export function HistoricalHotelRoomOverview({
       history,
       isCheckout,
       currentNight,
-      towelChange: Boolean(history?.had_towel_change || history?.towel_change_required),
-      linenChange: Boolean(history?.had_linen_change || history?.linen_change_required),
+      towelChange: history ? resolveHistoricalHousekeepingState(history).towel : false,
+      linenChange: history ? resolveHistoricalHousekeepingState(history).changeRoom : false,
     };
   }), [rooms, assignmentMap, historyLookup]);
 
@@ -325,9 +326,9 @@ export function HistoricalHotelRoomOverview({
     const name = assignedTo ? assigneeLabel(staffMap, assignedTo) : null;
     const assignmentStatus = history?.assignment_status ?? assignment?.status ?? null;
     const approved = Boolean(history?.supervisor_approved ?? assignment?.supervisor_approved);
+    const saved = history ? resolveHistoricalHousekeepingState(history) : null;
     const noService = Boolean(
-      history?.had_no_service
-      || history?.assignment_notes?.includes('[NO_SERVICE]')
+      saved?.hadNoService
       || assignment?.notes?.includes('[NO_SERVICE]'),
     );
     const dnd = Boolean(
