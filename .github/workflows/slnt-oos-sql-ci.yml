@@ -1,0 +1,48 @@
+name: SLNT Out of Service SQL CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20260924093000_slnt_out_of_service_assignment_guard.sql'
+      - 'supabase/tests/slnt_oos_guard_*.sql'
+      - '.github/workflows/slnt-oos-sql-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  slnt-oos-sql:
+    name: SLNT OOS assignment and PMS persistence checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hotelcare_slnt_oos_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: hotelcare_slnt_oos_ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Exercise SLNT Out of Service guards
+        run: |
+          set -euo pipefail
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/slnt_oos_guard_fixture.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/migrations/20260924093000_slnt_out_of_service_assignment_guard.sql
+          psql -X -v ON_ERROR_STOP=1 -f supabase/tests/slnt_oos_guard_integration.sql
