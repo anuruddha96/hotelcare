@@ -511,6 +511,8 @@ export default function RateStrategyGrid({
 
   /** The full bulk price editor (date range, weekdays, room types). */
   const [bulkOpen, setBulkOpen] = useState(false);
+  /** When opened from the month strip, the editor is scoped to that whole month. */
+  const [bulkMonth, setBulkMonth] = useState<string | null>(null);
 
   /** Drag a range of dates in the header to price several days at once. */
   const [selDates, setSelDates] = useState<Set<string>>(new Set());
@@ -1122,6 +1124,30 @@ export default function RateStrategyGrid({
   // A PMS sync rewrites the mirrored Previo restrictions, so pick them up as
   // soon as fresh prices land instead of waiting for a property switch.
   useEffect(() => { void loadMinStay(); }, [rates.length, loadMinStay]);
+
+  /** Most common minimum stay for the month-specific bulk editor. Missing
+   * mirrored dates behave exactly like the grid itself: one night. */
+  const bulkMonthMinStay = useMemo(() => {
+    if (!bulkMonth) return null;
+    const [year, monthNumber] = bulkMonth.split("-").map(Number);
+    const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+    const counts = new Map<number, number>();
+    for (let day = 1; day <= lastDay; day += 1) {
+      const date = `${bulkMonth}-${String(day).padStart(2, "0")}`;
+      if (date < today) continue;
+      const nights = Math.max(1, Math.round(minStayByDate.get(date) ?? 1));
+      counts.set(nights, (counts.get(nights) ?? 0) + 1);
+    }
+    let winner = 1;
+    let winnerCount = -1;
+    for (const [nights, count] of counts) {
+      if (count > winnerCount || (count === winnerCount && nights < winner)) {
+        winner = nights;
+        winnerCount = count;
+      }
+    }
+    return winnerCount >= 0 ? winner : null;
+  }, [bulkMonth, minStayByDate, today]);
 
 
   /** Send one restriction change to Previo and keep the cell honest. */
@@ -2400,7 +2426,12 @@ export default function RateStrategyGrid({
               </SheetContent>
             </Sheet>
             {canEditRates && (
-              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => setBulkOpen(true)}>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => { setBulkMonth(null); setBulkOpen(true); }}
+              >
                 <SlidersHorizontal className="h-3.5 w-3.5" />
                 Bulk edit prices
               </Button>
@@ -2574,16 +2605,29 @@ export default function RateStrategyGrid({
               Next 30 days
             </Button>
             {monthChips.map((m) => (
-              <Button
-                key={m.value}
-                size="sm"
-                variant={monthFilter === m.value ? "default" : "ghost"}
-                className="h-7 shrink-0 px-2 text-[11px]"
-                title={`Show ${m.label} only`}
-                onClick={() => selectMonth(m.value)}
-              >
-                {m.label}
-              </Button>
+              <div key={m.value} className="contents">
+                <Button
+                  size="sm"
+                  variant={monthFilter === m.value ? "default" : "ghost"}
+                  className="h-7 shrink-0 px-2 text-[11px]"
+                  title={`Show ${m.label} only`}
+                  onClick={() => selectMonth(m.value)}
+                >
+                  {m.label}
+                </Button>
+                {canEditRates && monthFilter === m.value && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 shrink-0 gap-1 border-primary/40 bg-primary/5 px-2 text-[11px] text-primary hover:bg-primary/10"
+                    title={`Bulk edit all prices for ${m.label}`}
+                    onClick={() => { setBulkMonth(m.value); setBulkOpen(true); }}
+                  >
+                    <SlidersHorizontal className="h-3 w-3" />
+                    Edit {m.label} prices
+                  </Button>
+                )}
+              </div>
             ))}
           </div>
           {loading && (
@@ -3851,12 +3895,17 @@ export default function RateStrategyGrid({
 
       <BulkPriceEditor
         open={bulkOpen}
-        onOpenChange={setBulkOpen}
+        onOpenChange={(open) => {
+          setBulkOpen(open);
+          if (!open) setBulkMonth(null);
+        }}
         hotelId={hotelId ?? null}
         organizationSlug={organizationSlug ?? null}
         rates={rates}
         today={today}
         canPush={!!canEditRates}
+        initialMonth={bulkMonth}
+        initialMinStay={bulkMonthMinStay}
         onPublish={(changes, note) => publishInBackground(
           changes.map((c) => ({ ...c, hotel_id: hotelId, organization_slug: organizationSlug ?? null, status: "draft" })),
           { source: "bulk-editor", notes: note },
