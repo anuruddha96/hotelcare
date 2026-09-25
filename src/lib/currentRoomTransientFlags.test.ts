@@ -9,6 +9,20 @@ describe('daily transient housekeeping flags', () => {
     }, '2026-09-24')).toBe(false);
   });
 
+  it('never shows DND on a checkout room, even when the room mirror was marked today', () => {
+    expect(isDndForBusinessDate({
+      is_dnd: true,
+      dnd_marked_at: '2026-09-24T07:10:00+02:00',
+    }, '2026-09-24', 'assigned', true)).toBe(false);
+  });
+
+  it('never keeps a DND retry active after the room becomes checkout cleaning', () => {
+    expect(isDndForBusinessDate({
+      is_dnd: true,
+      dnd_marked_at: '2026-09-24T07:10:00+02:00',
+    }, '2026-09-24', 'dnd_pending_retry', true)).toBe(false);
+  });
+
   it('keeps DND visible on the business date it was marked', () => {
     expect(isDndForBusinessDate({
       is_dnd: true,
