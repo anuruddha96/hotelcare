@@ -91,6 +91,17 @@ export default function RateCellHistory({ history, names, draftPrice, sendingPri
   );
   const entries = groupCellChanges(priceHistory, automation, names, { automationDetail });
   const status = statusLine(entries, draftPrice, sendingPrice);
+  const latestChange = entries[0] ?? null;
+  const latestPrice = latestChange?.next ?? null;
+  const deliveryState = draftPrice != null
+    ? { label: "Waiting to send", className: "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300" }
+    : sendingPrice != null || latestChange?.phase === "sending"
+      ? { label: "Previo confirming", className: "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/10 dark:text-sky-300" }
+      : latestChange?.phase === "failed"
+        ? { label: "Needs attention", className: "border-destructive/40 bg-destructive/5 text-destructive" }
+        : latestChange?.phase === "confirmed"
+          ? { label: "Confirmed in Previo", className: "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300" }
+          : { label: "HotelCare current", className: "border-border bg-muted/40 text-muted-foreground" };
 
   // Previo is the authoritative live source. A successful read-back that differs
   // from HotelCare's request is synchronization history, not an alarm. The live
@@ -130,7 +141,7 @@ export default function RateCellHistory({ history, names, draftPrice, sendingPri
                 {failed ? " · not applied" : " · applied in Previo"}
               </p>
               <p className="text-muted-foreground">Automatic minimum stay · {formatWhen(row.performed_at)}</p>
-              <p className="mt-0.5 text-muted-foreground">{minStayExplanation(row)}</p>
+              {(expanded || showAll) && <p className="mt-0.5 text-muted-foreground">{minStayExplanation(row)}</p>}
             </div>
           );
         })}
@@ -153,7 +164,7 @@ export default function RateCellHistory({ history, names, draftPrice, sendingPri
     return <div key={e.id} className="space-y-0.5 border-l-2 pl-2 border-border">
       <div className="flex flex-wrap items-baseline gap-x-1.5 text-xs tabular-nums"><span>{moneyBase(e.old)} → <strong>{moneyBase(e.next)}</strong></span>{delta != null && delta !== 0 && <span className={up ? "text-emerald-600 dark:text-emerald-400" : "text-sky-600 dark:text-sky-400"}>{up ? "+" : "−"}{moneyBase(Math.abs(delta))}{pct != null ? ` (${pct > 0 ? "+" : ""}${pct}%)` : ""}</span>}</div>
       <p className="text-[11px] text-muted-foreground"><span className={e.automation ? "text-purple-600 dark:text-purple-400 font-medium" : "text-sky-600 dark:text-sky-400 font-medium"}>{e.who}</span>{" · "}{formatWhen(e.at)} · <span className={failed ? "text-destructive" : ""}>{e.statusLabel}</span></p>
-      {detail && <p className="text-[11px] text-muted-foreground">{detail}</p>}
+      {detail && <p className={`text-[11px] text-muted-foreground ${expanded || showAll ? "" : "line-clamp-2"}`}>{detail}</p>}
       {e.extra && <p className="text-[11px] text-muted-foreground">Requested {moneyBase(e.extra.requested)} · Previo live {moneyBase(e.extra.actual)}{e.extra.requested !== e.extra.actual ? " · adopted as authoritative PMS price" : ""}</p>}
     </div>;
   };
@@ -165,7 +176,20 @@ export default function RateCellHistory({ history, names, draftPrice, sendingPri
   let lastBucket: string | null = null;
 
   return <div className="space-y-2">
-    <p className={`text-xs font-medium ${status.tone}`}>{status.text}</p>
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="rounded-full border bg-background px-2 py-0.5 text-[10px] font-semibold tabular-nums">
+        {latestPrice != null ? `HotelCare ${moneyBase(latestPrice)}` : "HotelCare"}
+      </span>
+      <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${deliveryState.className}`}>
+        {deliveryState.label}
+      </span>
+      {latestChange?.who ? (
+        <span className="max-w-[14rem] truncate rounded-full border border-border bg-muted/30 px-2 py-0.5 text-[10px] text-muted-foreground">
+          {latestChange.who}
+        </span>
+      ) : null}
+    </div>
+    <p className={`text-[11px] font-medium leading-snug ${status.tone}`}>{status.text}</p>
     {authoritativeSyncNote}{holdNote}{minStayBlock}
     {shown.length > 0 && <div className="space-y-2">{shown.map((e) => { const bucket = dayBucket(e.at); const heading = bucket !== lastBucket ? bucket : null; lastBucket = bucket; return <div key={e.id} className="space-y-1">{heading && <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70">{heading}</p>}{block(e)}</div>; })}</div>}
     {!expanded && (rest > 0 || hiddenMinStay > 0) && <button type="button" className="text-[11px] text-primary underline underline-offset-2" onClick={(ev) => { ev.stopPropagation(); setShowAll((v) => !v); }}>{showAll ? "Show less" : `${rest + hiddenMinStay} more change${rest + hiddenMinStay === 1 ? "" : "s"}`}</button>}
