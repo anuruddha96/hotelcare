@@ -430,26 +430,32 @@ BEGIN
 
   INSERT INTO public.room_assignments(
     id,room_id,assignment_date,assignment_type,status,supervisor_approved,
-    created_at,updated_at,is_dnd,dnd_attempt_count,notes,service_result,previous_day_context
+    created_at,updated_at,is_dnd,dnd_attempt_count,notes,service_result
   ) VALUES (
     '00000000-0000-0000-0000-000000000043',v_room,DATE '2026-09-26',
     'daily_cleaning','completed',false,now(),now(),false,0,
-    '[NO_SERVICE] Guest declined','guest_declined',
-    '{
-      "carry_forward":{
-        "version":1,
-        "active":true,
-        "property_id":"mika-downtown",
-        "source_business_date":"2026-09-25",
-        "original_due_date":"2026-09-25",
-        "service_type":"towel_change",
-        "reason":"dnd",
-        "attempt_count":1,
-        "policy_source":"standard_daily_cycle",
-        "instruction":"Yesterday the towel change was missed."
-      }
-    }'::jsonb
+    '[NO_SERVICE] Guest declined','guest_declined'
   );
+
+  -- Model the prior day's cron-enriched assignment. This update intentionally
+  -- touches only previous_day_context, so the assignment-date trigger does not
+  -- recalculate/remove the stored carry lineage.
+  UPDATE public.room_assignments
+  SET previous_day_context='{
+    "carry_forward":{
+      "version":1,
+      "active":true,
+      "property_id":"mika-downtown",
+      "source_business_date":"2026-09-25",
+      "original_due_date":"2026-09-25",
+      "service_type":"towel_change",
+      "reason":"dnd",
+      "attempt_count":1,
+      "policy_source":"standard_daily_cycle",
+      "instruction":"Yesterday the towel change was missed."
+    }
+  }'::jsonb
+  WHERE id='00000000-0000-0000-0000-000000000043';
 
   INSERT INTO public.housekeeping_room_snapshots(
     id,business_date,room_id,hotel,organization_slug,room_number,room_status,
