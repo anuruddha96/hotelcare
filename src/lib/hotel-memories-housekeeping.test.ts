@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   getGuestDeclinedServiceComment,
+  getMemoriesCarryForwardService,
   isGuestDeclinedService,
 } from './hotel-memories-housekeeping';
 
@@ -35,5 +36,51 @@ describe('guest-declined housekeeping outcomes', () => {
         '[NO_SERVICE] Guest confirmed no service required — Guest sleeping',
       ),
     ).toBe('Guest sleeping');
+  });
+});
+
+
+describe('Hotel Memories missed-service carry-forward parsing', () => {
+  it('parses a DND towel-change carry instruction', () => {
+    expect(getMemoriesCarryForwardService({
+      carry_forward: {
+        active: true,
+        source_business_date: '2026-09-25',
+        service_type: 'towel_change',
+        reason: 'dnd',
+        instruction: 'Please retry towels.',
+      },
+    })).toEqual({
+      active: true,
+      sourceBusinessDate: '2026-09-25',
+      serviceType: 'towel_change',
+      reason: 'dnd',
+      instruction: 'Please retry towels.',
+    });
+  });
+
+  it('builds a readable fallback for a No Service full-clean carry', () => {
+    const carry = getMemoriesCarryForwardService({
+      carry_forward: {
+        active: true,
+        source_business_date: '2026-09-25',
+        service_type: 'full_clean',
+        reason: 'no_service',
+      },
+    });
+    expect(carry?.instruction).toContain('guest declined housekeeping (No Service)');
+    expect(carry?.instruction).toContain('full room cleaning (Change Room)');
+  });
+
+  it('ignores inactive or malformed carry data', () => {
+    expect(getMemoriesCarryForwardService({ carry_forward: { active: false } })).toBeNull();
+    expect(getMemoriesCarryForwardService({
+      carry_forward: {
+        active: true,
+        source_business_date: '25-09-2026',
+        service_type: 'towel_change',
+        reason: 'dnd',
+      },
+    })).toBeNull();
   });
 });
