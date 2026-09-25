@@ -89,3 +89,79 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+
+-- Hotel Memories missed-service carry-forward contract. This uses a fixed
+-- finalized source row so the test is independent of the runner's wall clock.
+DO $$
+DECLARE
+  v_room uuid := '00000000-0000-0000-0000-000000000011';
+  v_snapshot uuid := '00000000-0000-0000-0000-000000000012';
+  v_context jsonb;
+BEGIN
+  INSERT INTO public.rooms(
+    id,hotel,organization_slug,room_number,status,is_checkout_room,
+    towel_change_required,linen_change_required,is_dnd,notes,pms_metadata
+  ) VALUES (
+    v_room,'memories-budapest','rdhotels','144','dirty',false,
+    false,false,false,null,
+    '{"pmsSyncDate":"2026-09-26","lastPmsRefreshDate":"2026-09-26","scheduledDepartureToday":false,"arrivalToday":false,"reservationId":"stay-144"}'::jsonb
+  );
+
+  INSERT INTO public.housekeeping_room_snapshots(
+    id,business_date,room_id,hotel,organization_slug,room_number,room_status,
+    is_checkout_room,is_dnd,towel_change_required,linen_change_required,room_notes,pms_metadata,
+    had_dnd,had_no_service,had_room_cleaning_request,had_extra_towels_request,had_ready_to_clean,
+    assignment_notes,source,final_state,finalized_at
+  ) VALUES (
+    v_snapshot,DATE '2026-09-25',v_room,'memories-budapest','rdhotels','144','dirty',
+    false,false,false,true,null,
+    '{"reservationId":"stay-144"}'::jsonb,
+    false,true,false,false,false,
+    '[NO_SERVICE] Guest declined','live_capture',
+    '{
+      "version":1,
+      "business_date":"2026-09-25",
+      "hotel":"memories-budapest",
+      "is_checkout_room_at_close":false,
+      "linen_change_required_for_assignment":true,
+      "towel_change_required_for_assignment":false,
+      "had_dnd":false,
+      "had_no_service":true,
+      "service_result":"guest_declined",
+      "pms_metadata_at_close":{"reservationId":"stay-144"}
+    }'::jsonb,
+    now()
+  );
+
+  SELECT public.hc_memories_previous_service_context(
+    v_room, DATE '2026-09-26', 'daily_cleaning'
+  ) INTO v_context;
+
+  IF v_context #>> '{carry_forward,service_type}' IS DISTINCT FROM 'full_clean' THEN
+    RAISE EXCEPTION 'expected full-clean carry-forward';
+  END IF;
+  IF v_context #>> '{carry_forward,reason}' IS DISTINCT FROM 'no_service' THEN
+    RAISE EXCEPTION 'expected No Service carry-forward reason';
+  END IF;
+
+  UPDATE public.rooms SET is_checkout_room=true WHERE id=v_room;
+  SELECT public.hc_memories_previous_service_context(
+    v_room, DATE '2026-09-26', 'daily_cleaning'
+  ) INTO v_context;
+
+  IF v_context ? 'carry_forward' THEN
+    RAISE EXCEPTION 'checkout must suppress missed-service carry-forward';
+  END IF;
+
+  UPDATE public.rooms
+  SET is_checkout_room=false,
+      hotel='gozsdu-court'
+  WHERE id=v_room;
+
+  IF public.hc_memories_previous_service_context(
+      v_room, DATE '2026-09-26', 'daily_cleaning'
+    ) IS NOT NULL THEN
+    RAISE EXCEPTION 'other hotels must not receive Memories carry-forward context';
+  END IF;
+END $$;
