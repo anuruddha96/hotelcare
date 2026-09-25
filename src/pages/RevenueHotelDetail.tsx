@@ -173,12 +173,23 @@ export default function RevenueHotelDetail() {
     let cancelled = false;
     (async () => {
       const { data: session } = await supabase.auth.getUser();
-      const { data: profile } = await supabase.from("profiles")
-        .select("organization_slug").eq("id", session.user?.id ?? "").maybeSingle();
+      const [{ data: profile }, { data: hotelConfig }, { data: revenueSettings }] = await Promise.all([
+        supabase.from("profiles")
+          .select("organization_slug").eq("id", session.user?.id ?? "").maybeSingle(),
+        (supabase as any).from("hotel_configurations")
+          .select("market_city,market_country").eq("hotel_id", hotelId ?? "").maybeSingle(),
+        (supabase as any).from("hotel_revenue_settings")
+          .select("market_city,market_country").eq("hotel_id", hotelId ?? "").maybeSingle(),
+      ]);
       if (!profile?.organization_slug) return;
+
+      const marketCity = hotelConfig?.market_city || revenueSettings?.market_city || "Budapest";
+      const marketCountry = hotelConfig?.market_country || revenueSettings?.market_country || "Hungary";
       const { data } = await (supabase as any).from("demand_events")
         .select("title,event_date,end_date,expected_impact,recurs_annually,category,venue,url,notes")
         .eq("organization_slug", profile.organization_slug)
+        .ilike("city", marketCity)
+        .ilike("country", marketCountry)
         .eq("approved", true)
         .limit(1000);
       if (!cancelled) setDemandEvents((data ?? []) as any);
