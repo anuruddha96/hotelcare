@@ -311,9 +311,9 @@ BEGIN
   -- service becomes due (e.g. yesterday's carried towel reaches today's Change
   -- Room date), the stronger service starts a new debt lineage from yesterday.
   IF v_prior_type = v_service_type
-     AND coalesce(v_prior_carry ->> 'original_due_date','') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2} THEN
+     AND coalesce(v_prior_carry ->> 'original_due_date','') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN
     v_original_due_date := (v_prior_carry ->> 'original_due_date')::date;
-    IF coalesce(v_prior_carry ->> 'attempt_count','') ~ '^[0-9]+ THEN
+    IF coalesce(v_prior_carry ->> 'attempt_count','') ~ '^[0-9]+$' THEN
       v_attempt_count := greatest(1,(v_prior_carry ->> 'attempt_count')::integer + 1);
     ELSE
       v_attempt_count := 2;
