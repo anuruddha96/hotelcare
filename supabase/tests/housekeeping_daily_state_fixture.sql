@@ -32,7 +32,7 @@ CREATE TABLE public.housekeeping_notes (
 );
 
 CREATE TABLE public.room_assignments (
-  id uuid PRIMARY KEY,
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   room_id uuid NOT NULL,
   assigned_to uuid,
   assigned_by uuid,
