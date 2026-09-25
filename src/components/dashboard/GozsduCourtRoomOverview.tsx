@@ -9,6 +9,7 @@ import { GOZSDU_COURT_HOTEL_ID, getGozsduHousekeepingCycle, type GozsduHousekeep
 import { setHousekeeperDragPayload, readHousekeeperDragPayload, setRoomDragPayload, assignRoomToStaff, isAssignmentInProgressError } from '@/lib/hkAssignmentDnd';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
+import { isDndForBusinessDate } from '@/lib/currentRoomTransientFlags';
 import { assigneeLabel, cleanName } from '@/lib/staffNames';
 import { todayBudapest } from '@/lib/budapestTime';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -28,7 +29,7 @@ type Bucket = 'checkout' | 'service' | 'arrival' | 'other' | 'noshow';
 type Room = {
   id: string; hotel: string | null; room_number: string; floor_number: number | null;
   status: string | null; last_cleaned_at: string | null; updated_at: string | null;
-  is_checkout_room: boolean | null; is_dnd: boolean | null; notes: string | null;
+  is_checkout_room: boolean | null; is_dnd: boolean | null; dnd_marked_at: string | null; notes: string | null;
   wing: string | null; room_category: string | null; room_size_sqm: number | null;
   bed_type: string | null; bed_configuration: string | null; guest_nights_stayed: number | null;
   towel_change_required: boolean | null; linen_change_required: boolean | null;
@@ -112,7 +113,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
     try {
       const [roomResult, areaResult, sectionsResult, registryResult, snapshotResult] = await Promise.all([
         supabase.from('rooms')
-          .select('id, hotel, room_number, floor_number, status, last_cleaned_at, updated_at, is_checkout_room, is_dnd, notes, wing, room_category, room_size_sqm, bed_type, bed_configuration, guest_nights_stayed, towel_change_required, linen_change_required, pms_metadata')
+          .select('id, hotel, room_number, floor_number, status, last_cleaned_at, updated_at, is_checkout_room, is_dnd, dnd_marked_at, notes, wing, room_category, room_size_sqm, bed_type, bed_configuration, guest_nights_stayed, towel_change_required, linen_change_required, pms_metadata')
           .in('hotel', HOTEL_KEYS).order('room_number'),
         supabase.from('general_tasks').select('id, task_name, assigned_to, status')
           .in('hotel', HOTEL_KEYS).eq('assigned_date', selectedDate),
@@ -274,6 +275,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
     const assignment = assignmentMap.get(room.id);
     const flags = parseRoomFlags(room.notes);
     const isCheckout = bucket === 'checkout';
+    const isDND = isDndForBusinessDate(room, selectedDate, assignment?.status, isCheckout);
     const isNoShow = bucket === 'noshow';
     const isArrival = bucket === 'arrival';
     const verified = pmsRoster.data?.byRoom.get(room.id);
@@ -320,7 +322,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
               style={{ cursor: 'pointer' }}
             >
               <div className={`relative rounded border transition-all text-center px-2 py-1 text-xs font-bold border-2 min-w-[40px] ${STATUS_COLORS[status] || STATUS_COLORS.dirty}
-                ${room.is_dnd ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
+                ${isDND ? 'ring-2 ring-purple-500 ring-offset-1' : ''}
                 ${isNoShow ? 'ring-2 ring-red-600 ring-offset-1' : ''}
                 ${highlight ? 'ring-2 ring-primary ring-offset-1' : ''}
                 ${hovered === room.id ? 'shadow-md' : ''}`}>
@@ -337,7 +339,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
                 {isCheckout && (assignment?.ready_to_clean || isPmsRtcToday(room.pms_metadata)) && <span className="ml-0.5 rounded bg-green-600 px-0.5 text-[9px] text-white">RTC</span>}
                 {assignment?.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 rounded bg-gray-500 px-0.5 text-[9px] text-white">NS</span>}
                 {assignment?.status === 'completed' && assignment.supervisor_approved && !assignment.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 text-[9px]">✅</span>}
-                {room.is_dnd && <span className="ml-0.5 text-[9px]">🚫</span>}
+                {isDND && <span className="ml-0.5 text-[9px]">🚫</span>}
                 {isNoShow && <span className="ml-0.5 text-[9px]">⚠️</span>}
                 {pending && <span className="ml-0.5 text-[9px]">⏳</span>}
                 {overdue && <span className="ml-0.5 text-[9px]">🔴</span>}
