@@ -31,6 +31,15 @@ const iso = (d: Date) => d.toISOString().slice(0, 10);
 const parse = (s: string) => new Date(`${s}T00:00:00Z`);
 const dowOf = (s: string) => parse(s).getUTCDay();
 
+function monthRange(month: string, today: string): DateRange {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  const first = `${month}-01`;
+  const last = `${month}-${String(lastDay).padStart(2, "0")}`;
+  const from = today >= first && today <= last ? today : first;
+  return { from: parse(from), to: parse(last) };
+}
+
 function roundTo(value: number, rounding: Rounding): number {
   if (rounding === "5") return Math.max(5, Math.round(value / 5) * 5);
   if (rounding === "90") return Math.max(0.9, Math.floor(value) + 0.9);
@@ -47,6 +56,7 @@ function roundTo(value: number, rounding: Rounding): number {
  */
 export default function BulkPriceEditor({
   open, onOpenChange, hotelId, organizationSlug, rates, today, canPush = false, onSaved, onPublish,
+  initialMonth = null, initialMinStay = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -55,12 +65,20 @@ export default function BulkPriceEditor({
   rates: RoomTypeRate[];
   today: string;
   canPush?: boolean;
+  /** When set, open as a focused whole-month editor instead of the full season editor. */
+  initialMonth?: string | null;
+  /** Most common minimum stay in the selected month, shown as context only. */
+  initialMinStay?: number | null;
   onSaved?: () => void | Promise<void>;
   /** Hand the changes to the calendar's background publisher (no waiting). */
   onPublish?: (changes: DraftChange[], note: string) => void;
 }) {
 
   const cur = getRevenueCurrency();
+  const monthMode = !!initialMonth;
+  const monthLabel = initialMonth
+    ? new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric", timeZone: "UTC" }).format(parse(`${initialMonth}-01`))
+    : "";
   const [range, setRange] = useState<DateRange | undefined>();
   const [dows, setDows] = useState<Set<number>>(new Set([0, 1, 2, 3, 4, 5, 6]));
   const [types, setTypes] = useState<Set<string>>(new Set());
@@ -79,9 +97,21 @@ export default function BulkPriceEditor({
 
   useEffect(() => {
     if (!open) return;
-    setRange({ from: parse(today), to: parse(addDays(today, 29)) });
+    setRange(initialMonth ? monthRange(initialMonth, today) : { from: parse(today), to: parse(addDays(today, 29)) });
+    setDows(new Set([0, 1, 2, 3, 4, 5, 6]));
+    setTypes(new Set());
+    setOccs(new Set());
+    setMode(initialMonth ? "percent" : "amount");
+    // A month edit should never suggest a specific rate. The user chooses a
+    // relative percentage or amount after seeing the month and preview.
+    setValue(initialMonth ? "" : "2");
+    setRounding("1");
+    setKeepShape(true);
+    setMinPrice("");
+    setMaxPrice("");
+    setMinNights("");
     setShowAll(false);
-  }, [open, today]);
+  }, [open, today, initialMonth]);
 
   // While this editor is open it holds unsaved local values: a background
   // resume refresh must wait rather than replace them.
@@ -109,6 +139,7 @@ export default function BulkPriceEditor({
   const quick = (days: number) => setRange({ from: parse(today), to: parse(addDays(today, days - 1)) });
 
   const changes = useMemo(() => {
+    if (mode !== "round" && value.trim() === "") return [] as Array<DraftChange & { label: string }>;
     const input = Number(value);
     if (mode !== "round" && !Number.isFinite(input)) return [] as Array<DraftChange & { label: string }>;
     const floor = Number(minPrice);
@@ -280,62 +311,88 @@ export default function BulkPriceEditor({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[92dvh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col gap-3 overflow-hidden rounded-2xl p-4 sm:w-full sm:max-w-2xl sm:p-6">
         <DialogHeader>
-          <DialogTitle className="text-base">Bulk edit prices</DialogTitle>
+          <DialogTitle className="text-base">
+            {monthMode ? `Edit ${monthLabel} prices` : "Bulk edit prices"}
+          </DialogTitle>
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 text-sm">
           {/* --- dates --- */}
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Dates</Label>
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
-                    <CalendarRange className="h-3.5 w-3.5" />
-                    {from} → {to}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="range"
-                    numberOfMonths={2}
-                    selected={range}
-                    onSelect={setRange}
-                    defaultMonth={parse(today)}
-                    className={cn("p-3 pointer-events-auto")}
-                  />
-                </PopoverContent>
-              </Popover>
-              {[
-                { label: "7 days", d: 7 }, { label: "30 days", d: 30 },
-                { label: "90 days", d: 90 }, { label: "180 days", d: 180 },
-              ].map((q) => (
-                <Button key={q.d} size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => quick(q.d)}>
-                  {q.label}
-                </Button>
-              ))}
+          {monthMode ? (
+            <div className="rounded-lg border bg-muted/30 px-3 py-2">
+              <div className="flex items-center gap-2 text-xs font-medium">
+                <CalendarRange className="h-3.5 w-3.5 text-primary" />
+                Whole month · {monthLabel}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {from} → {to} · all room types and all days are included by default.
+                {from !== `${initialMonth}-01` ? " Past dates are excluded automatically." : ""}
+              </p>
             </div>
-          </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Dates</Label>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+                      <CalendarRange className="h-3.5 w-3.5" />
+                      {from} → {to}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="range"
+                      numberOfMonths={2}
+                      selected={range}
+                      onSelect={setRange}
+                      defaultMonth={parse(today)}
+                      className={cn("p-3 pointer-events-auto")}
+                    />
+                  </PopoverContent>
+                </Popover>
+                {[
+                  { label: "7 days", d: 7 }, { label: "30 days", d: 30 },
+                  { label: "90 days", d: 90 }, { label: "180 days", d: 180 },
+                ].map((q) => (
+                  <Button key={q.d} size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => quick(q.d)}>
+                    {q.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* --- weekdays --- */}
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Which days</Label>
-            <div className="flex flex-wrap items-center gap-1">
-              {WEEKDAYS.map((w) => (
-                <Button
-                  key={w.i}
-                  size="sm"
-                  variant={dows.has(w.i) ? "default" : "outline"}
-                  className="h-8 w-10 px-0 text-[11px]"
-                  onClick={() => toggle(dows, w.i, setDows)}
-                >
-                  {w.label}
-                </Button>
-              ))}
-              <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setDows(new Set([5, 6]))}>Weekends</Button>
-              <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setDows(new Set([0, 1, 2, 3, 4]))}>Weekdays</Button>
-              <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setDows(new Set([0, 1, 2, 3, 4, 5, 6]))}>All</Button>
-            </div>
+            {monthMode ? (
+              <div className="flex flex-wrap items-center gap-1">
+                <Button size="sm" variant={dows.size === 7 ? "default" : "outline"} className="h-8 px-3 text-xs"
+                  onClick={() => setDows(new Set([0, 1, 2, 3, 4, 5, 6]))}>All days</Button>
+                <Button size="sm" variant={dows.size === 5 && !dows.has(5) && !dows.has(6) ? "default" : "outline"} className="h-8 px-3 text-xs"
+                  onClick={() => setDows(new Set([0, 1, 2, 3, 4]))}>Weekdays</Button>
+                <Button size="sm" variant={dows.size === 2 && dows.has(5) && dows.has(6) ? "default" : "outline"} className="h-8 px-3 text-xs"
+                  onClick={() => setDows(new Set([5, 6]))}>Fri–Sat</Button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-1">
+                {WEEKDAYS.map((w) => (
+                  <Button
+                    key={w.i}
+                    size="sm"
+                    variant={dows.has(w.i) ? "default" : "outline"}
+                    className="h-8 w-10 px-0 text-[11px]"
+                    onClick={() => toggle(dows, w.i, setDows)}
+                  >
+                    {w.label}
+                  </Button>
+                ))}
+                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setDows(new Set([5, 6]))}>Weekends</Button>
+                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setDows(new Set([0, 1, 2, 3, 4]))}>Weekdays</Button>
+                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setDows(new Set([0, 1, 2, 3, 4, 5, 6]))}>All</Button>
+              </div>
+            )}
           </div>
 
           {/* --- room types / occupancy --- */}
@@ -355,84 +412,120 @@ export default function BulkPriceEditor({
                 </Badge>
               ))}
             </div>
-            <div className="flex flex-wrap items-center gap-1 pt-1">
-              <span className="text-[11px] text-muted-foreground">Guests:</span>
-              {allOccs.map((o) => (
-                <Badge
-                  key={o}
-                  variant={occs.has(o) ? "default" : "outline"}
-                  className="cursor-pointer font-normal"
-                  onClick={() => toggle(occs, o, setOccs)}
-                >
-                  {o}
-                </Badge>
-              ))}
-              {occs.size > 0 && (
-                <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => setOccs(new Set())}>
-                  All
-                </Button>
-              )}
-            </div>
+            {!monthMode && (
+              <div className="flex flex-wrap items-center gap-1 pt-1">
+                <span className="text-[11px] text-muted-foreground">Guests:</span>
+                {allOccs.map((o) => (
+                  <Badge
+                    key={o}
+                    variant={occs.has(o) ? "default" : "outline"}
+                    className="cursor-pointer font-normal"
+                    onClick={() => toggle(occs, o, setOccs)}
+                  >
+                    {o}
+                  </Badge>
+                ))}
+                {occs.size > 0 && (
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => setOccs(new Set())}>
+                    All
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* --- the change --- */}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">What to do</Label>
-              <div className="flex flex-wrap gap-1">
-                {([["amount", "Amount"], ["percent", "Percent"], ["set", "Fixed"], ["round", "Round"]] as Array<[Mode, string]>).map(([m, label]) => (
-                  <Button key={m} size="sm" variant={mode === m ? "default" : "outline"} className="h-8 px-2 text-[11px]"
-                    onClick={() => setMode(m)}>{label}</Button>
+          {monthMode ? (
+            <div className="rounded-lg border p-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr]">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Change prices by</Label>
+                  <div className="flex gap-1">
+                    <Button size="sm" variant={mode === "percent" ? "default" : "outline"} className="h-8 px-3 text-xs"
+                      onClick={() => { setMode("percent"); setValue(""); }}>Percentage</Button>
+                    <Button size="sm" variant={mode === "amount" ? "default" : "outline"} className="h-8 px-3 text-xs"
+                      onClick={() => { setMode("amount"); setValue(""); }}>Amount</Button>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">
+                    {mode === "percent" ? "Adjustment %" : `Adjustment in ${cur.code}`}
+                  </Label>
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    value={value}
+                    placeholder={mode === "percent" ? "e.g. 5 or -5" : "e.g. 10 or -10"}
+                    onChange={(e) => setValue(e.target.value)}
+                    className="h-9 text-sm"
+                  />
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Existing room and guest price differences are preserved. No fixed room price is assumed for a whole month.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">What to do</Label>
+                  <div className="flex flex-wrap gap-1">
+                    {([["amount", "Amount"], ["percent", "Percent"], ["set", "Fixed"], ["round", "Round"]] as Array<[Mode, string]>).map(([m, label]) => (
+                      <Button key={m} size="sm" variant={mode === m ? "default" : "outline"} className="h-8 px-2 text-[11px]"
+                        onClick={() => setMode(m)}>{label}</Button>
+                    ))}
+                  </div>
+                  {mode === "set" && (
+                    <label className="flex items-start gap-2 pt-1 text-[11px] text-muted-foreground">
+                      <input type="checkbox" className="mt-0.5 h-3.5 w-3.5" checked={keepShape}
+                        onChange={(e) => setKeepShape(e.target.checked)} />
+                      Keep room and guest differences
+                    </label>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">
+                    {mode === "percent" ? "Percent (− lowers)" : mode === "round" ? "Not used" : `Amount in ${cur.code}`}
+                  </Label>
+                  <Input type="number" inputMode="decimal" value={value} disabled={mode === "round"}
+                    onChange={(e) => setValue(e.target.value)} className="h-9 text-xs" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Never below</Label>
+                  <Input type="number" inputMode="decimal" value={minPrice} placeholder="min"
+                    onChange={(e) => setMinPrice(e.target.value)} className="h-9 text-xs" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Never above</Label>
+                  <Input type="number" inputMode="decimal" value={maxPrice} placeholder="max"
+                    onChange={(e) => setMaxPrice(e.target.value)} className="h-9 text-xs" />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] text-muted-foreground">Presets:</span>
+                {[1, 2, 3, 8, 11, 18, 22].map((n) => (
+                  <Button key={`up${n}`} size="sm" variant={mode === "amount" && value === String(n) ? "default" : "outline"}
+                    className="h-8 px-2 text-[11px]" onClick={() => { setMode("amount"); setValue(String(n)); }}>
+                    +{n}
+                  </Button>
+                ))}
+                {[-2, -5].map((n) => (
+                  <Button key={`dn${n}`} size="sm" variant={mode === "amount" && value === String(n) ? "default" : "outline"}
+                    className="h-8 px-2 text-[11px]" onClick={() => { setMode("amount"); setValue(String(n)); }}>
+                    {n}
+                  </Button>
+                ))}
+                <span className="ml-2 text-[11px] text-muted-foreground">Rounding:</span>
+                {([["1", "Whole"], ["5", "Nearest 5"], ["90", ".90"]] as Array<[Rounding, string]>).map(([r, label]) => (
+                  <Button key={r} size="sm" variant={rounding === r ? "secondary" : "outline"} className="h-8 px-2 text-[11px]"
+                    onClick={() => setRounding(r)}>{label}</Button>
                 ))}
               </div>
-              {mode === "set" && (
-                <label className="flex items-start gap-2 pt-1 text-[11px] text-muted-foreground">
-                  <input type="checkbox" className="mt-0.5 h-3.5 w-3.5" checked={keepShape}
-                    onChange={(e) => setKeepShape(e.target.checked)} />
-                  Keep room and guest differences
-                </label>
-              )}
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">
-                {mode === "percent" ? "Percent (− lowers)" : mode === "round" ? "Not used" : `Amount in ${cur.code}`}
-              </Label>
-              <Input type="number" inputMode="decimal" value={value} disabled={mode === "round"}
-                onChange={(e) => setValue(e.target.value)} className="h-9 text-xs" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Never below</Label>
-              <Input type="number" inputMode="decimal" value={minPrice} placeholder="min"
-                onChange={(e) => setMinPrice(e.target.value)} className="h-9 text-xs" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Never above</Label>
-              <Input type="number" inputMode="decimal" value={maxPrice} placeholder="max"
-                onChange={(e) => setMaxPrice(e.target.value)} className="h-9 text-xs" />
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] text-muted-foreground">Presets:</span>
-            {[1, 2, 3, 8, 11, 18, 22].map((n) => (
-              <Button key={`up${n}`} size="sm" variant={mode === "amount" && value === String(n) ? "default" : "outline"}
-                className="h-8 px-2 text-[11px]" onClick={() => { setMode("amount"); setValue(String(n)); }}>
-                +{n}
-              </Button>
-            ))}
-            {[-2, -5].map((n) => (
-              <Button key={`dn${n}`} size="sm" variant={mode === "amount" && value === String(n) ? "default" : "outline"}
-                className="h-8 px-2 text-[11px]" onClick={() => { setMode("amount"); setValue(String(n)); }}>
-                {n}
-              </Button>
-            ))}
-            <span className="ml-2 text-[11px] text-muted-foreground">Rounding:</span>
-            {([["1", "Whole"], ["5", "Nearest 5"], ["90", ".90"]] as Array<[Rounding, string]>).map(([r, label]) => (
-              <Button key={r} size="sm" variant={rounding === r ? "secondary" : "outline"} className="h-8 px-2 text-[11px]"
-                onClick={() => setRounding(r)}>{label}</Button>
-            ))}
-          </div>
+            </>
+          )}
 
           {/* --- minimum stay (optional) --- */}
           {canPush && (
@@ -440,7 +533,23 @@ export default function BulkPriceEditor({
               <Label className="text-xs text-muted-foreground">
                 Minimum stay · optional · {minStayDates.length} date{minStayDates.length === 1 ? "" : "s"} in this selection
               </Label>
+              {monthMode && initialMinStay ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Most common minimum stay in {monthLabel}: <strong className="text-foreground">{initialMinStay} night{initialMinStay === 1 ? "" : "s"}</strong>.
+                  Keep current is selected by default.
+                </p>
+              ) : null}
               <div className="flex flex-wrap items-center gap-1">
+                {monthMode && (
+                  <Button
+                    size="sm"
+                    variant={minNights === "" ? "default" : "outline"}
+                    className="h-8 px-2 text-[11px]"
+                    onClick={() => setMinNights("")}
+                  >
+                    Keep current
+                  </Button>
+                )}
                 {[1, 2, 3, 4, 5, 7].map((n) => (
                   <Button
                     key={n}
@@ -474,8 +583,8 @@ export default function BulkPriceEditor({
                 </Button>
               </div>
               <p className="text-[11px] text-muted-foreground">
-                Leave empty to keep the current minimum stay — publishing prices never changes it. Pick a value and press
-                Apply min stay to send it to Previo for the dates and weekdays chosen above.
+                Publishing prices never changes minimum stay. {monthMode ? "Keep current leaves the month untouched. " : "Leave empty to keep the current minimum stay. "}
+                Pick a value and press Apply min stay to send it to Previo for the dates and day scope chosen above.
               </p>
             </div>
           )}
