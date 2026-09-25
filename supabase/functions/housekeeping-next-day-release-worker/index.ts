@@ -653,7 +653,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      const validationResult = {
+      const validationResult: Record<string, unknown> = {
         authoritative: true,
         source: validationSource,
         validated_at: validatedAt,
