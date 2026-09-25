@@ -1003,7 +1003,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     }
     
     const colorClass = STATUS_COLORS[statusKey] || DEFAULT_COLOR;
-    const isDND = isDndForBusinessDate(room, selectedDate, assignment?.status);
+    const isDND = isDndForBusinessDate(room, selectedDate, assignment?.status, isCheckoutBucket(room));
     const noShow = isNoShow(room) && !isEarlyCheckout(room);
     const earlyCheckout = isEarlyCheckout(room);
     const staffName = getStaffName(room.id);
@@ -1913,7 +1913,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     });
 
     const floors = groupByFloor(roomList);
-    const dndCount = roomList.filter(r => isDndForBusinessDate(r, selectedDate, assignmentMap.get(r.id)?.status)).length;
+    const dndCount = roomList.filter(r => isDndForBusinessDate(r, selectedDate, assignmentMap.get(r.id)?.status, isCheckoutBucket(r))).length;
     const isDragOver = dragOverSection === sectionType;
 
     /**
