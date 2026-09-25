@@ -18,9 +18,14 @@ describe('Gozsdu independent explicit Previo checkout evidence', () => {
     expect(verifiedGozsduCheckouts(xml(block(1856755, '1BBALC-3002', 3)), today, roster, mapped, new Set())).toEqual([]);
     expect(verifiedGozsduCheckouts(xml(block(1856755, '1BBALC-3002', 5)), today, roster, mapped, new Set())).toEqual([]);
   });
-  it('refuses a guest still in-house, a later departure, and an unmatched physical object or name', () => {
+  it('accepts an explicit early checkout whose original departure is later', () => {
+    expect(verifiedGozsduCheckouts(
+      xml(block(1856755, '1BBALC-3002', 6, '2026-09-24')),
+      today, roster, mapped, new Set(),
+    )).toEqual([{ objId: 1856755, roomName: '1BBALC-3002', reservationId: 'r1856755' }]);
+  });
+  it('refuses a guest still in-house and an unmatched physical object or name', () => {
     expect(verifiedGozsduCheckouts(xml(block(1856755, '1BBALC-3002', 6)), today, roster, mapped, new Set([1856755]))).toEqual([]);
-    expect(verifiedGozsduCheckouts(xml(block(1856755, '1BBALC-3002', 6, '2026-09-24')), today, roster, mapped, new Set())).toEqual([]);
     expect(verifiedGozsduCheckouts(xml(block(1856755, 'OTHER-3002', 6), block(999, '1BBALC-3002', 6)), today, roster, mapped, new Set())).toEqual([]);
   });
   it('deduplicates a physical room in a repeated check-out response', () => {
