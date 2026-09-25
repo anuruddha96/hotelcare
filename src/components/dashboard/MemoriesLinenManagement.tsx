@@ -305,12 +305,21 @@ export function MemoriesLinenManagement() {
           border-bottom: 1px solid #000;
         }
         #memories-vendor-print .vendor-logo {
-          padding-left: 4mm;
-          font-family: Arial, Helvetica, sans-serif;
-          font-weight: 800;
-          font-size: 9mm;
-          line-height: .72;
-          letter-spacing: -0.7mm;
+          min-height: 31mm;
+          padding: 3mm 4mm;
+          display: flex;
+          align-items: center;
+          justify-content: flex-start;
+        }
+        #memories-vendor-print .vendor-logo img {
+          display: block;
+          width: 58mm;
+          max-width: 100%;
+          max-height: 25mm;
+          height: auto;
+          object-fit: contain;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
         }
         #memories-vendor-print .vendor-work-title {
           text-align: center;
@@ -365,7 +374,13 @@ export function MemoriesLinenManagement() {
     <div className="flex items-center justify-between flex-wrap gap-3">
       <div><h2 className="text-2xl font-bold flex items-center gap-2"><Shirt className="h-5 w-5" />Dirty Linen Management</h2>
         <p className="text-sm text-muted-foreground">Hotel Memories Budapest · exact seven-column laundry provider order</p></div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <img
+          src="/deluxe-mosoda-logo.svg"
+          alt="Deluxe Mosoda"
+          className="h-10 sm:h-12 w-auto object-contain mr-1"
+          loading="eager"
+        />
         <Button variant="outline" onClick={() => { void load(); }} disabled={loading || saving}><RefreshCw className="h-4 w-4 mr-1" />Refresh</Button>
         <Button variant="outline" onClick={printSheet} disabled={loading || saving || !!error || !items.length}><Printer className="h-4 w-4 mr-1" />Print / Save PDF</Button>
         <Button variant="outline" onClick={() => { void exportExcel(); }} disabled={loading || saving || !!error || !items.length}><Download className="h-4 w-4 mr-1" />Excel (.xlsx)</Button>
@@ -400,7 +415,7 @@ export function MemoriesLinenManagement() {
     <div id="memories-vendor-print" aria-hidden="true">
       <div className="vendor-sheet">
         <div className="vendor-title">
-          <div className="vendor-logo">Deluxe<br />mosoda</div>
+          <div className="vendor-logo"><img src="/deluxe-mosoda-logo.svg" alt="Deluxe Mosoda" /></div>
           <div className="vendor-work-title">Munkalap</div>
         </div>
         <table className="vendor-meta" aria-label="Deluxe Mosoda work sheet header">
