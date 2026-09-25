@@ -18,6 +18,9 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useNotifications } from '@/hooks/useNotifications';
 import { PerformanceRaceGame } from './PerformanceRaceGame';
 import { getLocalDateString } from '@/lib/utils';
+import { parseRoomFlags } from '@/lib/room-service-flags';
+import { getMemoriesCarryForwardService, hasMemoriesGreenBoardRequest, isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { todayBudapest } from '@/lib/budapestTime';
 
 interface Assignment {
   id: string;
@@ -40,8 +43,11 @@ interface Assignment {
     floor_number: number | null;
     bed_type?: string | null;
     bed_configuration?: string | null;
-      notes?: string | null;
-      pms_metadata?: any;
+    notes?: string | null;
+    pms_metadata?: any;
+    towel_change_required?: boolean | null;
+    linen_change_required?: boolean | null;
+    is_checkout_room?: boolean | null;
   } | null;
 }
 
@@ -221,6 +227,26 @@ export function HousekeepingStaffView() {
             // Unlocked retries sit just above waiting checkouts; locked retries at the very bottom
             return x.dnd_retry_unlocked_at ? 4 : 5;
           }
+
+          if (isHotelMemoriesBudapest(x.rooms?.hotel)) {
+            const meta = x.rooms?.pms_metadata || {};
+            const fresh = meta?.pmsSyncDate === todayBudapest();
+            const pmsCheckout = !!x.rooms?.is_checkout_room || meta?.scheduledDepartureToday === true;
+            const checkout = fresh ? pmsCheckout : x.assignment_type === 'checkout_cleaning' || pmsCheckout;
+            const flags = parseRoomFlags(x.rooms?.notes ?? null);
+            const greenBoardRequest = hasMemoriesGreenBoardRequest(x.notes);
+            const carryForward = !checkout
+              ? getMemoriesCarryForwardService(x.previous_day_context)
+              : null;
+
+            if (checkout && x.ready_to_clean) return 1;
+            if (!checkout && (x.rooms?.towel_change_required || carryForward?.serviceType === 'towel_change')) return 2;
+            if (!checkout && (flags.roomCleaning || greenBoardRequest || carryForward?.serviceType === 'full_clean')) return 3;
+            if (!checkout && x.assignment_type === 'daily_cleaning') return 4;
+            if (checkout && !x.ready_to_clean) return 5;
+            return 4;
+          }
+
           if ((x.priority ?? 1) >= 3) return 1; // high priority
           if (x.assignment_type === 'checkout_cleaning' && x.ready_to_clean) return 2;
           if (x.assignment_type === 'daily_cleaning') return 3;
