@@ -153,6 +153,24 @@ export function MemoriesLinenManagement() {
   }, [items, publicCounts]);
   const totals = useMemo(() => items.map((_, index) => vendorRows.reduce((n, row) => n + row.values[index], publicRow.values[index] || 0)), [items, vendorRows, publicRow]);
   const grandTotal = sum(totals);
+  const vendorItemTotalsByName = useMemo(
+    () => new Map(items.map((item, index) => [item.name, totals[index] || 0])),
+    [items, totals],
+  );
+  const vendorTemplateRows = useMemo(() => [
+    { label: 'Hotel - paplanhuzat mosása', sent: vendorItemTotalsByName.get('duvet_covers') || 0 },
+    { label: 'Hotel - párnahuzat nagy mosása', sent: vendorItemTotalsByName.get('big_pillow') || 0 },
+    { label: 'Hotel - párnahuzat kicsi mosása', sent: vendorItemTotalsByName.get('small_pillow') || 0 },
+    { label: 'Hotel - lepedő mosása (180x290)', sent: vendorItemTotalsByName.get('bed_sheets_twin_size') || 0 },
+    { label: 'Hotel - lepedő francia mosása', sent: 0 },
+    { label: 'Hotel - fürdőlepedő mosása', sent: vendorItemTotalsByName.get('big_towel') || 0 },
+    { label: 'Hotel - kéztörlő mosása', sent: vendorItemTotalsByName.get('small_towel') || 0 },
+    { label: 'Hotel - kádelő mosása', sent: vendorItemTotalsByName.get('bath_mat') || 0 },
+    { label: 'Hotel - ágysál mosása', sent: 0 },
+    { label: 'Hotel - ágytakaró mosása', sent: 0 },
+    { label: 'Hotel - díszpárnahuzat mosása', sent: 0 },
+  ], [vendorItemTotalsByName]);
+  const vendorDate = workDate ? `${workDate.replaceAll('-', '.') }.` : '';
   const blankCount = Math.max(0, 7 - vendorRows.length);
   const sheetRows = useMemo(() => [
     ...vendorRows,
@@ -236,21 +254,123 @@ export function MemoriesLinenManagement() {
   };
 
   const printSheet = () => {
-    if (!loading && !error && !!items.length && !saving) window.print();
+    if (loading || error || !items.length || saving) return;
+    const previousTitle = document.title;
+    document.title = `Memories-Mosoda-${workDate}`;
+    window.print();
+    window.setTimeout(() => { document.title = previousTitle; }, 0);
   };
 
   if (!isMemoriesHotel(hotel)) return null;
   return <div className="space-y-5" data-testid="memories-linen-management">
-    <style>{`@media print {
-      @page { size: A4 landscape; margin: 10mm; }
-      body * { visibility: hidden !important; }
-      #memories-linen-print, #memories-linen-print * { visibility: visible !important; }
-      #memories-linen-print { position: absolute !important; left: 0; top: 0; width: 100%; background: white; color: black; }
-      #memories-linen-print table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10px; }
-      #memories-linen-print th, #memories-linen-print td { border: 1px solid black !important; padding: 5px 3px; overflow-wrap: anywhere; }
-      #memories-linen-print thead { display: table-header-group; }
-      #memories-linen-print tr { break-inside: avoid; }
-    }`}</style>
+    <style>{`
+      #memories-vendor-print { display: none; }
+      @media print {
+        @page { size: A4 portrait; margin: 8mm; }
+        html, body { width: 210mm; min-height: 297mm; background: white !important; }
+        body * { visibility: hidden !important; }
+        #memories-vendor-print, #memories-vendor-print * { visibility: visible !important; }
+        #memories-vendor-print {
+          display: block !important;
+          position: absolute !important;
+          left: 0;
+          top: 0;
+          width: 194mm;
+          background: white !important;
+          color: black !important;
+          font-family: "Times New Roman", Times, serif;
+        }
+        #memories-vendor-print .vendor-sheet {
+          width: 100%;
+          border: 1.4px solid #000;
+          box-sizing: border-box;
+        }
+        #memories-vendor-print table {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
+          color: #000 !important;
+        }
+        #memories-vendor-print th,
+        #memories-vendor-print td {
+          border: 1px solid #000 !important;
+          color: #000 !important;
+          vertical-align: middle;
+        }
+        #memories-vendor-print .vendor-title {
+          display: grid;
+          grid-template-columns: 40% 60%;
+          align-items: center;
+          min-height: 31mm;
+          border-bottom: 1px solid #000;
+        }
+        #memories-vendor-print .vendor-logo {
+          padding-left: 4mm;
+          font-family: Arial, Helvetica, sans-serif;
+          font-weight: 800;
+          font-size: 9mm;
+          line-height: .72;
+          letter-spacing: -0.7mm;
+        }
+        #memories-vendor-print .vendor-logo small {
+          display: block;
+          font-size: 3.1mm;
+          line-height: 1.1;
+          letter-spacing: .1mm;
+          margin-left: .5mm;
+          margin-top: 1.5mm;
+          font-weight: 700;
+        }
+        #memories-vendor-print .vendor-work-title {
+          text-align: center;
+          font-size: 8.5mm;
+          font-weight: 500;
+        }
+        #memories-vendor-print .vendor-meta td,
+        #memories-vendor-print .vendor-meta th {
+          height: 8mm;
+          padding: 0 1.5mm;
+          font-size: 3.5mm;
+          text-align: left;
+        }
+        #memories-vendor-print .vendor-meta .vendor-customer th {
+          font-size: 5.6mm;
+          font-weight: 700;
+          height: 10mm;
+        }
+        #memories-vendor-print .vendor-meta .vendor-customer th:last-child {
+          text-align: center;
+        }
+        #memories-vendor-print .vendor-main th {
+          text-align: center;
+          font-size: 3.7mm;
+          font-weight: 500;
+          line-height: 1.15;
+          height: 10mm;
+          padding: 1mm;
+        }
+        #memories-vendor-print .vendor-main thead tr:first-child th {
+          height: 11mm;
+        }
+        #memories-vendor-print .vendor-main td {
+          height: 7.3mm;
+          padding: 0 1.3mm;
+          font-size: 3.2mm;
+        }
+        #memories-vendor-print .vendor-main td.vendor-number {
+          text-align: center;
+          font-size: 3.7mm;
+          font-weight: 700;
+        }
+        #memories-vendor-print .vendor-footer td {
+          height: 8.5mm;
+          padding: 0 1.3mm;
+          font-size: 3.1mm;
+          font-weight: 700;
+        }
+        #memories-vendor-print tr { break-inside: avoid; }
+      }
+    `}</style>
     <div className="flex items-center justify-between flex-wrap gap-3">
       <div><h2 className="text-2xl font-bold flex items-center gap-2"><Shirt className="h-5 w-5" />Dirty Linen Management</h2>
         <p className="text-sm text-muted-foreground">Hotel Memories Budapest · exact seven-column laundry provider order</p></div>
@@ -286,6 +406,59 @@ export function MemoriesLinenManagement() {
       <p className="mt-3 text-sm font-semibold">Total pieces / Összes darab: {grandTotal}</p>
       {!!unclassifiedTotal && <p className="text-xs mt-1">Attention: {unclassifiedTotal} unclassified historical items excluded. Review before dispatch.</p>}
     </Card>
+    <div id="memories-vendor-print" aria-hidden="true">
+      <div className="vendor-sheet">
+        <div className="vendor-title">
+          <div className="vendor-logo">Deluxe<br />mosoda<small>laundry service</small></div>
+          <div className="vendor-work-title">Munkalap</div>
+        </div>
+        <table className="vendor-meta" aria-label="Deluxe Mosoda work sheet header">
+          <tbody>
+            <tr className="vendor-customer"><th>MEGRENDELŐ:</th><th>MEMORIES</th></tr>
+            <tr><td>Szállítólevél száma :</td><td>Beérkezés dátuma: <strong>{vendorDate}</strong></td></tr>
+            <tr><td>Feldolgozás dátuma:</td><td>Kiszállítás dátuma:</td></tr>
+          </tbody>
+        </table>
+        <table className="vendor-main" aria-label="Deluxe Mosoda laundry quantities">
+          <colgroup>
+            <col style={{ width: '39%' }} />
+            <col style={{ width: '17%' }} />
+            <col style={{ width: '17%' }} />
+            <col style={{ width: '17%' }} />
+            <col style={{ width: '10%' }} />
+          </colgroup>
+          <thead>
+            <tr>
+              <th rowSpan={2}>Megnevezés</th>
+              <th rowSpan={2}>Mosodába<br />beküldött</th>
+              <th colSpan={2}>Visszaküldött</th>
+              <th rowSpan={2}>Mosodában<br />marad</th>
+            </tr>
+            <tr><th>Tiszta</th><th>Foltos</th></tr>
+          </thead>
+          <tbody>
+            {vendorTemplateRows.map(row => (
+              <tr key={row.label}>
+                <td>{row.label}</td>
+                <td className="vendor-number">{row.sent > 0 ? row.sent : ''}</td>
+                <td></td>
+                <td></td>
+                <td></td>
+              </tr>
+            ))}
+            {Array.from({ length: 7 }, (_, index) => (
+              <tr key={`vendor-empty-${index}`}><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>
+            ))}
+          </tbody>
+        </table>
+        <table className="vendor-footer" aria-label="Deluxe Mosoda work sheet footer">
+          <tbody>
+            <tr><td>Elkészítette:</td><td>Bejövő kocsiszám:</td><td>Súly norm:</td></tr>
+            <tr><td>Ellenőrizte:</td><td>Kimenő kocsiszám:</td><td>Súly foltos:</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
     <Card className="p-4 space-y-3">
       <h3 className="font-bold flex items-center gap-2"><FileText className="h-4 w-4" />Room-level collection and manager corrections</h3>
       <p className="text-sm text-muted-foreground">Choose a room to correct active-category quantities. Approved historical sheets and pillow covers are included in totals but retained separately in the database.</p>
