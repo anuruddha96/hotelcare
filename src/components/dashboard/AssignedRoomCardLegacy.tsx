@@ -31,6 +31,7 @@ import {
   Ban,
   ClipboardList,
   Wrench,
+  History,
   Loader2 as LucideLoader
 } from 'lucide-react';
 import { ImageCaptureDialog } from './ImageCaptureDialog';
@@ -52,6 +53,11 @@ import { translateText, shouldTranslateContent } from '@/lib/translation-utils';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isGozsduNoMinibarRoom, requiredDailyPhotoCategories } from '@/lib/gozsduNoMinibar';
+import {
+  effectiveCarryServiceFlags,
+  getHousekeepingCarryForward,
+  isPortfolioCarryForwardHotel,
+} from '@/lib/housekeepingCarryForward';
 
 interface AssignedRoomCardProps {
   assignment: {
@@ -75,6 +81,7 @@ interface AssignedRoomCardProps {
     supervisor_approved_by?: string | null;
     supervisor_approved_at?: string | null;
     ready_to_clean?: boolean;
+    previous_day_context?: any;
     rooms: {
       room_number: string;
       hotel: string;
@@ -149,13 +156,21 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   // DND is a stayover/daily-cleaning workflow only. Checkout, maintenance and
   // deep-cleaning assignments must never enter the DND retry/approval flow.
   const canUseDnd = !isCheckoutClean && assignment.assignment_type === 'daily_cleaning';
-  // Checkout cleans always include a full towel change — hide the extra
-  // "Towel Change" badges/instructions to avoid redundant noise.
-  const showTowelChange = !!assignment.rooms?.towel_change_required && !isCheckoutClean;
+  const portfolioCarry = !isCheckoutClean && isPortfolioCarryForwardHotel(assignment.rooms?.hotel)
+    ? getHousekeepingCarryForward(assignment.previous_day_context)
+    : null;
+  const effectiveService = effectiveCarryServiceFlags({
+    towelChangeRequired: assignment.rooms?.towel_change_required,
+    linenChangeRequired: assignment.rooms?.linen_change_required,
+    carryForward: portfolioCarry,
+    isCheckout: isCheckoutClean,
+  });
 
-  // Checkout cleans always get a full linen + towel change, so the extra
-  // "bed linen change" instruction is noise there.
-  const showLinenChange = !!assignment.rooms?.linen_change_required && !isCheckoutClean;
+  // Checkout cleans already include full towel/linen service. For stayovers,
+  // merge the property's natural service with an unresolved service carried
+  // from yesterday. A full clean subsumes a standalone towel badge.
+  const showTowelChange = effectiveService.towelChangeRequired;
+  const showLinenChange = effectiveService.linenChangeRequired;
   
   const cardClassName = [
     "group bg-card border shadow-sm hover:shadow-md transition-all duration-200 rounded-xl w-full",
@@ -886,14 +901,15 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
     : null;
   
   // Count special instructions
-  const hasSpecialInstructions = showTowelChange || showLinenChange || !!bedInstruction || hasManagerNotes || hasSeparatePrevioNote || assignment.notes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
-  const instructionCount = [showTowelChange, showLinenChange, !!bedInstruction, hasManagerNotes, hasSeparatePrevioNote, assignment.notes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
+  const hasSpecialInstructions = showTowelChange || showLinenChange || !!portfolioCarry || !!bedInstruction || hasManagerNotes || hasSeparatePrevioNote || assignment.notes || roomFlags.collectExtraTowels || roomFlags.roomCleaning;
+  const instructionCount = [showTowelChange, showLinenChange, !!portfolioCarry, !!bedInstruction, hasManagerNotes, hasSeparatePrevioNote, assignment.notes, roomFlags.collectExtraTowels, roomFlags.roomCleaning].filter(Boolean).length;
 
   // AI translation state
   const [translating, setTranslating] = useState(false);
   const [translatedManagerNote, setTranslatedManagerNote] = useState<string | null>(null);
   const [translatedPrevioNote, setTranslatedPrevioNote] = useState<string | null>(null);
   const [translatedAssignmentNote, setTranslatedAssignmentNote] = useState<string | null>(null);
+  const [translatedCarryNote, setTranslatedCarryNote] = useState<string | null>(null);
 
   const handleTranslateNote = async (noteText: string, setter: (val: string) => void) => {
     setTranslating(true);
@@ -1037,6 +1053,37 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
       {/* === SPECIAL INSTRUCTIONS — Between header and content === */}
       {hasSpecialInstructions && (
         <div data-training="room-special-instructions" className="px-6 pb-2 space-y-2">
+          {portfolioCarry && (
+            <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-400 dark:border-amber-600 rounded-lg shadow-sm">
+              <div className="flex items-start gap-2">
+                <History className="h-4 w-4 text-amber-700 dark:text-amber-300 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-amber-800 dark:text-amber-300 uppercase tracking-wide">
+                    Carried service from yesterday · {portfolioCarry.sourceBusinessDate}
+                  </p>
+                  <p className="text-sm text-amber-950 dark:text-amber-100 font-semibold mt-1 whitespace-pre-wrap break-words">
+                    {translatedCarryNote || portfolioCarry.instruction}
+                  </p>
+                  {portfolioCarry.attemptCount > 1 && (
+                    <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-1">
+                      Outstanding since {portfolioCarry.originalDueDate} · attempt {portfolioCarry.attemptCount}
+                    </p>
+                  )}
+                  {!translatedCarryNote && (
+                    <button
+                      type="button"
+                      className="mt-1.5 flex items-center gap-1 text-xs text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100 font-medium"
+                      onClick={() => handleTranslateNote(portfolioCarry.instruction, setTranslatedCarryNote)}
+                      disabled={translating}
+                    >
+                      {translating ? <LucideLoader className="h-3 w-3 animate-spin" /> : <Globe className="h-3 w-3" />}
+                      {t('roomCard.translateNote') || '🌐 Translate'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           {showTowelChange && (
             <div className="p-3 bg-yellow-50 dark:bg-yellow-950/30 border-2 border-yellow-400 dark:border-yellow-600 rounded-lg">
               <div className="flex items-center gap-2">
@@ -1853,6 +1900,12 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
               {t('housekeeping.warningExplanation') || 'This room has special instructions that require your attention before cleaning:'}
             </p>
             <ul className="space-y-2 text-sm">
+              {portfolioCarry && (
+                <li className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-md">
+                  <span>↪️</span>
+                  <span>{translatedCarryNote || portfolioCarry.instruction}</span>
+                </li>
+              )}
               {showTowelChange && (
                 <li className="flex items-center gap-2 p-2 bg-yellow-50 dark:bg-yellow-950/30 rounded-md">
                   🧺 {t('roomCard.towelChange') || 'Towel Change Required'}
