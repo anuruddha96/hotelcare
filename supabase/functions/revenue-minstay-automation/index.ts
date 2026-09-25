@@ -303,6 +303,14 @@ Deno.serve(async (req: Request) => {
     if (runError) throw runError;
     runId = run.id;
 
+    const { data: marketLocation } = await admin
+      .from("hotel_configurations")
+      .select("market_city,market_country")
+      .eq("hotel_id", hotelId)
+      .maybeSingle();
+    const marketCity = marketLocation?.market_city || "Budapest";
+    const marketCountry = marketLocation?.market_country || "Hungary";
+
     const [snapshotRes, minStayRes, pickupRes, eventRes, cfgRes, mappingRes, recentDecisionRes] = await Promise.all([
       admin.rpc("revenue_latest_snapshots", { p_hotel_id: hotelId, p_from: today, p_to: horizonDate }),
       admin.from("min_stay_rules").select("stay_date,min_nights,updated_at").eq("hotel_id", hotelId)
@@ -311,7 +319,10 @@ Deno.serve(async (req: Request) => {
         .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", horizonDate)
         .gte("first_seen_at", new Date(now.getTime() - 24 * 3_600_000).toISOString()).is("cancelled_at", null),
       admin.from("demand_events").select("title,event_date,end_date,expected_impact,confidence,approved")
-        .eq("hotel_id", hotelId).lte("event_date", horizonDate),
+        .eq("organization_slug", rule.organization_slug)
+        .ilike("city", marketCity)
+        .ilike("country", marketCountry)
+        .lte("event_date", horizonDate),
       admin.from("pms_configurations").select("pms_hotel_id,credentials_secret_name,is_active")
         .eq("hotel_id", hotelId).maybeSingle(),
       admin.from("previo_rate_plan_mapping").select("previo_room_type_id,previo_rate_plan_id").eq("hotel_id", hotelId),
