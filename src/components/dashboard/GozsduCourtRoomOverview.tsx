@@ -334,7 +334,7 @@ export function GozsduCourtRoomOverview({ selectedDate, staffMap, refreshKey, si
                 {change === 'change_room' && <span title="Complete Textile Change" className="ml-0.5 rounded bg-orange-500 px-0.5 text-[9px] text-white">C</span>}
                 {flags.roomCleaning && <span className="ml-0.5 rounded bg-green-600 px-0.5 text-[9px] text-white">RC</span>}
                 {flags.collectExtraTowels && <span className="ml-0.5 text-[9px]">🧺</span>}
-                {isCheckout && (assignment?.ready_to_clean || (!assignment && isPmsRtcToday(room.pms_metadata))) && <span className="ml-0.5 rounded bg-green-600 px-0.5 text-[9px] text-white">RTC</span>}
+                {isCheckout && (assignment?.ready_to_clean || isPmsRtcToday(room.pms_metadata)) && <span className="ml-0.5 rounded bg-green-600 px-0.5 text-[9px] text-white">RTC</span>}
                 {assignment?.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 rounded bg-gray-500 px-0.5 text-[9px] text-white">NS</span>}
                 {assignment?.status === 'completed' && assignment.supervisor_approved && !assignment.notes?.includes('[NO_SERVICE]') && <span className="ml-0.5 text-[9px]">✅</span>}
                 {room.is_dnd && <span className="ml-0.5 text-[9px]">🚫</span>}
