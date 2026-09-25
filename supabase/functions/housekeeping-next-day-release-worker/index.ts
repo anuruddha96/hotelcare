@@ -684,6 +684,50 @@ Deno.serve(async (req) => {
         .eq("status", "approved");
       if (passError) throw passError;
 
+      // A manager may already have assigned tomorrow's room before the morning
+      // PMS revalidation runs. release_next_day_housekeeping_plan intentionally
+      // preserves that live assignment instead of inserting a duplicate, but
+      // it must still apply the fresh PMS cleaning-type decision. Keep the
+      // selected housekeeper/status/priority/notes untouched and reconcile only
+      // the assignment type. Checkout tasks remain waiting for physical RTC;
+      // the independent checkout poll releases them when Previo confirms it.
+      const existingTypeReconciliations: Array<Record<string, unknown>> = [];
+      for (const item of items) {
+        const override = assignmentTypeOverrides[item.id];
+        if (!override) continue;
+        const { data: reconciled, error: reconcileError } = await admin
+          .from("room_assignments")
+          .update({
+            assignment_type: override,
+            ...(override === "checkout_cleaning" ? { ready_to_clean: false } : {}),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("room_id", item.room_id)
+          .eq("assignment_date", plan.plan_date)
+          .in("status", ["assigned", "in_progress"])
+          .select("id,room_id,assigned_to,status,assignment_type,ready_to_clean");
+        if (reconcileError) throw reconcileError;
+        for (const row of reconciled || []) {
+          existingTypeReconciliations.push({
+            assignment_id: row.id,
+            room_id: row.room_id,
+            assigned_to: row.assigned_to,
+            status: row.status,
+            assignment_type: row.assignment_type,
+            ready_to_clean: row.ready_to_clean,
+          });
+        }
+      }
+      if (existingTypeReconciliations.length > 0) {
+        validationResult.existing_assignment_reconciliations = existingTypeReconciliations;
+        const { error: auditUpdateError } = await admin
+          .from("next_day_housekeeping_plans")
+          .update({ release_revalidation_result: validationResult })
+          .eq("id", plan.id)
+          .eq("status", "approved");
+        if (auditUpdateError) throw auditUpdateError;
+      }
+
       const { data: releaseResult, error: releaseError } = await admin.rpc(
         "release_next_day_housekeeping_plan",
         { p_plan_id: plan.id },
