@@ -9,6 +9,7 @@ on:
       - 'supabase/migrations/20260925071059_housekeeping_daily_state_room_note_schema_unblock.sql'
       - 'supabase/migrations/20260925071108_portfolio_housekeeping_daily_state_integrity.sql'
       - 'supabase/migrations/20260925153000_memories_missed_service_carry_forward.sql'
+      - 'supabase/migrations/20260925180000_portfolio_missed_service_carry_forward.sql'
       - 'supabase/tests/housekeeping_daily_state_*.sql'
       - 'src/lib/housekeepingHistoricalFinalState*'
       - '.github/workflows/housekeeping-daily-state-sql-ci.yml'
@@ -54,4 +55,5 @@ jobs:
             -f supabase/migrations/20260925071059_housekeeping_daily_state_room_note_schema_unblock.sql \
             -f supabase/migrations/20260925071108_portfolio_housekeeping_daily_state_integrity.sql \
             -f supabase/migrations/20260925153000_memories_missed_service_carry_forward.sql \
+            -f supabase/migrations/20260925180000_portfolio_missed_service_carry_forward.sql \
             -f supabase/tests/housekeeping_daily_state_integration.sql

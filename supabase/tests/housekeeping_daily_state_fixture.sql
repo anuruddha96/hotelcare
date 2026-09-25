@@ -32,11 +32,17 @@ CREATE TABLE public.housekeeping_notes (
 );
 
 CREATE TABLE public.room_assignments (
-  id uuid PRIMARY KEY,
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   room_id uuid NOT NULL,
+  assigned_to uuid,
+  assigned_by uuid,
   assignment_date date NOT NULL,
   assignment_type text,
   status text,
+  priority integer default 1,
+  estimated_duration integer,
+  organization_slug text,
+  ready_to_clean boolean default false,
   supervisor_approved boolean,
   created_at timestamptz default now(),
   updated_at timestamptz,

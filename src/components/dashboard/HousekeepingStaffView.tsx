@@ -21,6 +21,7 @@ import { getLocalDateString } from '@/lib/utils';
 import { parseRoomFlags } from '@/lib/room-service-flags';
 import { getMemoriesCarryForwardService, hasMemoriesGreenBoardRequest, isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { todayBudapest } from '@/lib/budapestTime';
+import { getHousekeepingCarryForward, isPortfolioCarryForwardHotel } from '@/lib/housekeepingCarryForward';
 
 interface Assignment {
   id: string;
@@ -245,6 +246,18 @@ export function HousekeepingStaffView() {
             if (!checkout && x.assignment_type === 'daily_cleaning') return 4;
             if (checkout && !x.ready_to_clean) return 5;
             return 4;
+          }
+
+          if (isPortfolioCarryForwardHotel(x.rooms?.hotel)) {
+            const meta = x.rooms?.pms_metadata || {};
+            const fresh = meta?.pmsSyncDate === todayBudapest();
+            const pmsCheckout = !!x.rooms?.is_checkout_room || meta?.scheduledDepartureToday === true;
+            const checkout = fresh ? pmsCheckout : x.assignment_type === 'checkout_cleaning' || pmsCheckout;
+            const carryForward = !checkout ? getHousekeepingCarryForward(x.previous_day_context) : null;
+            if (checkout && x.ready_to_clean) return 1;
+            if (carryForward?.serviceType === 'full_clean') return 2;
+            if (carryForward?.serviceType === 'towel_change') return 2;
+            if (checkout && !x.ready_to_clean) return 4;
           }
 
           if ((x.priority ?? 1) >= 3) return 1; // high priority
