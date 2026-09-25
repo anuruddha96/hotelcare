@@ -142,8 +142,31 @@ BEGIN
     ra.id
   LIMIT 1;
 
-  IF FOUND AND jsonb_typeof(v_source_assignment.previous_day_context -> 'carry_forward') = 'object' THEN
-    v_prior_carry := v_source_assignment.previous_day_context -> 'carry_forward';
+  -- Read the prior carry as a scalar as well as the ranked row. Keeping this
+  -- independent of the record variable makes repeated carry lineage robust
+  -- across schema clients and historical rows where the JSON column was added
+  -- after the original assignment was created.
+  SELECT coalesce(ra.previous_day_context -> 'carry_forward','{}'::jsonb)
+  INTO v_prior_carry
+  FROM public.room_assignments ra
+  WHERE ra.room_id = p_room_id
+    AND ra.assignment_date = v_source_date
+    AND ra.status::text <> 'cancelled'
+  ORDER BY
+    CASE
+      WHEN ra.status::text = 'completed' AND coalesce(ra.supervisor_approved,false) THEN 6
+      WHEN ra.status::text = 'completed' THEN 5
+      WHEN ra.status::text = 'in_progress' THEN 4
+      WHEN ra.status::text = 'dnd_pending_retry' THEN 3
+      WHEN ra.status::text = 'assigned' THEN 2
+      ELSE 1
+    END DESC,
+    ra.updated_at DESC NULLS LAST,
+    ra.created_at DESC NULLS LAST,
+    ra.id
+  LIMIT 1;
+  IF NOT FOUND THEN
+    v_prior_carry := '{}'::jsonb;
   END IF;
 
   -- Yesterday's frozen instruction is authoritative for the naturally scheduled
