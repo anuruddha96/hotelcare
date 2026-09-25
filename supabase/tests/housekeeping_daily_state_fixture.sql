@@ -35,8 +35,10 @@ CREATE TABLE public.room_assignments (
   id uuid PRIMARY KEY,
   room_id uuid NOT NULL,
   assignment_date date NOT NULL,
+  assignment_type text,
   status text,
   supervisor_approved boolean,
+  created_at timestamptz default now(),
   updated_at timestamptz,
   is_dnd boolean,
   dnd_attempt_count integer,
@@ -65,7 +67,8 @@ CREATE TABLE public.housekeeping_room_snapshots (
   had_extra_towels_request boolean,
   had_ready_to_clean boolean,
   assignment_notes text,
-  source text
+  source text,
+  updated_at timestamptz default now()
 );
 
 CREATE SCHEMA IF NOT EXISTS cron;
