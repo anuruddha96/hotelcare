@@ -33,6 +33,11 @@ import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
 import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import {
+  effectiveCarryServiceFlags,
+  getHousekeepingCarryForward,
+  isPortfolioCarryForwardHotel,
+} from '@/lib/housekeepingCarryForward';
 import { isCurrentNoServiceOutcome, selectCurrentHousekeepingAssignments } from '@/lib/currentHousekeepingAssignments';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
 import { assigneeLabel, cleanName } from '@/lib/staffNames';
@@ -91,6 +96,7 @@ interface AssignmentData {
   is_dnd?: boolean | null;
   dnd_attempt_count?: number | null;
   dnd_marked_at?: string | null;
+  previous_day_context?: any;
 }
 
 interface PublicAreaTask {
@@ -362,7 +368,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           .order('room_number'),
         supabase
           .from('room_assignments')
-          .select('id, room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes, created_at, service_result, is_dnd, dnd_attempt_count, dnd_marked_at')
+          .select('id, room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes, created_at, service_result, is_dnd, dnd_attempt_count, dnd_marked_at, previous_day_context')
           .eq('assignment_date', selectedDate),
         supabase
           .from('general_tasks')
@@ -407,7 +413,7 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
           if (prevDate) {
             const { data: prevAssignRows } = await supabase
               .from('room_assignments')
-              .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes, completed_at, assignment_date, is_dnd, dnd_attempt_count, dnd_marked_at')
+              .select('room_id, assigned_to, status, assignment_type, started_at, supervisor_approved, ready_to_clean, pms_hold, notes, completed_at, assignment_date, is_dnd, dnd_attempt_count, dnd_marked_at, previous_day_context')
               .in('room_id', roomIdList)
               .eq('assignment_date', prevDate);
             const map = new Map<string, AssignmentData & { completed_at: string | null; assignment_date: string }>();
@@ -1009,6 +1015,15 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
     const staffName = getStaffName(room.id);
     const sizeLabel = getSizeLabel(room.room_size_sqm);
     const isCheckout = isCheckoutBucket(room);
+    const portfolioCarry = !isCheckout && isPortfolioCarryForwardHotel(room.hotel)
+      ? getHousekeepingCarryForward(assignment?.previous_day_context)
+      : null;
+    const effectiveService = effectiveCarryServiceFlags({
+      towelChangeRequired: room.towel_change_required,
+      linenChangeRequired: room.linen_change_required,
+      carryForward: portfolioCarry,
+      isCheckout,
+    });
     const canMarkReadyToClean = isCheckout && assignment?.assignment_type === 'checkout_cleaning' && assignment?.pms_hold !== true;
     const slntChipMode = getSlntRoomChipMode({
       isSlntTenant,
@@ -1181,8 +1196,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             );
           })()}
           {room.bed_type === 'shabath' && <span className="ml-0.5 text-[9px] font-extrabold text-blue-700 dark:text-blue-300">SH</span>}
-          {room.towel_change_required && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
-          {room.linen_change_required && !isCheckout && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
+          {effectiveService.towelChangeRequired && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-blue-600 text-white">T</span>}
+          {effectiveService.linenChangeRequired && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">C</span>}
+          {portfolioCarry && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-amber-600 text-white" title={portfolioCarry.instruction}>↪</span>}
           {roomFlags.roomCleaning && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-green-600 text-white">RC</span>}
           {roomFlags.collectExtraTowels && <span className="ml-0.5 px-0.5 rounded text-[9px] font-extrabold bg-orange-500 text-white">🧺</span>}
           {(() => {
@@ -1367,6 +1383,22 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
 
 
 
+
+              {portfolioCarry && (
+                <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-2.5 dark:border-amber-700 dark:bg-amber-950/30">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                    ↪ Carried service from yesterday · {portfolioCarry.sourceBusinessDate}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold leading-relaxed text-amber-950 dark:text-amber-100">
+                    {portfolioCarry.instruction}
+                  </p>
+                  {portfolioCarry.attemptCount > 1 && (
+                    <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
+                      Outstanding since {portfolioCarry.originalDueDate} · attempt {portfolioCarry.attemptCount}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Services Section */}
               <div className="space-y-1">
@@ -2566,6 +2598,9 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
             {selectedRoom && (() => {
               const assignment = assignmentMap.get(selectedRoom.id);
               const isCheckout = assignment?.assignment_type === 'checkout_cleaning' || selectedRoom.is_checkout_room || isScheduledCheckoutRoom(selectedRoom);
+              const selectedCarry = !isCheckout && isPortfolioCarryForwardHotel(selectedRoom.hotel)
+                ? getHousekeepingCarryForward(assignment?.previous_day_context)
+                : null;
               const canMarkReadyToClean = isCheckout && assignment?.assignment_type === 'checkout_cleaning' && assignment?.pms_hold !== true;
               const roomStatus = selectedRoom.status;
               return (
@@ -2673,6 +2708,17 @@ export function HotelRoomOverview({ selectedDate, hotelName, staffMap, refreshKe
                       )}
                     </div>
                   </div>
+
+                  {selectedCarry && (
+                    <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950/30">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                        ↪ Carried service from yesterday · {selectedCarry.sourceBusinessDate}
+                      </p>
+                      <p className="mt-1 text-xs font-semibold leading-relaxed text-amber-950 dark:text-amber-100">
+                        {selectedCarry.instruction}
+                      </p>
+                    </div>
+                  )}
 
                   {/* Special Instructions Section */}
                   <div className="space-y-2 pb-3 border-b">
