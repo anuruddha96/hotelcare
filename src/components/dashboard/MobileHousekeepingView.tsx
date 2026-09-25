@@ -19,7 +19,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { useTranslation } from '@/hooks/useTranslation';
 import { getLocalDateString } from '@/lib/utils';
 import { parseRoomFlags } from '@/lib/room-service-flags';
-import { hasMemoriesGreenBoardRequest, isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
+import { getMemoriesCarryForwardService, hasMemoriesGreenBoardRequest, isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { todayBudapest } from '@/lib/budapestTime';
 
 interface Assignment {
@@ -249,10 +249,13 @@ export function MobileHousekeepingView() {
             const checkout = isCheckoutAssignment(x);
             const flags = parseRoomFlags(x.rooms?.notes ?? null);
             const greenBoardRequest = hasMemoriesGreenBoardRequest(x.notes);
+            const carryForward = !checkout
+              ? getMemoriesCarryForwardService(x.previous_day_context)
+              : null;
 
             if (checkout && x.ready_to_clean) return 1;
-            if (!checkout && x.rooms?.towel_change_required) return 2;
-            if (!checkout && (flags.roomCleaning || greenBoardRequest)) return 3;
+            if (!checkout && (x.rooms?.towel_change_required || carryForward?.serviceType === 'towel_change')) return 2;
+            if (!checkout && (flags.roomCleaning || greenBoardRequest || carryForward?.serviceType === 'full_clean')) return 3;
             if (!checkout && x.assignment_type === 'daily_cleaning') return 4;
             if (checkout && !x.ready_to_clean) return 5;
             return 4;
