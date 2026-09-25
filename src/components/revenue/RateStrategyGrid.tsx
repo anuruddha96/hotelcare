@@ -3446,29 +3446,43 @@ export default function RateStrategyGrid({
                     return (
                       <HoverCard key={d} openDelay={2000} closeDelay={60}>
                         <HoverCardTrigger asChild>{cellButton}</HoverCardTrigger>
-                        <HoverCardContent align="center" className="w-72 p-3 text-xs">
-                          <p className="font-medium">{row.roomTypeName} · {row.occ}g · {d}</p>
-                          <p className="text-[11px] text-muted-foreground">
-                            {soldOut ? "Sold out · price still moves with the rest" : `${tone.label} · ${originLabel}`}
-                          </p>
-                          {inverted ? (
-                            <p className="text-[11px] font-medium text-amber-600">
-                              Below the {row.occ - 1 >= 1 ? "lower" : ""} guest count on this date ({moneyBase(lowerOccPrice ?? null)}) — automation will lift it to match.
-                            </p>
-                          ) : null}
-                          <p className="mt-1 mb-2 flex justify-between">
-                            <span className="text-muted-foreground">Current price</span>
-                            <span className="tabular-nums font-semibold">{moneyBase(published ?? null)}</span>
-                          </p>
+                        <HoverCardContent
+                          side="right"
+                          align="start"
+                          sideOffset={8}
+                          collisionPadding={16}
+                          className="w-[min(32rem,calc(100vw-2rem))] max-h-[min(36rem,calc(100dvh-2rem))] overflow-hidden p-0 text-xs shadow-xl"
+                        >
+                          <div className="sticky top-0 z-10 border-b bg-popover/95 p-3 backdrop-blur">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate font-medium">{row.roomTypeName} · {row.occ}g · {d}</p>
+                                <p className="text-[11px] text-muted-foreground">
+                                  {soldOut ? "Sold out · price still moves with the rest" : `${tone.label} · ${originLabel}`}
+                                </p>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Current price</p>
+                                <p className="tabular-nums text-sm font-semibold">{moneyBase(published ?? null)}</p>
+                              </div>
+                            </div>
+                            {inverted ? (
+                              <p className="mt-1.5 text-[11px] font-medium text-amber-600">
+                                Below the {row.occ - 1 >= 1 ? "lower" : ""} guest count on this date ({moneyBase(lowerOccPrice ?? null)}) — automation will lift it to match.
+                              </p>
+                            ) : null}
+                          </div>
 
-                          <RateCellHistory
-                            history={history ?? []}
-                            automation={cellAutomation ?? []}
-                            hold={automationHolds.get(d) ?? null}
-                            names={actorNames}
-                            draftPrice={draft ?? null}
-                            sendingPrice={sending ?? null}
-                          />
+                          <div className="max-h-[min(30rem,calc(100dvh-8rem))] overflow-y-auto overscroll-contain p-3">
+                            <RateCellHistory
+                              history={history ?? []}
+                              automation={cellAutomation ?? []}
+                              hold={automationHolds.get(d) ?? null}
+                              names={actorNames}
+                              draftPrice={draft ?? null}
+                              sendingPrice={sending ?? null}
+                            />
+                          </div>
 
                         </HoverCardContent>
 
