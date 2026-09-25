@@ -10,6 +10,7 @@ import { displayHousekeepingBedSetup } from '@/lib/housekeepingBedSetup';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { todayBudapest } from '@/lib/budapestTime';
 import {
+  getMemoriesCarryForwardService,
   hasMemoriesGreenBoardRequest,
   isGuestDeclinedService,
   isHotelMemoriesBudapest,
@@ -129,14 +130,17 @@ const getWorkClass = (assignment: AssignmentRow): WorkClass => {
   const room = assignment.rooms;
   const flags = parseRoomFlags(room?.notes || null);
   const greenBoardRequest = hasMemoriesGreenBoardRequest(assignment.notes);
+  const carryForward = !checkout
+    ? getMemoriesCarryForwardService(assignment.previous_day_context)
+    : null;
 
   if (checkout && assignment.ready_to_clean) {
     return { bucket: 1, label: 'Checkout priority', shortLabel: '1 · CHECKOUT', tone: 'orange' };
   }
-  if (!checkout && room?.towel_change_required) {
+  if (!checkout && (room?.towel_change_required || carryForward?.serviceType === 'towel_change')) {
     return { bucket: 2, label: 'Towel-change priority', shortLabel: '2 · TOWEL', tone: 'blue' };
   }
-  if (!checkout && (flags.roomCleaning || greenBoardRequest)) {
+  if (!checkout && (flags.roomCleaning || greenBoardRequest || carryForward?.serviceType === 'full_clean')) {
     return { bucket: 3, label: 'Explicit clean request', shortLabel: '3 · CLEAN REQUEST', tone: 'emerald' };
   }
   if (!checkout && assignment.assignment_type === 'daily_cleaning') {
@@ -167,6 +171,15 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
   const flags = parseRoomFlags(room.notes || null);
   const greenBoardRequest = hasMemoriesGreenBoardRequest(assignment.notes);
   const declined = isGuestDeclinedService(assignment.service_result, assignment.notes);
+  const carryForward = !checkout
+    ? getMemoriesCarryForwardService(assignment.previous_day_context)
+    : null;
+  const effectiveTowel = !checkout && (
+    !!room.towel_change_required || carryForward?.serviceType === 'towel_change'
+  );
+  const effectiveFullClean = !checkout && (
+    !!room.linen_change_required || carryForward?.serviceType === 'full_clean'
+  );
   const optionalDaily = workClass.bucket === 4 && !checkout && assignment.assignment_type === 'daily_cleaning';
   const managerNote = managerVisibleRoomNote(room.notes);
   const managerInstruction = String(assignment.manager_instruction_text || '').trim();
@@ -210,9 +223,9 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
       <CardContent className="space-y-3 pt-0">
         <div className="flex flex-wrap gap-1.5 text-xs">
           <Badge variant={checkout ? 'default' : 'secondary'}>{checkout ? '🚪 Checkout Clean' : '🛏 Daily room'}</Badge>
-          {room.towel_change_required && !checkout && <Badge variant="outline">🔄 Towel change</Badge>}
-          {room.linen_change_required && !checkout && <Badge variant="outline">🛏 Linen change</Badge>}
-          {(flags.roomCleaning || greenBoardRequest) && !checkout && <Badge variant="outline">✅ Clean requested</Badge>}
+          {effectiveTowel && <Badge variant="outline">🔄 Towel change</Badge>}
+          {effectiveFullClean && <Badge variant="outline">🛏 Full clean / Change Room</Badge>}
+          {(flags.roomCleaning || greenBoardRequest || carryForward?.serviceType === 'full_clean') && !checkout && <Badge variant="outline">✅ Clean requested</Badge>}
           {nights && <Badge variant="outline">🌙 Night {nights}</Badge>}
           {declined && <Badge variant="outline">No Service</Badge>}
           {assignment.status === 'dnd_pending_retry' && <Badge variant="outline">🔕 DND retry</Badge>}
@@ -226,6 +239,22 @@ function ManagerParityRoomCard({ assignment, staffName }: { assignment: Assignme
                 <p className="text-sm font-semibold">Check the guest&apos;s door first</p>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                   No towel change or clean request is active. This is the same optional daily-room state the housekeeper sees: clean only if the green “Clean My Room” card is outside or the guest asks for service.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {carryForward && (
+          <div className="rounded-lg border-2 border-amber-400 bg-amber-50 px-3 py-2 dark:border-amber-700 dark:bg-amber-950/30">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                  Carried service from yesterday · {carryForward.sourceBusinessDate}
+                </p>
+                <p className="mt-1 whitespace-pre-wrap break-words text-sm font-semibold text-amber-950 dark:text-amber-100">
+                  {carryForward.instruction}
                 </p>
               </div>
             </div>
@@ -401,7 +430,7 @@ export function HotelMemoriesManagerRoomOverview(props: HotelMemoriesManagerRoom
                   Housekeeper room cards · management mirror
                 </CardTitle>
                 <p className="mt-1 max-w-3xl text-xs leading-relaxed text-muted-foreground">
-                  Hotel Memories Budapest only. Managers see the same operational meaning and work order as the housekeeper: ready checkout → towel change → explicit clean request → optional daily door-check → waiting checkout, with live status, priority, bed setup and manager notes.
+                  Hotel Memories Budapest only. Managers see the same operational meaning and work order as the housekeeper: ready checkout → towel change → carried/explicit full clean → optional daily door-check → waiting checkout, with live status, priority, bed setup, carried service context and manager notes.
                 </p>
               </div>
               <Badge variant="outline" className="border-emerald-300 text-emerald-700 dark:text-emerald-300">Hotel Memories only</Badge>
