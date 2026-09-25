@@ -4,7 +4,10 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'supabase/migrations/20260924151000_portfolio_housekeeping_daily_state_integrity.sql'
+      - 'supabase/migrations/20260925071047_housekeeping_daily_state_snapshot_schema_unblock.sql'
+      - 'supabase/migrations/20260925071052_housekeeping_daily_state_assignment_schema_unblock.sql'
+      - 'supabase/migrations/20260925071059_housekeeping_daily_state_room_note_schema_unblock.sql'
+      - 'supabase/migrations/20260925071108_portfolio_housekeeping_daily_state_integrity.sql'
       - 'supabase/tests/housekeeping_daily_state_*.sql'
       - 'src/lib/housekeepingHistoricalFinalState*'
       - '.github/workflows/housekeeping-daily-state-sql-ci.yml'
@@ -45,5 +48,8 @@ jobs:
           set -euo pipefail
           psql -X -v ON_ERROR_STOP=1 \
             -f supabase/tests/housekeeping_daily_state_fixture.sql \
-            -f supabase/migrations/20260924151000_portfolio_housekeeping_daily_state_integrity.sql \
+            -f supabase/migrations/20260925071047_housekeeping_daily_state_snapshot_schema_unblock.sql \
+            -f supabase/migrations/20260925071052_housekeeping_daily_state_assignment_schema_unblock.sql \
+            -f supabase/migrations/20260925071059_housekeeping_daily_state_room_note_schema_unblock.sql \
+            -f supabase/migrations/20260925071108_portfolio_housekeeping_daily_state_integrity.sql \
             -f supabase/tests/housekeeping_daily_state_integration.sql

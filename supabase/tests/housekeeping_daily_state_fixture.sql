@@ -21,7 +21,6 @@ CREATE TABLE public.rooms (
   is_dnd boolean,
   dnd_marked_at timestamptz,
   notes text,
-  operational_note_date date,
   pms_metadata jsonb default '{}'::jsonb
 );
 
@@ -43,7 +42,6 @@ CREATE TABLE public.room_assignments (
   dnd_attempt_count integer,
   notes text,
   manager_instruction_text text,
-  instruction_snapshot jsonb,
   service_result text
 );
 

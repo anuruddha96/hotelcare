@@ -1,3 +1,6 @@
+SET lock_timeout = '2s';
+SET statement_timeout = '45s';
+
 -- Portfolio-wide housekeeping business-day integrity.
 --
 -- Safety contract:
