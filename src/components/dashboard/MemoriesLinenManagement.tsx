@@ -170,7 +170,7 @@ export function MemoriesLinenManagement() {
     { label: 'Hotel - ágytakaró mosása', sent: 0 },
     { label: 'Hotel - díszpárnahuzat mosása', sent: 0 },
   ], [vendorItemTotalsByName]);
-  const vendorDate = workDate ? `${workDate.replaceAll('-', '.') }.` : '';
+  const vendorDate = workDate ? `${workDate.split('-').join('.')}.` : '';
   const blankCount = Math.max(0, 7 - vendorRows.length);
   const sheetRows = useMemo(() => [
     ...vendorRows,
@@ -312,15 +312,6 @@ export function MemoriesLinenManagement() {
           line-height: .72;
           letter-spacing: -0.7mm;
         }
-        #memories-vendor-print .vendor-logo small {
-          display: block;
-          font-size: 3.1mm;
-          line-height: 1.1;
-          letter-spacing: .1mm;
-          margin-left: .5mm;
-          margin-top: 1.5mm;
-          font-weight: 700;
-        }
         #memories-vendor-print .vendor-work-title {
           text-align: center;
           font-size: 8.5mm;
@@ -409,7 +400,7 @@ export function MemoriesLinenManagement() {
     <div id="memories-vendor-print" aria-hidden="true">
       <div className="vendor-sheet">
         <div className="vendor-title">
-          <div className="vendor-logo">Deluxe<br />mosoda<small>laundry service</small></div>
+          <div className="vendor-logo">Deluxe<br />mosoda</div>
           <div className="vendor-work-title">Munkalap</div>
         </div>
         <table className="vendor-meta" aria-label="Deluxe Mosoda work sheet header">
