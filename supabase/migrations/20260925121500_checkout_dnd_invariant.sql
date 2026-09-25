@@ -1,5 +1,6 @@
 -- DND is a same-day stayover/daily-cleaning state.
--- Checkout cleaning must never carry or accept DND, regardless of property.
+-- Checkout, maintenance and deep-cleaning work must never carry or accept DND,
+-- regardless of property.
 -- Historical snapshots and dnd_photos are intentionally preserved.
 
 CREATE OR REPLACE FUNCTION public.hc_forbid_checkout_room_dnd()
@@ -35,7 +36,7 @@ DECLARE
   budapest_today date := (timezone('Europe/Budapest', now()))::date;
 BEGIN
   IF NEW.assignment_date = budapest_today
-     AND NEW.assignment_type::text = 'checkout_cleaning' THEN
+     AND NEW.assignment_type::text <> 'daily_cleaning' THEN
     NEW.is_dnd := false;
     NEW.dnd_marked_at := NULL;
     NEW.dnd_marked_by := NULL;
@@ -61,7 +62,8 @@ FOR EACH ROW
 EXECUTE FUNCTION public.hc_forbid_checkout_assignment_dnd();
 
 -- Repair only the live/current operational state. Historical DND evidence stays
--- in housekeeping_room_snapshots and dnd_photos.
+-- in housekeeping_room_snapshots and dnd_photos. Room-level cleanup is limited
+-- to checkout rooms; assignment cleanup covers every non-daily task type.
 UPDATE public.rooms
 SET is_dnd = false,
     dnd_marked_at = NULL,
@@ -83,7 +85,7 @@ SET is_dnd = false,
     END,
     updated_at = now()
 WHERE assignment_date = (timezone('Europe/Budapest', now()))::date
-  AND assignment_type::text = 'checkout_cleaning'
+  AND assignment_type::text <> 'daily_cleaning'
   AND (
     is_dnd IS TRUE
     OR status::text = 'dnd_pending_retry'
