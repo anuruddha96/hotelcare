@@ -55,6 +55,14 @@ interface Snap {
 
 async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: string, orgSlug: string | null, today: string) {
   const horizon = addDays(today, 60);
+  const { data: marketLocation } = await admin
+    .from("hotel_configurations")
+    .select("market_city,market_country")
+    .eq("hotel_id", hotelId)
+    .maybeSingle();
+  const marketCity = marketLocation?.market_city || "Budapest";
+  const marketCountry = marketLocation?.market_country || "Hungary";
+
   // A true rolling 24 hours — not "since midnight yesterday", which used to
   // stretch the window to as much as 48 hours and inflate every total.
   const windowStart = new Date(Date.now() - 24 * 3_600_000).toISOString();
@@ -114,7 +122,9 @@ async function buildDigest(admin: ReturnType<typeof createClient>, hotelId: stri
       .eq("hotel_id", hotelId).gte("stay_date", today).lte("stay_date", addDays(today, 30)).limit(2000),
     admin.from("demand_events")
       .select("title, event_date, end_date, category, expected_impact, venue")
-      .eq("hotel_id", hotelId)
+      .eq("organization_slug", orgSlug ?? "")
+      .ilike("city", marketCity)
+      .ilike("country", marketCountry)
       .gte("event_date", today).lte("event_date", addDays(today, 45))
       .order("event_date", { ascending: true }).limit(12),
   ]);
