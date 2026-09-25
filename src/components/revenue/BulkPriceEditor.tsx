@@ -370,10 +370,10 @@ export default function BulkPriceEditor({
               <div className="flex flex-wrap items-center gap-1">
                 <Button size="sm" variant={dows.size === 7 ? "default" : "outline"} className="h-8 px-3 text-xs"
                   onClick={() => setDows(new Set([0, 1, 2, 3, 4, 5, 6]))}>All days</Button>
-                <Button size="sm" variant={dows.size === 5 && !dows.has(5) && !dows.has(6) ? "default" : "outline"} className="h-8 px-3 text-xs"
-                  onClick={() => setDows(new Set([0, 1, 2, 3, 4]))}>Weekdays</Button>
-                <Button size="sm" variant={dows.size === 2 && dows.has(5) && dows.has(6) ? "default" : "outline"} className="h-8 px-3 text-xs"
-                  onClick={() => setDows(new Set([5, 6]))}>Fri–Sat</Button>
+                <Button size="sm" variant={dows.size === 5 && !dows.has(0) && !dows.has(6) ? "default" : "outline"} className="h-8 px-3 text-xs"
+                  onClick={() => setDows(new Set([1, 2, 3, 4, 5]))}>Weekdays</Button>
+                <Button size="sm" variant={dows.size === 2 && dows.has(0) && dows.has(6) ? "default" : "outline"} className="h-8 px-3 text-xs"
+                  onClick={() => setDows(new Set([0, 6]))}>Weekends</Button>
               </div>
             ) : (
               <div className="flex flex-wrap items-center gap-1">
