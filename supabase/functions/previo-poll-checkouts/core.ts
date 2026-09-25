@@ -599,13 +599,43 @@ async function pollOneHotel(
       if (updErr) throw updErr;
 
 
-      // Only emit when this is a *new* signal (status flipped to checkout).
-      if (!wasCheckout) {
-        const conflicts = (existingAsg ?? []).filter(
-          (a: any) => a.assignment_type !== "checkout_cleaning",
-        );
-        const isConflict = conflicts.length > 0;
-        const { data: evt } = await service
+      // A confirmed physical checkout is authoritative for today's active
+      // housekeeping assignment too. This matters when the room was planned as
+      // a daily clean (or was manually assigned before the fresh PMS snapshot)
+      // and Previo later changes it to a checkout. Preserve the selected
+      // housekeeper and work status, but reconcile the cleaning type and RTC.
+      const staleTypeAssignments = (existingAsg ?? []).filter(
+        (a: any) => a.assignment_type !== "checkout_cleaning",
+      );
+      if (staleTypeAssignments.length > 0) {
+        const { error: reconcileError } = await service
+          .from("room_assignments")
+          .update({
+            assignment_type: "checkout_cleaning",
+            ready_to_clean: true,
+            pms_hold: false,
+            pms_hold_reason: null,
+            pms_hold_event_id: null,
+            updated_at: nowIso(),
+          })
+          .in("id", staleTypeAssignments.map((a: any) => a.id));
+        if (reconcileError) throw reconcileError;
+        result.diagnostics.push({
+          source: "checkout-assignment-reconcile",
+          room: localRoom.room_number || rawName,
+          roomId: localRoom.id,
+          reconciledAssignments: staleTypeAssignments.length,
+          accepted: true,
+          reason: "explicit PMS checkout converted active daily assignment to checkout cleaning and RTC",
+        });
+      }
+
+      // Emit a change when either the room itself flipped to checkout OR an
+      // already-checkout room had a stale live assignment corrected. The
+      // latter was the ST-B44 split-brain case: manager overview said Checkout,
+      // while the housekeeper still saw Daily.
+      if (!wasCheckout || staleTypeAssignments.length > 0) {
+        await service
           .from("pms_change_events")
           .insert({
             hotel_id: hotelId,
@@ -614,29 +644,27 @@ async function pollOneHotel(
             event_type: "checkout_confirmed",
             source: "poll_checkouts",
             previo_reservation_id: reservationId || null,
-            before: { is_checkout_room: false, status: localRoom.status },
-            after: { is_checkout_room: true, status: "dirty" },
-            is_conflict: isConflict,
-            conflicts_with_assignment_id: conflicts[0]?.id ?? null,
-          })
-          .select("id")
-          .single();
+            before: {
+              is_checkout_room: wasCheckout,
+              status: localRoom.status,
+              assignment_types: staleTypeAssignments.map((a: any) => a.assignment_type),
+            },
+            after: {
+              is_checkout_room: true,
+              status: "dirty",
+              assignment_type: "checkout_cleaning",
+              ready_to_clean: true,
+            },
+            is_conflict: false,
+            conflicts_with_assignment_id: null,
+            auto_applied: true,
+            resolution: staleTypeAssignments.length > 0 ? "assignment_type_reconciled" : null,
+          });
         result.events++;
-        if (isConflict) {
-          result.conflicts++;
-          await service
-            .from("room_assignments")
-            .update({
-              pms_hold: true,
-              pms_hold_reason: "Guest checked out — assignment type may need to change",
-              pms_hold_event_id: evt?.id ?? null,
-              updated_at: nowIso(),
-            })
-            .in("id", conflicts.map((c: any) => c.id));
-        }
       }
 
-      // Auto-release checkout-cleaning assignments (they're now safe to start).
+      // Auto-release every checkout-cleaning assignment (including one just
+      // reconciled above); the confirmed guest departure makes it safe to start.
       const { data: released } = await service
         .from("room_assignments")
         .update({
