@@ -90,6 +90,7 @@ const impactTone = (impact: string) =>
  */
 export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: string | null; selectedMonth?: string }) {
   const [orgSlug, setOrgSlug] = useState<string | null>(null);
+  const [canEditLocation, setCanEditLocation] = useState(false);
   const [month, setMonth] = useState(() => selectedMonth ?? monthKey(new Date()));
   const [city, setCity] = useState("Budapest");
   const [country, setCountry] = useState("Hungary");
@@ -136,27 +137,43 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     setLoading(true);
     const { data: session } = await supabase.auth.getUser();
     const { data: profile } = await supabase
-      .from("profiles").select("organization_slug").eq("id", session.user?.id ?? "").maybeSingle();
+      .from("profiles").select("organization_slug, role").eq("id", session.user?.id ?? "").maybeSingle();
     const slug = profile?.organization_slug ?? null;
     setOrgSlug(slug);
+    setCanEditLocation(String(profile?.role ?? "") === "admin");
+
+    let marketCity = "Budapest";
+    let marketCountry = "Hungary";
 
     if (hotelId) {
-      const { data: settings } = await (supabase as any)
-        .from("hotel_revenue_settings")
-        .select("market_city, market_country")
-        .eq("hotel_id", hotelId)
-        .maybeSingle();
-      if (settings?.market_city) setCity(settings.market_city);
-      if (settings?.market_country) setCountry(settings.market_country);
+      const [{ data: hotelConfig }, { data: settings }] = await Promise.all([
+        (supabase as any)
+          .from("hotel_configurations")
+          .select("market_city, market_country")
+          .eq("hotel_id", hotelId)
+          .maybeSingle(),
+        (supabase as any)
+          .from("hotel_revenue_settings")
+          .select("market_city, market_country")
+          .eq("hotel_id", hotelId)
+          .maybeSingle(),
+      ]);
+      marketCity = hotelConfig?.market_city || settings?.market_city || marketCity;
+      marketCountry = hotelConfig?.market_country || settings?.market_country || marketCountry;
     }
+
+    setCity(marketCity);
+    setCountry(marketCountry);
 
     if (!slug) { setEvents([]); setLastRun(null); setLoading(false); return; }
 
-    // Who last refreshed the calendar — a person, or the weekly automatic sweep.
+    // Who last refreshed this shared market pool — a person, or the automatic sweep.
     const { data: runs } = await (supabase as any)
       .from("demand_event_search_runs")
       .select("source, run_by_name, events_found, events_added, created_at, month")
       .eq("organization_slug", slug)
+      .ilike("city", marketCity)
+      .ilike("country", marketCountry)
       .order("created_at", { ascending: false })
       .limit(1);
     setLastRun(((runs ?? [])[0] as SearchRun | undefined) ?? null);
@@ -165,6 +182,8 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
       .from("demand_events")
       .select("*")
       .eq("organization_slug", slug)
+      .ilike("city", marketCity)
+      .ilike("country", marketCountry)
       .order("event_date", { ascending: true })
       .limit(1000);
 
@@ -192,12 +211,30 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
 
   const saveLocation = async () => {
     if (!hotelId) return;
-    const { error } = await (supabase as any)
-      .from("hotel_revenue_settings")
-      .update({ market_city: city, market_country: country })
+    if (!canEditLocation) {
+      toast.error("Only an administrator can change a hotel's market location.");
+      return;
+    }
+    if (!city.trim() || !country.trim()) {
+      toast.error("City and country are required.");
+      return;
+    }
+
+    const { error: hotelError } = await (supabase as any)
+      .from("hotel_configurations")
+      .update({ market_city: city.trim(), market_country: country.trim() })
       .eq("hotel_id", hotelId);
-    if (error) toast.error(error.message);
-    else toast.success(`Event searches now use ${city}, ${country}`);
+    if (hotelError) { toast.error(hotelError.message); return; }
+
+    // Compatibility for revenue features that still read the old settings row.
+    const { error: revenueError } = await (supabase as any)
+      .from("hotel_revenue_settings")
+      .update({ market_city: city.trim(), market_country: country.trim() })
+      .eq("hotel_id", hotelId);
+    if (revenueError) console.warn("Could not mirror market location to revenue settings", revenueError);
+
+    toast.success(`Shared event pool set to ${city.trim()}, ${country.trim()}`);
+    void load();
   };
 
   const addManual = async () => {
@@ -235,7 +272,7 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
     setAlreadyAdded([]);
     try {
       const { data, error } = await supabase.functions.invoke("demand-events-search", {
-        body: { city, country, month },
+        body: { city, country, month, hotelId },
       });
       if (error) throw error;
       if (!data?.ok) throw new Error(data?.error ?? "Event search failed");
@@ -404,15 +441,18 @@ export default function EventsPanel({ hotelId, selectedMonth }: { hotelId: strin
             <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] border rounded-lg p-3 bg-muted/20 mb-4">
               <div>
                 <Label className="text-xs text-muted-foreground">City</Label>
-                <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Budapest" className="h-8" />
+                <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Budapest" className="h-8" disabled={!canEditLocation} />
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground">Country</Label>
-                <Input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Hungary" className="h-8" />
+                <Input value={country} onChange={(e) => setCountry(e.target.value)} placeholder="Hungary" className="h-8" disabled={!canEditLocation} />
               </div>
-              <Button variant="outline" size="sm" className="self-end h-8" onClick={saveLocation} disabled={!hotelId}>
+              <Button variant="outline" size="sm" className="self-end h-8" onClick={saveLocation} disabled={!hotelId || !canEditLocation}>
                 Save location
               </Button>
+              <p className="sm:col-span-3 text-xs text-muted-foreground">
+                This location defines the shared event pool. Hotels in the same city and country see the same calendar across organizations.
+              </p>
             </div>
           </CollapsibleContent>
         </Collapsible>

@@ -3,8 +3,8 @@
 // Used by the on-demand search (a revenue manager pressing "Find events") and
 // by the weekly automatic sweep. Keeping one implementation means both paths
 // obey the same accuracy rules: the model must read a real source page, dates
-// are never estimated, and anything the organisation already has is filtered
-// out before it can be offered or saved twice.
+// are never estimated, and anything the shared city/country market already has
+// is filtered out before it can be offered or saved twice.
 
 import { logAiUsage } from "./aiBudget.ts";
 
@@ -97,8 +97,8 @@ export function monthBounds(month: string): { monthStart: string; monthEnd: stri
 }
 
 /**
- * Searches one city/month and classifies the answer against what the
- * organisation already stores. Nothing is written to demand_events here.
+ * Searches one city/month and classifies the answer against what the shared
+ * market pool already stores. Nothing is written to demand_events here.
  */
 export async function searchEvents(opts: {
   // deno-lint-ignore no-explicit-any
@@ -115,8 +115,9 @@ export async function searchEvents(opts: {
   const { data: existing } = await admin
     .from("demand_events")
     .select("title, event_date, end_date, recurs_annually")
-    .eq("organization_slug", organizationSlug)
-    .limit(2000);
+    .ilike("city", city)
+    .ilike("country", country)
+    .limit(5000);
 
   const known = (existing ?? []) as Array<{ title: string; event_date: string; end_date: string | null; recurs_annually: boolean }>;
 
