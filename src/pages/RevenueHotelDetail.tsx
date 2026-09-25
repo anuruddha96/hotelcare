@@ -1877,17 +1877,31 @@ function MarketEventsPanel({ hotelId, orgSlug, onCopied }: { hotelId: string; or
   const [items, setItems] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<string>("all");
+  const [marketCity, setMarketCity] = useState("Budapest");
+  const [marketCountry, setMarketCountry] = useState("Hungary");
   async function load() {
     const today = new Date().toISOString().slice(0, 10);
+    const { data: hotelConfig } = await (supabase as any)
+      .from("hotel_configurations")
+      .select("market_city,market_country")
+      .eq("hotel_id", hotelId)
+      .maybeSingle();
+    const city = hotelConfig?.market_city || "Budapest";
+    const country = hotelConfig?.market_country || "Hungary";
+    setMarketCity(city);
+    setMarketCountry(country);
+
     const { data } = await (supabase as any).from("market_events")
-      .select("*").eq("city", "budapest").gte("event_date", today)
+      .select("*").eq("city", city.toLowerCase()).gte("event_date", today)
       .order("event_date", { ascending: true }).limit(200);
     setItems(data ?? []);
   }
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [hotelId]);
   async function refreshAI() {
     setBusy(true);
-    const { data, error } = await supabase.functions.invoke("revenue-events-fetch", { body: {} });
+    const { data, error } = await supabase.functions.invoke("revenue-events-fetch", {
+      body: { city: marketCity, country: marketCountry },
+    });
     setBusy(false);
     if (error || (data && data.ok === false)) { toast.error(data?.error || error?.message || "Failed"); return; }
     toast.success(`Refreshed: ${data?.added ?? 0} events added`);
@@ -1906,7 +1920,7 @@ function MarketEventsPanel({ hotelId, orgSlug, onCopied }: { hotelId: string; or
   return (
     <Card><CardContent className="p-4 space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="text-sm font-semibold">Budapest market events (AI)</div>
+        <div className="text-sm font-semibold">{marketCity} market events (AI)</div>
         <div className="flex gap-2 items-center">
           <Select value={filter} onValueChange={setFilter}>
             <SelectTrigger className="h-8 w-32"><SelectValue /></SelectTrigger>
