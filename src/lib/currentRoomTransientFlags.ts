@@ -27,7 +27,13 @@ export function isDndForBusinessDate(
   room: DailyTransientRoomFlagsInput,
   businessDate: string,
   assignmentStatus?: string | null,
+  isCheckoutRoom = false,
 ): boolean {
+  // DND is a stayover/daily-cleaning state only. A checkout clean must never
+  // surface DND, even when yesterday's room mirror or a stale retry assignment
+  // still carries the flag.
+  if (isCheckoutRoom) return false;
+
   // The dated assignment state is authoritative even if the room mirror has
   // not been written yet.
   if (assignmentStatus === 'dnd_pending_retry') return true;
