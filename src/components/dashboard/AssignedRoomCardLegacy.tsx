@@ -261,6 +261,13 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
   };
 
   const markAsDND = async () => {
+    if (isCheckoutClean) {
+      toast.warning(language === 'hu'
+        ? 'Kijelentkezős szobánál nem használható a DND. Ez csak bent maradó / napi takarításnál érvényes.'
+        : 'DND is not available for checkout cleaning. It is only valid for stayover / daily-cleaning rooms.');
+      setEnhancedDndPhotoDialogOpen(false);
+      return;
+    }
     setLoading(true);
     try {
       const now = new Date().toISOString();
@@ -1185,7 +1192,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
         {/* Action Buttons */}
         <div className="space-y-4">
           {/* 2nd-attempt DND banner */}
-          {assignment.status === 'dnd_pending_retry' && (
+          {assignment.status === 'dnd_pending_retry' && !isCheckoutClean && (
             <div className="rounded-md border border-orange-300 bg-orange-50 dark:bg-orange-950/40 dark:border-orange-800 px-3 py-2 text-sm text-orange-900 dark:text-orange-200 space-y-2">
               <div className="font-semibold">{t('dnd.secondAttemptTitle')} — {t('common.room') || 'Room'} {assignment.rooms?.room_number}</div>
               <div className="text-xs">
@@ -1314,7 +1321,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
             )}
 
             {/* DND Button — accessible from doorway, no need to enter the room */}
-            {assignment.status === 'assigned' && !isCheckoutWaiting && (
+            {assignment.status === 'assigned' && !isCheckoutClean && (
               <Button
                 size="lg"
                 variant="outline"
@@ -1388,17 +1395,19 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
                     </button>
                   )}
 
-                  <button
-                    type="button"
-                    onClick={() => setEnhancedDndPhotoDialogOpen(true)}
-                    className={`${tileBase} border-border`}
-                    data-training="dnd-button"
-                  >
-                    <span className={`${iconWrap} bg-orange-100 text-orange-700`}>
-                      <AlertTriangle className="h-4 w-4" />
-                    </span>
-                    <span className={label}>{t('actions.dndPhoto')}</span>
-                  </button>
+                  {!isCheckoutClean && (
+                    <button
+                      type="button"
+                      onClick={() => setEnhancedDndPhotoDialogOpen(true)}
+                      className={`${tileBase} border-border`}
+                      data-training="dnd-button"
+                    >
+                      <span className={`${iconWrap} bg-orange-100 text-orange-700`}>
+                        <AlertTriangle className="h-4 w-4" />
+                      </span>
+                      <span className={label}>{t('actions.dndPhoto')}</span>
+                    </button>
+                  )}
 
                   {assignment.assignment_type === 'daily_cleaning' && !isCheckoutClean && (
                     <button
@@ -1742,7 +1751,7 @@ export function AssignedRoomCard({ assignment, onStatusUpdate }: AssignedRoomCar
 
       {/* Enhanced DND Photo Dialog */}
       <EnhancedDNDPhotoCapture
-        open={enhancedDndPhotoDialogOpen}
+        open={enhancedDndPhotoDialogOpen && !isCheckoutClean}
         onOpenChange={setEnhancedDndPhotoDialogOpen}
         roomNumber={assignment.rooms?.room_number || 'N/A'}
         roomId={assignment.room_id}
