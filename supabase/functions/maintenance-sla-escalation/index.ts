@@ -123,17 +123,29 @@ function emailBody(ticket: MaintenanceTicket, level: 1 | 2, threshold: Date, hou
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'POST required' }, 405);
+
   const serviceRole = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
   const customSecret = Deno.env.get('MAINTENANCE_ESCALATION_WORKER_SECRET') || '';
+  const url = Deno.env.get('SUPABASE_URL');
+  if (!url || !serviceRole) return json({ error: 'Supabase worker environment is incomplete' }, 500);
+
+  const admin = createClient(url, serviceRole, { auth: { persistSession: false } });
   const bearer = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
   const headerSecret = (req.headers.get('x-worker-secret') || '').trim();
   const bearerAuthorized = !!bearer && (bearer === serviceRole || (!!customSecret && bearer === customSecret));
-  const headerAuthorized = !!customSecret && headerSecret === customSecret;
+  let headerAuthorized = !!customSecret && headerSecret === customSecret;
+
+  // The production cron secret is generated and stored in Supabase Vault by the
+  // scheduler migration. This fallback avoids duplicating that secret in Edge
+  // Function environment configuration while keeping browser roles unable to read it.
+  if (!bearerAuthorized && !headerAuthorized && headerSecret) {
+    const { data: vaultSecret, error: vaultError } = await admin.rpc('get_maintenance_escalation_worker_secret');
+    if (!vaultError && typeof vaultSecret === 'string' && vaultSecret.length > 0) {
+      headerAuthorized = headerSecret === vaultSecret;
+    }
+  }
   if (!bearerAuthorized && !headerAuthorized) return json({ error: 'Unauthorized' }, 401);
 
-  const url = Deno.env.get('SUPABASE_URL');
-  if (!url || !serviceRole) return json({ error: 'Supabase worker environment is incomplete' }, 500);
-  const admin = createClient(url, serviceRole, { auth: { persistSession: false } });
   const now = new Date();
 
   const [{ data: settings, error: settingsError }, { data: hotels, error: hotelsError }] = await Promise.all([
