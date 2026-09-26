@@ -60,10 +60,9 @@ as $$
     from public.profiles p
     where p.id = auth.uid()
       and p.organization_slug = p_organization_slug
-      and (p.role in ('top_management', 'top_management_manager') or coalesce(p.is_super_admin, false))
+      and p.role in ('top_management', 'top_management_manager')
       and (
-        coalesce(p.is_super_admin, false)
-        or p.assigned_hotel = p_hotel
+        p.assigned_hotel = p_hotel
         or exists (
           select 1
           from public.hotel_configurations hc
