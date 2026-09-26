@@ -119,8 +119,25 @@ async function readSignedDashboard(
       console.error(`Sales Dashboard signed read failed [${res.status}]: ${body.slice(0, 400)}`);
       return { error: `signed dashboard responded ${res.status}` };
     }
-    const rows = await res.json();
-    if (!Array.isArray(rows)) return { error: "signed dashboard returned an invalid response" };
+
+    const payload = await res.json();
+    // Current Sales Dashboard returns the rows directly. Accept a wrapped
+    // `reservations` array too so this integration remains compatible if the
+    // dashboard later standardises its API response shape.
+    const rows = Array.isArray(payload)
+      ? payload
+      : payload && Array.isArray(payload.reservations)
+        ? payload.reservations
+        : undefined;
+
+    if (!rows) {
+      const legacySelfTest = payload && payload.ok === true && typeof payload.hint === "string";
+      return {
+        error: legacySelfTest
+          ? "signed dashboard read route has not been deployed yet"
+          : "signed dashboard returned an invalid response",
+      };
+    }
     return { rows: rows as DashboardReservation[] };
   } catch (error) {
     console.error("Sales Dashboard signed read threw", error);
