@@ -100,7 +100,10 @@ async function readSignedDashboard(
   const canonical = `hotelcare-read\n${propertySlug}\n${serviceDate}\n${timestamp}`;
   const signature = await hmacSha256Hex(secret, canonical);
   const appUrl = (Deno.env.get("SALES_DASHBOARD_APP_URL") || "https://sales.rdhotels.hu").replace(/\/+$/, "");
-  const endpoint = `${appUrl}/api/public/hotelcare-reservations?date=${encodeURIComponent(serviceDate)}`;
+  // Use an already-registered TanStack API route. A newly-added standalone
+  // route was not present in the generated production route tree and was being
+  // treated as an HTML page, causing the BB fallback to fail with HTTP 500.
+  const endpoint = `${appUrl}/api/public/webhooks/reservation-test?date=${encodeURIComponent(serviceDate)}`;
 
   try {
     const res = await fetch(endpoint, {
