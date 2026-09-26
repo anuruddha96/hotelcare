@@ -40,6 +40,91 @@ function dashboardHeaders(key: string, extra: Record<string, string> = {}): Reco
   return headers;
 }
 
+async function hmacSha256Hex(secret: string, value: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(value));
+  return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function readDirectDashboard(
+  propertySlug: string,
+  serviceDate: string,
+): Promise<{ rows?: DashboardReservation[]; error?: string }> {
+  const cfg = dashboardConfig();
+  if (!cfg) return { error: "Sales Dashboard direct credentials are not configured" };
+
+  const { start, end } = budapestDayRange(serviceDate);
+  const params = new URLSearchParams({
+    select:
+      "id,guest_name,guest_email,guest_phone,party_size,starts_at,ends_at,status,occasion,special_requests,notes,source_project,source_reservation_id,updated_at,outlets(slug),properties!inner(slug)",
+    "properties.slug": `eq.${propertySlug}`,
+    starts_at: `gte.${start.toISOString()}`,
+    order: "starts_at.asc",
+    limit: "500",
+  });
+  params.append("starts_at", `lt.${end.toISOString()}`);
+
+  try {
+    const res = await fetch(`${cfg.url}/rest/v1/reservations?${params.toString()}`, {
+      headers: dashboardHeaders(cfg.key, { Accept: "application/json" }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      console.error(`Sales Dashboard direct read failed [${res.status}]: ${body.slice(0, 400)}`);
+      return { error: `direct dashboard responded ${res.status}` };
+    }
+    return { rows: (await res.json()) as DashboardReservation[] };
+  } catch (error) {
+    console.error("Sales Dashboard direct read threw", error);
+    return { error: "direct dashboard request failed" };
+  }
+}
+
+async function readSignedDashboard(
+  propertySlug: string,
+  serviceDate: string,
+  secretName: string | null | undefined,
+): Promise<{ rows?: DashboardReservation[]; error?: string }> {
+  if (!secretName) return { error: "signed dashboard secret mapping is missing" };
+  const secret = Deno.env.get(secretName);
+  if (!secret) return { error: `signed dashboard secret ${secretName} is not configured` };
+
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const canonical = `hotelcare-read\n${propertySlug}\n${serviceDate}\n${timestamp}`;
+  const signature = await hmacSha256Hex(secret, canonical);
+  const appUrl = (Deno.env.get("SALES_DASHBOARD_APP_URL") || "https://sales.rdhotels.hu").replace(/\/+$/, "");
+  const endpoint = `${appUrl}/api/public/hotelcare-reservations?date=${encodeURIComponent(serviceDate)}`;
+
+  try {
+    const res = await fetch(endpoint, {
+      headers: {
+        Accept: "application/json",
+        "x-property": propertySlug,
+        "x-timestamp": timestamp,
+        "x-signature": signature,
+      },
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      console.error(`Sales Dashboard signed read failed [${res.status}]: ${body.slice(0, 400)}`);
+      return { error: `signed dashboard responded ${res.status}` };
+    }
+    const rows = await res.json();
+    if (!Array.isArray(rows)) return { error: "signed dashboard returned an invalid response" };
+    return { rows: rows as DashboardReservation[] };
+  } catch (error) {
+    console.error("Sales Dashboard signed read threw", error);
+    return { error: "signed dashboard request failed" };
+  }
+}
+
 export async function syncHotelReservations(
   // deno-lint-ignore no-explicit-any
   supabase: any,
@@ -48,7 +133,7 @@ export async function syncHotelReservations(
 ): Promise<SyncResult> {
   const { data: source } = await supabase
     .from("restaurant_webhook_sources")
-    .select("property_slug, hotel_id")
+    .select("property_slug, hotel_id, secret_name")
     .eq("hotel_id", hotelId)
     .eq("is_active", true)
     .maybeSingle();
@@ -57,32 +142,28 @@ export async function syncHotelReservations(
     return { synced: 0, skipped: 0, property: null, error: "Hotel is not mapped to a Sales Dashboard property" };
   }
 
-  const cfg = dashboardConfig();
-  if (!cfg) {
-    return { synced: 0, skipped: 0, property: source.property_slug, error: "Sales Dashboard credentials are not configured" };
+  // Keep the existing direct Supabase read as the fast path. If that credential
+  // is stale/rotated (the current production failure is a 401), use the signed
+  // Sales Dashboard application endpoint instead of falsely reporting zero.
+  const direct = await readDirectDashboard(source.property_slug, serviceDate);
+  let rows = direct.rows;
+  let signedError: string | undefined;
+
+  if (!rows) {
+    const signed = await readSignedDashboard(source.property_slug, serviceDate, source.secret_name);
+    rows = signed.rows;
+    signedError = signed.error;
   }
 
-  const { start, end } = budapestDayRange(serviceDate);
-  const params = new URLSearchParams({
-    select:
-      "id,guest_name,guest_email,guest_phone,party_size,starts_at,ends_at,status,occasion,special_requests,notes,source_project,source_reservation_id,updated_at,outlets(slug),properties!inner(slug)",
-    "properties.slug": `eq.${source.property_slug}`,
-    starts_at: `gte.${start.toISOString()}`,
-    order: "starts_at.asc",
-    limit: "500",
-  });
-  params.append("starts_at", `lt.${end.toISOString()}`);
-
-  const res = await fetch(`${cfg.url}/rest/v1/reservations?${params.toString()}`, {
-    headers: dashboardHeaders(cfg.key, { Accept: "application/json" }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    console.error(`Sales Dashboard read failed [${res.status}]: ${body.slice(0, 400)}`);
-    return { synced: 0, skipped: 0, property: source.property_slug, error: `Dashboard responded ${res.status}` };
+  if (!rows) {
+    return {
+      synced: 0,
+      skipped: 0,
+      property: source.property_slug,
+      error: [direct.error, signedError].filter(Boolean).join("; ") || "Sales Dashboard reservation read failed",
+    };
   }
 
-  const rows = (await res.json()) as DashboardReservation[];
   const relevant = rows.filter((r) => isRestaurantOutlet(r.outlets?.slug));
 
   // Existing local rows, so a staff mark is never overwritten by a stale
