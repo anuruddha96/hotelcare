@@ -23,6 +23,7 @@ type MaintenanceTicket = {
   description: string | null;
   priority: 'urgent' | 'high' | 'medium' | 'low';
   status: string;
+  created_at: string;
   sla_due_date: string;
   assigned_to_profile?: { full_name?: string | null } | null;
 };
@@ -45,11 +46,21 @@ function normalizeEmailList(values: string[] | null | undefined): string[] {
   return [...new Set((values || []).map(v => String(v).trim().toLowerCase()).filter(v => /^\S+@\S+\.\S+$/.test(v)))];
 }
 
-function slaHours(setting: EscalationSetting, priority: MaintenanceTicket['priority']): number {
+function configuredSlaHours(setting: EscalationSetting, priority: MaintenanceTicket['priority']): number {
   if (priority === 'urgent') return setting.urgent_sla_hours;
   if (priority === 'high') return setting.high_sla_hours;
   if (priority === 'low') return setting.low_sla_hours;
   return setting.medium_sla_hours;
+}
+
+function originalSlaHours(ticket: MaintenanceTicket, setting: EscalationSetting): number {
+  const created = Date.parse(ticket.created_at);
+  const due = Date.parse(ticket.sla_due_date);
+  if (Number.isFinite(created) && Number.isFinite(due) && due > created) {
+    const hours = (due - created) / 3_600_000;
+    if (hours >= 1 && hours <= 720) return hours;
+  }
+  return configuredSlaHours(setting, ticket.priority);
 }
 
 function settingFor(
@@ -137,7 +148,7 @@ Deno.serve(async (req) => {
   let failed = 0;
   for (let offset = 0; ; offset += 500) {
     const { data, error } = await admin.from('tickets')
-      .select('id,ticket_number,organization_slug,hotel,room_number,title,description,priority,status,sla_due_date,assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name)')
+      .select('id,ticket_number,organization_slug,hotel,room_number,title,description,priority,status,created_at,sla_due_date,assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name)')
       .eq('department', 'maintenance')
       .neq('status', 'completed')
       .not('sla_due_date', 'is', null)
@@ -153,7 +164,9 @@ Deno.serve(async (req) => {
       if (!setting) continue;
       const l1At = new Date(ticket.sla_due_date);
       if (!Number.isFinite(l1At.getTime())) continue;
-      const spanHours = slaHours(setting, ticket.priority);
+      // L2 always uses the ticket's original SLA interval. Changing settings later
+      // therefore does not move the second escalation for already-open work.
+      const spanHours = originalSlaHours(ticket, setting);
       const l2At = new Date(l1At.getTime() + spanHours * 3_600_000);
       const candidates: Array<{ level: 1 | 2; at: Date; recipients: string[] }> = [
         { level: 1, at: l1At, recipients: normalizeEmailList(setting.l1_emails) },
