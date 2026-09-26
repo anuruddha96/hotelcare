@@ -35,7 +35,7 @@ describe('maintenance launch readiness wiring', () => {
 
   it('prevents stale maintenance resolution dialogs from overwriting completed work', () => {
     const source = read('MaintenanceResolutionDialog.tsx');
-    expect(source).toContain(".neq('status', 'resolved')");
+    expect(source).toContain(".in('status', [...RESOLVABLE_MAINTENANCE_STATUSES])");
     expect(source).toContain(".is('resolved_at', null)");
     expect(source).toContain(".select('id')");
     expect(source).toContain("if (!data?.length)");
