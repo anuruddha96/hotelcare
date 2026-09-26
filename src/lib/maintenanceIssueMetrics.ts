@@ -13,8 +13,22 @@ export type MaintenanceMetricRow = {
   completion_photos: string[] | null;
 };
 
+function percentile(values: number[], quantile: number): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  if (sorted.length === 1) return sorted[0];
+  const position = (sorted.length - 1) * quantile;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  if (lower === upper) return sorted[lower];
+  const weight = position - lower;
+  return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+}
+
 export function summarizeMaintenanceIssues(rows: MaintenanceMetricRow[], now = Date.now()) {
   const completed = rows.filter(t => t.status === 'completed');
+  // Work completion and manager approval are deliberately separate states. A
+  // completed repair can remain pending supervisor approval until it is reviewed.
   const awaitingApproval = rows.filter(t => t.pending_supervisor_approval === true);
   const approved = completed.filter(t => t.supervisor_approved === true && !t.pending_supervisor_approval);
   const elapsed = completed
@@ -36,8 +50,10 @@ export function summarizeMaintenanceIssues(rows: MaintenanceMetricRow[], now = D
     awaitingApproval: awaitingApproval.length,
     completed: completed.length,
     approved: approved.length,
-    overdue: rows.filter(t => t.status !== 'completed' && !!t.sla_due_date && Date.parse(t.sla_due_date) < now).length,
+    overdue: rows.filter(t => t.status !== 'completed' && !!t.sla_due_date && Number.isFinite(Date.parse(t.sla_due_date)) && Date.parse(t.sla_due_date) < now).length,
     averageHours: elapsed.length ? elapsed.reduce((sum, h) => sum + h, 0) / elapsed.length : null,
+    medianHours: percentile(elapsed, 0.5),
+    p90Hours: percentile(elapsed, 0.9),
     missingEvidence: rows.filter(t => !t.attachment_urls?.length && !t.completion_photos?.length).length,
     repeatedRooms: [...roomCounts.entries()].filter(([, n]) => n > 1).sort((a,b) => b[1]-a[1]),
   };

@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { resolveHotelKeys } from '@/lib/hotelKeys';
 import { type MaintenanceMetricRow, summarizeMaintenanceIssues } from '@/lib/maintenanceIssueMetrics';
+import { MaintenanceEscalationSettings } from './MaintenanceEscalationSettings';
 import { Download, RefreshCw } from 'lucide-react';
 
 type ReportRow = MaintenanceMetricRow & { ticket_number: string; title: string; priority: string; hotel: string; assigned_to: string | null };
@@ -12,9 +13,21 @@ type Period = '7' | '30' | '90';
 
 function csvCell(value: unknown): string {
   const raw = String(value ?? '');
-  // Spreadsheet programs may interpret external ticket text as formulas.
   const safe = /^[\s]*[=+@-]/.test(raw) ? `'${raw}` : raw;
   return `"${safe.replace(/"/g, '""')}"`;
+}
+
+function commonTitles(rows: ReportRow[]) {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const title = String(row.title || '').replace(/^room\s+[^:]+:\s*/i, '').replace(/\s+/g, ' ').trim();
+    if (!title) continue;
+    const key = title.toLocaleLowerCase();
+    const existing = [...counts.keys()].find(value => value.toLocaleLowerCase() === key);
+    const display = existing || title;
+    counts.set(display, (counts.get(display) || 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
 }
 
 export function MaintenanceIssueAnalytics() {
@@ -40,7 +53,6 @@ export function MaintenanceIssueAnalytics() {
       if (!hotels.length) throw new Error('The selected hotel could not be resolved.');
       const since = new Date(Date.now() - Number(period) * 86400000).toISOString();
       const dataRows: ReportRow[] = [];
-      // No .limit(300) undercount: paginate all records in this date cohort.
       for (let offset = 0; ; offset += 1000) {
         if (offset >= 20000) throw new Error('More than 20,000 issues found. Reporting requires a narrower date range.');
         const { data, error: queryError } = await (supabase as any).from('tickets')
@@ -60,6 +72,7 @@ export function MaintenanceIssueAnalytics() {
 
   useEffect(() => { void fetchReport(); }, [fetchReport, revision]);
   const metrics = useMemo(() => summarizeMaintenanceIssues(rows), [rows]);
+  const common = useMemo(() => commonTitles(rows), [rows]);
   const exportCsv = () => {
     if (!rows.length || error) return;
     const columns = ['ticket_number','hotel','room_number','title','priority','status','pending_supervisor_approval','supervisor_approved','on_hold','created_at','closed_at','sla_due_date','assigned_to'] as const;
@@ -69,12 +82,13 @@ export function MaintenanceIssueAnalytics() {
     anchor.href = url; anchor.download = `maintenance-issues-${period}d.csv`;
     anchor.click(); URL.revokeObjectURL(url);
   };
-  return <Card><CardContent className="space-y-3 p-3 sm:p-4">
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <div><h3 className="text-sm font-bold">Maintenance issues · Analytics & reporting</h3>
-        <p className="text-xs text-muted-foreground">Hotel-scoped; cohort by issue creation date. Work completed and supervisor approval are separate measures.</p>
+  return <Card><CardContent className="space-y-4 p-3 sm:p-4">
+    <div className="flex flex-wrap items-start justify-between gap-2">
+      <div><h3 className="text-sm font-bold">Maintenance analytics</h3>
+        <p className="text-xs text-muted-foreground">Hotel-scoped. Repair completion and supervisor approval remain separate measures.</p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        <MaintenanceEscalationSettings />
         <label className="text-xs" htmlFor="maintenance-report-period">Period</label>
         <select id="maintenance-report-period" className="rounded border bg-background p-1.5 text-sm" value={period} onChange={event => setPeriod(event.target.value as Period)}>
           <option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option>
@@ -88,7 +102,12 @@ export function MaintenanceIssueAnalytics() {
         {([['Created',metrics.total],['Open',metrics.open],['In progress',metrics.inProgress],['On hold',metrics.onHold],['Awaiting approval',metrics.awaitingApproval],['Work done',metrics.completed],['Supervisor approved',metrics.approved],['Overdue active',metrics.overdue]] as const).map(([label,number]) =>
           <div key={label} className="rounded-md border p-2"><div className="text-xs text-muted-foreground">{label}</div><div className="text-xl font-bold">{number}</div></div>)}
       </div>
-      <p className="text-xs text-muted-foreground">Average completed-issue time: {metrics.averageHours === null ? 'Not available' : `${metrics.averageHours.toFixed(1)} hours`} · No photo evidence: {metrics.missingEvidence} · Repeated rooms: {metrics.repeatedRooms.slice(0, 5).map(([room,count]) => `${room} (${count})`).join(', ') || 'None'}.</p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-md border p-3"><div className="text-xs text-muted-foreground">Median resolution</div><div className="text-lg font-semibold">{metrics.medianHours === null ? '—' : `${metrics.medianHours.toFixed(1)} h`}</div><div className="text-xs text-muted-foreground">Average {metrics.averageHours === null ? '—' : `${metrics.averageHours.toFixed(1)} h`} · P90 {metrics.p90Hours === null ? '—' : `${metrics.p90Hours.toFixed(1)} h`}</div></div>
+        <div className="rounded-md border p-3"><div className="mb-1 text-xs font-semibold">Rooms with repeated issues</div>{metrics.repeatedRooms.length ? metrics.repeatedRooms.slice(0, 5).map(([room,count]) => <div key={room} className="flex justify-between text-xs"><span>{room}</span><strong>{count}</strong></div>) : <p className="text-xs text-muted-foreground">No repeated rooms in this period.</p>}</div>
+        <div className="rounded-md border p-3"><div className="mb-1 text-xs font-semibold">Most common reports</div>{common.length ? common.map(([title,count]) => <div key={title} className="flex gap-2 text-xs"><span className="min-w-0 flex-1 truncate" title={title}>{title}</span><strong>{count}</strong></div>) : <p className="text-xs text-muted-foreground">No reports in this period.</p>}</div>
+      </div>
+      <p className="text-xs text-muted-foreground">Tickets without photo evidence: {metrics.missingEvidence}. Median and P90 are shown with the average so very old outliers do not hide the typical repair time.</p>
     </>}
   </CardContent></Card>;
 }
