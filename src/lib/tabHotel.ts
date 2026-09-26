@@ -1,20 +1,23 @@
 /**
- * Per-browser-tab property selection.
+ * Per-browser-tab property selection. This is presentation state only, never
+ * evidence of hotel authorization: every data read/write needs backend RLS.
  *
- * `profiles.assigned_hotel` is a single global value, so switching property in
- * one tab used to drag every other tab to the same property on its next load.
- * sessionStorage is scoped to one tab, so a manager can keep one window open
- * per property.
- *
- * The first profile load pins the account default into this tab. Later profile
- * refreshes cannot move an already-open tab when another window changes the
- * account default.
+ * The account default lives in profiles.assigned_hotel. Tab-specific choices
+ * allow an authorized manager to keep separate hotels open in separate tabs.
+ * Temporary staff duty is rehydrated ONLY after current_property_duty verifies
+ * the signed-in caller and an unexpired server-side grant.
  */
-
-const KEY_PREFIX = "hotelcare.tabHotel";
+const KEY_PREFIX = 'hotelcare.tabHotel';
+const LEGACY_MANAGER_ROLES = [
+  'admin', 'manager', 'housekeeping_manager', 'top_management', 'top_management_manager',
+];
 
 function keyFor(organizationSlug: string): string {
   return `${KEY_PREFIX}:${organizationSlug.trim().toLowerCase()}`;
+}
+
+function ownerKeyFor(organizationSlug: string): string {
+  return `${KEY_PREFIX}:owner:${organizationSlug.trim().toLowerCase()}`;
 }
 
 export function getTabHotel(organizationSlug: string): string | null {
@@ -35,11 +38,34 @@ export function setTabHotel(organizationSlug: string, hotelId: string | null): v
   }
 }
 
-/** Apply this tab's property choice to a freshly loaded profile row. */
-export function withTabHotel<T extends { assigned_hotel?: string | null; organization_slug?: string | null }>(profile: T): T {
-  if (!profile.organization_slug) return profile;
+/**
+ * Pin legacy manager selection to both organization and authenticated user.
+ * A staff member (especially a housekeeper) must never regain a different
+ * venue merely by editing sessionStorage or reusing a previous login's tab.
+ */
+export function withTabHotel<T extends {
+  id?: string; role?: string; assigned_hotel?: string | null; organization_slug?: string | null;
+}>(profile: T): T {
+  if (!profile.organization_slug || !profile.id) return profile;
+
+  try {
+    const ownerKey = ownerKeyFor(profile.organization_slug);
+    if (sessionStorage.getItem(ownerKey) !== profile.id) {
+      sessionStorage.removeItem(keyFor(profile.organization_slug));
+      sessionStorage.setItem(ownerKey, profile.id);
+    }
+  } catch {
+    return profile;
+  }
+
+  // Non-managers only change their visible hotel after an authenticated duty
+  // RPC succeeds; their cached tab selection is not an access token.
+  if (!profile.role || !LEGACY_MANAGER_ROLES.includes(profile.role)) {
+    return profile;
+  }
+
   let tabHotel = getTabHotel(profile.organization_slug);
-  if (!tabHotel && profile?.assigned_hotel) {
+  if (!tabHotel && profile.assigned_hotel) {
     setTabHotel(profile.organization_slug, profile.assigned_hotel);
     tabHotel = profile.assigned_hotel;
   }
