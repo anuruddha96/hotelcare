@@ -1,0 +1,105 @@
+@media (max-width: 640px) {
+  .hk-mobile-workspace {
+    --hk-mobile-gap: 0.625rem;
+  }
+
+  .hk-mobile-workspace [data-training="team-view"] {
+    gap: var(--hk-mobile-gap);
+  }
+
+  .hk-mobile-workspace [data-training="team-view"] > .flex.flex-col {
+    gap: 0.5rem;
+  }
+
+  .hk-mobile-workspace [data-training="team-view"] input[type="date"] {
+    min-height: 2.25rem;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8125rem;
+  }
+
+  .hk-mobile-workspace [data-training="team-view"] button {
+    min-height: 2.25rem;
+  }
+
+  .hk-mobile-workspace [data-training="team-view"] > .grid {
+    gap: 0.625rem;
+  }
+
+  /* A roster entry explicitly marked off and with no assigned work should not
+     consume a full empty housekeeper card on a phone. */
+  .hk-mobile-workspace [data-hk-not-working-today="true"] {
+    min-height: 0;
+    box-shadow: none;
+    background: hsl(var(--muted) / 0.22);
+  }
+
+  .hk-mobile-workspace [data-hk-not-working-today="true"] > .pb-3 {
+    padding: 0.65rem 0.75rem 0.35rem;
+  }
+
+  .hk-mobile-workspace [data-hk-not-working-today="true"] > .pb-3 .mt-1,
+  .hk-mobile-workspace [data-hk-not-working-today="true"] > .pb-3 .mt-2,
+  .hk-mobile-workspace [data-hk-not-working-today="true"] > .p-6.pt-0 {
+    display: none;
+  }
+
+  .hk-mobile-workspace [data-hk-not-working-today="true"] > .pb-3 h3 {
+    font-size: 0.9rem;
+    line-height: 1.2rem;
+  }
+
+  .hk-mobile-workspace [data-hk-not-working-today="true"]::after {
+    content: "Not working today";
+    display: block;
+    padding: 0 0.75rem 0.65rem;
+    font-size: 0.72rem;
+    line-height: 1rem;
+    color: hsl(var(--muted-foreground));
+  }
+
+  /* Keep navigation compact instead of stacking tall tab controls. */
+  .hk-mobile-workspace [role="tablist"] {
+    min-height: 2.4rem;
+  }
+
+  .hk-mobile-workspace [role="tab"] {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    font-size: 0.72rem;
+  }
+
+  /* Approval details must look actionable on mobile; the old text-only link was
+     easy to miss. */
+  .hk-mobile-workspace button[aria-controls^="approval-details-"] {
+    width: 100%;
+    min-height: 2.5rem;
+    justify-content: center;
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.5rem;
+    background: hsl(var(--muted) / 0.45);
+    color: hsl(var(--foreground));
+    font-weight: 600;
+    font-size: 0.78rem;
+  }
+
+  .hk-mobile-workspace button[aria-controls^="approval-details-"]:active {
+    background: hsl(var(--muted));
+  }
+
+  .hk-mobile-workspace [id^="approval-details-"] {
+    margin-top: 0.5rem;
+    padding-left: 0.5rem;
+  }
+
+  .hk-mobile-workspace .approval-review-context > div {
+    padding: 0.55rem;
+  }
+
+  .hk-mobile-workspace .approval-review-context .flex.flex-wrap {
+    gap: 0.25rem;
+  }
+
+  .hk-mobile-workspace .approval-review-context [class*="text-[10px]"] {
+    line-height: 1rem;
+  }
+}

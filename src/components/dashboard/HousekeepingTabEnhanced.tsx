@@ -1,6 +1,8 @@
 import { useAuth } from '@/hooks/useAuth';
 import { HousekeepingTab as ExistingHousekeepingTab } from './HousekeepingTabLegacy';
 import { HousekeepingRoomSettings } from './HousekeepingRoomSettings';
+import { HousekeepingMobilePolish } from './HousekeepingMobilePolish';
+import '@/styles/housekeeping-mobile.css';
 
 interface Props {
   onActiveSubTabChange?: (tab: string) => void;
@@ -31,7 +33,8 @@ export function HousekeepingTabEnhanced(props: Props = {}) {
   }
 
   return (
-    <div key={`${profile.organization_slug}:${activeHotel}`} className="space-y-3">
+    <div key={`${profile.organization_slug}:${activeHotel}`} className="space-y-3 hk-mobile-workspace">
+      <HousekeepingMobilePolish />
       <HousekeepingRoomSettings />
       <ExistingHousekeepingTab {...props} />
     </div>
