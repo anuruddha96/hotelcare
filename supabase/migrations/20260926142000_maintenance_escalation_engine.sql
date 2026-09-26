@@ -130,3 +130,48 @@ drop trigger if exists maintenance_escalation_events_touch on public.maintenance
 create trigger maintenance_escalation_events_touch
 before update on public.maintenance_escalation_events
 for each row execute function public.touch_maintenance_escalation_updated_at();
+
+-- Atomic claim: the unique ticket/level key guarantees one sender. Failed claims
+-- can retry after five minutes; abandoned claims can be reclaimed after 15 minutes.
+create or replace function public.claim_maintenance_escalation_event(
+  p_ticket_id uuid,
+  p_organization_slug text,
+  p_hotel text,
+  p_escalation_level smallint,
+  p_threshold_at timestamptz,
+  p_recipient_emails text[]
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+begin
+  insert into public.maintenance_escalation_events (
+    ticket_id, organization_slug, hotel, escalation_level, threshold_at,
+    recipient_emails, status, attempt_count, error_message
+  ) values (
+    p_ticket_id, p_organization_slug, p_hotel, p_escalation_level, p_threshold_at,
+    p_recipient_emails, 'claimed', 1, null
+  )
+  on conflict (ticket_id, escalation_level) do update
+    set status = 'claimed',
+        threshold_at = excluded.threshold_at,
+        recipient_emails = excluded.recipient_emails,
+        attempt_count = public.maintenance_escalation_events.attempt_count + 1,
+        error_message = null,
+        updated_at = now()
+    where public.maintenance_escalation_events.attempt_count < 5
+      and (
+        (public.maintenance_escalation_events.status = 'failed' and public.maintenance_escalation_events.updated_at < now() - interval '5 minutes')
+        or (public.maintenance_escalation_events.status = 'claimed' and public.maintenance_escalation_events.updated_at < now() - interval '15 minutes')
+      )
+  returning id into v_id;
+  return v_id;
+end;
+$$;
+
+revoke all on function public.claim_maintenance_escalation_event(uuid, text, text, smallint, timestamptz, text[]) from public, anon, authenticated;
+grant execute on function public.claim_maintenance_escalation_event(uuid, text, text, smallint, timestamptz, text[]) to service_role;
