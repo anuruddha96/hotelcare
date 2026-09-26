@@ -39,7 +39,7 @@ function validEmails(values: string[]): boolean {
 export function MaintenanceEscalationSettings() {
   const { profile } = useAuth();
   const allowed = !!profile && (
-    profile.role === 'top_management' || profile.role === 'top_management_manager' || profile.is_super_admin === true
+    profile.role === 'top_management' || profile.role === 'top_management_manager'
   );
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
