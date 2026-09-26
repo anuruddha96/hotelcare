@@ -127,8 +127,9 @@ Deno.serve(async (req) => {
   const customSecret = Deno.env.get('MAINTENANCE_ESCALATION_WORKER_SECRET') || '';
   const bearer = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
   const headerSecret = (req.headers.get('x-worker-secret') || '').trim();
-  const supplied = bearer || headerSecret;
-  if (!supplied || (supplied !== serviceRole && supplied !== customSecret)) return json({ error: 'Unauthorized' }, 401);
+  const bearerAuthorized = !!bearer && (bearer === serviceRole || (!!customSecret && bearer === customSecret));
+  const headerAuthorized = !!customSecret && headerSecret === customSecret;
+  if (!bearerAuthorized && !headerAuthorized) return json({ error: 'Unauthorized' }, 401);
 
   const url = Deno.env.get('SUPABASE_URL');
   if (!url || !serviceRole) return json({ error: 'Supabase worker environment is incomplete' }, 500);
