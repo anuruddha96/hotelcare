@@ -60,7 +60,7 @@ as $$
     from public.profiles p
     where p.id = auth.uid()
       and p.organization_slug = p_organization_slug
-      and (p.role in ('admin', 'top_management', 'top_management_manager') or coalesce(p.is_super_admin, false))
+      and (p.role in ('top_management', 'top_management_manager') or coalesce(p.is_super_admin, false))
       and (
         coalesce(p.is_super_admin, false)
         or p.assigned_hotel = p_hotel
@@ -107,9 +107,6 @@ create policy "Top management reads maintenance escalation audit"
   to authenticated
   using (public.can_manage_maintenance_escalation(organization_slug, hotel));
 
--- Service-role edge workers bypass RLS. No authenticated client policy may insert
--- or modify audit rows, preventing users from fabricating delivery records.
-
 create or replace function public.touch_maintenance_escalation_updated_at()
 returns trigger
 language plpgsql
@@ -130,6 +127,53 @@ drop trigger if exists maintenance_escalation_events_touch on public.maintenance
 create trigger maintenance_escalation_events_touch
 before update on public.maintenance_escalation_events
 for each row execute function public.touch_maintenance_escalation_updated_at();
+
+-- New maintenance tickets receive an SLA deadline centrally, so tickets created
+-- from Housekeeping, Reception or the main Maintenance module all behave identically.
+create or replace function public.apply_maintenance_sla_deadline()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_setting public.maintenance_escalation_settings%rowtype;
+  v_hours integer;
+begin
+  if new.department is distinct from 'maintenance' or new.sla_due_date is not null then
+    return new;
+  end if;
+
+  select s.* into v_setting
+  from public.maintenance_escalation_settings s
+  where s.organization_slug = new.organization_slug
+    and (
+      lower(s.hotel) = lower(new.hotel)
+      or exists (
+        select 1
+        from public.hotel_configurations hc
+        where (lower(hc.hotel_id) = lower(s.hotel) or lower(hc.hotel_name) = lower(s.hotel))
+          and (lower(hc.hotel_id) = lower(new.hotel) or lower(hc.hotel_name) = lower(new.hotel))
+      )
+    )
+  order by case when lower(s.hotel) = lower(new.hotel) then 0 else 1 end
+  limit 1;
+
+  v_hours := case new.priority
+    when 'urgent' then coalesce(v_setting.urgent_sla_hours, 4)
+    when 'high' then coalesce(v_setting.high_sla_hours, 12)
+    when 'low' then coalesce(v_setting.low_sla_hours, 48)
+    else coalesce(v_setting.medium_sla_hours, 24)
+  end;
+  new.sla_due_date := coalesce(new.created_at, now()) + make_interval(hours => v_hours);
+  return new;
+end;
+$$;
+
+drop trigger if exists maintenance_ticket_sla_deadline on public.tickets;
+create trigger maintenance_ticket_sla_deadline
+before insert on public.tickets
+for each row execute function public.apply_maintenance_sla_deadline();
 
 -- Atomic claim: the unique ticket/level key guarantees one sender. Failed claims
 -- can retry after five minutes; abandoned claims can be reclaimed after 15 minutes.
