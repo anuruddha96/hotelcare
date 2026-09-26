@@ -27,7 +27,9 @@ function percentile(values: number[], quantile: number): number | null {
 
 export function summarizeMaintenanceIssues(rows: MaintenanceMetricRow[], now = Date.now()) {
   const completed = rows.filter(t => t.status === 'completed');
-  const awaitingApproval = rows.filter(t => t.pending_supervisor_approval === true && t.status !== 'completed');
+  // Work completion and manager approval are deliberately separate states. A
+  // completed repair can remain pending supervisor approval until it is reviewed.
+  const awaitingApproval = rows.filter(t => t.pending_supervisor_approval === true);
   const approved = completed.filter(t => t.supervisor_approved === true && !t.pending_supervisor_approval);
   const elapsed = completed
     .filter(t => t.closed_at && Number.isFinite(Date.parse(t.closed_at)) && Number.isFinite(Date.parse(t.created_at)))
