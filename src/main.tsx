@@ -71,6 +71,22 @@ window.addEventListener("unhandledrejection", (event) => {
   recoverFromStaleChunk(reason instanceof Error ? reason.message : String(reason ?? ""));
 });
 
+// iOS/Safari can restore an already-open HotelCare tab from a frozen page or
+// back-forward cache without remounting React and without reliably emitting a
+// visibilitychange event. In that case the room board can briefly show the
+// checkout/daily state that existed before the app was backgrounded even though
+// Supabase has already reconciled the room. Reuse the existing housekeeping
+// refresh event so mounted live views immediately refetch authoritative rows on
+// every browser restore, focus return, or network reconnect.
+const notifyLiveViewsAfterResume = () => {
+  window.dispatchEvent(new CustomEvent("hk-assignments-changed", {
+    detail: { source: "app-resume" },
+  }));
+};
+window.addEventListener("pageshow", notifyLiveViewsAfterResume);
+window.addEventListener("focus", notifyLiveViewsAfterResume);
+window.addEventListener("online", notifyLiveViewsAfterResume);
+
 const recoveredDocument = new URL(window.location.href).searchParams.has(RECOVERY_PARAM);
 const loadApplication = recoveredDocument
   ? import("./recovered-entry.ts")
