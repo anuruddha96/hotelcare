@@ -2,13 +2,13 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
+import { useMaintenanceAutoTranslation } from '@/hooks/useMaintenanceAutoTranslation';
 import { canManageMaintenance, MaintenanceManagerControls } from './MaintenanceManagerControls';
 import { maintenanceLocation, maintenanceQueueBucket } from '@/lib/maintenanceQueue';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Calendar, User, MapPin, AlertCircle, PauseCircle } from 'lucide-react';
+import { Calendar, User, MapPin, AlertCircle, PauseCircle, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useTranslation } from '@/hooks/useTranslation';
-import { MaintenanceTicketTranslation } from './MaintenanceTicketTranslation';
 import { maintenanceHoldReasonLabel, maintenanceMissingHoldReasonLabel, maintenanceTicketStatusClass, maintenanceTicketStatusLabel, type MaintenanceTicketStatus } from '@/lib/maintenanceTicketStatus';
 
 interface Ticket {
@@ -43,6 +43,12 @@ export function TicketCard({ ticket, onClick, onUpdated }: TicketCardProps) {
   const { profile } = useAuth();
   const [showActions, setShowActions] = useState(false);
   const canManage = ticket.department === 'maintenance' && canManageMaintenance(profile?.role);
+  const translated = useMaintenanceAutoTranslation({
+    title: ticket.title,
+    description: ticket.description,
+    holdReason: ticket.hold_reason,
+    resolutionText: ticket.resolution_text,
+  }, language, ticket.department === 'maintenance');
   const bucket = maintenanceQueueBucket(ticket);
   const effectiveStatus: MaintenanceTicketStatus = bucket === 'hold' ? 'on_hold'
     : bucket === 'approval' ? 'pending_supervisor_approval' : ticket.status;
@@ -100,7 +106,7 @@ export function TicketCard({ ticket, onClick, onUpdated }: TicketCardProps) {
         if (event.target !== event.currentTarget) return;
         if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onClick(); }
       }}
-      aria-label={`${ticket.ticket_number}: ${ticket.title}`}
+      aria-label={`${ticket.ticket_number}: ${translated.title || ticket.title}`}
       data-training="ticket-card"
       data-training-priority={ticket.priority}
     >
@@ -108,7 +114,7 @@ export function TicketCard({ ticket, onClick, onUpdated }: TicketCardProps) {
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <h3 className="font-semibold text-sm text-foreground">{ticket.ticket_number}</h3>
-            <p className="text-sm font-medium text-foreground mt-1 whitespace-pre-wrap">{ticket.title}</p>
+            <p className="text-sm font-medium text-foreground mt-1 whitespace-pre-wrap">{translated.title || ticket.title}</p>
           </div>
           <div className="flex flex-col gap-1 shrink-0 items-end">
             <Badge className={getPriorityColor(ticket.priority)} variant="secondary">{getTranslatedPriority(ticket.priority)}</Badge>
@@ -118,14 +124,19 @@ export function TicketCard({ ticket, onClick, onUpdated }: TicketCardProps) {
         </div>
       </CardHeader>
       <CardContent className="pt-0 space-y-2">
-        <p className="text-sm text-muted-foreground line-clamp-2">{ticket.description}</p>
+        <p className="text-sm text-muted-foreground line-clamp-2">{translated.description || ticket.description}</p>
         {ticket.on_hold && ticket.status !== 'completed' && !ticket.pending_supervisor_approval && (
           <div className="flex items-start gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2 py-1.5 text-xs text-orange-900" role="note">
             <PauseCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span><strong>{maintenanceHoldReasonLabel(language)}</strong> {ticket.hold_reason?.trim() || maintenanceMissingHoldReasonLabel(language)}</span>
+            <span><strong>{maintenanceHoldReasonLabel(language)}</strong> {translated.holdReason?.trim() || ticket.hold_reason?.trim() || maintenanceMissingHoldReasonLabel(language)}</span>
           </div>
         )}
-        {ticket.department === 'maintenance' && <MaintenanceTicketTranslation ticketId={ticket.id} title={ticket.title} description={ticket.description} />}
+        {!!ticket.resolution_text?.trim() && (ticket.pending_supervisor_approval || ticket.status === 'completed') && (
+          <div className="flex items-start gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-xs text-emerald-900" role="note">
+            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span><strong>{language === 'hu' ? 'Javítás:' : 'Repair response:'}</strong> {translated.resolutionText || ticket.resolution_text}</span>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <div className="flex items-center gap-1"><MapPin className="h-3 w-3" />{maintenanceLocation(ticket.room_number, ticket.description, language)}</div>
           <div className="flex items-center gap-1"><Calendar className="h-3 w-3" />{format(new Date(ticket.created_at), 'MMM dd')}</div>
