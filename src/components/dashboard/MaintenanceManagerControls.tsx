@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
+import { useMaintenanceAutoTranslation } from '@/hooks/useMaintenanceAutoTranslation';
 import { toast } from 'sonner';
 import { CheckCircle2, Clock3, History, PauseCircle, Play, RotateCcw, XCircle } from 'lucide-react';
 
@@ -80,6 +81,11 @@ const words = {
     reopeningHint: 'A korábbi megoldás megmarad a tevékenységnaplóban.',
   },
 };
+
+function TranslatedHistoryContent({ content, language }: { content: string; language: string }) {
+  const translated = useMaintenanceAutoTranslation({ description: content }, language, true);
+  return <p className="whitespace-pre-wrap break-words text-sm">{translated.description || content}</p>;
+}
 
 export function MaintenanceManagerControls({ ticket, language, onUpdated }: Props) {
   const c = language === 'hu' ? words.hu : words.en;
@@ -207,7 +213,7 @@ export function MaintenanceManagerControls({ ticket, language, onUpdated }: Prop
             ? <p className="text-sm text-muted-foreground">{c.historyEmpty}</p>
             : history.map(entry => <div key={entry.id} className="space-y-1 rounded-md border p-3">
                 <Badge variant="outline">{new Date(entry.created_at).toLocaleString()}</Badge>
-                <p className="whitespace-pre-wrap break-words text-sm">{entry.content}</p>
+                <TranslatedHistoryContent content={entry.content} language={language} />
               </div>)}
         </DialogContent>
       </Dialog>
