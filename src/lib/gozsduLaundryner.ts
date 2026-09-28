@@ -9,7 +9,7 @@ export type LaundryRoom = {
   is_dnd: boolean | null;
   pms_metadata?: Record<string, any> | null;
 };
-export type LaundryBucket = 'checkout' | 'second_day' | 'other';
+export type LaundryBucket = 'checkout' | 'second_day' | 'arrival' | 'other';
 
 /**
  * Exact property gate and inventory safety filter: no cross-property room access.
@@ -47,7 +47,7 @@ export function getLaundryBucket(room: LaundryRoom): LaundryBucket {
 
 export function groupLaundryRooms(rooms: LaundryRoom[]) {
   const buckets: Record<LaundryBucket, LaundryRoom[]> = {
-    checkout: [], second_day: [], other: [],
+    checkout: [], second_day: [], arrival: [], other: [],
   };
   for (const room of rooms) {
     if (isEligibleLaundryRoom(room)) buckets[getLaundryBucket(room)].push(room);

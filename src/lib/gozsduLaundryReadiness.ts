@@ -156,12 +156,25 @@ export function laundryBucket(room: LaundryRoom, assignments: LaundryAssignment[
   return plannedLaundryService(room, assignments, date) === 'none' ? 'other' : 'second_day';
 }
 
-export function groupCurrentLaundryRooms(rooms: LaundryRoom[], assignments: LaundryAssignment[], date: string) {
-  const grouped: Record<LaundryBucket, LaundryRoom[]> = { checkout: [], second_day: [], other: [] };
+export function groupCurrentLaundryRooms(
+  rooms: LaundryRoom[], assignments: LaundryAssignment[], date: string,
+  managerBuckets?: Map<string, 'checkout' | 'service' | 'arrival' | 'other' | 'noshow'>,
+) {
+  const grouped: Record<LaundryBucket, LaundryRoom[]> = { checkout: [], second_day: [], arrival: [], other: [] };
   const byRoom = new Map<string, LaundryAssignment[]>();
   for (const row of assignments) byRoom.set(row.room_id, [...(byRoom.get(row.room_id) || []), row]);
   for (const room of rooms) if (isEligibleLaundryRoom(room)) {
-    grouped[laundryBucket(room, byRoom.get(room.id) || [], date)].push(room);
+    const managerBucket = managerBuckets?.get(room.id);
+    // When the manager's verified PMS roster is available, it is the single
+    // source of truth for both screens. Laundry never reclassifies a manager
+    // Other room as service, and confirmed no-shows remain hidden.
+    if (managerBucket === 'noshow') continue;
+    const bucket: LaundryBucket = managerBucket === 'service' ? 'second_day'
+      : managerBucket === 'arrival' ? 'arrival'
+        : managerBucket === 'checkout' ? 'checkout'
+          : managerBucket === 'other' ? 'other'
+            : laundryBucket(room, byRoom.get(room.id) || [], date);
+    grouped[bucket].push(room);
   }
   for (const group of Object.values(grouped)) group.sort((a, b) => {
     const aCleaning = activeCleaningHousekeeperIds(byRoom.get(a.id) || []).length > 0;

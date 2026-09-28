@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { isGozsduCourtHotel } from '@/lib/gozsdu-housekeeping';
+import { reconcileGozsduPmsRoster, type GozsduPmsRow } from '@/lib/gozsduPmsRoster';
 
 type Count = { room_id: string; linen_item_id: string; count: number };
 type Progress = { room_id: string; status: 'collected' | 'nothing_to_collect' | 'could_not_access'; reason: string | null };
@@ -27,10 +28,11 @@ const HOTELS = ['gozsdu-court', 'Gozsdu Court Budapest'];
 // the list and the pre-open/pre-save recheck must request them. Never rely on
 // clean status alone or silently strip the supervisor's existing PMS hold.
 const ASSIGNMENT_FIELDS = 'id,room_id,assigned_to,assignment_type,status,ready_to_clean,is_dnd,pms_hold,pms_hold_reason,pms_hold_event_id,supervisor_approved,notes,updated_at';
-const GROUPS: { key: LaundryBucket; title: 'checkout' | 'stayover' | 'other'; description: 'checkoutHint' | 'stayoverHint' | 'otherHint' }[] = [
-  { key: 'checkout', title: 'checkout', description: 'checkoutHint' },
-  { key: 'second_day', title: 'stayover', description: 'stayoverHint' },
-  { key: 'other', title: 'other', description: 'otherHint' },
+const GROUPS: { key: LaundryBucket; title: string; description: string }[] = [
+  { key: 'checkout', title: 'Checkout rooms', description: 'Prioritize after guest checkout and room release.' },
+  { key: 'second_day', title: 'Second-day service rooms', description: 'Same verified service rooms as the manager view. Confirm guest access before collecting.' },
+  { key: 'arrival', title: 'Awaiting arrival', description: 'Expected check-ins. Visible for orientation only; linen entry is disabled.' },
+  { key: 'other', title: 'Other rooms', description: 'Same verified other-room list as the manager view.' },
 ];
 
 /** Only mounted for Gozsdu laundry duties. Does not change PMS or cleaning status. */
@@ -48,6 +50,7 @@ export function GozsduLaundrynerTasksV2() {
   const [counts, setCounts] = useState<Count[]>([]);
   const [progress, setProgress] = useState<Progress[]>([]);
   const [buildingNames, setBuildingNames] = useState<Record<string, string>>({});
+  const [managerBuckets, setManagerBuckets] = useState<Map<string, 'checkout' | 'service' | 'arrival' | 'other' | 'noshow'>>(new Map());
   const [selectedRoom, setSelectedRoom] = useState<LaundryRoom | null>(null);
   const [draft, setDraft] = useState<Record<string, number>>({});
   const [reason, setReason] = useState('');
@@ -76,7 +79,7 @@ export function GozsduLaundrynerTasksV2() {
     if (!eligible || !user?.id || !profile?.organization_slug) return;
     if (!silent) setLoading(true);
     try {
-      const [roomResponse, catalogue, progressResponse, sectionsResponse] = await Promise.all([
+      const [roomResponse, catalogue, progressResponse, sectionsResponse, registryResponse, snapshotResponse] = await Promise.all([
         supabase.from('rooms').select('id,hotel,room_number,status,is_checkout_room,is_dnd,pms_metadata')
           .in('hotel', HOTELS).eq('organization_slug', profile.organization_slug),
         loadHotelLinenCatalogue(profile.assigned_hotel),
@@ -85,11 +88,35 @@ export function GozsduLaundrynerTasksV2() {
           .eq('work_date', workDate).eq('user_id', user.id),
         (supabase as any).from('hotel_housekeeping_sections').select('id,name')
           .eq('hotel_name', 'Gozsdu Court Budapest').eq('is_active', true),
+        (supabase as any).from('gozsdu_housekeeping_room_registry')
+          .select('room_id,pms_room_name,service_status,unavailability_reason'),
+        (supabase as any).from('daily_overview_snapshots')
+          .select('room_label,room_number,arrival_date,departure_date,status,housekeeping_dep,captured_at')
+          .eq('organization_slug', profile.organization_slug).eq('hotel_id', 'gozsdu-court')
+          .eq('business_date', workDate).eq('source', 'previo'),
       ]);
-      if (roomResponse.error || progressResponse.error || sectionsResponse.error) {
-        throw roomResponse.error || progressResponse.error || sectionsResponse.error;
+      if (roomResponse.error || progressResponse.error || sectionsResponse.error || registryResponse.error || snapshotResponse.error) {
+        throw roomResponse.error || progressResponse.error || sectionsResponse.error || registryResponse.error || snapshotResponse.error;
       }
-      const currentRooms = ((roomResponse.data || []) as LaundryRoom[]).filter(isEligibleLaundryRoom);
+      // Match the manager overview exactly: dedupe the two historical hotel
+      // aliases first, then reconcile the same registry + selected-day Previo
+      // snapshot. This prevents Laundryner from independently turning manager
+      // "Other" rooms into second-day service rooms.
+      const rawRooms = (roomResponse.data || []) as LaundryRoom[];
+      const deduped = new Map<string, LaundryRoom>();
+      for (const room of rawRooms) {
+        const existing = deduped.get(room.room_number);
+        if (!existing || (existing.hotel !== 'gozsdu-court' && room.hotel === 'gozsdu-court')) deduped.set(room.room_number, room);
+      }
+      const managerRooms = [...deduped.values()];
+      const managerIds = new Set(managerRooms.map(room => room.id));
+      const registry = (registryResponse.data || []).filter((row: any) => managerIds.has(row.room_id));
+      const roster = reconcileGozsduPmsRoster(managerRooms, registry, (snapshotResponse.data || []) as GozsduPmsRow[], workDate);
+      const nextManagerBuckets = new Map<string, 'checkout' | 'service' | 'arrival' | 'other' | 'noshow'>();
+      for (const [roomId, entry] of roster.byRoom) nextManagerBuckets.set(roomId, entry.bucket);
+      const operating = new Set(registry.filter((row: any) => row.service_status === 'operating').map((row: any) => row.room_id));
+      const currentRooms = managerRooms.filter(room => operating.has(room.id)
+        && nextManagerBuckets.get(room.id) !== 'noshow' && isEligibleLaundryRoom(room));
       const ids = currentRooms.map(room => room.id);
       let liveAssignments: LaundryAssignment[] = [];
       let savedCounts: Count[] = [];
@@ -123,6 +150,7 @@ export function GozsduLaundrynerTasksV2() {
         people = (staffResponse.data || []) as Staff[];
       }
       setRooms(currentRooms);
+      setManagerBuckets(nextManagerBuckets);
       setItems(catalogue);
       setCounts(savedCounts);
       setAssignments(liveAssignments);
@@ -166,7 +194,7 @@ export function GozsduLaundrynerTasksV2() {
     return () => { window.clearInterval(poll); document.removeEventListener('visibilitychange', onVisible); void supabase.removeChannel(channel); };
   }, [eligible, user?.id, workDate, load]);
 
-  const grouped = useMemo(() => groupCurrentLaundryRooms(rooms, assignments, workDate), [rooms, assignments, workDate]);
+  const grouped = useMemo(() => groupCurrentLaundryRooms(rooms, assignments, workDate, managerBuckets), [rooms, assignments, workDate, managerBuckets]);
   const assignmentMap = useMemo(() => {
     const map = new Map<string, LaundryAssignment[]>();
     for (const row of assignments) map.set(row.room_id, [...(map.get(row.room_id) || []), row]);
@@ -295,9 +323,9 @@ export function GozsduLaundrynerTasksV2() {
         <Card className={group.key === 'second_day' ? 'border-2 border-sky-300 dark:border-sky-700' : group.key === 'other' ? 'border-2 border-slate-300 dark:border-slate-600' : 'border-2 border-emerald-300 dark:border-emerald-700'}>
           <CardHeader className="pb-2">
             <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
-              <span>{copy[group.title]}</span><Badge variant="secondary">{groupRooms.length}</Badge>
+              <span>{group.title}</span><Badge variant="secondary">{groupRooms.length}</Badge>
             </CardTitle>
-            <p className="text-xs text-muted-foreground">{copy[group.description]}</p>
+            <p className="text-xs text-muted-foreground">{group.description}</p>
             {activeCount > 0 && <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400" aria-live="polite">{activeCount} {activeCopy.activeCount}</p>}
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
@@ -310,18 +338,18 @@ export function GozsduLaundrynerTasksV2() {
               const stateText = state?.status === 'collected' ? `${total} ${copy.collected}`
                 : state?.status === 'nothing_to_collect' ? copy.nothing
                   : state?.status === 'could_not_access' ? copy.noAccess : copy.notRecorded;
-              const locked = isCheckout(room) && access !== 'ready';
+              const locked = group.key === 'arrival' || (isCheckout(room) && access !== 'ready');
               return <button type="button" key={room.id} onClick={() => { void selectRoom(room); }}
                 disabled={loadFailed || loading || busy || !!checkingRoomId || items.length === 0 || locked}
                 className={`min-w-0 space-y-1 rounded-xl border p-3 text-left text-sm shadow-sm focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed ${locked ? 'border-amber-300 bg-amber-50 text-amber-950 dark:bg-amber-950/20 dark:text-amber-100' : activeNames ? 'border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 hover:border-primary' : 'bg-background hover:border-primary'} ${loadFailed ? 'opacity-60' : ''}`}
-                aria-label={`${copy.room} ${room.room_number}, ${accessLabel(access)}, ${serviceLabel(room, rows)}, ${activeNames ? `${activeCopy.cleaningNow}: ${activeNames}` : `${accessCopy.housekeeper}: ${housekeepers(rows)}`}, ${stateText}`}
-                aria-disabled={locked} title={locked ? accessCopy.cannotOpen : undefined}>
+                aria-label={`${copy.room} ${room.room_number}, ${group.key === 'arrival' ? 'Awaiting arrival' : accessLabel(access)}, ${serviceLabel(room, rows)}, ${activeNames ? `${activeCopy.cleaningNow}: ${activeNames}` : `${accessCopy.housekeeper}: ${housekeepers(rows)}`}, ${stateText}`}
+                aria-disabled={locked} title={group.key === 'arrival' ? 'Awaiting arrival — informational only' : locked ? accessCopy.cannotOpen : undefined}>
                 <span className="block text-base font-semibold">{room.room_number} {checkingRoomId === room.id && <Loader2 className="inline h-3 w-3 animate-spin" />}</span>
                 {buildingNames[room.id] && <span className="block truncate text-[11px] text-muted-foreground">{buildingNames[room.id]}</span>}
                 {activeNames && <span className="block rounded-md bg-emerald-100 px-1 py-1 text-xs font-bold text-emerald-950 dark:bg-emerald-900 dark:text-emerald-100"><UserRound className="mr-1 inline h-3 w-3" />{activeCopy.cleaningNow}: {activeNames}</span>}
                 <span className={`flex items-start gap-1 text-xs font-semibold ${access === 'ready' ? 'text-emerald-700 dark:text-emerald-400' : access === 'guest_permission' ? 'text-amber-700 dark:text-amber-300' : 'text-destructive'}`}>
                   {locked || access === 'dnd' ? <LockKeyhole className="mt-0.5 h-3 w-3 shrink-0" /> : <DoorOpen className="mt-0.5 h-3 w-3 shrink-0" />}
-                  <span>{accessLabel(access)}</span>
+                  <span>{group.key === 'arrival' ? 'Awaiting arrival' : accessLabel(access)}</span>
                 </span>
                 <span className="block text-xs">{serviceLabel(room, rows)}</span>
                 <span className="flex items-start gap-1 text-xs text-muted-foreground"><UserRound className="mt-0.5 h-3 w-3 shrink-0" /><span className="min-w-0 break-words">{accessCopy.housekeeper}: {housekeepers(rows)}</span></span>
