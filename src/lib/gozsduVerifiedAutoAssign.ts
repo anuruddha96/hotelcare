@@ -1,13 +1,16 @@
 import { supabase } from '@/integrations/supabase/client';
 import { GOZSDU_COURT_HOTEL_ID } from './gozsdu-housekeeping';
-import { reconcileGozsduPmsRoster, type GozsduPmsRow } from './gozsduPmsRoster';
+import {
+  isGozsduAwaitingArrival,
+  missingGozsduPmsRooms,
+  reconcileGozsduPmsRoster,
+  type GozsduPmsRow,
+} from './gozsduPmsRoster';
 import type { RoomForAssignment } from './roomAssignmentAlgorithmCore';
 
 type Registry = { room_id: string; pms_room_name: string; service_status: string };
 
-/** This is strictly an in-memory read-only projection. A full fresh 82-room
- * snapshot is mandatory; sparse 'actually checked out' polling must not set
- * today's scheduled departures or overwrite manager bed/size settings. */
+/** Strict, read-only projection used whenever the selected-day PMS coverage is complete. */
 export function projectVerifiedGozsduWorkload(
   rooms: RoomForAssignment[], registry: Registry[], snapshots: GozsduPmsRow[], selectedDate: string,
 ): RoomForAssignment[] {
@@ -40,6 +43,59 @@ export function projectVerifiedGozsduWorkload(
   });
 }
 
+function hasExactRegistryIdentity(rooms: RoomForAssignment[], registry: Registry[]): boolean {
+  if (!rooms.length || rooms.length !== registry.length) return false;
+  const localIds = new Set(rooms.map(room => room.id));
+  const registryIds = new Set(registry.map(entry => entry.room_id));
+  return localIds.size === rooms.length
+    && registryIds.size === registry.length
+    && registry.every(entry => localIds.has(entry.room_id))
+    && rooms.every(room => registryIds.has(room.id));
+}
+
+/**
+ * A single missing selected-day Previo row must not take the whole Gozsdu operation offline.
+ * We still fail closed for stale/duplicate/malformed data and registry mismatches. Only rooms
+ * whose PMS row is genuinely absent are quarantined from Auto Assign until Previo supplies them.
+ */
+export function projectVerifiedGozsduWorkloadWithMissingRoomFallback(
+  rooms: RoomForAssignment[], registry: Registry[], snapshots: GozsduPmsRow[], selectedDate: string,
+): RoomForAssignment[] {
+  try {
+    return projectVerifiedGozsduWorkload(rooms, registry, snapshots, selectedDate);
+  } catch (originalError) {
+    // Never let the fallback hide a local/registry configuration problem.
+    if (!hasExactRegistryIdentity(rooms, registry)) throw originalError;
+
+    const missingNames = new Set(missingGozsduPmsRooms(registry, snapshots));
+    if (!missingNames.size) throw originalError;
+
+    const roomById = new Map(rooms.map(room => [room.id, room]));
+    const quarantined = registry.filter(entry => {
+      if (!missingNames.has(entry.pms_room_name)) return false;
+      const room = roomById.get(entry.room_id);
+      // Explicit date-matched pending arrivals are already safely rehydrated by the strict reconciler.
+      return !!room && !isGozsduAwaitingArrival(room, selectedDate);
+    });
+    if (!quarantined.length) throw originalError;
+
+    const quarantinedIds = new Set(quarantined.map(entry => entry.room_id));
+    const verifiedRooms = rooms.filter(room => !quarantinedIds.has(room.id));
+    const verifiedRegistry = registry.filter(entry => !quarantinedIds.has(entry.room_id));
+
+    // Re-run the strict reconciliation on the remaining rooms. Any stale, duplicate,
+    // unmapped or malformed PMS data still throws and keeps Auto Assign fail-closed.
+    const projected = projectVerifiedGozsduWorkload(
+      verifiedRooms, verifiedRegistry, snapshots, selectedDate,
+    );
+
+    console.warn(
+      `[Gozsdu Auto Assign] Quarantined ${quarantined.length} room(s) missing from selected-day PMS: ${quarantined.map(entry => entry.pms_room_name).join(', ')}`,
+    );
+    return projected;
+  }
+}
+
 export async function fetchVerifiedGozsduAutoAssignRooms(
   rooms: RoomForAssignment[], organizationSlug: string, selectedDate: string,
 ): Promise<RoomForAssignment[]> {
@@ -56,7 +112,7 @@ export async function fetchVerifiedGozsduAutoAssignRooms(
   if (registryResult.error || snapshotResult.error) throw new Error(
     `Gozsdu Previo data could not be verified: ${registryResult.error?.message || snapshotResult.error?.message}`,
   );
-  return projectVerifiedGozsduWorkload(
+  return projectVerifiedGozsduWorkloadWithMissingRoomFallback(
     rooms, registryResult.data as Registry[], snapshotResult.data as GozsduPmsRow[], selectedDate,
   );
 }
