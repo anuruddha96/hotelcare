@@ -1,14 +1,15 @@
 // Safety net for pricing mistakes.
 //
 // Scans every published nightly rate in the booking horizon against the
-// hotel's own thresholds and emails admins + top management when a price
+// hotel's own thresholds and emails top-management users when a price
 // looks like a human error (2 EUR instead of 200, or a fat-fingered 9000).
 // Each (date × room type × occupancy × price) is only ever reported once.
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { mailClient } from "../_shared/emailSender.ts";
 
-const ALERT_ROLES = ["admin", "top_management", "top_management_manager"];
+const ALERT_ROLES = ["top_management", "top_management_manager"];
+const EXCLUDED_ALERT_EMAILS = new Set(["control@rdhotels.hu"]);
 const HORIZON_DAYS = 120;
 const SLNT_ADAPTIVE_MIN_SAMPLES = 30;
 const RATE_PAGE_SIZE = 1000;
@@ -307,12 +308,14 @@ Deno.serve(async (req) => {
           .in("role", ALERT_ROLES);
 
         const recipients = (people ?? [])
-          .filter((p: any) =>
-            p.email &&
-            (p.role === "admin" ||
-              p.assigned_hotel === h.hotel_id ||
-              (h.organization_slug && p.organization_slug === h.organization_slug)))
-          .map((p: any) => p.email as string);
+          .filter((p: any) => {
+            if (!p.email) return false;
+            const email = String(p.email).trim().toLowerCase();
+            if (EXCLUDED_ALERT_EMAILS.has(email)) return false;
+            return p.assigned_hotel === h.hotel_id ||
+              (h.organization_slug && p.organization_slug === h.organization_slug);
+          })
+          .map((p: any) => String(p.email).trim());
 
         const unique = Array.from(new Set(recipients));
         if (unique.length > 0) {
