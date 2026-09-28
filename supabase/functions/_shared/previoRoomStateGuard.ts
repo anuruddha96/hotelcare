@@ -201,7 +201,7 @@ export function installPrevioRoomStateGuard(): void {
 
       const keys = roomKeys(block);
       if (keys.length === 0) continue;
-      const explicitInHouse = status === 3 || status === 5;
+      const explicitInHouse = status === 3;
       mergeCurrentState(state, keys, explicitInHouse, guestKeys(block));
     }
 
@@ -209,7 +209,7 @@ export function installPrevioRoomStateGuard(): void {
     const filtered = text.replace(/<reservation>[\s\S]*?<\/reservation>/gi, (block) => {
       const departure = cleanDate(grab(block, "to"));
       const status = statusId(block);
-      if (departure !== today || (status !== 6 && status !== 9)) return block;
+      if (departure !== today || status !== 9) return block;
 
       const keys = roomKeys(block);
       if (keys.length === 0) return block;
