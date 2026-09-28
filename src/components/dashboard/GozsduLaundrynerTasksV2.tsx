@@ -99,9 +99,12 @@ export function GozsduLaundrynerTasksV2() {
       // snapshot is optional. A missing/denied snapshot must not zero the
       // Laundryner screen or block linen entry; the verified registry and
       // current room metadata remain usable while the next snapshot catches up.
-      if (roomResponse.error || progressResponse.error) {
-        throw roomResponse.error || progressResponse.error;
-      }
+      // Room inventory is the only read that is required to render the
+      // operational queue. Laundry progress is user-specific state and may be
+      // unavailable because of RLS/schema rollout; do not turn that into a
+      // total 0/0 outage.
+      if (roomResponse.error) throw roomResponse.error;
+      if (progressResponse.error) console.warn('[GozsduLaundryner] progress unavailable; rendering rooms without saved progress', progressResponse.error);
       // Building labels and the registry are enrichment sources. They must not
       // take the whole Laundryner screen offline if an RLS/schema/read issue
       // affects them. This mirrors the operational fail-safe: rooms remain
@@ -142,18 +145,19 @@ export function GozsduLaundrynerTasksV2() {
           supabase.from('dirty_linen_counts').select('room_id,linen_item_id,count')
             .eq('housekeeper_id', user.id).eq('work_date', workDate).in('room_id', ids),
         ]);
-        if (assignmentResponse.error || countResponse.error) throw assignmentResponse.error || countResponse.error;
-        liveAssignments = (assignmentResponse.data || []) as LaundryAssignment[];
-        savedCounts = (countResponse.data || []) as Count[];
+        if (assignmentResponse.error) console.warn('[GozsduLaundryner] assignments unavailable; rendering unassigned rooms', assignmentResponse.error);
+        if (countResponse.error) console.warn('[GozsduLaundryner] saved linen counts unavailable; rendering rooms without counts', countResponse.error);
+        liveAssignments = assignmentResponse.error ? [] : (assignmentResponse.data || []) as LaundryAssignment[];
+        savedCounts = countResponse.error ? [] : (countResponse.data || []) as Count[];
       }
       const names: Record<string, string> = {};
       const sectionIds = sectionsResponse.error ? [] : (sectionsResponse.data || []).map((section: any) => section.id);
       if (sectionIds.length) {
         const sectionResponse = await (supabase as any).from('hotel_housekeeping_section_rooms')
           .select('room_id,section_id').in('section_id', sectionIds);
-        if (sectionResponse.error) throw sectionResponse.error;
+        if (sectionResponse.error) console.warn('[GozsduLaundryner] room/section mappings unavailable', sectionResponse.error);
         const sections = new Map((sectionsResponse.data || []).map((section: any) => [section.id, section.name]));
-        for (const mapping of sectionResponse.data || []) names[mapping.room_id] = sections.get(mapping.section_id) as string || '';
+        if (!sectionResponse.error) for (const mapping of sectionResponse.data || []) names[mapping.room_id] = sections.get(mapping.section_id) as string || '';
       }
       const staffIds = [...new Set(activeLaundryAssignments(liveAssignments)
         .map(row => row.assigned_to).filter((id): id is string => !!id))];
@@ -161,8 +165,8 @@ export function GozsduLaundrynerTasksV2() {
       if (staffIds.length) {
         const staffResponse = await supabase.from('profiles').select('id,full_name,nickname')
           .eq('organization_slug', profile.organization_slug).in('assigned_hotel', HOTELS).in('id', staffIds);
-        if (staffResponse.error) throw staffResponse.error;
-        people = (staffResponse.data || []) as Staff[];
+        if (staffResponse.error) console.warn('[GozsduLaundryner] staff labels unavailable', staffResponse.error);
+        people = staffResponse.error ? [] : (staffResponse.data || []) as Staff[];
       }
       setRooms(currentRooms);
       setManagerBuckets(nextManagerBuckets);
@@ -170,7 +174,7 @@ export function GozsduLaundrynerTasksV2() {
       setCounts(savedCounts);
       setAssignments(liveAssignments);
       setStaff(people);
-      setProgress((progressResponse.data || []) as Progress[]);
+      setProgress(progressResponse.error ? [] : (progressResponse.data || []) as Progress[]);
       setBuildingNames(names);
       // An open dialog must never retain a stale green checkout after a PMS/assignment update.
       setSelectedRoom(previous => {
