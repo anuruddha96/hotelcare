@@ -28,6 +28,23 @@ describe('Gozsdu shared operational bucket authority', () => {
     expect(resolveGozsduOperationalBucket(value, undefined, '2026-09-28')).toBe('other');
   });
 
+  it('regresses the production 28-vs-12 drift: stale plans cannot inflate twelve real service rooms to twenty-eight', () => {
+    const realService = Array.from({ length: 12 }, (_, index) => {
+      const value = room(`service-${index + 1}`, 'gozsdu-court', index % 2 === 0 ? 3 : 5, 7);
+      value.pms_metadata.gozsduHousekeeping = { serviceDue: true, serviceType: 'towel_change' };
+      return value;
+    });
+    const staleFalsePositives = Array.from({ length: 16 }, (_, index) => {
+      const value = room(`other-${index + 1}`, 'gozsdu-court', index % 2 === 0 ? 2 : 4, 7);
+      value.pms_metadata.gozsduHousekeeping = { serviceDue: true, serviceType: 'towel_change' };
+      return value;
+    });
+    const all = [...realService, ...staleFalsePositives];
+    const buckets = all.map(value => resolveGozsduOperationalBucket(value, undefined, '2026-09-28'));
+    expect(buckets.filter(value => value === 'service')).toHaveLength(12);
+    expect(buckets.filter(value => value === 'other')).toHaveLength(16);
+  });
+
   it('always lets the verified manager roster override fallback metadata', () => {
     const value = room('verified', 'gozsdu-court', 3, 5);
     expect(resolveGozsduOperationalBucket(value, undefined, '2026-09-28', { bucket: 'other' })).toBe('other');

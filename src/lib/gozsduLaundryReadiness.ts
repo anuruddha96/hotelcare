@@ -1,6 +1,7 @@
 import { isEligibleLaundryRoom, type LaundryBucket, type LaundryRoom } from './gozsduLaundryner';
 import { getGozsduHousekeepingCycle } from './gozsdu-housekeeping';
 import { readGozsduRoomOverride } from './gozsduRoomBucketOverride';
+import { resolveGozsduOperationalBucket } from './gozsduOperationalBuckets';
 
 export type LaundryAssignment = {
   id: string;
@@ -99,44 +100,32 @@ export function laundryAccess(room: LaundryRoom, assignments: LaundryAssignment[
 }
 
 /**
- * Use one service decision for the Laundryner's label AND room list.
- * The manager's date-specific override wins, followed by the explicit
- * housekeeping snapshot. Previo sync does not always write a
- * gozsduHousekeeping snapshot: in that case calculate the SAME Gozsdu cycle
- * as the manager overview from the actual PMS night/total values.
- * Never infer second-day service from a generic daily assignment alone.
+ * Label helper only. Queue membership is decided by resolveGozsduOperationalBucket().
+ * If current PMS night counters are valid, they are authoritative because the
+ * persisted housekeeping plan can still contain the retired 2/4/6-night rule.
+ * The legacy plan is retained only as a display fallback when current PMS night
+ * counters are unavailable, so old integrations do not lose their service label.
  */
 function plannedLaundryService(room: LaundryRoom, assignments: LaundryAssignment[], date: string): 'none' | 'towel_change' | 'change_room' {
   const metadata = room.pms_metadata || {};
   const override = readGozsduRoomOverride(metadata, date);
   if (override) return override.bucket === 'service' ? override.service : 'none';
 
-  const plan = metadata.gozsduHousekeeping;
-  if (plan && (plan.serviceDue === false || plan.serviceType === 'none')) return 'none';
-  if (plan && plan.serviceDue !== false && ['towel_change', 'change_room'].includes(plan.serviceType)) {
-    return plan.serviceType;
-  }
-
-  // A plan is optional. Reuse the hotel's existing 3/N, 5/N, 7/N cycle rather
-  // than silently sending a real second-day service room to Other rooms.
-  // Both numbers must be valid; an unknown stay length is not proof of service.
   const currentNight = Number(metadata.currentNight);
   const totalNights = Number(metadata.totalNights);
   if (Number.isInteger(currentNight) && currentNight > 0
     && Number.isInteger(totalNights) && totalNights >= currentNight) {
-    const cycle = getGozsduHousekeepingCycle({ currentNight, totalNights, isCheckout: false });
-    if (cycle.serviceDue) return cycle.service;
+    return getGozsduHousekeepingCycle({ currentNight, totalNights, isCheckout: false }).service;
   }
 
-  // Preserve an explicitly flagged towel-only assignment if there was no
-  // current manager override or authoritative no-service plan.
-  if (activeLaundryAssignments(assignments).some(row => row.notes?.includes('[TOWEL_CHANGE_ONLY]'))) {
-    return 'towel_change';
+  const legacyPlan = metadata.gozsduHousekeeping;
+  if (legacyPlan?.serviceDue !== false && ['towel_change', 'change_room'].includes(legacyPlan?.serviceType)) {
+    return legacyPlan.serviceType;
   }
   return 'none';
 }
 
-/** Show the same actual service type used to place the room in its queue. */
+/** Show the service type without using the label helper to decide queue membership. */
 export function laundryService(room: LaundryRoom, assignments: LaundryAssignment[], date: string): LaundryService {
   if (isCheckout(room)) return 'full';
   const service = plannedLaundryService(room, assignments, date);
@@ -147,13 +136,16 @@ export function laundryService(room: LaundryRoom, assignments: LaundryAssignment
 }
 
 /**
- * Mirror the manager's explicit bucket and Gozsdu housekeeping cycle.
- * A generic daily assignment alone must never merge Other rooms into the
- * separate Second-day stayovers queue. Each room belongs to one queue.
+ * Degraded bucket classification is intentionally the manager-equivalent PMS
+ * fallback. Persisted housekeeping snapshots and towel notes are not accepted
+ * as proof of Second-day membership because they can contain the retired rule.
  */
 export function laundryBucket(room: LaundryRoom, assignments: LaundryAssignment[], date: string): LaundryBucket {
-  if (isCheckout(room)) return 'checkout';
-  return plannedLaundryService(room, assignments, date) === 'none' ? 'other' : 'second_day';
+  const assignment = assignments.find(row => row.status !== 'cancelled' && row.assignment_type !== 'maintenance');
+  const bucket = resolveGozsduOperationalBucket(room, assignment, date);
+  return bucket === 'service' ? 'second_day'
+    : bucket === 'arrival' ? 'arrival'
+      : bucket === 'checkout' ? 'checkout' : 'other';
 }
 
 export function groupCurrentLaundryRooms(
@@ -163,18 +155,20 @@ export function groupCurrentLaundryRooms(
   const grouped: Record<LaundryBucket, LaundryRoom[]> = { checkout: [], second_day: [], arrival: [], other: [] };
   const byRoom = new Map<string, LaundryAssignment[]>();
   for (const row of assignments) byRoom.set(row.room_id, [...(byRoom.get(row.room_id) || []), row]);
-  for (const room of rooms) if (isEligibleLaundryRoom(room)) {
+  for (const room of rooms) {
     const managerBucket = managerBuckets?.get(room.id);
-    // When the manager's verified PMS roster is available, it is the single
-    // source of truth for both screens. Laundry never reclassifies a manager
-    // Other room as service, and confirmed no-shows remain hidden.
-    if (managerBucket === 'noshow') continue;
-    const bucket: LaundryBucket = managerBucket === 'service' ? 'second_day'
-      : managerBucket === 'arrival' ? 'arrival'
-        : managerBucket === 'checkout' ? 'checkout'
-          : managerBucket === 'other' ? 'other'
-            : laundryBucket(room, byRoom.get(room.id) || [], date);
-    grouped[bucket].push(room);
+    if (managerBucket) {
+      // A manager-derived bucket is authoritative. Never run a second service
+      // classifier on top of it: that was the source of the 28-vs-12 drift.
+      if (managerBucket === 'noshow') continue;
+      const bucket: LaundryBucket = managerBucket === 'service' ? 'second_day'
+        : managerBucket === 'arrival' ? 'arrival'
+          : managerBucket === 'checkout' ? 'checkout' : 'other';
+      grouped[bucket].push(room);
+      continue;
+    }
+    if (!isEligibleLaundryRoom(room)) continue;
+    grouped[laundryBucket(room, byRoom.get(room.id) || [], date)].push(room);
   }
   for (const group of Object.values(grouped)) group.sort((a, b) => {
     const aCleaning = activeCleaningHousekeeperIds(byRoom.get(a.id) || []).length > 0;
