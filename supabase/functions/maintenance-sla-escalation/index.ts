@@ -25,7 +25,16 @@ type MaintenanceTicket = {
   status: string;
   created_at: string;
   sla_due_date: string;
+  assigned_to: string | null;
+  created_by: string | null;
+  forwarded_at: string | null;
+  assignment_method: string | null;
+  attachment_urls: string[] | null;
+  completion_photos: string[] | null;
+  hold_reason: string | null;
+  updated_at: string;
   assigned_to_profile?: { full_name?: string | null } | null;
+  created_by_profile?: { full_name?: string | null } | null;
 };
 
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
@@ -110,11 +119,50 @@ async function translateForEmail(text: string): Promise<string> {
   }
 }
 
-async function emailBody(ticket: MaintenanceTicket, level: 1 | 2, threshold: Date, hoursPast: number) {
+function formatBudapestDate(value: string | null): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Budapest', day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  }).format(date);
+}
+
+function storagePath(value: string): { bucket: string; path: string } | null {
+  if (!value) return null;
+  if (!value.startsWith('http')) return { bucket: 'ticket-attachments', path: value };
+  const match = value.match(/\/storage\/v1\/object\/(?:public|sign)\/([^/]+)\/(.+?)(?:\?|$)/);
+  return match ? { bucket: match[1], path: decodeURIComponent(match[2]) } : null;
+}
+
+async function evidenceLinks(admin: ReturnType<typeof createClient>, values: string[] | null): Promise<string[]> {
+  const unique = [...new Set((values || []).filter(Boolean))].slice(0, 12);
+  const links: string[] = [];
+  for (const value of unique) {
+    const parsed = storagePath(value);
+    if (!parsed) continue; // Never forward arbitrary external URLs in an escalation.
+    const { data, error } = await admin.storage.from(parsed.bucket).createSignedUrl(parsed.path, 7 * 24 * 60 * 60);
+    if (!error && data?.signedUrl) links.push(data.signedUrl);
+  }
+  return links;
+}
+
+async function emailBody(admin: ReturnType<typeof createClient>, ticket: MaintenanceTicket, level: 1 | 2, threshold: Date, hoursPast: number) {
   const url = ticketUrl(ticket);
   const room = ticket.room_number && ticket.room_number.toUpperCase() !== 'N/A' ? ticket.room_number : 'Common area';
   const assigned = ticket.assigned_to_profile?.full_name || 'Unassigned';
   const issue = await translateForEmail(ticket.title);
+  const reporter = ticket.created_by_profile?.full_name || 'Hotel team';
+  const reached = ticket.forwarded_at ? `Forwarded to maintenance ${formatBudapestDate(ticket.forwarded_at)}` : 'Entered the maintenance queue automatically';
+  const pending = ticket.assigned_to_profile?.full_name
+    ? `Pending with ${ticket.assigned_to_profile.full_name}`
+    : 'Pending in the maintenance queue — not yet assigned';
+  const originals = await evidenceLinks(admin, ticket.attachment_urls);
+  const repairs = await evidenceLinks(admin, ticket.completion_photos);
+  const evidence = [...originals.map((url, i) => ({ label: `Issue photo ${i + 1}`, url })), ...repairs.map((url, i) => ({ label: `Repair photo ${i + 1}`, url }))];
+  const evidenceText = evidence.length ? evidence.map(item => `${item.label}: ${item.url}`).join('\\n') : 'No attachments';
+  const evidenceHtml = evidence.length ? `<div style="margin-top:14px"><div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:7px">Attachments (${evidence.length})</div><div>${evidence.map(item => `<a href="${clean(item.url)}" style="display:inline-block;margin:0 6px 6px 0;padding:7px 9px;border:1px solid #cbd5e1;border-radius:7px;color:#0369a1;text-decoration:none;font-size:12px">${clean(item.label)}</a>`).join('')}</div></div>` : '';
   const hotel = ticket.hotel;
   const overdue = hoursPast < 48 ? `${Math.max(1, Math.round(hoursPast))}h overdue` : `${Math.max(2, Math.round(hoursPast / 24))} days overdue`;
   const reason = level === 1
@@ -129,6 +177,12 @@ async function emailBody(ticket: MaintenanceTicket, level: 1 | 2, threshold: Dat
     `Issue: ${issue}`,
     `Status: ${ticket.status} · ${assigned}`,
     `Priority: ${ticket.priority} · ${overdue}`,
+    `Reported by: ${reporter} · ${formatBudapestDate(ticket.created_at)}`,
+    `Route: ${reached}`,
+    `Now: ${pending}`,
+    ...(ticket.hold_reason ? [`Hold reason: ${ticket.hold_reason}`] : []),
+    `Last update: ${formatBudapestDate(ticket.updated_at)}`,
+    `Attachments: ${evidenceText}`,
     '',
     `Review ticket: ${url}`,
     `Reference: ${ticket.ticket_number}`,
@@ -147,6 +201,14 @@ async function emailBody(ticket: MaintenanceTicket, level: 1 | 2, threshold: Dat
             <div style="font-size:15px;font-weight:700;margin-bottom:10px">${clean(hotel)} · ${clean(room)}</div>
             <div style="font-size:15px;line-height:1.5;margin-bottom:10px"><strong>Issue:</strong> ${clean(issue)}</div>
             <div style="font-size:13px;color:#475569">${clean(ticket.status)} · ${clean(assigned)} · ${clean(ticket.priority)} priority · <strong style="color:#b91c1c">${clean(overdue)}</strong></div>
+            <div style="margin-top:14px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:12px;line-height:1.7;color:#475569">
+              <div><strong>Reported:</strong> ${clean(reporter)} · ${clean(formatBudapestDate(ticket.created_at))}</div>
+              <div><strong>Route:</strong> ${clean(reached)}</div>
+              <div><strong>Now:</strong> ${clean(pending)}</div>
+              ${ticket.hold_reason ? `<div><strong>On hold:</strong> ${clean(ticket.hold_reason)}</div>` : ''}
+              <div><strong>Last update:</strong> ${clean(formatBudapestDate(ticket.updated_at))}</div>
+            </div>
+            ${evidenceHtml}
           </div>
           <a href="${clean(url)}" style="display:inline-block;background:#16a9d5;color:#fff;text-decoration:none;padding:11px 16px;border-radius:8px;font-size:14px;font-weight:700">Review maintenance ticket</a>
           <p style="font-size:11px;color:#94a3b8;margin:18px 0 0">Reference: ${clean(ticket.ticket_number)} · Automatic HotelCare maintenance alert</p>
@@ -197,7 +259,7 @@ Deno.serve(async (req) => {
   let failed = 0;
   for (let offset = 0; ; offset += 500) {
     const { data, error } = await admin.from('tickets')
-      .select('id,ticket_number,organization_slug,hotel,room_number,title,description,priority,status,created_at,sla_due_date,assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name)')
+      .select('id,ticket_number,organization_slug,hotel,room_number,title,description,priority,status,created_at,updated_at,sla_due_date,assigned_to,created_by,forwarded_at,assignment_method,attachment_urls,completion_photos,hold_reason,assigned_to_profile:profiles!tickets_assigned_to_fkey(full_name),created_by_profile:profiles!tickets_created_by_fkey(full_name)')
       .eq('department', 'maintenance')
       .neq('status', 'completed')
       .not('sla_due_date', 'is', null)
@@ -239,7 +301,7 @@ Deno.serve(async (req) => {
         if (!claimId) continue;
         claimed++;
         const hoursPast = Math.max(0, (now.getTime() - candidate.at.getTime()) / 3_600_000);
-        const message = await emailBody(ticket, candidate.level, candidate.at, hoursPast);
+        const message = await emailBody(admin, ticket, candidate.level, candidate.at, hoursPast);
         const result = await sendEmail({
           admin: admin as never,
           organizationSlug: ticket.organization_slug,
