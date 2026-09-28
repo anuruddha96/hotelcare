@@ -74,21 +74,20 @@ const statusToken = (raw: unknown): string => {
   return String(raw ?? "").trim().toLowerCase().replace(/[\s_-]+/g, "");
 };
 const isCheckedOutStatus = (raw: unknown) => {
-  // Previo reservation states: 4=confirmed, 5=checked-in (in-house),
-  // 6=checked-out, 8=no-show. Only 6 (and legacy 9) means the guest has
-  // physically checked out. statusId=5 is guest STILL IN-HOUSE and must
-  // NOT be treated as checked out — that was the bug that flipped every
-  // scheduled-departure room to RTC prematurely.
+  // Previo commission/reservation states (official codebook):
+  // 3=checked in, 6=waiting list, 7=cancelled, 8=no-show, 9=checked out.
+  // Only 9 is authoritative physical-departure evidence. Never treat 6 as
+  // checkout: it is Waiting list and can incorrectly release an occupied room.
   const n = Number(raw);
-  if (Number.isFinite(n) && (n === 6 || n === 9)) return true;
+  if (Number.isFinite(n) && n === 9) return true;
   const t = statusToken(raw);
-  return ["6", "9", "checkedout", "checkedouttoday", "departed", "left", "leaved"].includes(t);
+  return ["9", "checkedout", "checkedouttoday", "departed", "left", "leaved"].includes(t);
 };
 const isExplicitlyInHouseStatus = (raw: unknown) => {
   const n = Number(raw);
-  if (Number.isFinite(n) && n === 5) return true;
+  if (Number.isFinite(n) && n === 3) return true;
   const t = statusToken(raw);
-  return ["5", "checkedin", "inhouse", "inhouseguest", "arrived", "occupied"].includes(t);
+  return ["3", "checkedin", "inhouse", "inhouseguest", "arrived", "occupied"].includes(t);
 };
 const reservationLooksCheckedOut = (res: any) => {
   if (!res || typeof res !== "object") return false;
