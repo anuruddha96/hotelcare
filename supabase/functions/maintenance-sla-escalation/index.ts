@@ -84,41 +84,77 @@ function ticketUrl(ticket: MaintenanceTicket): string {
   return `${base}/${encodeURIComponent(ticket.organization_slug)}?tab=tickets&maintenanceIssue=${encodeURIComponent(ticket.id)}`;
 }
 
-function emailBody(ticket: MaintenanceTicket, level: 1 | 2, threshold: Date, hoursPast: number) {
+async function translateForEmail(text: string): Promise<string> {
+  const value = String(text || '').trim();
+  if (!value) return value;
+  const apiKey = Deno.env.get('OPENAI_API_KEY');
+  if (!apiKey) return value;
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        temperature: 0,
+        messages: [
+          { role: 'system', content: 'Translate this hotel maintenance issue into concise, natural English. Return only the translation. Preserve room numbers, names, quantities, safety meaning and technical details. Do not add facts.' },
+          { role: 'user', content: value },
+        ],
+      }),
+    });
+    if (!response.ok) return value;
+    const data = await response.json();
+    return String(data?.choices?.[0]?.message?.content || value).trim() || value;
+  } catch {
+    return value;
+  }
+}
+
+async function emailBody(ticket: MaintenanceTicket, level: 1 | 2, threshold: Date, hoursPast: number) {
   const url = ticketUrl(ticket);
   const room = ticket.room_number && ticket.room_number.toUpperCase() !== 'N/A' ? ticket.room_number : 'Common area';
   const assigned = ticket.assigned_to_profile?.full_name || 'Unassigned';
-  const subject = `L${level} maintenance escalation · ${room} · ${ticket.ticket_number}`;
+  const issue = await translateForEmail(ticket.title);
+  const hotel = ticket.hotel;
+  const overdue = hoursPast < 48 ? `${Math.max(1, Math.round(hoursPast))}h overdue` : `${Math.max(2, Math.round(hoursPast / 24))} days overdue`;
+  const reason = level === 1
+    ? 'This maintenance issue passed its response deadline and still needs attention.'
+    : 'This maintenance issue is still unresolved after the first escalation and now needs top-management attention.';
+  const subject = `Action needed: Maintenance overdue · ${room} · ${hotel}`;
   const text = [
-    `Maintenance ticket ${ticket.ticket_number} has exceeded its escalation threshold.`,
-    `Hotel: ${ticket.hotel}`,
-    `Room/location: ${room}`,
-    `Issue: ${ticket.title}`,
-    `Priority: ${ticket.priority}`,
-    `Status: ${ticket.status}`,
-    `Assigned to: ${assigned}`,
-    `Threshold: ${threshold.toISOString()}`,
-    `Overdue: ${hoursPast.toFixed(1)} hours`,
-    `Open ticket: ${url}`,
-  ].join('\n');
+    'HotelCare — Maintenance issue needs attention',
+    reason,
+    '',
+    `${hotel} · ${room}`,
+    `Issue: ${issue}`,
+    `Status: ${ticket.status} · ${assigned}`,
+    `Priority: ${ticket.priority} · ${overdue}`,
+    '',
+    `Review ticket: ${url}`,
+    `Reference: ${ticket.ticket_number}`,
+  ].join('\\n');
   const html = `
-    <div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#111827">
-      <h2 style="margin-bottom:6px">L${level} maintenance escalation</h2>
-      <p style="margin-top:0;color:#6b7280">This active issue has exceeded its configured SLA escalation threshold.</p>
-      <table style="width:100%;border-collapse:collapse">
-        <tr><td style="padding:7px 0;color:#6b7280">Ticket</td><td><strong>${clean(ticket.ticket_number)}</strong></td></tr>
-        <tr><td style="padding:7px 0;color:#6b7280">Hotel</td><td>${clean(ticket.hotel)}</td></tr>
-        <tr><td style="padding:7px 0;color:#6b7280">Room / location</td><td>${clean(room)}</td></tr>
-        <tr><td style="padding:7px 0;color:#6b7280">Issue</td><td>${clean(ticket.title)}</td></tr>
-        <tr><td style="padding:7px 0;color:#6b7280">Priority</td><td>${clean(ticket.priority)}</td></tr>
-        <tr><td style="padding:7px 0;color:#6b7280">Status</td><td>${clean(ticket.status)}</td></tr>
-        <tr><td style="padding:7px 0;color:#6b7280">Assigned to</td><td>${clean(assigned)}</td></tr>
-        <tr><td style="padding:7px 0;color:#6b7280">Overdue</td><td><strong>${hoursPast.toFixed(1)} hours</strong></td></tr>
-      </table>
-      <p style="margin-top:22px"><a href="${clean(url)}" style="display:inline-block;background:#0ea5e9;color:#fff;text-decoration:none;padding:11px 18px;border-radius:7px;font-weight:600">Open maintenance ticket</a></p>
-      <p style="font-size:12px;color:#6b7280">HotelCare · automatic maintenance escalation</p>
+    <div style="background:#f6f9fc;padding:28px 12px;font-family:Arial,sans-serif;color:#0f172a">
+      <div style="max-width:560px;margin:auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden">
+        <div style="padding:18px 24px;border-bottom:1px solid #e2e8f0">
+          <div style="font-size:20px;font-weight:800;color:#0f172a"><span style="color:#16b9d4">✦</span> HotelCare</div>
+        </div>
+        <div style="padding:24px">
+          <div style="display:inline-block;background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:700;margin-bottom:12px">Action needed</div>
+          <h2 style="font-size:22px;line-height:1.25;margin:0 0 8px">Maintenance issue needs attention</h2>
+          <p style="margin:0 0 20px;color:#64748b;font-size:14px;line-height:1.5">${clean(reason)}</p>
+          <div style="background:#f8fafc;border-radius:12px;padding:16px;margin-bottom:18px">
+            <div style="font-size:15px;font-weight:700;margin-bottom:10px">${clean(hotel)} · ${clean(room)}</div>
+            <div style="font-size:15px;line-height:1.5;margin-bottom:10px"><strong>Issue:</strong> ${clean(issue)}</div>
+            <div style="font-size:13px;color:#475569">${clean(ticket.status)} · ${clean(assigned)} · ${clean(ticket.priority)} priority · <strong style="color:#b91c1c">${clean(overdue)}</strong></div>
+          </div>
+          <a href="${clean(url)}" style="display:inline-block;background:#16a9d5;color:#fff;text-decoration:none;padding:11px 16px;border-radius:8px;font-size:14px;font-weight:700">Review maintenance ticket</a>
+          <p style="font-size:11px;color:#94a3b8;margin:18px 0 0">Reference: ${clean(ticket.ticket_number)} · Automatic HotelCare maintenance alert</p>
+        </div>
+      </div>
     </div>`;
   return { subject, html, text };
+
 }
 
 Deno.serve(async (req) => {
@@ -203,7 +239,7 @@ Deno.serve(async (req) => {
         if (!claimId) continue;
         claimed++;
         const hoursPast = Math.max(0, (now.getTime() - candidate.at.getTime()) / 3_600_000);
-        const message = emailBody(ticket, candidate.level, candidate.at, hoursPast);
+        const message = await emailBody(ticket, candidate.level, candidate.at, hoursPast);
         const result = await sendEmail({
           admin: admin as never,
           organizationSlug: ticket.organization_slug,
