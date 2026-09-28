@@ -147,7 +147,6 @@ const getWorkClass = (assignment: AssignmentRow, selectedDate: string): WorkClas
   const checkout = isCheckoutAssignment(assignment, selectedDate);
   const room = assignment.rooms;
   const flags = parseRoomFlags(room?.notes || null);
-  const isMemories = isHotelMemoriesBudapest(room.hotel);
   const greenBoardRequest = isMemories && hasMemoriesGreenBoardRequest(assignment.notes);
 
   if (checkout && assignment.ready_to_clean) return { bucket: 1, shortLabel: '1 · CHECKOUT', tone: 'orange' };
@@ -231,6 +230,10 @@ function MemoriesManagerRoomCard({
   const room = assignment.rooms;
   if (!room) return null;
 
+  // Keep property-specific room rules local to each card. This value was
+  // previously referenced below without being defined, crashing the manager
+  // drilldown with "isMemories is not defined".
+  const isMemories = isHotelMemoriesBudapest(room.hotel);
   const workClass = getWorkClass(assignment, selectedDate);
   const checkout = isCheckoutAssignment(assignment, selectedDate);
   const flags = parseRoomFlags(room.notes || null);
