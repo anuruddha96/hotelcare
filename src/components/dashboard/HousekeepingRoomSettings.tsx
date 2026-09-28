@@ -123,7 +123,7 @@ export function HousekeepingRoomSettings() {
   if (!allowed) return null;
   return <section className="rounded-xl border bg-card p-3 space-y-3">
     <Button type="button" variant="outline" onClick={() => setOpen(value => !value)} aria-expanded={open} className="w-full sm:w-auto">
-      <Settings2 className="w-4 h-4 mr-2" /> Room sizes & cleaning times
+      <Settings2 className="w-4 h-4 mr-2" /> Room sizes, cleaning times & service rules
     </Button>
     {open && <div className="space-y-4">
       <p className="text-xs text-muted-foreground">Manager-only settings for one hotel. Confirm actual beds; guest capacity is not bed count. Existing jobs stay unchanged.{isGozsdu ? ' Gozsdu displays full verified Previo apartment names. Unavailable units remain visible for reference but never enter Auto Assign.' : ''}</p>
@@ -132,7 +132,7 @@ export function HousekeepingRoomSettings() {
         <SelectContent>{choices.map(h => <SelectItem key={h.id} value={h.id}>{h.hotel_name}</SelectItem>)}</SelectContent>
       </Select>}
       {loading ? <p role="status">Loading hotel mapping…</p> : selected ? <>
-        {selected.hotel_id === 'memories-budapest' && <MemoriesServiceCycleSettings hotelConfigurationId={selected.id} hotelId={selected.hotel_id} />}
+        <MemoriesServiceCycleSettings hotelConfigurationId={selected.id} hotelId={selected.hotel_id} hotelName={selected.hotel_name} />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">{cleaningTypes.map(([type, label]) => <div key={type} className="rounded-lg border p-3 space-y-2">
           <h3 className="font-semibold text-sm">{label} · minutes</h3>
           {HOUSEKEEPING_ROOM_SIZES.map(size => <TargetRow key={`${size}-${type}`} size={size} type={type}
