@@ -5,7 +5,10 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { isBudapestNineOrLater, tomorrowBudapest } from '@/lib/budapestTime';
-import { resolveHotelKeys } from '@/lib/hotelKeys';
+import {
+  clearCurrentDayCarryForwardDraft,
+  seedCurrentDayCarryForwardDraft,
+} from '@/lib/currentDayHousekeepingCarryForward';
 import {
   clearLiveSectionTaskSnapshot,
   setLiveSectionTaskSnapshot,
@@ -45,28 +48,6 @@ function isHotelMemoriesKey(value?: string | null) {
   return key === 'hotel memories budapest' || key === 'memories-budapest';
 }
 
-function getAutoAssignDraftKey(hotel: string | null | undefined, date: string) {
-  return hotel ? `auto_assignment_v2_${hotel}_${date}` : null;
-}
-
-function hasSavedDraft(key: string | null) {
-  if (!key || typeof window === 'undefined') return false;
-  try {
-    return window.localStorage.getItem(key) !== null;
-  } catch {
-    return false;
-  }
-}
-
-function removeSavedDraft(key: string | null) {
-  if (!key || typeof window === 'undefined') return;
-  try {
-    window.localStorage.removeItem(key);
-  } catch {
-    // Browser storage is best-effort only.
-  }
-}
-
 export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   const { profile } = useAuth();
   const isMemories = isHotelMemoriesKey(profile?.assigned_hotel);
@@ -75,7 +56,6 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
   const [memoriesView, setMemoriesView] = useState<MemoriesAutoAssignView>('housekeeper');
   const [preparedRealityKey, setPreparedRealityKey] = useState<string | null>(null);
 
-  const draftKey = getAutoAssignDraftKey(profile?.assigned_hotel, props.selectedDate);
   const realityKey = profile?.assigned_hotel
     ? `${profile.assigned_hotel}|${props.selectedDate}`
     : null;
@@ -87,9 +67,13 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
     : 'closed';
 
   /**
-   * Auto Assign has two very different live-day modes:
-   *  - before assignment, it is allowed to calculate a new room/public-area plan;
-   *  - after assignment, the persisted database rows are the source of truth.
+   * Auto Assign has three current-day states:
+   *  - no approved carry-forward plan: use the normal current-day calculation;
+   *  - yesterday's approved/releasing plan: preload it into the editable board,
+   *    reconciled against today's PMS room state;
+   *  - partially/already released live work: live room owners take precedence
+   *    inside that carried preview. Once the plan is fully released, live DB
+   *    assignments become the sole source of truth again.
    *
    * Tomorrow is deliberately excluded from live-day preparation. It always
    * travels through the protected next-day gate and selected-date PMS snapshot.
@@ -109,7 +93,8 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
     const prepareLiveReality = async () => {
       try {
         const assignedHotel = profile?.assigned_hotel;
-        if (!assignedHotel) return;
+        const organizationSlug = profile?.organization_slug;
+        if (!assignedHotel || !organizationSlug) return;
 
         const { data: hotelConfig, error: hotelConfigError } = await supabase
           .from('hotel_configurations')
@@ -119,51 +104,47 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
         if (hotelConfigError) throw hotelConfigError;
 
         const hotelName = hotelConfig?.hotel_name || assignedHotel;
-        const resolvedKeys = await resolveHotelKeys(hotelName);
-        const hotelKeys = resolvedKeys.length ? resolvedKeys : [hotelName];
 
-        const { data: roomRows, error: roomsError } = await supabase
-          .from('rooms')
-          .select('id')
-          .in('hotel', hotelKeys);
-        if (roomsError) throw roomsError;
-
-        const roomIds = (roomRows || []).map(room => room.id);
-        let hasLiveAssignments = false;
-        if (roomIds.length > 0) {
-          const { data: liveRows, error: assignmentsError } = await supabase
-            .from('room_assignments')
-            .select('id')
-            .eq('assignment_date', props.selectedDate)
-            .in('room_id', roomIds)
-            .in('status', ['assigned', 'in_progress', 'dnd_pending_retry'])
-            .limit(1);
-          if (assignmentsError) throw assignmentsError;
-          hasLiveAssignments = (liveRows || []).length > 0;
+        // Seed before the live editor mounts. The helper is room-by-room safe:
+        // current live ownership wins over yesterday's plan, completed/ineligible
+        // rooms are removed, and still-unreleased eligible plan rooms remain
+        // visible. It writes a preview only; Confirm still performs DB changes.
+        const carryForward = await seedCurrentDayCarryForwardDraft({
+          organizationSlug,
+          assignedHotel,
+          selectedDate: props.selectedDate,
+        });
+        const hasCurrentCarryForward = carryForward.seeded || carryForward.preservedExistingDraft;
+        if (!hasCurrentCarryForward) {
+          // This only removes a v3 draft when it carries our explicit marker, so
+          // an unrelated same-day manager draft is never destroyed here.
+          clearCurrentDayCarryForwardDraft({
+            organizationSlug,
+            assignedHotel,
+            selectedDate: props.selectedDate,
+          });
         }
 
-        if (hasLiveAssignments) {
-          if (draftKey && hasSavedDraft(draftKey)) removeSavedDraft(draftKey);
+        // Public-area live ownership is independent of room carry-forward and
+        // can already exist if part of the morning plan was released manually.
+        const { data: liveAreaRows, error: liveAreaError } = await (supabase as any)
+          .from('general_tasks')
+          .select('housekeeping_section_task_id, assigned_to')
+          .eq('hotel', hotelName)
+          .eq('assigned_date', props.selectedDate)
+          .not('housekeeping_section_task_id', 'is', null)
+          .not('assigned_to', 'is', null);
+        if (liveAreaError) throw liveAreaError;
 
-          const { data: liveAreaRows, error: liveAreaError } = await (supabase as any)
-            .from('general_tasks')
-            .select('housekeeping_section_task_id, assigned_to')
-            .eq('hotel', hotelName)
-            .eq('assigned_date', props.selectedDate)
-            .not('housekeeping_section_task_id', 'is', null)
-            .not('assigned_to', 'is', null);
-          if (liveAreaError) throw liveAreaError;
-
-          setLiveSectionTaskSnapshot((liveAreaRows || []).map((row: any) => ({
-            taskId: row.housekeeping_section_task_id as string,
-            assignedTo: row.assigned_to as string,
-          })));
-        } else {
-          clearLiveSectionTaskSnapshot();
-        }
+        setLiveSectionTaskSnapshot((liveAreaRows || []).map((row: any) => ({
+          taskId: row.housekeeping_section_task_id as string,
+          assignedTo: row.assigned_to as string,
+        })));
       } catch (error) {
         console.warn('[AutoRoomAssignment] Could not prepare live assignment reality.', error);
-        if (draftKey && hasSavedDraft(draftKey)) removeSavedDraft(draftKey);
+        // Do not destroy a manager's existing local preview on a transient read
+        // failure. The Auto Assign engine will still validate current data when
+        // opened/confirmed.
         clearLiveSectionTaskSnapshot();
       } finally {
         if (!cancelled) setPreparedRealityKey(realityKey);
@@ -174,7 +155,14 @@ export function AutoRoomAssignment(props: AutoRoomAssignmentProps) {
     return () => {
       cancelled = true;
     };
-  }, [draftKey, isTomorrowPlanner, profile?.assigned_hotel, props.open, props.selectedDate, realityKey]);
+  }, [
+    isTomorrowPlanner,
+    profile?.assigned_hotel,
+    profile?.organization_slug,
+    props.open,
+    props.selectedDate,
+    realityKey,
+  ]);
 
   useEffect(() => {
     if (!props.open || !isTomorrowPlanner || tomorrowPlanningAvailable) return;

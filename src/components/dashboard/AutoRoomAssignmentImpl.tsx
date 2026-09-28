@@ -835,9 +835,12 @@ export function AutoRoomAssignment({
     try {
       // Live Gozsdu PMS changes during the shift: never resurrect an older
       // local 48-room snapshot when today's authoritative workload is 35.
-      // Keep other hotels' existing draft restoration unchanged.
-      if (isGozsdu) localStorage.removeItem(saveKey);
-      const saved = isGozsdu ? null : localStorage.getItem(saveKey);
+      // A current-day draft explicitly tagged by yesterday's approved plan is
+      // the only exception; it was rebuilt against today's verified PMS data.
+      const carryForwardMarkerKey = `hk_carry_forward_v1_${profile?.organization_slug || 'unknown'}_${profile?.assigned_hotel || 'unknown'}_${selectedDate}`;
+      const hasTaggedCarryForwardDraft = isGozsdu && localStorage.getItem(carryForwardMarkerKey) !== null;
+      if (isGozsdu && !hasTaggedCarryForwardDraft) localStorage.removeItem(saveKey);
+      const saved = isGozsdu && !hasTaggedCarryForwardDraft ? null : localStorage.getItem(saveKey);
       if (saved) {
         const data: SavedState = JSON.parse(saved);
         if (Date.now() - data.savedAt < 12 * 60 * 60 * 1000 && data.previews?.length > 0) {
@@ -888,7 +891,9 @@ export function AutoRoomAssignment({
   }, [open, isGozsdu, laundryDutyCommitRevision, laundryDutyIds]);
 
   useEffect(() => {
-    if (!open || isGozsdu) return;
+    const carryForwardMarkerKey = `hk_carry_forward_v1_${profile?.organization_slug || 'unknown'}_${profile?.assigned_hotel || 'unknown'}_${selectedDate}`;
+    const hasTaggedCarryForwardDraft = isGozsdu && localStorage.getItem(carryForwardMarkerKey) !== null;
+    if (!open || (isGozsdu && !hasTaggedCarryForwardDraft)) return;
     if (selectedStaffIds.size === 0 && assignmentPreviews.length === 0) return;
     const data: SavedState = {
       staffIds: Array.from(selectedStaffIds),
