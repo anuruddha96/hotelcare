@@ -82,7 +82,10 @@ export function GozsduLaundrynerTasksV2() {
       const [roomResponse, catalogue, progressResponse, sectionsResponse, registryResponse, snapshotResponse] = await Promise.all([
         supabase.from('rooms').select('id,hotel,room_number,status,is_checkout_room,is_dnd,pms_metadata')
           .in('hotel', HOTELS).eq('organization_slug', profile.organization_slug),
-        loadHotelLinenCatalogue(profile.assigned_hotel),
+        loadHotelLinenCatalogue(profile.assigned_hotel).catch(error => {
+          console.warn('[GozsduLaundryner] linen catalogue unavailable; rendering rooms without entry controls', error);
+          return [] as LinenCatalogueItem[];
+        }),
         (supabase as any).from('gozsdu_laundry_room_progress').select('room_id,status,reason')
           .eq('organization_slug', profile.organization_slug).eq('hotel_id', 'gozsdu-court')
           .eq('work_date', workDate).eq('user_id', user.id),
@@ -95,29 +98,14 @@ export function GozsduLaundrynerTasksV2() {
           .eq('organization_slug', profile.organization_slug).eq('hotel_id', 'gozsdu-court')
           .eq('business_date', workDate).eq('source', 'previo'),
       ]);
-      // Keep the same fault-tolerance as the manager overview: the PMS
-      // snapshot is optional. A missing/denied snapshot must not zero the
-      // Laundryner screen or block linen entry; the verified registry and
-      // current room metadata remain usable while the next snapshot catches up.
       // Room inventory is the only read that is required to render the
-      // operational queue. Laundry progress is user-specific state and may be
-      // unavailable because of RLS/schema rollout; do not turn that into a
-      // total 0/0 outage.
+      // operational queue. All enrichment sources fail independently.
       if (roomResponse.error) throw roomResponse.error;
       if (progressResponse.error) console.warn('[GozsduLaundryner] progress unavailable; rendering rooms without saved progress', progressResponse.error);
-      // Building labels and the registry are enrichment sources. They must not
-      // take the whole Laundryner screen offline if an RLS/schema/read issue
-      // affects them. This mirrors the operational fail-safe: rooms remain
-      // visible from the Gozsdu room inventory while enrichment recovers.
       if (sectionsResponse.error) console.warn('[GozsduLaundryner] section labels unavailable', sectionsResponse.error);
       if (registryResponse.error) console.warn('[GozsduLaundryner] room registry unavailable; using Gozsdu inventory fallback', registryResponse.error);
-      if (snapshotResponse.error) {
-        console.warn('[GozsduLaundryner] PMS snapshot unavailable; using current room metadata fallback', snapshotResponse.error);
-      }
-      // Match the manager overview exactly: dedupe the two historical hotel
-      // aliases first, then reconcile the same registry + selected-day Previo
-      // snapshot. This prevents Laundryner from independently turning manager
-      // "Other" rooms into second-day service rooms.
+      if (snapshotResponse.error) console.warn('[GozsduLaundryner] PMS snapshot unavailable; using current room metadata fallback', snapshotResponse.error);
+
       const rawRooms = (roomResponse.data || []) as LaundryRoom[];
       const deduped = new Map<string, LaundryRoom>();
       for (const room of rawRooms) {
@@ -127,13 +115,26 @@ export function GozsduLaundrynerTasksV2() {
       const managerRooms = [...deduped.values()];
       const managerIds = new Set(managerRooms.map(room => room.id));
       const registry = registryResponse.error ? [] : (registryResponse.data || []).filter((row: any) => managerIds.has(row.room_id));
-      const roster = reconcileGozsduPmsRoster(managerRooms, registry,
-        snapshotResponse.error ? [] : (snapshotResponse.data || []) as GozsduPmsRow[], workDate);
       const nextManagerBuckets = new Map<string, 'checkout' | 'service' | 'arrival' | 'other' | 'noshow'>();
-      for (const [roomId, entry] of roster.byRoom) nextManagerBuckets.set(roomId, entry.bucket);
+      const registryComplete = !registryResponse.error && managerRooms.length > 0 && registry.length === managerRooms.length;
+      const snapshotUsable = !snapshotResponse.error && (snapshotResponse.data || []).length > 0;
+      if (registryComplete && snapshotUsable) {
+        try {
+          const roster = reconcileGozsduPmsRoster(managerRooms, registry, (snapshotResponse.data || []) as GozsduPmsRow[], workDate);
+          for (const [roomId, entry] of roster.byRoom) nextManagerBuckets.set(roomId, entry.bucket);
+        } catch (error) {
+          console.warn('[GozsduLaundryner] verified PMS roster could not be reconciled; using current room metadata fallback', error);
+        }
+      } else {
+        console.warn('[GozsduLaundryner] verified PMS roster incomplete; using current room metadata fallback', {
+          registryRooms: registry.length,
+          localRooms: managerRooms.length,
+          snapshotRows: (snapshotResponse.data || []).length,
+        });
+      }
       const operating = new Set(registry.filter((row: any) => row.service_status === 'operating').map((row: any) => row.room_id));
-      const hasRegistry = !registryResponse.error && registry.length > 0;
-      const currentRooms = managerRooms.filter(room => (!hasRegistry || operating.has(room.id))
+      const hasCompleteRegistry = registryComplete;
+      const currentRooms = managerRooms.filter(room => (!hasCompleteRegistry || operating.has(room.id))
         && nextManagerBuckets.get(room.id) !== 'noshow' && isEligibleLaundryRoom(room));
       const ids = currentRooms.map(room => room.id);
       let liveAssignments: LaundryAssignment[] = [];
@@ -338,7 +339,7 @@ export function GozsduLaundrynerTasksV2() {
     {GROUPS.map(group => {
       const groupRooms = grouped[group.key];
       const activeCount = groupRooms.filter(room => activeCleaningHousekeeperIds(assignmentMap.get(room.id) || []).length > 0).length;
-      return <section key={group.key} aria-label={copy[group.title]} data-testid={`gozsdu-laundry-group-${group.key}`}>
+      return <section key={group.key} aria-label={group.title} data-testid={`gozsdu-laundry-group-${group.key}`}>
         <Card className={group.key === 'second_day' ? 'border-2 border-sky-300 dark:border-sky-700' : group.key === 'other' ? 'border-2 border-slate-300 dark:border-slate-600' : 'border-2 border-emerald-300 dark:border-emerald-700'}>
           <CardHeader className="pb-2">
             <CardTitle className="flex flex-wrap items-center justify-between gap-2 text-base">
