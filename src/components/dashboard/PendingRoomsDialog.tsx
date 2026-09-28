@@ -9,7 +9,6 @@ import { Clock, MapPin, CheckCircle, AlertCircle, Calendar, Star, X, ArrowLeftRi
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { hasManagerPowers } from '@/lib/roleAccess';
-import { isHotelMemoriesBudapest } from '@/lib/hotel-memories-housekeeping';
 import { isPmsRtcToday } from '@/lib/pmsReadiness';
 import { HotelMemoriesManagerStatusDialog } from './HotelMemoriesManagerStatusDialog';
 
