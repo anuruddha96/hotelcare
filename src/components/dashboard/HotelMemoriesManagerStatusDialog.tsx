@@ -147,7 +147,8 @@ const getWorkClass = (assignment: AssignmentRow, selectedDate: string): WorkClas
   const checkout = isCheckoutAssignment(assignment, selectedDate);
   const room = assignment.rooms;
   const flags = parseRoomFlags(room?.notes || null);
-  const greenBoardRequest = hasMemoriesGreenBoardRequest(assignment.notes);
+  const isMemories = isHotelMemoriesBudapest(room.hotel);
+  const greenBoardRequest = isMemories && hasMemoriesGreenBoardRequest(assignment.notes);
 
   if (checkout && assignment.ready_to_clean) return { bucket: 1, shortLabel: '1 · CHECKOUT', tone: 'orange' };
   if (!checkout && room?.towel_change_required) return { bucket: 2, shortLabel: '2 · TOWEL', tone: 'blue' };
@@ -206,6 +207,7 @@ function MemoriesManagerRoomCard({
   canEdit,
   onPatch,
   onRemove,
+  orderIndex,
 }: {
   assignment: AssignmentRow;
   staffName: string;
@@ -213,6 +215,7 @@ function MemoriesManagerRoomCard({
   canEdit: boolean;
   onPatch: (assignmentId: string, patch: Record<string, any>, message: string) => Promise<void>;
   onRemove: (assignmentId: string, roomNumber: string) => Promise<void>;
+  orderIndex: number;
 }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
@@ -234,6 +237,7 @@ function MemoriesManagerRoomCard({
   const greenBoardRequest = hasMemoriesGreenBoardRequest(assignment.notes);
   const declined = isGuestDeclinedService(assignment.service_result, assignment.notes);
   const optionalDaily =
+    isMemories &&
     assignment.status === 'assigned' &&
     workClass.bucket === 4 &&
     !checkout &&
@@ -278,7 +282,7 @@ function MemoriesManagerRoomCard({
 
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <CardTitle className="text-lg">Room {room.room_number}</CardTitle>
+            <CardTitle className="text-lg"><span className="mr-2 text-primary">#{orderIndex}</span>Room {room.room_number}</CardTitle>
             <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
               <UserRound className="h-3 w-3" /> {staffName}
               {room.floor_number != null ? ` · Floor ${room.floor_number}` : ''}
@@ -436,7 +440,7 @@ export function HotelMemoriesManagerStatusDialog({
   const { profile } = useAuth();
   const [assignments, setAssignments] = useState<AssignmentRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const canSee = isHotelMemoriesBudapest(hotelName) && (hasManagerPowers(profile?.role) || profile?.role === 'supervisor');
+  const canSee = Boolean(hotelName) && (hasManagerPowers(profile?.role) || profile?.role === 'supervisor');
   const canEdit = hasManagerPowers(profile?.role);
 
   const fetchAssignments = useCallback(async () => {
@@ -447,9 +451,9 @@ export function HotelMemoriesManagerStatusDialog({
 
     setLoading(true);
     try {
-      // Select every assignment column so this remains compatible with hotels
-      // where optional outcome fields have not been migrated yet. The rich
-      // display itself is still hard-filtered to Hotel Memories room rows.
+      // Shared manager drilldown: use the same rich room-card UI for every
+      // property while keeping each property's persisted housekeeping data
+      // and service rules authoritative.
       const { data, error } = await (supabase as any)
         .from('room_assignments')
         .select(`
@@ -475,9 +479,11 @@ export function HotelMemoriesManagerStatusDialog({
 
       if (error) throw error;
 
+      const normalizeHotel = (value?: string | null) => String(value || '').trim().toLowerCase();
+      const requestedHotel = normalizeHotel(hotelName);
       const hotelRows = (data || [])
         .map((row: any) => ({ ...row, rooms: row.rooms || null }))
-        .filter((row: AssignmentRow) => isHotelMemoriesBudapest(row.rooms?.hotel)) as AssignmentRow[];
+        .filter((row: AssignmentRow) => normalizeHotel(row.rooms?.hotel) === requestedHotel) as AssignmentRow[];
       const currentByRoom = selectCurrentHousekeepingAssignments(hotelRows);
       const rows = hotelRows.filter(row => currentByRoom.get(row.room_id)?.id === row.id && row.status === status);
       setAssignments(rows);
@@ -487,7 +493,7 @@ export function HotelMemoriesManagerStatusDialog({
     } finally {
       setLoading(false);
     }
-  }, [canSee, open, selectedDate, staffId, status]);
+  }, [canSee, hotelName, open, selectedDate, staffId, status]);
 
   useEffect(() => {
     void fetchAssignments();
@@ -569,7 +575,7 @@ export function HotelMemoriesManagerStatusDialog({
             {STATUS_TITLES[status]} · {staffName}
           </DialogTitle>
           <p className="text-sm text-muted-foreground">
-            Hotel Memories Budapest · same room information and operational order shown to the housekeeper.
+            {hotelName} · same room information and operational order shown to the housekeeper.
           </p>
         </DialogHeader>
 
@@ -585,10 +591,10 @@ export function HotelMemoriesManagerStatusDialog({
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2">
               <p className="text-sm font-medium">{sortedAssignments.length} {sortedAssignments.length === 1 ? 'room' : 'rooms'}</p>
-              <Badge variant="outline">Hotel Memories only</Badge>
+              <Badge variant="outline">{hotelName}</Badge>
             </div>
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              {sortedAssignments.map((assignment) => (
+              {sortedAssignments.map((assignment, index) => (
                 <MemoriesManagerRoomCard
                   key={assignment.id}
                   assignment={assignment}
@@ -597,6 +603,7 @@ export function HotelMemoriesManagerStatusDialog({
                   canEdit={canEdit}
                   onPatch={patchAssignment}
                   onRemove={removeAssignment}
+                  orderIndex={index + 1}
                 />
               ))}
             </div>
