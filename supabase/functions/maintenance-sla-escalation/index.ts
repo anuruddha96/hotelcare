@@ -132,7 +132,7 @@ async function emailBody(ticket: MaintenanceTicket, level: 1 | 2, threshold: Dat
     '',
     `Review ticket: ${url}`,
     `Reference: ${ticket.ticket_number}`,
-  ].join('\\n');
+  ].join('\n');
   const html = `
     <div style="background:#f6f9fc;padding:28px 12px;font-family:Arial,sans-serif;color:#0f172a">
       <div style="max-width:560px;margin:auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden">
